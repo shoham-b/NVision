@@ -11,13 +11,82 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-test:
-    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
+  build-test-windows:
+    name: Test (windows-latest, py${{ matrix.python-version }})
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~\AppData\Local\uv\Cache
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+      - name: Install dependencies
+        run: |
+          uv sync --group dev
+      - name: Pre-commit
+        run: |
+          uv run pre-commit run --all-files --show-diff-on-failure
+      - name: Ruff format check
+        run: |
+          uv run ruff format --check
+      - name: Ruff lint
+        run: |
+          uv run ruff check --output-format=github
+      - name: Run tests with coverage
+        run: |
+          uv run pytest --junitxml=junit-windows-latest-py${{ matrix.python-version }}.xml
+      - name: Upload JUnit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-windows-latest-py${{ matrix.python-version }}
+          path: junit-windows-latest-py${{ matrix.python-version }}.xml
+          if-no-files-found: warn
+      - name: Upload coverage data file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-windows-latest-py${{ matrix.python-version }}
+          path: .coverage
+          if-no-files-found: warn
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-windows-latest-py${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: warn
+      - name: Upload HTML coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: htmlcov-windows-latest-py${{ matrix.python-version }}
+          path: htmlcov
+          if-no-files-found: warn
+
+  build-test-unix:
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    needs: build-test-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +152,7 @@ jobs:
   coverage-aggregate:
     name: Coverage Aggregate
     runs-on: ubuntu-latest
-    needs: build-test
+    needs: [build-test-windows, build-test-unix]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.x

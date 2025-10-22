@@ -63,7 +63,7 @@ Run simulations, analyze results, and visualize outcomes—all in a reproducible
 
 ### Basic Usage
 
-- **Run NV-center simulations**  
+- **Run NV-center simulations**
 ```
 
 python -m nvcenter --repeats 5 --seed 123 --loc-max-steps 150
@@ -73,7 +73,7 @@ python -m nvcenter --repeats 5 --seed 123 --loc-max-steps 150
 - Automatically produces CSV summaries and performance plots in `./artifacts`
 - Results are cached for efficient repeat runs
 
-- **Test code integrity** (optional)  
+- **Test code integrity** (optional)
 ```
 
 ruff format --check
@@ -82,7 +82,7 @@ pytest -q
 
 ```
 
-- **Fuzz Testing** (stress-test for robustness)  
+- **Fuzz Testing** (stress-test for robustness)
 ```
 
 python -m fuzz.run_fuzz
@@ -91,7 +91,7 @@ python -m fuzz.run_fuzz
 
 - **Inspect Results**
   - CSV files: scenario grids and measurement outcomes
-  - Plots:  
+  - Plots:
     - `experiment_summary_.png`: RMSE by noise/strategy
     - `locator_summary_single_.png`, `locator_summary_double_.png`: uncertainty/error for single/double peak contexts
 
@@ -120,7 +120,7 @@ Join research and development efforts or extend NVision for custom projects.
 ### Core Features
 
 - **Modern Python src/ layout** for modularity and clarity
-- **Comprehensive CI/CD**:  
+- **Comprehensive CI/CD**:
 - GitHub Actions check linting (Ruff), formatting, and tests (Pytest) across OSes and Python versions (3.12–3.14)
 - Automated Docker builds and smoke-tests for reliability
 - **Pre-commit hooks** for instant code quality
@@ -147,7 +147,7 @@ make docker-run
 
 ### Contribution
 
-Feedback, feature requests, and PRs are welcome!  
+Feedback, feature requests, and PRs are welcome!
 Please read code comments, follow style guides (Ruff/Prettier), and add tests for new modules.
 
 ---

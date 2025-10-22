@@ -3,10 +3,12 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import polars as pl
 
+if TYPE_CHECKING:
+    from .locators import ScanBatch
 
 @dataclass
 class DataBatch:
@@ -95,3 +97,9 @@ class CompositeNoise:
         for part in self._parts:
             out = part.apply(out, rng)
         return out
+
+
+class ScanGenerator(Protocol):
+    """Produces 1-D scan domains and ideal signal callable (for locators)."""
+
+    def generate(self, rng: random.Random) -> ScanBatch: ...

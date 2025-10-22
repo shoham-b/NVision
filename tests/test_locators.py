@@ -5,6 +5,7 @@ import polars as pl
 from nvision.sim import (
     CompositeNoise,
     DriftNoise,
+    GaussianManufacturer,
     GaussianNoise,
     GoldenSectionSearch,
     GridScan,
@@ -21,8 +22,14 @@ def test_locator_sweep_dataframe_shape():
     runner = LocatorRunner(rng_seed=rng_seed)
 
     generators = [
-        ("OnePeak", lambda rng: OnePeakGenerator().generate(rng)),
-        ("TwoPeak", lambda rng: TwoPeakGenerator().generate(rng)),
+        ("OnePeak", OnePeakGenerator(manufacturer=GaussianManufacturer())),
+        (
+            "TwoPeak",
+            TwoPeakGenerator(
+                manufacturer_left=GaussianManufacturer(),
+                manufacturer_right=GaussianManufacturer(),
+            ),
+        ),
     ]
     noises = [
         ("NoNoise", None),
@@ -47,7 +54,7 @@ def test_locator_sweep_dataframe_shape():
 def test_gridscan_converges_noiseless_single_peak_reasonable_error():
     rng_seed = 7
     runner = LocatorRunner(rng_seed=rng_seed)
-    gen = lambda rng: OnePeakGenerator().generate(rng)  # noqa: E731
+    gen = OnePeakGenerator(manufacturer=GaussianManufacturer())
     df = runner.sweep(
         generators=[("OnePeak", gen)],
         strategies=[("Grid21", GridScan(n_points=21))],
