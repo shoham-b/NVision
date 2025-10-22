@@ -121,7 +121,7 @@ Join research and development efforts or extend NVision for custom projects.
 
 - **Modern Python src/ layout** for modularity and clarity
 - **Comprehensive CI/CD**:  
-- GitHub Actions check linting (Ruff), formatting, and tests (Pytest) across OSes and Python versions (3.9–3.12)
+- GitHub Actions check linting (Ruff), formatting, and tests (Pytest) across OSes and Python versions (3.12–3.14)
 - Automated Docker builds and smoke-tests for reliability
 - **Pre-commit hooks** for instant code quality
 - **Makefile commands** for developer efficiency (POSIX make, or use commands directly):

@@ -18,6 +18,7 @@ class DataBatch:
         meta: metadata such as true parameters for evaluation
         df: Polars DataFrame with columns ["t", "intensity"] for vectorized operations
     """
+
     time_points: list[float]
     signal_values: list[float]
     meta: dict[str, float]
@@ -26,7 +27,9 @@ class DataBatch:
     def __post_init__(self) -> None:
         # Build a Polars DataFrame for downstream vectorized work while keeping
         # the original list-backed attributes for backward compatibility.
-        self.df = pl.DataFrame({"time_points": self.time_points, "signal_values": self.signal_values})
+        self.df = pl.DataFrame(
+            {"time_points": self.time_points, "signal_values": self.signal_values},
+        )
 
     def to_polars(self) -> pl.DataFrame:
         """Return the underlying Polars DataFrame (columns: time_points, signal_values)."""
@@ -34,29 +37,28 @@ class DataBatch:
 
     def with_y(self, new_y: list[float]) -> DataBatch:
         """Return a new DataBatch with the same time_points/meta and replaced signal_values, updating df accordingly."""
-        nb = DataBatch(time_points=list(self.time_points), signal_values=list(new_y), meta=dict(self.meta))
+        nb = DataBatch(
+            time_points=list(self.time_points), signal_values=list(new_y), meta=dict(self.meta),
+        )
         return nb
 
 
 class NoiseModel(Protocol):
     """Applies noise to a dataset and returns a new dataset (functional style)."""
 
-    def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
-        ...
+    def apply(self, data: DataBatch, rng: random.Random) -> DataBatch: ...
 
 
 class DataGenerator(Protocol):
     """Produces ideal (noise-free) signals and embeds ground-truth parameters in meta."""
 
-    def generate(self, rng: random.Random) -> DataBatch:
-        ...
+    def generate(self, rng: random.Random) -> DataBatch: ...
 
 
 class MeasurementStrategy(Protocol):
     """Consumes (noisy) data and returns estimated parameters."""
 
-    def estimate(self, data: DataBatch) -> dict[str, float]:
-        ...
+    def estimate(self, data: DataBatch) -> dict[str, float]: ...
 
 
 class CompositeNoise:

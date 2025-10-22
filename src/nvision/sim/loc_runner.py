@@ -22,13 +22,26 @@ def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, fl
         return {"abs_err_x": float(err)}
     x1h = est.get("x1_hat")
     x2h = est.get("x2_hat")
-    if x1h is None or x2h is None or not (isinstance(x1h, (int, float)) and isinstance(x2h, (int, float)) and math.isfinite(x1h) and math.isfinite(x2h)):
+    if (
+        x1h is None
+        or x2h is None
+        or not (
+            isinstance(x1h, (int, float))
+            and isinstance(x2h, (int, float))
+            and math.isfinite(x1h)
+            and math.isfinite(x2h)
+        )
+    ):
         return {"abs_err_x1": math.inf, "abs_err_x2": math.inf, "pair_rmse": math.inf}
     xs = sorted([float(x1h), float(x2h)])
     t = sorted(truth)
     err1 = abs(xs[0] - t[0])
     err2 = abs(xs[1] - t[1])
-    return {"abs_err_x1": err1, "abs_err_x2": err2, "pair_rmse": math.sqrt(0.5 * (err1 * err1 + err2 * err2))}
+    return {
+        "abs_err_x1": err1,
+        "abs_err_x2": err2,
+        "pair_rmse": math.sqrt(0.5 * (err1 * err1 + err2 * err2)),
+    }
 
 
 @dataclass
@@ -38,8 +51,16 @@ class LocatorRunner:
     def __post_init__(self) -> None:
         self._rng = random.Random(self.rng_seed)
 
-    def run_once(self, scan: ScanBatch, strategy: LocatorStrategy, noise: CompositeNoise | None, max_steps: int = 200) -> tuple[pl.DataFrame, dict[str, float]]:
-        proc = MeasurementProcess(scan=scan, meas=ScalarMeasure(noise=noise), strategy=strategy, max_steps=max_steps)
+    def run_once(
+        self,
+        scan: ScanBatch,
+        strategy: LocatorStrategy,
+        noise: CompositeNoise | None,
+        max_steps: int = 200,
+    ) -> tuple[pl.DataFrame, dict[str, float]]:
+        proc = MeasurementProcess(
+            scan=scan, meas=ScalarMeasure(noise=noise), strategy=strategy, max_steps=max_steps,
+        )
         return proc.run(self._rng)
 
     def sweep(
@@ -68,7 +89,11 @@ class LocatorRunner:
                             sum_metrics[k] = sum_metrics.get(k, 0.0) + float(v)
                         count += 1
                     avg = {k: v / max(1, count) for k, v in sum_metrics.items()}
-                    row: dict[str, float | str] = {"generator": gen_name, "noise": noise_name, "strategy": strat_name}
+                    row: dict[str, float | str] = {
+                        "generator": gen_name,
+                        "noise": noise_name,
+                        "strategy": strat_name,
+                    }
                     row.update(avg)
                     rows.append(row)
         if not rows:

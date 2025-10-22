@@ -73,6 +73,7 @@ class DataFrameCache:
 # Backward-compatible functional wrappers (deprecated)
 # ---------------------------------------------------------------------------
 
+
 def make_key(config: dict) -> str:
     """Deprecated functional wrapper around DataFrameCache.make_key."""
     return DataFrameCache.make_key(config)
