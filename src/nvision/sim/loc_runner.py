@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import polars as pl
 
-from .core import CompositeNoise
+from .core import CompositeNoise, ScanGenerator
 from .locators import LocatorStrategy, MeasurementProcess, ScalarMeasure, ScanBatch
 
 
@@ -68,7 +68,7 @@ class LocatorRunner:
 
     def sweep(
         self,
-        generators: Sequence[tuple[str, Callable[[random.Random], ScanBatch]]],
+        generators: Sequence[tuple[str, ScanGenerator]],
         strategies: Sequence[tuple[str, LocatorStrategy]],
         noises: Sequence[tuple[str, CompositeNoise | None]],
         repeats: int = 10,
@@ -81,7 +81,7 @@ class LocatorRunner:
                     sum_metrics: dict[str, float] = {}
                     count = 0
                     for _ in range(repeats):
-                        scan = gen(self._rng)
+                        scan = gen.generate(self._rng)
                         _, est = self.run_once(scan, strat, noise, max_steps)
                         metrics = _pairing_error(scan.truth_positions, est)
                         # Include standardized uncertainty fields when present

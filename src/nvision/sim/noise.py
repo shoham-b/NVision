@@ -26,7 +26,7 @@ class GaussianNoise:
             return data
         # Generate Gaussian noise vector in Python (fast) and apply via Polars ops
         noise_series = pl.Series([rng.gauss(0.0, self.sigma) for _ in range(n)], dtype=pl.Float64)
-        expr = (pl.col("signal_values") + pl.lit(noise_series))
+        expr = pl.col("signal_values") + pl.lit(noise_series)
         if self.clip_min is not None or self.clip_max is not None:
             expr = expr.clip(
                 self.clip_min if self.clip_min is not None else None,
@@ -77,8 +77,8 @@ class DriftNoise:
             return data
         start = -0.5 * self.drift_per_unit
         step = self.drift_per_unit / max(n - 1, 1)
-        idx = pl.arange(0, n, eager=True, dtype=pl.Float64)
-        drift = pl.lit(start) + idx * step
+        idx = pl.arange(0, n, eager=True)  # integer series
+        drift = pl.lit(start) + idx.cast(pl.Float64) * step
         df = data.df.with_columns(signal_values=pl.col("signal_values") + drift)
         return DataBatch.from_frame(df, meta=dict(data.meta))
 
@@ -98,7 +98,7 @@ class OutlierSpikes:
         mask = [rng.random() < self.probability for _ in range(n)]
         dirs = [(-1.0 if rng.random() < 0.5 else 1.0) for _ in range(n)]
         mags = [self.magnitude * (0.5 + rng.random()) for _ in range(n)]
-        spikes = [ (dirs[i] * mags[i]) if mask[i] else 0.0 for i in range(n) ]
+        spikes = [(dirs[i] * mags[i]) if mask[i] else 0.0 for i in range(n)]
         df = data.df.with_columns(
             signal_values=pl.col("signal_values") + pl.Series(spikes, dtype=pl.Float64),
         )
