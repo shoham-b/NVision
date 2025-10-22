@@ -31,6 +31,21 @@ class DataBatch:
             {"time_points": self.time_points, "signal_values": self.signal_values},
         )
 
+    @classmethod
+    def from_frame(cls, df: pl.DataFrame, meta: dict[str, float]) -> DataBatch:
+        """
+        Construct a DataBatch from a Polars DataFrame with columns
+        ["time_points", "signal_values"]. Lists are derived for
+        backward compatibility, but df is the source of truth for
+        vectorized downstream operations.
+        """
+        tb = df.get_column("time_points").to_list()
+        yb = df.get_column("signal_values").to_list()
+        inst = cls(time_points=tb, signal_values=yb, meta=meta)
+        # Ensure df reference matches input df (avoid re-materializing)
+        inst.df = df.select(["time_points", "signal_values"])  # keep only expected columns
+        return inst
+
     def to_polars(self) -> pl.DataFrame:
         """Return the underlying Polars DataFrame (columns: time_points, signal_values)."""
         return self.df
