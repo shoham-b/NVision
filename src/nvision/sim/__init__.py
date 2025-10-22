@@ -40,7 +40,7 @@ __all__ = [
     "DataBatch",
     "DataGenerator",
     "DriftNoise",
-    
+    "GaussianManufacturer",
     "GaussianNoise",
     "GoldenSectionSearch",
     "GridScan",
@@ -54,13 +54,11 @@ __all__ = [
     "OnePeakGenerator",
     "OutlierSpikes",
     "PoissonNoise",
-    
+    "RabiManufacturer",
     "ScalarMeasure",
     "ScanBatch",
     "SymmetricTwoPeakGenerator",
+    "T1DecayManufacturer",
     "TwoPeakGenerator",
     "TwoPeakGreedy",
-    "GaussianManufacturer",
-    "RabiManufacturer",
-    "T1DecayManufacturer",
 ]

@@ -7,10 +7,10 @@ import polars as pl
 
 from nvision.sim import (
     CompositeNoise,
+    GaussianManufacturer,
     GaussianNoise,
     LocatorRunner,
     TwoPeakGreedy,
-    GaussianManufacturer,
 )
 from nvision.sim.generators import SymmetricTwoPeakGenerator
 
