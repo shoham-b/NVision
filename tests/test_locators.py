@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-import random
-
 import polars as pl
 
-from nvcenter.sim import (
+from nvision.sim import (
     CompositeNoise,
-    GaussianNoise,
     DriftNoise,
-    OutlierSpikes,
-    GridScan,
+    GaussianNoise,
     GoldenSectionSearch,
-    TwoPeakGreedy,
+    GridScan,
     OnePeakGenerator,
+    OutlierSpikes,
     TwoPeakGenerator,
+    TwoPeakGreedy,
 )
-from nvcenter.sim.loc_runner import LocatorRunner
+from nvision.sim.loc_runner import LocatorRunner
 
 
 def test_locator_sweep_dataframe_shape():

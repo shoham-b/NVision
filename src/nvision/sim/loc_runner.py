@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Sequence, Tuple, Callable
 
 import polars as pl
 
 from .core import CompositeNoise
-from .locators import MeasurementProcess, ScanBatch, LocatorStrategy, ScalarMeasure
+from .locators import LocatorStrategy, MeasurementProcess, ScalarMeasure, ScanBatch
 
 
-def _pairing_error(truth: List[float], est: Mapping[str, float]) -> Dict[str, float]:
+def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, float]:
     if len(truth) == 1:
         xh = est.get("x1_hat", est.get("x_hat"))
         err = (
@@ -38,23 +38,23 @@ class LocatorRunner:
     def __post_init__(self) -> None:
         self._rng = random.Random(self.rng_seed)
 
-    def run_once(self, scan: ScanBatch, strategy: LocatorStrategy, noise: CompositeNoise | None, max_steps: int = 200) -> Tuple[pl.DataFrame, Dict[str, float]]:
+    def run_once(self, scan: ScanBatch, strategy: LocatorStrategy, noise: CompositeNoise | None, max_steps: int = 200) -> tuple[pl.DataFrame, dict[str, float]]:
         proc = MeasurementProcess(scan=scan, meas=ScalarMeasure(noise=noise), strategy=strategy, max_steps=max_steps)
         return proc.run(self._rng)
 
     def sweep(
         self,
-        generators: Sequence[Tuple[str, Callable[[random.Random], ScanBatch]]],
-        strategies: Sequence[Tuple[str, LocatorStrategy]],
-        noises: Sequence[Tuple[str, CompositeNoise | None]],
+        generators: Sequence[tuple[str, Callable[[random.Random], ScanBatch]]],
+        strategies: Sequence[tuple[str, LocatorStrategy]],
+        noises: Sequence[tuple[str, CompositeNoise | None]],
         repeats: int = 10,
         max_steps: int = 200,
     ) -> pl.DataFrame:
-        rows: List[Dict[str, float | str]] = []
+        rows: list[dict[str, float | str]] = []
         for gen_name, gen in generators:
             for noise_name, noise in noises:
                 for strat_name, strat in strategies:
-                    sum_metrics: Dict[str, float] = {}
+                    sum_metrics: dict[str, float] = {}
                     count = 0
                     for _ in range(repeats):
                         scan = gen(self._rng)
@@ -68,7 +68,7 @@ class LocatorRunner:
                             sum_metrics[k] = sum_metrics.get(k, 0.0) + float(v)
                         count += 1
                     avg = {k: v / max(1, count) for k, v in sum_metrics.items()}
-                    row: Dict[str, float | str] = {"generator": gen_name, "noise": noise_name, "strategy": strat_name}
+                    row: dict[str, float | str] = {"generator": gen_name, "noise": noise_name, "strategy": strat_name}
                     row.update(avg)
                     rows.append(row)
         if not rows:

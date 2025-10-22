@@ -1,40 +1,38 @@
 from __future__ import annotations
 
-import typer
 from pathlib import Path
-from typing import List, Tuple
 
 import polars as pl
+import typer
 
-from nvcenter.sim import (
+from nvision.cache import DataFrameCache
+from nvision.sim import (
     CompositeNoise,
     DriftNoise,
     ExperimentRunner,
     FluorescenceCount,
     GaussianNoise,
+    GoldenSectionSearch,
+    # Locator layer
+    GridScan,
+    OnePeakGenerator,
     OutlierSpikes,
     PoissonNoise,
     RabiEstimate,
     RabiGenerator,
     T1Estimate,
     T1Generator,
-    # Locator layer
-    GridScan,
-    GoldenSectionSearch,
-    TwoPeakGreedy,
-    OnePeakGenerator,
     TwoPeakGenerator,
+    TwoPeakGreedy,
 )
-from nvcenter.sim.loc_runner import LocatorRunner
-from nvcenter.cache import DataFrameCache
-from nvcenter.viz import plot_experiment_summary, plot_locator_summary
-
+from nvision.sim.loc_runner import LocatorRunner
+from nvision.viz import plot_experiment_summary, plot_locator_summary
 
 # -----------------------------
 # Scenario presets using existing components
 # -----------------------------
 
-def _noise_presets() -> List[Tuple[str, CompositeNoise | None]]:
+def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     return [
         ("NoNoise", None),
         ("Gauss(0.05)", CompositeNoise([GaussianNoise(0.05)])),
@@ -46,12 +44,12 @@ def _noise_presets() -> List[Tuple[str, CompositeNoise | None]]:
     ]
 
 
-def _exp_strategies() -> List:
+def _exp_strategies() -> list:
     # Include a small suite; RMSE will be computed on overlapping keys per generator
     return [FluorescenceCount(), RabiEstimate(), T1Estimate()]
 
 
-def _locator_strategies() -> List[Tuple[str, object]]:
+def _locator_strategies() -> list[tuple[str, object]]:
     return [
         ("Grid21", GridScan(n_points=21)),
         ("Golden20", GoldenSectionSearch(max_evals=20)),
@@ -86,10 +84,10 @@ def run_experiment_workflow(out_dir: Path, repeats: int, rng_seed: int | None) -
     else:
         # Execute sweeps per generator and annotate with Polars
         df_rabi = runner.sweep(RabiGenerator(), noises, strategies, repeats=repeats).with_columns(
-            pl.lit("Rabi").alias("generator")
+            pl.lit("Rabi").alias("generator"),
         )
         df_t1 = runner.sweep(T1Generator(), noises, strategies, repeats=repeats).with_columns(
-            pl.lit("T1").alias("generator")
+            pl.lit("T1").alias("generator"),
         )
         df_all = pl.concat([df_rabi, df_t1], how="diagonal_relaxed")
         cache.save_df(df_all, key)
@@ -100,12 +98,12 @@ def run_experiment_workflow(out_dir: Path, repeats: int, rng_seed: int | None) -
 
 
 def run_locator_workflow(
-    out_dir: Path, repeats: int, rng_seed: int | None, max_steps: int
+    out_dir: Path, repeats: int, rng_seed: int | None, max_steps: int,
 ) -> pl.DataFrame:
     runner = LocatorRunner(rng_seed=rng_seed)
 
     # Generators: OnePeak in different modes + TwoPeak
-    generators: List[Tuple[str, callable]] = [
+    generators: list[tuple[str, callable]] = [
         ("OnePeak-gaussian", lambda rng: OnePeakGenerator(mode="gaussian").generate(rng)),
         ("OnePeak-rabi", lambda rng: OnePeakGenerator(mode="rabi").generate(rng)),
         (
@@ -114,7 +112,7 @@ def run_locator_workflow(
         ),
         ("TwoPeak", lambda rng: TwoPeakGenerator().generate(rng)),
     ]
-    strategies: List[Tuple[str, object]] = _locator_strategies()
+    strategies: list[tuple[str, object]] = _locator_strategies()
     noises = _noise_presets()
 
     # Polars-defined scenario grid (for visibility and extension)
@@ -163,8 +161,10 @@ def cli(
 
     # Visualizations
     try:
-        exp_imgs = plot_experiment_summary(df_exp, out_dir)
-        loc_imgs = plot_locator_summary(df_loc, out_dir)
+        graphs_dir = out_dir / "graphs"
+        graphs_dir.mkdir(parents=True, exist_ok=True)
+        exp_imgs = plot_experiment_summary(df_exp, graphs_dir)
+        loc_imgs = plot_locator_summary(df_loc, graphs_dir)
         if exp_imgs or loc_imgs:
             print("Saved plots:")
             for p in [*exp_imgs, *loc_imgs]:

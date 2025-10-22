@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Sequence
 
 import polars as pl
 
+from nvision.mathutils import safe_log
+
 from .core import DataBatch
-from nvcenter.mathutils import safe_log
 
 
 @dataclass
 class FluorescenceCount:
     """Simple measurement: report mean and total signal."""
 
-    def estimate(self, data: DataBatch) -> Dict[str, float]:
+    def estimate(self, data: DataBatch) -> dict[str, float]:
         # Use Polars to compute mean; keep total via count
         m = float(data.df.select(pl.col("signal_values").mean()).item()) if len(data.signal_values) > 0 else 0.0
         return {"mean": m, "total": m * len(data.signal_values)}
@@ -29,7 +29,7 @@ class RabiEstimate:
     - offset: estimated as average.
     """
 
-    def estimate(self, data: DataBatch) -> Dict[str, float]:
+    def estimate(self, data: DataBatch) -> dict[str, float]:
         y = data.signal_values
         t = data.time_points
         if len(y) < 2:
@@ -39,7 +39,7 @@ class RabiEstimate:
         amp = 0.5 * (y_max - y_min)
         off = 0.5 * (y_max + y_min)
         # zero-crossings of (signal_values - offset)
-        crossings: List[float] = []
+        crossings: list[float] = []
         prev = y[0] - off
         for i in range(1, len(y)):
             cur = y[i] - off
@@ -77,22 +77,27 @@ class T1Estimate:
 
     tail_frac: float = 0.1
 
-    def estimate(self, data: DataBatch) -> Dict[str, float]:
+    def estimate(self, data: DataBatch) -> dict[str, float]:
         n = len(data.signal_values)
         if n == 0:
             return {"tau": 0.0, "A": 0.0, "offset": 0.0}
-        k = max(1, int(self.tail_frac * n))
-        off = sum(data.signal_values[-k:]) / k
+
+        # For T1 decay, the offset is the asymptotic value (minimum value)
+        # Use the minimum value as the offset since exp(-t/tau) -> 0 as t -> inf
+        off = min(data.signal_values)
+
         # prepare x, z = time_points, log(signal_values-off)
-        x: List[float] = []
-        z: List[float] = []
+        x: list[float] = []
+        z: list[float] = []
         for ti, yi in zip(data.time_points, data.signal_values):
             yi2 = yi - off
-            if yi2 > 0:
+            if yi2 > 1e-10:  # Use a small threshold to avoid log(0)
                 x.append(ti)
                 z.append(safe_log(yi2))
+
         if len(x) < 2:
             return {"tau": 0.0, "A": 0.0, "offset": off}
+
         # least squares for z = a + b x
         sx = sum(x)
         sy = sum(z)
@@ -100,12 +105,44 @@ class T1Estimate:
         sxy = sum(xi * zi for xi, zi in zip(x, z))
         npts = float(len(x))
         denom = npts * sxx - sx * sx
-        if denom == 0:
+
+        if abs(denom) < 1e-10:
             b = 0.0
             a = sy / npts
         else:
             b = (npts * sxy - sx * sy) / denom
             a = (sy - b * sx) / npts
-        tau = -1.0 / b if b < 0 else 0.0
-        A = math.exp(a) if tau > 0 else 0.0
+
+        # tau = -1/b, A = exp(a)
+        # Use a more robust tau estimation
+        if b < -1e-10:
+            tau = -1.0 / b
+            A = math.exp(a)
+        else:
+            # Fallback: use a simple exponential fit on a subset of points
+            # Take the first 30% of points for better tau estimation
+            n_subset = max(2, int(0.3 * len(x)))
+            x_subset = x[:n_subset]
+            z_subset = z[:n_subset]
+
+            if len(x_subset) >= 2:
+                sx_sub = sum(x_subset)
+                sy_sub = sum(z_subset)
+                sxx_sub = sum(xi * xi for xi in x_subset)
+                sxy_sub = sum(xi * zi for xi, zi in zip(x_subset, z_subset))
+                npts_sub = float(len(x_subset))
+                denom_sub = npts_sub * sxx_sub - sx_sub * sx_sub
+
+                if abs(denom_sub) > 1e-10:
+                    b_sub = (npts_sub * sxy_sub - sx_sub * sy_sub) / denom_sub
+                    a_sub = (sy_sub - b_sub * sx_sub) / npts_sub
+                    tau = -1.0 / b_sub if b_sub < -1e-10 else 0.0
+                    A = math.exp(a_sub) if tau > 0 else 0.0
+                else:
+                    tau = 0.0
+                    A = 0.0
+            else:
+                tau = 0.0
+                A = 0.0
+
         return {"tau": tau, "A": A, "offset": off}

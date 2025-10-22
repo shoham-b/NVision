@@ -112,3 +112,8 @@ logs/
 
 # Project specific
 .fuzz_cache/
+
+# Allow artifacts to be committed
+!artifacts/
+!artifacts/cache/
+!artifacts/graphs/

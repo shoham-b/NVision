@@ -1,9 +1,10 @@
 import math
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
-from nvcenter import normalized_sum
+from nvision import normalized_sum
 
 
 def test_normalized_sum_basic():

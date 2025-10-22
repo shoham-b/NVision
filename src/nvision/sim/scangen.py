@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import Callable, List
 
 from .locators import ScanBatch
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import random
 
-from nvcenter.sim.scangen import OnePeakGenerator
+from nvision.sim.scangen import OnePeakGenerator
 
 
 def _argmax_x_in_grid(f, x_min: float, x_max: float, n: int = 1001) -> float:
