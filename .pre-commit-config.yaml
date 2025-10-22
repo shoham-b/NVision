@@ -7,7 +7,7 @@ repos:
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: end-of-file-fixer
       - id: trailing-whitespace
@@ -23,4 +23,4 @@ repos:
     hooks:
       - id: prettier
         additional_dependencies: ["prettier@3"]
-        files: "\.(md|yaml|yml|json)$"
+        files: '\\.(md|yaml|yml|json)$'

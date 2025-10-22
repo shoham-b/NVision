@@ -9,7 +9,15 @@ Provides extensible interfaces and simple reference implementations for:
 """
 
 from .core import CompositeNoise, DataBatch, DataGenerator, MeasurementStrategy, NoiseModel
-from .generators import RabiGenerator, T1Generator
+from .generators import (
+    GaussianManufacturer,
+    MultiPeakGenerator,
+    OnePeakGenerator,
+    RabiManufacturer,
+    SymmetricTwoPeakGenerator,
+    T1DecayManufacturer,
+    TwoPeakGenerator,
+)
 from .loc_runner import LocatorRunner
 
 # Locators layer
@@ -24,43 +32,35 @@ from .locators import (
     ScanBatch,
     TwoPeakGreedy,
 )
-from .measurements import FluorescenceCount, RabiEstimate, T1Estimate
 from .noise import DriftNoise, GaussianNoise, OutlierSpikes, PoissonNoise
-from .runner import ExperimentRunner
-from .scangen import OnePeakGenerator, TwoPeakGenerator
 
 __all__ = [
     "BayesianLocator",
     "CompositeNoise",
-    # core
     "DataBatch",
     "DataGenerator",
     "DriftNoise",
-    # runner
-    "ExperimentRunner",
-    # measurements
-    "FluorescenceCount",
-    # noise
+    
     "GaussianNoise",
     "GoldenSectionSearch",
-    # locators
     "GridScan",
     "LocatorRunner",
     "LocatorStrategy",
     "MeasurementProcess",
     "MeasurementStrategy",
+    "MultiPeakGenerator",
     "NoiseModel",
     "ODMRLocator",
     "OnePeakGenerator",
     "OutlierSpikes",
     "PoissonNoise",
-    "RabiEstimate",
-    # generators
-    "RabiGenerator",
+    
     "ScalarMeasure",
     "ScanBatch",
-    "T1Estimate",
-    "T1Generator",
+    "SymmetricTwoPeakGenerator",
     "TwoPeakGenerator",
     "TwoPeakGreedy",
+    "GaussianManufacturer",
+    "RabiManufacturer",
+    "T1DecayManufacturer",
 ]
