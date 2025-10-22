@@ -117,3 +117,4 @@ logs/
 !artifacts/
 !artifacts/cache/
 !artifacts/graphs/
+.\.hypothesis\
