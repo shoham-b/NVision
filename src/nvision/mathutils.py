@@ -9,7 +9,7 @@ project-specific helpers here.
 from __future__ import annotations
 
 import math
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def normalized_sum(values: Iterable[float]) -> float:
@@ -26,9 +26,17 @@ def normalized_sum(values: Iterable[float]) -> float:
     span = vmax - vmin
     if span == 0:
         return 0.0
+
+    # Handle extreme floating-point values that could cause NaN
+    if not math.isfinite(span) or span == 0:
+        return 0.0
+
     total = 0.0
     for v in vals:
-        total += (v - vmin) / span
+        if math.isfinite(v):
+            normalized = (v - vmin) / span
+            if math.isfinite(normalized):
+                total += normalized
     return total
 
 

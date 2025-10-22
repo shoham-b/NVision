@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
-# Multi-stage Dockerfile for NvCenter
+# Multi-stage Dockerfile for NVision
 # Stage 1: builder/test (installs dev deps, runs tests)
-FROM python:3.14-slim AS builder
+FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -28,7 +28,7 @@ RUN python -m ruff format --check && \
     pytest -q
 
 # Stage 2: runtime image (slim) with only runtime deps
-FROM python:3.14-slim AS runtime
+FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -43,5 +43,5 @@ RUN pip install --upgrade pip && \
     pip install .
 
 # Default command runs the combined simulations (writes to ./artifacts inside container)
-ENTRYPOINT ["nvcenter"]
+ENTRYPOINT ["nvision"]
 CMD ["--repeats", "3", "--seed", "123", "--loc-max-steps", "100"]

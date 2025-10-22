@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Dict, List, Protocol, Sequence
+from typing import Protocol
 
 import polars as pl
 
@@ -17,9 +18,9 @@ class DataBatch:
         meta: metadata such as true parameters for evaluation
         df: Polars DataFrame with columns ["t", "intensity"] for vectorized operations
     """
-    time_points: List[float]
-    signal_values: List[float]
-    meta: Dict[str, float]
+    time_points: list[float]
+    signal_values: list[float]
+    meta: dict[str, float]
     df: pl.DataFrame = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -31,7 +32,7 @@ class DataBatch:
         """Return the underlying Polars DataFrame (columns: time_points, signal_values)."""
         return self.df
 
-    def with_y(self, new_y: List[float]) -> "DataBatch":
+    def with_y(self, new_y: list[float]) -> DataBatch:
         """Return a new DataBatch with the same time_points/meta and replaced signal_values, updating df accordingly."""
         nb = DataBatch(time_points=list(self.time_points), signal_values=list(new_y), meta=dict(self.meta))
         return nb
@@ -40,7 +41,7 @@ class DataBatch:
 class NoiseModel(Protocol):
     """Applies noise to a dataset and returns a new dataset (functional style)."""
 
-    def apply(self, data: "DataBatch", rng: random.Random) -> "DataBatch":
+    def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
         ...
 
 
@@ -54,7 +55,7 @@ class DataGenerator(Protocol):
 class MeasurementStrategy(Protocol):
     """Consumes (noisy) data and returns estimated parameters."""
 
-    def estimate(self, data: DataBatch) -> Dict[str, float]:
+    def estimate(self, data: DataBatch) -> dict[str, float]:
         ...
 
 
@@ -62,7 +63,7 @@ class CompositeNoise:
     """Applies multiple noise models in sequence."""
 
     def __init__(self, parts: Sequence[NoiseModel] | None = None):
-        self._parts: List[NoiseModel] = list(parts or [])
+        self._parts: list[NoiseModel] = list(parts or [])
 
     def add(self, model: NoiseModel) -> None:
         self._parts.append(model)
