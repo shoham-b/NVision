@@ -4,6 +4,8 @@ import math
 import random
 from dataclasses import dataclass
 
+import polars as pl
+
 from .core import DataBatch
 
 
@@ -27,10 +29,15 @@ class RabiGenerator:
         phi = self.phase if self.phase is not None else rng.uniform(0.0, 2 * math.pi)
         off = self.offset if self.offset is not None else rng.uniform(0.0, 1.0)
         dt = self.duration / max(self.n_points - 1, 1)
-        t = [i * dt for i in range(self.n_points)]
-        y = [off + amp * math.sin(2 * math.pi * freq * ti + phi) for ti in t]
+        t = (pl.arange(0, self.n_points, eager=True, dtype=pl.Float64) * dt).alias("time_points")
+        y = (
+            pl.lit(off)
+            + pl.lit(amp)
+            * (pl.lit(2 * math.pi * freq) * t + pl.lit(phi)).sin()
+        ).alias("signal_values")
+        df = pl.DataFrame({"time_points": t, "signal_values": y})
         meta = {"amplitude": amp, "frequency": freq, "phase": phi, "offset": off}
-        return DataBatch(time_points=t, signal_values=y, meta=meta)
+        return DataBatch.from_frame(df, meta)
 
 
 @dataclass
@@ -51,7 +58,8 @@ class T1Generator:
         tau = self.tau if self.tau is not None else rng.uniform(0.5, 3.0)
         off = self.offset if self.offset is not None else rng.uniform(0.0, 0.5)
         dt = self.duration / max(self.n_points - 1, 1)
-        t = [i * dt for i in range(self.n_points)]
-        y = [off + a * math.exp(-ti / tau) for ti in t]
+        t = (pl.arange(0, self.n_points, eager=True, dtype=pl.Float64) * dt).alias("time_points")
+        y = (pl.lit(off) + pl.lit(a) * (-t / pl.lit(tau)).exp()).alias("signal_values")
+        df = pl.DataFrame({"time_points": t, "signal_values": y})
         meta = {"A": a, "tau": tau, "offset": off}
-        return DataBatch(time_points=t, signal_values=y, meta=meta)
+        return DataBatch.from_frame(df, meta)
