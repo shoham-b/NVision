@@ -6,6 +6,7 @@ from typing import Annotated
 import polars as pl
 import typer
 
+from nvision.cache import DataFrameCache
 from nvision.sim import (
     CompositeNoise,
     DriftNoise,
@@ -44,7 +45,7 @@ def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     ]
 
 
- 
+
 
 
 def _locator_strategies() -> list[tuple[str, object]]:
