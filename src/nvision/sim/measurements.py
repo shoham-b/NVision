@@ -16,7 +16,11 @@ class FluorescenceCount:
 
     def estimate(self, data: DataBatch) -> dict[str, float]:
         # Use Polars to compute mean; keep total via count
-        m = float(data.df.select(pl.col("signal_values").mean()).item()) if len(data.signal_values) > 0 else 0.0
+        m = (
+            float(data.df.select(pl.col("signal_values").mean()).item())
+            if len(data.signal_values) > 0
+            else 0.0
+        )
         return {"mean": m, "total": m * len(data.signal_values)}
 
 

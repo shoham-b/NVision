@@ -8,7 +8,13 @@ from hypothesis import strategies as st
 from nvision.sim import CompositeNoise, DataBatch, GaussianNoise, PoissonNoise
 
 
-@given(st.lists(st.floats(min_value=0, max_value=10, allow_nan=False, allow_infinity=False), min_size=0, max_size=200))
+@given(
+    st.lists(
+        st.floats(min_value=0, max_value=10, allow_nan=False, allow_infinity=False),
+        min_size=0,
+        max_size=200,
+    ),
+)
 def test_poisson_noise_properties(values):
     t = list(range(len(values)))
     data = DataBatch(time_points=t, signal_values=values, meta={})
@@ -24,7 +30,13 @@ def test_poisson_noise_properties(values):
     assert out1.signal_values == out2.signal_values
 
 
-@given(st.lists(st.floats(min_value=-10, max_value=10, allow_nan=False, allow_infinity=False), min_size=0, max_size=200))
+@given(
+    st.lists(
+        st.floats(min_value=-10, max_value=10, allow_nan=False, allow_infinity=False),
+        min_size=0,
+        max_size=200,
+    ),
+)
 def test_composite_noise_preserves_length(values):
     t = list(range(len(values)))
     data = DataBatch(time_points=t, signal_values=values, meta={})

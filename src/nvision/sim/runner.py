@@ -44,7 +44,11 @@ class ExperimentRunner:
         if noise is not None:
             data = noise.apply(clean, self._rng)
         else:
-            data = DataBatch(time_points=clean.time_points, signal_values=list(clean.signal_values), meta=clean.meta)
+            data = DataBatch(
+                time_points=clean.time_points,
+                signal_values=list(clean.signal_values),
+                meta=clean.meta,
+            )
         results: dict[str, dict[str, float]] = {}
         for strat in strategies:
             name = strat.__class__.__name__
@@ -111,7 +115,9 @@ class ExperimentRunner:
         return "+".join([p.__class__.__name__ for p in parts])
 
     @staticmethod
-    def to_csv(rows_or_df: list[tuple[str, str, dict[str, float]]] | pl.DataFrame, path: str) -> None:
+    def to_csv(
+        rows_or_df: list[tuple[str, str, dict[str, float]]] | pl.DataFrame, path: str,
+    ) -> None:
         """Write results to CSV using Polars.
 
         Accepts either:

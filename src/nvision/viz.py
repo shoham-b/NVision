@@ -97,7 +97,9 @@ def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
             import matplotlib.pyplot as plt2
 
             fig, axes = plt2.subplots(2, 1, figsize=(11, 8), sharex=True)
-            for ax, col, title in zip(axes, ["pair_rmse", "uncert_sep"], ["Pair RMSE", "Uncertainty (sep)"]):
+            for ax, col, title in zip(
+                axes, ["pair_rmse", "uncert_sep"], ["Pair RMSE", "Uncertainty (sep)"],
+            ):
                 piv = pdf.pivot(index="noise", columns="strategy", values=col).sort_index()
                 piv.plot(kind="bar", ax=ax)
                 ax.set_title(f"{title} — {gen}")
