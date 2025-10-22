@@ -36,7 +36,11 @@ def plot_experiment_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
             .pivot(index="noise", columns="strategy", values="rmse")
             .sort_index()
         )
-        ax = pivot.plot(kind="bar", figsize=(10, 6), title=f"Experiment RMSE — {gen}")
+        ax = pivot.plot(
+            kind="bar",
+            figsize=(10, 6),
+            title=f"Experiment RMSE — {gen}",
+        )
         ax.set_ylabel("RMSE")
         ax.set_xlabel("Noise")
         ax.grid(True, axis="y", alpha=0.3)
@@ -52,8 +56,10 @@ def plot_experiment_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
 def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
     """Create comparison plots for locator sweeps.
 
-    - For single-peak generators (name contains 'OnePeak'): plot abs_err_x and uncert by (noise, strategy).
-    - For two-peak generators (name contains 'TwoPeak'): plot pair_rmse and uncert_sep by (noise, strategy).
+    - For single-peak generators (name contains 'OnePeak'): plot abs_err_x
+      and uncert by (noise, strategy).
+    - For two-peak generators (name contains 'TwoPeak'): plot pair_rmse and
+      uncert_sep by (noise, strategy).
     """
     _ensure_out_dir(out_dir)
     paths: list[Path] = []
@@ -73,7 +79,12 @@ def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
             import matplotlib.pyplot as plt2  # local alias to satisfy type checkers
 
             fig, axes = plt2.subplots(2, 1, figsize=(11, 8), sharex=True)
-            for ax, col, title in zip(axes, ["abs_err_x", "uncert"], ["Abs Error", "Uncertainty"]):
+            for ax, col, title in zip(
+                axes,
+                ["abs_err_x", "uncert"],
+                ["Abs Error", "Uncertainty"],
+                strict=False,
+            ):
                 piv = pdf.pivot(index="noise", columns="strategy", values=col).sort_index()
                 piv.plot(kind="bar", ax=ax)
                 ax.set_title(f"{title} — {gen}")
@@ -101,6 +112,7 @@ def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
                 axes,
                 ["pair_rmse", "uncert_sep"],
                 ["Pair RMSE", "Uncertainty (sep)"],
+                strict=False,
             ):
                 piv = pdf.pivot(index="noise", columns="strategy", values=col).sort_index()
                 piv.plot(kind="bar", ax=ax)

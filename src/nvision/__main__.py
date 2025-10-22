@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import polars as pl
 import typer
@@ -152,14 +153,13 @@ def run_locator_workflow(
 
 
 def cli(
-    out: Path = typer.Option(Path("artifacts"), "--out", help="Output directory"),
-    repeats: int = typer.Option(5, "--repeats", help="Number of repeats per scenario"),
-    seed: int = typer.Option(123, "--seed", help="RNG seed (int)"),
-    loc_max_steps: int = typer.Option(
-        150,
-        "--loc-max-steps",
-        help="Max steps for locator measurement loop",
-    ),
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
+    seed: Annotated[int, typer.Option("--seed", help="RNG seed (int)")] = 123,
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
+    ] = 150,
 ) -> int:
     out_dir: Path = out
     out_dir.mkdir(parents=True, exist_ok=True)

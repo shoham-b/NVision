@@ -24,7 +24,7 @@ def test_odmr_locator_basic():
     def signal(x: float) -> float:
         return math.exp(-0.5 * ((x - 0.5) / 0.1) ** 2)
 
-    scan = ScanBatch(
+    ScanBatch(
         x_min=0.0,
         x_max=1.0,
         truth_positions=[0.5],
@@ -37,14 +37,14 @@ def test_odmr_locator_basic():
 
     # Create measurement with noise
     noise = CompositeNoise([GaussianNoise(0.05)])
-    meas = ScalarMeasure(noise=noise)
+    ScalarMeasure(noise=noise)
 
     # Test propose_next
     history = []
     domain = (0.0, 1.0)
 
     # First few points should be from coarse sweep
-    for i in range(3):
+    for _i in range(3):
         x = locator.propose_next(history, domain)
         assert 0.0 <= x <= 1.0
         # Simulate measurement with uncertainty
@@ -70,7 +70,7 @@ def test_bayesian_locator_basic():
     def signal(x: float) -> float:
         return math.exp(-0.5 * ((x - 0.3) / 0.08) ** 2)
 
-    scan = ScanBatch(
+    ScanBatch(
         x_min=0.0,
         x_max=1.0,
         truth_positions=[0.3],
@@ -83,14 +83,14 @@ def test_bayesian_locator_basic():
 
     # Create measurement with noise
     noise = CompositeNoise([GaussianNoise(0.03)])
-    meas = ScalarMeasure(noise=noise)
+    ScalarMeasure(noise=noise)
 
     # Test propose_next
     history = []
     domain = (0.0, 1.0)
 
     # First few points should be random
-    for i in range(3):
+    for _i in range(3):
         x = locator.propose_next(history, domain)
         assert 0.0 <= x <= 1.0
         # Simulate measurement with uncertainty
@@ -116,18 +116,18 @@ def test_uncertainty_calculation():
     def signal(x: float) -> float:
         return 1.0 + 0.5 * math.sin(2 * math.pi * x)
 
-    scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.25, 0.75], signal=signal, meta={})
+    ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.25, 0.75], signal=signal, meta={})
 
     # Test with ODMR locator
     locator = ODMRLocator(coarse_points=8, refine_points=4)
     noise = CompositeNoise([GaussianNoise(0.1)])
-    meas = ScalarMeasure(noise=noise)
+    ScalarMeasure(noise=noise)
 
     # Simulate a measurement process
     history = []
     domain = (0.0, 1.0)
 
-    for i in range(5):
+    for _i in range(5):
         x = locator.propose_next(history, domain)
         y_clean = signal(x)
         y_noisy = y_clean + rng.gauss(0, 0.1)
@@ -152,7 +152,7 @@ def test_locator_comparison():
     def signal(x: float) -> float:
         return math.exp(-0.5 * ((x - 0.4) / 0.05) ** 2)
 
-    scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.4], signal=signal, meta={})
+    ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.4], signal=signal, meta={})
 
     # Test both locators on the same problem
     odmr = ODMRLocator(coarse_points=6, refine_points=3)
@@ -163,7 +163,7 @@ def test_locator_comparison():
         history = []
         domain = (0.0, 1.0)
 
-        for i in range(6):
+        for _i in range(6):
             x = locator.propose_next(history, domain)
             y = signal(x) + rng.gauss(0, 0.02)
             uncertainty = 0.05 + abs(y) * 0.02
