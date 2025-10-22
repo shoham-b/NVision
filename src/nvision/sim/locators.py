@@ -306,7 +306,9 @@ class ODMRLocator:
         return lo + random.random() * (hi - lo)
 
     def _find_promising_regions(
-        self, history: Sequence[Obs], domain: tuple[float, float],
+        self,
+        history: Sequence[Obs],
+        domain: tuple[float, float],
     ) -> list[float]:
         """Find regions with high intensity and low uncertainty."""
         if not history:
@@ -399,7 +401,10 @@ class BayesianLocator:
         return self._acquisition_function(history, domain, taken)
 
     def _acquisition_function(
-        self, history: Sequence[Obs], domain: tuple[float, float], taken: set[float],
+        self,
+        history: Sequence[Obs],
+        domain: tuple[float, float],
+        taken: set[float],
     ) -> float:
         """Propose next point using acquisition function."""
         lo, hi = domain
@@ -493,7 +498,12 @@ class MeasurementProcess:
         return df, est
 
     def _calculate_uncertainty(
-        self, x: float, y: float, history: list[Obs], lo: float, hi: float,
+        self,
+        x: float,
+        y: float,
+        history: list[Obs],
+        lo: float,
+        hi: float,
     ) -> float:
         """Calculate uncertainty for a measurement based on noise model and history."""
         # Base uncertainty from noise model

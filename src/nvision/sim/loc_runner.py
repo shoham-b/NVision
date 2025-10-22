@@ -59,7 +59,10 @@ class LocatorRunner:
         max_steps: int = 200,
     ) -> tuple[pl.DataFrame, dict[str, float]]:
         proc = MeasurementProcess(
-            scan=scan, meas=ScalarMeasure(noise=noise), strategy=strategy, max_steps=max_steps,
+            scan=scan,
+            meas=ScalarMeasure(noise=noise),
+            strategy=strategy,
+            max_steps=max_steps,
         )
         return proc.run(self._rng)
 

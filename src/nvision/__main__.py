@@ -156,7 +156,9 @@ def cli(
     repeats: int = typer.Option(5, "--repeats", help="Number of repeats per scenario"),
     seed: int = typer.Option(123, "--seed", help="RNG seed (int)"),
     loc_max_steps: int = typer.Option(
-        150, "--loc-max-steps", help="Max steps for locator measurement loop",
+        150,
+        "--loc-max-steps",
+        help="Max steps for locator measurement loop",
     ),
 ) -> int:
     out_dir: Path = out
