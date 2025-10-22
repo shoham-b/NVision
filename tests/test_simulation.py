@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import random
 
 from nvision.sim import (
@@ -37,4 +36,4 @@ def test_poisson_noise_non_negative():
     assert all(v >= 0 for v in out.signal_values)
 
 
- 
+
