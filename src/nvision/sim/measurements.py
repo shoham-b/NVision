@@ -71,12 +71,15 @@ class RabiEstimate:
 
 @dataclass
 class T1Estimate:
-    """Estimate tau and offset for an exponential decay signal_values = off + A*exp(-time_points/tau).
+    """Estimate tau and offset for an exponential decay.
+
+    Model: signal_values = off + A * exp(-time_points / tau).
 
     Approach:
     - Estimate offset as the tail average (last 10%).
     - Subtract offset, keep positive values.
-    - Fit log(signal_values) ~ a + b time_points (least squares); tau = -1/b; A = exp(a).
+    - Fit log(signal_values) ~ a + b time_points (least squares);
+      tau = -1/b; A = exp(a).
     """
 
     tail_frac: float = 0.1
@@ -93,7 +96,7 @@ class T1Estimate:
         # prepare x, z = time_points, log(signal_values-off)
         x: list[float] = []
         z: list[float] = []
-        for ti, yi in zip(data.time_points, data.signal_values):
+        for ti, yi in zip(data.time_points, data.signal_values, strict=False):
             yi2 = yi - off
             if yi2 > 1e-10:  # Use a small threshold to avoid log(0)
                 x.append(ti)
@@ -106,7 +109,7 @@ class T1Estimate:
         sx = sum(x)
         sy = sum(z)
         sxx = sum(xi * xi for xi in x)
-        sxy = sum(xi * zi for xi, zi in zip(x, z))
+        sxy = sum(xi * zi for xi, zi in zip(x, z, strict=False))
         npts = float(len(x))
         denom = npts * sxx - sx * sx
 
@@ -121,7 +124,7 @@ class T1Estimate:
         # Use a more robust tau estimation
         if b < -1e-10:
             tau = -1.0 / b
-            A = math.exp(a)
+            amp = math.exp(a)
         else:
             # Fallback: use a simple exponential fit on a subset of points
             # Take the first 30% of points for better tau estimation
@@ -133,7 +136,7 @@ class T1Estimate:
                 sx_sub = sum(x_subset)
                 sy_sub = sum(z_subset)
                 sxx_sub = sum(xi * xi for xi in x_subset)
-                sxy_sub = sum(xi * zi for xi, zi in zip(x_subset, z_subset))
+                sxy_sub = sum(xi * zi for xi, zi in zip(x_subset, z_subset, strict=False))
                 npts_sub = float(len(x_subset))
                 denom_sub = npts_sub * sxx_sub - sx_sub * sx_sub
 
@@ -141,12 +144,12 @@ class T1Estimate:
                     b_sub = (npts_sub * sxy_sub - sx_sub * sy_sub) / denom_sub
                     a_sub = (sy_sub - b_sub * sx_sub) / npts_sub
                     tau = -1.0 / b_sub if b_sub < -1e-10 else 0.0
-                    A = math.exp(a_sub) if tau > 0 else 0.0
+                    amp = math.exp(a_sub) if tau > 0 else 0.0
                 else:
                     tau = 0.0
-                    A = 0.0
+                    amp = 0.0
             else:
                 tau = 0.0
-                A = 0.0
+                amp = 0.0
 
-        return {"tau": tau, "A": A, "offset": off}
+        return {"tau": tau, "A": amp, "offset": off}

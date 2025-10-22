@@ -47,11 +47,11 @@ class T1Generator:
     offset: float | None = None
 
     def generate(self, rng: random.Random) -> DataBatch:
-        A = self.A if self.A is not None else rng.uniform(0.2, 1.2)
+        a = self.A if self.A is not None else rng.uniform(0.2, 1.2)
         tau = self.tau if self.tau is not None else rng.uniform(0.5, 3.0)
         off = self.offset if self.offset is not None else rng.uniform(0.0, 0.5)
         dt = self.duration / max(self.n_points - 1, 1)
         t = [i * dt for i in range(self.n_points)]
-        y = [off + A * math.exp(-ti / tau) for ti in t]
-        meta = {"A": A, "tau": tau, "offset": off}
+        y = [off + a * math.exp(-ti / tau) for ti in t]
+        meta = {"A": a, "tau": tau, "offset": off}
         return DataBatch(time_points=t, signal_values=y, meta=meta)

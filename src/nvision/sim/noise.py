@@ -48,10 +48,10 @@ class PoissonNoise:
         for v in data.signal_values:
             lam = max(v * self.scale, 0.0)
             # Sample using Knuth's algorithm for Poisson
-            L = math.exp(-lam)
+            l_threshold = math.exp(-lam)
             k = 0
             p = 1.0
-            while p > L:
+            while p > l_threshold:
                 k += 1
                 p *= rng.random()
                 # Guard against extreme loops for huge lambda by breaking
