@@ -32,6 +32,7 @@ from nvision.viz import plot_experiment_summary, plot_locator_summary
 # Scenario presets using existing components
 # -----------------------------
 
+
 def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     return [
         ("NoNoise", None),
@@ -60,6 +61,7 @@ def _locator_strategies() -> list[tuple[str, object]]:
 # -----------------------------
 # Orchestration
 # -----------------------------
+
 
 def run_experiment_workflow(out_dir: Path, repeats: int, rng_seed: int | None) -> pl.DataFrame:
     runner = ExperimentRunner(rng_seed=rng_seed)
@@ -98,7 +100,10 @@ def run_experiment_workflow(out_dir: Path, repeats: int, rng_seed: int | None) -
 
 
 def run_locator_workflow(
-    out_dir: Path, repeats: int, rng_seed: int | None, max_steps: int,
+    out_dir: Path,
+    repeats: int,
+    rng_seed: int | None,
+    max_steps: int,
 ) -> pl.DataFrame:
     runner = LocatorRunner(rng_seed=rng_seed)
 
@@ -150,7 +155,9 @@ def cli(
     out: Path = typer.Option(Path("artifacts"), "--out", help="Output directory"),
     repeats: int = typer.Option(5, "--repeats", help="Number of repeats per scenario"),
     seed: int = typer.Option(123, "--seed", help="RNG seed (int)"),
-    loc_max_steps: int = typer.Option(150, "--loc-max-steps", help="Max steps for locator measurement loop"),
+    loc_max_steps: int = typer.Option(
+        150, "--loc-max-steps", help="Max steps for locator measurement loop",
+    ),
 ) -> int:
     out_dir: Path = out
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -184,9 +191,7 @@ def cli(
 
     # Also print a tiny summary
     try:
-        by_noise = (
-            df_exp.group_by(["generator", "noise", "strategy"]).agg(pl.col("rmse").mean())
-        )
+        by_noise = df_exp.group_by(["generator", "noise", "strategy"]).agg(pl.col("rmse").mean())
         print("Experiment summary (mean rmse):")
         print(by_noise.sort(["generator", "noise", "strategy"]))
     except Exception:

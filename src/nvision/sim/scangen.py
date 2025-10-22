@@ -47,7 +47,14 @@ class OnePeakGenerator:
                 osc = 0.5 * (1.0 + math.sin(2 * math.pi * self.rabi_freq * (x - x0) + phi))
                 return self.base + self.A * env * osc
 
-            meta = {"A": self.A, "sigma": self.sigma, "base": self.base, "mode": "rabi", "rabi_freq": self.rabi_freq, "rabi_phase": float(phi)}
+            meta = {
+                "A": self.A,
+                "sigma": self.sigma,
+                "base": self.base,
+                "mode": "rabi",
+                "rabi_freq": self.rabi_freq,
+                "rabi_phase": float(phi),
+            }
         elif mode == "t1_decay":
             tau = self.t1_tau if self.t1_tau is not None else max(0.05 * width, 1e-6)
 
@@ -96,7 +103,9 @@ class TwoPeakGenerator:
         def f(x: float) -> float:
             z1 = (x - x1) / max(self.sigma1, 1e-12)
             z2 = (x - x2) / max(self.sigma2, 1e-12)
-            return self.base + self.A1 * math.exp(-0.5 * z1 * z1) + self.A2 * math.exp(-0.5 * z2 * z2)
+            return (
+                self.base + self.A1 * math.exp(-0.5 * z1 * z1) + self.A2 * math.exp(-0.5 * z2 * z2)
+            )
 
         xs = sorted([x1, x2])
         return ScanBatch(
