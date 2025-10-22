@@ -42,7 +42,8 @@ class ScanBatch:
 class ScalarMeasure:
     """Applies existing CompositeNoise to a single scalar measurement.
 
-    Wraps a scalar signal_values into a length-1 DataBatch so we can reuse NoiseModel implementations.
+    Wraps a scalar value into a length-1 DataBatch so we can reuse
+    NoiseModel implementations.
     """
 
     noise: CompositeNoise | None = None

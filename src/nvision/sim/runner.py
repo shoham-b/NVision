@@ -11,7 +11,7 @@ from .core import CompositeNoise, DataBatch, DataGenerator, MeasurementStrategy
 
 
 def _common_keys(truth: Mapping[str, float], est: Mapping[str, float]) -> list[str]:
-    return [k for k in truth.keys() if k in est]
+    return [k for k in truth if k in est]
 
 
 def _rmse(truth: Mapping[str, float], est: Mapping[str, float], keys: Sequence[str]) -> float:
@@ -132,7 +132,7 @@ class ExperimentRunner:
             rows: list[dict[str, float | str]] = []
             metric_keys: list[str] = []
             for _, _, metrics in rows_or_df:
-                for k in metrics.keys():
+                for k in metrics:
                     if k not in metric_keys:
                         metric_keys.append(k)
             for noise_name, strat_name, metrics in rows_or_df:
