@@ -38,7 +38,9 @@ class DataBatch:
     def with_y(self, new_y: list[float]) -> DataBatch:
         """Return a new DataBatch with the same time_points/meta and replaced signal_values, updating df accordingly."""
         nb = DataBatch(
-            time_points=list(self.time_points), signal_values=list(new_y), meta=dict(self.meta),
+            time_points=list(self.time_points),
+            signal_values=list(new_y),
+            meta=dict(self.meta),
         )
         return nb
 

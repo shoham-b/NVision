@@ -25,7 +25,11 @@ def test_odmr_locator_basic():
         return math.exp(-0.5 * ((x - 0.5) / 0.1) ** 2)
 
     scan = ScanBatch(
-        x_min=0.0, x_max=1.0, truth_positions=[0.5], signal=signal, meta={"peak_width": 0.1},
+        x_min=0.0,
+        x_max=1.0,
+        truth_positions=[0.5],
+        signal=signal,
+        meta={"peak_width": 0.1},
     )
 
     # Create ODMR locator
@@ -67,7 +71,11 @@ def test_bayesian_locator_basic():
         return math.exp(-0.5 * ((x - 0.3) / 0.08) ** 2)
 
     scan = ScanBatch(
-        x_min=0.0, x_max=1.0, truth_positions=[0.3], signal=signal, meta={"peak_width": 0.08},
+        x_min=0.0,
+        x_max=1.0,
+        truth_positions=[0.3],
+        signal=signal,
+        meta={"peak_width": 0.08},
     )
 
     # Create Bayesian locator

@@ -116,7 +116,8 @@ class ExperimentRunner:
 
     @staticmethod
     def to_csv(
-        rows_or_df: list[tuple[str, str, dict[str, float]]] | pl.DataFrame, path: str,
+        rows_or_df: list[tuple[str, str, dict[str, float]]] | pl.DataFrame,
+        path: str,
     ) -> None:
         """Write results to CSV using Polars.
 
