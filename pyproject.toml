@@ -1,8 +1,8 @@
 [project]
-name = "nvcenter"
+name = "nvision"
 version = "0.1.0"
-description = "NvCenter: project scaffold with tests, ruff, CI, and fuzzing"
-requires-python = ">=3.9"
+description = "NVision: project scaffold with tests, ruff, CI, and fuzzing"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "polars>=0.20",
     "typer>=0.12.0",
@@ -20,7 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-nvcenter = "nvcenter.__main__:main"
+nvision = "nvision.__main__:main"
 
 [tool.ruff]
 line-length = 100
@@ -52,7 +52,6 @@ select = [
 ]
 ignore = [
 ]
-fix = true
 
 [tool.ruff.format]
 quote-style = "double"
@@ -62,7 +61,7 @@ line-ending = "lf"
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -q --cov=nvcenter --cov-report=xml --cov-report=term-missing --cov-report=html"
+addopts = "-ra -q --cov=nvision --cov-report=xml --cov-report=term-missing --cov-report=html"
 testpaths = ["tests"]
 pythonpath = ["src"]
 filterwarnings = [
@@ -78,3 +77,12 @@ where = ["src"]
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.141.1",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.1",
+]

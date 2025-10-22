@@ -20,10 +20,10 @@ test:
 	pytest -q
 
 coverage:
-	pytest --cov=nvcenter --cov-report=term-missing --cov-report=xml --cov-report=html
+	pytest --cov=nvision --cov-report=term-missing --cov-report=xml --cov-report=html
 
 # Docker targets
-IMAGE?=nvcenter:dev
+IMAGE?=nvision:dev
 
 docker-build:
 	docker build -t $(IMAGE) -f Dockerfile --target runtime .

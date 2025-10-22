@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Sequence, Tuple
 
 import polars as pl
 
 from .core import CompositeNoise, DataBatch, DataGenerator, MeasurementStrategy
 
 
-def _common_keys(truth: Mapping[str, float], est: Mapping[str, float]) -> List[str]:
+def _common_keys(truth: Mapping[str, float], est: Mapping[str, float]) -> list[str]:
     return [k for k in truth.keys() if k in est]
 
 
@@ -34,7 +34,7 @@ class ExperimentRunner:
         generator: DataGenerator,
         noise: CompositeNoise | None,
         strategies: Sequence[MeasurementStrategy],
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> dict[str, dict[str, float]]:
         """Run a single dataset through strategies and compute simple metrics.
 
         Returns a dict: {strategy_name: {metric: value, ...}}
@@ -45,12 +45,12 @@ class ExperimentRunner:
             data = noise.apply(clean, self._rng)
         else:
             data = DataBatch(time_points=clean.time_points, signal_values=list(clean.signal_values), meta=clean.meta)
-        results: Dict[str, Dict[str, float]] = {}
+        results: dict[str, dict[str, float]] = {}
         for strat in strategies:
             name = strat.__class__.__name__
             est = strat.estimate(data)
             keys = _common_keys(clean.meta, est)
-            summary: Dict[str, float] = {}
+            summary: dict[str, float] = {}
             for k in keys:
                 summary[f"abs_err_{k}"] = abs(est[k] - clean.meta[k])
             summary["rmse"] = _rmse(clean.meta, est, keys)
@@ -71,11 +71,11 @@ class ExperimentRunner:
 
         Returns a Polars DataFrame with columns: noise, strategy, and metric columns (floats).
         """
-        rows: List[Dict[str, float | str]] = []
+        rows: list[dict[str, float | str]] = []
         for noise in noises:
             noise_name = self._noise_name(noise)
-            accum: Dict[str, Dict[str, float]] = {}
-            counts: Dict[str, int] = {}
+            accum: dict[str, dict[str, float]] = {}
+            counts: dict[str, int] = {}
             for _ in range(repeats):
                 res = self.run_once(generator, noise, strategies)
                 for strat_name, metrics in res.items():
@@ -88,7 +88,7 @@ class ExperimentRunner:
             for strat_name, sums in accum.items():
                 n = max(1, counts[strat_name])
                 avg = {k: v / n for k, v in sums.items()}
-                row: Dict[str, float | str] = {"noise": noise_name, "strategy": strat_name}
+                row: dict[str, float | str] = {"noise": noise_name, "strategy": strat_name}
                 row.update(avg)
                 rows.append(row)
         if not rows:
@@ -111,7 +111,7 @@ class ExperimentRunner:
         return "+".join([p.__class__.__name__ for p in parts])
 
     @staticmethod
-    def to_csv(rows_or_df: List[Tuple[str, str, Dict[str, float]]] | pl.DataFrame, path: str) -> None:
+    def to_csv(rows_or_df: list[tuple[str, str, dict[str, float]]] | pl.DataFrame, path: str) -> None:
         """Write results to CSV using Polars.
 
         Accepts either:
@@ -122,14 +122,14 @@ class ExperimentRunner:
             df = rows_or_df
         else:
             # Build DataFrame from legacy rows
-            rows: List[Dict[str, float | str]] = []
-            metric_keys: List[str] = []
+            rows: list[dict[str, float | str]] = []
+            metric_keys: list[str] = []
             for _, _, metrics in rows_or_df:
                 for k in metrics.keys():
                     if k not in metric_keys:
                         metric_keys.append(k)
             for noise_name, strat_name, metrics in rows_or_df:
-                row: Dict[str, float | str] = {"noise": noise_name, "strategy": strat_name}
+                row: dict[str, float | str] = {"noise": noise_name, "strategy": strat_name}
                 for k in metric_keys:
                     row[k] = metrics.get(k, math.nan)
                 rows.append(row)

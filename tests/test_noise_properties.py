@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import random
 
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
-from nvcenter.sim import PoissonNoise, CompositeNoise, GaussianNoise, DataBatch
+from nvision.sim import CompositeNoise, DataBatch, GaussianNoise, PoissonNoise
 
 
 @given(st.lists(st.floats(min_value=0, max_value=10, allow_nan=False, allow_infinity=False), min_size=0, max_size=200))

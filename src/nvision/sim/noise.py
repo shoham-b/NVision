@@ -3,12 +3,10 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import List, Sequence
 
-import polars as pl
+from nvision.mathutils import clamp
 
-from .core import DataBatch, NoiseModel
-from nvcenter.mathutils import clamp
+from .core import DataBatch
 
 
 @dataclass
@@ -24,7 +22,7 @@ class GaussianNoise:
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
         # Add Gaussian noise per-sample; clip if requested
-        out: List[float] = []
+        out: list[float] = []
         for v in data.signal_values:
             noisy = v + rng.gauss(0.0, self.sigma)
             if self.clip_min is not None:
@@ -46,7 +44,7 @@ class PoissonNoise:
     scale: float = 100.0  # larger scale -> closer to Gaussian
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
-        out: List[float] = []
+        out: list[float] = []
         for v in data.signal_values:
             lam = max(v * self.scale, 0.0)
             # Sample using Knuth's algorithm for Poisson
@@ -60,7 +58,9 @@ class PoissonNoise:
                 if k > 100000:
                     break
             k -= 1
-            out.append(k / self.scale)
+            # Ensure non-negative output
+            result = max(0.0, k / self.scale)
+            out.append(result)
         return data.with_y(out)
 
 
@@ -88,7 +88,7 @@ class OutlierSpikes:
     magnitude: float = 1.0
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
-        out: List[float] = []
+        out: list[float] = []
         for v in data.signal_values:
             if rng.random() < self.probability:
                 direction = -1.0 if rng.random() < 0.5 else 1.0
