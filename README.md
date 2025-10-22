@@ -1,117 +1,162 @@
-# NvCenter
+# NVision
 
-Project template scaffold with:
-- src/ package layout
-- Pytest tests (including Hypothesis-based fuzzing)
-- Lightweight custom fuzz runner (fuzz/run_fuzz.py)
-- Ruff linting and formatting with strict checks
-- GitHub Actions CI (Ruff + Pytest)
-- Comprehensive .gitignore
+[![CI Status](https://github.com/shoham-b/NVision/actions/workflows/ci.yml/badge.svg)](https://github.com/shoham-b/NVision/actions/workflows/ci.yml)
+[![Docker Build](https://github.com/shoham-b/NVision/actions/workflows/docker.yml/badge.svg)](https://github.com/shoham-b/NVision/actions/workflows/docker.yml)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)](https://pre-commit.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python Versions](https://img.shields.io/badge/python-3.12%20--%203.14-blue)](https://www.python.org/)
 
-Additionally, includes a clean, extensible simulation framework for NV-center measurements under nvcenter.sim:
-- Multiple data generators (Rabi oscillation, T1 decay)
-- Multiple noise models and compound noise application
-- Multiple measurement strategies
-- A runner to evaluate strategy performance across noise types
-- Uses Polars for tabular experiment summaries (fast DataFrame + CSV export)
+A modular framework for simulating, analyzing, and benchmarking **Nitrogen-Vacancy (NV) centers in diamond**—enabling next-generation quantum sensing experiments and reproducible scientific workflows.
 
-Note: The noise API has been modernized to operate on DataBatch objects (with an internal Polars DataFrame) rather than raw lists. This enables broader Polars usage throughout the simulation pipeline. See nvcenter.sim.core.DataBatch and nvcenter.sim.noise.* classes.
+---
 
-## Quick start
+## 1. Scientific Overview
 
-1. Create and activate a virtual environment (recommended).
-2. Install in editable mode with dev tools:
+NVision aims to accelerate the study of NV-center physics and quantum sensing by combining realistic simulations and robust analysis:
 
-   pip install -e .[dev]
+- **Physics & Protocols**: Models core quantum phenomena — Rabi oscillations, T₁ decay, and multi-modal measurements under configurable noise models.
+- **Reproducible Science**: Every experiment is fully controlled by a single seed and scenario grid, ensuring identical results for repeated runs.
+- **Analysis Pipelines**: Data and results are processed with fast, modern tabular tools (Polars DataFrames), supporting advanced statistical summaries and error analysis.
+- **Visualization**: Automatically generates comparison plots to easily interpret strategy performance, uncertainty, and real-world impact.
+- **Applications**: Designed for quantum magnetometry, microscopy, and custom quantum sensing protocol development.
 
-3. Lint and format checks (no changes applied):
+---
 
-   ruff format --check
-   ruff check
+## 2. Installation Guide
 
-4. Run tests:
+Get started quickly on any platform.
 
-   pytest -q
+### Prerequisites
 
-5. Run the combined simulations (writes CSVs under ./artifacts by default):
+- Python ≥3.12
+- Git (for cloning)
+- Optional: Docker (for containers)
 
-   python -m nvcenter --repeats 5 --seed 123 --loc-max-steps 150
+### Steps
 
-   This runs both the time-series ExperimentRunner (Rabi/T1) and the 1-D LocatorRunner (OnePeak/TowPeak with gaussian/rabi/t1_decay modes) across several noise presets using Polars for scenario grids and result tables.
+1. **Clone the repository**
+```
 
-   Results are cached by scenario (seed, repeats, strategies, noises) under ./artifacts/cache to avoid re-computation on repeated runs. Caching uses the diskcache library for robust on-disk storage. You can safely delete this folder to force recomputation.
+git clone https://github.com/shoham-b/NVision.git
+cd NVision
 
-   The command also generates comparison plots under ./artifacts:
-   - experiment_summary_<GEN>.png (RMSE by noise/strategy for each generator)
-   - locator_summary_single_<GEN>.png (single-peak errors/uncertainty)
-   - locator_summary_double_<GEN>.png (two-peak errors/uncertainty)
+```
+2. **Create and activate a virtual environment**
+```
 
-6. Run the simple fuzz loop locally (infinite loop, press Ctrl+C to stop):
+python -m venv .venv
+source .venv/bin/activate
 
-   python -m fuzz.run_fuzz
+```
+3. **Install in editable mode with developer tools**
+```
 
-## Configuration
+pip install -e .[dev]
 
-Reproducibility: All random generation (data + noise + iterative measurements) is driven by a single seed passed via the CLI `--seed`. Using the same seed with the same scenario inputs will yield identical results thanks to caching and consistent RNG usage.
-- Ruff configuration is in pyproject.toml under [tool.ruff]* keys.
-- Pytest configuration is in pyproject.toml under [tool.pytest.ini_options].
-- Setuptools uses a src/ layout defined in pyproject.toml.
+```
 
-## CI
-CI runs on push and pull requests:
-- ruff format --check
-- ruff check
-- pytest
+---
 
-You can adjust versions and steps in .github/workflows/ci.yml.
+## 3. User Workflow
 
+Run simulations, analyze results, and visualize outcomes—all in a reproducible pipeline.
 
-## Docker
+### Basic Usage
 
-Build and run the project in a container (multi-stage image):
+- **Run NV-center simulations**  
+```
 
-- Build runtime image:
+python -m nvcenter --repeats 5 --seed 123 --loc-max-steps 150
 
-  docker build -t nvcenter:dev -f Dockerfile --target runtime .
+```
+- Generates experimental datasets across strategies and noise conditions
+- Automatically produces CSV summaries and performance plots in `./artifacts`
+- Results are cached for efficient repeat runs
 
-- Run combined simulations (writes CSVs under ./artifacts on the host):
+- **Test code integrity** (optional)  
+```
 
-  docker run --rm -v %cd%/artifacts:/workspace/artifacts nvcenter:dev --repeats 5 --seed 123 --loc-max-steps 150
+ruff format --check
+ruff check
+pytest -q
 
-On Linux/macOS, replace %cd% with $(pwd).
+```
 
-A GitHub Actions workflow (.github/workflows/docker.yml) also builds the image on PRs/pushes and, on tags or main, pushes to GHCR using the repository’s GITHUB_TOKEN.
+- **Fuzz Testing** (stress-test for robustness)  
+```
 
-## CI pipelines
+python -m fuzz.run_fuzz
 
-The CI workflow (.github/workflows/ci.yml) runs on Ubuntu, Windows, and macOS for Python 3.9–3.12 and performs:
-- Ruff format check and lint
-- Pytest with coverage (XML + HTML)
-- Uploads coverage files as artifacts
+```
 
-A separate Docker workflow builds the runtime image and smoke‑tests it on PRs.
+- **Inspect Results**
+  - CSV files: scenario grids and measurement outcomes
+  - Plots:  
+    - `experiment_summary_.png`: RMSE by noise/strategy
+    - `locator_summary_single_.png`, `locator_summary_double_.png`: uncertainty/error for single/double peak contexts
 
-## Pre-commit hooks
+### Docker Usage
 
-Install and enable pre-commit to run linting locally before commits:
+- **Build runtime container**
+```
 
-- pip install pre-commit
-- pre-commit install
+docker build -t nvcenter:dev -f Dockerfile --target runtime .
 
-This repository ships .pre-commit-config.yaml configured with:
-- ruff-format (code formatting)
-- ruff (linting with autofix)
-- prettier for Markdown/YAML/JSON
+```
+- **Run in isolation**
+```
 
-## Makefile helpers
+docker run --rm -v \$(pwd)/artifacts:/workspace/artifacts nvcenter:dev --repeats 5 --seed 123 --loc-max-steps 150
 
-Common tasks (POSIX make):
-- make install
-- make lint
-- make format
-- make test
-- make coverage
-- make docker-build
-- make docker-run
+```
+- Ensures clean, reproducible environments and portable results
 
-On Windows without make, you can invoke the commands shown in the Makefile directly.
+---
+
+## 4. Developer Guide
+
+Join research and development efforts or extend NVision for custom projects.
+
+### Core Features
+
+- **Modern Python src/ layout** for modularity and clarity
+- **Comprehensive CI/CD**:  
+- GitHub Actions check linting (Ruff), formatting, and tests (Pytest) across OSes and Python versions (3.9–3.12)
+- Automated Docker builds and smoke-tests for reliability
+- **Pre-commit hooks** for instant code quality
+- **Makefile commands** for developer efficiency (POSIX make, or use commands directly):
+```
+
+make install
+make lint
+make format
+make test
+make coverage
+make docker-build
+make docker-run
+
+```
+- **Fuzz testing** with Hypothesis + custom runner for scientific resilience
+
+### Configuration At-a-Glance
+
+- `pyproject.toml`: main config for Ruff, Pytest, and setuptools
+- `.pre-commit-config.yaml`: pre-commit settings
+- `.github/workflows/ci.yml`, `.github/workflows/docker.yml`: GitHub Actions pipelines
+- `Dockerfile`: build container images
+
+### Contribution
+
+Feedback, feature requests, and PRs are welcome!  
+Please read code comments, follow style guides (Ruff/Prettier), and add tests for new modules.
+
+---
+
+## 5. Contact & License
+
+- Maintainer: Shoham Baris (shoham.baris@mail.huji.ac.il)
+- License: MIT
+
+---
+
+*NVision empowers scientists and developers to push the boundaries of quantum sensing research, with robust, efficient, and reproducible workflows from code to discovery.*
