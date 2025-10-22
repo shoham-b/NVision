@@ -1,0 +1,35 @@
+# Ignore Git and VCS
+.git
+.gitignore
+
+# Python caches and venvs
+__pycache__
+*.pyc
+.venv
+venv
+ENV
+.env
+
+# Build artifacts
+build
+dist
+*.egg-info
+
+# Test caches
+.pytest_cache
+.coverage*
+htmlcov
+coverage.xml
+
+# IDE/editor
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data / logs
+logs
+*.log
+artifacts
