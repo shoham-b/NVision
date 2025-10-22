@@ -45,7 +45,12 @@ def test_poisson_noise_non_negative():
 
 def test_rabi_estimate_noiseless_close():
     gen = RabiGenerator(
-        n_points=400, duration=10.0, amplitude=0.8, frequency=1.25, phase=0.3, offset=0.2,
+        n_points=400,
+        duration=10.0,
+        amplitude=0.8,
+        frequency=1.25,
+        phase=0.3,
+        offset=0.2,
     )
     data = gen.generate(random.Random(7))
     est = RabiEstimate().estimate(data)
