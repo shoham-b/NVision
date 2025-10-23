@@ -39,7 +39,7 @@ class GoldenSectionSearch:
         top = sorted(history, key=lambda o: o.intensity, reverse=True)[:k]
         mean = sum(o.x for o in top) / len(top)
         var = sum((o.x - mean) ** 2 for o in top) / len(top)
-        s = var ** 0.5
+        s = var**0.5
         return {
             "n_peaks": 1.0,
             "x1_hat": float(best.x),

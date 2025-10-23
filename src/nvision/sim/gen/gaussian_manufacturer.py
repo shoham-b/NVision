@@ -31,13 +31,16 @@ class GaussianManufacturer(PeakManufacturer, SeriesManufacturer):
         return f, {"sigma": self.sigma, "amplitude": self.amplitude, "mode": "gaussian"}
 
     def build_addition(
-        self, time_points: list[float], center: float, base: float, rng: random.Random,
+        self,
+        time_points: list[float],
+        center: float,
+        base: float,
+        rng: random.Random,
     ) -> tuple[list[float], dict[str, float]]:
         if not time_points:
             return [], {"amplitude": self.amplitude, "sigma": self.sigma, "mode": "gaussian"}
         y = [
-            self.amplitude
-            * math.exp(-0.5 * ((t - center) / max(self.sigma, 1e-12)) ** 2)
+            self.amplitude * math.exp(-0.5 * ((t - center) / max(self.sigma, 1e-12)) ** 2)
             for t in time_points
         ]
         return y, {"amplitude": self.amplitude, "sigma": self.sigma, "mode": "gaussian"}

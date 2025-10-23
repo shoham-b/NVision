@@ -16,6 +16,7 @@ class BayesianLocator:
         lo, hi = domain
         if len(history) < 2:
             import random
+
             return lo + random.random() * (hi - lo)
         # Very simple acquisition: pick midpoint of largest gap
         xs = sorted({o.x for o in history})

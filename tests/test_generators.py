@@ -38,7 +38,8 @@ def test_onepeak_rabi_mode_has_peak_near_truth():
 def test_onepeak_t1_decay_mode_has_peak_at_truth():
     rng = random.Random(321)
     gen = OnePeakGenerator(
-        manufacturer=T1DecayManufacturer(amplitude=1.0, t1_tau=0.08), base=0.0,
+        manufacturer=T1DecayManufacturer(amplitude=1.0, t1_tau=0.08),
+        base=0.0,
     )
     scan = gen.generate(rng)
     x_hat = _argmax_x_in_grid(scan.signal, scan.x_min, scan.x_max, n=2001)

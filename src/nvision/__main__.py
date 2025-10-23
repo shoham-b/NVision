@@ -45,9 +45,6 @@ def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     ]
 
 
-
-
-
 def _locator_strategies() -> list[tuple[str, object]]:
     return [
         ("Grid21", GridScan(n_points=21)),
@@ -59,7 +56,6 @@ def _locator_strategies() -> list[tuple[str, object]]:
 # -----------------------------
 # Orchestration
 # -----------------------------
-
 
 
 def run_locator_workflow(

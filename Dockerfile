@@ -13,10 +13,12 @@ WORKDIR /app
 # Pin versions and add -y to satisfy hadolint DL3008/DL3014
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
-      build-essential=12.10 \
-      curl \
-    && rm -rf /var/lib/apt/lists/* && \
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+      build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv via pip to avoid curl | sh and pin version
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --no-cache-dir uv==0.4.29
 
 ENV PATH="/root/.local/bin:${PATH}"
 
@@ -46,7 +48,8 @@ COPY pyproject.toml /workspace/pyproject.toml
 COPY src /workspace/src
 COPY requirements.txt /workspace/requirements.txt
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --no-cache-dir uv==0.4.29 && \
     uv pip install -r /workspace/requirements.txt
 
 # Default command runs the combined simulations (writes to ./artifacts inside container)

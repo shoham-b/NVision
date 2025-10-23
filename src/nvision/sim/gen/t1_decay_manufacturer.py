@@ -32,7 +32,11 @@ class T1DecayManufacturer(PeakManufacturer, SeriesManufacturer):
         return f, {"tau": float(tau), "amplitude": self.amplitude, "mode": "t1_decay"}
 
     def build_addition(
-        self, time_points: list[float], center: float, base: float, rng: random.Random,
+        self,
+        time_points: list[float],
+        center: float,
+        base: float,
+        rng: random.Random,
     ) -> tuple[list[float], dict[str, float]]:
         if not time_points:
             return [], {

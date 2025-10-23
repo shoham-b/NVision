@@ -10,6 +10,7 @@ import polars as pl
 if TYPE_CHECKING:
     from .locators import ScanBatch
 
+
 @dataclass
 class DataBatch:
     """Container for a single synthetic dataset.

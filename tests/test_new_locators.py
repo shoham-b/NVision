@@ -13,7 +13,7 @@ from nvision.sim import (
     ScalarMeasure,
     ScanBatch,
 )
-from nvision.sim.locators import Obs
+from nvision.sim.loc import Obs
 
 
 def test_odmr_locator_basic():
