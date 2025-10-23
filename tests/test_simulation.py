@@ -34,6 +34,3 @@ def test_poisson_noise_non_negative():
     p = PoissonNoise(scale=50.0)
     out = p.apply(data, rng)
     assert all(v >= 0 for v in out.signal_values)
-
-
-

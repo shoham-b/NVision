@@ -1,0 +1,5 @@
+failure-threshold: error
+format: tty
+ignored:
+  - DL3008  # apt-get install should use pinned versions (allow some unpinned)
+  - DL3018  # pin versions for apk/apt not always feasible in slim images

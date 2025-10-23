@@ -16,7 +16,11 @@ from nvision.sim.gen import SymmetricTwoPeakGenerator
 
 
 def _argmax_two_lr(
-    f, x_min: float, x_max: float, center: float, n: int = 2001,
+    f,
+    x_min: float,
+    x_max: float,
+    center: float,
+    n: int = 2001,
 ) -> tuple[float, float]:
     step = (x_max - x_min) / (n - 1)
     best_left = (-float("inf"), x_min)
@@ -106,5 +110,6 @@ def test_symmetric_twopeak_invalid_params_raise():
         ),
     )
     import pytest
+
     with pytest.raises(ValueError, match="sep_frac too large"):
         _ = gen.generate(rng)

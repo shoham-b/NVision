@@ -16,7 +16,7 @@ def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, fl
         xh = est.get("x1_hat", est.get("x_hat"))
         err = (
             abs(float(xh) - truth[0])
-            if xh is not None and isinstance(xh, (int, float)) and math.isfinite(float(xh))
+            if xh is not None and isinstance(xh, int | float) and math.isfinite(float(xh))
             else math.inf
         )
         return {"abs_err_x": float(err)}
@@ -26,8 +26,8 @@ def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, fl
         x1h is None
         or x2h is None
         or not (
-            isinstance(x1h, (int, float))
-            and isinstance(x2h, (int, float))
+            isinstance(x1h, int | float)
+            and isinstance(x2h, int | float)
             and math.isfinite(x1h)
             and math.isfinite(x2h)
         )
@@ -86,7 +86,7 @@ class LocatorRunner:
                         metrics = _pairing_error(scan.truth_positions, est)
                         # Include standardized uncertainty fields when present
                         for key in ("uncert", "uncert_pos", "uncert_sep"):
-                            if key in est and isinstance(est[key], (int, float)):
+                            if key in est and isinstance(est[key], int | float):
                                 metrics[key] = float(est[key])  # type: ignore[arg-type]
                         for k, v in metrics.items():
                             sum_metrics[k] = sum_metrics.get(k, 0.0) + float(v)
