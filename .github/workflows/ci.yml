@@ -38,9 +38,6 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync --group dev
-      - name: Pre-commit
-        run: |
-          uv run pre-commit run --all-files --show-diff-on-failure
       - name: Ruff format check
         run: |
           uv run ruff format --check
