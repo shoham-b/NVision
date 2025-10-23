@@ -12,7 +12,7 @@ from nvision.sim import (
     LocatorRunner,
     TwoPeakGreedy,
 )
-from nvision.sim.generators import SymmetricTwoPeakGenerator
+from nvision.sim.gen import SymmetricTwoPeakGenerator
 
 
 def _argmax_two_lr(
