@@ -1,2 +1,18 @@
+# Normalize line endings to LF for source/config files
+*.py text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.json text eol=lf
+
+# Keep binary files untouched
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
 *.db filter=lfs diff=lfs merge=lfs -text
 artifacts/** filter=lfs diff=lfs merge=lfs -text
