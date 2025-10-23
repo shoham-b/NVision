@@ -1,26 +1,13 @@
 # syntax=docker/dockerfile:1
 
-# Multi-stage Dockerfile for NVision
+# Multi-stage Dockerfile for NVision using uv-only
 # Stage 1: builder/test (installs dev deps, runs tests)
-FROM python:3.12-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-
-# System deps for building (if any) and for pip
-# Pin versions and add -y to satisfy hadolint DL3008/DL3014
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-      build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv via pip to avoid curl | sh and pin version
-RUN python -m pip install --upgrade pip && \
-    python -m pip install --no-cache-dir uv==0.4.29
-
-ENV PATH="/root/.local/bin:${PATH}"
 
 # Copy project metadata and install dev dependencies
 COPY pyproject.toml /app/pyproject.toml
@@ -36,7 +23,7 @@ RUN uv run ruff format --check && \
     uv run pytest -q
 
 # Stage 2: runtime image (slim) with only runtime deps
-FROM python:3.12-slim AS runtime
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -48,9 +35,7 @@ COPY pyproject.toml /workspace/pyproject.toml
 COPY src /workspace/src
 COPY requirements.txt /workspace/requirements.txt
 
-RUN python -m pip install --upgrade pip && \
-    python -m pip install --no-cache-dir uv==0.4.29 && \
-    uv pip install -r /workspace/requirements.txt
+RUN uv pip install -r /workspace/requirements.txt
 
 # Default command runs the combined simulations (writes to ./artifacts inside container)
 ENTRYPOINT ["uv", "run", "nvision"]
