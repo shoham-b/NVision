@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from ..locators import ScanBatch
+from ..locs import ScanBatch
 from ._protocols import PeakManufacturer
 
 
