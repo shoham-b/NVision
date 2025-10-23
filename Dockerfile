@@ -9,18 +9,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Copy project metadata and install dev dependencies
+# Copy project files
 COPY pyproject.toml /app/pyproject.toml
 COPY src /app/src
 COPY tests /app/tests
-COPY requirements-dev.txt /app/requirements-dev.txt
 
-RUN uv pip install -r requirements-dev.txt
+# Install dev dependencies defined in pyproject
+RUN uv sync --system --group dev
 
 # Lint & test (fail the build if these fail)
-RUN uv run ruff format --check && \
-    uv run ruff check && \
-    uv run pytest -q
+RUN uv run --system ruff format --check && \
+    uv run --system ruff check && \
+    uv run --system pytest -q
 
 # Stage 2: runtime image (slim) with only runtime deps
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
@@ -33,10 +33,10 @@ WORKDIR /workspace
 # Copy only the source and install runtime dependencies
 COPY pyproject.toml /workspace/pyproject.toml
 COPY src /workspace/src
-COPY requirements.txt /workspace/requirements.txt
 
-RUN uv pip install -r /workspace/requirements.txt
+# Install the package with runtime dependencies from pyproject
+RUN uv pip install --system /workspace
 
 # Default command runs the combined simulations (writes to ./artifacts inside container)
-ENTRYPOINT ["uv", "run", "nvision"]
+ENTRYPOINT ["uv", "run", "--system", "nvision"]
 CMD ["--repeats", "3", "--seed", "123", "--loc-max-steps", "100"]
