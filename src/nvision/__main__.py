@@ -18,7 +18,7 @@ from nvision.sim import (
     PoissonNoise,
     TwoPeakGreedy,
 )
-from nvision.sim.generators import (
+from nvision.sim.gen import (
     GaussianManufacturer,
     OnePeakGenerator,
     RabiManufacturer,

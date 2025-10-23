@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import polars as pl
 
 from .core import CompositeNoise, ScanGenerator
-from .locators import LocatorStrategy, MeasurementProcess, ScalarMeasure, ScanBatch
+from .locs import LocatorStrategy, MeasurementProcess, ScalarMeasure, ScanBatch
 
 
 def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, float]:
