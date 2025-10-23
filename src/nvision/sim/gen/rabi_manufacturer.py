@@ -50,7 +50,11 @@ class RabiManufacturer(PeakManufacturer, SeriesManufacturer):
         }
 
     def build_addition(
-        self, time_points: list[float], center: float, base: float, rng: random.Random,
+        self,
+        time_points: list[float],
+        center: float,
+        base: float,
+        rng: random.Random,
     ) -> tuple[list[float], dict[str, float]]:
         phi = self.rabi_phase if self.rabi_phase is not None else rng.uniform(0.0, 2 * math.pi)
         y = [
