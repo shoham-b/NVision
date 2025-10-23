@@ -4,7 +4,6 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..locators import ScanBatch
 from ._protocols import PeakManufacturer
 
 
