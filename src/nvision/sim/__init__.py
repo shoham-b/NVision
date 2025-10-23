@@ -9,7 +9,7 @@ Provides extensible interfaces and simple reference implementations for:
 """
 
 from .core import CompositeNoise, DataBatch, DataGenerator, MeasurementStrategy, NoiseModel
-from .generators import (
+from .gen import (
     GaussianManufacturer,
     MultiPeakGenerator,
     OnePeakGenerator,
@@ -21,7 +21,7 @@ from .generators import (
 from .loc_runner import LocatorRunner
 
 # Locators layer
-from .locators import (
+from .locs import (
     BayesianLocator,
     GoldenSectionSearch,
     GridScan,
@@ -32,7 +32,7 @@ from .locators import (
     ScanBatch,
     TwoPeakGreedy,
 )
-from .noise import DriftNoise, GaussianNoise, OutlierSpikes, PoissonNoise
+from .noises import DriftNoise, GaussianNoise, OutlierSpikes, PoissonNoise
 
 __all__ = [
     "BayesianLocator",

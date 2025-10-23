@@ -14,7 +14,11 @@ WORKDIR /app
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
       build-essential=12.10 \
-    && rm -rf /var/lib/apt/lists/*
+      curl \
+    && rm -rf /var/lib/apt/lists/* && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+ENV PATH="/root/.local/bin:${PATH}"
 
 # Copy project metadata and install dev dependencies
 COPY pyproject.toml /app/pyproject.toml
@@ -22,13 +26,12 @@ COPY src /app/src
 COPY tests /app/tests
 COPY requirements-dev.txt /app/requirements-dev.txt
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-dev.txt
+RUN uv pip install -r requirements-dev.txt
 
 # Lint & test (fail the build if these fail)
-RUN python -m ruff format --check && \
-    python -m ruff check && \
-    pytest -q
+RUN uv run ruff format --check && \
+    uv run ruff check && \
+    uv run pytest -q
 
 # Stage 2: runtime image (slim) with only runtime deps
 FROM python:3.12-slim AS runtime
@@ -43,9 +46,9 @@ COPY pyproject.toml /workspace/pyproject.toml
 COPY src /workspace/src
 COPY requirements.txt /workspace/requirements.txt
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /workspace/requirements.txt
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    uv pip install -r /workspace/requirements.txt
 
 # Default command runs the combined simulations (writes to ./artifacts inside container)
-ENTRYPOINT ["nvision"]
+ENTRYPOINT ["uv", "run", "nvision"]
 CMD ["--repeats", "3", "--seed", "123", "--loc-max-steps", "100"]
