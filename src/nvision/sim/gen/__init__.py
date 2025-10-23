@@ -1,8 +1,9 @@
-from ._protocols import PeakManufacturer, SeriesManufacturer
-from .gaussian_manufacturer import GaussianManufacturer
-from .multi_peak_generator import MultiPeakGenerator
-from .one_peak_generator import OnePeakGenerator
-from .rabi_manufacturer import RabiManufacturer
-from .symmetric_two_peak_generator import SymmetricTwoPeakGenerator
-from .t1_decay_manufacturer import T1DecayManufacturer
-from .two_peak_generator import TwoPeakGenerator
+from ._protocols import PeakManufacturer as PeakManufacturer
+from ._protocols import SeriesManufacturer as SeriesManufacturer
+from .gaussian_manufacturer import GaussianManufacturer as GaussianManufacturer
+from .multi_peak_generator import MultiPeakGenerator as MultiPeakGenerator
+from .one_peak_generator import OnePeakGenerator as OnePeakGenerator
+from .rabi_manufacturer import RabiManufacturer as RabiManufacturer
+from .symmetric_two_peak_generator import SymmetricTwoPeakGenerator as SymmetricTwoPeakGenerator
+from .t1_decay_manufacturer import T1DecayManufacturer as T1DecayManufacturer
+from .two_peak_generator import TwoPeakGenerator as TwoPeakGenerator
