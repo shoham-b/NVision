@@ -18,11 +18,13 @@ def test_noise_composition_deterministic_and_length():
     data = DataBatch(time_points=t, signal_values=y, meta={})
     rng1 = random.Random(42)
     rng2 = random.Random(42)
-    noise = CompositeNoise([
-        OverVoltageGaussianNoise(0.1),
-        OverTimeDriftNoise(0.05),
-        OverVoltageOutlierSpikes(0.1, 0.5),
-    ])
+    noise = CompositeNoise(
+        [
+            OverVoltageGaussianNoise(0.1),
+            OverTimeDriftNoise(0.05),
+            OverVoltageOutlierSpikes(0.1, 0.5),
+        ]
+    )
     d1 = noise.apply(data, rng1)
     d2 = noise.apply(data, rng2)
     assert len(d1.signal_values) == len(y)

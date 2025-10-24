@@ -32,16 +32,22 @@ from .locs import (
     ScanBatch,
     TwoPeakGreedy,
 )
-from .noises import DriftNoise, GaussianNoise, OutlierSpikes, PoissonNoise
+
+# Noise implementations: export concrete full class names (no short aliases)
+from .noises import (
+    OverTimeDriftNoise,
+    OverTimeRandomWalkNoise,
+    OverVoltageGaussianNoise,
+    OverVoltageOutlierSpikes,
+    OverVoltagePoissonNoise,
+)
 
 __all__ = [
     "BayesianLocator",
     "CompositeNoise",
     "DataBatch",
     "DataGenerator",
-    "DriftNoise",
     "GaussianManufacturer",
-    "GaussianNoise",
     "GoldenSectionSearch",
     "GridScan",
     "LocatorRunner",
@@ -52,8 +58,8 @@ __all__ = [
     "NoiseModel",
     "ODMRLocator",
     "OnePeakGenerator",
-    "OutlierSpikes",
-    "PoissonNoise",
+    "OverVoltageOutlierSpikes",
+    "OverVoltagePoissonNoise",
     "RabiManufacturer",
     "ScalarMeasure",
     "ScanBatch",
@@ -61,4 +67,8 @@ __all__ = [
     "T1DecayManufacturer",
     "TwoPeakGenerator",
     "TwoPeakGreedy",
+    # Export full noise class names
+    "OverTimeDriftNoise",
+    "OverVoltageGaussianNoise",
+    "OverTimeRandomWalkNoise",
 ]
