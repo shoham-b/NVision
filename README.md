@@ -30,6 +30,7 @@ Get started quickly on any platform.
 
 - Python ≥3.12
 - Git (for cloning)
+- [uv](https://github.com/astral-sh/uv) (for installation)
 - Optional: Docker (for containers)
 
 ### Steps
@@ -48,10 +49,10 @@ python -m venv .venv
 source .venv/bin/activate
 
 ```
-3. **Install in editable mode with developer tools**
+3. **Install dependencies**
 ```
 
-pip install -e .[dev]
+uv sync --group dev
 
 ```
 
@@ -66,7 +67,7 @@ Run simulations, analyze results, and visualize outcomes—all in a reproducible
 - **Run NV-center simulations**
 ```
 
-python -m nvcenter --repeats 5 --seed 123 --loc-max-steps 150
+uv run python -m nvision --repeats 5 --seed 123 --loc-max-steps 150
 
 ```
 - Generates experimental datasets across strategies and noise conditions
@@ -76,16 +77,16 @@ python -m nvcenter --repeats 5 --seed 123 --loc-max-steps 150
 - **Test code integrity** (optional)
 ```
 
-ruff format --check
-ruff check
-pytest -q
+uv run ruff format --check
+uv run ruff check
+uv run pytest -q
 
 ```
 
 - **Fuzz Testing** (stress-test for robustness)
 ```
 
-python -m fuzz.run_fuzz
+uv run python -m fuzz.run_fuzz
 
 ```
 
@@ -106,7 +107,7 @@ docker build -t nvcenter:dev -f Dockerfile --target runtime .
 - **Run in isolation**
 ```
 
-docker run --rm -v \$(pwd)/artifacts:/workspace/artifacts nvcenter:dev --repeats 5 --seed 123 --loc-max-steps 150
+docker run --rm -v $(pwd)/artifacts:/workspace/artifacts nvcenter:dev --repeats 5 --seed 123 --loc-max-steps 150
 
 ```
 - Ensures clean, reproducible environments and portable results
