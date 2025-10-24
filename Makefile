@@ -6,21 +6,20 @@ help:
 	@echo "Targets: install, lint, format, test, coverage, docker-build, docker-run"
 
 install:
-	python -m pip install --upgrade pip
-	pip install -e .[dev]
+	uv sync --group dev
 
 lint:
-	python -m ruff format --check
-	python -m ruff check
+	uv run ruff format --check
+	uv run ruff check
 
 format:
-	python -m ruff format
+	uv run ruff format
 
 test:
-	pytest -q
+	uv run pytest -q
 
 coverage:
-	pytest --cov=nvision --cov-report=term-missing --cov-report=xml --cov-report=html
+	uv run pytest --cov=nvision --cov-report=term-missing --cov-report=xml --cov-report=html
 
 # Docker targets
 IMAGE?=nvision:dev
