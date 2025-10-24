@@ -8,8 +8,8 @@ import polars as pl
 from nvision.sim import (
     CompositeNoise,
     GaussianManufacturer,
-    GaussianNoise,
     LocatorRunner,
+    OverVoltageGaussianNoise,
     TwoPeakGreedy,
 )
 from nvision.sim.gen import SymmetricTwoPeakGenerator
@@ -84,7 +84,7 @@ def test_symmetric_twopeak_runner_with_twopeak_greedy():
             ),
         ),
     ]
-    noises = [("NoNoise", None), ("Gauss", CompositeNoise([GaussianNoise(0.05)]))]
+    noises = [("NoNoise", None), ("Gauss", CompositeNoise([OverVoltageGaussianNoise(0.05)]))]
     strategies = [("TwoGreedy", TwoPeakGreedy(coarse_points=15, refine_points=5))]
 
     df = runner.sweep(generators, strategies, noises, repeats=2, max_steps=80)

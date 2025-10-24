@@ -9,25 +9,14 @@ import typer
 from nvision.cache import DataFrameCache
 from nvision.sim import (
     CompositeNoise,
-    DriftNoise,
-    GaussianNoise,
     GoldenSectionSearch,
     # Locator layer
     GridScan,
-    OutlierSpikes,
-    PoissonNoise,
     TwoPeakGreedy,
 )
-from nvision.sim.gen import (
-    GaussianManufacturer,
-    OnePeakGenerator,
-    RabiManufacturer,
-    T1DecayManufacturer,
-    TwoPeakGenerator,
-)
+from nvision.sim import cases as sim_cases
 from nvision.sim.loc_runner import LocatorRunner
 from nvision.viz import plot_locator_summary
-from nvision.sim import cases as sim_cases
 
 # -----------------------------
 # Scenario presets using existing components
@@ -36,11 +25,7 @@ from nvision.sim import cases as sim_cases
 
 def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     # Start simple and evolve: no noise -> single noises -> complex combos
-    return (
-        sim_cases.noises_none()
-        + sim_cases.noises_single_each()
-        + sim_cases.noises_complex()
-    )
+    return sim_cases.noises_none() + sim_cases.noises_single_each() + sim_cases.noises_complex()
 
 
 def _locator_strategies() -> list[tuple[str, object]]:
