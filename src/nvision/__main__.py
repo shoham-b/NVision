@@ -27,6 +27,7 @@ from nvision.sim.gen import (
 )
 from nvision.sim.loc_runner import LocatorRunner
 from nvision.viz import plot_locator_summary
+from nvision.sim import cases as sim_cases
 
 # -----------------------------
 # Scenario presets using existing components
@@ -34,15 +35,12 @@ from nvision.viz import plot_locator_summary
 
 
 def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
-    return [
-        ("NoNoise", None),
-        ("Gauss(0.05)", CompositeNoise([GaussianNoise(0.05)])),
-        (
-            "Heavy",
-            CompositeNoise([GaussianNoise(0.1), DriftNoise(0.05), OutlierSpikes(0.02, 0.5)]),
-        ),
-        ("Poisson(50)", CompositeNoise([PoissonNoise(scale=50.0)])),
-    ]
+    # Start simple and evolve: no noise -> single noises -> complex combos
+    return (
+        sim_cases.noises_none()
+        + sim_cases.noises_single_each()
+        + sim_cases.noises_complex()
+    )
 
 
 def _locator_strategies() -> list[tuple[str, object]]:
@@ -66,28 +64,8 @@ def run_locator_workflow(
 ) -> pl.DataFrame:
     runner = LocatorRunner(rng_seed=rng_seed)
 
-    # Generators: OnePeak in different modes + TwoPeak
-    generators: list[tuple[str, object]] = [
-        (
-            "OnePeak-gaussian",
-            OnePeakGenerator(manufacturer=GaussianManufacturer()),
-        ),
-        (
-            "OnePeak-rabi",
-            OnePeakGenerator(manufacturer=RabiManufacturer()),
-        ),
-        (
-            "OnePeak-t1_decay",
-            OnePeakGenerator(manufacturer=T1DecayManufacturer()),
-        ),
-        (
-            "TwoPeak",
-            TwoPeakGenerator(
-                manufacturer_left=GaussianManufacturer(),
-                manufacturer_right=GaussianManufacturer(),
-            ),
-        ),
-    ]
+    # Generators: start with simple, then expand (managed in sim/cases.py)
+    generators: list[tuple[str, object]] = sim_cases.generators_basic()
     strategies: list[tuple[str, object]] = _locator_strategies()
     noises = _noise_presets()
 
