@@ -8,8 +8,8 @@ import random
 from nvision.sim import (
     BayesianLocator,
     CompositeNoise,
-    GaussianNoise,
     ODMRLocator,
+    OverVoltageGaussianNoise,
     ScalarMeasure,
     ScanBatch,
 )
@@ -36,7 +36,7 @@ def test_odmr_locator_basic():
     locator = ODMRLocator(coarse_points=5, refine_points=3, uncertainty_threshold=0.05)
 
     # Create measurement with noise
-    noise = CompositeNoise([GaussianNoise(0.05)])
+    noise = CompositeNoise([OverVoltageGaussianNoise(0.05)])
     ScalarMeasure(noise=noise)
 
     # Test propose_next
@@ -82,7 +82,7 @@ def test_bayesian_locator_basic():
     locator = BayesianLocator(max_evals=10, uncertainty_threshold=0.03)
 
     # Create measurement with noise
-    noise = CompositeNoise([GaussianNoise(0.03)])
+    noise = CompositeNoise([OverVoltageGaussianNoise(0.03)])
     ScalarMeasure(noise=noise)
 
     # Test propose_next
@@ -120,7 +120,7 @@ def test_uncertainty_calculation():
 
     # Test with ODMR locator
     locator = ODMRLocator(coarse_points=8, refine_points=4)
-    noise = CompositeNoise([GaussianNoise(0.1)])
+    noise = CompositeNoise([OverVoltageGaussianNoise(0.1)])
     ScalarMeasure(noise=noise)
 
     # Simulate a measurement process
