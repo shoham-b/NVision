@@ -4,13 +4,13 @@ import polars as pl
 
 from nvision.sim import (
     CompositeNoise,
-    DriftNoise,
     GaussianManufacturer,
-    GaussianNoise,
     GoldenSectionSearch,
     GridScan,
     OnePeakGenerator,
-    OutlierSpikes,
+    OverTimeDriftNoise,
+    OverVoltageGaussianNoise,
+    OverVoltageOutlierSpikes,
     TwoPeakGenerator,
     TwoPeakGreedy,
 )
@@ -33,8 +33,17 @@ def test_locator_sweep_dataframe_shape():
     ]
     noises = [
         ("NoNoise", None),
-        ("Gauss", CompositeNoise([GaussianNoise(0.05)])),
-        ("Heavy", CompositeNoise([GaussianNoise(0.1), DriftNoise(0.05), OutlierSpikes(0.02, 0.5)])),
+        ("Gauss", CompositeNoise([OverVoltageGaussianNoise(0.05)])),
+        (
+            "Heavy",
+            CompositeNoise(
+                [
+                    OverVoltageGaussianNoise(0.1),
+                    OverTimeDriftNoise(0.05),
+                    OverVoltageOutlierSpikes(0.02, 0.5),
+                ]
+            ),
+        ),
     ]
     strategies = [
         ("Grid21", GridScan(n_points=21)),
