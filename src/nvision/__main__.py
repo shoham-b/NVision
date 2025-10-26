@@ -100,12 +100,14 @@ def compile_html_index(out_dir: Path) -> Path:
                     ]
                 )
             except Exception as e:  # pragma: no cover - best-effort copy
-                parts.extend([
-                    '<p style="color:#b91c1c">',
-                    'Couldn\'t copy coverage report: ',
-                    html.escape(str(e)),
-                    '</p>'
-                ])
+                parts.extend(
+                    [
+                        '<p style="color:#b91c1c">',
+                        "Couldn't copy coverage report: ",
+                        html.escape(str(e)),
+                        "</p>",
+                    ]
+                )
 
     parts.append("</body></html>")
 
