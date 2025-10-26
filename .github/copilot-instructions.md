@@ -1,1 +1,1 @@
-when invoking tools and when running etc, always use uv.
+when invoking pip and and when running etc, always use uv.

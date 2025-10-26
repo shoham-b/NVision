@@ -31,7 +31,6 @@ class OverVoltageNoises:
         return out
 
 
-
 @dataclass
 class OverTimeNoises:
     """Group of cumulative/system noises applied in sequence.
