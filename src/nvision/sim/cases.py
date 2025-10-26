@@ -43,6 +43,7 @@ def generators_basic() -> list[tuple[str, object]]:
 
 # Noise tiers: start simple and evolve
 
+
 def noises_none() -> list[tuple[str, CompositeNoise | None]]:
     return [("NoNoise", None)]
 
@@ -58,10 +59,12 @@ def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
     return [
         (
             "Heavy",
-            CompositeNoise([
-                OverVoltageGaussianNoise(0.1),
-                OverTimeDriftNoise(0.05),
-                OverVoltageOutlierSpikes(0.02, 0.5),
-            ]),
+            CompositeNoise(
+                [
+                    OverVoltageGaussianNoise(0.1),
+                    OverTimeDriftNoise(0.05),
+                    OverVoltageOutlierSpikes(0.02, 0.5),
+                ]
+            ),
         ),
     ]
