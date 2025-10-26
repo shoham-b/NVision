@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
@@ -25,6 +26,9 @@ def plot_experiment_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
     paths: list[Path] = []
     if plt is None or df.height == 0:
         return paths
+
+    # Not yet implemented, return empty list to satisfy types and callers.
+    return paths
 
 
 def plot_scan_measurements(scan, history: pl.DataFrame, out_path: Path) -> Path:
@@ -63,7 +67,8 @@ def plot_scan_measurements(scan, history: pl.DataFrame, out_path: Path) -> Path:
             if "signal_values" in history.columns
             else []
         )
-        cmap = plt2.cm.viridis
+        # Use get_cmap to avoid static-typing lookup issues
+        cmap = plt2.get_cmap("viridis")
         colors = [cmap(i / max(1, len(steps) - 1)) for i in steps]
         ax.scatter(xs_s, ys_s, c=colors, s=20, edgecolor="k", linewidths=0.3, zorder=3)
         # Colorbar
@@ -87,6 +92,154 @@ def plot_scan_measurements(scan, history: pl.DataFrame, out_path: Path) -> Path:
     return out_path
 
 
+def _plot_pivot_from_polars(
+    pivot_pl: pl.DataFrame, title: str, ylabel: str, out_path: Path
+) -> Path:
+    """Plot a bar chart from a polars pivoted dataframe.
+
+    Expected format: first column is the index (noise), remaining columns are strategies.
+    """
+    import matplotlib.pyplot as plt2
+    import numpy as np
+
+    # Extract index and strategy columns
+    cols = pivot_pl.columns
+    if not cols:
+        return out_path
+    index_col = cols[0]
+    strategies = [c for c in cols if c != index_col]
+    noises = pivot_pl.get_column(index_col).to_list()
+    if len(strategies) == 0:
+        # Nothing to plot
+        return out_path
+
+    matrix = [pivot_pl.get_column(s).to_list() for s in strategies]
+    # Convert to numpy array shape (n_strategies, n_noises)
+    arr = np.array(matrix, dtype=float)
+
+    x = np.arange(len(noises))
+    width = 0.8 / max(1, arr.shape[0])
+
+    fig, ax = plt2.subplots(figsize=(11, 6))
+    for i, row in enumerate(arr):
+        ax.bar(x + i * width, row, width=width, label=strategies[i])
+
+    ax.set_xticks(x + width * (arr.shape[0] - 1) / 2)
+    ax.set_xticklabels(noises, rotation=45, ha="right")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path.as_posix(), dpi=150)
+    plt2.close(fig)
+    return out_path
+
+
+def _plot_single_peak(sub: pl.DataFrame, gen: str, out_dir: Path, paths: list[Path]) -> None:
+    """Handle plotting for a single-peak generator subset."""
+    # Try to use pandas for convenience; fall back to polars-based pivot
+    pdf: Any = None
+    use_pandas = False
+    try:
+        pdf = sub.select(["noise", "strategy", "abs_err_x", "uncert"]).to_pandas()
+        use_pandas = True
+    except Exception:
+        use_pandas = False
+
+    if use_pandas:
+        # Two subplots: error and uncertainty
+        import matplotlib.pyplot as plt2
+        import pandas as pd
+
+        fig, axes = plt2.subplots(2, 1, figsize=(11, 8), sharex=True)
+        for ax, col, title in zip(
+            axes,
+            ["abs_err_x", "uncert"],
+            ["Abs Error", "Uncertainty"],
+            strict=False,
+        ):
+            # pdf is a pandas DataFrame here; ensure type
+            assert pdf is not None
+            pdf_pd = pd.DataFrame(pdf)
+            piv = pdf_pd.pivot(index="noise", columns="strategy", values=col).sort_index()
+            piv.plot(kind="bar", ax=ax)
+            ax.set_title(f"{title} — {gen}")
+            ax.set_ylabel(col)
+            ax.grid(True, axis="y", alpha=0.3)
+        axes[-1].set_xlabel("Noise")
+        fig.tight_layout()
+        path = out_dir / f"locator_summary_single_{gen}.png"
+        fig.savefig(path.as_posix(), dpi=150)
+        plt2.close(fig)
+        paths.append(path)
+    else:
+        # Build polars pivot for both columns and plot using _plot_pivot_from_polars
+        for col, title in zip(["abs_err_x", "uncert"], ["Abs Error", "Uncertainty"], strict=False):
+            piv_pl = (
+                sub.select(["noise", "strategy", col])
+                .groupby(["noise", "strategy"])  # type: ignore[attr-defined]
+                .agg(pl.col(col).mean())
+                .pivot(values=col, index="noise", columns="strategy")
+            )  # type: ignore[attr-defined]
+            path = out_dir / f"locator_summary_single_{gen}_{col}.png"
+            _plot_pivot_from_polars(piv_pl, f"{title} — {gen}", col, path)
+            paths.append(path)
+
+
+def _plot_double_peak(sub: pl.DataFrame, gen: str, out_dir: Path, paths: list[Path]) -> None:
+    """Handle plotting for a two-peak generator subset."""
+    pdf: Any = None
+    use_pandas = False
+    try:
+        pdf = sub.select(["noise", "strategy", "pair_rmse", "uncert_sep"]).to_pandas()
+        use_pandas = True
+    except Exception:
+        use_pandas = False
+
+    if use_pandas:
+        import matplotlib.pyplot as plt2
+        import pandas as pd
+
+        fig, axes = plt2.subplots(2, 1, figsize=(11, 8), sharex=True)
+        for ax, col, title in zip(
+            axes,
+            ["pair_rmse", "uncert_sep"],
+            ["Pair RMSE", "Uncertainty (sep)"],
+            strict=False,
+        ):
+            assert pdf is not None
+            pdf_pd = pd.DataFrame(pdf)
+            piv = pdf_pd.pivot(index="noise", columns="strategy", values=col).sort_index()
+            piv.plot(kind="bar", ax=ax)
+            ax.set_title(f"{title} — {gen}")
+            ax.set_ylabel(col)
+            ax.grid(True, axis="y", alpha=0.3)
+        axes[-1].set_xlabel("Noise")
+        fig.tight_layout()
+        path = out_dir / f"locator_summary_double_{gen}.png"
+        fig.savefig(path.as_posix(), dpi=150)
+        plt2.close(fig)
+        paths.append(path)
+    else:
+        # Build polars pivot for both columns and plot using _plot_pivot_from_polars
+        metric_pairs = zip(
+            ["pair_rmse", "uncert_sep"],
+            ["Pair RMSE", "Uncertainty (sep)"],
+            strict=False,
+        )
+        for col, title in metric_pairs:
+            piv_pl = (
+                sub.select(["noise", "strategy", col])
+                .groupby(["noise", "strategy"])  # type: ignore[attr-defined]
+                .agg(pl.col(col).mean())
+                .pivot(values=col, index="noise", columns="strategy")
+            )  # type: ignore[attr-defined]
+            path = out_dir / f"locator_summary_double_{gen}_{col}.png"
+            _plot_pivot_from_polars(piv_pl, f"{title} — {gen}", col, path)
+            paths.append(path)
+
+
 def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
     """Create comparison plots for locator sweeps.
 
@@ -103,33 +256,11 @@ def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
     # Single-peak
     singles = df.filter(pl.col("generator").str.contains("OnePeak"))
     if singles.height > 0 and all(col in singles.columns for col in ["abs_err_x", "uncert"]):
-        # One figure per generator mode
         for gen in sorted(set(singles.get_column("generator").to_list())):
             sub = singles.filter(pl.col("generator") == gen)
             if sub.height == 0:
                 continue
-            pdf = sub.select(["noise", "strategy", "abs_err_x", "uncert"]).to_pandas()
-            # Two subplots: error and uncertainty
-            import matplotlib.pyplot as plt2  # local alias to satisfy type checkers
-
-            fig, axes = plt2.subplots(2, 1, figsize=(11, 8), sharex=True)
-            for ax, col, title in zip(
-                axes,
-                ["abs_err_x", "uncert"],
-                ["Abs Error", "Uncertainty"],
-                strict=False,
-            ):
-                piv = pdf.pivot(index="noise", columns="strategy", values=col).sort_index()
-                piv.plot(kind="bar", ax=ax)
-                ax.set_title(f"{title} — {gen}")
-                ax.set_ylabel(col)
-                ax.grid(True, axis="y", alpha=0.3)
-            axes[-1].set_xlabel("Noise")
-            fig.tight_layout()
-            path = out_dir / f"locator_summary_single_{gen}.png"
-            fig.savefig(path.as_posix(), dpi=150)
-            plt2.close(fig)
-            paths.append(path)
+            _plot_single_peak(sub, gen, out_dir, paths)
 
     # Two-peak
     doubles = df.filter(pl.col("generator").str.contains("TwoPeak"))
@@ -138,26 +269,6 @@ def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
             sub = doubles.filter(pl.col("generator") == gen)
             if sub.height == 0:
                 continue
-            pdf = sub.select(["noise", "strategy", "pair_rmse", "uncert_sep"]).to_pandas()
-            import matplotlib.pyplot as plt2
-
-            fig, axes = plt2.subplots(2, 1, figsize=(11, 8), sharex=True)
-            for ax, col, title in zip(
-                axes,
-                ["pair_rmse", "uncert_sep"],
-                ["Pair RMSE", "Uncertainty (sep)"],
-                strict=False,
-            ):
-                piv = pdf.pivot(index="noise", columns="strategy", values=col).sort_index()
-                piv.plot(kind="bar", ax=ax)
-                ax.set_title(f"{title} — {gen}")
-                ax.set_ylabel(col)
-                ax.grid(True, axis="y", alpha=0.3)
-            axes[-1].set_xlabel("Noise")
-            fig.tight_layout()
-            path = out_dir / f"locator_summary_double_{gen}.png"
-            fig.savefig(path.as_posix(), dpi=150)
-            plt2.close(fig)
-            paths.append(path)
+            _plot_double_peak(sub, gen, out_dir, paths)
 
     return paths

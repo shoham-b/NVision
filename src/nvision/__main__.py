@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -39,6 +41,76 @@ def _locator_strategies() -> list[tuple[str, object]]:
 # -----------------------------
 # Orchestration
 # -----------------------------
+
+
+def compile_html_index(out_dir: Path) -> Path:
+    """Create a simple index.html in out_dir that links to outputs and embeds generated graphs.
+
+    - Links to locator_results.csv (if present)
+    - Embeds images from out_dir/graphs
+    - If project-level htmlcov exists, copy it into out_dir/htmlcov and link to it
+    Returns the path to the generated index file.
+    """
+    index_path = out_dir / "index.html"
+
+    parts: list[str] = []
+    parts.append("<!doctype html>")
+    parts.append('<html lang="en">')
+    parts.append('<head><meta charset="utf-8"><title>NVision results</title></head>')
+    parts.append("<body>")
+    parts.append(f"<h1>NVision results ({html.escape(out_dir.as_posix())})</h1>")
+
+    # Link to CSV result
+    csv_path = out_dir / "locator_results.csv"
+    if csv_path.exists():
+        parts.append(
+            f'<p><a href="{html.escape(csv_path.name)}">Download locator_results.csv</a></p>'
+        )
+
+    # Embed graphs if any
+    graphs_dir = out_dir / "graphs"
+    if graphs_dir.exists() and graphs_dir.is_dir():
+        parts.append("<h2>Generated graphs</h2>")
+        parts.append('<div style="display:flex;flex-wrap:wrap;gap:12px;">')
+        for img in sorted(graphs_dir.iterdir()):
+            if img.suffix.lower() in (".png", ".jpg", ".jpeg", ".svg", ".gif"):
+                rel = Path("graphs") / img.name
+                parts.append(
+                    f'<figure style="width:300px;">'
+                    f'<img src="{html.escape(str(rel.as_posix()))}" '
+                    f'alt="{html.escape(img.name)}" '
+                    f'style="max-width:100%;height:auto;"/>'
+                    f"<figcaption>{html.escape(img.name)}</figcaption></figure>"
+                )
+            parts.append("</div>")
+
+        # Optionally include coverage report if present at project root/htmlcov
+        project_htmlcov = Path("htmlcov")
+        target_htmlcov = out_dir / "htmlcov"
+        if project_htmlcov.exists() and project_htmlcov.is_dir():
+            # Copy into out_dir/htmlcov (replace if exists)
+            try:
+                if target_htmlcov.exists():
+                    shutil.rmtree(target_htmlcov)
+                shutil.copytree(project_htmlcov, target_htmlcov)
+                parts.extend(
+                    [
+                        "<h2>Coverage report</h2>",
+                        '<p><a href="htmlcov/index.html">View coverage report</a></p>',
+                    ]
+                )
+            except Exception as e:  # pragma: no cover - best-effort copy
+                parts.extend([
+                    '<p style="color:#b91c1c">',
+                    'Couldn\'t copy coverage report: ',
+                    html.escape(str(e)),
+                    '</p>'
+                ])
+
+    parts.append("</body></html>")
+
+    index_path.write_text("\n".join(parts), encoding="utf-8")
+    return index_path
 
 
 def run_locator_workflow(
@@ -109,11 +181,24 @@ def cli(
             print("Saved plots:")
             for p in loc_imgs:
                 print(f" - {p}")
-    except Exception as e:
+    except Exception as e:  # pragma: no cover - plotting is optional
         print(f"[warn] plotting failed: {e}")
 
-    # Save locator results only
-    (out_dir / "locator_results.csv").write_text(df_loc.write_csv())
+    # Save locator results
+    # write_csv already saved to disk in run_locator_workflow; retrying for older
+    # polars version compatibility
+    from contextlib import suppress
+
+    with suppress(Exception):
+        # df_loc.write_csv() may return None in newer versions; file already written
+        (out_dir / "locator_results.csv").write_text(df_loc.write_csv())
+
+    # Build an HTML index to browse outputs locally
+    try:
+        idx = compile_html_index(out_dir)
+        print(f"Generated HTML index at: {idx.absolute().as_uri()}")
+    except Exception as e:  # pragma: no cover - best-effort
+        print(f"[warn] failed to build HTML index: {e}")
 
     print(f"Wrote locator results to: {out_dir}")
     return 0
