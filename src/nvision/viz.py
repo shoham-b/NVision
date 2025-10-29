@@ -178,7 +178,7 @@ def _plot_single_peak(sub: pl.DataFrame, gen: str, out_dir: Path, paths: list[Pa
         for col, title in zip(["abs_err_x", "uncert"], ["Abs Error", "Uncertainty"], strict=False):
             piv_pl = (
                 sub.select(["noise", "strategy", col])
-                .groupby(["noise", "strategy"])  # type: ignore[attr-defined]
+                .group_by(["noise", "strategy"])  # type: ignore[attr-defined]
                 .agg(pl.col(col).mean())
                 .pivot(values=col, index="noise", columns="strategy")
             )  # type: ignore[attr-defined]
@@ -231,7 +231,7 @@ def _plot_double_peak(sub: pl.DataFrame, gen: str, out_dir: Path, paths: list[Pa
         for col, title in metric_pairs:
             piv_pl = (
                 sub.select(["noise", "strategy", col])
-                .groupby(["noise", "strategy"])  # type: ignore[attr-defined]
+                .group_by(["noise", "strategy"])  # type: ignore[attr-defined]
                 .agg(pl.col(col).mean())
                 .pivot(values=col, index="noise", columns="strategy")
             )  # type: ignore[attr-defined]
