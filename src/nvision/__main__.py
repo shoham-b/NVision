@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import html
+import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -19,6 +21,13 @@ from nvision.sim import (
 from nvision.sim import cases as sim_cases
 from nvision.sim.loc_runner import LocatorRunner
 from nvision.viz import plot_locator_summary
+
+
+def _slugify_for_path(value: str) -> str:
+    slug = re.sub(r"[^0-9A-Za-z]+", "_", value)
+    slug = slug.strip("_")
+    return slug or "item"
+
 
 # -----------------------------
 # Scenario presets using existing components
@@ -120,6 +129,7 @@ def run_locator_workflow(
     repeats: int,
     rng_seed: int | None,
     max_steps: int,
+    history_callback: Callable[[str, str, str, int, object, pl.DataFrame], None] | None = None,
 ) -> pl.DataFrame:
     runner = LocatorRunner(rng_seed=rng_seed)
 
@@ -151,7 +161,14 @@ def run_locator_workflow(
     if cached is not None:
         df = cached
     else:
-        df = runner.sweep(generators, strategies, noises, repeats=repeats, max_steps=max_steps)
+        df = runner.sweep(
+            generators,
+            strategies,
+            noises,
+            repeats=repeats,
+            max_steps=max_steps,
+            history_callback=history_callback,
+        )
         cache.save_df(df, key)
 
     out_path = out_dir / "locator_results.csv"
