@@ -69,13 +69,23 @@ def plot_scan_measurements(scan, history: pl.DataFrame, out_path: Path) -> Path:
         )
         # Use get_cmap to avoid static-typing lookup issues
         cmap = plt2.get_cmap("viridis")
-        colors = [cmap(i / max(1, len(steps) - 1)) for i in steps]
-        ax.scatter(xs_s, ys_s, c=colors, s=20, edgecolor="k", linewidths=0.3, zorder=3)
-        # Colorbar
         from matplotlib.cm import ScalarMappable  # type: ignore
         from matplotlib.colors import Normalize  # type: ignore
 
-        sm = ScalarMappable(norm=Normalize(vmin=0, vmax=max(1, len(steps) - 1)), cmap=cmap)
+        norm = Normalize(vmin=0, vmax=max(1, len(steps) - 1))
+        ax.scatter(
+            xs_s,
+            ys_s,
+            c=steps,
+            cmap=cmap,
+            norm=norm,
+            s=20,
+            edgecolor="k",
+            linewidths=0.3,
+            zorder=3,
+        )
+        # Colorbar
+        sm = ScalarMappable(norm=norm, cmap=cmap)
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, pad=0.01)
         cbar.set_label("step")

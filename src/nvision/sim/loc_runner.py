@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import polars as pl
@@ -51,6 +51,49 @@ class LocatorRunner:
     def __post_init__(self) -> None:
         self._rng = random.Random(self.rng_seed)
 
+    def _run_configuration(
+        self,
+        gen_name: str,
+        gen: ScanGenerator,
+        noise_name: str,
+        noise: CompositeNoise | None,
+        strat_name: str,
+        strat: LocatorStrategy,
+        repeats: int,
+        max_steps: int,
+        history_callback: Callable[[str, str, str, int, ScanBatch, pl.DataFrame], None] | None,
+    ) -> dict[str, float | str]:
+        sum_metrics: dict[str, float] = {}
+        count = 0
+        for repeat_idx in range(repeats):
+            scan = gen.generate(self._rng)
+            history_df, est = self.run_once(scan, strat, noise, max_steps)
+            if history_callback is not None:
+                history_callback(
+                    gen_name,
+                    noise_name,
+                    strat_name,
+                    repeat_idx,
+                    scan,
+                    history_df,
+                )
+            metrics = _pairing_error(scan.truth_positions, est)
+            for key in ("uncert", "uncert_pos", "uncert_sep"):
+                if key in est and isinstance(est[key], int | float):
+                    metrics[key] = float(est[key])  # type: ignore[arg-type]
+            for k, v in metrics.items():
+                sum_metrics[k] = sum_metrics.get(k, 0.0) + float(v)
+            count += 1
+
+        avg = {k: v / max(1, count) for k, v in sum_metrics.items()}
+        row: dict[str, float | str] = {
+            "generator": gen_name,
+            "noise": noise_name,
+            "strategy": strat_name,
+        }
+        row.update(avg)
+        return row
+
     def run_once(
         self,
         scan: ScanBatch,
@@ -73,32 +116,26 @@ class LocatorRunner:
         noises: Sequence[tuple[str, CompositeNoise | None]],
         repeats: int = 10,
         max_steps: int = 200,
+        history_callback: Callable[[str, str, str, int, ScanBatch, pl.DataFrame], None]
+        | None = None,
     ) -> pl.DataFrame:
         rows: list[dict[str, float | str]] = []
         for gen_name, gen in generators:
             for noise_name, noise in noises:
                 for strat_name, strat in strategies:
-                    sum_metrics: dict[str, float] = {}
-                    count = 0
-                    for _ in range(repeats):
-                        scan = gen.generate(self._rng)
-                        _, est = self.run_once(scan, strat, noise, max_steps)
-                        metrics = _pairing_error(scan.truth_positions, est)
-                        # Include standardized uncertainty fields when present
-                        for key in ("uncert", "uncert_pos", "uncert_sep"):
-                            if key in est and isinstance(est[key], int | float):
-                                metrics[key] = float(est[key])  # type: ignore[arg-type]
-                        for k, v in metrics.items():
-                            sum_metrics[k] = sum_metrics.get(k, 0.0) + float(v)
-                        count += 1
-                    avg = {k: v / max(1, count) for k, v in sum_metrics.items()}
-                    row: dict[str, float | str] = {
-                        "generator": gen_name,
-                        "noise": noise_name,
-                        "strategy": strat_name,
-                    }
-                    row.update(avg)
-                    rows.append(row)
+                    rows.append(
+                        self._run_configuration(
+                            gen_name,
+                            gen,
+                            noise_name,
+                            noise,
+                            strat_name,
+                            strat,
+                            repeats,
+                            max_steps,
+                            history_callback,
+                        )
+                    )
         if not rows:
             return pl.DataFrame({"generator": [], "noise": [], "strategy": []})
         df = pl.DataFrame(rows)
