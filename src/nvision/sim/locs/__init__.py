@@ -7,4 +7,5 @@ from .odmr_locator import ODMRLocator as ODMRLocator
 from .protocols import LocatorStrategy as LocatorStrategy
 from .scalar_measure import ScalarMeasure as ScalarMeasure
 from .scan_batch import ScanBatch as ScanBatch
+from .sequential_bayesian_locator import SequentialBayesianLocator as SequentialBayesianLocator
 from .two_peak_greedy import TwoPeakGreedy as TwoPeakGreedy
