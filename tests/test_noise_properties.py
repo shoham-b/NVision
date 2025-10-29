@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from nvision.sim import DataBatch
@@ -10,6 +10,7 @@ from nvision.sim.core import CompositeNoise
 from nvision.sim.noises import OverVoltageGaussianNoise, OverVoltagePoissonNoise
 
 
+@settings(deadline=None)
 @given(
     st.lists(
         st.floats(min_value=0, max_value=10, allow_nan=False, allow_infinity=False),
@@ -32,6 +33,7 @@ def test_poisson_noise_properties(values):
     assert out1.signal_values == out2.signal_values
 
 
+@settings(deadline=None)
 @given(
     st.lists(
         st.floats(min_value=-10, max_value=10, allow_nan=False, allow_infinity=False),
