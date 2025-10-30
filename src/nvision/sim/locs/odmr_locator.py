@@ -3,11 +3,23 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .obs import Obs
+from nvision.sim.locs.models.obs import Obs
 
 
 @dataclass
 class ODMRLocator:
+    """A locator that mimics a common two-stage ODMR measurement strategy.
+
+    This strategy consists of two phases:
+    1.  **Coarse Scan**: A fixed number of points (`coarse_points`) are measured
+        evenly across the entire domain to get a rough overview of the spectrum.
+    2.  **Refinement**: After the coarse scan, the locator identifies the most
+        promising region (around the point with the highest intensity) and
+        proposes additional points to refine the measurement in that area.
+
+    This approach balances initial exploration with subsequent exploitation.
+    """
+
     coarse_points: int = 20
     refine_points: int = 10
     min_separation_frac: float = 0.05

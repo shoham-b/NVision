@@ -4,8 +4,8 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..locs import ScanBatch
-from ._protocols import PeakManufacturer
+from nvision.sim.gen._protocols import PeakManufacturer
+from nvision.sim.locs import ScanBatch
 
 
 @dataclass

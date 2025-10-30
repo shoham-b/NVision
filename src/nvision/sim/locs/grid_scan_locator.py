@@ -3,12 +3,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .obs import Obs
+from nvision.sim.locs.models.obs import Obs
+from nvision.sim.scan_batch import ScanBatch
 
 
 @dataclass
-class GridScan:
+class GridScanLocator:
     n_points: int = 21
+    _scan: ScanBatch | None = None
+
+    def set_scan(self, scan: ScanBatch) -> None:
+        self._scan = scan
 
     def _grid(self, lo: float, hi: float) -> list[float]:
         if self.n_points <= 1:

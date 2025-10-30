@@ -3,11 +3,24 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .obs import Obs
+from nvision.sim.locs.models.obs import Obs
 
 
 @dataclass
 class BayesianLocator:
+    """A simple locator that uses a space-filling strategy to explore the domain.
+
+    This locator is a placeholder for a more sophisticated Bayesian approach. Its
+    strategy is to identify the largest gap between existing measurement points
+    and propose the midpoint of that gap as the next measurement location. This
+    encourages broad exploration of under-sampled regions of the domain.
+
+    It does not perform any Bayesian updates but serves as a simple baseline
+    for comparison against more advanced methods like `SequentialBayesianLocator`.
+    The name is aspirational, reflecting a family of strategies rather than a
+    specific implementation of Bayesian inference.
+    """
+
     max_evals: int = 30
     exploration_weight: float = 0.1
     uncertainty_threshold: float = 0.05

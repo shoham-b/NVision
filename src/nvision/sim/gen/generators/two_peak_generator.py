@@ -3,9 +3,9 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from ..locs import ScanBatch
-from ._protocols import PeakManufacturer
-from .multi_peak_generator import MultiPeakGenerator
+from nvision.sim.gen._protocols import PeakManufacturer
+from nvision.sim.gen.generators.multi_peak_generator import MultiPeakGenerator
+from nvision.sim.locs import ScanBatch
 
 
 @dataclass

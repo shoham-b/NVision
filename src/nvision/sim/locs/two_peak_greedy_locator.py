@@ -3,16 +3,31 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .obs import Obs
+from nvision.sim.locs.models.obs import Obs
+from nvision.sim.scan_batch import ScanBatch
 
 
 @dataclass
-class TwoPeakGreedy:
-    """Find two peaks by selecting the best two grid points with separation."""
+class TwoPeakGreedyLocator:
+    """A greedy locator designed to find two distinct peaks in the domain.
+
+    This strategy operates in two main phases:
+    1.  **Coarse Grid Scan**: It first samples a predefined number of points
+        (`coarse_points`) evenly across the domain.
+    2.  **Greedy Refinement**: After the initial scan, it identifies the two
+        strongest candidate peaks that are separated by at least a minimum
+        distance. It then greedily proposes new measurement points around
+        whichever of the two candidate peaks has been sampled the least, in an
+        attempt to balance the refinement of both peaks.
+    """
 
     coarse_points: int = 25
     refine_points: int = 5
     min_separation_frac: float = 0.05
+    _scan: ScanBatch | None = None
+
+    def set_scan(self, scan: ScanBatch) -> None:
+        self._scan = scan
 
     def propose_next(self, history: Sequence[Obs], domain: tuple[float, float]) -> float:
         lo, hi = domain

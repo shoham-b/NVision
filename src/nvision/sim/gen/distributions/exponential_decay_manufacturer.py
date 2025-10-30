@@ -4,10 +4,10 @@ import math
 import random
 from collections.abc import Callable
 
-from ._protocols import PeakManufacturer, SeriesManufacturer
+from nvision.sim.gen._protocols import PeakManufacturer, SeriesManufacturer
 
 
-class T1DecayManufacturer(PeakManufacturer, SeriesManufacturer):
+class ExponentialDecayManufacturer(PeakManufacturer, SeriesManufacturer):
     """T1-decay-shaped OnePeak manufacturer."""
 
     def __init__(self, amplitude: float = 1.0, t1_tau: float | None = None, **kwargs) -> None:

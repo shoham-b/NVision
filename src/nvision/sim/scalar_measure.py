@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from ..core import CompositeNoise, DataBatch
+from nvision.sim.core import CompositeNoise, DataBatch
 
 
 @dataclass

@@ -5,20 +5,41 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from .obs import Obs
-from .protocols import LocatorStrategy
-from .scalar_measure import ScalarMeasure
-from .scan_batch import ScanBatch
+from nvision.sim.locs.models.obs import Obs
+from nvision.sim.locs.models.protocols import LocatorStrategy
+from nvision.sim.scalar_measure import ScalarMeasure
+from nvision.sim.scan_batch import ScanBatch
 
 
 @dataclass
 class MeasurementProcess:
+    """Orchestrates a simulated measurement process to locate a feature in a signal.
+
+    This class acts as the main driver for a simulation run. It combines a signal
+    source (`ScanBatch`), a measurement model (`ScalarMeasure`), and a search
+    algorithm (`LocatorStrategy`) to iteratively sample a signal and estimate
+    the location of a target feature (e.g., a peak or a dip).
+
+    The process runs for a specified number of steps (`max_steps`) or until the
+    strategy decides to stop. At each step, the strategy proposes a point to measure,
+    this class simulates the measurement (including noise), and the result is fed
+    back to the strategy.
+
+    Attributes:
+        scan (ScanBatch): The underlying signal and its domain.
+        meas (ScalarMeasure): The model for performing a single noisy measurement.
+        strategy (LocatorStrategy): The algorithm for proposing measurement points and
+            finalizing the estimate.
+        max_steps (int): The maximum number of measurement steps to perform.
+    """
+
     scan: ScanBatch
     meas: ScalarMeasure
     strategy: LocatorStrategy
     max_steps: int = 200
 
     def run(self, rng: random.Random) -> tuple[pl.DataFrame, dict[str, float]]:
+        self.strategy.set_scan(self.scan)
         lo, hi = self.scan.x_min, self.scan.x_max
         history: list[Obs] = []
         steps = 0

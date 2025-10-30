@@ -4,7 +4,7 @@ import math
 import random
 from collections.abc import Callable
 
-from ._protocols import PeakManufacturer, SeriesManufacturer
+from nvision.sim.gen._protocols import PeakManufacturer, SeriesManufacturer
 
 
 class GaussianManufacturer(PeakManufacturer, SeriesManufacturer):
