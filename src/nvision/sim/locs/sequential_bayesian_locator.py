@@ -269,7 +269,7 @@ class SequentialBayesianLocator:
 
         # Information gain is reduction in entropy
         info_gain = current_entropy - expected_entropy
-        return max(info_gain, 0)  # Ensure non-negative
+        return max(info_gain, 0.0)  # Ensure non-negative
 
     def mutual_information_criterion(self, test_frequency: float) -> float:
         """
