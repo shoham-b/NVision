@@ -4,17 +4,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import matplotlib.pyplot as plt  # type: ignore
 import polars as pl
 
-# Use a soft import guard to avoid import errors in environments without matplotlib at build time
-try:
-    import matplotlib.pyplot as plt  # type: ignore
-except Exception as _e:  # pragma: no cover - plotting backend issues are environment-specific
-    plt = None  # type: ignore
-
-
-def _ensure_out_dir(out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
+from nvision.pathutils import ensure_out_dir
 
 
 def plot_experiment_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
@@ -22,7 +15,7 @@ def plot_experiment_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
 
     Returns list of saved image paths.
     """
-    _ensure_out_dir(out_dir)
+    ensure_out_dir(out_dir)
     paths: list[Path] = []
     if plt is None or df.height == 0:
         return paths
@@ -37,7 +30,7 @@ def plot_scan_measurements(scan, history: pl.DataFrame, out_path: Path) -> Path:
     - True signal: computed densely across [x_min, x_max].
     - Measurements: points from `history` colored by step order (gradient).
     """
-    _ensure_out_dir(out_path.parent)
+    ensure_out_dir(out_path.parent)
     if plt is None:
         return out_path
 
@@ -258,7 +251,7 @@ def plot_locator_summary(df: pl.DataFrame, out_dir: Path) -> Sequence[Path]:
     - For two-peak generators (name contains 'TwoPeak'): plot pair_rmse and
       uncert_sep by (noise, strategy).
     """
-    _ensure_out_dir(out_dir)
+    ensure_out_dir(out_dir)
     paths: list[Path] = []
     if plt is None or df.height == 0:
         return paths
