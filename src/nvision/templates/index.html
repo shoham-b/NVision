@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>NVision results</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 2em;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+        }
+        h1, h2 {
+            color: #0056b3;
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 0.5em;
+            margin-top: 1em;
+        }
+        .section {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            padding: 1.5em;
+            margin-bottom: 2em;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .metrics {
+            margin-top: 0.75em;
+            font-size: 0.95em;
+            color: #444;
+        }
+        label {
+            margin-right: 1em;
+            font-weight: bold;
+        }
+        select {
+            padding: 0.6em 0.8em;
+            margin: 0.5em 0.5em 0.5em 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+        }
+        select:hover {
+            border-color: #888;
+        }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ccc;
+            margin-top: 1.5em;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+        p {
+            margin-top: 1em;
+        }
+        a {
+            color: #0056b3;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>NVision results (${out_dir_display})</h1>
+
+    <p><a href="locator_results.csv" download>Download locator_results.csv</a></p>
+
+    <div id="scan-section" class="section">
+        <h2>Scan Measurements</h2>
+        <label>Generator: <select id="scan-generator"></select></label>
+        <label>Noise: <select id="scan-noise"></select></label>
+        <label>Strategy: <select id="scan-strategy"></select></label>
+        <label>Repeat: <select id="scan-repeat"></select></label>
+        <p id="scan-metrics" class="metrics"></p>
+        <iframe id="scan-iframe"></iframe>
+    </div>
+
+    <div id="summary-section" class="section">
+        <h2>Error Bar Charts</h2>
+        <label>Generator: <select id="summary-generator"></select></label>
+        <label>Metric: <select id="summary-metric"></select></label>
+        <iframe id="summary-iframe"></iframe>
+    </div>
+
+    <script id="plots-manifest" type="application/json">${manifest_json}</script>
+    <script>
+        function main() {
+            const manifestEl = document.getElementById('plots-manifest');
+            if (!manifestEl || !manifestEl.textContent) {
+                console.error('plots_manifest.json contents are missing from the page.');
+                return;
+            }
+
+            let plots = [];
+            try {
+                plots = JSON.parse(manifestEl.textContent);
+            } catch (error) {
+                console.error('Error parsing plots manifest from inline data:', error);
+                return;
+            }
+
+            const summaryPlots = plots.filter((p) => p.type === 'summary');
+            const scanPlots = plots.filter((p) => p.type === 'scan');
+
+            const summaryDefault = summaryPlots.length > 0 ? summaryPlots[0] : null;
+            const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
+
+            const summaryGenerator = document.getElementById('summary-generator');
+            const summaryMetric = document.getElementById('summary-metric');
+            const scanGenerator = document.getElementById('scan-generator');
+            const scanNoise = document.getElementById('scan-noise');
+            const scanStrategy = document.getElementById('scan-strategy');
+            const scanRepeat = document.getElementById('scan-repeat');
+            const summaryIframe = document.getElementById('summary-iframe');
+            const scanIframe = document.getElementById('scan-iframe');
+            const scanMetrics = document.getElementById('scan-metrics');
+
+            function formatMetricValue(value) {
+                if (typeof value === 'number' && Number.isFinite(value)) {
+                    return value.toPrecision(3);
+                }
+                return 'N/A';
+            }
+
+            function populateDropdown(select, items, previousValue) {
+                const uniqueItems = [
+                    ...new Set(
+                        items.filter((item) => item !== undefined && item !== null)
+                    ),
+                ]
+                    .map((item) => String(item))
+                    .sort((a, b) => a.localeCompare(b));
+
+                select.innerHTML = '<option value="">-- select --</option>';
+                for (const item of uniqueItems) {
+                    const option = document.createElement('option');
+                    option.value = item;
+                    option.textContent = item;
+                    select.appendChild(option);
+                }
+
+                let nextValue = '';
+                if (uniqueItems.length > 0) {
+                    if (previousValue && uniqueItems.includes(previousValue)) {
+                        nextValue = previousValue;
+                    } else {
+                        nextValue = uniqueItems[0];
+                    }
+                }
+                select.value = nextValue;
+                return nextValue;
+            }
+
+            function updateDropdowns() {
+                const selectedSummaryGenerator = populateDropdown(
+                    summaryGenerator,
+                    summaryPlots.map((p) => p.generator),
+                    summaryGenerator.value,
+                );
+
+                const summaryMetricItems = summaryPlots
+                    .filter(
+                        (p) =>
+                            !selectedSummaryGenerator ||
+                            p.generator === selectedSummaryGenerator
+                    )
+                    .map((p) => p.metric);
+                populateDropdown(summaryMetric, summaryMetricItems, summaryMetric.value);
+
+                const selectedScanGenerator = populateDropdown(
+                    scanGenerator,
+                    scanPlots.map((p) => p.generator),
+                    scanGenerator.value,
+                );
+
+                const scanNoiseItems = scanPlots
+                    .filter(
+                        (p) =>
+                            !selectedScanGenerator ||
+                            p.generator === selectedScanGenerator
+                    )
+                    .map((p) => p.noise);
+                const selectedScanNoise = populateDropdown(scanNoise, scanNoiseItems, scanNoise.value);
+
+                const scanStrategyItems = scanPlots
+                    .filter(
+                        (p) =>
+                            (!selectedScanGenerator ||
+                                p.generator === selectedScanGenerator) &&
+                            (!selectedScanNoise || p.noise === selectedScanNoise)
+                    )
+                    .map((p) => p.strategy);
+                const selectedScanStrategy = populateDropdown(
+                    scanStrategy,
+                    scanStrategyItems,
+                    scanStrategy.value,
+                );
+
+                const scanRepeatItems = scanPlots
+                    .filter(
+                        (p) =>
+                            (!selectedScanGenerator ||
+                                p.generator === selectedScanGenerator) &&
+                            (!selectedScanNoise || p.noise === selectedScanNoise) &&
+                            (!selectedScanStrategy ||
+                                p.strategy === selectedScanStrategy)
+                    )
+                    .map((p) => String(p.repeat));
+                populateDropdown(scanRepeat, scanRepeatItems, scanRepeat.value);
+            }
+
+            function findAndDisplayPlot() {
+                if (summaryGenerator.value && summaryMetric.value) {
+                    const plot = summaryPlots.find(
+                        (p) =>
+                            p.generator === summaryGenerator.value &&
+                            p.metric === summaryMetric.value
+                    );
+                    summaryIframe.src = plot ? plot.path : '';
+                } else {
+                    summaryIframe.src = '';
+                }
+
+                if (
+                    scanGenerator.value &&
+                    scanNoise.value &&
+                    scanStrategy.value &&
+                    scanRepeat.value
+                ) {
+                    const plot = scanPlots.find(
+                        (p) =>
+                            p.generator === scanGenerator.value &&
+                            p.noise === scanNoise.value &&
+                            p.strategy === scanStrategy.value &&
+                            p.repeat === parseInt(scanRepeat.value, 10)
+                    );
+                    scanIframe.src = plot ? plot.path : '';
+                    if (plot) {
+                        const absErr = formatMetricValue(plot.abs_err_x);
+                        const uncertainty = formatMetricValue(plot.uncert);
+                        scanMetrics.textContent =
+                            'Abs error: ' + absErr + ' • Uncertainty: ' + uncertainty;
+                    } else {
+                        scanMetrics.textContent = '';
+                    }
+                } else {
+                    scanIframe.src = '';
+                    scanMetrics.textContent = '';
+                }
+            }
+
+            summaryGenerator.addEventListener('change', () => {
+                updateDropdowns();
+                findAndDisplayPlot();
+            });
+            summaryMetric.addEventListener('change', findAndDisplayPlot);
+            scanGenerator.addEventListener('change', () => {
+                updateDropdowns();
+                findAndDisplayPlot();
+            });
+            scanNoise.addEventListener('change', () => {
+                updateDropdowns();
+                findAndDisplayPlot();
+            });
+            scanStrategy.addEventListener('change', () => {
+                updateDropdowns();
+                findAndDisplayPlot();
+            });
+            scanRepeat.addEventListener('change', findAndDisplayPlot);
+
+            if (summaryDefault) {
+                summaryGenerator.value = summaryDefault.generator ?? '';
+                summaryMetric.value = summaryDefault.metric ?? '';
+            }
+            if (scanDefault) {
+                scanGenerator.value = scanDefault.generator ?? '';
+                scanNoise.value = scanDefault.noise ?? '';
+                scanStrategy.value = scanDefault.strategy ?? '';
+                scanRepeat.value =
+                    scanDefault.repeat === undefined || scanDefault.repeat === null
+                        ? ''
+                        : String(scanDefault.repeat);
+            }
+
+            updateDropdowns();
+            findAndDisplayPlot();
+        }
+
+        window.addEventListener('DOMContentLoaded', main);
+    </script>
+</body>
+</html>
