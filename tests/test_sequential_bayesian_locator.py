@@ -8,8 +8,9 @@ for ODMR measurements of NV centers.
 
 import numpy as np
 import pytest
-from src.nvision.sim.locs.obs import Obs
-from src.nvision.sim.locs.sequential_bayesian_locator import SequentialBayesianLocator
+
+from nvision.sim.locs.obs import Obs
+from nvision.sim.locs.sequential_bayesian_locator import SequentialBayesianLocator
 
 
 class TestSequentialBayesianLocator:
