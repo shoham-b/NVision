@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from .core import CompositeNoise
 from .gen import (
+    CauchyLorentzPeakManufacturer,
+    ExponentialDecayManufacturer,
     GaussianManufacturer,
     OnePeakGenerator,
-    RabiManufacturer,
-    T1DecayManufacturer,
     TwoPeakGenerator,
 )
 from .noises import (
@@ -24,12 +24,12 @@ def generators_basic() -> list[tuple[str, object]]:
             OnePeakGenerator(manufacturer=GaussianManufacturer()),
         ),
         (
-            "OnePeak-rabi",
-            OnePeakGenerator(manufacturer=RabiManufacturer()),
+            "OnePeak-cauchy",
+            OnePeakGenerator(manufacturer=CauchyLorentzPeakManufacturer()),
         ),
         (
             "OnePeak-t1_decay",
-            OnePeakGenerator(manufacturer=T1DecayManufacturer()),
+            OnePeakGenerator(manufacturer=ExponentialDecayManufacturer()),
         ),
         (
             "TwoPeak",
@@ -52,6 +52,7 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     return [
         ("Gauss(0.05)", CompositeNoise([OverVoltageGaussianNoise(0.05)])),
         ("Poisson(50)", CompositeNoise([OverVoltagePoissonNoise(scale=50.0)])),
+        ("OverTime(0.05)", CompositeNoise([OverTimeDriftNoise(0.05)])),
     ]
 
 

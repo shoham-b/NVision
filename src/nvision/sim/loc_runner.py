@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import polars as pl
@@ -19,29 +19,30 @@ def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, fl
             if xh is not None and isinstance(xh, int | float) and math.isfinite(float(xh))
             else math.inf
         )
-        return {"abs_err_x": float(err)}
+        return {"abs_err_x": err}
+
     x1h = est.get("x1_hat")
     x2h = est.get("x2_hat")
+
     if (
-        x1h is None
-        or x2h is None
-        or not (
-            isinstance(x1h, int | float)
-            and isinstance(x2h, int | float)
-            and math.isfinite(x1h)
-            and math.isfinite(x2h)
-        )
+        x1h is not None
+        and isinstance(x1h, int | float)
+        and math.isfinite(x1h)
+        and x2h is not None
+        and isinstance(x2h, int | float)
+        and math.isfinite(x2h)
     ):
-        return {"abs_err_x1": math.inf, "abs_err_x2": math.inf, "pair_rmse": math.inf}
-    xs = sorted([float(x1h), float(x2h)])
-    t = sorted(truth)
-    err1 = abs(xs[0] - t[0])
-    err2 = abs(xs[1] - t[1])
-    return {
-        "abs_err_x1": err1,
-        "abs_err_x2": err2,
-        "pair_rmse": math.sqrt(0.5 * (err1 * err1 + err2 * err2)),
-    }
+        xs = sorted([float(x1h), float(x2h)])
+        t = sorted(truth)
+        err1 = abs(xs[0] - t[0])
+        err2 = abs(xs[1] - t[1])
+        return {
+            "abs_err_x1": err1,
+            "abs_err_x2": err2,
+            "pair_rmse": math.sqrt(0.5 * (err1 * err1 + err2 * err2)),
+        }
+
+    return {"abs_err_x1": math.inf, "abs_err_x2": math.inf, "pair_rmse": math.inf}
 
 
 @dataclass
@@ -61,37 +62,37 @@ class LocatorRunner:
         strat: LocatorStrategy,
         repeats: int,
         max_steps: int,
-        history_callback: Callable[[str, str, str, int, ScanBatch, pl.DataFrame], None] | None,
-    ) -> dict[str, float | str]:
-        sum_metrics: dict[str, float] = {}
-        count = 0
-        for repeat_idx in range(repeats):
+    ) -> dict:
+        metric_samples: dict[str, list[float]] = {}
+
+        for _repeat_idx in range(repeats):
             scan = gen.generate(self._rng)
-            history_df, est = self.run_once(scan, strat, noise, max_steps)
-            if history_callback is not None:
-                history_callback(
-                    gen_name,
-                    noise_name,
-                    strat_name,
-                    repeat_idx,
-                    scan,
-                    history_df,
-                )
+            _history_df, est = self.run_once(scan, strat, noise, max_steps)
             metrics = _pairing_error(scan.truth_positions, est)
             for key in ("uncert", "uncert_pos", "uncert_sep"):
-                if key in est and isinstance(est[key], int | float):
-                    metrics[key] = float(est[key])  # type: ignore[arg-type]
-            for k, v in metrics.items():
-                sum_metrics[k] = sum_metrics.get(k, 0.0) + float(v)
-            count += 1
+                value = est.get(key)
+                if isinstance(value, int | float):
+                    metrics[key] = float(value)
 
-        avg = {k: v / max(1, count) for k, v in sum_metrics.items()}
-        row: dict[str, float | str] = {
+            for key, value in metrics.items():
+                if isinstance(value, int | float):
+                    metric_samples.setdefault(key, []).append(float(value))
+
+        aggregated: dict[str, float] = {}
+        for key, samples in metric_samples.items():
+            finite_samples = [s for s in samples if math.isfinite(s)]
+            if finite_samples:
+                aggregated[key] = float(sum(finite_samples) / len(finite_samples))
+            else:
+                aggregated[key] = float("nan") if samples else float("nan")
+
+        row = {
             "generator": gen_name,
             "noise": noise_name,
             "strategy": strat_name,
+            "repeats": repeats,
         }
-        row.update(avg)
+        row.update(aggregated)
         return row
 
     def run_once(
@@ -116,10 +117,8 @@ class LocatorRunner:
         noises: Sequence[tuple[str, CompositeNoise | None]],
         repeats: int = 10,
         max_steps: int = 200,
-        history_callback: Callable[[str, str, str, int, ScanBatch, pl.DataFrame], None]
-        | None = None,
     ) -> pl.DataFrame:
-        rows: list[dict[str, float | str]] = []
+        rows: list[dict] = []
         for gen_name, gen in generators:
             for noise_name, noise in noises:
                 for strat_name, strat in strategies:
@@ -133,13 +132,21 @@ class LocatorRunner:
                             strat,
                             repeats,
                             max_steps,
-                            history_callback,
                         )
                     )
         if not rows:
-            return pl.DataFrame({"generator": [], "noise": [], "strategy": []})
+            return pl.DataFrame(
+                {
+                    "generator": [],
+                    "noise": [],
+                    "strategy": [],
+                    "repeats": [],
+                }
+            )
         df = pl.DataFrame(rows)
-        metric_cols = [c for c in df.columns if c not in ("generator", "noise", "strategy")]
+        metric_cols = [
+            c for c in df.columns if c not in ("generator", "noise", "strategy", "repeats")
+        ]
         if metric_cols:
             df = df.with_columns(pl.col(metric_cols).cast(pl.Float64))
         return df

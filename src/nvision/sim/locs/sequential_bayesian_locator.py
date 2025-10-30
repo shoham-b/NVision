@@ -33,18 +33,23 @@ import scipy.stats
 from scipy.optimize import minimize_scalar
 from scipy.special import logsumexp
 
-from .obs import Obs
+from nvision.sim.locs.models.obs import Obs
 
 
 @dataclass
 class SequentialBayesianLocator:
     """
-    Sequential Bayesian Experiment Design locator for ODMR of NV centers.
+    An advanced locator implementing Sequential Bayesian Experiment Design (SBED).
 
     This locator implements the methodology from Dushenko et al. (2020) for
     optimal Bayesian experimental design in NV center magnetometry, providing
     significant speedup over conventional frequency-swept measurements.
 
+    The strategy involves maintaining a posterior probability distribution over the
+    parameter space (e.g., resonance frequency). At each step, it selects the next
+    measurement point that is expected to provide the most information (i.e.,
+    maximizes the expected reduction in the posterior's entropy), allowing it to
+    converge on the true parameters with minimal measurements.
     Attributes:
         max_evals: Maximum number of measurements
         prior_bounds: Prior bounds for frequency parameters (Hz)
