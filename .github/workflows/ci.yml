@@ -177,3 +177,41 @@ jobs:
             coverage.xml
             htmlcov
           if-no-files-found: warn
+
+  build-index:
+    name: Build NVision index artifact
+    runs-on: ubuntu-latest
+    needs: coverage-aggregate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~\AppData\Local\uv\Cache
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+      - name: Install dependencies
+        run: |
+          uv sync --group dev
+      - name: Generate NVision artifacts
+        run: |
+          uv run python -m nvision --out artifacts --repeats 2 --loc-max-steps 80 --no-cache
+      - name: Upload NVision index artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvision-index
+          path: |
+            artifacts/index.html
+            artifacts/locator_results.csv
+            artifacts/graphs
+            artifacts/plots_manifest.json
+          if-no-files-found: error

@@ -30,20 +30,41 @@
             font-size: 0.95em;
             color: #444;
         }
-        label {
-            margin-right: 1em;
+        .control-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75em;
+            margin: 0.5em 0;
+        }
+        .control-label {
             font-weight: bold;
         }
-        select {
-            padding: 0.6em 0.8em;
-            margin: 0.5em 0.5em 0.5em 0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            background-color: #f9f9f9;
-            cursor: pointer;
+        .segmented-control {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.5em;
         }
-        select:hover {
+        .segmented-control button {
+            padding: 0.4em 0.9em;
+            border: 1px solid #ccc;
+            border-radius: 999px;
+            background-color: #f9f9f9;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+        .segmented-control button:hover {
             border-color: #888;
+        }
+        .segmented-control button.is-active {
+            background-color: #0056b3;
+            border-color: #0056b3;
+            color: #fff;
+        }
+        .segmented-control button:focus-visible {
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
         }
         iframe {
             width: 100%;
@@ -72,18 +93,66 @@
 
     <div id="scan-section" class="section">
         <h2>Scan Measurements</h2>
-        <label>Generator: <select id="scan-generator"></select></label>
-        <label>Noise: <select id="scan-noise"></select></label>
-        <label>Strategy: <select id="scan-strategy"></select></label>
-        <label>Repeat: <select id="scan-repeat"></select></label>
+        <div class="control-row">
+            <span class="control-label">Generator:</span>
+            <div
+                id="scan-generator"
+                class="segmented-control"
+                role="radiogroup"
+                aria-label="Scan generator"
+            ></div>
+        </div>
+        <div class="control-row">
+            <span class="control-label">Noise:</span>
+            <div
+                id="scan-noise"
+                class="segmented-control"
+                role="radiogroup"
+                aria-label="Scan noise"
+            ></div>
+        </div>
+        <div class="control-row">
+            <span class="control-label">Strategy:</span>
+            <div
+                id="scan-strategy"
+                class="segmented-control"
+                role="radiogroup"
+                aria-label="Scan strategy"
+            ></div>
+        </div>
+        <div class="control-row">
+            <span class="control-label">Repeat:</span>
+            <div
+                id="scan-repeat"
+                class="segmented-control"
+                role="radiogroup"
+                aria-label="Scan repeat"
+            ></div>
+        </div>
         <p id="scan-metrics" class="metrics"></p>
         <iframe id="scan-iframe"></iframe>
     </div>
 
     <div id="summary-section" class="section">
         <h2>Error Bar Charts</h2>
-        <label>Generator: <select id="summary-generator"></select></label>
-        <label>Metric: <select id="summary-metric"></select></label>
+        <div class="control-row">
+            <span class="control-label">Generator:</span>
+            <div
+                id="summary-generator"
+                class="segmented-control"
+                role="radiogroup"
+                aria-label="Summary generator"
+            ></div>
+        </div>
+        <div class="control-row">
+            <span class="control-label">Metric:</span>
+            <div
+                id="summary-metric"
+                class="segmented-control"
+                role="radiogroup"
+                aria-label="Summary metric"
+            ></div>
+        </div>
         <iframe id="summary-iframe"></iframe>
     </div>
 
@@ -127,7 +196,30 @@
                 return 'N/A';
             }
 
-            function populateDropdown(select, items, previousValue) {
+            function controlValue(control) {
+                return control.dataset.value ?? '';
+            }
+
+            function setControlValue(control, value, { silent = false } = {}) {
+                const normalized = value ?? '';
+                control.dataset.value = normalized;
+                const buttons = control.querySelectorAll('button');
+                for (const button of buttons) {
+                    const isActive = button.dataset.value === normalized;
+                    button.classList.toggle('is-active', isActive);
+                    button.setAttribute('aria-checked', String(isActive));
+                }
+                if (!silent) {
+                    control.dispatchEvent(
+                        new CustomEvent('controlchange', {
+                            bubbles: false,
+                            detail: { value: normalized },
+                        }),
+                    );
+                }
+            }
+
+            function renderSegmentedControl(control, items, previousValue) {
                 const uniqueItems = [
                     ...new Set(
                         items.filter((item) => item !== undefined && item !== null)
@@ -136,12 +228,19 @@
                     .map((item) => String(item))
                     .sort((a, b) => a.localeCompare(b));
 
-                select.innerHTML = '<option value="">-- select --</option>';
+                control.innerHTML = '';
+
                 for (const item of uniqueItems) {
-                    const option = document.createElement('option');
-                    option.value = item;
-                    option.textContent = item;
-                    select.appendChild(option);
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.dataset.value = item;
+                    button.setAttribute('role', 'radio');
+                    button.setAttribute('aria-checked', 'false');
+                    button.textContent = item;
+                    button.addEventListener('click', () => {
+                        setControlValue(control, item);
+                    });
+                    control.appendChild(button);
                 }
 
                 let nextValue = '';
@@ -152,15 +251,16 @@
                         nextValue = uniqueItems[0];
                     }
                 }
-                select.value = nextValue;
+
+                setControlValue(control, nextValue, { silent: true });
                 return nextValue;
             }
 
-            function updateDropdowns() {
-                const selectedSummaryGenerator = populateDropdown(
+            function updateControls() {
+                const selectedSummaryGenerator = renderSegmentedControl(
                     summaryGenerator,
                     summaryPlots.map((p) => p.generator),
-                    summaryGenerator.value,
+                    controlValue(summaryGenerator),
                 );
 
                 const summaryMetricItems = summaryPlots
@@ -170,12 +270,16 @@
                             p.generator === selectedSummaryGenerator
                     )
                     .map((p) => p.metric);
-                populateDropdown(summaryMetric, summaryMetricItems, summaryMetric.value);
+                renderSegmentedControl(
+                    summaryMetric,
+                    summaryMetricItems,
+                    controlValue(summaryMetric),
+                );
 
-                const selectedScanGenerator = populateDropdown(
+                const selectedScanGenerator = renderSegmentedControl(
                     scanGenerator,
                     scanPlots.map((p) => p.generator),
-                    scanGenerator.value,
+                    controlValue(scanGenerator),
                 );
 
                 const scanNoiseItems = scanPlots
@@ -185,7 +289,11 @@
                             p.generator === selectedScanGenerator
                     )
                     .map((p) => p.noise);
-                const selectedScanNoise = populateDropdown(scanNoise, scanNoiseItems, scanNoise.value);
+                const selectedScanNoise = renderSegmentedControl(
+                    scanNoise,
+                    scanNoiseItems,
+                    controlValue(scanNoise),
+                );
 
                 const scanStrategyItems = scanPlots
                     .filter(
@@ -195,49 +303,61 @@
                             (!selectedScanNoise || p.noise === selectedScanNoise)
                     )
                     .map((p) => p.strategy);
-                const selectedScanStrategy = populateDropdown(
+                const selectedScanStrategy = renderSegmentedControl(
                     scanStrategy,
                     scanStrategyItems,
-                    scanStrategy.value,
+                    controlValue(scanStrategy),
                 );
 
                 const scanRepeatItems = scanPlots
                     .filter(
                         (p) =>
-                            (!selectedScanGenerator ||
-                                p.generator === selectedScanGenerator) &&
+                            (!selectedScanGenerator || p.generator === selectedScanGenerator) &&
                             (!selectedScanNoise || p.noise === selectedScanNoise) &&
                             (!selectedScanStrategy ||
                                 p.strategy === selectedScanStrategy)
                     )
                     .map((p) => String(p.repeat));
-                populateDropdown(scanRepeat, scanRepeatItems, scanRepeat.value);
+                renderSegmentedControl(
+                    scanRepeat,
+                    scanRepeatItems,
+                    controlValue(scanRepeat),
+                );
             }
 
             function findAndDisplayPlot() {
-                if (summaryGenerator.value && summaryMetric.value) {
+                const summaryGeneratorValue = controlValue(summaryGenerator);
+                const summaryMetricValue = controlValue(summaryMetric);
+
+                if (summaryGeneratorValue && summaryMetricValue) {
                     const plot = summaryPlots.find(
                         (p) =>
-                            p.generator === summaryGenerator.value &&
-                            p.metric === summaryMetric.value
+                            p.generator === summaryGeneratorValue &&
+                            p.metric === summaryMetricValue
                     );
                     summaryIframe.src = plot ? plot.path : '';
                 } else {
                     summaryIframe.src = '';
                 }
 
+                const scanGeneratorValue = controlValue(scanGenerator);
+                const scanNoiseValue = controlValue(scanNoise);
+                const scanStrategyValue = controlValue(scanStrategy);
+                const scanRepeatValue = controlValue(scanRepeat);
+
                 if (
-                    scanGenerator.value &&
-                    scanNoise.value &&
-                    scanStrategy.value &&
-                    scanRepeat.value
+                    scanGeneratorValue &&
+                    scanNoiseValue &&
+                    scanStrategyValue &&
+                    scanRepeatValue
                 ) {
+                    const repeatNumber = parseInt(scanRepeatValue, 10);
                     const plot = scanPlots.find(
                         (p) =>
-                            p.generator === scanGenerator.value &&
-                            p.noise === scanNoise.value &&
-                            p.strategy === scanStrategy.value &&
-                            p.repeat === parseInt(scanRepeat.value, 10)
+                            p.generator === scanGeneratorValue &&
+                            p.noise === scanNoiseValue &&
+                            p.strategy === scanStrategyValue &&
+                            p.repeat === repeatNumber
                     );
                     scanIframe.src = plot ? plot.path : '';
                     if (plot) {
@@ -254,40 +374,40 @@
                 }
             }
 
-            summaryGenerator.addEventListener('change', () => {
-                updateDropdowns();
+            summaryGenerator.addEventListener('controlchange', () => {
+                updateControls();
                 findAndDisplayPlot();
             });
-            summaryMetric.addEventListener('change', findAndDisplayPlot);
-            scanGenerator.addEventListener('change', () => {
-                updateDropdowns();
+            summaryMetric.addEventListener('controlchange', findAndDisplayPlot);
+            scanGenerator.addEventListener('controlchange', () => {
+                updateControls();
                 findAndDisplayPlot();
             });
-            scanNoise.addEventListener('change', () => {
-                updateDropdowns();
+            scanNoise.addEventListener('controlchange', () => {
+                updateControls();
                 findAndDisplayPlot();
             });
-            scanStrategy.addEventListener('change', () => {
-                updateDropdowns();
+            scanStrategy.addEventListener('controlchange', () => {
+                updateControls();
                 findAndDisplayPlot();
             });
-            scanRepeat.addEventListener('change', findAndDisplayPlot);
+            scanRepeat.addEventListener('controlchange', findAndDisplayPlot);
 
             if (summaryDefault) {
-                summaryGenerator.value = summaryDefault.generator ?? '';
-                summaryMetric.value = summaryDefault.metric ?? '';
+                summaryGenerator.dataset.value = summaryDefault.generator ?? '';
+                summaryMetric.dataset.value = summaryDefault.metric ?? '';
             }
             if (scanDefault) {
-                scanGenerator.value = scanDefault.generator ?? '';
-                scanNoise.value = scanDefault.noise ?? '';
-                scanStrategy.value = scanDefault.strategy ?? '';
-                scanRepeat.value =
+                scanGenerator.dataset.value = scanDefault.generator ?? '';
+                scanNoise.dataset.value = scanDefault.noise ?? '';
+                scanStrategy.dataset.value = scanDefault.strategy ?? '';
+                scanRepeat.dataset.value =
                     scanDefault.repeat === undefined || scanDefault.repeat === null
                         ? ''
                         : String(scanDefault.repeat);
             }
 
-            updateDropdowns();
+            updateControls();
             findAndDisplayPlot();
         }
 
