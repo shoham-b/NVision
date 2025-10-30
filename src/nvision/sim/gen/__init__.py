@@ -7,6 +7,9 @@ from nvision.sim.gen.distributions.exponential_decay_manufacturer import (
 from nvision.sim.gen.distributions.gaussian_manufacturer import (
     GaussianManufacturer as GaussianManufacturer,
 )
+from nvision.sim.gen.distributions.nv_center_manufacturer import (
+    NVCenterManufacturer as NVCenterManufacturer,
+)
 from nvision.sim.gen.generators.multi_peak_generator import MultiPeakGenerator as MultiPeakGenerator
 from nvision.sim.gen.generators.one_peak_generator import OnePeakGenerator as OnePeakGenerator
 from nvision.sim.gen.generators.symmetric_two_peak_generator import (
