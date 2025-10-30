@@ -5,6 +5,7 @@ from .gen import (
     CauchyLorentzPeakManufacturer,
     ExponentialDecayManufacturer,
     GaussianManufacturer,
+    NVCenterManufacturer,
     OnePeakGenerator,
     TwoPeakGenerator,
 )
@@ -30,6 +31,10 @@ def generators_basic() -> list[tuple[str, object]]:
         (
             "OnePeak-t1_decay",
             OnePeakGenerator(manufacturer=ExponentialDecayManufacturer()),
+        ),
+        (
+            "OnePeak-nv_center",
+            OnePeakGenerator(manufacturer=NVCenterManufacturer()),
         ),
         (
             "TwoPeak",
