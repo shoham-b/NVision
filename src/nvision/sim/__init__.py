@@ -10,12 +10,11 @@ Provides extensible interfaces and simple reference implementations for:
 
 from .core import CompositeNoise, DataBatch, DataGenerator, MeasurementStrategy, NoiseModel
 from .gen import (
+    ExponentialDecayManufacturer,
     GaussianManufacturer,
     MultiPeakGenerator,
     OnePeakGenerator,
-    RabiManufacturer,
     SymmetricTwoPeakGenerator,
-    T1DecayManufacturer,
     TwoPeakGenerator,
 )
 from .loc_runner import LocatorRunner
@@ -23,14 +22,14 @@ from .loc_runner import LocatorRunner
 # Locators layer
 from .locs import (
     BayesianLocator,
-    GoldenSectionSearch,
-    GridScan,
+    GoldenSectionSearchLocator,
+    GridScanLocator,
     LocatorStrategy,
     MeasurementProcess,
     ODMRLocator,
     ScalarMeasure,
     ScanBatch,
-    TwoPeakGreedy,
+    TwoPeakGreedyLocator,
 )
 
 # Noise implementations: export concrete full class names (no short aliases)
@@ -47,9 +46,10 @@ __all__ = [
     "CompositeNoise",
     "DataBatch",
     "DataGenerator",
+    "ExponentialDecayManufacturer",
     "GaussianManufacturer",
-    "GoldenSectionSearch",
-    "GridScan",
+    "GoldenSectionSearchLocator",
+    "GridScanLocator",
     "LocatorRunner",
     "LocatorStrategy",
     "MeasurementProcess",
@@ -58,17 +58,14 @@ __all__ = [
     "NoiseModel",
     "ODMRLocator",
     "OnePeakGenerator",
+    "OverTimeDriftNoise",
+    "OverTimeRandomWalkNoise",
+    "OverVoltageGaussianNoise",
     "OverVoltageOutlierSpikes",
     "OverVoltagePoissonNoise",
-    "RabiManufacturer",
     "ScalarMeasure",
     "ScanBatch",
     "SymmetricTwoPeakGenerator",
-    "T1DecayManufacturer",
     "TwoPeakGenerator",
-    "TwoPeakGreedy",
-    # Export full noise class names
-    "OverTimeDriftNoise",
-    "OverVoltageGaussianNoise",
-    "OverTimeRandomWalkNoise",
+    "TwoPeakGreedyLocator",
 ]

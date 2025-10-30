@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,16 @@ class DataFrameCache:
                 obj = cache.get(key, default=None)
                 if isinstance(obj, pl.DataFrame):
                     return obj
+                if isinstance(obj, dict) and obj.get("__nvision_cache__") == "dataframe":
+                    rows = obj.get("data", [])
+                    df = pl.DataFrame(rows)
+                    columns = obj.get("columns")
+                    if columns:
+                        with suppress(pl.ColumnNotFoundError):
+                            df = df.select(columns)
+                    return df
+                if isinstance(obj, list):
+                    return pl.DataFrame(obj)
                 return None
         except Exception:
             return None
@@ -64,8 +75,21 @@ class DataFrameCache:
         Note: diskcache manages the underlying storage; the returned Path is for
         logging only.
         """
-        with Cache(self.cache_dir.as_posix()) as cache:
-            cache.set(key, df)
+        if any(dtype == pl.Object for dtype in df.dtypes):
+            # Object columns (e.g., callables, custom classes) are not safely serializable.
+            # Skip caching silently; callers will recompute results on subsequent runs.
+            return self.cache_dir / key
+        payload = {
+            "__nvision_cache__": "dataframe",
+            "columns": list(df.columns),
+            "data": df.to_dicts(),
+        }
+        try:
+            with Cache(self.cache_dir.as_posix()) as cache:
+                cache.set(key, payload)
+        except Exception:
+            # Best effort only; ignore caching errors so CLI continues.
+            pass
         return self.cache_dir / key
 
 

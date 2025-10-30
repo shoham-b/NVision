@@ -1,20 +1,29 @@
 # NVision
 
+<div align="center">
+
 [![CI Status](https://github.com/shoham-b/NVision/actions/workflows/ci.yml/badge.svg)](https://github.com/shoham-b/NVision/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/shoham-b/NVision/branch/main/graph/badge.svg)](https://codecov.io/gh/shoham-b/NVision)
 [![Docker Build](https://github.com/shoham-b/NVision/actions/workflows/docker.yml/badge.svg)](https://github.com/shoham-b/NVision/actions/workflows/docker.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)](https://pre-commit.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python Versions](https://img.shields.io/badge/python-3.12%20--%203.14-blue)](https://www.python.org/)
+[![View UI](https://img.shields.io/badge/View_Live_UI-WebApp-green.svg)](https://shoham-b.github.io/NVision/)
+
+</div>
 
 A modular framework for simulating, analyzing, and benchmarking **Nitrogen-Vacancy (NV) centers in diamond**—enabling next-generation quantum sensing experiments and reproducible scientific workflows.
 
 ---
 
-## 1. Scientific Overview
+## 1. Scientific & Technical Overview
 
-NVision aims to accelerate the study of NV-center physics and quantum sensing by combining realistic simulations and robust analysis:
+NVision is a simulation framework designed to accelerate research in quantum sensing by providing a platform to develop, test, and benchmark measurement strategies for NV centers. It combines realistic physical models with modern, data-driven analysis pipelines.
 
-- **Physics & Protocols**: Models core quantum phenomena — Rabi oscillations, T₁ decay, and multi-modal measurements under configurable noise models.
+- **Advanced Locator Strategies**: Implements and compares multiple algorithms for locating ODMR peaks, from simple grid scans to sophisticated adaptive methods. A key feature is the `SequentialBayesianLocator`, based on the work of Dushenko et al. (2020), which uses Bayesian inference to dramatically speed up measurements.
+- **Realistic Physics Models**: Simulates authentic ODMR spectra, including the characteristic three-dip `NVCenterManufacturer` and generic `CauchyLorentz` peak shapes, under configurable noise models.
+- **Modular & Extensible**: The `LocatorStrategy` protocol allows for easy integration of new custom search algorithms, making it an ideal testbed for novel sensing protocols.
 - **Reproducible Science**: Every experiment is fully controlled by a single seed and scenario grid, ensuring identical results for repeated runs.
 - **Analysis Pipelines**: Data and results are processed with fast, modern tabular tools (Polars DataFrames), supporting advanced statistical summaries and error analysis.
 - **Visualization**: Automatically generates comparison plots to easily interpret strategy performance, uncertainty, and real-world impact.

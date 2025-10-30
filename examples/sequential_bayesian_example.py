@@ -17,14 +17,8 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Assuming the NVision package structure
-try:
-    from src.nvision.sim.locs.grid_scan import GridScan
-    from src.nvision.sim.locs.obs import Obs
-    from src.nvision.sim.locs.sequential_bayesian_locator import SequentialBayesianLocator
-except ImportError:
-    print("Please ensure NVision is properly installed and accessible")
-    exit(1)
+from nvision.sim import GridScanLocator, SequentialBayesianLocator
+from nvision.sim.locs.models.obs import Obs
 
 
 def simulate_nv_odmr_signal(
@@ -129,9 +123,8 @@ def compare_strategies():
         acquisition_function="expected_information_gain",
     )
 
-    grid_locator = GridScan(
+    grid_locator = GridScanLocator(
         n_points=50,  # Same number of measurements for fair comparison
-        strategy="uniform",  # Uniform grid scan
     )
 
     print("Running Sequential Bayesian Experiment Design...")
