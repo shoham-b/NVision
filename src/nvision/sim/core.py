@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -11,12 +11,42 @@ if TYPE_CHECKING:
     from .locators import ScanBatch
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class DataBatch:
     """Container for a single synthetic dataset backed by a Polars DataFrame."""
 
     df: pl.DataFrame
     meta: dict[str, float]
+
+    def __init__(
+        self,
+        *,
+        df: pl.DataFrame | None = None,
+        time_points: Sequence[float] | None = None,
+        signal_values: Sequence[float] | None = None,
+        meta: Mapping[str, float] | None = None,
+    ) -> None:
+        if df is None:
+            if time_points is None or signal_values is None:
+                msg = "DataBatch requires either a DataFrame or time_points and signal_values."
+                raise TypeError(msg)
+            if len(time_points) != len(signal_values):
+                msg = "time_points and signal_values must be the same length."
+                raise ValueError(msg)
+            df = pl.DataFrame(
+                {
+                    "time_points": list(time_points),
+                    "signal_values": list(signal_values),
+                }
+            )
+        else:
+            if time_points is not None or signal_values is not None:
+                msg = "Cannot pass both a DataFrame and time_points/signal_values to DataBatch."
+                raise TypeError(msg)
+
+        object.__setattr__(self, "df", df)
+        object.__setattr__(self, "meta", dict(meta or {}))
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         expected_cols = {"time_points", "signal_values"}
@@ -37,13 +67,7 @@ class DataBatch:
         signal_values: Sequence[float],
         meta: dict[str, float] | None = None,
     ) -> DataBatch:
-        df = pl.DataFrame(
-            {
-                "time_points": list(time_points),
-                "signal_values": list(signal_values),
-            }
-        )
-        return cls(df=df, meta=dict(meta or {}))
+        return cls(time_points=time_points, signal_values=signal_values, meta=meta)
 
     @classmethod
     def from_frame(cls, df: pl.DataFrame, meta: dict[str, float]) -> DataBatch:
