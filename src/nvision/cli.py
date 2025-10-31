@@ -4,6 +4,7 @@ import json
 import math
 import random
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
@@ -44,6 +45,41 @@ def _maybe_finite(value: object) -> float | None:
         if math.isfinite(value_float):
             return value_float
     return None
+
+
+def _scan_attempt_metrics(
+    truth_positions: Sequence[float], estimate: dict[str, object]
+) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    truth = [float(pos) for pos in truth_positions]
+
+    if len(truth) == 1:
+        x_hat = estimate.get("x1_hat", estimate.get("x_hat"))
+        if isinstance(x_hat, int | float) and math.isfinite(float(x_hat)):
+            metrics["abs_err_x"] = abs(float(x_hat) - truth[0])
+    else:
+        x1_hat = estimate.get("x1_hat")
+        x2_hat = estimate.get("x2_hat")
+        if (
+            isinstance(x1_hat, int | float)
+            and math.isfinite(float(x1_hat))
+            and isinstance(x2_hat, int | float)
+            and math.isfinite(float(x2_hat))
+        ):
+            xs = sorted([float(x1_hat), float(x2_hat)])
+            truth_sorted = sorted(truth)
+            err1 = abs(xs[0] - truth_sorted[0])
+            err2 = abs(xs[1] - truth_sorted[1])
+            metrics["abs_err_x1"] = err1
+            metrics["abs_err_x2"] = err2
+            metrics["pair_rmse"] = math.sqrt(0.5 * (err1 * err1 + err2 * err2))
+
+    for key in ("uncert", "uncert_pos", "uncert_sep"):
+        value = estimate.get(key)
+        if isinstance(value, int | float) and math.isfinite(float(value)):
+            metrics[key] = float(value)
+
+    return metrics
 
 
 def run_locator_workflow(
@@ -148,13 +184,9 @@ def cli(
         strategy = strategy_map[strategy_name]
 
         combo_seed = (seed or 0) + idx
-        scan_rng = random.Random(combo_seed)
-        scan = generator.generate(scan_rng)
+        total_repeats = max(int(row.get("repeats", 1)), 1)
 
-        plot_runner = LocatorRunner(rng_seed=combo_seed)
-        history_df, _ = plot_runner.run_once(scan, strategy, noise_obj, loc_max_steps)
-
-        slug = "_".join(
+        slug_base = "_".join(
             slugify(part)
             for part in (
                 gen_name,
@@ -162,20 +194,37 @@ def cli(
                 strategy_name,
             )
         )
-        out_path = scans_dir / f"{slug}.html"
-        viz.plot_scan_measurements(scan, history_df, out_path, noise=noise_obj)
-        plot_manifest.append(
-            {
-                "type": "scan",
-                "generator": gen_name,
-                "noise": noise_name,
-                "strategy": strategy_name,
-                "repeat": int(row["repeats"]),
-                "abs_err_x": _maybe_finite(row.get("abs_err_x")),
-                "uncert": _maybe_finite(row.get("uncert")),
-                "path": out_path.relative_to(out_dir).as_posix(),
+        for attempt_idx in range(total_repeats):
+            attempt_seed = combo_seed + attempt_idx
+            scan_rng = random.Random(attempt_seed)
+            scan = generator.generate(scan_rng)
+
+            plot_runner = LocatorRunner(rng_seed=attempt_seed)
+            history_df, estimate = plot_runner.run_once(scan, strategy, noise_obj, loc_max_steps)
+
+            attempt_metrics = _scan_attempt_metrics(scan.truth_positions, estimate)
+            attempt_slug = f"{slug_base}_r{attempt_idx + 1}"
+            out_path = scans_dir / f"{attempt_slug}.html"
+            viz.plot_scan_measurements(scan, history_df, out_path, noise=noise_obj)
+
+            metrics_serialized = {
+                key: _maybe_finite(value) for key, value in attempt_metrics.items()
             }
-        )
+
+            plot_manifest.append(
+                {
+                    "type": "scan",
+                    "generator": gen_name,
+                    "noise": noise_name,
+                    "strategy": strategy_name,
+                    "repeat": attempt_idx + 1,
+                    "repeat_total": total_repeats,
+                    "abs_err_x": metrics_serialized.get("abs_err_x"),
+                    "uncert": metrics_serialized.get("uncert"),
+                    "metrics": metrics_serialized,
+                    "path": out_path.relative_to(out_dir).as_posix(),
+                }
+            )
 
     try:
         summary_plots_meta = viz.plot_locator_summary(df_loc)

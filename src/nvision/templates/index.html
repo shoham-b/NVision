@@ -66,6 +66,17 @@
             outline: 2px solid #0056b3;
             outline-offset: 2px;
         }
+        .control-select {
+            padding: 0.6em 0.8em;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+            min-width: 6em;
+        }
+        .control-select:hover {
+            border-color: #888;
+        }
         iframe {
             width: 100%;
             height: 600px;
@@ -122,38 +133,10 @@
         </div>
         <div class="control-row">
             <span class="control-label">Repeat:</span>
-            <div
-                id="scan-repeat"
-                class="segmented-control"
-                role="radiogroup"
-                aria-label="Scan repeat"
-            ></div>
+            <select id="scan-repeat" class="control-select" aria-label="Scan repeat"></select>
         </div>
         <p id="scan-metrics" class="metrics"></p>
         <iframe id="scan-iframe"></iframe>
-    </div>
-
-    <div id="summary-section" class="section">
-        <h2>Error Bar Charts</h2>
-        <div class="control-row">
-            <span class="control-label">Generator:</span>
-            <div
-                id="summary-generator"
-                class="segmented-control"
-                role="radiogroup"
-                aria-label="Summary generator"
-            ></div>
-        </div>
-        <div class="control-row">
-            <span class="control-label">Metric:</span>
-            <div
-                id="summary-metric"
-                class="segmented-control"
-                role="radiogroup"
-                aria-label="Summary metric"
-            ></div>
-        </div>
-        <iframe id="summary-iframe"></iframe>
     </div>
 
     <script id="plots-manifest" type="application/json">${manifest_json}</script>
@@ -173,19 +156,14 @@
                 return;
             }
 
-            const summaryPlots = plots.filter((p) => p.type === 'summary');
             const scanPlots = plots.filter((p) => p.type === 'scan');
 
-            const summaryDefault = summaryPlots.length > 0 ? summaryPlots[0] : null;
             const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
 
-            const summaryGenerator = document.getElementById('summary-generator');
-            const summaryMetric = document.getElementById('summary-metric');
             const scanGenerator = document.getElementById('scan-generator');
             const scanNoise = document.getElementById('scan-noise');
             const scanStrategy = document.getElementById('scan-strategy');
             const scanRepeat = document.getElementById('scan-repeat');
-            const summaryIframe = document.getElementById('summary-iframe');
             const scanIframe = document.getElementById('scan-iframe');
             const scanMetrics = document.getElementById('scan-metrics');
 
@@ -197,6 +175,9 @@
             }
 
             function controlValue(control) {
+                if (control instanceof HTMLSelectElement) {
+                    return control.value || control.dataset.value || '';
+                }
                 return control.dataset.value ?? '';
             }
 
@@ -256,26 +237,40 @@
                 return nextValue;
             }
 
+            function renderSelectControl(select, items, previousValue) {
+                const uniqueItems = [
+                    ...new Set(items.filter((item) => item !== undefined && item !== null)),
+                ]
+                    .map((item) => String(item))
+                    .sort((a, b) => Number(a) - Number(b));
+
+                let nextValue = '';
+                if (uniqueItems.length > 0) {
+                    if (previousValue && uniqueItems.includes(previousValue)) {
+                        nextValue = previousValue;
+                    } else {
+                        nextValue = uniqueItems[0];
+                    }
+                }
+
+                select.innerHTML = '';
+                for (const item of uniqueItems) {
+                    const option = document.createElement('option');
+                    option.value = item;
+                    option.textContent = item;
+                    select.appendChild(option);
+                }
+
+                if (nextValue) {
+                    select.value = nextValue;
+                } else {
+                    select.value = '';
+                }
+                select.dataset.value = nextValue;
+                return nextValue;
+            }
+
             function updateControls() {
-                const selectedSummaryGenerator = renderSegmentedControl(
-                    summaryGenerator,
-                    summaryPlots.map((p) => p.generator),
-                    controlValue(summaryGenerator),
-                );
-
-                const summaryMetricItems = summaryPlots
-                    .filter(
-                        (p) =>
-                            !selectedSummaryGenerator ||
-                            p.generator === selectedSummaryGenerator
-                    )
-                    .map((p) => p.metric);
-                renderSegmentedControl(
-                    summaryMetric,
-                    summaryMetricItems,
-                    controlValue(summaryMetric),
-                );
-
                 const selectedScanGenerator = renderSegmentedControl(
                     scanGenerator,
                     scanPlots.map((p) => p.generator),
@@ -317,29 +312,15 @@
                             (!selectedScanStrategy ||
                                 p.strategy === selectedScanStrategy)
                     )
-                    .map((p) => String(p.repeat));
-                renderSegmentedControl(
+                    .map((p) => String(p.repeat ?? p.attempt ?? 1));
+                renderSelectControl(
                     scanRepeat,
                     scanRepeatItems,
-                    controlValue(scanRepeat),
+                    controlValue(scanRepeat) || scanRepeat.dataset.value || '',
                 );
             }
 
             function findAndDisplayPlot() {
-                const summaryGeneratorValue = controlValue(summaryGenerator);
-                const summaryMetricValue = controlValue(summaryMetric);
-
-                if (summaryGeneratorValue && summaryMetricValue) {
-                    const plot = summaryPlots.find(
-                        (p) =>
-                            p.generator === summaryGeneratorValue &&
-                            p.metric === summaryMetricValue
-                    );
-                    summaryIframe.src = plot ? plot.path : '';
-                } else {
-                    summaryIframe.src = '';
-                }
-
                 const scanGeneratorValue = controlValue(scanGenerator);
                 const scanNoiseValue = controlValue(scanNoise);
                 const scanStrategyValue = controlValue(scanStrategy);
@@ -363,8 +344,16 @@
                     if (plot) {
                         const absErr = formatMetricValue(plot.abs_err_x);
                         const uncertainty = formatMetricValue(plot.uncert);
+                        const repeatTotal = plot.repeat_total ?? null;
+                        const attemptLabel = repeatTotal
+                            ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
+                            : 'Attempt ' + plot.repeat;
                         scanMetrics.textContent =
-                            'Abs error: ' + absErr + ' • Uncertainty: ' + uncertainty;
+                            attemptLabel +
+                            ' • Abs error: ' +
+                            absErr +
+                            ' • Uncertainty: ' +
+                            uncertainty;
                     } else {
                         scanMetrics.textContent = '';
                     }
@@ -374,11 +363,6 @@
                 }
             }
 
-            summaryGenerator.addEventListener('controlchange', () => {
-                updateControls();
-                findAndDisplayPlot();
-            });
-            summaryMetric.addEventListener('controlchange', findAndDisplayPlot);
             scanGenerator.addEventListener('controlchange', () => {
                 updateControls();
                 findAndDisplayPlot();
@@ -391,12 +375,11 @@
                 updateControls();
                 findAndDisplayPlot();
             });
-            scanRepeat.addEventListener('controlchange', findAndDisplayPlot);
+            scanRepeat.addEventListener('change', () => {
+                scanRepeat.dataset.value = scanRepeat.value || '';
+                findAndDisplayPlot();
+            });
 
-            if (summaryDefault) {
-                summaryGenerator.dataset.value = summaryDefault.generator ?? '';
-                summaryMetric.dataset.value = summaryDefault.metric ?? '';
-            }
             if (scanDefault) {
                 scanGenerator.dataset.value = scanDefault.generator ?? '';
                 scanNoise.dataset.value = scanDefault.noise ?? '';

@@ -113,8 +113,8 @@ logs/
 # Project specific
 .fuzz_cache/
 
+artifacts/graphs/
 # Allow artifacts to be committed
 !artifacts/
 !artifacts/cache/
-!artifacts/graphs/
 /.hypothesis/

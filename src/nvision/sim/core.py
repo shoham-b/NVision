@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 import polars as pl
@@ -11,59 +11,59 @@ if TYPE_CHECKING:
     from .locators import ScanBatch
 
 
-@dataclass
+@dataclass(slots=True)
 class DataBatch:
-    """Container for a single synthetic dataset.
+    """Container for a single synthetic dataset backed by a Polars DataFrame."""
 
-    Attributes:
-        time_points: time axis (seconds or arbitrary units)
-        signal_values: signal values (e.g., photon counts or normalized intensity)
-        meta: metadata such as true parameters for evaluation
-        df: Polars DataFrame with columns ["t", "intensity"] for vectorized operations
-    """
-
-    time_points: list[float]
-    signal_values: list[float]
+    df: pl.DataFrame
     meta: dict[str, float]
-    df: pl.DataFrame = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        # Build a Polars DataFrame for downstream vectorized work while keeping
-        # the original list-backed attributes for backward compatibility.
-        self.df = pl.DataFrame(
-            {"time_points": self.time_points, "signal_values": self.signal_values},
+        expected_cols = {"time_points", "signal_values"}
+        missing = expected_cols.difference(self.df.columns)
+        if missing:
+            raise ValueError(f"DataBatch.df is missing required columns: {sorted(missing)}")
+        # Normalise column order and ensure we hold only the expected columns.
+        self.df = self.df.select(["time_points", "signal_values"]).with_columns(
+            pl.col("time_points").cast(pl.Float64),
+            pl.col("signal_values").cast(pl.Float64),
         )
+        self.meta = dict(self.meta)
+
+    @classmethod
+    def from_arrays(
+        cls,
+        time_points: Sequence[float],
+        signal_values: Sequence[float],
+        meta: dict[str, float] | None = None,
+    ) -> DataBatch:
+        df = pl.DataFrame(
+            {
+                "time_points": list(time_points),
+                "signal_values": list(signal_values),
+            }
+        )
+        return cls(df=df, meta=dict(meta or {}))
 
     @classmethod
     def from_frame(cls, df: pl.DataFrame, meta: dict[str, float]) -> DataBatch:
-        """
-        Construct a DataBatch from a Polars DataFrame with columns
-        ["time_points", "signal_values"]. Lists are derived for
-        backward compatibility, but df is the source of truth for
-        vectorized downstream operations.
-        """
-        tb = df.get_column("time_points").to_list()
-        yb = df.get_column("signal_values").to_list()
-        inst = cls(time_points=tb, signal_values=yb, meta=meta)
-        # Ensure df reference matches input df (avoid re-materializing)
-        inst.df = df.select(["time_points", "signal_values"])  # keep only expected columns
-        return inst
+        return cls(df=df, meta=meta)
+
+    @property
+    def time_points(self) -> list[float]:
+        return self.df.get_column("time_points").to_list()
+
+    @property
+    def signal_values(self) -> list[float]:
+        return self.df.get_column("signal_values").to_list()
 
     def to_polars(self) -> pl.DataFrame:
         """Return the underlying Polars DataFrame (columns: time_points, signal_values)."""
         return self.df
 
-    def with_y(self, new_y: list[float]) -> DataBatch:
-        """
-        Return a new DataBatch with the same time_points/meta and replaced
-        signal_values, updating df accordingly.
-        """
-        nb = DataBatch(
-            time_points=list(self.time_points),
-            signal_values=list(new_y),
-            meta=dict(self.meta),
-        )
-        return nb
+    def with_y(self, new_y: Sequence[float]) -> DataBatch:
+        df = self.df.with_columns(signal_values=pl.Series(list(new_y)))
+        return DataBatch(df=df, meta=self.meta)
 
 
 class NoiseModel(Protocol):

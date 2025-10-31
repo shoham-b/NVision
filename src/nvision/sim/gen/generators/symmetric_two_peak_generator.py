@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from nvision.sim.gen._protocols import PeakManufacturer
@@ -9,40 +10,67 @@ from nvision.sim.locs import ScanBatch
 
 @dataclass
 class SymmetricTwoPeakGenerator:
+    """Generate a scan with two symmetric peaks around a centre point."""
+
     x_min: float = 0.0
     x_max: float = 1.0
     center: float = 0.5
-    sep_frac: float = 0.1
+    sep_frac: float = 0.2
     base: float = 0.0
-    manufacturers: tuple[PeakManufacturer, PeakManufacturer] | None = None
+    manufacturers: Sequence[PeakManufacturer] | None = None
 
     def __post_init__(self) -> None:
-        if self.manufacturers is None:
-            raise ValueError("SymmetricTwoPeakGenerator requires manufacturers=(left, right)")
-        if not (self.x_min <= self.center <= self.x_max):
-            raise ValueError("center must lie within [x_min, x_max]")
         if self.sep_frac <= 0.0:
             raise ValueError("sep_frac must be positive")
+        if self.x_max <= self.x_min:
+            raise ValueError("x_max must be greater than x_min")
 
     def generate(self, rng: random.Random) -> ScanBatch:
         width = self.x_max - self.x_min
         delta = 0.5 * self.sep_frac * width
-        max_delta = min(self.center - self.x_min, self.x_max - self.center)
-        if delta > max_delta:
-            raise ValueError("sep_frac too large for given center and domain")
-        x1 = self.center - delta
-        x2 = self.center + delta
-        manuf_left, manuf_right = self.manufacturers
-        f1, _ = manuf_left.build_peak(x1, self.base, self.x_min, self.x_max, rng)
-        f2, _ = manuf_right.build_peak(x2, self.base, self.x_min, self.x_max, rng)
+        left = self.center - delta
+        right = self.center + delta
 
-        def f(x: float) -> float:
-            return f1(x) + f2(x) - self.base
+        if left < self.x_min or right > self.x_max:
+            raise ValueError("sep_frac too large for given centre and domain")
 
+        if self.manufacturers is None:
+            from nvision.sim.gen.distributions.gaussian_manufacturer import (
+                GaussianManufacturer,
+            )
+
+            manufacturers = (
+                GaussianManufacturer(amplitude=1.0, sigma=0.06),
+                GaussianManufacturer(amplitude=1.0, sigma=0.06),
+            )
+        elif len(self.manufacturers) != 2:
+            raise ValueError("manufacturers must contain exactly two PeakManufacturer instances")
+        else:
+            manufacturers = self.manufacturers
+
+        peaks = []
+        for peak_center, manufacturer in zip((left, right), manufacturers, strict=True):
+            fn, _ = manufacturer.build_peak(
+                center=peak_center,
+                base=self.base,
+                x_min=self.x_min,
+                x_max=self.x_max,
+                rng=rng,
+            )
+            peaks.append(fn)
+
+        def signal(x: float) -> float:
+            return sum(fn(x) for fn in peaks) - self.base
+
+        truth_positions = [left, right]
         return ScanBatch(
             x_min=self.x_min,
             x_max=self.x_max,
-            truth_positions=[x1, x2],
-            signal=f,
-            meta={"center": self.center, "sep_frac": self.sep_frac, "base": self.base},
+            truth_positions=truth_positions,
+            signal=signal,
+            meta={
+                "center": self.center,
+                "sep_frac": self.sep_frac,
+                "base": self.base,
+            },
         )

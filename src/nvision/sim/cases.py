@@ -3,6 +3,7 @@ from __future__ import annotations
 from .core import CompositeNoise
 from .gen import (
     CauchyLorentzPeakManufacturer,
+    ConvolutionManufacturer,
     ExponentialDecayManufacturer,
     GaussianManufacturer,
     NVCenterManufacturer,
@@ -35,6 +36,14 @@ def generators_basic() -> list[tuple[str, object]]:
         (
             "OnePeak-nv_center",
             OnePeakGenerator(manufacturer=NVCenterManufacturer()),
+        ),
+        (
+            "OnePeak-nv_center_broadened",
+            OnePeakGenerator(
+                manufacturer=ConvolutionManufacturer(
+                    NVCenterManufacturer(omega=5), GaussianManufacturer(sigma=5)
+                )
+            ),
         ),
         (
             "TwoPeak",
