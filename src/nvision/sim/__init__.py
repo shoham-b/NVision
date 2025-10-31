@@ -14,7 +14,6 @@ from .gen import (
     GaussianManufacturer,
     MultiPeakGenerator,
     OnePeakGenerator,
-    SymmetricTwoPeakGenerator,
     TwoPeakGenerator,
 )
 from .loc_runner import LocatorRunner

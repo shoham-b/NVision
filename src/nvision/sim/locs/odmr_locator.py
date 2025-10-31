@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import numpy as np
+import polars as pl
+
 from nvision.sim.locs.models.obs import Obs
 
 
@@ -26,24 +29,43 @@ class ODMRLocator:
     uncertainty_threshold: float = 0.1
 
     def propose_next(self, history: Sequence[Obs], domain: tuple[float, float]) -> float:
-        lo, hi = domain
-        taken = {round(o.x, 12) for o in history}
-        if len(history) < self.coarse_points:
-            step = (hi - lo) / (self.coarse_points - 1)
-            for i in range(self.coarse_points):
-                x = lo + i * step
-                if round(x, 12) not in taken:
-                    return x
+        domain_lo, domain_hi = domain
+
         if not history:
-            return 0.5 * (lo + hi)
-        # Promising region heuristic
-        best = max(history, key=lambda o: o.intensity)
-        width = (hi - lo) * 0.1
-        for offset in (-width / 2, 0.0, width / 2):
-            x = best.x + offset
-            if lo <= x <= hi and round(x, 12) not in taken:
-                return x
-        return 0.5 * (lo + hi)
+            # If there's no history, start with the first coarse point.
+            return domain_lo
+
+        # Use polars for efficient processing of history and candidates.
+        history_df = pl.DataFrame([{"x": o.x, "intensity": o.intensity} for o in history])
+
+        # --- 1. Coarse Scan Phase ---
+        if len(history) < self.coarse_points:
+            # Generate all potential coarse scan points.
+            coarse_candidates = np.linspace(domain_lo, domain_hi, self.coarse_points)
+            candidates_df = pl.DataFrame({"candidate": coarse_candidates})
+
+            # Find the first candidate that is not in the history.
+            # A left anti-join returns candidates that have no match in history.
+            # We round to handle potential floating point inaccuracies.
+            untaken_candidates = candidates_df.join(
+                history_df.select(pl.col("x").round(12)),
+                left_on=pl.col("candidate").round(12),
+                right_on=pl.col("x"),
+                how="anti",
+            )
+
+            if not untaken_candidates.is_empty():
+                return untaken_candidates["candidate"][0]
+
+        # --- 2. Refinement Phase ---
+        # Find the observation with the highest intensity.
+        best_obs = history_df.row(by="intensity", descending=True, named=True)
+        best_x = best_obs["x"]
+
+        # Propose new points around the best observation.
+        width = (domain_hi - domain_lo) * 0.1
+        refine_candidates = [best_x - width / 2, best_x, best_x + width / 2]
+        return next((p for p in refine_candidates if p not in history_df["x"]), best_x)
 
     def should_stop(self, history: Sequence[Obs]) -> bool:
         if len(history) >= (self.coarse_points + self.refine_points):
