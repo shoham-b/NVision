@@ -66,6 +66,28 @@
             outline: 2px solid #0056b3;
             outline-offset: 2px;
         }
+        .repeat-picker {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5em;
+        }
+        .control-button {
+            padding: 0.4em 0.9em;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: #f9f9f9;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+        .control-button:hover:not(:disabled) {
+            border-color: #888;
+            background-color: #f0f0f0;
+        }
+        .control-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
         .control-select {
             padding: 0.6em 0.8em;
             border: 1px solid #ccc;
@@ -133,7 +155,25 @@
         </div>
         <div class="control-row">
             <span class="control-label">Repeat:</span>
-            <select id="scan-repeat" class="control-select" aria-label="Scan repeat"></select>
+            <div class="repeat-picker" role="group" aria-label="Scan repeat navigation">
+                <button
+                    id="scan-repeat-prev"
+                    class="control-button"
+                    type="button"
+                    aria-label="Previous repeat"
+                >
+                    Previous
+                </button>
+                <select id="scan-repeat" class="control-select" aria-label="Scan repeat"></select>
+                <button
+                    id="scan-repeat-next"
+                    class="control-button"
+                    type="button"
+                    aria-label="Next repeat"
+                >
+                    Next
+                </button>
+            </div>
         </div>
         <p id="scan-metrics" class="metrics"></p>
         <iframe id="scan-iframe"></iframe>
@@ -164,8 +204,11 @@
             const scanNoise = document.getElementById('scan-noise');
             const scanStrategy = document.getElementById('scan-strategy');
             const scanRepeat = document.getElementById('scan-repeat');
+            const scanRepeatPrev = document.getElementById('scan-repeat-prev');
+            const scanRepeatNext = document.getElementById('scan-repeat-next');
             const scanIframe = document.getElementById('scan-iframe');
             const scanMetrics = document.getElementById('scan-metrics');
+            let currentRepeatItems = [];
 
             function formatMetricValue(value) {
                 if (typeof value === 'number' && Number.isFinite(value)) {
@@ -267,7 +310,55 @@
                     select.value = '';
                 }
                 select.dataset.value = nextValue;
-                return nextValue;
+                select.dataset.options = JSON.stringify(uniqueItems);
+                return { value: nextValue, items: uniqueItems };
+            }
+
+            function updateRepeatNavButtons() {
+                if (!scanRepeatPrev || !scanRepeatNext) {
+                    return;
+                }
+                if (currentRepeatItems.length === 0) {
+                    scanRepeatPrev.disabled = true;
+                    scanRepeatNext.disabled = true;
+                    return;
+                }
+                const currentValue = scanRepeat.value || currentRepeatItems[0] || '';
+                const currentIndex = currentRepeatItems.indexOf(currentValue);
+                const hasValidSelection = currentIndex !== -1;
+                scanRepeatPrev.disabled = !hasValidSelection || currentIndex <= 0;
+                scanRepeatNext.disabled = !hasValidSelection || currentIndex >= currentRepeatItems.length - 1;
+            }
+
+            function selectRepeatByIndex(index) {
+                if (currentRepeatItems.length === 0) {
+                    return;
+                }
+                const clampedIndex = Math.max(0, Math.min(index, currentRepeatItems.length - 1));
+                const nextValue = currentRepeatItems[clampedIndex];
+                if (nextValue === undefined) {
+                    return;
+                }
+                scanRepeat.value = nextValue;
+                scanRepeat.dataset.value = nextValue;
+                updateRepeatNavButtons();
+                findAndDisplayPlot();
+            }
+
+            function selectRepeatByOffset(offset) {
+                if (currentRepeatItems.length === 0) {
+                    return;
+                }
+                const currentValue = scanRepeat.value || currentRepeatItems[0];
+                let currentIndex = currentRepeatItems.indexOf(currentValue);
+                if (currentIndex === -1) {
+                    currentIndex = 0;
+                }
+                const targetIndex = currentIndex + offset;
+                if (targetIndex < 0 || targetIndex >= currentRepeatItems.length) {
+                    return;
+                }
+                selectRepeatByIndex(targetIndex);
             }
 
             function updateControls() {
@@ -313,11 +404,16 @@
                                 p.strategy === selectedScanStrategy)
                     )
                     .map((p) => String(p.repeat ?? p.attempt ?? 1));
-                renderSelectControl(
+                const { value: selectedRepeat, items: repeatItems } = renderSelectControl(
                     scanRepeat,
                     scanRepeatItems,
                     controlValue(scanRepeat) || scanRepeat.dataset.value || '',
                 );
+                currentRepeatItems = repeatItems;
+                if (selectedRepeat) {
+                    scanRepeat.dataset.value = selectedRepeat;
+                }
+                updateRepeatNavButtons();
             }
 
             function findAndDisplayPlot() {
@@ -377,8 +473,20 @@
             });
             scanRepeat.addEventListener('change', () => {
                 scanRepeat.dataset.value = scanRepeat.value || '';
+                updateRepeatNavButtons();
                 findAndDisplayPlot();
             });
+
+            if (scanRepeatPrev) {
+                scanRepeatPrev.addEventListener('click', () => {
+                    selectRepeatByOffset(-1);
+                });
+            }
+            if (scanRepeatNext) {
+                scanRepeatNext.addEventListener('click', () => {
+                    selectRepeatByOffset(1);
+                });
+            }
 
             if (scanDefault) {
                 scanGenerator.dataset.value = scanDefault.generator ?? '';
