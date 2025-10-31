@@ -91,23 +91,3 @@ class DataFrameCache:
             # Best effort only; ignore caching errors so CLI continues.
             pass
         return self.cache_dir / key
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible functional wrappers (deprecated)
-# ---------------------------------------------------------------------------
-
-
-def make_key(config: dict) -> str:
-    """Deprecated functional wrapper around DataFrameCache.make_key."""
-    return DataFrameCache.make_key(config)
-
-
-def load_df(cache_dir: Path, key: str) -> pl.DataFrame | None:
-    """Deprecated functional wrapper; prefer DataFrameCache(cache_dir).load_df(key)."""
-    return DataFrameCache(cache_dir).load_df(key)
-
-
-def save_df(df: pl.DataFrame, cache_dir: Path, key: str) -> Path:
-    """Deprecated functional wrapper; prefer DataFrameCache(cache_dir).save_df(df, key)."""
-    return DataFrameCache(cache_dir).save_df(df, key)

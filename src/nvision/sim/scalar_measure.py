@@ -15,6 +15,6 @@ class ScalarMeasure:
     def measure(self, x: float, y_clean: float, rng: random.Random) -> float:
         if self.noise is None:
             return y_clean
-        db = DataBatch(time_points=[x], signal_values=[y_clean], meta={})
+        db = DataBatch.from_arrays(time_points=[x], signal_values=[y_clean], meta={})
         noisy = self.noise.apply(db, rng)
         return float(noisy.signal_values[0])

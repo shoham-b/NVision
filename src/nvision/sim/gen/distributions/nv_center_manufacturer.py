@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Callable
 
 from nvision.sim.gen._protocols import PeakManufacturer
+from nvision.sim.gen.distributions.broadened_nv_center_manufacturer import (
+    BroadenedNVCenterManufacturer,
+)
+from nvision.sim.gen.distributions.gaussian_manufacturer import GaussianManufacturer
 
 
 class NVCenterManufacturer(PeakManufacturer):
@@ -35,23 +40,12 @@ class NVCenterManufacturer(PeakManufacturer):
 
     def __init__(
         self,
-        a: float = 0.1,  # Amplitude scaling factor for the central dip
-        k_np: float = 1.0,  # Non-polarization factor, typically > 0
-        delta_f_hf: float = 1.0,  # Hyperfine splitting, typically > 0
-        omega: float | None = None,  # Linewidth/width parameter (HWHM), typically > 0
+        a: float = 1,  # Amplitude scaling factor for the central dip
+        k_np: float = 100,  # Non-polarization factor, typically > 0
+        delta_f_hf: float = 0.2,  # Hyperfine splitting, typically > 0
+        omega: float | None = 1,  # Linewidth/width parameter (HWHM), typically > 0
         **kwargs,  # For potential future compatibility or alternative parameter names
     ) -> None:
-        # Handle kwargs for flexibility, mapping common names if applicable
-        if "amplitude" in kwargs:  # Map 'amplitude' to 'a'
-            a = kwargs["amplitude"]
-        if "width" in kwargs:  # Map 'width' to 'omega'
-            omega = kwargs["width"]
-        # Specific kwargs for NV center parameters
-        if "k_np" in kwargs:
-            k_np = kwargs["k_np"]
-        if "delta_f_hf" in kwargs:
-            delta_f_hf = kwargs["delta_f_hf"]
-
         # Store parameters
         self.a = a
         self.k_np = k_np
@@ -111,7 +105,7 @@ class NVCenterManufacturer(PeakManufacturer):
 
         # Define the Lorentzian dip term helper function
         # L(f, f0, A_num, Omega) = A_num / ((f - f0)^2 + Omega^2)
-        def lorentzian_dip_term(
+        def lorentzian_peak_term(
             f_val: float,
             f0: float,
             amplitude_num: float,
@@ -126,23 +120,28 @@ class NVCenterManufacturer(PeakManufacturer):
             """
             Computes the NV-center distribution value at a given frequency 'x'.
             """
-            # Calculate the three Lorentzian dip terms
-            term1 = lorentzian_dip_term(
-                x,
-                f_b + self.delta_f_hf,
-                self.a * self.k_np,
-                effective_omega,
-            )
-            term2 = lorentzian_dip_term(x, f_b, self.a, effective_omega)
-            term3 = lorentzian_dip_term(
-                x,
-                f_b - self.delta_f_hf,
-                self.a / self.k_np,
-                effective_omega,
-            )
-
-            # The final distribution is 1 minus the sum of these terms
-            return 1.0 - term1 - term2 - term3
+            if self.delta_f_hf == 0:
+                # If there is no hyperfine splitting, the three terms collapse into one.
+                # We can optimize by calculating a single Lorentzian with a combined amplitude.
+                combined_amplitude_num = self.a * (self.k_np + 1 + 1 / self.k_np)
+                total_dip = lorentzian_peak_term(x, f_b, combined_amplitude_num, effective_omega)
+                return total_dip
+            else:
+                # Calculate the three separate Lorentzian dip terms for the hyperfine splitting
+                term1 = lorentzian_peak_term(
+                    x,
+                    f_b + self.delta_f_hf,
+                    self.a * self.k_np,
+                    effective_omega,
+                )
+                term2 = lorentzian_peak_term(x, f_b, self.a, effective_omega)
+                term3 = lorentzian_peak_term(
+                    x,
+                    f_b - self.delta_f_hf,
+                    self.a / self.k_np,
+                    effective_omega,
+                )
+                return term1 + term2 + term3
 
         # Collect all parameters used to define this specific peak instance
         params = {
@@ -155,3 +154,27 @@ class NVCenterManufacturer(PeakManufacturer):
         }
 
         return f, params
+
+    def convolve(self, other: PeakManufacturer) -> PeakManufacturer:
+        """Handles convolution, specifically with a Gaussian for broadening."""
+        if not isinstance(other, GaussianManufacturer):
+            return super().convolve(other)
+
+        # The convolution of the NV center's triple-Lorentzian signal with a
+        # Gaussian results in a triple-Voigt signal. We return a new
+        # manufacturer that produces this broadened signal directly.
+
+        # FWHM of the Lorentzian component is 2 * omega (HWHM)
+        fwhm_l = 2 * self.omega if self.omega is not None else 0.1
+
+        # FWHM of the Gaussian component is 2 * sigma * sqrt(2 * ln(2))
+        # other.sigma is sigma.
+        fwhm_g = 2 * other.sigma * math.sqrt(2 * math.log(2)) if other.sigma is not None else 0.1
+
+        return BroadenedNVCenterManufacturer(
+            a=self.a,
+            k_np=self.k_np,
+            delta_f_hf=self.delta_f_hf,
+            fwhm_l=fwhm_l,
+            fwhm_g=fwhm_g,
+        )

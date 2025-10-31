@@ -1,6 +1,9 @@
 from nvision.sim.gen.distributions.cauchy_lorentz_manufacturer import (
     CauchyLorentzPeakManufacturer as CauchyLorentzPeakManufacturer,
 )
+from nvision.sim.gen.distributions.convolution_manufacturer import (
+    ConvolutionManufacturer as ConvolutionManufacturer,
+)
 from nvision.sim.gen.distributions.exponential_decay_manufacturer import (
     ExponentialDecayManufacturer as ExponentialDecayManufacturer,
 )
@@ -19,3 +22,17 @@ from nvision.sim.gen.generators.two_peak_generator import TwoPeakGenerator as Tw
 
 from ._protocols import PeakManufacturer as PeakManufacturer
 from ._protocols import SeriesManufacturer as SeriesManufacturer
+
+__all__ = [
+    "CauchyLorentzPeakManufacturer",
+    "ConvolutionManufacturer",
+    "ExponentialDecayManufacturer",
+    "GaussianManufacturer",
+    "NVCenterManufacturer",
+    "MultiPeakGenerator",
+    "OnePeakGenerator",
+    "SymmetricTwoPeakGenerator",
+    "TwoPeakGenerator",
+    "PeakManufacturer",
+    "SeriesManufacturer",
+]

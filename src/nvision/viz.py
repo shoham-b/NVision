@@ -57,7 +57,7 @@ class Viz:
 
         # Simulated noisy curve (e.g., over-voltage noise)
         if noise is not None:
-            dense_batch = DataBatch(time_points=list(xs), signal_values=list(ys), meta={})
+            dense_batch = DataBatch.from_arrays(xs, ys, meta={})
             noisy_batch = noise.apply(dense_batch, random.Random(0))
             noisy_values = [float(v) for v in noisy_batch.signal_values]
             fig.add_trace(
