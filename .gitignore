@@ -103,6 +103,7 @@ logs/
 
 # Local data
 *.sqlite3
+!artifacts/cache/cache.db
 *.db
 
 # Temporary files
@@ -116,5 +117,4 @@ logs/
 artifacts/graphs/
 # Allow artifacts to be committed
 !artifacts/
-!artifacts/cache/
 /.hypothesis/

@@ -27,6 +27,7 @@ NVision is a simulation framework designed to accelerate research in quantum sen
 - **Reproducible Science**: Every experiment is fully controlled by a single seed and scenario grid, ensuring identical results for repeated runs.
 - **Analysis Pipelines**: Data and results are processed with fast, modern tabular tools (Polars DataFrames), supporting advanced statistical summaries and error analysis.
 - **Visualization**: Automatically generates comparison plots to easily interpret strategy performance, uncertainty, and real-world impact.
+- **Interactive Visualizer**: Experiment with NV-center parameters in this [Desmos NV center calculator](https://www.desmos.com/calculator/ynsoiy3ofk) to build intuition before running simulations.
 - **Applications**: Designed for quantum magnetometry, microscopy, and custom quantum sensing protocol development.
 
 ---
