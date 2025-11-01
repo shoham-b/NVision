@@ -40,6 +40,33 @@
         .control-label {
             font-weight: bold;
         }
+        .tab-bar {
+            display: flex;
+            gap: 0.75em;
+            margin: 1.5em 0;
+            flex-wrap: wrap;
+        }
+        .tab-button {
+            padding: 0.6em 1.2em;
+            border: 1px solid #ccc;
+            border-radius: 999px;
+            background-color: #f1f1f1;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+        .tab-button:hover:not(:disabled) {
+            border-color: #888;
+            background-color: #e2e2e2;
+        }
+        .tab-button.is-active {
+            background-color: #0056b3;
+            border-color: #0056b3;
+            color: #fff;
+        }
+        .tab-panel.is-hidden {
+            display: none;
+        }
         .segmented-control {
             display: inline-flex;
             flex-wrap: wrap;
@@ -117,6 +144,42 @@
         a:hover {
             text-decoration: underline;
         }
+        .distribution-params {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0.75em;
+            margin: 0.75em 0 1.25em;
+        }
+        .param-control {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35em;
+            padding: 0.65em;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        .param-control label {
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+        .param-control input[type="number"] {
+            padding: 0.45em 0.6em;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+        .distribution-calculator-wrapper {
+            margin-top: 1.5em;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 1em;
+        }
+        #distribution-calculator {
+            width: 100%;
+            min-height: 560px;
+        }
     </style>
 </head>
 <body>
@@ -124,7 +187,32 @@
 
     <p><a href="locator_results.csv" download>Download locator_results.csv</a></p>
 
-    <div id="scan-section" class="section">
+    <div class="tab-bar" role="tablist" aria-label="Results views">
+        <button
+            id="tab-scan"
+            class="tab-button is-active"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="scan-section"
+            data-tab="scan"
+        >
+            Scan Measurements
+        </button>
+        <button
+            id="tab-distribution"
+            class="tab-button"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="distribution-section"
+            data-tab="distribution"
+        >
+            Distribution Playground
+        </button>
+    </div>
+
+    <div id="scan-section" class="section tab-panel" role="tabpanel" aria-labelledby="tab-scan">
         <h2>Scan Measurements</h2>
         <div class="control-row">
             <span class="control-label">Generator:</span>
@@ -179,6 +267,40 @@
         <iframe id="scan-iframe"></iframe>
     </div>
 
+    <div
+        id="distribution-section"
+        class="section tab-panel is-hidden"
+        role="tabpanel"
+        aria-labelledby="tab-distribution"
+        aria-hidden="true"
+    >
+        <h2>Distribution Playground</h2>
+        <p>
+            Experiment with NV-center distribution parameters using the interactive Desmos
+            calculator. Adjust the controls to explore how each distribution behaves.
+        </p>
+        <div class="control-row">
+            <span class="control-label">Distribution:</span>
+            <select id="distribution-select" class="control-select" aria-label="Distribution type">
+                <option value="gaussian">Gaussian</option>
+                <option value="lorentzian">Lorentzian</option>
+                <option value="double_gaussian">Double Gaussian</option>
+            </select>
+            <button id="distribution-reset" class="control-button" type="button">Reset</button>
+        </div>
+        <div id="distribution-params" class="distribution-params" aria-live="polite"></div>
+        <div class="distribution-calculator-wrapper">
+            <div
+                id="distribution-calculator"
+                class="distribution-calculator"
+                role="presentation"
+                aria-label="Distribution plot"
+            ></div>
+        </div>
+        <p id="distribution-summary" class="metrics"></p>
+    </div>
+
+    <script src="https://www.desmos.com/api/v1.10/calculator.js?apiKey=dc3a2ea6470b4b1b84bf68b6b825d540"></script>
     <script id="plots-manifest" type="application/json">${manifest_json}</script>
     <script>
         function main() {
@@ -200,6 +322,9 @@
 
             const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
 
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const tabPanels = document.querySelectorAll('.tab-panel');
+
             const scanGenerator = document.getElementById('scan-generator');
             const scanNoise = document.getElementById('scan-noise');
             const scanStrategy = document.getElementById('scan-strategy');
@@ -209,6 +334,16 @@
             const scanIframe = document.getElementById('scan-iframe');
             const scanMetrics = document.getElementById('scan-metrics');
             let currentRepeatItems = [];
+
+            const distributionSelect = document.getElementById('distribution-select');
+            const distributionParamsContainer = document.getElementById('distribution-params');
+            const distributionReset = document.getElementById('distribution-reset');
+            const distributionSummary = document.getElementById('distribution-summary');
+            const distributionCalculatorEl = document.getElementById('distribution-calculator');
+            let currentDistributionKey = '';
+            let currentDistributionParams = {};
+            let distributionCalculator = null;
+            let activeAuxExpressionIds = [];
 
             function formatMetricValue(value) {
                 if (typeof value === 'number' && Number.isFinite(value)) {
@@ -500,6 +635,364 @@
 
             updateControls();
             findAndDisplayPlot();
+
+            // --- Tab navigation helpers ---
+            function activateTab(target) {
+                for (const button of tabButtons) {
+                    const isActive = button.dataset.tab === target;
+                    button.classList.toggle('is-active', isActive);
+                    button.setAttribute('aria-selected', String(isActive));
+                }
+                for (const panel of tabPanels) {
+                    const isTarget = panel.id === target + '-section';
+                    panel.classList.toggle('is-hidden', !isTarget);
+                    panel.setAttribute('aria-hidden', String(!isTarget));
+                }
+            }
+
+            for (const button of tabButtons) {
+                button.addEventListener('click', () => {
+                    const { tab } = button.dataset;
+                    if (!tab) {
+                        return;
+                    }
+                    activateTab(tab);
+                });
+            }
+
+            function latexNumber(value) {
+                const num = Number(value);
+                if (!Number.isFinite(num)) {
+                    return '0';
+                }
+                if (num === 0) {
+                    return '0';
+                }
+                const abs = Math.abs(num);
+                if ((abs > 0 && abs < 1e-4) || abs >= 1e4) {
+                    return num.toExponential(4);
+                }
+                let str = num.toFixed(6);
+                str = str.replace(/0+$/, '').replace(/\.$/, '');
+                return str || '0';
+            }
+
+            const distributions = {
+                gaussian: {
+                    label: 'Gaussian',
+                    xRange: [-1, 1],
+                    params: {
+                        amplitude: { label: 'Amplitude', defaultValue: 1, min: 0, step: 0.1 },
+                        mean: { label: 'Mean', defaultValue: 0, step: 0.01 },
+                        sigma: { label: 'Sigma', defaultValue: 0.1, min: 0.01, step: 0.01 },
+                        baseline: { label: 'Baseline', defaultValue: 0, step: 0.05 },
+                    },
+                    expression(params) {
+                        const { amplitude, mean, sigma, baseline } = params;
+                        const safeSigma = Math.max(sigma, 1e-6);
+                        return `y=${latexNumber(baseline)}+${latexNumber(amplitude)}\\cdot e^{-((x-${latexNumber(mean)})^2)/(2(${latexNumber(safeSigma)})^2)}`;
+                    },
+                    evaluate(x, params) {
+                        const amplitude = Number(params.amplitude);
+                        const mean = Number(params.mean);
+                        const sigma = Math.max(Number(params.sigma), 1e-6);
+                        const baseline = Number(params.baseline);
+                        const z = (x - mean) / sigma;
+                        return baseline + amplitude * Math.exp(-0.5 * z * z);
+                    },
+                },
+                lorentzian: {
+                    label: 'Lorentzian',
+                    xRange: [-1, 1],
+                    params: {
+                        amplitude: { label: 'Amplitude', defaultValue: 1, min: 0, step: 0.1 },
+                        center: { label: 'Center', defaultValue: 0, step: 0.01 },
+                        gamma: { label: 'Gamma', defaultValue: 0.05, min: 0.005, step: 0.005 },
+                        baseline: { label: 'Baseline', defaultValue: 0, step: 0.05 },
+                    },
+                    expression(params) {
+                        const { amplitude, center, gamma, baseline } = params;
+                        const safeGamma = Math.max(gamma, 1e-6);
+                        return `y=${latexNumber(baseline)}+${latexNumber(amplitude)}\\cdot\\frac{(${latexNumber(safeGamma)})^2}{(x-${latexNumber(center)})^2+(${latexNumber(safeGamma)})^2}`;
+                    },
+                    evaluate(x, params) {
+                        const amplitude = Number(params.amplitude);
+                        const center = Number(params.center);
+                        const gamma = Math.max(Number(params.gamma), 1e-6);
+                        const baseline = Number(params.baseline);
+                        return baseline + amplitude * (gamma * gamma) / ((x - center) ** 2 + gamma * gamma);
+                    },
+                },
+                double_gaussian: {
+                    label: 'Double Gaussian',
+                    xRange: [-1.5, 1.5],
+                    params: {
+                        amplitude1: { label: 'Amplitude 1', defaultValue: 1, min: 0, step: 0.1 },
+                        mean1: { label: 'Mean 1', defaultValue: -0.3, step: 0.01 },
+                        sigma1: { label: 'Sigma 1', defaultValue: 0.08, min: 0.01, step: 0.01 },
+                        amplitude2: { label: 'Amplitude 2', defaultValue: 0.8, min: 0, step: 0.1 },
+                        mean2: { label: 'Mean 2', defaultValue: 0.35, step: 0.01 },
+                        sigma2: { label: 'Sigma 2', defaultValue: 0.08, min: 0.01, step: 0.01 },
+                        baseline: { label: 'Baseline', defaultValue: 0, step: 0.05 },
+                    },
+                    expression(params) {
+                        const s1 = Math.max(params.sigma1, 1e-6);
+                        const s2 = Math.max(params.sigma2, 1e-6);
+                        return `y=${latexNumber(params.baseline)}+${latexNumber(params.amplitude1)}\\cdot e^{-((x-${latexNumber(params.mean1)})^2)/(2(${latexNumber(s1)})^2)}+${latexNumber(params.amplitude2)}\\cdot e^{-((x-${latexNumber(params.mean2)})^2)/(2(${latexNumber(s2)})^2)}`;
+                    },
+                    evaluate(x, params) {
+                        const baseline = Number(params.baseline);
+                        const a1 = Number(params.amplitude1);
+                        const m1 = Number(params.mean1);
+                        const s1 = Math.max(Number(params.sigma1), 1e-6);
+                        const a2 = Number(params.amplitude2);
+                        const m2 = Number(params.mean2);
+                        const s2 = Math.max(Number(params.sigma2), 1e-6);
+                        const z1 = (x - m1) / s1;
+                        const z2 = (x - m2) / s2;
+                        return baseline + a1 * Math.exp(-0.5 * z1 * z1) + a2 * Math.exp(-0.5 * z2 * z2);
+                    },
+                },
+            };
+
+            function ensureDistributionCalculator() {
+                if (distributionCalculator || typeof Desmos === 'undefined' || !distributionCalculatorEl) {
+                    return distributionCalculator;
+                }
+                distributionCalculator = Desmos.Calculator(distributionCalculatorEl, {
+                    expressionsCollapsed: true,
+                    keypad: false,
+                    settingsMenu: false,
+                    zoomButtons: false,
+                    expressionsTopbar: false,
+                });
+                return distributionCalculator;
+            }
+
+            function renderDistributionParams(distributionKey, { preserveValues = false } = {}) {
+                if (!distributionParamsContainer) {
+                    return;
+                }
+                const dist = distributions[distributionKey];
+                if (!dist) {
+                    distributionParamsContainer.innerHTML = '<p>No distribution parameters available.</p>';
+                    currentDistributionParams = {};
+                    return;
+                }
+                distributionParamsContainer.innerHTML = '';
+                const nextParams = {};
+                for (const [paramKey, config] of Object.entries(dist.params)) {
+                    const control = document.createElement('div');
+                    control.className = 'param-control';
+
+                    const label = document.createElement('label');
+                    const inputId = `param-${distributionKey}-${paramKey}`;
+                    label.setAttribute('for', inputId);
+                    label.textContent = config.label;
+
+                    const input = document.createElement('input');
+                    input.type = 'number';
+                    input.id = inputId;
+                    input.name = paramKey;
+                    const initial = preserveValues && paramKey in currentDistributionParams
+                        ? currentDistributionParams[paramKey]
+                        : config.defaultValue;
+                    input.value = Number(initial);
+                    if (config.min !== undefined) input.min = String(config.min);
+                    if (config.max !== undefined) input.max = String(config.max);
+                    if (config.step !== undefined) input.step = String(config.step);
+
+                    input.addEventListener('input', () => {
+                        const attempted = Number.parseFloat(input.value);
+                        if (!Number.isFinite(attempted)) {
+                            return;
+                        }
+                        let safeValue = attempted;
+                        if (config.min !== undefined && safeValue < config.min) {
+                            safeValue = config.min;
+                        }
+                        if (config.max !== undefined && safeValue > config.max) {
+                            safeValue = config.max;
+                        }
+                        if (safeValue !== attempted) {
+                            input.value = safeValue;
+                        }
+                        nextParams[paramKey] = safeValue;
+                        currentDistributionParams = { ...currentDistributionParams, ...nextParams };
+                        updateDistributionCalculator();
+                    });
+
+                    control.appendChild(label);
+                    control.appendChild(input);
+                    distributionParamsContainer.appendChild(control);
+                    nextParams[paramKey] = Number(initial);
+                }
+                currentDistributionParams = nextParams;
+            }
+
+            function sampleDistribution(dist, params) {
+                if (!dist || typeof dist.evaluate !== 'function') {
+                    return null;
+                }
+                const [xMin, xMax] = dist.xRange ?? [-1, 1];
+                const steps = 400;
+                const xs = [];
+                const ys = [];
+                for (let i = 0; i <= steps; i += 1) {
+                    const x = xMin + ((xMax - xMin) * i) / steps;
+                    const y = dist.evaluate(x, params);
+                    if (!Number.isFinite(y)) {
+                        continue;
+                    }
+                    xs.push(x);
+                    ys.push(y);
+                }
+                if (xs.length === 0) {
+                    return null;
+                }
+                return { xs, ys };
+            }
+
+            function updateDistributionSummary(dist, params) {
+                if (!distributionSummary) {
+                    return;
+                }
+                const sample = sampleDistribution(dist, params);
+                if (!sample) {
+                    distributionSummary.textContent = '';
+                    return;
+                }
+                const { ys } = sample;
+                const sum = ys.reduce((acc, value) => acc + value, 0);
+                const mean = sum / ys.length;
+                const variance = ys.reduce((acc, value) => acc + (value - mean) ** 2, 0) / ys.length;
+                const stddev = Math.sqrt(Math.max(variance, 0));
+                const min = Math.min(...ys);
+                const max = Math.max(...ys);
+                distributionSummary.textContent = `${dist.label} — Mean: ${formatMetricValue(mean)} • Std dev: ${formatMetricValue(stddev)} • Min: ${formatMetricValue(min)} • Max: ${formatMetricValue(max)}`;
+            }
+
+            function updateDistributionCalculator() {
+                const calculator = ensureDistributionCalculator();
+                const dist = distributions[currentDistributionKey];
+                if (!calculator || !dist) {
+                    if (distributionSummary) {
+                        distributionSummary.textContent = distributionCalculatorEl && typeof Desmos === 'undefined'
+                            ? 'Unable to load Desmos calculator. Please check your internet connection.'
+                            : '';
+                    }
+                    return;
+                }
+
+                const params = { ...currentDistributionParams };
+                for (const key of Object.keys(dist.params)) {
+                    if (!Number.isFinite(params[key])) {
+                        params[key] = Number(dist.params[key].defaultValue);
+                    }
+                }
+
+                const latex = dist.expression(params);
+                calculator.setExpression({ id: 'distribution-main', latex, color: '#0056b3' });
+
+                const auxExpressions = typeof dist.auxExpressions === 'function' ? dist.auxExpressions(params) : [];
+                const nextAuxIds = new Set();
+                if (Array.isArray(auxExpressions)) {
+                    auxExpressions.forEach((expr, index) => {
+                        if (!expr || !expr.latex) {
+                            return;
+                        }
+                        const exprId = expr.id ?? `distribution-aux-${index}`;
+                        nextAuxIds.add(exprId);
+                        calculator.setExpression({
+                            id: exprId,
+                            latex: expr.latex,
+                            color: expr.color ?? '#888888',
+                            lineStyle: expr.lineStyle,
+                            hidden: expr.hidden ?? false,
+                        });
+                    });
+                }
+                activeAuxExpressionIds.forEach((id) => {
+                    if (!nextAuxIds.has(id)) {
+                        calculator.removeExpression({ id });
+                    }
+                });
+                activeAuxExpressionIds = Array.from(nextAuxIds);
+
+                const sample = sampleDistribution(dist, params);
+                if (sample) {
+                    const { xs, ys } = sample;
+                    const left = dist.xRange ? dist.xRange[0] : xs[0];
+                    const right = dist.xRange ? dist.xRange[1] : xs[xs.length - 1];
+                    const yMin = Math.min(...ys);
+                    const yMax = Math.max(...ys);
+                    const margin = (yMax - yMin) * 0.1 || 1;
+                    calculator.setMathBounds({
+                        left,
+                        right,
+                        bottom: yMin - margin,
+                        top: yMax + margin,
+                    });
+                }
+
+                updateDistributionSummary(dist, params);
+            }
+
+            function selectDistribution(key, { preserveValues = false } = {}) {
+                if (!key || !distributions[key]) {
+                    return;
+                }
+                currentDistributionKey = key;
+                renderDistributionParams(key, { preserveValues });
+                updateDistributionCalculator();
+            }
+
+            function resetDistribution() {
+                selectDistribution(currentDistributionKey, { preserveValues: false });
+            }
+
+            function initializeDistributionPlayground() {
+                if (!distributionSelect || !distributionCalculatorEl) {
+                    return;
+                }
+                if (typeof Desmos === 'undefined') {
+                    if (distributionSummary) {
+                        distributionSummary.textContent = 'Desmos calculator failed to load. Please check your internet connection.';
+                    }
+                    return;
+                }
+
+                distributionSelect.innerHTML = '';
+                for (const [key, config] of Object.entries(distributions)) {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = config.label;
+                    distributionSelect.appendChild(option);
+                }
+
+                ensureDistributionCalculator();
+
+                const initialKey = distributionSelect.value && distributions[distributionSelect.value]
+                    ? distributionSelect.value
+                    : Object.keys(distributions)[0];
+                if (initialKey) {
+                    distributionSelect.value = initialKey;
+                    selectDistribution(initialKey, { preserveValues: false });
+                }
+
+                distributionSelect.addEventListener('change', () => {
+                    const key = distributionSelect.value;
+                    selectDistribution(key, { preserveValues: false });
+                });
+                if (distributionReset) {
+                    distributionReset.addEventListener('click', () => {
+                        resetDistribution();
+                    });
+                }
+            }
+
+            activateTab('scan');
+            initializeDistributionPlayground();
         }
 
         window.addEventListener('DOMContentLoaded', main);

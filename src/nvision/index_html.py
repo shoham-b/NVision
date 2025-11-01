@@ -2,18 +2,16 @@ from __future__ import annotations
 
 import html
 from pathlib import Path
-from string import Template
 from typing import Final
 
-_TEMPLATE_CACHE: Template | None = None
+_TEMPLATE_CACHE: str | None = None
 _TEMPLATE_PATH: Final = Path(__file__).with_name("templates") / "index.html"
 
 
-def _load_template() -> Template:
+def _load_template() -> str:
     global _TEMPLATE_CACHE
     if _TEMPLATE_CACHE is None:
-        template_text = _TEMPLATE_PATH.read_text(encoding="utf-8")
-        _TEMPLATE_CACHE = Template(template_text)
+        _TEMPLATE_CACHE = _TEMPLATE_PATH.read_text(encoding="utf-8")
     return _TEMPLATE_CACHE
 
 
@@ -27,9 +25,8 @@ def compile_html_index(out_dir: Path) -> Path:
         manifest_json = manifest_path.read_text(encoding="utf-8") or "[]"
     manifest_json = manifest_json.replace("</", "<\\/")
 
-    html_content = template.substitute(
-        out_dir_display=html.escape(out_dir.as_posix()),
-        manifest_json=manifest_json,
+    html_content = template.replace("${out_dir_display}", html.escape(out_dir.as_posix())).replace(
+        "${manifest_json}", manifest_json
     )
 
     index_path = out_dir / "index.html"
