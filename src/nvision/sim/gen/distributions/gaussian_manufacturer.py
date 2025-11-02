@@ -28,7 +28,35 @@ class GaussianManufacturer(PeakManufacturer, SeriesManufacturer):
             z = (x - center) / max(self.sigma, 1e-12)
             return base + self.amplitude * math.exp(-0.5 * z * z)
 
-        return f, {"sigma": self.sigma, "amplitude": self.amplitude, "mode": "gaussian"}
+        sigma_min = max(self.sigma * 0.5, 1e-6)
+        sigma_max = max(self.sigma * 2.0, sigma_min + 1e-6)
+        amp_min = max(self.amplitude * 0.5, 1e-6)
+        amp_max = max(self.amplitude * 1.5, amp_min + 1e-6)
+        bg_min = float(base)
+        bg_max = float(base + max(self.amplitude, 1e-6))
+
+        inference_meta = {
+            "model": "gaussian",
+            "manufacturer": f"{self.__class__.__module__}.{self.__class__.__qualname__}",
+            "parameter_priors": {
+                "center": (float(x_min), float(x_max)),
+                "sigma": (float(sigma_min), float(sigma_max)),
+                "amplitude": (float(amp_min), float(amp_max)),
+                "background": (bg_min, bg_max),
+            },
+            "parameter_defaults": {
+                "sigma": float(self.sigma),
+                "amplitude": float(self.amplitude),
+                "background": float(base),
+            },
+        }
+
+        return f, {
+            "sigma": self.sigma,
+            "amplitude": self.amplitude,
+            "mode": "gaussian",
+            "inference": inference_meta,
+        }
 
     def build_addition(
         self,

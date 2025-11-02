@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from .core import CompositeNoise
+from .core import (
+    CompositeNoise,
+    CompositeOverTimeNoise,
+    CompositeOverVoltageNoise,
+)
 from .gen import (
     CauchyLorentzPeakManufacturer,
     ConvolutionManufacturer,
@@ -64,9 +68,22 @@ def noises_none() -> list[tuple[str, CompositeNoise | None]]:
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     return [
-        ("Gauss(0.05)", CompositeNoise([OverVoltageGaussianNoise(0.05)])),
-        ("Poisson(50)", CompositeNoise([OverVoltagePoissonNoise(scale=50.0)])),
-        ("OverTime(0.05)", CompositeNoise([OverTimeDriftNoise(0.05)])),
+        (
+            "Gauss(0.05)",
+            CompositeNoise(
+                over_voltage_noise=CompositeOverVoltageNoise([OverVoltageGaussianNoise(0.05)])
+            ),
+        ),
+        (
+            "Poisson(50)",
+            CompositeNoise(
+                over_voltage_noise=CompositeOverVoltageNoise([OverVoltagePoissonNoise(scale=50.0)])
+            ),
+        ),
+        (
+            "OverTime(0.05)",
+            CompositeNoise(over_time_noise=CompositeOverTimeNoise([OverTimeDriftNoise(0.05)])),
+        ),
     ]
 
 
@@ -75,11 +92,10 @@ def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
         (
             "Heavy",
             CompositeNoise(
-                [
-                    OverVoltageGaussianNoise(0.1),
-                    OverTimeDriftNoise(0.05),
-                    OverVoltageOutlierSpikes(0.02, 0.5),
-                ]
+                over_voltage_noise=CompositeOverVoltageNoise(
+                    [OverVoltageGaussianNoise(0.1), OverVoltageOutlierSpikes(0.02, 0.5)]
+                ),
+                over_time_noise=CompositeOverTimeNoise([OverTimeDriftNoise(0.05)]),
             ),
         ),
     ]

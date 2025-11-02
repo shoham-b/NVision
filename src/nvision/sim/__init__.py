@@ -8,7 +8,16 @@ Provides extensible interfaces and simple reference implementations for:
 - Iterative locators to find target positions in 1-D scans
 """
 
-from .core import CompositeNoise, DataBatch, DataGenerator, MeasurementStrategy, NoiseModel
+from .core import (
+    CompositeNoise,
+    CompositeOverTimeNoise,
+    CompositeOverVoltageNoise,
+    DataBatch,
+    DataGenerator,
+    MeasurementStrategy,
+    OverTimeNoise,
+    OverVoltageNoise,
+)
 from .gen import (
     ExponentialDecayManufacturer,
     GaussianManufacturer,
@@ -23,11 +32,9 @@ from .locs import (
     BayesianLocator,
     GoldenSectionSearchLocator,
     GridScanLocator,
-    LocatorStrategy,
-    MeasurementProcess,
-    ODMRLocator,
-    ScalarMeasure,
+    Locator,
     ScanBatch,
+    SweepLocator,
     TwoPeakGreedyLocator,
 )
 
@@ -43,28 +50,28 @@ from .noises import (
 __all__ = [
     "BayesianLocator",
     "CompositeNoise",
+    "CompositeOverTimeNoise",
+    "CompositeOverVoltageNoise",
     "DataBatch",
     "DataGenerator",
     "ExponentialDecayManufacturer",
     "GaussianManufacturer",
     "GoldenSectionSearchLocator",
     "GridScanLocator",
+    "Locator",
     "LocatorRunner",
-    "LocatorStrategy",
-    "MeasurementProcess",
     "MeasurementStrategy",
     "MultiPeakGenerator",
-    "NoiseModel",
-    "ODMRLocator",
     "OnePeakGenerator",
     "OverTimeDriftNoise",
+    "OverTimeNoise",
     "OverTimeRandomWalkNoise",
     "OverVoltageGaussianNoise",
+    "OverVoltageNoise",
     "OverVoltageOutlierSpikes",
     "OverVoltagePoissonNoise",
-    "ScalarMeasure",
     "ScanBatch",
-    "SymmetricTwoPeakGenerator",
+    "SweepLocator",
     "TwoPeakGenerator",
     "TwoPeakGreedyLocator",
 ]
