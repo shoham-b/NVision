@@ -17,6 +17,7 @@ from nvision.pathutils import ensure_out_dir, slugify
 from nvision.sim import (
     CompositeNoise,
     NVCenterBayesianLocator,
+    NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
     OnePeakGoldenLocator,
     OnePeakGridLocator,
@@ -74,6 +75,10 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, ob
         strategies = [
             ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
             ("NVCenter-Bayesian", NVCenterBayesianLocator(max_steps=40)),
+            (
+                "NVCenter-SequentialBayesian",
+                NVCenterSequentialBayesianLocator(max_evals=60, grid_resolution=400),
+            ),
         ]
 
     return strategies

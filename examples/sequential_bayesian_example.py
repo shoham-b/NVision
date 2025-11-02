@@ -17,7 +17,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nvision.sim import GridScanLocator, SequentialBayesianLocator
+from nvision.sim import GridScanLocator, NVCenterSequentialBayesianLocator
 from nvision.sim.locs.models.obs import Obs
 
 
@@ -116,7 +116,7 @@ def compare_strategies():
     print()
 
     # Initialize strategies
-    sequential_locator = SequentialBayesianLocator(
+    sequential_locator = NVCenterSequentialBayesianLocator(
         max_evals=50,
         prior_bounds=domain,
         convergence_threshold=1e6,  # 1 MHz precision target
@@ -144,12 +144,12 @@ def compare_strategies():
     print("RESULTS COMPARISON")
     print("=" * 40)
 
-    sequential_error = abs(sequential_result["x1"] - true_params["frequency"])
+    sequential_error = abs(sequential_result["x1_hat"] - true_params["frequency"])
     grid_error = abs(grid_result["x1"] - true_params["frequency"])
 
     print("Sequential Bayesian Design:")
     print(f"  Measurements: {len(sequential_history)}")
-    print(f"  Estimated frequency: {sequential_result['x1']/1e9:.6f} GHz")
+    print(f"  Estimated frequency: {sequential_result['x1_hat']/1e9:.6f} GHz")
     print(f"  Error: {sequential_error/1e6:.3f} MHz")
     print(f"  Uncertainty: {sequential_result['uncert']/1e6:.3f} MHz")
     print(f"  Computation time: {sequential_time:.3f} s")
@@ -215,11 +215,11 @@ def visualize_adaptive_strategy(history: list[Obs], result: dict[str, Any], titl
         alpha=0.8,
     )
     ax1.axvline(
-        result["x1"] / 1e9,
+        result.get("x1_hat", result.get("x1", float("nan"))) / 1e9,
         color="red",
         linestyle="--",
         alpha=0.8,
-        label=f'Estimated peak: {result["x1"]/1e9:.6f} GHz',
+        label=f'Estimated peak: {result.get("x1_hat", result.get("x1", float("nan")))/1e9:.6f} GHz',
     )
     ax1.axvline(
         true_params["frequency"] / 1e9,
@@ -263,7 +263,7 @@ def demonstrate_information_gain():
     print("INFORMATION GAIN DEMONSTRATION")
     print("=" * 40)
 
-    locator = SequentialBayesianLocator(prior_bounds=(2.84e9, 2.90e9), grid_resolution=200)
+    locator = NVCenterSequentialBayesianLocator(prior_bounds=(2.84e9, 2.90e9), grid_resolution=200)
 
     # Add a few measurements
     measurements = [
