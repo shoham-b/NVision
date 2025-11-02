@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import math
 from dataclasses import dataclass
 
-from nvision.sim.locs.models.obs import Obs
-from nvision.sim.scan_batch import ScanBatch
+import numpy as np
+import polars as pl
+
+from nvision.sim.locs import Locator, ScanBatch
 
 
 @dataclass
-class TwoPeakGreedyLocator:
+class TwoPeakGreedyLocator(Locator):
     """A greedy locator designed to find two distinct peaks in the domain.
 
     This strategy operates in two main phases:
@@ -24,51 +26,48 @@ class TwoPeakGreedyLocator:
     coarse_points: int = 25
     refine_points: int = 5
     min_separation_frac: float = 0.05
-    _scan: ScanBatch | None = None
 
-    def set_scan(self, scan: ScanBatch) -> None:
-        self._scan = scan
-
-    def propose_next(self, history: Sequence[Obs], domain: tuple[float, float]) -> float:
-        lo, hi = domain
-        taken = {round(o.x, 12) for o in history}
-        if len(taken) < self.coarse_points:
-            if self.coarse_points <= 1:
-                return 0.5 * (lo + hi)
-            step = (hi - lo) / (self.coarse_points - 1)
-            for i in range(self.coarse_points):
-                g = lo + i * step
+    def propose_next(self, history: pl.DataFrame, scan: ScanBatch) -> float:
+        lo, hi = scan.x_min, scan.x_max
+        if history.is_empty() or len(history) < self.coarse_points:
+            grid = np.linspace(lo, hi, self.coarse_points).tolist()
+            if history.is_empty():
+                return grid[0]
+            taken = {round(x, 12) for x in history["x"]}
+            for g in grid:
                 if round(g, 12) not in taken:
                     return g
-        if not history:
+
+        if history.is_empty():
             return 0.5 * (lo + hi)
-        xs = [o.x for o in history]
-        ys = [o.intensity for o in history]
-        idx_best = int(max(range(len(ys)), key=lambda i: ys[i]))
-        x1 = xs[idx_best]
+
+        # Identify two best peaks
+        sorted_history = history.sort("signal_values", descending=True)
+        x1 = sorted_history["x"][0]
         w = (hi - lo) * self.min_separation_frac
-        candidates = [i for i in range(len(xs)) if abs(xs[i] - x1) >= w]
-        if candidates:
-            idx_second = max(candidates, key=lambda i: ys[i])
-            x2 = xs[idx_second]
-        else:
-            x2 = x1
-        n1 = sum(1 for o in history if abs(o.x - x1) <= w)
-        n2 = sum(1 for o in history if abs(o.x - x2) <= w)
+
+        second_peak_candidates = sorted_history.filter(pl.col("x").is_not_nan())
+        second_peak_candidates = second_peak_candidates.filter((pl.col("x") - x1).abs() >= w)
+
+        x2 = second_peak_candidates["x"][0] if not second_peak_candidates.is_empty() else x1
+
+        # Greedily refine the less-sampled peak
+        n1 = history.filter((pl.col("x") - x1).abs() <= w).height
+        n2 = history.filter((pl.col("x") - x2).abs() <= w).height
+
         target = x2 if n2 < n1 else x1
+
         if target <= x1 and target <= x2:
             return max(lo, target - 0.5 * w)
         if target >= x1 and target >= x2:
             return min(hi, target + 0.5 * w)
         return target
 
-    def should_stop(self, history: Sequence[Obs]) -> bool:
+    def should_stop(self, history: pl.DataFrame, scan: ScanBatch) -> bool:
         return len(history) >= (self.coarse_points + 2 * self.refine_points)
 
-    def finalize(self, history: Sequence[Obs]) -> dict[str, float]:
-        import math
-
-        if not history:
+    def finalize(self, history: pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
+        if history.is_empty():
             return {
                 "n_peaks": 2.0,
                 "x1_hat": math.nan,
@@ -77,13 +76,15 @@ class TwoPeakGreedyLocator:
                 "uncert_pos": math.inf,
                 "uncert_sep": math.inf,
             }
-        hs = sorted(history, key=lambda o: o.intensity, reverse=True)
+
+        sorted_history = history.sort("signal_values", descending=True)
         picks: list[float] = []
-        for o in hs:
-            if not picks or all(abs(o.x - p) > 1e-9 for p in picks):
-                picks.append(o.x)
+        for x in sorted_history["x"]:
+            if not picks or all(abs(x - p) > 1e-9 for p in picks):
+                picks.append(x)
             if len(picks) == 2:
                 break
+
         picks.sort()
         if len(picks) == 1:
             return {
@@ -94,6 +95,7 @@ class TwoPeakGreedyLocator:
                 "uncert_pos": 0.0,
                 "uncert_sep": 0.0,
             }
+
         dist = abs(picks[1] - picks[0])
         return {
             "n_peaks": 2.0,

@@ -1,49 +1,86 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from nvision.sim.locs.models.obs import Obs
+import polars as pl
+
+from .base import Locator, ScanBatch
+from .models.priors import PriorModel
+from .models.protocols import ObservationModel
 
 
 @dataclass
-class BayesianLocator:
-    """A simple locator that uses a space-filling strategy to explore the domain.
+class BayesianLocator(Locator):
+    """A locator that uses a Bayesian approach to propose the next point to sample."""
 
-    This locator is a placeholder for a more sophisticated Bayesian approach. Its
-    strategy is to identify the largest gap between existing measurement points
-    and propose the midpoint of that gap as the next measurement location. This
-    encourages broad exploration of under-sampled regions of the domain.
+    priors: PriorModel
+    obs_model: ObservationModel
+    min_x: float
+    max_x: float
+    num_x_bins: int = 1000
+    min_uncertainty: float = 0.01
+    max_steps: int = 100
+    x_key: str = "x_hat"
+    uncertainty_key: str = "uncertainty"
+    posterior: list[float] = field(init=False)
 
-    It does not perform any Bayesian updates but serves as a simple baseline
-    for comparison against more advanced methods like `SequentialBayesianLocator`.
-    The name is aspirational, reflecting a family of strategies rather than a
-    specific implementation of Bayesian inference.
-    """
+    def __post_init__(self) -> None:
+        self.posterior = self.priors.get_probabilities(
+            self.min_x,
+            self.max_x,
+            self.num_x_bins,
+        )
 
-    max_evals: int = 30
-    exploration_weight: float = 0.1
-    uncertainty_threshold: float = 0.05
+    def propose_next(self, history: pl.DataFrame, scan: ScanBatch) -> float:
+        """Propose the x-coordinate with the highest uncertainty (variance)."""
+        if history.is_empty():
+            # For the first step, just pick the middle or a random point
+            return self.min_x + (self.max_x - self.min_x) / 2
 
-    def propose_next(self, history: Sequence[Obs], domain: tuple[float, float]) -> float:
-        lo, hi = domain
-        if len(history) < 2:
-            import random
+        # Update posterior with the latest measurement
+        last_measurement = history.tail(1)
+        x_measured = last_measurement["x"].item()
+        y_measured = last_measurement["signal_values"].item()
+        self.posterior = self.obs_model.update_posterior(
+            self.posterior,
+            x_measured,
+            y_measured,
+            self.min_x,
+            self.max_x,
+            self.num_x_bins,
+        )
 
-            return lo + random.random() * (hi - lo)
-        # Very simple acquisition: pick midpoint of largest gap
-        xs = sorted({o.x for o in history})
-        gaps = [(xs[i + 1] - xs[i], 0.5 * (xs[i + 1] + xs[i])) for i in range(len(xs) - 1)]
-        if not gaps:
-            return 0.5 * (lo + hi)
-        _, x = max(gaps)
-        return x
+        uncertainty = self.obs_model.get_uncertainty(self.posterior)
+        # Propose the point with the highest uncertainty
+        max_uncertainty_idx = uncertainty.index(max(uncertainty))
+        return self.min_x + max_uncertainty_idx * (self.max_x - self.min_x) / self.num_x_bins
 
-    def should_stop(self, history: Sequence[Obs]) -> bool:
-        return len(history) >= self.max_evals
+    def should_stop(self, history: pl.DataFrame, scan: ScanBatch) -> bool:
+        """Determine whether the measurement process should terminate."""
+        if len(history) >= self.max_steps:
+            return True
+        uncertainty = self.obs_model.get_uncertainty(self.posterior)
+        return max(uncertainty) < self.min_uncertainty
 
-    def finalize(self, history: Sequence[Obs]) -> dict[str, float]:
-        if not history:
-            return {"n_peaks": 0.0, "x1": 0.0, "uncert": float("inf")}
-        best = max(history, key=lambda o: o.intensity / max(o.uncertainty, 1e-6))
-        return {"n_peaks": 1.0, "x1": best.x, "uncert": best.uncertainty}
+    def finalize(self, history: pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
+        """Post-process the complete history to return the final estimated parameters."""
+        # Ensure posterior is updated with all history
+        self.posterior = self.priors.get_probabilities(
+            self.min_x,
+            self.max_x,
+            self.num_x_bins,
+        )
+        for row in history.iter_rows(named=True):
+            self.posterior = self.obs_model.update_posterior(
+                self.posterior,
+                row["x"],
+                row["signal_values"],
+                self.min_x,
+                self.max_x,
+                self.num_x_bins,
+            )
+
+        best_x_arg = self.posterior.index(max(self.posterior))
+        best_x = self.min_x + best_x_arg * (self.max_x - self.min_x) / self.num_x_bins
+        uncertainty = self.obs_model.get_uncertainty(self.posterior)
+        return {self.x_key: best_x, self.uncertainty_key: max(uncertainty)}

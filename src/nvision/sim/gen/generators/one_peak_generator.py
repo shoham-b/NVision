@@ -22,7 +22,9 @@ class OnePeakGenerator:
         width = self.x_max - self.x_min
         x0 = rng.uniform(self.x_min + 0.05 * width, self.x_max - 0.05 * width)
         f, extra_meta = self.manufacturer.build_peak(x0, self.base, self.x_min, self.x_max, rng)
-        meta = {"base": self.base, **extra_meta}
+        meta: dict[str, object] = {"base": self.base, **extra_meta}
+        if inference := extra_meta.get("inference"):
+            meta["inference"] = {"peaks": [inference]}
         return ScanBatch(
             x_min=self.x_min,
             x_max=self.x_max,

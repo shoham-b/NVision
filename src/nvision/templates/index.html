@@ -180,6 +180,14 @@
             width: 100%;
             min-height: 560px;
         }
+        .distribution-fallback {
+            width: 100%;
+            min-height: 400px;
+            display: none;
+        }
+        .distribution-fallback.is-visible {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -296,6 +304,13 @@
                 role="presentation"
                 aria-label="Distribution plot"
             ></div>
+            <canvas
+                id="distribution-fallback"
+                class="distribution-fallback"
+                role="img"
+                aria-label="Distribution plot fallback"
+                aria-hidden="true"
+            ></canvas>
         </div>
         <p id="distribution-summary" class="metrics"></p>
     </div>
@@ -340,10 +355,12 @@
             const distributionReset = document.getElementById('distribution-reset');
             const distributionSummary = document.getElementById('distribution-summary');
             const distributionCalculatorEl = document.getElementById('distribution-calculator');
+            const distributionFallbackCanvas = document.getElementById('distribution-fallback');
             let currentDistributionKey = '';
             let currentDistributionParams = {};
             let distributionCalculator = null;
             let activeAuxExpressionIds = [];
+            let distributionInitialized = false;
 
             function formatMetricValue(value) {
                 if (typeof value === 'number' && Number.isFinite(value)) {
@@ -860,6 +877,7 @@
                 const sample = sampleDistribution(dist, params);
                 if (!sample) {
                     distributionSummary.textContent = '';
+                    distributionSummary.dataset.usingFallback = 'false';
                     return;
                 }
                 const { ys } = sample;
@@ -869,32 +887,48 @@
                 const stddev = Math.sqrt(Math.max(variance, 0));
                 const min = Math.min(...ys);
                 const max = Math.max(...ys);
-                distributionSummary.textContent = `${dist.label} — Mean: ${formatMetricValue(mean)} • Std dev: ${formatMetricValue(stddev)} • Min: ${formatMetricValue(min)} • Max: ${formatMetricValue(max)}`;
+                const usingFallback = distributionFallbackCanvas?.classList.contains('is-visible') ?? false;
+                distributionSummary.dataset.usingFallback = usingFallback ? 'true' : 'false';
+                const prefix = usingFallback ? 'Fallback plot — ' : `${dist.label} — `;
+                distributionSummary.textContent = `${prefix}Mean: ${formatMetricValue(mean)} • Std dev: ${formatMetricValue(stddev)} • Min: ${formatMetricValue(min)} • Max: ${formatMetricValue(max)}`;
             }
 
             function updateDistributionCalculator() {
-                const calculator = ensureDistributionCalculator();
                 const dist = distributions[currentDistributionKey];
-                if (!calculator || !dist) {
+                const sampleParams = { ...currentDistributionParams };
+                if (!dist) {
                     if (distributionSummary) {
-                        distributionSummary.textContent = distributionCalculatorEl && typeof Desmos === 'undefined'
-                            ? 'Unable to load Desmos calculator. Please check your internet connection.'
-                            : '';
+                        distributionSummary.textContent = '';
+                    }
+                    if (distributionFallbackCanvas) {
+                        distributionFallbackCanvas.classList.remove('is-visible');
+                        distributionFallbackCanvas.setAttribute('aria-hidden', 'true');
                     }
                     return;
                 }
 
-                const params = { ...currentDistributionParams };
                 for (const key of Object.keys(dist.params)) {
-                    if (!Number.isFinite(params[key])) {
-                        params[key] = Number(dist.params[key].defaultValue);
+                    if (!Number.isFinite(sampleParams[key])) {
+                        sampleParams[key] = Number(dist.params[key].defaultValue);
                     }
                 }
 
-                const latex = dist.expression(params);
+                const calculator = ensureDistributionCalculator();
+                if (!calculator) {
+                    drawFallbackDistribution(dist, sampleParams);
+                    updateDistributionSummary(dist, sampleParams);
+                    return;
+                }
+
+                if (distributionFallbackCanvas) {
+                    distributionFallbackCanvas.classList.remove('is-visible');
+                    distributionFallbackCanvas.setAttribute('aria-hidden', 'true');
+                }
+
+                const latex = dist.expression(sampleParams);
                 calculator.setExpression({ id: 'distribution-main', latex, color: '#0056b3' });
 
-                const auxExpressions = typeof dist.auxExpressions === 'function' ? dist.auxExpressions(params) : [];
+                const auxExpressions = typeof dist.auxExpressions === 'function' ? dist.auxExpressions(sampleParams) : [];
                 const nextAuxIds = new Set();
                 if (Array.isArray(auxExpressions)) {
                     auxExpressions.forEach((expr, index) => {
@@ -919,7 +953,7 @@
                 });
                 activeAuxExpressionIds = Array.from(nextAuxIds);
 
-                const sample = sampleDistribution(dist, params);
+                const sample = sampleDistribution(dist, sampleParams);
                 if (sample) {
                     const { xs, ys } = sample;
                     const left = dist.xRange ? dist.xRange[0] : xs[0];
@@ -935,7 +969,68 @@
                     });
                 }
 
-                updateDistributionSummary(dist, params);
+                updateDistributionSummary(dist, sampleParams);
+            }
+
+            function drawFallbackDistribution(dist, params) {
+                if (!distributionFallbackCanvas) {
+                    return;
+                }
+                const context = distributionFallbackCanvas.getContext('2d');
+                if (!context) {
+                    return;
+                }
+
+                distributionFallbackCanvas.classList.add('is-visible');
+                distributionFallbackCanvas.setAttribute('aria-hidden', 'false');
+
+                const fallbackWidth = distributionFallbackCanvas.parentElement?.clientWidth || distributionFallbackCanvas.clientWidth || 600;
+                const fallbackHeight = distributionFallbackCanvas.clientHeight || 400;
+                distributionFallbackCanvas.width = fallbackWidth;
+                distributionFallbackCanvas.height = fallbackHeight;
+                const width = distributionFallbackCanvas.width;
+                const height = distributionFallbackCanvas.height;
+                context.clearRect(0, 0, width, height);
+
+                const sample = sampleDistribution(dist, params);
+                if (!sample) {
+                    return;
+                }
+                const { xs, ys } = sample;
+                if (ys.length === 0) {
+                    return;
+                }
+
+                const minX = dist.xRange ? dist.xRange[0] : Math.min(...xs);
+                const maxX = dist.xRange ? dist.xRange[1] : Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+                const gapX = maxX - minX || 1;
+                const gapY = maxY - minY || 1;
+
+                const padding = 30;
+                context.lineWidth = 2;
+                context.strokeStyle = '#0056b3';
+                context.beginPath();
+                xs.forEach((xValue, index) => {
+                    const yValue = ys[index];
+                    const px = padding + ((xValue - minX) / gapX) * (width - 2 * padding);
+                    const py = height - padding - ((yValue - minY) / gapY) * (height - 2 * padding);
+                    if (index === 0) {
+                        context.moveTo(px, py);
+                    } else {
+                        context.lineTo(px, py);
+                    }
+                });
+                context.stroke();
+
+                context.strokeStyle = '#888';
+                context.lineWidth = 1;
+                context.strokeRect(padding, padding, width - 2 * padding, height - 2 * padding);
+
+                if (distributionSummary) {
+                    distributionSummary.dataset.usingFallback = 'true';
+                }
             }
 
             function selectDistribution(key, { preserveValues = false } = {}) {
@@ -951,17 +1046,16 @@
                 selectDistribution(currentDistributionKey, { preserveValues: false });
             }
 
+            let desmosRetryAttempts = 0;
+            const DESMOS_MAX_RETRIES = 10;
+
             function initializeDistributionPlayground() {
-                if (!distributionSelect || !distributionCalculatorEl) {
-                    return;
-                }
-                if (typeof Desmos === 'undefined') {
-                    if (distributionSummary) {
-                        distributionSummary.textContent = 'Desmos calculator failed to load. Please check your internet connection.';
+                if (!distributionSelect || !distributionCalculatorEl || distributionInitialized) {
+                    if (distributionInitialized) {
+                        updateDistributionCalculator();
                     }
                     return;
                 }
-
                 distributionSelect.innerHTML = '';
                 for (const [key, config] of Object.entries(distributions)) {
                     const option = document.createElement('option');
@@ -989,10 +1083,37 @@
                         resetDistribution();
                     });
                 }
+
+                distributionInitialized = true;
+            }
+
+            function ensureDesmosAndInitialize() {
+                initializeDistributionPlayground();
+                if (typeof Desmos === 'undefined') {
+                    desmosRetryAttempts += 1;
+                    if (distributionSummary && desmosRetryAttempts < DESMOS_MAX_RETRIES) {
+                        distributionSummary.textContent = 'Loading Desmos calculator…';
+                    }
+                    if (desmosRetryAttempts < DESMOS_MAX_RETRIES) {
+                        window.setTimeout(ensureDesmosAndInitialize, 500);
+                    } else {
+                        const dist = distributions[currentDistributionKey];
+                        if (dist) {
+                            drawFallbackDistribution(dist, currentDistributionParams);
+                            updateDistributionSummary(dist, currentDistributionParams);
+                        }
+                    }
+                    return;
+                }
+                initializeDistributionPlayground();
+                const dist = distributions[currentDistributionKey];
+                if (dist) {
+                    updateDistributionCalculator();
+                }
             }
 
             activateTab('scan');
-            initializeDistributionPlayground();
+            ensureDesmosAndInitialize();
         }
 
         window.addEventListener('DOMContentLoaded', main);
