@@ -6,6 +6,15 @@ from dataclasses import dataclass, field
 import numpy as np
 import polars as pl
 
+from nvision.sim.gen.distributions.nv_center_manufacturer import (
+    A_PARAM,
+    MAX_K_NP,
+    MAX_NV_CENTER_DELTA,
+    MAX_NV_CENTER_OMEGA,
+    MIN_K_NP,
+    MIN_NV_CENTER_DELTA,
+    MIN_NV_CENTER_OMEGA,
+)
 from nvision.sim.locs.base import Locator, ScanBatch
 
 
@@ -110,6 +119,13 @@ class NVCenterBayesianLocator(Locator):
         return len(history) >= self.max_steps
 
     def finalize(self, history: pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
+        initial_guess = {
+            "a_hat": A_PARAM,
+            "k_np_hat": (MIN_K_NP + MAX_K_NP) / 2,
+            "delta_f_hf_hat": (MIN_NV_CENTER_DELTA + MAX_NV_CENTER_DELTA) / 2,
+            "omega_hat": (MIN_NV_CENTER_OMEGA + MAX_NV_CENTER_OMEGA) / 2,
+        }
+
         if history.is_empty():
             return {
                 "n_peaks": 1.0,
@@ -118,6 +134,7 @@ class NVCenterBayesianLocator(Locator):
                 "x3_hat": math.nan,
                 "uncert": math.inf,
                 "uncert_pos": math.inf,
+                **initial_guess,
             }
 
         sorted_history = history.sort("signal_values", descending=True)
@@ -139,6 +156,7 @@ class NVCenterBayesianLocator(Locator):
             "x3_hat": float(picks[2]) if len(picks) >= 3 else math.nan,
             "uncert": float(w),
             "uncert_pos": float(w),
+            **initial_guess,
         }
 
         return result
