@@ -1,4 +1,4 @@
-"""Test the new ODMR and Bayesian locators with uncertainty calculation."""
+"""Test category-specific locators with uncertainty calculation."""
 
 from __future__ import annotations
 
@@ -6,8 +6,15 @@ import math
 import random
 
 import polars as pl
+import pytest
 
-from nvision.sim import BayesianLocator, ScanBatch, SweepLocator
+from nvision.sim import (
+    NVCenterBayesianLocator,
+    NVCenterSweepLocator,
+    OnePeakGoldenLocator,
+    OnePeakGridLocator,
+    ScanBatch,
+)
 
 
 class UniformPrior:
@@ -33,8 +40,12 @@ class IdentityObs:
         return posterior
 
 
-def test_sweep_locator_basic():
-    """Test that ODMR locator works with uncertainty calculation."""
+# The following helper functions mirror simplified observer interfaces used in NVCenter
+# Bayesian locator tests. They provide deterministic behaviour for the test scenario.
+
+
+def test_one_peak_locators_basic():
+    """Test that the one-peak locators operate and return uncertainty information."""
     rng = random.Random(123)
 
     # Create a simple peak signal
@@ -49,33 +60,27 @@ def test_sweep_locator_basic():
         meta={"peak_width": 0.1},
     )
 
-    # Create ODMR locator
-    locator = SweepLocator(coarse_points=5, refine_points=3, uncertainty_threshold=0.05)
+    grid_locator = OnePeakGridLocator(n_points=11)
+    sweep_locator = OnePeakGoldenLocator(max_evals=10)
 
-    # Test propose_next
-    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    history_grid = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    history_sweep = history_grid.clone()
 
-    # First few points should be from coarse sweep
-    for _i in range(3):
-        x = locator.propose_next(history, scan)
-        assert 0.0 <= x <= 1.0
-        # Simulate measurement with uncertainty
-        y = signal(x) + rng.gauss(0, 0.05)
-        new_row = pl.DataFrame({"x": [x], "signal_values": [y]})
-        history = pl.concat([history, new_row], how="vertical")
-
-    # Test should_stop
-    assert isinstance(locator.should_stop(history, scan), bool)
-
-    # Test finalize
-    result = locator.finalize(history, scan)
-    assert "n_peaks" in result
-    assert "x1" in result
-    assert "uncert" in result
+    for locator, history in ((grid_locator, history_grid), (sweep_locator, history_sweep)):
+        for _i in range(3):
+            x = locator.propose_next(history, scan)
+            assert 0.0 <= x <= 1.0
+            y = signal(x) + rng.gauss(0, 0.05)
+            history = pl.concat([history, pl.DataFrame({"x": [x], "signal_values": [y]})])
+        assert isinstance(locator.should_stop(history, scan), bool)
+        result = locator.finalize(history, scan)
+        assert "n_peaks" in result
+        assert "x1_hat" in result
+        assert "uncert" in result
 
 
-def test_bayesian_locator_basic():
-    """Test that Bayesian locator works with uncertainty calculation."""
+def test_nv_center_locators_basic():
+    """Test NV center locators return measurement counts and uncertainty."""
     rng = random.Random(456)
 
     # Create a simple peak signal
@@ -90,34 +95,20 @@ def test_bayesian_locator_basic():
         meta={"peak_width": 0.08},
     )
 
-    # Create Bayesian locator
-    locator = BayesianLocator(
-        priors=UniformPrior(),
-        obs_model=IdentityObs(),
-        min_x=0.0,
-        max_x=1.0,
-        max_steps=10,
-    )
+    sweep_locator = NVCenterSweepLocator(coarse_points=15, refine_points=5)
+    bayes_locator = NVCenterBayesianLocator(max_steps=12)
 
-    # Test propose_next
-    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
-
-    # First few points should be random
-    for _i in range(3):
-        x = locator.propose_next(history, scan)
-        assert 0.0 <= x <= 1.0
-        # Simulate measurement with uncertainty
-        y = signal(x) + rng.gauss(0, 0.03)
-        new_row = pl.DataFrame({"x": [x], "signal_values": [y]})
-        history = pl.concat([history, new_row], how="vertical")
-
-    # Test should_stop returns boolean
-    assert isinstance(locator.should_stop(history, scan), bool)
-
-    # Test finalize
-    result = locator.finalize(history, scan)
-    assert "x_hat" in result
-    assert "uncertainty" in result
+    for locator in (sweep_locator, bayes_locator):
+        history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+        for _i in range(3):
+            x = locator.propose_next(history, scan)
+            assert 0.0 <= x <= 1.0
+            y = signal(x) + rng.gauss(0, 0.03)
+            history = pl.concat([history, pl.DataFrame({"x": [x], "signal_values": [y]})])
+        assert isinstance(locator.should_stop(history, scan), bool)
+        result = locator.finalize(history, scan)
+        assert "n_peaks" in result
+        assert "uncert" in result
 
 
 def test_uncertainty_calculation():
@@ -131,7 +122,7 @@ def test_uncertainty_calculation():
     scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.25, 0.75], signal=signal, meta={})
 
     # Test with ODMR locator
-    locator = SweepLocator(coarse_points=8, refine_points=4)
+    locator = OnePeakGoldenLocator(max_evals=12)
 
     # Simulate a measurement process
     history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
@@ -150,7 +141,7 @@ def test_uncertainty_calculation():
 
     # Test that locators use uncertainty in their decisions
     result = locator.finalize(history, scan)
-    assert result["uncert"] == 0.0
+    assert "uncert" in result
 
 
 def test_locator_comparison():
@@ -162,35 +153,30 @@ def test_locator_comparison():
 
     scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.4], signal=signal, meta={})
 
-    # Test both locators on the same problem
-    odmr = SweepLocator(coarse_points=6, refine_points=3)
-    bayesian = BayesianLocator(
-        priors=UniformPrior(),
-        obs_model=IdentityObs(),
-        min_x=0.0,
-        max_x=1.0,
-        max_steps=9,
-    )
+    grid_locator = OnePeakGridLocator(n_points=15)
+    golden_locator = OnePeakGoldenLocator(max_evals=12)
 
-    # Sweep locator result
-    sweep_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    grid_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    golden_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+
     for _i in range(6):
-        x = odmr.propose_next(sweep_history, scan)
-        y = signal(x) + rng.gauss(0, 0.02)
-        sweep_history = pl.concat([sweep_history, pl.DataFrame({"x": [x], "signal_values": [y]})])
+        x_grid = grid_locator.propose_next(grid_history, scan)
+        y_grid = signal(x_grid) + rng.gauss(0, 0.02)
+        grid_history = pl.concat(
+            [grid_history, pl.DataFrame({"x": [x_grid], "signal_values": [y_grid]})]
+        )
 
-    sweep_result = odmr.finalize(sweep_history, scan)
-    assert sweep_result["n_peaks"] == 1.0
-    assert 0.0 <= sweep_result["x1"] <= 1.0
-    assert sweep_result["uncert"] == 0.0
+        x_golden = golden_locator.propose_next(golden_history, scan)
+        y_golden = signal(x_golden) + rng.gauss(0, 0.02)
+        golden_history = pl.concat(
+            [golden_history, pl.DataFrame({"x": [x_golden], "signal_values": [y_golden]})]
+        )
 
-    # Bayesian locator result
-    bayes_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
-    for _i in range(3):
-        x = bayesian.propose_next(bayes_history, scan)
-        y = signal(x) + rng.gauss(0, 0.02)
-        bayes_history = pl.concat([bayes_history, pl.DataFrame({"x": [x], "signal_values": [y]})])
+    grid_result = grid_locator.finalize(grid_history, scan)
+    golden_result = golden_locator.finalize(golden_history, scan)
 
-    bayes_result = bayesian.finalize(bayes_history, scan)
-    assert "x_hat" in bayes_result
-    assert "uncertainty" in bayes_result
+    assert grid_result["n_peaks"] == 1.0
+    assert golden_result["n_peaks"] == 1.0
+    assert 0.0 <= grid_result["x1_hat"] <= 1.0
+    assert 0.0 <= golden_result["x1_hat"] <= 1.0
+    assert grid_result["x1_hat"] != pytest.approx(golden_result["x1_hat"])

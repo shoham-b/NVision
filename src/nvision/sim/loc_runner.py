@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -46,6 +47,44 @@ def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, fl
 
 
 @dataclass
+class LocatorRunStats:
+    history: pl.DataFrame
+    estimate: Mapping[str, float]
+    measurements: int
+    duration_s: float
+
+
+def _aggregate_repeat_records(records: list[dict[str, float]]) -> dict[str, float]:
+    if not records:
+        return {}
+
+    metrics_df = pl.DataFrame(records)
+    numeric_cols = [name for name, dtype in metrics_df.schema.items() if dtype.is_numeric()]
+    if not numeric_cols:
+        return {}
+
+    metrics_df = metrics_df.with_columns([pl.col(name).cast(pl.Float64) for name in numeric_cols])
+    agg_exprs = []
+    for name in numeric_cols:
+        if name in {"measurements", "duration_s"}:
+            agg_exprs.append(pl.col(name).mean().alias(name))
+        else:
+            agg_exprs.append(
+                pl.when(pl.col(name).is_finite())
+                .then(pl.col(name))
+                .otherwise(None)
+                .mean()
+                .alias(name)
+            )
+
+    aggregated_row = metrics_df.select(agg_exprs).to_dicts()[0]
+    return {
+        name: float(value) if value is not None else float("nan")
+        for name, value in aggregated_row.items()
+    }
+
+
+@dataclass
 class LocatorRunner:
     rng_seed: int | None = None
 
@@ -67,7 +106,8 @@ class LocatorRunner:
 
         for _repeat_idx in range(repeats):
             scan = gen.generate(self._rng)
-            history_df, est = self.run_once(scan, strat, noise, max_steps)
+            run_stats = self.run_once(scan, strat, noise, max_steps)
+            est = run_stats.estimate
             metrics = _pairing_error(scan.truth_positions, est)
             for key in ("uncert", "uncert_pos", "uncert_sep"):
                 value = est.get(key)
@@ -78,29 +118,11 @@ class LocatorRunner:
             for key, value in metrics.items():
                 if isinstance(value, int | float):
                     record[key] = float(value)
+            record["measurements"] = float(run_stats.measurements)
+            record["duration_s"] = float(run_stats.duration_s)
             repeat_records.append(record)
 
-        aggregated: dict[str, float] = {}
-        if repeat_records:
-            metrics_df = pl.DataFrame(repeat_records)
-            numeric_cols = [name for name, dtype in metrics_df.schema.items() if dtype.is_numeric()]
-            if numeric_cols:
-                metrics_df = metrics_df.with_columns(
-                    [pl.col(name).cast(pl.Float64) for name in numeric_cols]
-                )
-                agg_exprs = [
-                    pl.when(pl.col(name).is_finite())
-                    .then(pl.col(name))
-                    .otherwise(None)
-                    .mean()
-                    .alias(name)
-                    for name in numeric_cols
-                ]
-                aggregated_row = metrics_df.select(agg_exprs).to_dicts()[0]
-                aggregated = {
-                    name: float(value) if value is not None else float("nan")
-                    for name, value in aggregated_row.items()
-                }
+        aggregated = _aggregate_repeat_records(repeat_records)
 
         row = {
             "generator": gen_name,
@@ -117,7 +139,8 @@ class LocatorRunner:
         strategy: Locator,
         noise: CompositeNoise | None,
         max_steps: int = 200,
-    ) -> tuple[pl.DataFrame, dict[str, float]]:
+    ) -> LocatorRunStats:
+        start = time.perf_counter()
         history_df = run_locator(
             locator=strategy,
             scan=scan,
@@ -127,7 +150,13 @@ class LocatorRunner:
             seed=self._rng.randint(0, 2**32 - 1),
         )
         est = strategy.finalize(history_df, scan)
-        return history_df, est
+        duration_s = time.perf_counter() - start
+        return LocatorRunStats(
+            history=history_df,
+            estimate=est,
+            measurements=history_df.height,
+            duration_s=duration_s,
+        )
 
     def sweep(
         self,
