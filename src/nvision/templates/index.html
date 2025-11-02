@@ -144,50 +144,6 @@
         a:hover {
             text-decoration: underline;
         }
-        .distribution-params {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 0.75em;
-            margin: 0.75em 0 1.25em;
-        }
-        .param-control {
-            display: flex;
-            flex-direction: column;
-            gap: 0.35em;
-            padding: 0.65em;
-            background-color: #f9f9f9;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-        }
-        .param-control label {
-            font-weight: 600;
-            font-size: 0.95em;
-        }
-        .param-control input[type="number"] {
-            padding: 0.45em 0.6em;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-size: 0.95em;
-        }
-        .distribution-calculator-wrapper {
-            margin-top: 1.5em;
-            background-color: #fff;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            padding: 1em;
-        }
-        #distribution-calculator {
-            width: 100%;
-            min-height: 560px;
-        }
-        .distribution-fallback {
-            width: 100%;
-            min-height: 400px;
-            display: none;
-        }
-        .distribution-fallback.is-visible {
-            display: block;
-        }
     </style>
 </head>
 <body>
@@ -195,33 +151,17 @@
 
     <p><a href="locator_results.csv" download>Download locator_results.csv</a></p>
 
-    <div class="tab-bar" role="tablist" aria-label="Results views">
-        <button
-            id="tab-scan"
-            class="tab-button is-active"
-            type="button"
-            role="tab"
-            aria-selected="true"
-            aria-controls="scan-section"
-            data-tab="scan"
-        >
-            Scan Measurements
-        </button>
-        <button
-            id="tab-distribution"
-            class="tab-button"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="distribution-section"
-            data-tab="distribution"
-        >
-            Distribution Playground
-        </button>
-    </div>
-
     <div id="scan-section" class="section tab-panel" role="tabpanel" aria-labelledby="tab-scan">
         <h2>Scan Measurements</h2>
+        <div class="control-row">
+            <span class="control-label">Generator Type:</span>
+            <div
+                id="scan-generator-type"
+                class="segmented-control"
+                role="radiogroup"
+                aria-label="Scan generator type"
+            ></div>
+        </div>
         <div class="control-row">
             <span class="control-label">Generator:</span>
             <div
@@ -275,47 +215,6 @@
         <iframe id="scan-iframe"></iframe>
     </div>
 
-    <div
-        id="distribution-section"
-        class="section tab-panel is-hidden"
-        role="tabpanel"
-        aria-labelledby="tab-distribution"
-        aria-hidden="true"
-    >
-        <h2>Distribution Playground</h2>
-        <p>
-            Experiment with NV-center distribution parameters using the interactive Desmos
-            calculator. Adjust the controls to explore how each distribution behaves.
-        </p>
-        <div class="control-row">
-            <span class="control-label">Distribution:</span>
-            <select id="distribution-select" class="control-select" aria-label="Distribution type">
-                <option value="gaussian">Gaussian</option>
-                <option value="lorentzian">Lorentzian</option>
-                <option value="double_gaussian">Double Gaussian</option>
-            </select>
-            <button id="distribution-reset" class="control-button" type="button">Reset</button>
-        </div>
-        <div id="distribution-params" class="distribution-params" aria-live="polite"></div>
-        <div class="distribution-calculator-wrapper">
-            <div
-                id="distribution-calculator"
-                class="distribution-calculator"
-                role="presentation"
-                aria-label="Distribution plot"
-            ></div>
-            <canvas
-                id="distribution-fallback"
-                class="distribution-fallback"
-                role="img"
-                aria-label="Distribution plot fallback"
-                aria-hidden="true"
-            ></canvas>
-        </div>
-        <p id="distribution-summary" class="metrics"></p>
-    </div>
-
-    <script src="https://www.desmos.com/api/v1.10/calculator.js?apiKey=dc3a2ea6470b4b1b84bf68b6b825d540"></script>
     <script id="plots-manifest" type="application/json">${manifest_json}</script>
     <script>
         function main() {
@@ -333,13 +232,24 @@
                 return;
             }
 
-            const scanPlots = plots.filter((p) => p.type === 'scan');
+            plots.forEach(p => {
+                const gen = p.generator || '';
+                if (gen.startsWith('OnePeak-')) {
+                    p.generator_type = 'OnePeak';
+                } else if (gen.startsWith('TwoPeak-')) {
+                    p.generator_type = 'TwoPeak';
+                } else if (gen.startsWith('NVCenter-')) {
+                    p.generator_type = 'NVCenter';
+                } else {
+                    p.generator_type = 'Unknown';
+                }
+            });
+
+            const scanPlots = plots.filter((p) => p.type === 'scan' && p.generator_type);
 
             const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
 
-            const tabButtons = document.querySelectorAll('.tab-button');
-            const tabPanels = document.querySelectorAll('.tab-panel');
-
+            const scanGeneratorType = document.getElementById('scan-generator-type');
             const scanGenerator = document.getElementById('scan-generator');
             const scanNoise = document.getElementById('scan-noise');
             const scanStrategy = document.getElementById('scan-strategy');
@@ -349,18 +259,6 @@
             const scanIframe = document.getElementById('scan-iframe');
             const scanMetrics = document.getElementById('scan-metrics');
             let currentRepeatItems = [];
-
-            const distributionSelect = document.getElementById('distribution-select');
-            const distributionParamsContainer = document.getElementById('distribution-params');
-            const distributionReset = document.getElementById('distribution-reset');
-            const distributionSummary = document.getElementById('distribution-summary');
-            const distributionCalculatorEl = document.getElementById('distribution-calculator');
-            const distributionFallbackCanvas = document.getElementById('distribution-fallback');
-            let currentDistributionKey = '';
-            let currentDistributionParams = {};
-            let distributionCalculator = null;
-            let activeAuxExpressionIds = [];
-            let distributionInitialized = false;
 
             function formatMetricValue(value) {
                 if (typeof value === 'number' && Number.isFinite(value)) {
@@ -514,16 +412,25 @@
             }
 
             function updateControls() {
+                const selectedScanGeneratorType = renderSegmentedControl(
+                    scanGeneratorType,
+                    [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
+                    controlValue(scanGeneratorType),
+                );
+
+                const scanGeneratorItems = scanPlots
+                    .filter((p) => p.generator_type === selectedScanGeneratorType)
+                    .map((p) => p.generator);
                 const selectedScanGenerator = renderSegmentedControl(
                     scanGenerator,
-                    scanPlots.map((p) => p.generator),
+                    scanGeneratorItems,
                     controlValue(scanGenerator),
                 );
 
                 const scanNoiseItems = scanPlots
                     .filter(
                         (p) =>
-                            !selectedScanGenerator ||
+                            p.generator_type === selectedScanGeneratorType &&
                             p.generator === selectedScanGenerator
                     )
                     .map((p) => p.noise);
@@ -533,14 +440,12 @@
                     controlValue(scanNoise),
                 );
 
-                const scanStrategyItems = scanPlots
-                    .filter(
-                        (p) =>
-                            (!selectedScanGenerator ||
-                                p.generator === selectedScanGenerator) &&
-                            (!selectedScanNoise || p.noise === selectedScanNoise)
-                    )
+                const scanStrategyItemsRaw = scanPlots
+                    .filter((p) => p.generator_type === selectedScanGeneratorType)
                     .map((p) => p.strategy);
+                scanStrategyItemsRaw.push('Sweep');
+                const scanStrategyItems = [...new Set(scanStrategyItemsRaw)];
+
                 const selectedScanStrategy = renderSegmentedControl(
                     scanStrategy,
                     scanStrategyItems,
@@ -550,10 +455,10 @@
                 const scanRepeatItems = scanPlots
                     .filter(
                         (p) =>
-                            (!selectedScanGenerator || p.generator === selectedScanGenerator) &&
-                            (!selectedScanNoise || p.noise === selectedScanNoise) &&
-                            (!selectedScanStrategy ||
-                                p.strategy === selectedScanStrategy)
+                            p.generator_type === selectedScanGeneratorType &&
+                            p.generator === selectedScanGenerator &&
+                            p.noise === selectedScanNoise &&
+                            p.strategy === selectedScanStrategy
                     )
                     .map((p) => String(p.repeat ?? p.attempt ?? 1));
                 const { value: selectedRepeat, items: repeatItems } = renderSelectControl(
@@ -569,12 +474,14 @@
             }
 
             function findAndDisplayPlot() {
+                const scanGeneratorTypeValue = controlValue(scanGeneratorType);
                 const scanGeneratorValue = controlValue(scanGenerator);
                 const scanNoiseValue = controlValue(scanNoise);
                 const scanStrategyValue = controlValue(scanStrategy);
                 const scanRepeatValue = controlValue(scanRepeat);
 
                 if (
+                    scanGeneratorTypeValue &&
                     scanGeneratorValue &&
                     scanNoiseValue &&
                     scanStrategyValue &&
@@ -583,6 +490,7 @@
                     const repeatNumber = parseInt(scanRepeatValue, 10);
                     const plot = scanPlots.find(
                         (p) =>
+                            p.generator_type === scanGeneratorTypeValue &&
                             p.generator === scanGeneratorValue &&
                             p.noise === scanNoiseValue &&
                             p.strategy === scanStrategyValue &&
@@ -611,6 +519,10 @@
                 }
             }
 
+            scanGeneratorType.addEventListener('controlchange', () => {
+                updateControls();
+                findAndDisplayPlot();
+            });
             scanGenerator.addEventListener('controlchange', () => {
                 updateControls();
                 findAndDisplayPlot();
@@ -641,6 +553,7 @@
             }
 
             if (scanDefault) {
+                scanGeneratorType.dataset.value = scanDefault.generator_type ?? '';
                 scanGenerator.dataset.value = scanDefault.generator ?? '';
                 scanNoise.dataset.value = scanDefault.noise ?? '';
                 scanStrategy.dataset.value = scanDefault.strategy ?? '';
@@ -652,468 +565,6 @@
 
             updateControls();
             findAndDisplayPlot();
-
-            // --- Tab navigation helpers ---
-            function activateTab(target) {
-                for (const button of tabButtons) {
-                    const isActive = button.dataset.tab === target;
-                    button.classList.toggle('is-active', isActive);
-                    button.setAttribute('aria-selected', String(isActive));
-                }
-                for (const panel of tabPanels) {
-                    const isTarget = panel.id === target + '-section';
-                    panel.classList.toggle('is-hidden', !isTarget);
-                    panel.setAttribute('aria-hidden', String(!isTarget));
-                }
-            }
-
-            for (const button of tabButtons) {
-                button.addEventListener('click', () => {
-                    const { tab } = button.dataset;
-                    if (!tab) {
-                        return;
-                    }
-                    activateTab(tab);
-                });
-            }
-
-            function latexNumber(value) {
-                const num = Number(value);
-                if (!Number.isFinite(num)) {
-                    return '0';
-                }
-                if (num === 0) {
-                    return '0';
-                }
-                const abs = Math.abs(num);
-                if ((abs > 0 && abs < 1e-4) || abs >= 1e4) {
-                    return num.toExponential(4);
-                }
-                let str = num.toFixed(6);
-                str = str.replace(/0+$/, '').replace(/\.$/, '');
-                return str || '0';
-            }
-
-            const distributions = {
-                gaussian: {
-                    label: 'Gaussian',
-                    xRange: [-1, 1],
-                    params: {
-                        amplitude: { label: 'Amplitude', defaultValue: 1, min: 0, step: 0.1 },
-                        mean: { label: 'Mean', defaultValue: 0, step: 0.01 },
-                        sigma: { label: 'Sigma', defaultValue: 0.1, min: 0.01, step: 0.01 },
-                        baseline: { label: 'Baseline', defaultValue: 0, step: 0.05 },
-                    },
-                    expression(params) {
-                        const { amplitude, mean, sigma, baseline } = params;
-                        const safeSigma = Math.max(sigma, 1e-6);
-                        return `y=${latexNumber(baseline)}+${latexNumber(amplitude)}\\cdot e^{-((x-${latexNumber(mean)})^2)/(2(${latexNumber(safeSigma)})^2)}`;
-                    },
-                    evaluate(x, params) {
-                        const amplitude = Number(params.amplitude);
-                        const mean = Number(params.mean);
-                        const sigma = Math.max(Number(params.sigma), 1e-6);
-                        const baseline = Number(params.baseline);
-                        const z = (x - mean) / sigma;
-                        return baseline + amplitude * Math.exp(-0.5 * z * z);
-                    },
-                },
-                lorentzian: {
-                    label: 'Lorentzian',
-                    xRange: [-1, 1],
-                    params: {
-                        amplitude: { label: 'Amplitude', defaultValue: 1, min: 0, step: 0.1 },
-                        center: { label: 'Center', defaultValue: 0, step: 0.01 },
-                        gamma: { label: 'Gamma', defaultValue: 0.05, min: 0.005, step: 0.005 },
-                        baseline: { label: 'Baseline', defaultValue: 0, step: 0.05 },
-                    },
-                    expression(params) {
-                        const { amplitude, center, gamma, baseline } = params;
-                        const safeGamma = Math.max(gamma, 1e-6);
-                        return `y=${latexNumber(baseline)}+${latexNumber(amplitude)}\\cdot\\frac{(${latexNumber(safeGamma)})^2}{(x-${latexNumber(center)})^2+(${latexNumber(safeGamma)})^2}`;
-                    },
-                    evaluate(x, params) {
-                        const amplitude = Number(params.amplitude);
-                        const center = Number(params.center);
-                        const gamma = Math.max(Number(params.gamma), 1e-6);
-                        const baseline = Number(params.baseline);
-                        return baseline + amplitude * (gamma * gamma) / ((x - center) ** 2 + gamma * gamma);
-                    },
-                },
-                double_gaussian: {
-                    label: 'Double Gaussian',
-                    xRange: [-1.5, 1.5],
-                    params: {
-                        amplitude1: { label: 'Amplitude 1', defaultValue: 1, min: 0, step: 0.1 },
-                        mean1: { label: 'Mean 1', defaultValue: -0.3, step: 0.01 },
-                        sigma1: { label: 'Sigma 1', defaultValue: 0.08, min: 0.01, step: 0.01 },
-                        amplitude2: { label: 'Amplitude 2', defaultValue: 0.8, min: 0, step: 0.1 },
-                        mean2: { label: 'Mean 2', defaultValue: 0.35, step: 0.01 },
-                        sigma2: { label: 'Sigma 2', defaultValue: 0.08, min: 0.01, step: 0.01 },
-                        baseline: { label: 'Baseline', defaultValue: 0, step: 0.05 },
-                    },
-                    expression(params) {
-                        const s1 = Math.max(params.sigma1, 1e-6);
-                        const s2 = Math.max(params.sigma2, 1e-6);
-                        return `y=${latexNumber(params.baseline)}+${latexNumber(params.amplitude1)}\\cdot e^{-((x-${latexNumber(params.mean1)})^2)/(2(${latexNumber(s1)})^2)}+${latexNumber(params.amplitude2)}\\cdot e^{-((x-${latexNumber(params.mean2)})^2)/(2(${latexNumber(s2)})^2)}`;
-                    },
-                    evaluate(x, params) {
-                        const baseline = Number(params.baseline);
-                        const a1 = Number(params.amplitude1);
-                        const m1 = Number(params.mean1);
-                        const s1 = Math.max(Number(params.sigma1), 1e-6);
-                        const a2 = Number(params.amplitude2);
-                        const m2 = Number(params.mean2);
-                        const s2 = Math.max(Number(params.sigma2), 1e-6);
-                        const z1 = (x - m1) / s1;
-                        const z2 = (x - m2) / s2;
-                        return baseline + a1 * Math.exp(-0.5 * z1 * z1) + a2 * Math.exp(-0.5 * z2 * z2);
-                    },
-                },
-            };
-
-            function ensureDistributionCalculator() {
-                if (distributionCalculator || typeof Desmos === 'undefined' || !distributionCalculatorEl) {
-                    return distributionCalculator;
-                }
-                distributionCalculator = Desmos.Calculator(distributionCalculatorEl, {
-                    expressionsCollapsed: true,
-                    keypad: false,
-                    settingsMenu: false,
-                    zoomButtons: false,
-                    expressionsTopbar: false,
-                });
-                return distributionCalculator;
-            }
-
-            function renderDistributionParams(distributionKey, { preserveValues = false } = {}) {
-                if (!distributionParamsContainer) {
-                    return;
-                }
-                const dist = distributions[distributionKey];
-                if (!dist) {
-                    distributionParamsContainer.innerHTML = '<p>No distribution parameters available.</p>';
-                    currentDistributionParams = {};
-                    return;
-                }
-                distributionParamsContainer.innerHTML = '';
-                const nextParams = {};
-                for (const [paramKey, config] of Object.entries(dist.params)) {
-                    const control = document.createElement('div');
-                    control.className = 'param-control';
-
-                    const label = document.createElement('label');
-                    const inputId = `param-${distributionKey}-${paramKey}`;
-                    label.setAttribute('for', inputId);
-                    label.textContent = config.label;
-
-                    const input = document.createElement('input');
-                    input.type = 'number';
-                    input.id = inputId;
-                    input.name = paramKey;
-                    const initial = preserveValues && paramKey in currentDistributionParams
-                        ? currentDistributionParams[paramKey]
-                        : config.defaultValue;
-                    input.value = Number(initial);
-                    if (config.min !== undefined) input.min = String(config.min);
-                    if (config.max !== undefined) input.max = String(config.max);
-                    if (config.step !== undefined) input.step = String(config.step);
-
-                    input.addEventListener('input', () => {
-                        const attempted = Number.parseFloat(input.value);
-                        if (!Number.isFinite(attempted)) {
-                            return;
-                        }
-                        let safeValue = attempted;
-                        if (config.min !== undefined && safeValue < config.min) {
-                            safeValue = config.min;
-                        }
-                        if (config.max !== undefined && safeValue > config.max) {
-                            safeValue = config.max;
-                        }
-                        if (safeValue !== attempted) {
-                            input.value = safeValue;
-                        }
-                        nextParams[paramKey] = safeValue;
-                        currentDistributionParams = { ...currentDistributionParams, ...nextParams };
-                        updateDistributionCalculator();
-                    });
-
-                    control.appendChild(label);
-                    control.appendChild(input);
-                    distributionParamsContainer.appendChild(control);
-                    nextParams[paramKey] = Number(initial);
-                }
-                currentDistributionParams = nextParams;
-            }
-
-            function sampleDistribution(dist, params) {
-                if (!dist || typeof dist.evaluate !== 'function') {
-                    return null;
-                }
-                const [xMin, xMax] = dist.xRange ?? [-1, 1];
-                const steps = 400;
-                const xs = [];
-                const ys = [];
-                for (let i = 0; i <= steps; i += 1) {
-                    const x = xMin + ((xMax - xMin) * i) / steps;
-                    const y = dist.evaluate(x, params);
-                    if (!Number.isFinite(y)) {
-                        continue;
-                    }
-                    xs.push(x);
-                    ys.push(y);
-                }
-                if (xs.length === 0) {
-                    return null;
-                }
-                return { xs, ys };
-            }
-
-            function updateDistributionSummary(dist, params) {
-                if (!distributionSummary) {
-                    return;
-                }
-                const sample = sampleDistribution(dist, params);
-                if (!sample) {
-                    distributionSummary.textContent = '';
-                    distributionSummary.dataset.usingFallback = 'false';
-                    return;
-                }
-                const { ys } = sample;
-                const sum = ys.reduce((acc, value) => acc + value, 0);
-                const mean = sum / ys.length;
-                const variance = ys.reduce((acc, value) => acc + (value - mean) ** 2, 0) / ys.length;
-                const stddev = Math.sqrt(Math.max(variance, 0));
-                const min = Math.min(...ys);
-                const max = Math.max(...ys);
-                const usingFallback = distributionFallbackCanvas?.classList.contains('is-visible') ?? false;
-                distributionSummary.dataset.usingFallback = usingFallback ? 'true' : 'false';
-                const prefix = usingFallback ? 'Fallback plot — ' : `${dist.label} — `;
-                distributionSummary.textContent = `${prefix}Mean: ${formatMetricValue(mean)} • Std dev: ${formatMetricValue(stddev)} • Min: ${formatMetricValue(min)} • Max: ${formatMetricValue(max)}`;
-            }
-
-            function updateDistributionCalculator() {
-                const dist = distributions[currentDistributionKey];
-                const sampleParams = { ...currentDistributionParams };
-                if (!dist) {
-                    if (distributionSummary) {
-                        distributionSummary.textContent = '';
-                    }
-                    if (distributionFallbackCanvas) {
-                        distributionFallbackCanvas.classList.remove('is-visible');
-                        distributionFallbackCanvas.setAttribute('aria-hidden', 'true');
-                    }
-                    return;
-                }
-
-                for (const key of Object.keys(dist.params)) {
-                    if (!Number.isFinite(sampleParams[key])) {
-                        sampleParams[key] = Number(dist.params[key].defaultValue);
-                    }
-                }
-
-                const calculator = ensureDistributionCalculator();
-                if (!calculator) {
-                    drawFallbackDistribution(dist, sampleParams);
-                    updateDistributionSummary(dist, sampleParams);
-                    return;
-                }
-
-                if (distributionFallbackCanvas) {
-                    distributionFallbackCanvas.classList.remove('is-visible');
-                    distributionFallbackCanvas.setAttribute('aria-hidden', 'true');
-                }
-
-                const latex = dist.expression(sampleParams);
-                calculator.setExpression({ id: 'distribution-main', latex, color: '#0056b3' });
-
-                const auxExpressions = typeof dist.auxExpressions === 'function' ? dist.auxExpressions(sampleParams) : [];
-                const nextAuxIds = new Set();
-                if (Array.isArray(auxExpressions)) {
-                    auxExpressions.forEach((expr, index) => {
-                        if (!expr || !expr.latex) {
-                            return;
-                        }
-                        const exprId = expr.id ?? `distribution-aux-${index}`;
-                        nextAuxIds.add(exprId);
-                        calculator.setExpression({
-                            id: exprId,
-                            latex: expr.latex,
-                            color: expr.color ?? '#888888',
-                            lineStyle: expr.lineStyle,
-                            hidden: expr.hidden ?? false,
-                        });
-                    });
-                }
-                activeAuxExpressionIds.forEach((id) => {
-                    if (!nextAuxIds.has(id)) {
-                        calculator.removeExpression({ id });
-                    }
-                });
-                activeAuxExpressionIds = Array.from(nextAuxIds);
-
-                const sample = sampleDistribution(dist, sampleParams);
-                if (sample) {
-                    const { xs, ys } = sample;
-                    const left = dist.xRange ? dist.xRange[0] : xs[0];
-                    const right = dist.xRange ? dist.xRange[1] : xs[xs.length - 1];
-                    const yMin = Math.min(...ys);
-                    const yMax = Math.max(...ys);
-                    const margin = (yMax - yMin) * 0.1 || 1;
-                    calculator.setMathBounds({
-                        left,
-                        right,
-                        bottom: yMin - margin,
-                        top: yMax + margin,
-                    });
-                }
-
-                updateDistributionSummary(dist, sampleParams);
-            }
-
-            function drawFallbackDistribution(dist, params) {
-                if (!distributionFallbackCanvas) {
-                    return;
-                }
-                const context = distributionFallbackCanvas.getContext('2d');
-                if (!context) {
-                    return;
-                }
-
-                distributionFallbackCanvas.classList.add('is-visible');
-                distributionFallbackCanvas.setAttribute('aria-hidden', 'false');
-
-                const fallbackWidth = distributionFallbackCanvas.parentElement?.clientWidth || distributionFallbackCanvas.clientWidth || 600;
-                const fallbackHeight = distributionFallbackCanvas.clientHeight || 400;
-                distributionFallbackCanvas.width = fallbackWidth;
-                distributionFallbackCanvas.height = fallbackHeight;
-                const width = distributionFallbackCanvas.width;
-                const height = distributionFallbackCanvas.height;
-                context.clearRect(0, 0, width, height);
-
-                const sample = sampleDistribution(dist, params);
-                if (!sample) {
-                    return;
-                }
-                const { xs, ys } = sample;
-                if (ys.length === 0) {
-                    return;
-                }
-
-                const minX = dist.xRange ? dist.xRange[0] : Math.min(...xs);
-                const maxX = dist.xRange ? dist.xRange[1] : Math.max(...xs);
-                const minY = Math.min(...ys);
-                const maxY = Math.max(...ys);
-                const gapX = maxX - minX || 1;
-                const gapY = maxY - minY || 1;
-
-                const padding = 30;
-                context.lineWidth = 2;
-                context.strokeStyle = '#0056b3';
-                context.beginPath();
-                xs.forEach((xValue, index) => {
-                    const yValue = ys[index];
-                    const px = padding + ((xValue - minX) / gapX) * (width - 2 * padding);
-                    const py = height - padding - ((yValue - minY) / gapY) * (height - 2 * padding);
-                    if (index === 0) {
-                        context.moveTo(px, py);
-                    } else {
-                        context.lineTo(px, py);
-                    }
-                });
-                context.stroke();
-
-                context.strokeStyle = '#888';
-                context.lineWidth = 1;
-                context.strokeRect(padding, padding, width - 2 * padding, height - 2 * padding);
-
-                if (distributionSummary) {
-                    distributionSummary.dataset.usingFallback = 'true';
-                }
-            }
-
-            function selectDistribution(key, { preserveValues = false } = {}) {
-                if (!key || !distributions[key]) {
-                    return;
-                }
-                currentDistributionKey = key;
-                renderDistributionParams(key, { preserveValues });
-                updateDistributionCalculator();
-            }
-
-            function resetDistribution() {
-                selectDistribution(currentDistributionKey, { preserveValues: false });
-            }
-
-            let desmosRetryAttempts = 0;
-            const DESMOS_MAX_RETRIES = 10;
-
-            function initializeDistributionPlayground() {
-                if (!distributionSelect || !distributionCalculatorEl || distributionInitialized) {
-                    if (distributionInitialized) {
-                        updateDistributionCalculator();
-                    }
-                    return;
-                }
-                distributionSelect.innerHTML = '';
-                for (const [key, config] of Object.entries(distributions)) {
-                    const option = document.createElement('option');
-                    option.value = key;
-                    option.textContent = config.label;
-                    distributionSelect.appendChild(option);
-                }
-
-                ensureDistributionCalculator();
-
-                const initialKey = distributionSelect.value && distributions[distributionSelect.value]
-                    ? distributionSelect.value
-                    : Object.keys(distributions)[0];
-                if (initialKey) {
-                    distributionSelect.value = initialKey;
-                    selectDistribution(initialKey, { preserveValues: false });
-                }
-
-                distributionSelect.addEventListener('change', () => {
-                    const key = distributionSelect.value;
-                    selectDistribution(key, { preserveValues: false });
-                });
-                if (distributionReset) {
-                    distributionReset.addEventListener('click', () => {
-                        resetDistribution();
-                    });
-                }
-
-                distributionInitialized = true;
-            }
-
-            function ensureDesmosAndInitialize() {
-                initializeDistributionPlayground();
-                if (typeof Desmos === 'undefined') {
-                    desmosRetryAttempts += 1;
-                    if (distributionSummary && desmosRetryAttempts < DESMOS_MAX_RETRIES) {
-                        distributionSummary.textContent = 'Loading Desmos calculator…';
-                    }
-                    if (desmosRetryAttempts < DESMOS_MAX_RETRIES) {
-                        window.setTimeout(ensureDesmosAndInitialize, 500);
-                    } else {
-                        const dist = distributions[currentDistributionKey];
-                        if (dist) {
-                            drawFallbackDistribution(dist, currentDistributionParams);
-                            updateDistributionSummary(dist, currentDistributionParams);
-                        }
-                    }
-                    return;
-                }
-                initializeDistributionPlayground();
-                const dist = distributions[currentDistributionKey];
-                if (dist) {
-                    updateDistributionCalculator();
-                }
-            }
-
-            activateTab('scan');
-            ensureDesmosAndInitialize();
         }
 
         window.addEventListener('DOMContentLoaded', main);

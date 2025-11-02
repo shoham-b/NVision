@@ -7,10 +7,9 @@ from .core import (
 )
 from .gen import (
     CauchyLorentzPeakManufacturer,
-    ConvolutionManufacturer,
     ExponentialDecayManufacturer,
     GaussianManufacturer,
-    NVCenterManufacturer,
+    NVCenterGenerator,
     OnePeakGenerator,
     TwoPeakGenerator,
 )
@@ -22,9 +21,10 @@ from .noises import (
 )
 
 
-# Generators: basic set of signal types (simple first)
+# Generators: three main categories with subcategories
 def generators_basic() -> list[tuple[str, object]]:
     return [
+        # One Peak generators - for each distribution manufacturer
         (
             "OnePeak-gaussian",
             OnePeakGenerator(manufacturer=GaussianManufacturer()),
@@ -34,27 +34,47 @@ def generators_basic() -> list[tuple[str, object]]:
             OnePeakGenerator(manufacturer=CauchyLorentzPeakManufacturer()),
         ),
         (
-            "OnePeak-t1_decay",
+            "OnePeak-exponential",
             OnePeakGenerator(manufacturer=ExponentialDecayManufacturer()),
         ),
+        # Two Peak generators - for each distribution
         (
-            "OnePeak-nv_center",
-            OnePeakGenerator(manufacturer=NVCenterManufacturer()),
-        ),
-        (
-            "OnePeak-nv_center_broadened",
-            OnePeakGenerator(
-                manufacturer=ConvolutionManufacturer(
-                    NVCenterManufacturer(omega=5), GaussianManufacturer(sigma=5)
-                )
-            ),
-        ),
-        (
-            "TwoPeak",
+            "TwoPeak-gaussian",
             TwoPeakGenerator(
                 manufacturer_left=GaussianManufacturer(),
                 manufacturer_right=GaussianManufacturer(),
             ),
+        ),
+        (
+            "TwoPeak-cauchy",
+            TwoPeakGenerator(
+                manufacturer_left=CauchyLorentzPeakManufacturer(),
+                manufacturer_right=CauchyLorentzPeakManufacturer(),
+            ),
+        ),
+        (
+            "TwoPeak-exponential",
+            TwoPeakGenerator(
+                manufacturer_left=ExponentialDecayManufacturer(),
+                manufacturer_right=ExponentialDecayManufacturer(),
+            ),
+        ),
+        # NV Center generators - different variants
+        (
+            "NVCenter-one_peak",
+            NVCenterGenerator(variant="one_peak"),
+        ),
+        (
+            "NVCenter-zeeman",
+            NVCenterGenerator(variant="zeeman"),
+        ),
+        (
+            "NVCenter-voigt_one_peak",
+            NVCenterGenerator(variant="voigt_one_peak"),
+        ),
+        (
+            "NVCenter-voigt_zeeman",
+            NVCenterGenerator(variant="voigt_zeeman"),
         ),
     ]
 
