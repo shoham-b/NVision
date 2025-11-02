@@ -99,8 +99,8 @@ class Viz:
 
         fig.update_layout(
             title="Scan with sampled measurements",
-            xaxis_title="x",
-            yaxis_title="signal",
+            xaxis_title="frequency",
+            yaxis_title="intensity (photon count)",
             legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
             template="plotly_white",
         )
