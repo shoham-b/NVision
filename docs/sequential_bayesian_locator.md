@@ -1,8 +1,8 @@
-# Sequential Bayesian Experiment Design Locator
+# NV Center Sequential Bayesian Experiment Design Locator
 
 ## Overview
 
-The Sequential Bayesian Experiment Design (SBED) locator implements an advanced adaptive measurement strategy for Optically Detected Magnetic Resonance (ODMR) of Nitrogen-Vacancy (NV) centers in diamond. This implementation is based on the groundbreaking research by Dushenko et al. published in Physical Review Applied (2020), which demonstrated **order-of-magnitude speedup** compared to conventional frequency-swept measurements.
+The NV Center Sequential Bayesian Experiment Design (SBED) locator implements an advanced adaptive measurement strategy for Optically Detected Magnetic Resonance (ODMR) of Nitrogen-Vacancy (NV) centers in diamond. This implementation is based on the groundbreaking research by Dushenko et al. published in Physical Review Applied (2020), which demonstrated **order-of-magnitude speedup** compared to conventional frequency-swept measurements.
 
 ## Key Features
 
@@ -79,7 +79,7 @@ Where:
 
 ```python
 @dataclass
-class SequentialBayesianLocator:
+class NVCenterSequentialBayesianLocator:
     max_evals: int = 50
     prior_bounds: Tuple[float, float] = (2.6e9, 3.1e9)  # Hz
     noise_model: str = "gaussian"
@@ -120,10 +120,11 @@ Produces final parameter estimates and performs peak detection.
 ### Basic Usage
 
 ```python
-from nvision.sim.locs import SequentialBayesianLocator, Obs
+from nvision.sim import NVCenterSequentialBayesianLocator
+from nvision.sim.locs.models import Obs
 
 # Initialize locator
-locator = SequentialBayesianLocator(
+locator = NVCenterSequentialBayesianLocator(
     max_evals=30,
     prior_bounds=(2.8e9, 2.9e9),  # 100 MHz range
     convergence_threshold=1e6     # 1 MHz precision
@@ -147,7 +148,7 @@ while not locator.should_stop(history):
 
 # Get final results
 result = locator.finalize(history)
-print(f"Estimated frequency: {result['x1']/1e9:.6f} GHz")
+print(f"Estimated frequency: {result['x1_hat']/1e9:.6f} GHz")
 print(f"Uncertainty: {result['uncert']/1e6:.3f} MHz")
 ```
 
@@ -155,7 +156,7 @@ print(f"Uncertainty: {result['uncert']/1e6:.3f} MHz")
 
 ```python
 # High-precision configuration
-high_precision_locator = SequentialBayesianLocator(
+high_precision_locator = NVCenterSequentialBayesianLocator(
     max_evals=100,
     prior_bounds=(2.87e9, 2.88e9),    # Narrow search range
     noise_model="poisson",             # Photon counting
@@ -165,7 +166,7 @@ high_precision_locator = SequentialBayesianLocator(
 )
 
 # Fast screening configuration
-fast_locator = SequentialBayesianLocator(
+fast_locator = NVCenterSequentialBayesianLocator(
     max_evals=20,
     acquisition_function="mutual_information",  # Faster calculation
     convergence_threshold=1e7,                  # 10 MHz precision
@@ -182,12 +183,12 @@ import nvision as nv
 
 # Create experimental scenario
 scenario = nv.Scenario(
-    locator_strategy=SequentialBayesianLocator(
+    locator_strategy=nv.NVCenterSequentialBayesianLocator(
         max_evals=50,
-        convergence_threshold=1e6
+        convergence_threshold=1e6,
     ),
     noise_model=nv.GaussianNoise(sigma=0.05),
-    measurement_domain=(2.85e9, 2.89e9)
+    measurement_domain=(2.85e9, 2.89e9),
 )
 
 # Run simulation

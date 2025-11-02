@@ -21,7 +21,7 @@ A modular framework for simulating, analyzing, and benchmarking **Nitrogen-Vacan
 
 NVision is a simulation framework designed to accelerate research in quantum sensing by providing a platform to develop, test, and benchmark measurement strategies for NV centers. It combines realistic physical models with modern, data-driven analysis pipelines.
 
-- **Advanced Locator Strategies**: Implements and compares multiple algorithms for locating ODMR peaks, from simple grid scans to sophisticated adaptive methods. A key feature is the `SequentialBayesianLocator`, based on the work of Dushenko et al. (2020), which uses Bayesian inference to dramatically speed up measurements.
+- **Advanced Locator Strategies**: Implements and compares multiple algorithms for locating ODMR peaks, from simple grid scans to sophisticated adaptive methods. A key feature is the `NVCenterSequentialBayesianLocator`, based on the work of Dushenko et al. (2020), which uses Bayesian inference to dramatically speed up measurements.
 - **Realistic Physics Models**: Simulates authentic ODMR spectra, including the characteristic three-dip `NVCenterManufacturer` and generic `CauchyLorentz` peak shapes, under configurable noise models.
 - **Modular & Extensible**: The `LocatorStrategy` protocol allows for easy integration of new custom search algorithms, making it an ideal testbed for novel sensing protocols.
 - **Reproducible Science**: Every experiment is fully controlled by a single seed and scenario grid, ensuring identical results for repeated runs.
