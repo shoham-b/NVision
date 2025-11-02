@@ -10,6 +10,14 @@ from nvision.sim.gen.distributions.broadened_nv_center_manufacturer import (
 )
 from nvision.sim.gen.distributions.gaussian_manufacturer import GaussianManufacturer
 
+A_PARAM = 0.0003
+MIN_K_NP = 2.0
+MAX_K_NP = 4.0
+MIN_NV_CENTER_DELTA = 0.0
+MAX_NV_CENTER_DELTA = 0.4
+MIN_NV_CENTER_OMEGA = 0.008
+MAX_NV_CENTER_OMEGA = 0.01
+
 
 class NVCenterManufacturer(PeakManufacturer):
     """A manufacturer for a signal distribution that models an NV-center spectrum.
@@ -40,17 +48,21 @@ class NVCenterManufacturer(PeakManufacturer):
 
     def __init__(
         self,
-        a: float = 1,  # Amplitude scaling factor for the central dip
-        k_np: float = 100,  # Non-polarization factor, typically > 0
-        delta_f_hf: float = 0.2,  # Hyperfine splitting, typically > 0
-        omega: float | None = 1,  # Linewidth/width parameter (HWHM), typically > 0
-        **kwargs,  # For potential future compatibility or alternative parameter names
+        a: float = A_PARAM,
+        k_np: float = MIN_K_NP,
+        delta_f_hf: float = MIN_NV_CENTER_DELTA,
+        omega: float | None = MIN_NV_CENTER_OMEGA,
+        **kwargs,
     ) -> None:
-        # Store parameters
-        self.a = a
-        self.k_np = k_np
-        self.delta_f_hf = delta_f_hf
-        self.omega = omega
+        # Store and clamp parameters
+        self.a = A_PARAM  # Always use the constant
+        self.k_np = max(MIN_K_NP, min(k_np, MAX_K_NP))
+        self.delta_f_hf = max(MIN_NV_CENTER_DELTA, min(delta_f_hf, MAX_NV_CENTER_DELTA))
+
+        if omega is not None:
+            self.omega = max(MIN_NV_CENTER_OMEGA, min(omega, MAX_NV_CENTER_OMEGA))
+        else:
+            self.omega = omega  # remains None
 
         # Basic validation for parameters
         if self.a <= 0:
@@ -102,6 +114,7 @@ class NVCenterManufacturer(PeakManufacturer):
 
         # The 'center' argument maps to 'f_B' in the equation.
         f_b = center
+        delta_f_hf = self.delta_f_hf
 
         # Define the Lorentzian dip term helper function
         # L(f, f0, A_num, Omega) = A_num / ((f - f0)^2 + Omega^2)
@@ -130,14 +143,14 @@ class NVCenterManufacturer(PeakManufacturer):
                 # Calculate the three separate Lorentzian dip terms for the hyperfine splitting
                 term1 = lorentzian_peak_term(
                     x,
-                    f_b + self.delta_f_hf,
+                    f_b + delta_f_hf,
                     self.a * self.k_np,
                     effective_omega,
                 )
                 term2 = lorentzian_peak_term(x, f_b, self.a, effective_omega)
                 term3 = lorentzian_peak_term(
                     x,
-                    f_b - self.delta_f_hf,
+                    f_b - delta_f_hf,
                     self.a / self.k_np,
                     effective_omega,
                 )

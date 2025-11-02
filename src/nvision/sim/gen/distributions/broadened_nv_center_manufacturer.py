@@ -99,7 +99,7 @@ class BroadenedNVCenterManufacturer(PeakManufacturer):
 
             total_dip = dip1 + dip2 + dip3
 
-            return 1.0 - total_dip
+            return total_dip
 
         params = {
             "f_B": f_b,
