@@ -63,7 +63,7 @@ class LocatorRunner:
         repeats: int,
         max_steps: int,
     ) -> dict:
-        metric_samples: dict[str, list[float]] = {}
+        repeat_records: list[dict[str, float]] = []
 
         for _repeat_idx in range(repeats):
             scan = gen.generate(self._rng)
@@ -74,17 +74,33 @@ class LocatorRunner:
                 if isinstance(value, int | float):
                     metrics[key] = float(value)
 
+            record: dict[str, float] = {}
             for key, value in metrics.items():
                 if isinstance(value, int | float):
-                    metric_samples.setdefault(key, []).append(float(value))
+                    record[key] = float(value)
+            repeat_records.append(record)
 
         aggregated: dict[str, float] = {}
-        for key, samples in metric_samples.items():
-            finite_samples = [s for s in samples if math.isfinite(s)]
-            if finite_samples:
-                aggregated[key] = float(sum(finite_samples) / len(finite_samples))
-            else:
-                aggregated[key] = float("nan") if samples else float("nan")
+        if repeat_records:
+            metrics_df = pl.DataFrame(repeat_records)
+            numeric_cols = [name for name, dtype in metrics_df.schema.items() if dtype.is_numeric()]
+            if numeric_cols:
+                metrics_df = metrics_df.with_columns(
+                    [pl.col(name).cast(pl.Float64) for name in numeric_cols]
+                )
+                agg_exprs = [
+                    pl.when(pl.col(name).is_finite())
+                    .then(pl.col(name))
+                    .otherwise(None)
+                    .mean()
+                    .alias(name)
+                    for name in numeric_cols
+                ]
+                aggregated_row = metrics_df.select(agg_exprs).to_dicts()[0]
+                aggregated = {
+                    name: float(value) if value is not None else float("nan")
+                    for name, value in aggregated_row.items()
+                }
 
         row = {
             "generator": gen_name,
