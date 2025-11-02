@@ -258,7 +258,9 @@ def cli(
             scan = generator.generate(scan_rng)
 
             plot_runner = LocatorRunner(rng_seed=attempt_seed)
-            history_df, estimate = plot_runner.run_once(scan, strategy, noise_obj, loc_max_steps)
+            run_stats = plot_runner.run_once(scan, strategy, noise_obj, loc_max_steps)
+            history_df = run_stats.history
+            estimate = run_stats.estimate
 
             attempt_metrics = _scan_attempt_metrics(scan.truth_positions, estimate)
             attempt_slug = f"{slug_base}_r{attempt_idx + 1}"
@@ -273,6 +275,8 @@ def cli(
             metrics_serialized = {
                 key: _maybe_finite(value) for key, value in attempt_metrics.items()
             }
+            metrics_serialized["measurements"] = _maybe_finite(run_stats.measurements)
+            metrics_serialized["duration_s"] = _maybe_finite(run_stats.duration_s)
 
             plot_manifest.append(
                 {
@@ -284,6 +288,8 @@ def cli(
                     "repeat_total": total_repeats,
                     "abs_err_x": metrics_serialized.get("abs_err_x"),
                     "uncert": metrics_serialized.get("uncert"),
+                    "measurements": metrics_serialized.get("measurements"),
+                    "duration_s": metrics_serialized.get("duration_s"),
                     "metrics": metrics_serialized,
                     "path": out_path.relative_to(out_dir).as_posix(),
                 }

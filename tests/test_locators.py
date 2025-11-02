@@ -7,14 +7,18 @@ from nvision.sim import (
     CompositeOverTimeNoise,
     CompositeOverVoltageNoise,
     GaussianManufacturer,
-    GoldenSectionSearchLocator,
-    GridScanLocator,
+    NVCenterBayesianLocator,
+    NVCenterGenerator,
+    NVCenterSweepLocator,
     OnePeakGenerator,
+    OnePeakGridLocator,
+    OnePeakSweepLocator,
     OverTimeDriftNoise,
     OverVoltageGaussianNoise,
     OverVoltageOutlierSpikes,
     TwoPeakGenerator,
-    TwoPeakGreedyLocator,
+    TwoPeakGridLocator,
+    TwoPeakSweepLocator,
 )
 from nvision.sim.loc_runner import LocatorRunner
 
@@ -32,6 +36,7 @@ def test_locator_sweep_dataframe_shape():
                 manufacturer_right=GaussianManufacturer(),
             ),
         ),
+        ("NVCenter", NVCenterGenerator(variant="zeeman")),
     ]
     noises = [
         ("NoNoise", None),
@@ -52,9 +57,12 @@ def test_locator_sweep_dataframe_shape():
         ),
     ]
     strategies = [
-        ("Grid21", GridScanLocator(n_points=21)),
-        ("Golden20", GoldenSectionSearchLocator(max_evals=20)),
-        ("TwoGreedy", TwoPeakGreedyLocator(coarse_points=15, refine_points=5)),
+        ("OnePeak-Grid", OnePeakGridLocator(n_points=21)),
+        ("OnePeak-Sweep", OnePeakSweepLocator(coarse_points=20, refine_points=10)),
+        ("TwoPeak-Grid", TwoPeakGridLocator(coarse_points=25)),
+        ("TwoPeak-Sweep", TwoPeakSweepLocator(coarse_points=25, refine_points=10)),
+        ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
+        ("NVCenter-Bayesian", NVCenterBayesianLocator(max_steps=25)),
     ]
 
     df = runner.sweep(generators, strategies, noises, repeats=3, max_steps=100)
@@ -64,6 +72,8 @@ def test_locator_sweep_dataframe_shape():
     assert df.height == expected_rows
     # Expect at least one metric column
     assert any(c for c in df.columns if c not in ("generator", "noise", "strategy"))
+    assert "measurements" in df.columns
+    assert "duration_s" in df.columns
 
 
 def test_gridscan_converges_noiseless_single_peak_reasonable_error():
@@ -72,7 +82,7 @@ def test_gridscan_converges_noiseless_single_peak_reasonable_error():
     gen = OnePeakGenerator(manufacturer=GaussianManufacturer())
     df = runner.sweep(
         generators=[("OnePeak", gen)],
-        strategies=[("Grid21", GridScanLocator(n_points=21))],
+        strategies=[("OnePeak-Grid", OnePeakGridLocator(n_points=21))],
         noises=[("NoNoise", None)],
         repeats=3,
         max_steps=100,
@@ -80,3 +90,5 @@ def test_gridscan_converges_noiseless_single_peak_reasonable_error():
     # abs_err_x should exist and be finite
     assert "abs_err_x" in df.columns
     assert df.select(pl.col("abs_err_x").is_finite().all()).item()
+    assert df.select(pl.col("measurements").is_finite().all()).item()
+    assert df.select(pl.col("duration_s").is_finite().all()).item()
