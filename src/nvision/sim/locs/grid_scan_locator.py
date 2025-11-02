@@ -1,42 +1,41 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import math
 from dataclasses import dataclass
 
-from nvision.sim.locs.models.obs import Obs
-from nvision.sim.scan_batch import ScanBatch
+import numpy as np
+import polars as pl
+
+from nvision.sim.locs.base import Locator, ScanBatch
 
 
 @dataclass
-class GridScanLocator:
+class GridScanLocator(Locator):
     n_points: int = 21
-    _scan: ScanBatch | None = None
-
-    def set_scan(self, scan: ScanBatch) -> None:
-        self._scan = scan
 
     def _grid(self, lo: float, hi: float) -> list[float]:
         if self.n_points <= 1:
             return [0.5 * (lo + hi)]
-        step = (hi - lo) / (self.n_points - 1)
-        return [lo + i * step for i in range(self.n_points)]
+        return np.linspace(lo, hi, self.n_points).tolist()
 
-    def propose_next(self, history: Sequence[Obs], domain: tuple[float, float]) -> float:
-        lo, hi = domain
-        grid = self._grid(lo, hi)
-        taken = {round(o.x, 12) for o in history}
+    def propose_next(self, history: pl.DataFrame, scan: ScanBatch) -> float:
+        grid = self._grid(scan.x_min, scan.x_max)
+        if history.is_empty():
+            return grid[0]
+
+        taken = {round(x, 12) for x in history["x"]}
         for g in grid:
             if round(g, 12) not in taken:
                 return g
         return grid[-1]
 
-    def should_stop(self, history: Sequence[Obs]) -> bool:
-        return len({round(o.x, 12) for o in history}) >= self.n_points
+    def should_stop(self, history: pl.DataFrame, scan: ScanBatch) -> bool:
+        if history.is_empty():
+            return False
+        return history["x"].n_unique() >= self.n_points
 
-    def finalize(self, history: Sequence[Obs]) -> dict[str, float]:
-        import math
-
-        if not history:
+    def finalize(self, history: pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
+        if history.is_empty():
             return {
                 "n_peaks": 1.0,
                 "x1_hat": math.nan,
@@ -45,12 +44,15 @@ class GridScanLocator:
                 "uncert_pos": math.inf,
                 "uncert_sep": math.nan,
             }
-        best = max(history, key=lambda o: o.intensity)
-        xs = sorted({o.x for o in history})
+
+        best = history.sort("signal_values", descending=True).row(0, named=True)
+        best_x = best["x"]
+
+        xs = sorted(history["x"].unique().to_list())
         if len(xs) < 2:
             dx = 0.5
         else:
-            idx = xs.index(min(xs, key=lambda xv: abs(xv - best.x)))
+            idx = xs.index(min(xs, key=lambda xv: abs(xv - best_x)))
             left = xs[idx - 1] if idx > 0 else xs[idx]
             right = xs[idx + 1] if idx + 1 < len(xs) else xs[idx]
             if right != left:
@@ -61,7 +63,7 @@ class GridScanLocator:
                 dx = 0.5
         return {
             "n_peaks": 1.0,
-            "x1_hat": float(best.x),
+            "x1_hat": float(best_x),
             "x2_hat": float("nan"),
             "uncert": float(abs(dx)),
             "uncert_pos": float(abs(dx)),

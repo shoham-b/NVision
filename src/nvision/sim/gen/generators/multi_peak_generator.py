@@ -28,6 +28,8 @@ class MultiPeakGenerator:
             if not xs or all(abs(x - xi) >= self.min_sep_frac * width for xi in xs):
                 xs.append(x)
         fns: list[Callable[[float], float]] = []
+        peak_params: list[dict[str, float]] = []
+        inference_peaks: list[dict[str, float]] = []
         for i, xc in enumerate(xs):
             manuf = (
                 self.manufacturers[i]
@@ -36,17 +38,26 @@ class MultiPeakGenerator:
             )
             if manuf is None:
                 raise ValueError("Missing manufacturer for peak index {i}")
-            f_i, _ = manuf.build_peak(xc, self.base, self.x_min, self.x_max, rng)
+            f_i, params = manuf.build_peak(xc, self.base, self.x_min, self.x_max, rng)
             fns.append(f_i)
+            peak_params.append(params)
+            if inf := params.get("inference"):
+                inference_peaks.append(inf)
 
         def f(x: float) -> float:
             return sum(fi(x) for fi in fns) - (len(fns) - 1) * self.base
 
         xs_sorted = sorted(xs)
+        meta: dict[str, object] = {
+            "base": self.base,
+            "peak_params": peak_params,
+        }
+        if inference_peaks:
+            meta["inference"] = {"peaks": inference_peaks}
         return ScanBatch(
             x_min=self.x_min,
             x_max=self.x_max,
             truth_positions=xs_sorted,
             signal=f,
-            meta={"base": self.base},
+            meta=meta,
         )

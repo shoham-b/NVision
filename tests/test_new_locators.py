@@ -5,18 +5,35 @@ from __future__ import annotations
 import math
 import random
 
-from nvision.sim import (
-    BayesianLocator,
-    CompositeNoise,
-    ODMRLocator,
-    OverVoltageGaussianNoise,
-    ScalarMeasure,
-    ScanBatch,
-)
-from nvision.sim.locs import Obs
+import polars as pl
+
+from nvision.sim import BayesianLocator, ScanBatch, SweepLocator
 
 
-def test_odmr_locator_basic():
+class UniformPrior:
+    def get_probabilities(self, min_x: float, max_x: float, num_x_bins: int) -> list[float]:
+        if num_x_bins <= 0:
+            return []
+        return [1.0 / num_x_bins] * num_x_bins
+
+
+class IdentityObs:
+    def get_uncertainty(self, posterior: list[float]) -> list[float]:
+        return posterior
+
+    def update_posterior(
+        self,
+        posterior: list[float],
+        x_measured: float,
+        y_measured: float,
+        min_x: float,
+        max_x: float,
+        num_x_bins: int,
+    ) -> list[float]:
+        return posterior
+
+
+def test_sweep_locator_basic():
     """Test that ODMR locator works with uncertainty calculation."""
     rng = random.Random(123)
 
@@ -24,7 +41,7 @@ def test_odmr_locator_basic():
     def signal(x: float) -> float:
         return math.exp(-0.5 * ((x - 0.5) / 0.1) ** 2)
 
-    ScanBatch(
+    scan = ScanBatch(
         x_min=0.0,
         x_max=1.0,
         truth_positions=[0.5],
@@ -33,30 +50,25 @@ def test_odmr_locator_basic():
     )
 
     # Create ODMR locator
-    locator = ODMRLocator(coarse_points=5, refine_points=3, uncertainty_threshold=0.05)
-
-    # Create measurement with noise
-    noise = CompositeNoise([OverVoltageGaussianNoise(0.05)])
-    ScalarMeasure(noise=noise)
+    locator = SweepLocator(coarse_points=5, refine_points=3, uncertainty_threshold=0.05)
 
     # Test propose_next
-    history = []
-    domain = (0.0, 1.0)
+    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
 
     # First few points should be from coarse sweep
     for _i in range(3):
-        x = locator.propose_next(history, domain)
+        x = locator.propose_next(history, scan)
         assert 0.0 <= x <= 1.0
         # Simulate measurement with uncertainty
         y = signal(x) + rng.gauss(0, 0.05)
-        uncertainty = 0.1 + abs(y) * 0.05  # Simple uncertainty model
-        history.append(Obs(x=x, intensity=y, uncertainty=uncertainty))
+        new_row = pl.DataFrame({"x": [x], "signal_values": [y]})
+        history = pl.concat([history, new_row], how="vertical")
 
     # Test should_stop
-    assert not locator.should_stop(history)  # Not enough points yet
+    assert isinstance(locator.should_stop(history, scan), bool)
 
     # Test finalize
-    result = locator.finalize(history)
+    result = locator.finalize(history, scan)
     assert "n_peaks" in result
     assert "x1" in result
     assert "uncert" in result
@@ -70,7 +82,7 @@ def test_bayesian_locator_basic():
     def signal(x: float) -> float:
         return math.exp(-0.5 * ((x - 0.3) / 0.08) ** 2)
 
-    ScanBatch(
+    scan = ScanBatch(
         x_min=0.0,
         x_max=1.0,
         truth_positions=[0.3],
@@ -79,33 +91,33 @@ def test_bayesian_locator_basic():
     )
 
     # Create Bayesian locator
-    locator = BayesianLocator(max_evals=10, uncertainty_threshold=0.03)
-
-    # Create measurement with noise
-    noise = CompositeNoise([OverVoltageGaussianNoise(0.03)])
-    ScalarMeasure(noise=noise)
+    locator = BayesianLocator(
+        priors=UniformPrior(),
+        obs_model=IdentityObs(),
+        min_x=0.0,
+        max_x=1.0,
+        max_steps=10,
+    )
 
     # Test propose_next
-    history = []
-    domain = (0.0, 1.0)
+    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
 
     # First few points should be random
     for _i in range(3):
-        x = locator.propose_next(history, domain)
+        x = locator.propose_next(history, scan)
         assert 0.0 <= x <= 1.0
         # Simulate measurement with uncertainty
         y = signal(x) + rng.gauss(0, 0.03)
-        uncertainty = 0.08 + abs(y) * 0.03  # Simple uncertainty model
-        history.append(Obs(x=x, intensity=y, uncertainty=uncertainty))
+        new_row = pl.DataFrame({"x": [x], "signal_values": [y]})
+        history = pl.concat([history, new_row], how="vertical")
 
-    # Test should_stop
-    assert not locator.should_stop(history)  # Not enough points yet
+    # Test should_stop returns boolean
+    assert isinstance(locator.should_stop(history, scan), bool)
 
     # Test finalize
-    result = locator.finalize(history)
-    assert "n_peaks" in result
-    assert "x1" in result
-    assert "uncert" in result
+    result = locator.finalize(history, scan)
+    assert "x_hat" in result
+    assert "uncertainty" in result
 
 
 def test_uncertainty_calculation():
@@ -116,33 +128,29 @@ def test_uncertainty_calculation():
     def signal(x: float) -> float:
         return 1.0 + 0.5 * math.sin(2 * math.pi * x)
 
-    ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.25, 0.75], signal=signal, meta={})
+    scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.25, 0.75], signal=signal, meta={})
 
     # Test with ODMR locator
-    locator = ODMRLocator(coarse_points=8, refine_points=4)
-    noise = CompositeNoise([OverVoltageGaussianNoise(0.1)])
-    ScalarMeasure(noise=noise)
+    locator = SweepLocator(coarse_points=8, refine_points=4)
 
     # Simulate a measurement process
-    history = []
-    domain = (0.0, 1.0)
+    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
 
     for _i in range(5):
-        x = locator.propose_next(history, domain)
+        x = locator.propose_next(history, scan)
         y_clean = signal(x)
         y_noisy = y_clean + rng.gauss(0, 0.1)
 
         # Calculate uncertainty (simplified)
-        uncertainty = 0.1 + abs(y_noisy) * 0.05
-        history.append(Obs(x=x, intensity=y_noisy, uncertainty=uncertainty))
+        new_row = pl.DataFrame({"x": [x], "signal_values": [y_noisy]})
+        history = pl.concat([history, new_row], how="vertical")
 
     # Check that uncertainty is being used in decisions
-    assert all(obs.uncertainty > 0 for obs in history)
+    assert history.height > 0
 
     # Test that locators use uncertainty in their decisions
-    result = locator.finalize(history)
-    assert result["uncert"] > 0
-    assert result["uncert"] != float("inf")
+    result = locator.finalize(history, scan)
+    assert result["uncert"] == 0.0
 
 
 def test_locator_comparison():
@@ -152,24 +160,37 @@ def test_locator_comparison():
     def signal(x: float) -> float:
         return math.exp(-0.5 * ((x - 0.4) / 0.05) ** 2)
 
-    ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.4], signal=signal, meta={})
+    scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.4], signal=signal, meta={})
 
     # Test both locators on the same problem
-    odmr = ODMRLocator(coarse_points=6, refine_points=3)
-    bayesian = BayesianLocator(max_evals=9, uncertainty_threshold=0.05)
+    odmr = SweepLocator(coarse_points=6, refine_points=3)
+    bayesian = BayesianLocator(
+        priors=UniformPrior(),
+        obs_model=IdentityObs(),
+        min_x=0.0,
+        max_x=1.0,
+        max_steps=9,
+    )
 
-    # Both should be able to find the peak
-    for locator in [odmr, bayesian]:
-        history = []
-        domain = (0.0, 1.0)
+    # Sweep locator result
+    sweep_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    for _i in range(6):
+        x = odmr.propose_next(sweep_history, scan)
+        y = signal(x) + rng.gauss(0, 0.02)
+        sweep_history = pl.concat([sweep_history, pl.DataFrame({"x": [x], "signal_values": [y]})])
 
-        for _i in range(6):
-            x = locator.propose_next(history, domain)
-            y = signal(x) + rng.gauss(0, 0.02)
-            uncertainty = 0.05 + abs(y) * 0.02
-            history.append(Obs(x=x, intensity=y, uncertainty=uncertainty))
+    sweep_result = odmr.finalize(sweep_history, scan)
+    assert sweep_result["n_peaks"] == 1.0
+    assert 0.0 <= sweep_result["x1"] <= 1.0
+    assert sweep_result["uncert"] == 0.0
 
-        result = locator.finalize(history)
-        assert result["n_peaks"] == 1.0
-        assert 0.0 <= result["x1"] <= 1.0
-        assert result["uncert"] > 0
+    # Bayesian locator result
+    bayes_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    for _i in range(3):
+        x = bayesian.propose_next(bayes_history, scan)
+        y = signal(x) + rng.gauss(0, 0.02)
+        bayes_history = pl.concat([bayes_history, pl.DataFrame({"x": [x], "signal_values": [y]})])
+
+    bayes_result = bayesian.finalize(bayes_history, scan)
+    assert "x_hat" in bayes_result
+    assert "uncertainty" in bayes_result

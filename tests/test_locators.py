@@ -4,6 +4,8 @@ import polars as pl
 
 from nvision.sim import (
     CompositeNoise,
+    CompositeOverTimeNoise,
+    CompositeOverVoltageNoise,
     GaussianManufacturer,
     GoldenSectionSearchLocator,
     GridScanLocator,
@@ -33,15 +35,19 @@ def test_locator_sweep_dataframe_shape():
     ]
     noises = [
         ("NoNoise", None),
-        ("Gauss", CompositeNoise([OverVoltageGaussianNoise(0.05)])),
+        (
+            "Gauss",
+            CompositeNoise(
+                over_voltage_noise=CompositeOverVoltageNoise([OverVoltageGaussianNoise(0.05)])
+            ),
+        ),
         (
             "Heavy",
             CompositeNoise(
-                [
-                    OverVoltageGaussianNoise(0.1),
-                    OverTimeDriftNoise(0.05),
-                    OverVoltageOutlierSpikes(0.02, 0.5),
-                ]
+                over_voltage_noise=CompositeOverVoltageNoise(
+                    [OverVoltageGaussianNoise(0.1), OverVoltageOutlierSpikes(0.02, 0.5)]
+                ),
+                over_time_noise=CompositeOverTimeNoise([OverTimeDriftNoise(0.05)]),
             ),
         ),
     ]

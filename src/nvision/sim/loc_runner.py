@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import polars as pl
 
 from .core import CompositeNoise, ScanGenerator
-from .locs import LocatorStrategy, MeasurementProcess, ScalarMeasure, ScanBatch
+from .locs import Locator, ScanBatch, run_locator
 
 
 def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, float]:
@@ -59,7 +59,7 @@ class LocatorRunner:
         noise_name: str,
         noise: CompositeNoise | None,
         strat_name: str,
-        strat: LocatorStrategy,
+        strat: Locator,
         repeats: int,
         max_steps: int,
     ) -> dict:
@@ -67,7 +67,7 @@ class LocatorRunner:
 
         for _repeat_idx in range(repeats):
             scan = gen.generate(self._rng)
-            _history_df, est = self.run_once(scan, strat, noise, max_steps)
+            history_df, est = self.run_once(scan, strat, noise, max_steps)
             metrics = _pairing_error(scan.truth_positions, est)
             for key in ("uncert", "uncert_pos", "uncert_sep"):
                 value = est.get(key)
@@ -98,22 +98,25 @@ class LocatorRunner:
     def run_once(
         self,
         scan: ScanBatch,
-        strategy: LocatorStrategy,
+        strategy: Locator,
         noise: CompositeNoise | None,
         max_steps: int = 200,
     ) -> tuple[pl.DataFrame, dict[str, float]]:
-        proc = MeasurementProcess(
+        history_df = run_locator(
+            locator=strategy,
             scan=scan,
-            meas=ScalarMeasure(noise=noise),
-            strategy=strategy,
+            over_voltage_noise=noise.over_voltage_noise if noise else None,
+            over_time_noise=noise.over_time_noise if noise else None,
             max_steps=max_steps,
+            seed=self._rng.randint(0, 2**32 - 1),
         )
-        return proc.run(self._rng)
+        est = strategy.finalize(history_df, scan)
+        return history_df, est
 
     def sweep(
         self,
         generators: Sequence[tuple[str, ScanGenerator]],
-        strategies: Sequence[tuple[str, LocatorStrategy]],
+        strategies: Sequence[tuple[str, Locator]],
         noises: Sequence[tuple[str, CompositeNoise | None]],
         repeats: int = 10,
         max_steps: int = 200,

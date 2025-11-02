@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import polars as pl
 
 from nvision.pathutils import ensure_out_dir
-from nvision.sim.core import CompositeNoise, DataBatch
+from nvision.sim.core import CompositeOverVoltageNoise, DataBatch
 
 
 class Viz:
@@ -34,7 +34,7 @@ class Viz:
         scan,
         history: pl.DataFrame,
         out_path: Path,
-        noise: CompositeNoise | None = None,
+        over_voltage_noise: CompositeOverVoltageNoise | None = None,
     ) -> Path:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
@@ -56,16 +56,16 @@ class Viz:
         )
 
         # Simulated noisy curve (e.g., over-voltage noise)
-        if noise is not None:
+        if over_voltage_noise is not None:
             dense_batch = DataBatch.from_arrays(xs, ys, meta={})
-            noisy_batch = noise.apply(dense_batch, random.Random(0))
+            noisy_batch = over_voltage_noise.apply(dense_batch, random.Random(0))
             noisy_values = [float(v) for v in noisy_batch.signal_values]
             fig.add_trace(
                 go.Scatter(
                     x=xs,
                     y=noisy_values,
                     mode="lines",
-                    name="simulated noisy signal",
+                    name="simulated noisy signal (over-voltage)",
                     line=dict(color="orange", dash="dot"),
                 )
             )
@@ -94,18 +94,6 @@ class Viz:
                         colorbar=dict(title="step"),
                         line=dict(width=0.5, color="black"),
                     ),
-                )
-            )
-
-            # Ideal (noise-free) measurement points
-            ys_ideal_s = [float(scan.signal(x)) for x in xs_s]
-            fig.add_trace(
-                go.Scatter(
-                    x=xs_s,
-                    y=ys_ideal_s,
-                    mode="markers",
-                    name="measurements (ideal)",
-                    marker=dict(symbol="cross", color="red", size=8, line=dict(width=1)),
                 )
             )
 

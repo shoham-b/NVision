@@ -205,7 +205,12 @@ def cli(
             attempt_metrics = _scan_attempt_metrics(scan.truth_positions, estimate)
             attempt_slug = f"{slug_base}_r{attempt_idx + 1}"
             out_path = scans_dir / f"{attempt_slug}.html"
-            viz.plot_scan_measurements(scan, history_df, out_path, noise=noise_obj)
+            viz.plot_scan_measurements(
+                scan,
+                history_df,
+                out_path,
+                over_voltage_noise=noise_obj.over_voltage_noise if noise_obj else None,
+            )
 
             metrics_serialized = {
                 key: _maybe_finite(value) for key, value in attempt_metrics.items()

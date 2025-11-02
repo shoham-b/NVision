@@ -12,7 +12,7 @@ class ScanBatch:
     x_max: float
     truth_positions: list[float]
     signal: Callable[[float], float]
-    meta: dict[str, float] | None = None
+    meta: dict[str, object] | None = None
 
     def domain_width(self) -> float:
         return self.x_max - self.x_min

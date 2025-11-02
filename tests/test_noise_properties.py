@@ -5,8 +5,7 @@ import random
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from nvision.sim import DataBatch
-from nvision.sim.core import CompositeNoise
+from nvision.sim import CompositeOverVoltageNoise, DataBatch
 from nvision.sim.noises import OverVoltageGaussianNoise, OverVoltagePoissonNoise
 
 
@@ -20,7 +19,7 @@ from nvision.sim.noises import OverVoltageGaussianNoise, OverVoltagePoissonNoise
 )
 def test_poisson_noise_properties(values):
     t = list(range(len(values)))
-    data = DataBatch(time_points=t, signal_values=values, meta={})
+    data = DataBatch(x=t, signal_values=values, meta={})
     rng1 = random.Random(123)
     rng2 = random.Random(123)
     p = OverVoltagePoissonNoise(scale=20.0)
@@ -43,8 +42,8 @@ def test_poisson_noise_properties(values):
 )
 def test_composite_noise_preserves_length(values):
     t = list(range(len(values)))
-    data = DataBatch(time_points=t, signal_values=values, meta={})
+    data = DataBatch(x=t, signal_values=values, meta={})
     rng = random.Random(999)
-    comp = CompositeNoise([OverVoltageGaussianNoise(0.1), OverVoltageGaussianNoise(0.2)])
+    comp = CompositeOverVoltageNoise([OverVoltageGaussianNoise(0.1), OverVoltageGaussianNoise(0.2)])
     out = comp.apply(data, rng)
     assert len(out.signal_values) == len(values)

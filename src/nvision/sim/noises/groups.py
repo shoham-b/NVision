@@ -4,7 +4,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from ..core import DataBatch, NoiseModel
+from ..core import DataBatch, OverTimeNoise, OverVoltageNoise
 
 
 @dataclass
@@ -14,14 +14,14 @@ class OverVoltageNoises:
     Example components: OverVoltageGaussianNoise, OverVoltagePoissonNoise, OverVoltageOutlierSpikes.
     """
 
-    parts: Sequence[NoiseModel] | None = None
-    _parts: list[NoiseModel] = field(default_factory=list, init=False)
+    parts: Sequence[OverVoltageNoise] | None = None
+    _parts: list[OverVoltageNoise] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         if self.parts:
             self._parts = list(self.parts)
 
-    def add(self, model: NoiseModel) -> None:
+    def add(self, model: OverVoltageNoise) -> None:
         self._parts.append(model)
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
@@ -38,14 +38,14 @@ class OverTimeNoises:
     Example components: OverTimeRandomWalkNoise, OverTimeDriftNoise.
     """
 
-    parts: Sequence[NoiseModel] | None = None
-    _parts: list[NoiseModel] = field(default_factory=list, init=False)
+    parts: Sequence[OverTimeNoise] | None = None
+    _parts: list[OverTimeNoise] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         if self.parts:
             self._parts = list(self.parts)
 
-    def add(self, model: NoiseModel) -> None:
+    def add(self, model: OverTimeNoise) -> None:
         self._parts.append(model)
 
     def reset(self) -> None:
@@ -55,8 +55,8 @@ class OverTimeNoises:
             if callable(reset):
                 reset()
 
-    def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
-        out = data
+    def apply(self, signal_value: float, rng: random.Random) -> float:
+        out = signal_value
         for part in self._parts:
             out = part.apply(out, rng)
         return out
