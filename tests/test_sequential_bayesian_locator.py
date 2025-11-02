@@ -6,11 +6,10 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nvision.sim import ScanBatch
-from nvision.sim.locs.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.sim import NVCenterSequentialBayesianLocator, ScanBatch
 
 
-def build_locator(**overrides: object) -> SequentialBayesianLocator:
+def build_locator(**overrides: object) -> NVCenterSequentialBayesianLocator:
     config: dict[str, object] = {
         "max_evals": 12,
         "prior_bounds": (2.7e9, 3.0e9),
@@ -18,7 +17,7 @@ def build_locator(**overrides: object) -> SequentialBayesianLocator:
         "n_monte_carlo": 40,
     }
     config.update(overrides)
-    return SequentialBayesianLocator(**config)
+    return NVCenterSequentialBayesianLocator(**config)
 
 
 def build_scan() -> ScanBatch:
@@ -91,7 +90,7 @@ def test_finalize_includes_required_fields():
     scan = build_scan()
     history = pl.DataFrame({"x": [2.84e9, 2.86e9], "signal_values": [0.95, 0.9]})
     result = locator.finalize(history, scan)
-    assert {"n_peaks", "x1", "uncert"} <= set(result)
+    assert {"n_peaks", "x1_hat", "uncert"} <= set(result)
 
 
 def test_reset_posterior_returns_uniform_prior():

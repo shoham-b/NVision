@@ -32,6 +32,7 @@ from .loc_runner import LocatorRunner
 from .locs import (
     Locator,
     NVCenterBayesianLocator,
+    NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
     OnePeakGoldenLocator,
     OnePeakGridLocator,
@@ -85,4 +86,5 @@ __all__ = [
     "TwoPeakSweepLocator",
     "NVCenterSweepLocator",
     "NVCenterBayesianLocator",
+    "NVCenterSequentialBayesianLocator",
 ]

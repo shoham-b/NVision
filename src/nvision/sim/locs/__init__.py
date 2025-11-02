@@ -8,7 +8,11 @@ import polars as pl
 from nvision.sim.core import DataBatch, OverTimeNoise, OverVoltageNoise
 
 from .base import Locator, ScanBatch
-from .nv_center import NVCenterBayesianLocator, NVCenterSweepLocator
+from .nv_center import (
+    NVCenterBayesianLocator,
+    NVCenterSequentialBayesianLocator,
+    NVCenterSweepLocator,
+)
 from .one_peak import OnePeakGoldenLocator, OnePeakGridLocator, OnePeakSweepLocator
 from .two_peak import TwoPeakGoldenLocator, TwoPeakGridLocator, TwoPeakSweepLocator
 
@@ -75,4 +79,5 @@ __all__ = [
     "TwoPeakSweepLocator",
     "NVCenterSweepLocator",
     "NVCenterBayesianLocator",
+    "NVCenterSequentialBayesianLocator",
 ]
