@@ -16,9 +16,14 @@ from nvision.index_html import compile_html_index
 from nvision.pathutils import ensure_out_dir, slugify
 from nvision.sim import (
     CompositeNoise,
-    GoldenSectionSearchLocator,
-    GridScanLocator,
-    TwoPeakGreedyLocator,
+    NVCenterBayesianLocator,
+    NVCenterSweepLocator,
+    OnePeakGoldenLocator,
+    OnePeakGridLocator,
+    OnePeakSweepLocator,
+    TwoPeakGoldenLocator,
+    TwoPeakGridLocator,
+    TwoPeakSweepLocator,
 )
 from nvision.sim import cases as sim_cases
 from nvision.sim.loc_runner import LocatorRunner
@@ -30,13 +35,48 @@ def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     return sim_cases.noises_none() + sim_cases.noises_single_each() + sim_cases.noises_complex()
 
 
-def _locator_strategies() -> list[tuple[str, object]]:
-    """Construct the set of locator strategies used in sweeps."""
-    return [
-        ("Grid21", GridScanLocator(n_points=21)),
-        ("Golden20", GoldenSectionSearchLocator(max_evals=20)),
-        ("TwoGreedy", TwoPeakGreedyLocator(coarse_points=21, refine_points=5)),
-    ]
+def _get_generator_category(generator_name: str) -> str:
+    """Determine the category of a generator from its name."""
+    if generator_name.startswith("OnePeak-"):
+        return "OnePeak"
+    elif generator_name.startswith("TwoPeak-"):
+        return "TwoPeak"
+    elif generator_name.startswith("NVCenter-"):
+        return "NVCenter"
+    return "Unknown"
+
+
+def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, object]]:
+    """Get the appropriate locator strategies for a given generator category.
+
+    Each generator category has multiple locator types:
+    - OnePeak: Grid, Golden, Sweep
+    - TwoPeak: Grid, Golden, Sweep
+    - NVCenter: Sweep, Bayesian
+    """
+    category = _get_generator_category(generator_name)
+
+    strategies: list[tuple[str, object]] = []
+
+    if category == "OnePeak":
+        strategies = [
+            ("OnePeak-Grid", OnePeakGridLocator(n_points=21)),
+            ("OnePeak-Golden", OnePeakGoldenLocator(max_evals=25)),
+            ("OnePeak-Sweep", OnePeakSweepLocator(coarse_points=20, refine_points=10)),
+        ]
+    elif category == "TwoPeak":
+        strategies = [
+            ("TwoPeak-Grid", TwoPeakGridLocator(coarse_points=25)),
+            ("TwoPeak-Golden", TwoPeakGoldenLocator(coarse_points=25, refine_points=5)),
+            ("TwoPeak-Sweep", TwoPeakSweepLocator(coarse_points=25, refine_points=10)),
+        ]
+    elif category == "NVCenter":
+        strategies = [
+            ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
+            ("NVCenter-Bayesian", NVCenterBayesianLocator(max_steps=40)),
+        ]
+
+    return strategies
 
 
 def _maybe_finite(value: object) -> float | None:
@@ -93,15 +133,21 @@ def run_locator_workflow(
     runner = LocatorRunner(rng_seed=rng_seed)
 
     generators: list[tuple[str, object]] = sim_cases.generators_basic()
-    strategies: list[tuple[str, object]] = _locator_strategies()
     noises = _noise_presets()
+
+    # Build all generator-strategy combinations
+    all_combinations: list[tuple[str, object, str, object]] = []
+    for gen_name, gen_obj in generators:
+        strategies = _locator_strategies_for_generator(gen_name)
+        for strat_name, strat_obj in strategies:
+            all_combinations.append((gen_name, gen_obj, strat_name, strat_obj))
 
     cache_dir = out_dir / "cache"
     cfg = {
         "kind": "locator",
         "generators": [name for name, _ in generators],
         "noises": [name for name, _ in noises],
-        "strategies": [name for name, _ in strategies],
+        "combinations": [(g, s) for g, _, s, _ in all_combinations],
         "repeats": int(repeats),
         "seed": int(rng_seed) if rng_seed is not None else None,
         "max_steps": int(max_steps),
@@ -114,13 +160,20 @@ def run_locator_workflow(
     if cached is not None and required_object_columns.issubset({*cached.columns}):
         df = cached
     else:
-        df = runner.sweep(
-            generators,
-            strategies,
-            noises,
-            repeats=repeats,
-            max_steps=max_steps,
-        )
+        # Run sweeps for each combination
+        results: list[pl.DataFrame] = []
+        for gen_name, gen_obj, strat_name, strat_obj in all_combinations:
+            for noise_name, noise_obj in noises:
+                df_part = runner.sweep(
+                    [(gen_name, gen_obj)],
+                    [(strat_name, strat_obj)],
+                    [(noise_name, noise_obj)],
+                    repeats=repeats,
+                    max_steps=max_steps,
+                )
+                results.append(df_part)
+
+        df = pl.concat(results, how="diagonal_relaxed") if results else pl.DataFrame()
         if use_cache:
             cache.save_df(df, key)
 
@@ -172,7 +225,12 @@ def cli(
 
     generator_map = dict(sim_cases.generators_basic())
     noise_map = dict(_noise_presets())
-    strategy_map = dict(_locator_strategies())
+
+    # Build strategy map for all generators
+    strategy_map: dict[str, object] = {}
+    for gen_name in generator_map:
+        for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
+            strategy_map[strat_name] = strat_obj
 
     for idx, row in enumerate(df_loc.iter_rows(named=True)):
         gen_name = row["generator"]

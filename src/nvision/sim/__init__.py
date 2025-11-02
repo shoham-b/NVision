@@ -22,6 +22,7 @@ from .gen import (
     ExponentialDecayManufacturer,
     GaussianManufacturer,
     MultiPeakGenerator,
+    NVCenterGenerator,
     OnePeakGenerator,
     TwoPeakGenerator,
 )
@@ -33,9 +34,18 @@ from .locs import (
     GoldenSectionSearchLocator,
     GridScanLocator,
     Locator,
+    NVCenterBayesianLocator,
+    NVCenterSweepLocator,
+    OnePeakGoldenLocator,
+    # Category-specific locators
+    OnePeakGridLocator,
+    OnePeakSweepLocator,
     ScanBatch,
     SweepLocator,
+    TwoPeakGoldenLocator,
     TwoPeakGreedyLocator,
+    TwoPeakGridLocator,
+    TwoPeakSweepLocator,
 )
 
 # Noise implementations: export concrete full class names (no short aliases)
@@ -63,6 +73,8 @@ __all__ = [
     "MeasurementStrategy",
     "MultiPeakGenerator",
     "OnePeakGenerator",
+    "TwoPeakGenerator",
+    "NVCenterGenerator",
     "OverTimeDriftNoise",
     "OverTimeNoise",
     "OverTimeRandomWalkNoise",
@@ -72,6 +84,14 @@ __all__ = [
     "OverVoltagePoissonNoise",
     "ScanBatch",
     "SweepLocator",
-    "TwoPeakGenerator",
     "TwoPeakGreedyLocator",
+    # Category-specific locators
+    "OnePeakGridLocator",
+    "OnePeakGoldenLocator",
+    "OnePeakSweepLocator",
+    "TwoPeakGridLocator",
+    "TwoPeakGoldenLocator",
+    "TwoPeakSweepLocator",
+    "NVCenterSweepLocator",
+    "NVCenterBayesianLocator",
 ]

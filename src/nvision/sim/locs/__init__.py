@@ -11,8 +11,13 @@ from .base import Locator, ScanBatch
 from .bayesian_locator import BayesianLocator
 from .golden_section_search_locator import GoldenSectionSearchLocator
 from .grid_scan_locator import GridScanLocator
+from .nv_center import NVCenterBayesianLocator, NVCenterSweepLocator
+
+# Category-specific locators
+from .one_peak import OnePeakGoldenLocator, OnePeakGridLocator, OnePeakSweepLocator
 from .sequential_bayesian_locator import SequentialBayesianLocator
 from .sweep_locator import SweepLocator
+from .two_peak import TwoPeakGoldenLocator, TwoPeakGridLocator, TwoPeakSweepLocator
 from .two_peak_greedy_locator import TwoPeakGreedyLocator
 
 
@@ -75,4 +80,13 @@ __all__ = [
     "SequentialBayesianLocator",
     "SweepLocator",
     "TwoPeakGreedyLocator",
+    # Category-specific locators
+    "OnePeakGridLocator",
+    "OnePeakGoldenLocator",
+    "OnePeakSweepLocator",
+    "TwoPeakGridLocator",
+    "TwoPeakGoldenLocator",
+    "TwoPeakSweepLocator",
+    "NVCenterSweepLocator",
+    "NVCenterBayesianLocator",
 ]
