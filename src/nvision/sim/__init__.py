@@ -30,22 +30,17 @@ from .loc_runner import LocatorRunner
 
 # Locators layer
 from .locs import (
-    BayesianLocator,
-    GoldenSectionSearchLocator,
-    GridScanLocator,
     Locator,
     NVCenterBayesianLocator,
     NVCenterSweepLocator,
     OnePeakGoldenLocator,
-    # Category-specific locators
     OnePeakGridLocator,
     OnePeakSweepLocator,
     ScanBatch,
-    SweepLocator,
     TwoPeakGoldenLocator,
-    TwoPeakGreedyLocator,
     TwoPeakGridLocator,
     TwoPeakSweepLocator,
+    run_locator,
 )
 
 # Noise implementations: export concrete full class names (no short aliases)
@@ -58,7 +53,6 @@ from .noises import (
 )
 
 __all__ = [
-    "BayesianLocator",
     "CompositeNoise",
     "CompositeOverTimeNoise",
     "CompositeOverVoltageNoise",
@@ -66,8 +60,6 @@ __all__ = [
     "DataGenerator",
     "ExponentialDecayManufacturer",
     "GaussianManufacturer",
-    "GoldenSectionSearchLocator",
-    "GridScanLocator",
     "Locator",
     "LocatorRunner",
     "MeasurementStrategy",
@@ -83,8 +75,7 @@ __all__ = [
     "OverVoltageOutlierSpikes",
     "OverVoltagePoissonNoise",
     "ScanBatch",
-    "SweepLocator",
-    "TwoPeakGreedyLocator",
+    "run_locator",
     # Category-specific locators
     "OnePeakGridLocator",
     "OnePeakGoldenLocator",
