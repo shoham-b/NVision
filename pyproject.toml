@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "NVision: project scaffold with tests, ruff, CI, and fuzzing"
 requires-python = ">=3.12,<3.15"
 dependencies = [
+    "bayesian-optimization>=1.5.0",
     "polars>=0.20",
     "typer>=0.12.0",
     "matplotlib>=3.7",
