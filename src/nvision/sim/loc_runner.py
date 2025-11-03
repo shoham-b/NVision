@@ -51,7 +51,7 @@ class LocatorRunStats:
     history: pl.DataFrame
     estimate: Mapping[str, float]
     measurements: int
-    duration_s: float
+    duration_ms: float
 
 
 def _aggregate_repeat_records(records: list[dict[str, float]]) -> dict[str, float]:
@@ -66,7 +66,7 @@ def _aggregate_repeat_records(records: list[dict[str, float]]) -> dict[str, floa
     metrics_df = metrics_df.with_columns([pl.col(name).cast(pl.Float64) for name in numeric_cols])
     agg_exprs = []
     for name in numeric_cols:
-        if name in {"measurements", "duration_s"}:
+        if name in {"measurements", "duration_ms"}:
             agg_exprs.append(pl.col(name).mean().alias(name))
         else:
             agg_exprs.append(
@@ -119,7 +119,7 @@ class LocatorRunner:
                 if isinstance(value, int | float):
                     record[key] = float(value)
             record["measurements"] = float(run_stats.measurements)
-            record["duration_s"] = float(run_stats.duration_s)
+            record["duration_ms"] = float(run_stats.duration_ms)
             repeat_records.append(record)
 
         aggregated = _aggregate_repeat_records(repeat_records)
@@ -144,18 +144,18 @@ class LocatorRunner:
         history_df = run_locator(
             locator=strategy,
             scan=scan,
-            over_voltage_noise=noise.over_voltage_noise if noise else None,
+            over_frequency_noise=noise.over_frequency_noise if noise else None,
             over_time_noise=noise.over_time_noise if noise else None,
             max_steps=max_steps,
             seed=self._rng.randint(0, 2**32 - 1),
         )
         est = strategy.finalize(history_df, scan)
-        duration_s = time.perf_counter() - start
+        duration_ms = (time.perf_counter() - start) * 1000.0
         return LocatorRunStats(
             history=history_df,
             estimate=est,
             measurements=history_df.height,
-            duration_s=duration_s,
+            duration_ms=duration_ms,
         )
 
     def sweep(

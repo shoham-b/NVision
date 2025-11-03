@@ -4,18 +4,17 @@ import polars as pl
 
 from nvision.sim import (
     CompositeNoise,
+    CompositeOverFrequencyNoise,
     CompositeOverTimeNoise,
-    CompositeOverVoltageNoise,
     GaussianManufacturer,
-    NVCenterBayesianLocator,
     NVCenterGenerator,
     NVCenterSweepLocator,
     OnePeakGenerator,
     OnePeakGridLocator,
     OnePeakSweepLocator,
+    OverFrequencyGaussianNoise,
+    OverFrequencyOutlierSpikes,
     OverTimeDriftNoise,
-    OverVoltageGaussianNoise,
-    OverVoltageOutlierSpikes,
     TwoPeakGenerator,
     TwoPeakGridLocator,
     TwoPeakSweepLocator,
@@ -43,14 +42,14 @@ def test_locator_sweep_dataframe_shape():
         (
             "Gauss",
             CompositeNoise(
-                over_voltage_noise=CompositeOverVoltageNoise([OverVoltageGaussianNoise(0.05)])
+                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)])
             ),
         ),
         (
             "Heavy",
             CompositeNoise(
-                over_voltage_noise=CompositeOverVoltageNoise(
-                    [OverVoltageGaussianNoise(0.1), OverVoltageOutlierSpikes(0.02, 0.5)]
+                over_frequency_noise=CompositeOverFrequencyNoise(
+                    [OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.02, 0.5)]
                 ),
                 over_time_noise=CompositeOverTimeNoise([OverTimeDriftNoise(0.05)]),
             ),
@@ -62,7 +61,6 @@ def test_locator_sweep_dataframe_shape():
         ("TwoPeak-Grid", TwoPeakGridLocator(coarse_points=25)),
         ("TwoPeak-Sweep", TwoPeakSweepLocator(coarse_points=25, refine_points=10)),
         ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
-        ("NVCenter-Bayesian", NVCenterBayesianLocator(max_steps=25)),
     ]
 
     df = runner.sweep(generators, strategies, noises, repeats=3, max_steps=100)
@@ -73,7 +71,7 @@ def test_locator_sweep_dataframe_shape():
     # Expect at least one metric column
     assert any(c for c in df.columns if c not in ("generator", "noise", "strategy"))
     assert "measurements" in df.columns
-    assert "duration_s" in df.columns
+    assert "duration_ms" in df.columns
 
 
 def test_gridscan_converges_noiseless_single_peak_reasonable_error():
@@ -91,4 +89,4 @@ def test_gridscan_converges_noiseless_single_peak_reasonable_error():
     assert "abs_err_x" in df.columns
     assert df.select(pl.col("abs_err_x").is_finite().all()).item()
     assert df.select(pl.col("measurements").is_finite().all()).item()
-    assert df.select(pl.col("duration_s").is_finite().all()).item()
+    assert df.select(pl.col("duration_ms").is_finite().all()).item()

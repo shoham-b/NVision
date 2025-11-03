@@ -16,7 +16,6 @@ from nvision.index_html import compile_html_index
 from nvision.pathutils import ensure_out_dir, slugify
 from nvision.sim import (
     CompositeNoise,
-    NVCenterBayesianLocator,
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
     OnePeakGoldenLocator,
@@ -74,7 +73,6 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, ob
     elif category == "NVCenter":
         strategies = [
             ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
-            ("NVCenter-Bayesian", NVCenterBayesianLocator(max_steps=40)),
             (
                 "NVCenter-SequentialBayesian",
                 NVCenterSequentialBayesianLocator(max_evals=60, grid_resolution=400),
@@ -274,14 +272,14 @@ def cli(
                 scan,
                 history_df,
                 out_path,
-                over_voltage_noise=noise_obj.over_voltage_noise if noise_obj else None,
+                over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
             )
 
             metrics_serialized = {
                 key: _maybe_finite(value) for key, value in attempt_metrics.items()
             }
             metrics_serialized["measurements"] = _maybe_finite(run_stats.measurements)
-            metrics_serialized["duration_s"] = _maybe_finite(run_stats.duration_s)
+            metrics_serialized["duration_ms"] = _maybe_finite(run_stats.duration_ms)
 
             plot_manifest.append(
                 {
@@ -294,7 +292,7 @@ def cli(
                     "abs_err_x": metrics_serialized.get("abs_err_x"),
                     "uncert": metrics_serialized.get("uncert"),
                     "measurements": metrics_serialized.get("measurements"),
-                    "duration_s": metrics_serialized.get("duration_s"),
+                    "duration_ms": metrics_serialized.get("duration_ms"),
                     "metrics": metrics_serialized,
                     "path": out_path.relative_to(out_dir).as_posix(),
                 }

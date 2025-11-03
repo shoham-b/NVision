@@ -9,7 +9,6 @@ import polars as pl
 import pytest
 
 from nvision.sim import (
-    NVCenterBayesianLocator,
     NVCenterSweepLocator,
     OnePeakGoldenLocator,
     OnePeakGridLocator,
@@ -96,9 +95,8 @@ def test_nv_center_locators_basic():
     )
 
     sweep_locator = NVCenterSweepLocator(coarse_points=15, refine_points=5)
-    bayes_locator = NVCenterBayesianLocator(max_steps=12)
 
-    for locator in (sweep_locator, bayes_locator):
+    for locator in (sweep_locator,):
         history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
         for _i in range(3):
             x = locator.propose_next(history, scan)

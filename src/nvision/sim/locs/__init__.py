@@ -5,11 +5,10 @@ import random
 import numpy as np
 import polars as pl
 
-from nvision.sim.core import DataBatch, OverTimeNoise, OverVoltageNoise
+from nvision.sim.core import DataBatch, OverFrequencyNoise, OverTimeNoise
 
 from .base import Locator, ScanBatch
 from .nv_center import (
-    NVCenterBayesianLocator,
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
 )
@@ -20,7 +19,7 @@ from .two_peak import TwoPeakGoldenLocator, TwoPeakGridLocator, TwoPeakSweepLoca
 def run_locator(
     locator: Locator,
     scan: ScanBatch,
-    over_voltage_noise: OverVoltageNoise | None = None,
+    over_frequency_noise: OverFrequencyNoise | None = None,
     over_time_noise: OverTimeNoise | None = None,
     max_steps: int = 100,
     seed: int = 0,
@@ -28,13 +27,13 @@ def run_locator(
     """Orchestrates a peak-finding simulation using a given locator and noise model."""
     rng = random.Random(seed)
 
-    # If over-voltage noise is present, it transforms the underlying signal.
-    if over_voltage_noise is not None:
+    # If over-frequency noise is present, it transforms the underlying signal.
+    if over_frequency_noise is not None:
         # Create a dense representation of the signal to apply the noise.
         xs = [scan.x_min + (scan.x_max - scan.x_min) * i / 1000 for i in range(1001)]
         ys = [scan.signal(x) for x in xs]
         original_batch = DataBatch.from_arrays(x=xs, signal_values=ys, meta=scan.meta)
-        noisy_batch = over_voltage_noise.apply(original_batch, rng)
+        noisy_batch = over_frequency_noise.apply(original_batch, rng)
 
         # Create a new, noisy signal function for the locator to use.
         def noisy_signal(x_val: float) -> float:
@@ -78,6 +77,5 @@ __all__ = [
     "TwoPeakGoldenLocator",
     "TwoPeakSweepLocator",
     "NVCenterSweepLocator",
-    "NVCenterBayesianLocator",
     "NVCenterSequentialBayesianLocator",
 ]
