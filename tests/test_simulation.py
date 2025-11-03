@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import random
 
-from nvision.sim import CompositeOverVoltageNoise, DataBatch
+from nvision.sim import CompositeOverFrequencyNoise, DataBatch
 from nvision.sim.noises import (
-    OverVoltageGaussianNoise,
-    OverVoltageOutlierSpikes,
-    OverVoltagePoissonNoise,
+    OverFrequencyGaussianNoise,
+    OverFrequencyOutlierSpikes,
+    OverFrequencyPoissonNoise,
 )
 
 
@@ -16,8 +16,8 @@ def test_noise_composition_deterministic_and_length():
     data = DataBatch(x=t, signal_values=y, meta={})
     rng1 = random.Random(42)
     rng2 = random.Random(42)
-    noise = CompositeOverVoltageNoise(
-        [OverVoltageGaussianNoise(0.1), OverVoltageOutlierSpikes(0.1, 0.5)]
+    noise = CompositeOverFrequencyNoise(
+        [OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.1, 0.5)]
     )
     d1 = noise.apply(data, rng1)
     d2 = noise.apply(data, rng2)
@@ -31,6 +31,6 @@ def test_poisson_noise_non_negative():
     t = list(range(len(y)))
     data = DataBatch(x=t, signal_values=y, meta={})
     rng = random.Random(123)
-    p = OverVoltagePoissonNoise(scale=50.0)
+    p = OverFrequencyPoissonNoise(scale=50.0)
     out = p.apply(data, rng)
     assert all(v >= 0 for v in out.signal_values)
