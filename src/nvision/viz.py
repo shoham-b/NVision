@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import polars as pl
 
 from nvision.pathutils import ensure_out_dir
-from nvision.sim.core import CompositeOverVoltageNoise, DataBatch
+from nvision.sim.core import CompositeOverFrequencyNoise, DataBatch
 
 
 class Viz:
@@ -34,7 +34,7 @@ class Viz:
         scan,
         history: pl.DataFrame,
         out_path: Path,
-        over_voltage_noise: CompositeOverVoltageNoise | None = None,
+        over_frequency_noise: CompositeOverFrequencyNoise | None = None,
     ) -> Path:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
@@ -55,17 +55,17 @@ class Viz:
             go.Scatter(x=xs, y=ys, mode="lines", name="true signal", line=dict(color="blue"))
         )
 
-        # Simulated noisy curve (e.g., over-voltage noise)
-        if over_voltage_noise is not None:
+        # Simulated noisy curve (e.g., over-frequency noise)
+        if over_frequency_noise is not None:
             dense_batch = DataBatch.from_arrays(xs, ys, meta={})
-            noisy_batch = over_voltage_noise.apply(dense_batch, random.Random(0))
+            noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
             noisy_values = [float(v) for v in noisy_batch.signal_values]
             fig.add_trace(
                 go.Scatter(
                     x=xs,
                     y=noisy_values,
                     mode="lines",
-                    name="simulated noisy signal (over-voltage)",
+                    name="simulated noisy signal (over-frequency)",
                     line=dict(color="orange", dash="dot"),
                 )
             )

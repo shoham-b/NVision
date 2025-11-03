@@ -4,24 +4,21 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from ..core import DataBatch, OverTimeNoise, OverVoltageNoise
+from ..core import DataBatch, OverFrequencyNoise, OverTimeNoise
 
 
 @dataclass
-class OverVoltageNoises:
-    """Group of per-measurement (intrinsic) noises applied in sequence.
+class OverFrequencyNoises:
+    """Group of per-measurement (intrinsic) noises applied in sequence."""
 
-    Example components: OverVoltageGaussianNoise, OverVoltagePoissonNoise, OverVoltageOutlierSpikes.
-    """
-
-    parts: Sequence[OverVoltageNoise] | None = None
-    _parts: list[OverVoltageNoise] = field(default_factory=list, init=False)
+    parts: Sequence[OverFrequencyNoise] | None = None
+    _parts: list[OverFrequencyNoise] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         if self.parts:
             self._parts = list(self.parts)
 
-    def add(self, model: OverVoltageNoise) -> None:
+    def add(self, model: OverFrequencyNoise) -> None:
         self._parts.append(model)
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
