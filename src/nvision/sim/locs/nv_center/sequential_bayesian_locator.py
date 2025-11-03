@@ -28,6 +28,7 @@ import math
 import warnings
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -35,6 +36,12 @@ from scipy.optimize import minimize_scalar
 from scipy.special import logsumexp
 
 from nvision.sim.locs.base import Locator, ScanBatch
+
+try:  # pragma: no cover - import guarded for optional dependency resilience
+    from bayes_opt import BayesianOptimization, UtilityFunction
+except ImportError:  # pragma: no cover
+    BayesianOptimization = None  # type: ignore[assignment]
+    UtilityFunction = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -72,9 +79,16 @@ class NVCenterSequentialBayesianLocator(Locator):
     n_monte_carlo: int = 100
     grid_resolution: int = 1000
     linewidth_prior: tuple[float, float] = (1e6, 50e6)
+    bo_enabled: bool = True
+    bo_acq_func: str = "ucb"
+    bo_kappa: float = 2.576
+    bo_xi: float = 0.0
+    bo_random_state: int | None = None
 
     def __post_init__(self):
         """Initialize the locator after dataclass creation."""
+        self._bo: Any = None
+        self._bo_utility: Any = None
         self.reset_posterior()
         self.measurement_history: list[dict[str, float]] = []
         self.utility_history: list[float] = []
@@ -93,6 +107,27 @@ class NVCenterSequentialBayesianLocator(Locator):
             "background": 0.1,
             "uncertainty": np.inf,
         }
+        self._init_bayes_optimizer()
+
+    def _init_bayes_optimizer(self) -> None:
+        if not self.bo_enabled or BayesianOptimization is None or UtilityFunction is None:
+            self._bo = None
+            self._bo_utility = None
+            return
+
+        pbounds = {"freq": (float(self.prior_bounds[0]), float(self.prior_bounds[1]))}
+        self._bo = BayesianOptimization(
+            f=None,
+            pbounds=pbounds,
+            verbose=0,
+            random_state=self.bo_random_state,
+            allow_duplicate_points=True,
+        )
+        self._bo_utility = UtilityFunction(
+            kind=self.bo_acq_func,
+            kappa=self.bo_kappa,
+            xi=self.bo_xi,
+        )
 
     def odmr_model(self, frequency: float, params: dict[str, float]) -> float:
         f0 = params["frequency"]
@@ -152,6 +187,11 @@ class NVCenterSequentialBayesianLocator(Locator):
         )
         self.measurement_history.append(measurement.copy())
         self.posterior_history.append(self.freq_posterior.copy())
+        if self.bo_enabled and self._bo is not None:
+            self._bo.register(
+                params={"freq": float(measurement["x"])},
+                target=-float(measurement["signal_values"]),
+            )
 
     def expected_information_gain(self, test_frequency: float) -> float:
         current_entropy = -np.sum(self.freq_posterior * np.log(self.freq_posterior + 1e-300))
@@ -260,6 +300,18 @@ class NVCenterSequentialBayesianLocator(Locator):
             for candidate in candidates:
                 if round(candidate, 12) not in taken:
                     return candidate
+
+        if self.bo_enabled and self._bo is not None and self._bo_utility is not None:
+            taken = {round(m["x"], 12) for m in self.measurement_history}
+            proposal = self.current_estimates["frequency"]
+            for _ in range(10):
+                suggestion = self._bo.suggest(self._bo_utility)["freq"]
+                suggestion = float(np.clip(suggestion, scan.x_min, scan.x_max))
+                if round(suggestion, 12) not in taken:
+                    proposal = suggestion
+                    break
+            self.utility_history.append(float("nan"))
+            return proposal
 
         optimal_freq, utility = self._optimize_acquisition((scan.x_min, scan.x_max))
         self.utility_history.append(utility)
