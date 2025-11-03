@@ -10,13 +10,13 @@ Provides extensible interfaces and simple reference implementations for:
 
 from .core import (
     CompositeNoise,
+    CompositeOverFrequencyNoise,
     CompositeOverTimeNoise,
-    CompositeOverVoltageNoise,
     DataBatch,
     DataGenerator,
     MeasurementStrategy,
+    OverFrequencyNoise,
     OverTimeNoise,
-    OverVoltageNoise,
 )
 from .gen import (
     ExponentialDecayManufacturer,
@@ -31,7 +31,6 @@ from .loc_runner import LocatorRunner
 # Locators layer
 from .locs import (
     Locator,
-    NVCenterBayesianLocator,
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
     OnePeakGoldenLocator,
@@ -46,17 +45,17 @@ from .locs import (
 
 # Noise implementations: export concrete full class names (no short aliases)
 from .noises import (
+    OverFrequencyGaussianNoise,
+    OverFrequencyOutlierSpikes,
+    OverFrequencyPoissonNoise,
     OverTimeDriftNoise,
     OverTimeRandomWalkNoise,
-    OverVoltageGaussianNoise,
-    OverVoltageOutlierSpikes,
-    OverVoltagePoissonNoise,
 )
 
 __all__ = [
     "CompositeNoise",
+    "CompositeOverFrequencyNoise",
     "CompositeOverTimeNoise",
-    "CompositeOverVoltageNoise",
     "DataBatch",
     "DataGenerator",
     "ExponentialDecayManufacturer",
@@ -68,13 +67,13 @@ __all__ = [
     "OnePeakGenerator",
     "TwoPeakGenerator",
     "NVCenterGenerator",
+    "OverFrequencyGaussianNoise",
+    "OverFrequencyNoise",
+    "OverFrequencyOutlierSpikes",
+    "OverFrequencyPoissonNoise",
     "OverTimeDriftNoise",
     "OverTimeNoise",
     "OverTimeRandomWalkNoise",
-    "OverVoltageGaussianNoise",
-    "OverVoltageNoise",
-    "OverVoltageOutlierSpikes",
-    "OverVoltagePoissonNoise",
     "ScanBatch",
     "run_locator",
     # Category-specific locators
@@ -85,6 +84,5 @@ __all__ = [
     "TwoPeakGoldenLocator",
     "TwoPeakSweepLocator",
     "NVCenterSweepLocator",
-    "NVCenterBayesianLocator",
     "NVCenterSequentialBayesianLocator",
 ]

@@ -267,6 +267,20 @@
                 return 'N/A';
             }
 
+            function formatCount(value) {
+                if (typeof value === 'number' && Number.isFinite(value)) {
+                    return Math.round(value).toString();
+                }
+                return 'N/A';
+            }
+
+            function formatDuration(value) {
+                if (typeof value === 'number' && Number.isFinite(value)) {
+                    return value.toFixed(1) + ' ms';
+                }
+                return 'N/A';
+            }
+
             function controlValue(control) {
                 if (control instanceof HTMLSelectElement) {
                     return control.value || control.dataset.value || '';
@@ -440,11 +454,13 @@
                     controlValue(scanNoise),
                 );
 
-                const scanStrategyItemsRaw = scanPlots
-                    .filter((p) => p.generator_type === selectedScanGeneratorType)
-                    .map((p) => p.strategy);
-                scanStrategyItemsRaw.push('Sweep');
-                const scanStrategyItems = [...new Set(scanStrategyItemsRaw)];
+                const scanStrategyItems = [
+                    ...new Set(
+                        scanPlots
+                            .filter((p) => p.generator_type === selectedScanGeneratorType)
+                            .map((p) => p.strategy)
+                    ),
+                ];
 
                 const selectedScanStrategy = renderSegmentedControl(
                     scanStrategy,
@@ -500,12 +516,16 @@
                     if (plot) {
                         const absErr = formatMetricValue(plot.abs_err_x);
                         const uncertainty = formatMetricValue(plot.uncert);
+                        const measurements = formatCount(plot.measurements);
+                        const duration = formatDuration(plot.duration_ms);
                         const repeatTotal = plot.repeat_total ?? null;
                         const attemptLabel = repeatTotal
                             ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
                             : 'Attempt ' + plot.repeat;
                         scanMetrics.textContent =
                             attemptLabel +
+                            ' • Measurements: ' + measurements +
+                            ' • Duration: ' + duration +
                             ' • Abs error: ' +
                             absErr +
                             ' • Uncertainty: ' +

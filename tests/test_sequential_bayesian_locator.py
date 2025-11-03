@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from nvision.sim import NVCenterSequentialBayesianLocator, ScanBatch
+from nvision.sim.loc_runner import LocatorRunner
 
 
 def build_locator(**overrides: object) -> NVCenterSequentialBayesianLocator:
@@ -114,3 +115,51 @@ def test_should_stop_when_utility_stalls():
     scan = build_scan()
     history = pl.DataFrame({"x": [2.85e9], "signal_values": [0.9]})
     assert locator.should_stop(history, scan)
+
+
+def test_sampling_loop_generates_adaptive_points():
+    locator = build_locator(max_evals=16, grid_resolution=256, n_monte_carlo=80)
+    scan = build_scan()
+
+    runner = LocatorRunner(rng_seed=123)
+    stats = runner.run_once(scan, locator, noise=None, max_steps=locator.max_evals)
+    history_df = stats.history
+
+    assert history_df.height >= 6
+    assert history_df.height == stats.measurements
+    assert history_df.height <= locator.max_evals
+    assert len(locator.measurement_history) == history_df.height
+
+    proposals = history_df.get_column("x").to_list() if "x" in history_df.columns else []
+    unique_samples = {round(x, 6) for x in proposals}
+    assert len(unique_samples) >= 4
+    assert len(locator.utility_history) >= 1
+
+    result = stats.estimate
+    assert scan.x_min <= result["x1_hat"] <= scan.x_max
+    assert result["x1_hat"] != scan.x_min
+    assert result["x1_hat"] != scan.x_max
+
+    uniform = np.full(locator.grid_resolution, 1.0 / locator.grid_resolution)
+    assert not np.allclose(locator.freq_posterior, uniform)
+
+
+def test_finalize_is_idempotent_after_sampling():
+    locator = build_locator()
+    scan = build_scan()
+
+    mid_point = 0.5 * (scan.x_min + scan.x_max)
+    history = [
+        {"x": scan.x_min, "signal_values": float(scan.signal(scan.x_min))},
+        {"x": mid_point, "signal_values": float(scan.signal(mid_point))},
+        {"x": scan.x_max, "signal_values": float(scan.signal(scan.x_max))},
+    ]
+
+    locator.finalize(history, scan)
+    first_length = len(locator.measurement_history)
+    posterior_snapshot = locator.freq_posterior.copy()
+
+    locator.finalize(history, scan)
+
+    assert len(locator.measurement_history) == first_length
+    assert np.allclose(locator.freq_posterior, posterior_snapshot)

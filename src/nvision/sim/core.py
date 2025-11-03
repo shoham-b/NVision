@@ -85,7 +85,7 @@ class DataBatch:
         return DataBatch(df=df, meta=self.meta)
 
 
-class OverVoltageNoise(Protocol):
+class OverFrequencyNoise(Protocol):
     """Applies noise to a dataset and returns a new dataset (functional style)."""
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch: ...
@@ -109,13 +109,13 @@ class MeasurementStrategy(Protocol):
     def estimate(self, data: DataBatch) -> dict[str, float]: ...
 
 
-class CompositeOverVoltageNoise:
-    """Applies multiple over-voltage noise models in sequence."""
+class CompositeOverFrequencyNoise:
+    """Applies multiple over-frequency noise models in sequence."""
 
-    def __init__(self, parts: Sequence[OverVoltageNoise] | None = None):
-        self._parts: list[OverVoltageNoise] = list(parts or [])
+    def __init__(self, parts: Sequence[OverFrequencyNoise] | None = None):
+        self._parts: list[OverFrequencyNoise] = list(parts or [])
 
-    def add(self, model: OverVoltageNoise) -> None:
+    def add(self, model: OverFrequencyNoise) -> None:
         self._parts.append(model)
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
@@ -143,9 +143,9 @@ class CompositeOverTimeNoise:
 
 @dataclass(frozen=True, slots=True)
 class CompositeNoise:
-    """A container for both over-voltage and over-time noise models."""
+    """A container for both over-frequency and over-time noise models."""
 
-    over_voltage_noise: CompositeOverVoltageNoise | None = None
+    over_frequency_noise: CompositeOverFrequencyNoise | None = None
     over_time_noise: CompositeOverTimeNoise | None = None
 
 
