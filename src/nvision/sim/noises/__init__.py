@@ -1,7 +1,7 @@
 from .groups import OverFrequencyNoises as OverFrequencyNoises
-from .groups import OverTimeNoises as OverTimeNoises
+from .groups import OverProbeNoises as OverProbeNoises
 from .over_frequency import OverFrequencyGaussianNoise as OverFrequencyGaussianNoise
 from .over_frequency import OverFrequencyOutlierSpikes as OverFrequencyOutlierSpikes
 from .over_frequency import OverFrequencyPoissonNoise as OverFrequencyPoissonNoise
-from .over_time import OverTimeDriftNoise as OverTimeDriftNoise
-from .over_time import OverTimeRandomWalkNoise as OverTimeRandomWalkNoise
+from .over_probe import OverProbeDriftNoise as OverProbeDriftNoise
+from .over_probe import OverProbeRandomWalkNoise as OverProbeRandomWalkNoise

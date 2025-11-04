@@ -28,10 +28,12 @@ import math
 import warnings
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
+from matplotlib import pyplot as plt
 from scipy.optimize import minimize_scalar
 from scipy.special import logsumexp
 
@@ -74,8 +76,8 @@ class NVCenterSequentialBayesianLocator(Locator):
     prior_bounds: tuple[float, float] = (2.6e9, 3.1e9)
     noise_model: str = "gaussian"
     acquisition_function: str = "expected_information_gain"
-    convergence_threshold: float = 1e6
-    min_uncertainty_reduction: float = 0.01
+    convergence_threshold: float = 1e-8
+    min_uncertainty_reduction: float = 1e-9
     n_monte_carlo: int = 100
     grid_resolution: int = 1000
     linewidth_prior: tuple[float, float] = (1e6, 50e6)
@@ -84,9 +86,13 @@ class NVCenterSequentialBayesianLocator(Locator):
     bo_kappa: float = 2.576
     bo_xi: float = 0.0
     bo_random_state: int | None = None
+    utility_history_window: int = 9
+    n_warmup: int = 10
 
     def __post_init__(self):
         """Initialize the locator after dataclass creation."""
+        if self.n_warmup >= self.max_evals:
+            raise ValueError("n_warmup must be smaller than max_evals")
         self._bo: Any = None
         self._bo_utility: Any = None
         self.reset_posterior()
@@ -108,6 +114,16 @@ class NVCenterSequentialBayesianLocator(Locator):
             "uncertainty": np.inf,
         }
         self._init_bayes_optimizer()
+
+    def reset_run_state(self) -> None:
+        """Clear accumulated histories and reinitialize the posterior."""
+        if hasattr(self, "measurement_history"):
+            self.measurement_history.clear()
+        if hasattr(self, "posterior_history"):
+            self.posterior_history.clear()
+        if hasattr(self, "utility_history"):
+            self.utility_history.clear()
+        self.reset_posterior()
 
     def _init_bayes_optimizer(self) -> None:
         if not self.bo_enabled or BayesianOptimization is None or UtilityFunction is None:
@@ -239,6 +255,78 @@ class NVCenterSequentialBayesianLocator(Locator):
         info_gain = current_entropy - expected_entropy
         return max(info_gain, 0.0)
 
+    def plot_bo(
+        self,
+        output_path: Path,
+        fig_size: tuple[int, int] = (12, 8),
+        dpi: int = 100,
+    ) -> Path | None:
+        if (
+            not self.bo_enabled
+            or self._bo is None
+            or self._bo_utility is None
+            or output_path is None
+        ):
+            return None
+
+        if getattr(self._bo.space, "params", None) is None or self._bo.space.params.size == 0:
+            return None
+
+        try:
+            x = np.linspace(
+                self.prior_bounds[0], self.prior_bounds[1], self.grid_resolution
+            ).reshape(-1, 1)
+            mu, sigma = self._bo._gp.predict(x, return_std=True)
+        except Exception:
+            return None
+
+        fig, ax = plt.subplots(figsize=fig_size, dpi=dpi)
+        ax.plot(x, mu, lw=2, label="Surrogate Model (GP)")
+        ax.fill_between(
+            x.ravel(),
+            mu - 1.96 * sigma,
+            mu + 1.96 * sigma,
+            alpha=0.2,
+            label="95% Confidence Interval",
+        )
+
+        params = self._bo.space.params.ravel()
+        targets = self._bo.space.target
+        if params.size and targets.size:
+            ax.scatter(
+                params,
+                targets,
+                c="red",
+                s=50,
+                zorder=10,
+                edgecolors=(0, 0, 0),
+                label="Observed Points",
+            )
+
+        try:
+            utility = self._bo_utility.utility(x, self._bo._gp, 0)
+        except Exception:
+            utility = None
+
+        if utility is not None:
+            ax2 = ax.twinx()
+            ax2.plot(x, utility, "g--", label=f"Acquisition Function ({self.bo_acq_func})")
+            ax2.set_ylabel("Acquisition Function Value", color="green")
+            ax2.tick_params(axis="y", labelcolor="green")
+            ax2.legend(loc="upper right")
+
+        ax.set_title(f"Bayesian Optimization after {len(self.measurement_history)} measurements")
+        ax.set_xlabel("Frequency (Hz)")
+        ax.set_ylabel("Objective (negative signal)")
+        ax.legend(loc="upper left")
+        ax.grid(True)
+        plt.tight_layout()
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path.as_posix(), bbox_inches="tight")
+        plt.close(fig)
+        return output_path
+
     def _history_iter(self, history: Sequence | pl.DataFrame) -> Iterable[dict[str, float]]:
         if isinstance(history, pl.DataFrame):
             yield from history.iter_rows(named=True)
@@ -293,13 +381,8 @@ class NVCenterSequentialBayesianLocator(Locator):
     def propose_next(self, history: Sequence | pl.DataFrame, scan: ScanBatch) -> float:
         self._ingest_history(history)
 
-        if len(self.measurement_history) < 3:
-            mid_point = float(np.mean((scan.x_min, scan.x_max)))
-            candidates = [scan.x_min, mid_point, scan.x_max]
-            taken = {round(m["x"], 12) for m in self.measurement_history}
-            for candidate in candidates:
-                if round(candidate, 12) not in taken:
-                    return candidate
+        if len(self.measurement_history) < self.n_warmup:
+            return np.linspace(scan.x_min, scan.x_max, self.n_warmup)[len(self.measurement_history)]
 
         if self.bo_enabled and self._bo is not None and self._bo_utility is not None:
             taken = {round(m["x"], 12) for m in self.measurement_history}
@@ -323,11 +406,9 @@ class NVCenterSequentialBayesianLocator(Locator):
             return True
         if self.current_estimates["uncertainty"] < self.convergence_threshold:
             return True
-        if len(self.utility_history) >= 3:
-            recent_utilities = self.utility_history[-3:]
-            if all(u < self.min_uncertainty_reduction for u in recent_utilities):
-                return True
-        return False
+        return len(self.utility_history) == self.utility_history_window and all(
+            u < self.min_uncertainty_reduction for u in self.utility_history
+        )
 
     def finalize(self, history: Sequence | pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
         self._ingest_history(history)

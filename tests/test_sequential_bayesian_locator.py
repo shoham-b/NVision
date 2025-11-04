@@ -80,7 +80,7 @@ def test_propose_next_consumes_polars_history():
 
 
 def test_should_stop_respects_max_evaluations():
-    locator = build_locator(max_evals=2)
+    locator = build_locator(max_evals=2, n_warmup=1)
     scan = build_scan()
     history = pl.DataFrame({"x": [scan.x_min, scan.x_max], "signal_values": [1.0, 0.9]})
     assert locator.should_stop(history, scan)
@@ -110,8 +110,8 @@ def test_unknown_noise_model_raises():
 
 
 def test_should_stop_when_utility_stalls():
-    locator = build_locator()
-    locator.utility_history = [0.0, 0.0, 0.0]
+    locator = build_locator(utility_history_window=3)
+    locator.utility_history.extend([0.0, 0.0, 0.0])
     scan = build_scan()
     history = pl.DataFrame({"x": [2.85e9], "signal_values": [0.9]})
     assert locator.should_stop(history, scan)
