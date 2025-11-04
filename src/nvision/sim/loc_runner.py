@@ -145,7 +145,7 @@ class LocatorRunner:
             locator=strategy,
             scan=scan,
             over_frequency_noise=noise.over_frequency_noise if noise else None,
-            over_time_noise=noise.over_time_noise if noise else None,
+            over_probe_noise=noise.over_probe_noise if noise else None,
             max_steps=max_steps,
             seed=self._rng.randint(0, 2**32 - 1),
         )

@@ -4,7 +4,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from ..core import DataBatch, OverFrequencyNoise, OverTimeNoise
+from ..core import DataBatch, OverFrequencyNoise, OverProbeNoise
 
 
 @dataclass
@@ -29,20 +29,20 @@ class OverFrequencyNoises:
 
 
 @dataclass
-class OverTimeNoises:
+class OverProbeNoises:
     """Group of cumulative/system noises applied in sequence.
 
-    Example components: OverTimeRandomWalkNoise, OverTimeDriftNoise.
+    Example components: OverProbeRandomWalkNoise, OverProbeDriftNoise.
     """
 
-    parts: Sequence[OverTimeNoise] | None = None
-    _parts: list[OverTimeNoise] = field(default_factory=list, init=False)
+    parts: Sequence[OverProbeNoise] | None = None
+    _parts: list[OverProbeNoise] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         if self.parts:
             self._parts = list(self.parts)
 
-    def add(self, model: OverTimeNoise) -> None:
+    def add(self, model: OverProbeNoise) -> None:
         self._parts.append(model)
 
     def reset(self) -> None:

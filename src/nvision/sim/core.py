@@ -91,8 +91,8 @@ class OverFrequencyNoise(Protocol):
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch: ...
 
 
-class OverTimeNoise(Protocol):
-    """Applies noise to a single signal value, representing noise over time."""
+class OverProbeNoise(Protocol):
+    """Applies noise to a single signal value, representing noise over probes."""
 
     def apply(self, signal_value: float, rng: random.Random) -> float: ...
 
@@ -125,13 +125,13 @@ class CompositeOverFrequencyNoise:
         return out
 
 
-class CompositeOverTimeNoise:
-    """Applies multiple over-time noise models in sequence."""
+class CompositeOverProbeNoise:
+    """Applies multiple over-probe noise models in sequence."""
 
-    def __init__(self, parts: Sequence[OverTimeNoise] | None = None):
-        self._parts: list[OverTimeNoise] = list(parts or [])
+    def __init__(self, parts: Sequence[OverProbeNoise] | None = None):
+        self._parts: list[OverProbeNoise] = list(parts or [])
 
-    def add(self, model: OverTimeNoise) -> None:
+    def add(self, model: OverProbeNoise) -> None:
         self._parts.append(model)
 
     def apply(self, signal_value: float, rng: random.Random) -> float:
@@ -143,10 +143,10 @@ class CompositeOverTimeNoise:
 
 @dataclass(frozen=True, slots=True)
 class CompositeNoise:
-    """A container for both over-frequency and over-time noise models."""
+    """A container for both over-frequency and over-probe noise models."""
 
     over_frequency_noise: CompositeOverFrequencyNoise | None = None
-    over_time_noise: CompositeOverTimeNoise | None = None
+    over_probe_noise: CompositeOverProbeNoise | None = None
 
 
 class ScanGenerator(Protocol):

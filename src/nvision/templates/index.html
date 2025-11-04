@@ -215,6 +215,12 @@
         <iframe id="scan-iframe"></iframe>
     </div>
 
+    <div id="bayes-section" class="section" role="region" aria-label="Bayesian Analysis" hidden>
+        <h2>Bayesian Analysis</h2>
+        <p>This section shows plots related to the Bayesian optimization process.</p>
+        <img id="bayes-image" alt="Bayesian optimization visualization" hidden>
+    </div>
+
     <script id="plots-manifest" type="application/json">${manifest_json}</script>
     <script>
         function main() {
@@ -246,6 +252,26 @@
             });
 
             const scanPlots = plots.filter((p) => p.type === 'scan' && p.generator_type);
+            const bayesSection = document.getElementById('bayes-section');
+            const bayesImage = document.getElementById('bayes-image');
+            const bayesPlots = plots.filter((p) => p.type === 'bayesian');
+
+            function updateBayesView(selectedPlot) {
+                if (!bayesSection || !bayesImage) {
+                    return;
+                }
+
+                if (!selectedPlot) {
+                    bayesSection.hidden = true;
+                    bayesImage.hidden = true;
+                    bayesImage.removeAttribute('src');
+                    return;
+                }
+
+                bayesImage.src = selectedPlot.path;
+                bayesImage.hidden = false;
+                bayesSection.hidden = false;
+            }
 
             const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
 

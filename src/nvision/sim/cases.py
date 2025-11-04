@@ -3,7 +3,7 @@ from __future__ import annotations
 from .core import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
-    CompositeOverTimeNoise,
+    CompositeOverProbeNoise,
 )
 from .gen import (
     CauchyLorentzPeakManufacturer,
@@ -17,7 +17,7 @@ from .noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
-    OverTimeDriftNoise,
+    OverProbeDriftNoise,
 )
 
 
@@ -103,8 +103,8 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
             ),
         ),
         (
-            "OverTime(0.05)",
-            CompositeNoise(over_time_noise=CompositeOverTimeNoise([OverTimeDriftNoise(0.05)])),
+            "OverProbeDrift(0.05)",
+            CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.05)])),
         ),
     ]
 
@@ -117,7 +117,7 @@ def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
                 over_frequency_noise=CompositeOverFrequencyNoise(
                     [OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.02, 0.5)]
                 ),
-                over_time_noise=CompositeOverTimeNoise([OverTimeDriftNoise(0.05)]),
+                over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.05)]),
             ),
         ),
     ]
