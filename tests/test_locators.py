@@ -5,7 +5,7 @@ import polars as pl
 from nvision.sim import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
-    CompositeOverTimeNoise,
+    CompositeOverProbeNoise,
     GaussianManufacturer,
     NVCenterGenerator,
     NVCenterSweepLocator,
@@ -14,7 +14,7 @@ from nvision.sim import (
     OnePeakSweepLocator,
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
-    OverTimeDriftNoise,
+    OverProbeDriftNoise,
     TwoPeakGenerator,
     TwoPeakGridLocator,
     TwoPeakSweepLocator,
@@ -51,7 +51,7 @@ def test_locator_sweep_dataframe_shape():
                 over_frequency_noise=CompositeOverFrequencyNoise(
                     [OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.02, 0.5)]
                 ),
-                over_time_noise=CompositeOverTimeNoise([OverTimeDriftNoise(0.05)]),
+                over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.05)]),
             ),
         ),
     ]

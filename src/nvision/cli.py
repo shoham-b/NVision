@@ -125,6 +125,90 @@ def _scan_attempt_metrics(
     return metrics
 
 
+def _run_locator_attempt(
+    *,
+    viz: Viz,
+    generator: object,
+    noise_obj: CompositeNoise | None,
+    strategy: object,
+    strategy_name: str,
+    gen_name: str,
+    noise_name: str,
+    attempt_idx: int,
+    total_repeats: int,
+    attempt_seed: int,
+    slug_base: str,
+    out_dir: Path,
+    scans_dir: Path,
+    bayes_dir: Path,
+    loc_max_steps: int,
+) -> list[dict[str, object]]:
+    scan_rng = random.Random(attempt_seed)
+    scan = generator.generate(scan_rng)
+
+    plot_runner = LocatorRunner(rng_seed=attempt_seed)
+    is_bayesian = isinstance(strategy, NVCenterSequentialBayesianLocator)
+    if is_bayesian:
+        strategy.reset_run_state()
+
+    run_stats = plot_runner.run_once(scan, strategy, noise_obj, loc_max_steps)
+    history_df = run_stats.history
+    estimate = run_stats.estimate
+
+    attempt_metrics = _scan_attempt_metrics(scan.truth_positions, estimate)
+    attempt_slug = f"{slug_base}_r{attempt_idx + 1}"
+    out_path = scans_dir / f"{attempt_slug}.html"
+    viz.plot_scan_measurements(
+        scan,
+        history_df,
+        out_path,
+        over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
+    )
+
+    metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
+    metrics_serialized["measurements"] = _maybe_finite(run_stats.measurements)
+    metrics_serialized["duration_ms"] = _maybe_finite(run_stats.duration_ms)
+
+    entries: list[dict[str, object]] = [
+        {
+            "type": "scan",
+            "generator": gen_name,
+            "noise": noise_name,
+            "strategy": strategy_name,
+            "repeat": attempt_idx + 1,
+            "repeat_total": total_repeats,
+            "abs_err_x": metrics_serialized.get("abs_err_x"),
+            "uncert": metrics_serialized.get("uncert"),
+            "measurements": metrics_serialized.get("measurements"),
+            "duration_ms": metrics_serialized.get("duration_ms"),
+            "metrics": metrics_serialized,
+            "path": out_path.relative_to(out_dir).as_posix(),
+        }
+    ]
+
+    if is_bayesian and run_stats.measurements > 0:
+        bo_output_path = bayes_dir / f"{attempt_slug}_bo.png"
+        bo_result = strategy.plot_bo(bo_output_path)
+        if bo_result is not None:
+            entries.append(
+                {
+                    "type": "bayesian",
+                    "generator": gen_name,
+                    "noise": noise_name,
+                    "strategy": strategy_name,
+                    "repeat": attempt_idx + 1,
+                    "repeat_total": total_repeats,
+                    "path": bo_result.relative_to(out_dir).as_posix(),
+                    "format": "png",
+                }
+            )
+
+    if is_bayesian:
+        strategy.reset_run_state()
+
+    return entries
+
+
 def run_locator_workflow(
     out_dir: Path,
     repeats: int,
@@ -214,6 +298,8 @@ def cli(
     ensure_out_dir(graphs_dir)
     scans_dir = graphs_dir / "scans"
     ensure_out_dir(scans_dir)
+    bayes_dir = graphs_dir / "bayes"
+    ensure_out_dir(bayes_dir)
 
     viz = Viz(graphs_dir)
     plot_manifest: list[dict[str, object]] = []
@@ -257,47 +343,24 @@ def cli(
         )
         for attempt_idx in range(total_repeats):
             attempt_seed = combo_seed + attempt_idx
-            scan_rng = random.Random(attempt_seed)
-            scan = generator.generate(scan_rng)
-
-            plot_runner = LocatorRunner(rng_seed=attempt_seed)
-            run_stats = plot_runner.run_once(scan, strategy, noise_obj, loc_max_steps)
-            history_df = run_stats.history
-            estimate = run_stats.estimate
-
-            attempt_metrics = _scan_attempt_metrics(scan.truth_positions, estimate)
-            attempt_slug = f"{slug_base}_r{attempt_idx + 1}"
-            out_path = scans_dir / f"{attempt_slug}.html"
-            viz.plot_scan_measurements(
-                scan,
-                history_df,
-                out_path,
-                over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
+            attempt_entries = _run_locator_attempt(
+                viz=viz,
+                generator=generator,
+                noise_obj=noise_obj,
+                strategy=strategy,
+                strategy_name=strategy_name,
+                gen_name=gen_name,
+                noise_name=noise_name,
+                attempt_idx=attempt_idx,
+                total_repeats=total_repeats,
+                attempt_seed=attempt_seed,
+                slug_base=slug_base,
+                out_dir=out_dir,
+                scans_dir=scans_dir,
+                bayes_dir=bayes_dir,
+                loc_max_steps=loc_max_steps,
             )
-
-            metrics_serialized = {
-                key: _maybe_finite(value) for key, value in attempt_metrics.items()
-            }
-            metrics_serialized["measurements"] = _maybe_finite(run_stats.measurements)
-            metrics_serialized["duration_ms"] = _maybe_finite(run_stats.duration_ms)
-
-            plot_manifest.append(
-                {
-                    "type": "scan",
-                    "generator": gen_name,
-                    "noise": noise_name,
-                    "strategy": strategy_name,
-                    "repeat": attempt_idx + 1,
-                    "repeat_total": total_repeats,
-                    "abs_err_x": metrics_serialized.get("abs_err_x"),
-                    "uncert": metrics_serialized.get("uncert"),
-                    "measurements": metrics_serialized.get("measurements"),
-                    "duration_ms": metrics_serialized.get("duration_ms"),
-                    "metrics": metrics_serialized,
-                    "path": out_path.relative_to(out_dir).as_posix(),
-                }
-            )
-
+            plot_manifest.extend(attempt_entries)
     try:
         summary_plots_meta = viz.plot_locator_summary(df_loc)
         for meta in summary_plots_meta:

@@ -11,12 +11,12 @@ Provides extensible interfaces and simple reference implementations for:
 from .core import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
-    CompositeOverTimeNoise,
+    CompositeOverProbeNoise,
     DataBatch,
     DataGenerator,
     MeasurementStrategy,
     OverFrequencyNoise,
-    OverTimeNoise,
+    OverProbeNoise,
 )
 from .gen import (
     ExponentialDecayManufacturer,
@@ -48,14 +48,14 @@ from .noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
-    OverTimeDriftNoise,
-    OverTimeRandomWalkNoise,
+    OverProbeDriftNoise,
+    OverProbeRandomWalkNoise,
 )
 
 __all__ = [
     "CompositeNoise",
     "CompositeOverFrequencyNoise",
-    "CompositeOverTimeNoise",
+    "CompositeOverProbeNoise",
     "DataBatch",
     "DataGenerator",
     "ExponentialDecayManufacturer",
@@ -71,9 +71,9 @@ __all__ = [
     "OverFrequencyNoise",
     "OverFrequencyOutlierSpikes",
     "OverFrequencyPoissonNoise",
-    "OverTimeDriftNoise",
-    "OverTimeNoise",
-    "OverTimeRandomWalkNoise",
+    "OverProbeDriftNoise",
+    "OverProbeNoise",
+    "OverProbeRandomWalkNoise",
     "ScanBatch",
     "run_locator",
     # Category-specific locators

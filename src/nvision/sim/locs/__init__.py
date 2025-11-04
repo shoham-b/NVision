@@ -5,7 +5,7 @@ import random
 import numpy as np
 import polars as pl
 
-from nvision.sim.core import DataBatch, OverFrequencyNoise, OverTimeNoise
+from nvision.sim.core import DataBatch, OverFrequencyNoise, OverProbeNoise
 
 from .base import Locator, ScanBatch
 from .nv_center import (
@@ -20,7 +20,7 @@ def run_locator(
     locator: Locator,
     scan: ScanBatch,
     over_frequency_noise: OverFrequencyNoise | None = None,
-    over_time_noise: OverTimeNoise | None = None,
+    over_probe_noise: OverProbeNoise | None = None,
     max_steps: int = 100,
     seed: int = 0,
 ) -> pl.DataFrame:
@@ -57,8 +57,10 @@ def run_locator(
         x_next = locator.propose_next(current_history_df, scan)
         y_ideal = scan.signal(x_next)
 
-        # Over-time noise is applied at each measurement step.
-        y_measured = over_time_noise.apply(y_ideal, rng) if over_time_noise is not None else y_ideal
+        # Over-probe noise is applied at each measurement step.
+        y_measured = (
+            over_probe_noise.apply(y_ideal, rng) if over_probe_noise is not None else y_ideal
+        )
 
         history.append({"x": x_next, "signal_values": y_measured})
 
