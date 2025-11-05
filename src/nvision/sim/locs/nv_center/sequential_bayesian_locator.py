@@ -34,8 +34,8 @@ from typing import Any
 import numpy as np
 import polars as pl
 from matplotlib import pyplot as plt
-from scipy.optimize import minimize_scalar
-from scipy.special import logsumexp
+from scipy.optimize import minimize, minimize_scalar
+from scipy.special import logsumexp, voigt_profile
 
 from nvision.sim.locs.base import Locator, ScanBatch
 
@@ -81,6 +81,11 @@ class NVCenterSequentialBayesianLocator(Locator):
     n_monte_carlo: int = 100
     grid_resolution: int = 1000
     linewidth_prior: tuple[float, float] = (1e6, 50e6)
+    distribution: str = "lorentzian"
+    gaussian_width_prior: tuple[float, float] = (1e6, 50e6)
+    split_prior: tuple[float, float] = (1e6, 10e6)
+    amplitude_prior: tuple[float, float] = (0.01, 1.0)
+    background_prior: tuple[float, float] = (0.9, 1.1)
     bo_enabled: bool = True
     bo_acq_func: str = "ucb"
     bo_kappa: float = 2.576
@@ -109,9 +114,11 @@ class NVCenterSequentialBayesianLocator(Locator):
         self.current_estimates = {
             "frequency": np.mean(self.prior_bounds),
             "linewidth": np.mean(self.linewidth_prior),
-            "amplitude": 1.0,
-            "background": 0.1,
+            "amplitude": np.mean(self.amplitude_prior),
+            "background": np.mean(self.background_prior),
             "uncertainty": np.inf,
+            "gaussian_width": np.mean(self.gaussian_width_prior),
+            "split": np.mean(self.split_prior),
         }
         self._init_bayes_optimizer()
 
@@ -150,8 +157,35 @@ class NVCenterSequentialBayesianLocator(Locator):
         gamma = params["linewidth"]
         amplitude = params["amplitude"]
         bg = params["background"]
-        lorentzian = amplitude * (gamma / 2) ** 2 / ((frequency - f0) ** 2 + (gamma / 2) ** 2)
-        return bg - lorentzian
+
+        if self.distribution == "lorentzian":
+            lorentzian = amplitude * (gamma / 2) ** 2 / ((frequency - f0) ** 2 + (gamma / 2) ** 2)
+            return bg - lorentzian
+
+        if self.distribution == "voigt":
+            sigma = params["gaussian_width"]
+            peak_val = voigt_profile(0, sigma, gamma)
+            if peak_val < 1e-9:
+                return bg
+            profile = voigt_profile(frequency - f0, sigma, gamma)
+            return bg - amplitude * profile / peak_val
+
+        if self.distribution == "voigt-zeeman":
+            sigma = params["gaussian_width"]
+            split = params["split"]
+            f1 = f0 - split / 2
+            f2 = f0 + split / 2
+
+            peak_val = voigt_profile(0, sigma, gamma)
+            if peak_val < 1e-9:
+                return bg
+
+            profile1 = voigt_profile(frequency - f1, sigma, gamma)
+            profile2 = voigt_profile(frequency - f2, sigma, gamma)
+
+            return bg - amplitude * (profile1 + profile2) / peak_val
+
+        raise ValueError(f"Unknown distribution: {self.distribution}")
 
     def _coerce_measurement(self, measurement: dict[str, float]) -> dict[str, float]:
         if "frequency" in measurement:
@@ -179,6 +213,76 @@ class NVCenterSequentialBayesianLocator(Locator):
         else:
             raise ValueError(f"Unknown noise model: {self.noise_model}")
 
+    def _get_optim_config(self):
+        if self.distribution == "lorentzian":
+            param_keys = ["linewidth", "amplitude", "background"]
+            bounds = [self.linewidth_prior, self.amplitude_prior, self.background_prior]
+        elif self.distribution == "voigt":
+            param_keys = ["linewidth", "gaussian_width", "amplitude", "background"]
+            bounds = [
+                self.linewidth_prior,
+                self.gaussian_width_prior,
+                self.amplitude_prior,
+                self.background_prior,
+            ]
+        elif self.distribution == "voigt-zeeman":
+            param_keys = ["linewidth", "gaussian_width", "split", "amplitude", "background"]
+            bounds = [
+                self.linewidth_prior,
+                self.gaussian_width_prior,
+                self.split_prior,
+                self.amplitude_prior,
+                self.background_prior,
+            ]
+        else:
+            param_keys = []
+            bounds = []
+        return param_keys, bounds
+
+    def _objective_func(self, param_values, param_keys):
+        params = self.current_estimates.copy()
+        for key, value in zip(param_keys, param_values, strict=False):
+            params[key] = value
+
+        params["frequency"] = self.current_estimates["frequency"]
+
+        total_log_likelihood = 0
+        for m in self.measurement_history:
+            log_likelihood = self.likelihood(m, params)
+            if np.isneginf(log_likelihood):
+                return np.inf
+            total_log_likelihood += log_likelihood
+
+        return -total_log_likelihood
+
+    def _optimize_lineshape_params(self):
+        if len(self.measurement_history) < 5:
+            return
+
+        param_keys, bounds = self._get_optim_config()
+        if not param_keys:
+            return
+
+        initial_guess = [self.current_estimates[key] for key in param_keys]
+
+        sanitized_bounds = []
+        for b in bounds:
+            low, high = b
+            if low == high:
+                high = low + 1e-9
+            sanitized_bounds.append((low, high))
+
+        result = minimize(
+            lambda p: self._objective_func(p, param_keys),
+            initial_guess,
+            bounds=sanitized_bounds,
+            method="L-BFGS-B",
+        )
+
+        if result.success:
+            for key, value in zip(param_keys, result.x, strict=False):
+                self.current_estimates[key] = value
+
     def update_posterior(self, measurement: dict[str, float]):
         measurement = self._coerce_measurement(measurement)
         log_likelihoods = np.zeros(self.grid_resolution)
@@ -188,6 +292,8 @@ class NVCenterSequentialBayesianLocator(Locator):
                 "linewidth": self.current_estimates["linewidth"],
                 "amplitude": self.current_estimates["amplitude"],
                 "background": self.current_estimates["background"],
+                "gaussian_width": self.current_estimates["gaussian_width"],
+                "split": self.current_estimates["split"],
             }
             log_likelihoods[i] = self.likelihood(measurement, params)
 
@@ -203,11 +309,7 @@ class NVCenterSequentialBayesianLocator(Locator):
         )
         self.measurement_history.append(measurement.copy())
         self.posterior_history.append(self.freq_posterior.copy())
-        if self.bo_enabled and self._bo is not None:
-            self._bo.register(
-                params={"freq": float(measurement["x"])},
-                target=-float(measurement["signal_values"]),
-            )
+        self._optimize_lineshape_params()
 
     def expected_information_gain(self, test_frequency: float) -> float:
         current_entropy = -np.sum(self.freq_posterior * np.log(self.freq_posterior + 1e-300))
@@ -222,6 +324,8 @@ class NVCenterSequentialBayesianLocator(Locator):
                 "linewidth": self.current_estimates["linewidth"],
                 "amplitude": self.current_estimates["amplitude"],
                 "background": self.current_estimates["background"],
+                "gaussian_width": self.current_estimates["gaussian_width"],
+                "split": self.current_estimates["split"],
             }
             expected_signal = self.odmr_model(test_frequency, true_params)
 
@@ -242,6 +346,8 @@ class NVCenterSequentialBayesianLocator(Locator):
                     "linewidth": self.current_estimates["linewidth"],
                     "amplitude": self.current_estimates["amplitude"],
                     "background": self.current_estimates["background"],
+                    "gaussian_width": self.current_estimates["gaussian_width"],
+                    "split": self.current_estimates["split"],
                 }
                 log_likelihoods[i] = self.likelihood(sim_measurement, params)
 
@@ -385,6 +491,13 @@ class NVCenterSequentialBayesianLocator(Locator):
             return np.linspace(scan.x_min, scan.x_max, self.n_warmup)[len(self.measurement_history)]
 
         if self.bo_enabled and self._bo is not None and self._bo_utility is not None:
+            self._init_bayes_optimizer()
+            for m in self.measurement_history:
+                if m["signal_values"] > 1e-9:
+                    self._bo.register(
+                        params={"freq": float(m["x"])},
+                        target=-float(m["signal_values"]),
+                    )
             taken = {round(m["x"], 12) for m in self.measurement_history}
             proposal = self.current_estimates["frequency"]
             for _ in range(10):
