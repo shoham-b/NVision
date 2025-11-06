@@ -87,6 +87,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
     distribution: str = "lorentzian"
     gaussian_width_prior: tuple[float, float] = (1e6, 50e6)
     split_prior: tuple[float, float] = (1e6, 10e6)
+    k_np_prior: tuple[float, float] = (2.0, 4.0)
     amplitude_prior: tuple[float, float] = (0.01, 1.0)
     background_prior: tuple[float, float] = (0.9, 1.1)
     bo_enabled: bool = True
@@ -122,6 +123,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             "uncertainty": np.inf,
             "gaussian_width": np.mean(self.gaussian_width_prior),
             "split": np.mean(self.split_prior),
+            "k_np": np.mean(self.k_np_prior),
         }
         self._init_bayes_optimizer()
 
@@ -175,19 +177,30 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             return bg - amplitude * profile / peak_val
 
         if self.distribution == "voigt-zeeman":
-            sigma = params["gaussian_width"]
+            # Match generator: broadened NV center (triple lines) convolved with Gaussian
             split = params["split"]
-            f1 = f0 - split / 2
-            f2 = f0 + split / 2
-
+            k_np = params["k_np"]
+            # Generator uses sigma = delta_f_hf / 10.0; here split == delta_f_hf
+            sigma = max(split / 10.0, 1e-9)
             peak_val = voigt_profile(0, sigma, gamma)
-            if peak_val < 1e-9:
+            if peak_val < 1e-12:
                 return bg
 
-            profile1 = voigt_profile(frequency - f1, sigma, gamma)
-            profile2 = voigt_profile(frequency - f2, sigma, gamma)
+            f_left = f0 - split
+            f_center = f0
+            f_right = f0 + split
 
-            return bg - amplitude * (profile1 + profile2) / peak_val
+            # Weights mirror NVCenterManufacturer: a*k_np, a, a/k_np (amplitude scales overall)
+            w_left = 1.0 / max(k_np, 1e-9)
+            w_center = 1.0
+            w_right = max(k_np, 1e-9)
+
+            v_left = voigt_profile(frequency - f_left, sigma, gamma) / peak_val
+            v_center = voigt_profile(frequency - f_center, sigma, gamma) / peak_val
+            v_right = voigt_profile(frequency - f_right, sigma, gamma) / peak_val
+
+            composite = w_left * v_left + w_center * v_center + w_right * v_right
+            return bg - amplitude * composite
 
         raise ValueError(f"Unknown distribution: {self.distribution}")
 
@@ -230,11 +243,12 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
                 self.background_prior,
             ]
         elif self.distribution == "voigt-zeeman":
-            param_keys = ["linewidth", "gaussian_width", "split", "amplitude", "background"]
+            # Match generator: sigma derived from split; include k_np parameter
+            param_keys = ["linewidth", "split", "k_np", "amplitude", "background"]
             bounds = [
                 self.linewidth_prior,
-                self.gaussian_width_prior,
                 self.split_prior,
+                self.k_np_prior,
                 self.amplitude_prior,
                 self.background_prior,
             ]
@@ -298,6 +312,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
                 "background": self.current_estimates["background"],
                 "gaussian_width": self.current_estimates["gaussian_width"],
                 "split": self.current_estimates["split"],
+                "k_np": self.current_estimates["k_np"],
             }
             log_likelihoods[i] = self.likelihood(measurement, params)
 
@@ -352,6 +367,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
                     "background": self.current_estimates["background"],
                     "gaussian_width": self.current_estimates["gaussian_width"],
                     "split": self.current_estimates["split"],
+                    "k_np": self.current_estimates["k_np"],
                 }
                 log_likelihoods[i] = self.likelihood(sim_measurement, params)
 

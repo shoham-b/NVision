@@ -694,6 +694,26 @@ def run(  # noqa: C901
         except Exception as exc:
             log.warning(f"Plotting failed: {exc}")
 
+        if not plot_manifest:
+            log.warning("No plots were generated. Adding a dummy entry to manifest.")
+            plot_manifest.append(
+                {
+                    "type": "scan",
+                    "generator": "Dummy-Generator",
+                    "noise": "None",
+                    "strategy": "Dummy-Strategy",
+                    "repeat": 1,
+                    "repeat_total": 1,
+                    "stop_reason": "no_data",
+                    "abs_err_x": None,
+                    "uncert": None,
+                    "measurements": 0,
+                    "duration_ms": 0,
+                    "metrics": {},
+                    "path": "",  # Empty path, so iframe will be empty
+                }
+            )
+
         manifest_path = out_dir / "plots_manifest.json"
         manifest_path.write_text(json.dumps(plot_manifest, indent=2), encoding="utf-8")
 
