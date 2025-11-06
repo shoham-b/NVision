@@ -503,10 +503,6 @@ def cli(  # noqa: C901
 
         generator_map = dict(sim_cases.generators_basic())
         noise_map = dict(_noise_presets())
-        strategy_map: dict[str, object] = {}
-        for gen_name in generator_map:
-            for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
-                strategy_map[strat_name] = strat_obj
 
         all_tasks = []
         for gen_name, gen_obj in generator_map.items():

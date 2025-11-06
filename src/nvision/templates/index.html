@@ -241,15 +241,6 @@
 </div>
 
 <div aria-label="Bayesian Analysis" class="section" hidden id="bayes-section" role="region">
-    <h2>Bayesian Analysis</h2>
-    <p>This section shows plots related to the Bayesian optimization process.</p>
-    <img alt="Bayesian optimization visualization" hidden id="bayes-image">
-</div>
-
-<script id="plots-manifest" type="application/json">${
-    manifest_json
-}</script>
-<!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
@@ -495,17 +486,16 @@
     <h2>Bayesian Analysis</h2>
     <p>This section shows plots related to the Bayesian optimization process.</p>
     <img alt="Bayesian optimization visualization" hidden id="bayes-image">
-</div>
-
-<div id="bayes-stats-section" class="section" hidden>
-    <h2>Bayesian Inference Statistics</h2>
-    <div>
-        <h3>Posterior History</h3>
-        <img id="posterior-history-image" alt="Posterior history plot" hidden>
-    </div>
-    <div>
-        <h3>Convergence Stats</h3>
-        <img id="convergence-stats-image" alt="Convergence stats plot" hidden>
+    <div id="bayes-stats-section">
+        <h2>Bayesian Inference Statistics</h2>
+        <div>
+            <h3>Posterior History</h3>
+            <img id="posterior-history-image" alt="Posterior history plot" hidden>
+        </div>
+        <div>
+            <h3>Convergence Stats</h3>
+            <img id="convergence-stats-image" alt="Convergence stats plot" hidden>
+        </div>
     </div>
 </div>
 
@@ -919,6 +909,7 @@
                     updateBayesView(plot);
                     updateBayesStatsView(plot);
                 } else {
+                    scanIframe.src = '';
                     scanMetrics.textContent = '';
                     updateBayesView(null);
                     updateBayesStatsView(null);
