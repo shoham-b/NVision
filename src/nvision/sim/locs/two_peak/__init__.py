@@ -3,7 +3,7 @@ from nvision.sim.locs.two_peak.grid_locator import TwoPeakGridLocator as TwoPeak
 from nvision.sim.locs.two_peak.sweep_locator import TwoPeakSweepLocator as TwoPeakSweepLocator
 
 __all__ = [
-    "TwoPeakGridLocator",
     "TwoPeakGoldenLocator",
+    "TwoPeakGridLocator",
     "TwoPeakSweepLocator",
 ]

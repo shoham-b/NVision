@@ -11,12 +11,14 @@
             color: #333;
             background-color: #f4f4f4;
         }
+
         h1, h2 {
             color: #0056b3;
             border-bottom: 2px solid #0056b3;
             padding-bottom: 0.5em;
             margin-top: 1em;
         }
+
         .section {
             background-color: #fff;
             border: 1px solid #ddd;
@@ -25,11 +27,13 @@
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
+
         .metrics {
             margin-top: 0.75em;
             font-size: 0.95em;
             color: #444;
         }
+
         .control-row {
             display: flex;
             flex-wrap: wrap;
@@ -37,15 +41,18 @@
             gap: 0.75em;
             margin: 0.5em 0;
         }
+
         .control-label {
             font-weight: bold;
         }
+
         .tab-bar {
             display: flex;
             gap: 0.75em;
             margin: 1.5em 0;
             flex-wrap: wrap;
         }
+
         .tab-button {
             padding: 0.6em 1.2em;
             border: 1px solid #ccc;
@@ -55,23 +62,28 @@
             cursor: pointer;
             transition: background-color 0.2s, border-color 0.2s, color 0.2s;
         }
+
         .tab-button:hover:not(:disabled) {
             border-color: #888;
             background-color: #e2e2e2;
         }
+
         .tab-button.is-active {
             background-color: #0056b3;
             border-color: #0056b3;
             color: #fff;
         }
+
         .tab-panel.is-hidden {
             display: none;
         }
+
         .segmented-control {
             display: inline-flex;
             flex-wrap: wrap;
             gap: 0.5em;
         }
+
         .segmented-control button {
             padding: 0.4em 0.9em;
             border: 1px solid #ccc;
@@ -81,23 +93,28 @@
             cursor: pointer;
             transition: background-color 0.2s, border-color 0.2s, color 0.2s;
         }
+
         .segmented-control button:hover {
             border-color: #888;
         }
+
         .segmented-control button.is-active {
             background-color: #0056b3;
             border-color: #0056b3;
             color: #fff;
         }
+
         .segmented-control button:focus-visible {
             outline: 2px solid #0056b3;
             outline-offset: 2px;
         }
+
         .repeat-picker {
             display: inline-flex;
             align-items: center;
             gap: 0.5em;
         }
+
         .control-button {
             padding: 0.4em 0.9em;
             border: 1px solid #ccc;
@@ -107,14 +124,17 @@
             cursor: pointer;
             transition: background-color 0.2s, border-color 0.2s, color 0.2s;
         }
+
         .control-button:hover:not(:disabled) {
             border-color: #888;
             background-color: #f0f0f0;
         }
+
         .control-button:disabled {
             cursor: not-allowed;
             opacity: 0.6;
         }
+
         .control-select {
             padding: 0.6em 0.8em;
             border: 1px solid #ccc;
@@ -123,9 +143,11 @@
             cursor: pointer;
             min-width: 6em;
         }
+
         .control-select:hover {
             border-color: #888;
         }
+
         iframe {
             width: 100%;
             height: 600px;
@@ -134,486 +156,831 @@
             border-radius: 4px;
             background-color: #fff;
         }
+
         p {
             margin-top: 1em;
         }
+
         a {
             color: #0056b3;
             text-decoration: none;
         }
+
         a:hover {
             text-decoration: underline;
         }
     </style>
 </head>
 <body>
-    <h1>NVision results (${out_dir_display})</h1>
+<h1>NVision results (${out_dir_display})</h1>
 
-    <p><a href="locator_results.csv" download>Download locator_results.csv</a></p>
+<p><a download href="locator_results.csv">Download locator_results.csv</a></p>
 
-    <div id="scan-section" class="section tab-panel" role="tabpanel" aria-labelledby="tab-scan">
-        <h2>Scan Measurements</h2>
-        <div class="control-row">
-            <span class="control-label">Generator Type:</span>
-            <div
-                id="scan-generator-type"
-                class="segmented-control"
-                role="radiogroup"
+<div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
+    <h2>Scan Measurements</h2>
+    <div class="control-row">
+        <span class="control-label">Generator Type:</span>
+        <div
                 aria-label="Scan generator type"
-            ></div>
-        </div>
-        <div class="control-row">
-            <span class="control-label">Generator:</span>
-            <div
-                id="scan-generator"
                 class="segmented-control"
+                id="scan-generator-type"
                 role="radiogroup"
+        ></div>
+    </div>
+    <div class="control-row">
+        <span class="control-label">Generator:</span>
+        <div
                 aria-label="Scan generator"
-            ></div>
-        </div>
-        <div class="control-row">
-            <span class="control-label">Noise:</span>
-            <div
-                id="scan-noise"
                 class="segmented-control"
+                id="scan-generator"
                 role="radiogroup"
+        ></div>
+    </div>
+    <div class="control-row">
+        <span class="control-label">Noise:</span>
+        <div
                 aria-label="Scan noise"
-            ></div>
-        </div>
-        <div class="control-row">
-            <span class="control-label">Strategy:</span>
-            <div
-                id="scan-strategy"
                 class="segmented-control"
+                id="scan-noise"
                 role="radiogroup"
+        ></div>
+    </div>
+    <div class="control-row">
+        <span class="control-label">Strategy:</span>
+        <div
                 aria-label="Scan strategy"
-            ></div>
-        </div>
-        <div class="control-row">
-            <span class="control-label">Repeat:</span>
-            <div class="repeat-picker" role="group" aria-label="Scan repeat navigation">
-                <button
-                    id="scan-repeat-prev"
-                    class="control-button"
-                    type="button"
+                class="segmented-control"
+                id="scan-strategy"
+                role="radiogroup"
+        ></div>
+    </div>
+    <div class="control-row">
+        <span class="control-label">Repeat:</span>
+        <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
+            <button
                     aria-label="Previous repeat"
-                >
-                    Previous
-                </button>
-                <select id="scan-repeat" class="control-select" aria-label="Scan repeat"></select>
-                <button
-                    id="scan-repeat-next"
                     class="control-button"
+                    id="scan-repeat-prev"
                     type="button"
+            >
+                Previous
+            </button>
+            <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
+            <button
                     aria-label="Next repeat"
-                >
-                    Next
-                </button>
-            </div>
+                    class="control-button"
+                    id="scan-repeat-next"
+                    type="button"
+            >
+                Next
+            </button>
         </div>
-        <p id="scan-metrics" class="metrics"></p>
-        <iframe id="scan-iframe"></iframe>
     </div>
+    <p class="metrics" id="scan-metrics"></p>
+    <iframe id="scan-iframe"></iframe>
+</div>
 
-    <div id="bayes-section" class="section" role="region" aria-label="Bayesian Analysis" hidden>
-        <h2>Bayesian Analysis</h2>
-        <p>This section shows plots related to the Bayesian optimization process.</p>
-        <img id="bayes-image" alt="Bayesian optimization visualization" hidden>
+<div aria-label="Bayesian Analysis" class="section" hidden id="bayes-section" role="region">
+    <h2>Bayesian Analysis</h2>
+    <p>This section shows plots related to the Bayesian optimization process.</p>
+    <img alt="Bayesian optimization visualization" hidden id="bayes-image">
+</div>
+
+<script id="plots-manifest" type="application/json">${
+    manifest_json
+}</script>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>NVision results</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 2em;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+        }
+
+        h1, h2, h3 {
+            color: #0056b3;
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 0.5em;
+            margin-top: 1em;
+        }
+
+        .section {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            padding: 1.5em;
+            margin-bottom: 2em;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .metrics {
+            margin-top: 0.75em;
+            font-size: 0.95em;
+            color: #444;
+        }
+
+        .control-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75em;
+            margin: 0.5em 0;
+        }
+
+        .control-label {
+            font-weight: bold;
+        }
+
+        .tab-bar {
+            display: flex;
+            gap: 0.75em;
+            margin: 1.5em 0;
+            flex-wrap: wrap;
+        }
+
+        .tab-button {
+            padding: 0.6em 1.2em;
+            border: 1px solid #ccc;
+            border-radius: 999px;
+            background-color: #f1f1f1;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        .tab-button:hover:not(:disabled) {
+            border-color: #888;
+            background-color: #e2e2e2;
+        }
+
+        .tab-button.is-active {
+            background-color: #0056b3;
+            border-color: #0056b3;
+            color: #fff;
+        }
+
+        .tab-panel.is-hidden {
+            display: none;
+        }
+
+        .segmented-control {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.5em;
+        }
+
+        .segmented-control button {
+            padding: 0.4em 0.9em;
+            border: 1px solid #ccc;
+            border-radius: 999px;
+            background-color: #f9f9f9;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        .segmented-control button:hover {
+            border-color: #888;
+        }
+
+        .segmented-control button.is-active {
+            background-color: #0056b3;
+            border-color: #0056b3;
+            color: #fff;
+        }
+
+        .segmented-control button:focus-visible {
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
+        }
+
+        .repeat-picker {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5em;
+        }
+
+        .control-button {
+            padding: 0.4em 0.9em;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: #f9f9f9;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        .control-button:hover:not(:disabled) {
+            border-color: #888;
+            background-color: #f0f0f0;
+        }
+
+        .control-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .control-select {
+            padding: 0.6em 0.8em;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+            min-width: 6em;
+        }
+
+        .control-select:hover {
+            border-color: #888;
+        }
+
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ccc;
+            margin-top: 1.5em;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+
+        p {
+            margin-top: 1em;
+        }
+
+        a {
+            color: #0056b3;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+<h1>NVision results (${out_dir_display})</h1>
+
+<p><a download href="locator_results.csv">Download locator_results.csv</a></p>
+
+<div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
+    <h2>Scan Measurements</h2>
+    <div class="control-row">
+        <span class="control-label">Generator Type:</span>
+        <div
+                aria-label="Scan generator type"
+                class="segmented-control"
+                id="scan-generator-type"
+                role="radiogroup"
+        ></div>
     </div>
+    <div class="control-row">
+        <span class="control-label">Generator:</span>
+        <div
+                aria-label="Scan generator"
+                class="segmented-control"
+                id="scan-generator"
+                role="radiogroup"
+        ></div>
+    </div>
+    <div class="control-row">
+        <span class="control-label">Noise:</span>
+        <div
+                aria-label="Scan noise"
+                class="segmented-control"
+                id="scan-noise"
+                role="radiogroup"
+        ></div>
+    </div>
+    <div class="control-row">
+        <span class="control-label">Strategy:</span>
+        <div
+                aria-label="Scan strategy"
+                class="segmented-control"
+                id="scan-strategy"
+                role="radiogroup"
+        ></div>
+    </div>
+    <div class="control-row">
+        <span class="control-label">Repeat:</span>
+        <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
+            <button
+                    aria-label="Previous repeat"
+                    class="control-button"
+                    id="scan-repeat-prev"
+                    type="button"
+            >
+                Previous
+            </button>
+            <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
+            <button
+                    aria-label="Next repeat"
+                    class="control-button"
+                    id="scan-repeat-next"
+                    type="button"
+            >
+                Next
+            </button>
+        </div>
+    </div>
+    <p class="metrics" id="scan-metrics"></p>
+    <iframe id="scan-iframe"></iframe>
+</div>
 
-    <script id="plots-manifest" type="application/json">${manifest_json}</script>
-    <script>
-        function main() {
-            const manifestEl = document.getElementById('plots-manifest');
-            if (!manifestEl || !manifestEl.textContent) {
-                console.error('plots_manifest.json contents are missing from the page.');
+<div aria-label="Bayesian Analysis" class="section" hidden id="bayes-section" role="region">
+    <h2>Bayesian Analysis</h2>
+    <p>This section shows plots related to the Bayesian optimization process.</p>
+    <img alt="Bayesian optimization visualization" hidden id="bayes-image">
+</div>
+
+<div id="bayes-stats-section" class="section" hidden>
+    <h2>Bayesian Inference Statistics</h2>
+    <div>
+        <h3>Posterior History</h3>
+        <img id="posterior-history-image" alt="Posterior history plot" hidden>
+    </div>
+    <div>
+        <h3>Convergence Stats</h3>
+        <img id="convergence-stats-image" alt="Convergence stats plot" hidden>
+    </div>
+</div>
+
+<script id="plots-manifest" type="application/json">${
+    manifest_json
+}</script>
+<script>
+    function main() {
+        const manifestEl = document.getElementById('plots-manifest');
+        if (!manifestEl || !manifestEl.textContent) {
+            console.error('plots_manifest.json contents are missing from the page.');
+            return;
+        }
+
+        let plots = [];
+        try {
+            plots = JSON.parse(manifestEl.textContent);
+        } catch (error) {
+            console.error('Error parsing plots manifest from inline data:', error);
+            return;
+        }
+
+        plots.forEach(p => {
+            const gen = p.generator || '';
+            if (gen.startsWith('OnePeak-')) {
+                p.generator_type = 'OnePeak';
+            } else if (gen.startsWith('TwoPeak-')) {
+                p.generator_type = 'TwoPeak';
+            } else if (gen.startsWith('NVCenter-')) {
+                p.generator_type = 'NVCenter';
+            } else {
+                p.generator_type = 'Unknown';
+            }
+        });
+
+        const scanPlots = plots.filter((p) => p.type === 'scan' && p.generator_type);
+        const bayesSection = document.getElementById('bayes-section');
+        const bayesImage = document.getElementById('bayes-image');
+        const bayesPlots = plots.filter((p) => p.type === 'bayesian');
+        const bayesStatsPlots = plots.filter((p) => p.type === 'bayesian_stats');
+        const bayesStatsSection = document.getElementById('bayes-stats-section');
+        const posteriorHistoryImage = document.getElementById('posterior-history-image');
+        const convergenceStatsImage = document.getElementById('convergence-stats-image');
+
+        function updateBayesView(selectedPlot) {
+            if (!bayesSection || !bayesImage) {
                 return;
             }
 
-            let plots = [];
-            try {
-                plots = JSON.parse(manifestEl.textContent);
-            } catch (error) {
-                console.error('Error parsing plots manifest from inline data:', error);
+            if (!selectedPlot) {
+                bayesSection.hidden = true;
+                bayesImage.hidden = true;
+                bayesImage.removeAttribute('src');
                 return;
             }
 
-            plots.forEach(p => {
-                const gen = p.generator || '';
-                if (gen.startsWith('OnePeak-')) {
-                    p.generator_type = 'OnePeak';
-                } else if (gen.startsWith('TwoPeak-')) {
-                    p.generator_type = 'TwoPeak';
-                } else if (gen.startsWith('NVCenter-')) {
-                    p.generator_type = 'NVCenter';
-                } else {
-                    p.generator_type = 'Unknown';
-                }
-            });
+            const bayesPlot = bayesPlots.find(
+                (p) =>
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
 
-            const scanPlots = plots.filter((p) => p.type === 'scan' && p.generator_type);
-            const bayesSection = document.getElementById('bayes-section');
-            const bayesImage = document.getElementById('bayes-image');
-            const bayesPlots = plots.filter((p) => p.type === 'bayesian');
-
-            function updateBayesView(selectedPlot) {
-                if (!bayesSection || !bayesImage) {
-                    return;
-                }
-
-                if (!selectedPlot) {
-                    bayesSection.hidden = true;
-                    bayesImage.hidden = true;
-                    bayesImage.removeAttribute('src');
-                    return;
-                }
-
-                bayesImage.src = selectedPlot.path;
-                bayesImage.hidden = false;
-                bayesSection.hidden = false;
+            if (!bayesPlot) {
+                bayesSection.hidden = true;
+                bayesImage.hidden = true;
+                bayesImage.removeAttribute('src');
+                return;
             }
 
-            const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
+            bayesImage.src = bayesPlot.path;
+            bayesImage.hidden = false;
+            bayesSection.hidden = false;
+        }
 
-            const scanGeneratorType = document.getElementById('scan-generator-type');
-            const scanGenerator = document.getElementById('scan-generator');
-            const scanNoise = document.getElementById('scan-noise');
-            const scanStrategy = document.getElementById('scan-strategy');
-            const scanRepeat = document.getElementById('scan-repeat');
-            const scanRepeatPrev = document.getElementById('scan-repeat-prev');
-            const scanRepeatNext = document.getElementById('scan-repeat-next');
-            const scanIframe = document.getElementById('scan-iframe');
-            const scanMetrics = document.getElementById('scan-metrics');
-            let currentRepeatItems = [];
-
-            function formatMetricValue(value) {
-                if (typeof value === 'number' && Number.isFinite(value)) {
-                    return value.toPrecision(3);
-                }
-                return 'N/A';
+        function updateBayesStatsView(selectedPlot) {
+            if (!bayesStatsSection || !posteriorHistoryImage || !convergenceStatsImage) {
+                return;
             }
 
-            function formatCount(value) {
-                if (typeof value === 'number' && Number.isFinite(value)) {
-                    return Math.round(value).toString();
-                }
-                return 'N/A';
+            if (!selectedPlot) {
+                bayesStatsSection.hidden = true;
+                return;
             }
 
-            function formatDuration(value) {
-                if (typeof value === 'number' && Number.isFinite(value)) {
-                    return value.toFixed(1) + ' ms';
-                }
-                return 'N/A';
+            const posteriorPlot = bayesStatsPlots.find(
+                (p) =>
+                    p.kind === 'posterior_history' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            const convergencePlot = bayesStatsPlots.find(
+                (p) =>
+                    p.kind === 'convergence_stats' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            if (posteriorPlot) {
+                posteriorHistoryImage.src = posteriorPlot.path;
+                posteriorHistoryImage.hidden = false;
+            } else {
+                posteriorHistoryImage.hidden = true;
             }
 
-            function controlValue(control) {
-                if (control instanceof HTMLSelectElement) {
-                    return control.value || control.dataset.value || '';
-                }
-                return control.dataset.value ?? '';
+            if (convergencePlot) {
+                convergenceStatsImage.src = convergencePlot.path;
+                convergenceStatsImage.hidden = false;
+            } else {
+                convergenceStatsImage.hidden = true;
             }
 
-            function setControlValue(control, value, { silent = false } = {}) {
-                const normalized = value ?? '';
-                control.dataset.value = normalized;
-                const buttons = control.querySelectorAll('button');
-                for (const button of buttons) {
-                    const isActive = button.dataset.value === normalized;
-                    button.classList.toggle('is-active', isActive);
-                    button.setAttribute('aria-checked', String(isActive));
-                }
-                if (!silent) {
-                    control.dispatchEvent(
-                        new CustomEvent('controlchange', {
-                            bubbles: false,
-                            detail: { value: normalized },
-                        }),
-                    );
-                }
+            if (posteriorPlot || convergencePlot) {
+                bayesStatsSection.hidden = false;
+            } else {
+                bayesStatsSection.hidden = true;
             }
+        }
 
-            function renderSegmentedControl(control, items, previousValue) {
-                const uniqueItems = [
-                    ...new Set(
-                        items.filter((item) => item !== undefined && item !== null)
-                    ),
-                ]
-                    .map((item) => String(item))
-                    .sort((a, b) => a.localeCompare(b));
+        const nvCenterDefault = scanPlots.find(p => p.generator_type === 'NVCenter');
+        const scanDefault = nvCenterDefault || (scanPlots.length > 0 ? scanPlots[0] : null);
 
-                control.innerHTML = '';
+        const scanGeneratorType = document.getElementById('scan-generator-type');
+        const scanGenerator = document.getElementById('scan-generator');
+        const scanNoise = document.getElementById('scan-noise');
+        const scanStrategy = document.getElementById('scan-strategy');
+        const scanRepeat = document.getElementById('scan-repeat');
+        const scanRepeatPrev = document.getElementById('scan-repeat-prev');
+        const scanRepeatNext = document.getElementById('scan-repeat-next');
+        const scanIframe = document.getElementById('scan-iframe');
+        const scanMetrics = document.getElementById('scan-metrics');
+        let currentRepeatItems = [];
 
-                for (const item of uniqueItems) {
-                    const button = document.createElement('button');
-                    button.type = 'button';
-                    button.dataset.value = item;
-                    button.setAttribute('role', 'radio');
-                    button.setAttribute('aria-checked', 'false');
-                    button.textContent = item;
-                    button.addEventListener('click', () => {
-                        setControlValue(control, item);
-                    });
-                    control.appendChild(button);
-                }
-
-                let nextValue = '';
-                if (uniqueItems.length > 0) {
-                    if (previousValue && uniqueItems.includes(previousValue)) {
-                        nextValue = previousValue;
-                    } else {
-                        nextValue = uniqueItems[0];
-                    }
-                }
-
-                setControlValue(control, nextValue, { silent: true });
-                return nextValue;
+        function formatMetricValue(value) {
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                return value.toPrecision(3);
             }
+            return 'N/A';
+        }
 
-            function renderSelectControl(select, items, previousValue) {
-                const uniqueItems = [
-                    ...new Set(items.filter((item) => item !== undefined && item !== null)),
-                ]
-                    .map((item) => String(item))
-                    .sort((a, b) => Number(a) - Number(b));
-
-                let nextValue = '';
-                if (uniqueItems.length > 0) {
-                    if (previousValue && uniqueItems.includes(previousValue)) {
-                        nextValue = previousValue;
-                    } else {
-                        nextValue = uniqueItems[0];
-                    }
-                }
-
-                select.innerHTML = '';
-                for (const item of uniqueItems) {
-                    const option = document.createElement('option');
-                    option.value = item;
-                    option.textContent = item;
-                    select.appendChild(option);
-                }
-
-                if (nextValue) {
-                    select.value = nextValue;
-                } else {
-                    select.value = '';
-                }
-                select.dataset.value = nextValue;
-                select.dataset.options = JSON.stringify(uniqueItems);
-                return { value: nextValue, items: uniqueItems };
+        function formatCount(value) {
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                return Math.round(value).toString();
             }
+            return 'N/A';
+        }
 
-            function updateRepeatNavButtons() {
-                if (!scanRepeatPrev || !scanRepeatNext) {
-                    return;
-                }
-                if (currentRepeatItems.length === 0) {
-                    scanRepeatPrev.disabled = true;
-                    scanRepeatNext.disabled = true;
-                    return;
-                }
-                const currentValue = scanRepeat.value || currentRepeatItems[0] || '';
-                const currentIndex = currentRepeatItems.indexOf(currentValue);
-                const hasValidSelection = currentIndex !== -1;
-                scanRepeatPrev.disabled = !hasValidSelection || currentIndex <= 0;
-                scanRepeatNext.disabled = !hasValidSelection || currentIndex >= currentRepeatItems.length - 1;
+        function formatDuration(value) {
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                return value.toFixed(1) + ' ms';
             }
+            return 'N/A';
+        }
 
-            function selectRepeatByIndex(index) {
-                if (currentRepeatItems.length === 0) {
-                    return;
-                }
-                const clampedIndex = Math.max(0, Math.min(index, currentRepeatItems.length - 1));
-                const nextValue = currentRepeatItems[clampedIndex];
-                if (nextValue === undefined) {
-                    return;
-                }
-                scanRepeat.value = nextValue;
-                scanRepeat.dataset.value = nextValue;
-                updateRepeatNavButtons();
-                findAndDisplayPlot();
+        function controlValue(control) {
+            if (control instanceof HTMLSelectElement) {
+                return control.value || control.dataset.value || '';
             }
+            return control.dataset.value ?? '';
+        }
 
-            function selectRepeatByOffset(offset) {
-                if (currentRepeatItems.length === 0) {
-                    return;
-                }
-                const currentValue = scanRepeat.value || currentRepeatItems[0];
-                let currentIndex = currentRepeatItems.indexOf(currentValue);
-                if (currentIndex === -1) {
-                    currentIndex = 0;
-                }
-                const targetIndex = currentIndex + offset;
-                if (targetIndex < 0 || targetIndex >= currentRepeatItems.length) {
-                    return;
-                }
-                selectRepeatByIndex(targetIndex);
+        function setControlValue(control, value, {silent = false} = {}) {
+            const normalized = value ?? '';
+            control.dataset.value = normalized;
+            const buttons = control.querySelectorAll('button');
+            for (const button of buttons) {
+                const isActive = button.dataset.value === normalized;
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-checked', String(isActive));
             }
-
-            function updateControls() {
-                const selectedScanGeneratorType = renderSegmentedControl(
-                    scanGeneratorType,
-                    [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
-                    controlValue(scanGeneratorType),
+            if (!silent) {
+                control.dispatchEvent(
+                    new CustomEvent('controlchange', {
+                        bubbles: false,
+                        detail: {value: normalized},
+                    }),
                 );
-
-                const scanGeneratorItems = scanPlots
-                    .filter((p) => p.generator_type === selectedScanGeneratorType)
-                    .map((p) => p.generator);
-                const selectedScanGenerator = renderSegmentedControl(
-                    scanGenerator,
-                    scanGeneratorItems,
-                    controlValue(scanGenerator),
-                );
-
-                const scanNoiseItems = scanPlots
-                    .filter(
-                        (p) =>
-                            p.generator_type === selectedScanGeneratorType &&
-                            p.generator === selectedScanGenerator
-                    )
-                    .map((p) => p.noise);
-                const selectedScanNoise = renderSegmentedControl(
-                    scanNoise,
-                    scanNoiseItems,
-                    controlValue(scanNoise),
-                );
-
-                const scanStrategyItems = [
-                    ...new Set(
-                        scanPlots
-                            .filter((p) => p.generator_type === selectedScanGeneratorType)
-                            .map((p) => p.strategy)
-                    ),
-                ];
-
-                const selectedScanStrategy = renderSegmentedControl(
-                    scanStrategy,
-                    scanStrategyItems,
-                    controlValue(scanStrategy),
-                );
-
-                const scanRepeatItems = scanPlots
-                    .filter(
-                        (p) =>
-                            p.generator_type === selectedScanGeneratorType &&
-                            p.generator === selectedScanGenerator &&
-                            p.noise === selectedScanNoise &&
-                            p.strategy === selectedScanStrategy
-                    )
-                    .map((p) => String(p.repeat ?? p.attempt ?? 1));
-                const { value: selectedRepeat, items: repeatItems } = renderSelectControl(
-                    scanRepeat,
-                    scanRepeatItems,
-                    controlValue(scanRepeat) || scanRepeat.dataset.value || '',
-                );
-                currentRepeatItems = repeatItems;
-                if (selectedRepeat) {
-                    scanRepeat.dataset.value = selectedRepeat;
-                }
-                updateRepeatNavButtons();
             }
+        }
 
-            function findAndDisplayPlot() {
-                const scanGeneratorTypeValue = controlValue(scanGeneratorType);
-                const scanGeneratorValue = controlValue(scanGenerator);
-                const scanNoiseValue = controlValue(scanNoise);
-                const scanStrategyValue = controlValue(scanStrategy);
-                const scanRepeatValue = controlValue(scanRepeat);
+        function renderSegmentedControl(control, items, previousValue) {
+            const uniqueItems = [
+                ...new Set(
+                    items.filter((item) => item !== undefined && item !== null)
+                ),
+            ]
+                .map((item) => String(item))
+                .sort((a, b) => a.localeCompare(b));
 
-                if (
-                    scanGeneratorTypeValue &&
-                    scanGeneratorValue &&
-                    scanNoiseValue &&
-                    scanStrategyValue &&
-                    scanRepeatValue
-                ) {
-                    const repeatNumber = parseInt(scanRepeatValue, 10);
-                    const plot = scanPlots.find(
-                        (p) =>
-                            p.generator_type === scanGeneratorTypeValue &&
-                            p.generator === scanGeneratorValue &&
-                            p.noise === scanNoiseValue &&
-                            p.strategy === scanStrategyValue &&
-                            p.repeat === repeatNumber
-                    );
-                    scanIframe.src = plot ? plot.path : '';
-                    if (plot) {
-                        const absErr = formatMetricValue(plot.abs_err_x);
-                        const uncertainty = formatMetricValue(plot.uncert);
-                        const measurements = formatCount(plot.measurements);
-                        const duration = formatDuration(plot.duration_ms);
-                        const repeatTotal = plot.repeat_total ?? null;
-                        const attemptLabel = repeatTotal
-                            ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
-                            : 'Attempt ' + plot.repeat;
-                        scanMetrics.textContent =
-                            attemptLabel +
-                            ' • Measurements: ' + measurements +
-                            ' • Duration: ' + duration +
-                            ' • Abs error: ' +
-                            absErr +
-                            ' • Uncertainty: ' +
-                            uncertainty;
-                    } else {
-                        scanMetrics.textContent = '';
-                    }
-                } else {
-                    scanIframe.src = '';
-                    scanMetrics.textContent = '';
-                }
-            }
+            control.innerHTML = '';
 
-            scanGeneratorType.addEventListener('controlchange', () => {
-                updateControls();
-                findAndDisplayPlot();
-            });
-            scanGenerator.addEventListener('controlchange', () => {
-                updateControls();
-                findAndDisplayPlot();
-            });
-            scanNoise.addEventListener('controlchange', () => {
-                updateControls();
-                findAndDisplayPlot();
-            });
-            scanStrategy.addEventListener('controlchange', () => {
-                updateControls();
-                findAndDisplayPlot();
-            });
-            scanRepeat.addEventListener('change', () => {
-                scanRepeat.dataset.value = scanRepeat.value || '';
-                updateRepeatNavButtons();
-                findAndDisplayPlot();
-            });
-
-            if (scanRepeatPrev) {
-                scanRepeatPrev.addEventListener('click', () => {
-                    selectRepeatByOffset(-1);
+            for (const item of uniqueItems) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.dataset.value = item;
+                button.setAttribute('role', 'radio');
+                button.setAttribute('aria-checked', 'false');
+                button.textContent = item;
+                button.addEventListener('click', () => {
+                    setControlValue(control, item);
                 });
-            }
-            if (scanRepeatNext) {
-                scanRepeatNext.addEventListener('click', () => {
-                    selectRepeatByOffset(1);
-                });
+                control.appendChild(button);
             }
 
-            if (scanDefault) {
-                scanGeneratorType.dataset.value = scanDefault.generator_type ?? '';
-                scanGenerator.dataset.value = scanDefault.generator ?? '';
-                scanNoise.dataset.value = scanDefault.noise ?? '';
-                scanStrategy.dataset.value = scanDefault.strategy ?? '';
-                scanRepeat.dataset.value =
-                    scanDefault.repeat === undefined || scanDefault.repeat === null
-                        ? ''
-                        : String(scanDefault.repeat);
+            let nextValue = '';
+            if (uniqueItems.length > 0) {
+                if (previousValue && uniqueItems.includes(previousValue)) {
+                    nextValue = previousValue;
+                } else {
+                    nextValue = uniqueItems[0];
+                }
             }
 
-            updateControls();
+            setControlValue(control, nextValue, {silent: true});
+            return nextValue;
+        }
+
+        function renderSelectControl(select, items, previousValue) {
+            const uniqueItems = [
+                ...new Set(items.filter((item) => item !== undefined && item !== null)),
+            ]
+                .map((item) => String(item))
+                .sort((a, b) => Number(a) - Number(b));
+
+            let nextValue = '';
+            if (uniqueItems.length > 0) {
+                if (previousValue && uniqueItems.includes(previousValue)) {
+                    nextValue = previousValue;
+                } else {
+                    nextValue = uniqueItems[0];
+                }
+            }
+
+            select.innerHTML = '';
+            for (const item of uniqueItems) {
+                const option = document.createElement('option');
+                option.value = item;
+                option.textContent = item;
+                select.appendChild(option);
+            }
+
+            if (nextValue) {
+                select.value = nextValue;
+            }
+            else {
+                select.value = '';
+            }
+            select.dataset.value = nextValue;
+            select.dataset.options = JSON.stringify(uniqueItems);
+            return {value: nextValue, items: uniqueItems};
+        }
+
+        function updateRepeatNavButtons() {
+            if (!scanRepeatPrev || !scanRepeatNext) {
+                return;
+            }
+            if (currentRepeatItems.length === 0) {
+                scanRepeatPrev.disabled = true;
+                scanRepeatNext.disabled = true;
+                return;
+            }
+            const currentValue = scanRepeat.value || currentRepeatItems[0] || '';
+            const currentIndex = currentRepeatItems.indexOf(currentValue);
+            const hasValidSelection = currentIndex !== -1;
+            scanRepeatPrev.disabled = !hasValidSelection || currentIndex <= 0;
+            scanRepeatNext.disabled = !hasValidSelection || currentIndex >= currentRepeatItems.length - 1;
+        }
+
+        function selectRepeatByIndex(index) {
+            if (currentRepeatItems.length === 0) {
+                return;
+            }
+            const clampedIndex = Math.max(0, Math.min(index, currentRepeatItems.length - 1));
+            const nextValue = currentRepeatItems[clampedIndex];
+            if (nextValue === undefined) {
+                return;
+            }
+            scanRepeat.value = nextValue;
+            scanRepeat.dataset.value = nextValue;
+            updateRepeatNavButtons();
             findAndDisplayPlot();
         }
 
-        window.addEventListener('DOMContentLoaded', main);
-    </script>
+        function selectRepeatByOffset(offset) {
+            if (currentRepeatItems.length === 0) {
+                return;
+            }
+            const currentValue = scanRepeat.value || currentRepeatItems[0];
+            let currentIndex = currentRepeatItems.indexOf(currentValue);
+            if (currentIndex === -1) {
+                currentIndex = 0;
+            }
+            const targetIndex = currentIndex + offset;
+            if (targetIndex < 0 || targetIndex >= currentRepeatItems.length) {
+                return;
+            }
+            selectRepeatByIndex(targetIndex);
+        }
+
+        function updateControls() {
+            const selectedScanGeneratorType = renderSegmentedControl(
+                scanGeneratorType,
+                [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
+                controlValue(scanGeneratorType),
+            );
+
+            const scanGeneratorItems = scanPlots
+                .filter((p) => p.generator_type === selectedScanGeneratorType)
+                .map((p) => p.generator);
+            const selectedScanGenerator = renderSegmentedControl(
+                scanGenerator,
+                scanGeneratorItems,
+                controlValue(scanGenerator),
+            );
+
+            const scanNoiseItems = scanPlots
+                .filter(
+                    (p) =>
+                        p.generator_type === selectedScanGeneratorType &&
+                        p.generator === selectedScanGenerator
+                )
+                .map((p) => p.noise);
+            const selectedScanNoise = renderSegmentedControl(
+                scanNoise,
+                scanNoiseItems,
+                controlValue(scanNoise),
+            );
+
+            const scanStrategyItems = [
+                ...new Set(
+                    scanPlots
+                        .filter((p) => p.generator_type === selectedScanGeneratorType)
+                        .map((p) => p.strategy)
+                ),
+            ];
+
+            const selectedScanStrategy = renderSegmentedControl(
+                scanStrategy,
+                scanStrategyItems,
+                controlValue(scanStrategy),
+            );
+
+            const scanRepeatItems = scanPlots
+                .filter(
+                    (p) =>
+                        p.generator_type === selectedScanGeneratorType &&
+                        p.generator === selectedScanGenerator &&
+                        p.noise === selectedScanNoise &&
+                        p.strategy === selectedScanStrategy
+                )
+                .map((p) => String(p.repeat ?? p.attempt ?? 1));
+            const {value: selectedRepeat, items: repeatItems} = renderSelectControl(
+                scanRepeat,
+                scanRepeatItems,
+                controlValue(scanRepeat) || scanRepeat.dataset.value || '',
+            );
+            currentRepeatItems = repeatItems;
+            if (selectedRepeat) {
+                scanRepeat.dataset.value = selectedRepeat;
+            }
+            updateRepeatNavButtons();
+        }
+
+        function findAndDisplayPlot() {
+            const scanGeneratorTypeValue = controlValue(scanGeneratorType);
+            const scanGeneratorValue = controlValue(scanGenerator);
+            const scanNoiseValue = controlValue(scanNoise);
+            const scanStrategyValue = controlValue(scanStrategy);
+            const scanRepeatValue = controlValue(scanRepeat);
+
+            if (
+                scanGeneratorTypeValue &&
+                scanGeneratorValue &&
+                scanNoiseValue &&
+                scanStrategyValue &&
+                scanRepeatValue
+            ) {
+                const repeatNumber = parseInt(scanRepeatValue, 10);
+                const plot = scanPlots.find(
+                    (p) =>
+                        p.generator_type === scanGeneratorTypeValue &&
+                        p.generator === scanGeneratorValue &&
+                        p.noise === scanNoiseValue &&
+                        p.strategy === scanStrategyValue &&
+                        p.repeat === repeatNumber
+                );
+                scanIframe.src = plot ? plot.path : '';
+                if (plot) {
+                    const absErr = formatMetricValue(plot.abs_err_x);
+                    const uncertainty = formatMetricValue(plot.uncert);
+                    const measurements = formatCount(plot.measurements);
+                    const duration = formatDuration(plot.duration_ms);
+                    const repeatTotal = plot.repeat_total ?? null;
+                    const attemptLabel = repeatTotal
+                        ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
+                        : 'Attempt ' + plot.repeat;
+                    scanMetrics.textContent =
+                        attemptLabel +
+                        ' • Measurements: ' + measurements +
+                        ' • Duration: ' + duration +
+                        ' • Abs error: ' +
+                        absErr +
+                        ' • Uncertainty: ' +
+                        uncertainty;
+                    updateBayesView(plot);
+                    updateBayesStatsView(plot);
+                } else {
+                    scanMetrics.textContent = '';
+                    updateBayesView(null);
+                    updateBayesStatsView(null);
+                }
+            } else {
+                scanIframe.src = '';
+                scanMetrics.textContent = '';
+                updateBayesView(null);
+                updateBayesStatsView(null);
+            }
+        }
+
+        scanGeneratorType.addEventListener('controlchange', () => {
+            updateControls();
+            findAndDisplayPlot();
+        });
+        scanGenerator.addEventListener('controlchange', () => {
+            updateControls();
+            findAndDisplayPlot();
+        });
+        scanNoise.addEventListener('controlchange', () => {
+            updateControls();
+            findAndDisplayPlot();
+        });
+        scanStrategy.addEventListener('controlchange', () => {
+            updateControls();
+            findAndDisplayPlot();
+        });
+        scanRepeat.addEventListener('change', () => {
+            scanRepeat.dataset.value = scanRepeat.value || '';
+            updateRepeatNavButtons();
+            findAndDisplayPlot();
+        });
+
+        if (scanRepeatPrev) {
+            scanRepeatPrev.addEventListener('click', () => {
+                selectRepeatByOffset(-1);
+            });
+        }
+        if (scanRepeatNext) {
+            scanRepeatNext.addEventListener('click', () => {
+                selectRepeatByOffset(1);
+            });
+        }
+
+        if (scanDefault) {
+            scanGeneratorType.dataset.value = scanDefault.generator_type ?? '';
+            scanGenerator.dataset.value = scanDefault.generator ?? '';
+            scanNoise.dataset.value = scanDefault.noise ?? '';
+            scanStrategy.dataset.value = scanDefault.strategy ?? '';
+            scanRepeat.dataset.value =
+                scanDefault.repeat === undefined || scanDefault.repeat === null
+                    ? ''
+                    : String(scanDefault.repeat);
+        }
+
+        updateControls();
+        findAndDisplayPlot();
+    }
+
+    window.addEventListener('DOMContentLoaded', main);
+</script>
+
 </body>
 </html>

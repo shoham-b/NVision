@@ -46,6 +46,9 @@ except ImportError:  # pragma: no cover
     UtilityFunction = None  # type: ignore[assignment]
 
 
+from scipy.stats import cauchy
+
+
 @dataclass
 class NVCenterSequentialBayesianLocator(Locator):
     """
@@ -159,7 +162,8 @@ class NVCenterSequentialBayesianLocator(Locator):
         bg = params["background"]
 
         if self.distribution == "lorentzian":
-            lorentzian = amplitude * (gamma / 2) ** 2 / ((frequency - f0) ** 2 + (gamma / 2) ** 2)
+            scale = gamma / 2
+            lorentzian = amplitude * math.pi * scale * cauchy.pdf(frequency, loc=f0, scale=scale)
             return bg - lorentzian
 
         if self.distribution == "voigt":
@@ -428,6 +432,59 @@ class NVCenterSequentialBayesianLocator(Locator):
         ax.grid(True)
         plt.tight_layout()
 
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path.as_posix(), bbox_inches="tight")
+        plt.close(fig)
+        return output_path
+
+    def plot_posterior_history(self, output_path: Path) -> Path | None:
+        if not self.posterior_history:
+            return None
+
+        fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+        num_posteriors = len(self.posterior_history)
+        indices_to_plot = np.linspace(0, num_posteriors - 1, 5, dtype=int)
+
+        for i in indices_to_plot:
+            ax.plot(self.freq_grid, self.posterior_history[i], label=f"Step {i}")
+
+        ax.set_title("Posterior Distribution Evolution")
+        ax.set_xlabel("Frequency (Hz)")
+        ax.set_ylabel("Probability Density")
+        ax.legend()
+        ax.grid(True)
+        plt.tight_layout()
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path.as_posix(), bbox_inches="tight")
+        plt.close(fig)
+        return output_path
+
+    def plot_convergence_stats(self, output_path: Path) -> Path | None:
+        if not self.utility_history:
+            return None
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), dpi=100, sharex=True)
+
+        uncertainty_history = [
+            np.sqrt(np.sum((self.freq_grid - np.sum(self.freq_grid * p)) ** 2 * p))
+            for p in self.posterior_history
+        ]
+
+        steps = range(len(uncertainty_history))
+        ax1.plot(steps, uncertainty_history, marker="o")
+        ax1.set_title("Uncertainty Convergence")
+        ax1.set_ylabel("Uncertainty (Hz)")
+        ax1.grid(True)
+
+        utility_steps = range(len(self.utility_history))
+        ax2.plot(utility_steps, self.utility_history, marker="o", color="orange")
+        ax2.set_title("Expected Information Gain")
+        ax2.set_xlabel("Measurement Step")
+        ax2.set_ylabel("Utility")
+        ax2.grid(True)
+
+        plt.tight_layout()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path.as_posix(), bbox_inches="tight")
         plt.close(fig)
