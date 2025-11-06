@@ -507,14 +507,37 @@
         const manifestEl = document.getElementById('plots-manifest');
         if (!manifestEl || !manifestEl.textContent) {
             console.error('plots_manifest.json contents are missing from the page.');
+            // Show an error message to the user
+            const errorDiv = document.createElement('div');
+            errorDiv.style.padding = '20px';
+            errorDiv.style.margin = '20px';
+            errorDiv.style.border = '1px solid #f5c6cb';
+            errorDiv.style.backgroundColor = '#f8d7da';
+            errorDiv.style.color = '#721c24';
+            errorDiv.style.borderRadius = '4px';
+            errorDiv.innerHTML = '<h3>Error: No data available</h3><p>No plot data was found. Please ensure the simulation has been run and the results are available.</p>';
+            document.body.appendChild(errorDiv);
             return;
         }
 
         let plots = [];
         try {
             plots = JSON.parse(manifestEl.textContent);
+            if (!Array.isArray(plots) || plots.length === 0) {
+                throw new Error('No plots data available');
+            }
         } catch (error) {
             console.error('Error parsing plots manifest from inline data:', error);
+            // Show an error message to the user
+            const errorDiv = document.createElement('div');
+            errorDiv.style.padding = '20px';
+            errorDiv.style.margin = '20px';
+            errorDiv.style.border = '1px solid #f5c6cb';
+            errorDiv.style.backgroundColor = '#f8d7da';
+            errorDiv.style.color = '#721c24';
+            errorDiv.style.borderRadius = '4px';
+            errorDiv.innerHTML = '<h3>Error: Invalid data format</h3><p>Could not parse the plot data. The data might be corrupted or in an unexpected format.</p>';
+            document.body.appendChild(errorDiv);
             return;
         }
 
@@ -966,8 +989,27 @@
                     : String(scanDefault.repeat);
         }
 
-        updateControls();
-        findAndDisplayPlot();
+        try {
+            updateControls();
+            findAndDisplayPlot();
+            
+            // Show the UI controls now that they're populated
+            document.querySelectorAll('.control-row, .section').forEach(el => {
+                el.style.display = 'block';
+            });
+        } catch (error) {
+            console.error('Error initializing UI controls:', error);
+            // Show an error message to the user
+            const errorDiv = document.createElement('div');
+            errorDiv.style.padding = '20px';
+            errorDiv.style.margin = '20px';
+            errorDiv.style.border = '1px solid #f5c6cb';
+            errorDiv.style.backgroundColor = '#f8d7da';
+            errorDiv.style.color = '#721c24';
+            errorDiv.style.borderRadius = '4px';
+            errorDiv.innerHTML = '<h3>Error: Failed to initialize UI</h3><p>There was a problem initializing the user interface. Please check the console for more details.</p>';
+            document.body.appendChild(errorDiv);
+        }
     }
 
     window.addEventListener('DOMContentLoaded', main);

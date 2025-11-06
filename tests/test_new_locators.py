@@ -14,6 +14,7 @@ from nvision.sim import (
     OnePeakGridLocator,
     ScanBatch,
 )
+from tests.locator_compat import LegacyLocatorShim
 
 
 class UniformPrior:
@@ -59,20 +60,39 @@ def test_one_peak_locators_basic():
         meta={"peak_width": 0.1},
     )
 
-    grid_locator = OnePeakGridLocator(n_points=11)
-    sweep_locator = OnePeakGoldenLocator(max_evals=10)
+    grid_locator = LegacyLocatorShim(OnePeakGridLocator(n_points=11))
+    sweep_locator = LegacyLocatorShim(OnePeakGoldenLocator(max_evals=10))
 
+    # Create initial history and repeats dataframes
     history_grid = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
     history_sweep = history_grid.clone()
+    repeats_df = pl.DataFrame({"repeat_id": [0], "active": [True]})
 
     for locator, history in ((grid_locator, history_grid), (sweep_locator, history_sweep)):
+        current_history = history
         for _i in range(3):
-            x = locator.propose_next(history, scan)
+            # Pass repeats_df to propose_next
+            next_proposal = locator.propose_next(current_history, repeats_df, scan)
+            # Extract x from the returned DataFrame
+            x = next_proposal.get_column("x")[0]
             assert 0.0 <= x <= 1.0
             y = signal(x) + rng.gauss(0, 0.05)
-            history = pl.concat([history, pl.DataFrame({"x": [x], "signal_values": [y]})])
-        assert isinstance(locator.should_stop(history, scan), bool)
-        result = locator.finalize(history, scan)
+            # Update history with new measurement
+            current_history = pl.concat(
+                [current_history, pl.DataFrame({"x": [x], "signal_values": [y]})]
+            )
+            # Update repeats_df based on should_stop result
+            stop_df = locator.should_stop(current_history, repeats_df, scan)
+            repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(
+                pl.lit(True).alias("active")
+            )
+
+        # Final check and result
+        final_stop = locator.should_stop(current_history, repeats_df, scan)
+        assert isinstance(final_stop, pl.DataFrame)
+        assert "stop" in final_stop.columns
+
+        result = locator.finalize(current_history, scan)
         assert "n_peaks" in result
         assert "x1_hat" in result
         assert "uncert" in result
@@ -94,19 +114,39 @@ def test_nv_center_locators_basic():
         meta={"peak_width": 0.08},
     )
 
-    sweep_locator = NVCenterSweepLocator(coarse_points=15, refine_points=5)
+    # Create initial history and repeats dataframes
+    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    repeats_df = pl.DataFrame({"repeat_id": [0], "active": [True]})
 
-    for locator in (sweep_locator,):
-        history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
-        for _i in range(3):
-            x = locator.propose_next(history, scan)
-            assert 0.0 <= x <= 1.0
-            y = signal(x) + rng.gauss(0, 0.03)
-            history = pl.concat([history, pl.DataFrame({"x": [x], "signal_values": [y]})])
-        assert isinstance(locator.should_stop(history, scan), bool)
-        result = locator.finalize(history, scan)
-        assert "n_peaks" in result
-        assert "uncert" in result
+    # Create locator
+    locator = LegacyLocatorShim(NVCenterSweepLocator(coarse_points=15, refine_points=5))
+
+    current_history = history
+    for _i in range(3):
+        # Pass repeats_df to propose_next
+        next_proposal = locator.propose_next(current_history, repeats_df, scan)
+        # Extract x from the returned DataFrame
+        x = next_proposal.get_column("x")[0]
+        assert 0.0 <= x <= 1.0
+        y = signal(x) + rng.gauss(0, 0.03)
+        # Update history with new measurement
+        current_history = pl.concat(
+            [current_history, pl.DataFrame({"x": [x], "signal_values": [y]})]
+        )
+        # Update repeats_df based on should_stop result
+        stop_df = locator.should_stop(current_history, repeats_df, scan)
+        repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(
+            pl.lit(True).alias("active")
+        )
+
+    # Final check and result
+    final_stop = locator.should_stop(current_history, repeats_df, scan)
+    assert isinstance(final_stop, pl.DataFrame)
+    assert "stop" in final_stop.columns
+
+    result = locator.finalize(current_history, scan)
+    assert "n_peaks" in result
+    assert "uncert" in result
 
 
 def test_uncertainty_calculation():
@@ -119,26 +159,38 @@ def test_uncertainty_calculation():
 
     scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.25, 0.75], signal=signal, meta={})
 
-    # Test with ODMR locator
-    locator = OnePeakGoldenLocator(max_evals=12)
+    # Create initial history and repeats dataframes
+    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    repeats_df = pl.DataFrame({"repeat_id": [0], "active": [True]})
+
+    # Create locator
+    locator = LegacyLocatorShim(OnePeakGoldenLocator(max_evals=12))
 
     # Simulate a measurement process
-    history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
-
+    current_history = history
     for _i in range(5):
-        x = locator.propose_next(history, scan)
+        # Get next proposal with repeats_df
+        next_proposal = locator.propose_next(current_history, repeats_df, scan)
+        x = next_proposal.get_column("x")[0]
         y_clean = signal(x)
         y_noisy = y_clean + rng.gauss(0, 0.1)
 
-        # Calculate uncertainty (simplified)
-        new_row = pl.DataFrame({"x": [x], "signal_values": [y_noisy]})
-        history = pl.concat([history, new_row], how="vertical")
+        # Update history with new measurement
+        current_history = pl.concat(
+            [current_history, pl.DataFrame({"x": [x], "signal_values": [y_noisy]})], how="vertical"
+        )
 
-    # Check that uncertainty is being used in decisions
-    assert history.height > 0
+        # Update repeats_df based on should_stop result
+        stop_df = locator.should_stop(current_history, repeats_df, scan)
+        repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(
+            pl.lit(True).alias("active")
+        )
+
+    # Check that we have measurements
+    assert current_history.height > 0
 
     # Test that locators use uncertainty in their decisions
-    result = locator.finalize(history, scan)
+    result = locator.finalize(current_history, scan)
     assert "uncert" in result
 
 
@@ -151,30 +203,48 @@ def test_locator_comparison():
 
     scan = ScanBatch(x_min=0.0, x_max=1.0, truth_positions=[0.4], signal=signal, meta={})
 
-    grid_locator = OnePeakGridLocator(n_points=15)
-    golden_locator = OnePeakGoldenLocator(max_evals=12)
-
+    # Create initial history and repeats dataframes for both locators
     grid_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
     golden_history = pl.DataFrame(schema={"x": pl.Float64, "signal_values": pl.Float64})
+    grid_repeats = pl.DataFrame({"repeat_id": [0], "active": [True]})
+    golden_repeats = pl.DataFrame({"repeat_id": [0], "active": [True]})
+
+    # Create locators
+    grid_locator = LegacyLocatorShim(OnePeakGridLocator(n_points=15))
+    golden_locator = LegacyLocatorShim(OnePeakGoldenLocator(max_evals=12))
 
     for _i in range(6):
-        x_grid = grid_locator.propose_next(grid_history, scan)
+        # Grid locator step
+        grid_proposal = grid_locator.propose_next(grid_history, grid_repeats, scan)
+        x_grid = grid_proposal.get_column("x")[0]
         y_grid = signal(x_grid) + rng.gauss(0, 0.02)
         grid_history = pl.concat(
             [grid_history, pl.DataFrame({"x": [x_grid], "signal_values": [y_grid]})]
         )
+        grid_stop = grid_locator.should_stop(grid_history, grid_repeats, scan)
+        grid_repeats = grid_stop.select(["repeat_id", "stop"]).with_columns(
+            pl.lit(True).alias("active")
+        )
 
-        x_golden = golden_locator.propose_next(golden_history, scan)
+        # Golden locator step
+        golden_proposal = golden_locator.propose_next(golden_history, golden_repeats, scan)
+        x_golden = golden_proposal.get_column("x")[0]
         y_golden = signal(x_golden) + rng.gauss(0, 0.02)
         golden_history = pl.concat(
             [golden_history, pl.DataFrame({"x": [x_golden], "signal_values": [y_golden]})]
         )
+        golden_stop = golden_locator.should_stop(golden_history, golden_repeats, scan)
+        golden_repeats = golden_stop.select(["repeat_id", "stop"]).with_columns(
+            pl.lit(True).alias("active")
+        )
 
+    # Get final results
     grid_result = grid_locator.finalize(grid_history, scan)
     golden_result = golden_locator.finalize(golden_history, scan)
 
+    # Verify results
     assert grid_result["n_peaks"] == 1.0
     assert golden_result["n_peaks"] == 1.0
     assert 0.0 <= grid_result["x1_hat"] <= 1.0
     assert 0.0 <= golden_result["x1_hat"] <= 1.0
-    assert grid_result["x1_hat"] != pytest.approx(golden_result["x1_hat"])
+    assert grid_result["x1_hat"] != pytest.approx(golden_result["x1_hat"], abs=1e-6)
