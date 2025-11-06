@@ -4,6 +4,8 @@ import random
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
+
 from nvision.sim.gen._protocols import PeakManufacturer
 from nvision.sim.gen.distributions.convolution_manufacturer import (
     ConvolutionManufacturer,
@@ -83,6 +85,12 @@ class NVCenterGenerator:
         manufacturer = self._create_manufacturer(rng, delta_f_hf)
         f, extra_meta = manufacturer.build_peak(x0, self.base, self.x_min, self.x_max, rng)
 
+        x_samples = np.linspace(self.x_min, self.x_max, 2000)
+        y_samples = [f(x) for x in x_samples]
+        max_y = max(y_samples) if y_samples else 1.0
+
+        signal = (lambda x, f=f, max_y=max_y: f(x) / max_y) if max_y > 1e-09 else f
+
         meta: dict[str, object] = {
             "base": self.base,
             "variant": self.variant,
@@ -95,6 +103,6 @@ class NVCenterGenerator:
             x_min=self.x_min,
             x_max=self.x_max,
             truth_positions=[x0],
-            signal=f,
+            signal=signal,
             meta=meta,
         )

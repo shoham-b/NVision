@@ -89,7 +89,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
     split_prior: tuple[float, float] = (1e6, 10e6)
     k_np_prior: tuple[float, float] = (2.0, 4.0)
     amplitude_prior: tuple[float, float] = (0.01, 1.0)
-    background_prior: tuple[float, float] = (0.9, 1.1)
+    background_prior: tuple[float, float] = (0.99, 1.01)
     bo_enabled: bool = True
     bo_acq_func: str = "ucb"
     bo_kappa: float = 2.576
@@ -104,6 +104,12 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             raise ValueError("n_warmup must be smaller than max_evals")
         self._bo: Any = None
         self._bo_utility: Any = None
+
+        self._unscaled_prior_bounds = self.prior_bounds
+        self._unscaled_linewidth_prior = self.linewidth_prior
+        self._unscaled_gaussian_width_prior = self.gaussian_width_prior
+        self._unscaled_split_prior = self.split_prior
+
         self.reset_posterior()
         self.measurement_history: list[dict[str, float]] = []
         self.utility_history: list[float] = []
@@ -200,7 +206,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             v_right = voigt_profile(frequency - f_right, sigma, gamma) / peak_val
 
             composite = w_left * v_left + w_center * v_center + w_right * v_right
-            return bg - amplitude * composite
+            return bg - amplitude * composite / max(k_np, 1e-9)
 
         raise ValueError(f"Unknown distribution: {self.distribution}")
 
@@ -557,6 +563,28 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
 
         return optimal_freq, utility
 
+    def _rescale_priors_if_needed(self, scan: ScanBatch | None):
+        """Rescale priors if scan bounds suggest a normalized coordinate system."""
+        if scan is None:
+            return
+
+        scan_bounds = (scan.x_min, scan.x_max)
+        is_normalized_scan = np.isclose(scan_bounds[0], 0.0) and np.isclose(scan_bounds[1], 1.0)
+        is_unscaled = np.isclose(self.prior_bounds[0], self._unscaled_prior_bounds[0])
+
+        if is_normalized_scan and is_unscaled:
+            scale_factor = self._unscaled_prior_bounds[1] - self._unscaled_prior_bounds[0]
+            if scale_factor > 0:
+                self.prior_bounds = (0.0, 1.0)
+                self.linewidth_prior = tuple(
+                    p / scale_factor for p in self._unscaled_linewidth_prior
+                )
+                self.gaussian_width_prior = tuple(
+                    p / scale_factor for p in self._unscaled_gaussian_width_prior
+                )
+                self.split_prior = tuple(p / scale_factor for p in self._unscaled_split_prior)
+                self.reset_run_state()
+
     def propose_next(
         self,
         history: Sequence | pl.DataFrame,
@@ -603,6 +631,8 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         # Original single-value interface
         if not isinstance(history, pl.DataFrame):
             history = pl.DataFrame(history)
+
+        self._rescale_priors_if_needed(scan)
 
         self._ingest_history(history)
         next_freq, _ = self._optimize_acquisition(self.prior_bounds)
