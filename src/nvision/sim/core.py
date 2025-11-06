@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Protocol
 import polars as pl
 
 if TYPE_CHECKING:
-    from .locators import ScanBatch
+    from .locs import ScanBatch
+    from .locs.base import Locator
 
 
 @dataclass(slots=True, init=False)
@@ -94,7 +95,7 @@ class OverFrequencyNoise(Protocol):
 class OverProbeNoise(Protocol):
     """Applies noise to a single signal value, representing noise over probes."""
 
-    def apply(self, signal_value: float, rng: random.Random) -> float: ...
+    def apply(self, signal_value: float, rng: random.Random, locator: Locator) -> float: ...
 
 
 class DataGenerator(Protocol):
@@ -134,10 +135,10 @@ class CompositeOverProbeNoise:
     def add(self, model: OverProbeNoise) -> None:
         self._parts.append(model)
 
-    def apply(self, signal_value: float, rng: random.Random) -> float:
+    def apply(self, signal_value: float, rng: random.Random, locator: Locator) -> float:
         out = signal_value
         for part in self._parts:
-            out = part.apply(out, rng)
+            out = part.apply(out, rng, locator)
         return out
 
 

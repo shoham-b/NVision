@@ -139,6 +139,7 @@ class LocatorRunner:
         strategy: Locator,
         noise: CompositeNoise | None,
         max_steps: int = 200,
+        timeout_s: float = 300.0,
     ) -> LocatorRunStats:
         start = time.perf_counter()
         history_df = run_locator(
@@ -148,6 +149,7 @@ class LocatorRunner:
             over_probe_noise=noise.over_probe_noise if noise else None,
             max_steps=max_steps,
             seed=self._rng.randint(0, 2**32 - 1),
+            timeout_s=timeout_s,
         )
         est = strategy.finalize(history_df, scan)
         duration_ms = (time.perf_counter() - start) * 1000.0
