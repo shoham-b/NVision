@@ -19,7 +19,7 @@ import polars as pl
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn
 
 from nvision.cache import DataFrameCache
 from nvision.index_html import compile_html_index
@@ -146,19 +146,77 @@ def _run_combination(args):  # noqa: C901
         use_cache,
         cache_dir,
         log_queue,
+        log_level,
     ) = args
 
     if log_queue:
         queue_handler = QueueHandler(log_queue)
         worker_log = logging.getLogger()
         worker_log.addHandler(queue_handler)
-        worker_log.setLevel(logging.INFO)
+        worker_log.setLevel(log_level)
 
     log.info(f"Starting combination: {gen_name}/{noise_name}/{strat_name} for {n_repeats} repeats")
 
     cache = DataFrameCache(cache_dir)
     graphs_dir = out_dir / "graphs"
     viz = Viz(graphs_dir)
+
+    combo_cfg = {
+        "kind": "locator_combination",
+        "generator": gen_name,
+        "noise": noise_name,
+        "strategy": strat_name,
+        "repeats": n_repeats,
+        "seed": main_seed,
+        "max_steps": loc_max_steps,
+        "timeout_s": loc_timeout_s,
+    }
+    combo_key = cache.make_key(combo_cfg)
+
+    if use_cache:
+        cached_combo_df = cache.load_df(combo_key)
+        if (
+            cached_combo_df is not None
+            and "results" in cached_combo_df.columns
+            and not cached_combo_df.is_empty()
+        ):
+            cached_payload_raw = cached_combo_df.get_column("results")[0]
+            if isinstance(cached_payload_raw, str):
+                try:
+                    cached_payload = json.loads(cached_payload_raw)
+                except json.JSONDecodeError:
+                    log.warning(
+                        "Cached combination payload for %s/%s/%s is corrupted; recomputing.",
+                        gen_name,
+                        noise_name,
+                        strat_name,
+                    )
+                else:
+                    cached_results: list[tuple[list[dict[str, object]], dict[str, object]]] = []
+                    for record in cached_payload:
+                        if not isinstance(record, dict):
+                            break
+                        entries = record.get("entries")
+                        result_row = record.get("main_result_row")
+                        if not isinstance(entries, list) or not isinstance(result_row, dict):
+                            break
+                        cached_results.append((entries, result_row))
+                    else:
+                        if cached_results:
+                            log.info(
+                                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                                gen_name,
+                                noise_name,
+                                strat_name,
+                                main_seed,
+                            )
+                            return cached_results
+                    log.warning(
+                        "Cached combination payload for %s/%s/%s malformed; recomputing.",
+                        gen_name,
+                        noise_name,
+                        strat_name,
+                    )
 
     all_results_for_combination = []
 
@@ -357,6 +415,14 @@ def _run_combination(args):  # noqa: C901
         log.info(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
         all_results_for_combination.append((entries, main_result_row))
 
+    if use_cache and all_results_for_combination:
+        combo_payload = [
+            {"entries": entries, "main_result_row": main_result_row}
+            for entries, main_result_row in all_results_for_combination
+        ]
+        combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
+        cache.save_df(combo_df, combo_key)
+
     return all_results_for_combination
 
 
@@ -380,11 +446,37 @@ def cli(  # noqa: C901
         bool,
         typer.Option("--parallel", help="Run simulations in parallel"),
     ] = True,
+    log_level: Annotated[
+        str,
+        typer.Option(
+            "--log-level",
+            help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+            case_sensitive=False,
+        ),
+    ] = "INFO",
+    no_progress: Annotated[
+        bool,
+        typer.Option("--no-progress", help="Disable progress bars"),
+    ] = False,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
-    handlers = [RichHandler(console=console, rich_tracebacks=True)]
-    logging.basicConfig(level="INFO", format="%(message)s", datefmt="[%X]", handlers=handlers)
+    log_level_value = getattr(logging, log_level.upper(), logging.INFO)
+    handlers = [
+        RichHandler(
+            console=console,
+            rich_tracebacks=True,
+            show_time=True,
+            log_time_format="%Y-%m-%d %H:%M:%S",
+        )
+    ]
+    logging.basicConfig(
+        level=log_level_value,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=handlers,
+    )
+    logging.getLogger("nvision").setLevel(log_level_value)
 
     with multiprocessing.Manager() as manager:
         log_queue = manager.Queue(-1)
@@ -442,18 +534,28 @@ def cli(  # noqa: C901
                             not no_cache,
                             cache_dir,
                             log_queue,
+                            log_level_value,
                         )
                     )
 
         plot_manifest: list[dict[str, object]] = []
         df_rows: list[dict] = []
 
+        progress_kwargs = {
+            "console": console,
+            "refresh_per_second": 10,
+        }
+        if no_progress:
+            progress_kwargs["disable"] = True
+
         with Progress(
             SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            transient=True,
+            "•",
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            BarColumn(bar_width=None),
+            "•",
+            "[progress.completed]{task.completed}/{task.total}",
+            **progress_kwargs,
         ) as progress:
             task = progress.add_task("[cyan]Running simulations...", total=len(all_tasks) * repeats)
 
