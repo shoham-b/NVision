@@ -187,36 +187,55 @@ class Viz:
                 }
             )
 
-    def plot_locator_summary(self, df: pl.DataFrame) -> Sequence[dict]:
-        """Create comparison plots for locator sweeps.
+    def _plot_nv_center(self, sub: pl.DataFrame, gen: str, paths: list[dict]) -> None:
+        """Handle plotting for NV center generator subset."""
+        # Plot errors for each peak position if available
+        for col, title in zip(
+            ["abs_err_x1", "abs_err_x2", "abs_err_x3", "uncert_pos"],
+            ["Abs Error X1", "Abs Error X2", "Abs Error X3", "Uncertainty (pos)"],
+            strict=False,
+        ):
+            if col not in sub.columns:
+                continue
+            piv_pl = (
+                sub.select(["noise", "strategy", col])
+                .group_by(["noise", "strategy"])
+                .agg(pl.col(col).mean())
+                .pivot(values=col, index="noise", columns="strategy")
+                .sort("noise")
+            )
+            path = self.out_dir / f"locator_summary_nvcenter_{gen}_{col}.html"
+            self._plot_pivot_from_polars(piv_pl, f"{title} — {gen}", col, path)
+            paths.append(
+                {
+                    "type": "summary",
+                    "kind": "nv_center",
+                    "generator": gen,
+                    "metric": col,
+                    "path": path,
+                }
+            )
 
-        - For single-peak generators (name contains 'OnePeak'): plot abs_err_x
-          and uncert by (noise, strategy).
-        - For two-peak generators (name contains 'TwoPeak'): plot pair_rmse and
-          uncert_sep by (noise, strategy).
-        """
+    def plot_locator_summary(self, df: pl.DataFrame) -> Sequence[dict]:
+        """Create comparison plots for locator sweeps."""
         paths: list[dict] = []
         if df.height == 0:
             return paths
 
-        # Single-peak
-        singles = df.filter(pl.col("generator").str.contains("OnePeak"))
-        if singles.height > 0 and all(col in singles.columns for col in ["abs_err_x", "uncert"]):
-            for gen in sorted(set(singles.get_column("generator").to_list())):
-                sub = singles.filter(pl.col("generator") == gen)
-                if sub.height == 0:
-                    continue
-                self._plot_single_peak(sub, gen, paths)
+        plot_configs = [
+            ("OnePeak", ["abs_err_x", "uncert"], self._plot_single_peak),
+            ("TwoPeak", ["pair_rmse", "uncert_sep"], self._plot_double_peak),
+            ("NVCenter", [], self._plot_nv_center),
+        ]
 
-        # Two-peak
-        doubles = df.filter(pl.col("generator").str.contains("TwoPeak"))
-        if doubles.height > 0 and all(
-            col in doubles.columns for col in ["pair_rmse", "uncert_sep"]
-        ):
-            for gen in sorted(set(doubles.get_column("generator").to_list())):
-                sub = doubles.filter(pl.col("generator") == gen)
-                if sub.height == 0:
-                    continue
-                self._plot_double_peak(sub, gen, paths)
+        for name, required_cols, plot_func in plot_configs:
+            subset = df.filter(pl.col("generator").str.contains(name))
+            if subset.height > 0 and (
+                not required_cols or all(col in subset.columns for col in required_cols)
+            ):
+                for gen in sorted(set(subset.get_column("generator").to_list())):
+                    sub = subset.filter(pl.col("generator") == gen)
+                    if sub.height > 0:
+                        plot_func(sub, gen, paths)
 
         return paths

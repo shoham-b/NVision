@@ -176,247 +176,8 @@
 
 <p><a download href="locator_results.csv">Download locator_results.csv</a></p>
 
-<div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
-    <h2>Scan Measurements</h2>
-    <div class="control-row">
-        <span class="control-label">Generator Type:</span>
-        <div
-                aria-label="Scan generator type"
-                class="segmented-control"
-                id="scan-generator-type"
-                role="radiogroup"
-        ></div>
-    </div>
-    <div class="control-row">
-        <span class="control-label">Generator:</span>
-        <div
-                aria-label="Scan generator"
-                class="segmented-control"
-                id="scan-generator"
-                role="radiogroup"
-        ></div>
-    </div>
-    <div class="control-row">
-        <span class="control-label">Noise:</span>
-        <div
-                aria-label="Scan noise"
-                class="segmented-control"
-                id="scan-noise"
-                role="radiogroup"
-        ></div>
-    </div>
-    <div class="control-row">
-        <span class="control-label">Strategy:</span>
-        <div
-                aria-label="Scan strategy"
-                class="segmented-control"
-                id="scan-strategy"
-                role="radiogroup"
-        ></div>
-    </div>
-    <div class="control-row">
-        <span class="control-label">Repeat:</span>
-        <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
-            <button
-                    aria-label="Previous repeat"
-                    class="control-button"
-                    id="scan-repeat-prev"
-                    type="button"
-            >
-                Previous
-            </button>
-            <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
-            <button
-                    aria-label="Next repeat"
-                    class="control-button"
-                    id="scan-repeat-next"
-                    type="button"
-            >
-                Next
-            </button>
-        </div>
-    </div>
-    <p class="metrics" id="scan-metrics"></p>
-    <iframe id="scan-iframe"></iframe>
+<div class="tab-bar">
 </div>
-
-<div aria-label="Bayesian Analysis" class="section" hidden id="bayes-section" role="region">
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>NVision results</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            margin: 2em;
-            line-height: 1.6;
-            color: #333;
-            background-color: #f4f4f4;
-        }
-
-        h1, h2, h3 {
-            color: #0056b3;
-            border-bottom: 2px solid #0056b3;
-            padding-bottom: 0.5em;
-            margin-top: 1em;
-        }
-
-        .section {
-            background-color: #fff;
-            border: 1px solid #ddd;
-            padding: 1.5em;
-            margin-bottom: 2em;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .metrics {
-            margin-top: 0.75em;
-            font-size: 0.95em;
-            color: #444;
-        }
-
-        .control-row {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 0.75em;
-            margin: 0.5em 0;
-        }
-
-        .control-label {
-            font-weight: bold;
-        }
-
-        .tab-bar {
-            display: flex;
-            gap: 0.75em;
-            margin: 1.5em 0;
-            flex-wrap: wrap;
-        }
-
-        .tab-button {
-            padding: 0.6em 1.2em;
-            border: 1px solid #ccc;
-            border-radius: 999px;
-            background-color: #f1f1f1;
-            color: #333;
-            cursor: pointer;
-            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
-        }
-
-        .tab-button:hover:not(:disabled) {
-            border-color: #888;
-            background-color: #e2e2e2;
-        }
-
-        .tab-button.is-active {
-            background-color: #0056b3;
-            border-color: #0056b3;
-            color: #fff;
-        }
-
-        .tab-panel.is-hidden {
-            display: none;
-        }
-
-        .segmented-control {
-            display: inline-flex;
-            flex-wrap: wrap;
-            gap: 0.5em;
-        }
-
-        .segmented-control button {
-            padding: 0.4em 0.9em;
-            border: 1px solid #ccc;
-            border-radius: 999px;
-            background-color: #f9f9f9;
-            color: #333;
-            cursor: pointer;
-            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
-        }
-
-        .segmented-control button:hover {
-            border-color: #888;
-        }
-
-        .segmented-control button.is-active {
-            background-color: #0056b3;
-            border-color: #0056b3;
-            color: #fff;
-        }
-
-        .segmented-control button:focus-visible {
-            outline: 2px solid #0056b3;
-            outline-offset: 2px;
-        }
-
-        .repeat-picker {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5em;
-        }
-
-        .control-button {
-            padding: 0.4em 0.9em;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            background-color: #f9f9f9;
-            color: #333;
-            cursor: pointer;
-            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
-        }
-
-        .control-button:hover:not(:disabled) {
-            border-color: #888;
-            background-color: #f0f0f0;
-        }
-
-        .control-button:disabled {
-            cursor: not-allowed;
-            opacity: 0.6;
-        }
-
-        .control-select {
-            padding: 0.6em 0.8em;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            background-color: #f9f9f9;
-            cursor: pointer;
-            min-width: 6em;
-        }
-
-        .control-select:hover {
-            border-color: #888;
-        }
-
-        iframe {
-            width: 100%;
-            height: 600px;
-            border: 1px solid #ccc;
-            margin-top: 1.5em;
-            border-radius: 4px;
-            background-color: #fff;
-        }
-
-        p {
-            margin-top: 1em;
-        }
-
-        a {
-            color: #0056b3;
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-    </style>
-</head>
-<body>
-<h1>NVision results (${out_dir_display})</h1>
-
-<p><a download href="locator_results.csv">Download locator_results.csv</a></p>
 
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
     <h2>Scan Measurements</h2>
@@ -482,7 +243,7 @@
     <iframe id="scan-iframe"></iframe>
 </div>
 
-<div aria-label="Bayesian Analysis" class="section" hidden id="bayes-section" role="region">
+<div aria-label="Bayesian Analysis" class="section tab-panel is-hidden" id="bayes-section" role="tabpanel">
     <h2>Bayesian Analysis</h2>
     <p>This section shows plots related to the Bayesian optimization process.</p>
     <img alt="Bayesian optimization visualization" hidden id="bayes-image">
@@ -499,9 +260,7 @@
     </div>
 </div>
 
-<script id="plots-manifest" type="application/json">${
-    manifest_json
-}</script>
+<script id="plots-manifest" type="application/json">${manifest_json}</script>
 <script>
     function main() {
         const manifestEl = document.getElementById('plots-manifest');
@@ -569,7 +328,6 @@
             }
 
             if (!selectedPlot) {
-                bayesSection.hidden = true;
                 bayesImage.hidden = true;
                 bayesImage.removeAttribute('src');
                 return;
@@ -584,7 +342,6 @@
             );
 
             if (!bayesPlot) {
-                bayesSection.hidden = true;
                 bayesImage.hidden = true;
                 bayesImage.removeAttribute('src');
                 return;
@@ -592,7 +349,6 @@
 
             bayesImage.src = bayesPlot.path;
             bayesImage.hidden = false;
-            bayesSection.hidden = false;
         }
 
         function updateBayesStatsView(selectedPlot) {
@@ -945,6 +701,60 @@
             }
         }
 
+        function setupTabs() {
+            const tabBar = document.querySelector('.tab-bar');
+            const tabPanels = document.querySelectorAll('.tab-panel');
+
+            const hasScans = scanPlots.length > 0;
+            const hasBayes = bayesPlots.length > 0 || bayesStatsPlots.length > 0;
+
+            if (hasScans) {
+                const button = document.createElement('button');
+                button.className = 'tab-button';
+                button.textContent = 'Scan Measurements';
+                button.dataset.tab = 'scan-section';
+                tabBar.appendChild(button);
+            }
+
+            if (hasBayes) {
+                const button = document.createElement('button');
+                button.className = 'tab-button';
+                button.textContent = 'Bayesian Analysis';
+                button.dataset.tab = 'bayes-section';
+                tabBar.appendChild(button);
+            }
+
+            const tabButtons = tabBar.querySelectorAll('.tab-button');
+            if (tabButtons.length > 0) {
+                tabButtons[0].classList.add('is-active');
+                const initialTabId = tabButtons[0].dataset.tab;
+                const initialPanel = document.getElementById(initialTabId);
+                if (initialPanel) {
+                    initialPanel.classList.remove('is-hidden');
+                }
+            }
+
+
+            tabBar.addEventListener('click', (e) => {
+                const target = e.target;
+                if (!target.matches('.tab-button')) {
+                    return;
+                }
+
+                tabButtons.forEach(button => button.classList.remove('is-active'));
+                target.classList.add('is-active');
+
+                tabPanels.forEach(panel => {
+                    if (panel.id === target.dataset.tab) {
+                        panel.classList.remove('is-hidden');
+                    } else {
+                        panel.classList.add('is-hidden');
+                    }
+                });
+            });
+        }
+
+
         scanGeneratorType.addEventListener('controlchange', () => {
             updateControls();
             findAndDisplayPlot();
@@ -990,13 +800,9 @@
         }
 
         try {
+            setupTabs();
             updateControls();
             findAndDisplayPlot();
-            
-            // Show the UI controls now that they're populated
-            document.querySelectorAll('.control-row, .section').forEach(el => {
-                el.style.display = 'block';
-            });
         } catch (error) {
             console.error('Error initializing UI controls:', error);
             // Show an error message to the user
