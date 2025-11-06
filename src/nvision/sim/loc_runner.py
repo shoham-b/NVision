@@ -52,6 +52,7 @@ class LocatorRunStats:
     estimate: Mapping[str, float]
     measurements: int
     duration_ms: float
+    timed_out: bool = False
 
 
 def _aggregate_repeat_records(records: list[dict[str, float]]) -> dict[str, float]:
@@ -142,22 +143,51 @@ class LocatorRunner:
         timeout_s: float = 300.0,
     ) -> LocatorRunStats:
         start = time.perf_counter()
-        history_df = run_locator(
-            locator=strategy,
-            scan=scan,
-            over_frequency_noise=noise.over_frequency_noise if noise else None,
-            over_probe_noise=noise.over_probe_noise if noise else None,
-            max_steps=max_steps,
-            seed=self._rng.randint(0, 2**32 - 1),
-            timeout_s=timeout_s,
-        )
+
+        # Track if the run timed out
+        timed_out = False
+
+        try:
+            history_df = run_locator(
+                locator=strategy,
+                scan=scan,
+                over_frequency_noise=noise.over_frequency_noise if noise else None,
+                over_probe_noise=noise.over_probe_noise if noise else None,
+                max_steps=max_steps,
+                seed=self._rng.randint(0, 2**32 - 1),
+                timeout_s=timeout_s,
+            )
+        except TimeoutError:
+            # This exception is raised when run_locator times out
+            timed_out = True
+            # Re-run with the remaining time to get the history up to the timeout
+            remaining_time = max(0, timeout_s - (time.perf_counter() - start))
+            if remaining_time > 0:
+                history_df = run_locator(
+                    locator=strategy,
+                    scan=scan,
+                    over_frequency_noise=noise.over_frequency_noise if noise else None,
+                    over_probe_noise=noise.over_probe_noise if noise else None,
+                    max_steps=0,  # Just get the history
+                    seed=self._rng.randint(0, 2**32 - 1),
+                    timeout_s=remaining_time,
+                )
+            else:
+                history_df = pl.DataFrame()
+
         est = strategy.finalize(history_df, scan)
         duration_ms = (time.perf_counter() - start) * 1000.0
+
+        # If we timed out, ensure the estimate includes this information
+        if timed_out and isinstance(est, dict):
+            est = {**est, "timed_out": True}
+
         return LocatorRunStats(
             history=history_df,
             estimate=est,
             measurements=history_df.height,
             duration_ms=duration_ms,
+            timed_out=timed_out,
         )
 
     def sweep(

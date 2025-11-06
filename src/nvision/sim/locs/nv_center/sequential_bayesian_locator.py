@@ -50,7 +50,7 @@ from scipy.stats import cauchy
 
 
 @dataclass
-class NVCenterSequentialBayesianLocator(Locator):
+class NVCenterSequentialBayesianLocatorSingle(Locator):
     """
     An advanced locator implementing Sequential Bayesian Experiment Design (SBED).
 
@@ -541,34 +541,56 @@ class NVCenterSequentialBayesianLocator(Locator):
 
         return optimal_freq, utility
 
-    def propose_next(self, history: Sequence | pl.DataFrame, scan: ScanBatch) -> float:
+    def propose_next(
+        self,
+        history: Sequence | pl.DataFrame,
+        scan: ScanBatch | None = None,
+        repeats: pl.DataFrame | None = None,
+    ) -> float | pl.DataFrame:
+        """Propose the next measurement point.
+
+        This method supports both the old (single-value) and new (batched) interfaces:
+        1. If called with just history and scan, returns a single float (old interface)
+        2. If called with repeats, returns a DataFrame with repeat_id and x columns (new interface)
+        """
+        if repeats is not None:
+            # Batched interface - delegate to the batched adapter
+            from nvision.sim.locs.nv_center._bayesian_adapter import (
+                NVCenterSequentialBayesianLocatorBatched,
+            )
+
+            adapter = NVCenterSequentialBayesianLocatorBatched(
+                max_evals=self.max_evals,
+                prior_bounds=self.prior_bounds,
+                noise_model=self.noise_model,
+                acquisition_function=self.acquisition_function,
+                convergence_threshold=self.convergence_threshold,
+                min_uncertainty_reduction=self.min_uncertainty_reduction,
+                n_monte_carlo=self.n_monte_carlo,
+                grid_resolution=self.grid_resolution,
+                linewidth_prior=self.linewidth_prior,
+                distribution=self.distribution,
+                gaussian_width_prior=self.gaussian_width_prior,
+                split_prior=self.split_prior,
+                amplitude_prior=self.amplitude_prior,
+                background_prior=self.background_prior,
+                bo_enabled=self.bo_enabled,
+                bo_acq_func=self.bo_acq_func,
+                bo_kappa=self.bo_kappa,
+                bo_xi=self.bo_xi,
+                bo_random_state=self.bo_random_state,
+                utility_history_window=self.utility_history_window,
+                n_warmup=self.n_warmup,
+            )
+            return adapter.propose_next(history, repeats, scan)
+
+        # Original single-value interface
+        if not isinstance(history, pl.DataFrame):
+            history = pl.DataFrame(history)
+
         self._ingest_history(history)
-
-        if len(self.measurement_history) < self.n_warmup:
-            return np.linspace(scan.x_min, scan.x_max, self.n_warmup)[len(self.measurement_history)]
-
-        if self.bo_enabled and self._bo is not None and self._bo_utility is not None:
-            self._init_bayes_optimizer()
-            for m in self.measurement_history:
-                if m["signal_values"] > 1e-9:
-                    self._bo.register(
-                        params={"freq": float(m["x"])},
-                        target=-float(m["signal_values"]),
-                    )
-            taken = {round(m["x"], 12) for m in self.measurement_history}
-            proposal = self.current_estimates["frequency"]
-            for _ in range(10):
-                suggestion = self._bo.suggest(self._bo_utility)["freq"]
-                suggestion = float(np.clip(suggestion, scan.x_min, scan.x_max))
-                if round(suggestion, 12) not in taken:
-                    proposal = suggestion
-                    break
-            self.utility_history.append(float("nan"))
-            return proposal
-
-        optimal_freq, utility = self._optimize_acquisition((scan.x_min, scan.x_max))
-        self.utility_history.append(utility)
-        return optimal_freq
+        next_freq, _ = self._optimize_acquisition(self.prior_bounds)
+        return float(next_freq)
 
     def should_stop(self, history: Sequence | pl.DataFrame, scan: ScanBatch) -> bool:
         hist_len = history.height if isinstance(history, pl.DataFrame) else len(history)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import logging
@@ -11,9 +10,10 @@ import shutil
 import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import polars as pl
 import typer
@@ -39,6 +39,33 @@ from nvision.sim import cases as sim_cases
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
+
+app = typer.Typer(help="NVision simulation runner")
+
+
+@dataclass(slots=True)
+class LocatorTask:
+    generator_name: str
+    generator: Any
+    noise_name: str
+    noise: CompositeNoise | None
+    strategy_name: str
+    strategy: Any
+    repeats: int
+    seed: int
+    slug: str
+    out_dir: Path
+    scans_dir: Path
+    bayes_dir: Path
+    loc_max_steps: int
+    loc_timeout_s: int
+    use_cache: bool
+    cache_dir: Path
+    log_queue: Any
+    log_level: int
+
+    def __str__(self) -> str:
+        return self.slug
 
 
 def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
@@ -127,37 +154,59 @@ def _scan_attempt_metrics(
     return metrics
 
 
-def _run_combination(args):  # noqa: C901
-    (
+def _category_cache_dir(base: Path, category: str) -> Path:
+    slug = slugify(category or "unknown")
+    return base / slug
+
+
+def _ensure_worker_queue_logging(queue: Any, level: int) -> None:
+    """Attach a multiprocessing QueueHandler exactly once per worker process."""
+    root_logger = logging.getLogger()
+    if getattr(root_logger, "_nvision_queue_handler_attached", False):
+        root_logger.setLevel(level)
+        return
+
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+
+    queue_handler = QueueHandler(queue)
+    root_logger.addHandler(queue_handler)
+    root_logger.setLevel(level)
+    root_logger._nvision_queue_handler_attached = True  # type: ignore[attr-defined]
+
+
+def _run_combination(task: LocatorTask):  # noqa: C901
+    if task.log_queue:
+        _ensure_worker_queue_logging(task.log_queue, task.log_level)
+
+    gen_name = task.generator_name
+    gen_obj = task.generator
+    noise_name = task.noise_name
+    noise_obj = task.noise
+    strat_name = task.strategy_name
+    strat_obj = task.strategy
+    n_repeats = task.repeats
+    main_seed = task.seed
+    slug_base = task.slug
+    out_dir = task.out_dir
+    scans_dir = task.scans_dir
+    # bayes_dir is currently unused
+    loc_max_steps = task.loc_max_steps
+    loc_timeout_s = task.loc_timeout_s
+    use_cache = task.use_cache
+    cache_dir = task.cache_dir
+
+    log.info(
+        "Starting combination: %s/%s/%s for %s repeats",
         gen_name,
-        gen_obj,
         noise_name,
-        noise_obj,
         strat_name,
-        strat_obj,
         n_repeats,
-        main_seed,
-        slug_base,
-        out_dir,
-        scans_dir,
-        bayes_dir,
-        loc_max_steps,
-        loc_timeout_s,
-        use_cache,
-        cache_dir,
-        log_queue,
-        log_level,
-    ) = args
+    )
 
-    if log_queue:
-        queue_handler = QueueHandler(log_queue)
-        worker_log = logging.getLogger()
-        worker_log.addHandler(queue_handler)
-        worker_log.setLevel(log_level)
-
-    log.info(f"Starting combination: {gen_name}/{noise_name}/{strat_name} for {n_repeats} repeats")
-
-    cache = DataFrameCache(cache_dir)
+    category = _get_generator_category(gen_name)
+    cache_category_dir = _category_cache_dir(cache_dir, category)
+    cache = DataFrameCache(cache_category_dir)
     graphs_dir = out_dir / "graphs"
     viz = Viz(graphs_dir)
 
@@ -220,13 +269,11 @@ def _run_combination(args):  # noqa: C901
 
     all_results_for_combination = []
 
-    # Initialize state for all repeats
+    # Initialize state for all repeats (batched)
     repeat_rngs = []
     initial_scans = []
-    repeat_locators = []
-    repeat_histories = []
     repeat_start_times = []
-    finished_repeats = [False] * n_repeats
+    repeat_stop_reasons = ["" for _ in range(n_repeats)]
 
     for attempt_idx_in_combo in range(n_repeats):
         combo_seed_str = f"{main_seed}-{gen_name}-{strat_name}-{noise_name}-{attempt_idx_in_combo}"
@@ -234,68 +281,147 @@ def _run_combination(args):  # noqa: C901
 
         repeat_rngs.append(random.Random(attempt_seed))
         initial_scans.append(gen_obj.generate(repeat_rngs[-1]))
-
-        repeat_locators.append(copy.deepcopy(strat_obj))
-        repeat_histories.append([])
         repeat_start_times.append(time.perf_counter())
 
-    # Lockstep simulation loop
+    # Batched history and repeat tracking
+    history_rows = []
+    repeats_df = pl.DataFrame(
+        {
+            "repeat_id": list(range(n_repeats)),
+            "active": [True] * n_repeats,
+        }
+    )
+
+    # Lockstep simulation loop using batched locator interface
     global_start_time = time.perf_counter()
-    for _step in range(loc_max_steps):
-        if all(finished_repeats):
+    for step_num in range(loc_max_steps):
+        active_repeats = repeats_df.filter(pl.col("active")).get_column("repeat_id").to_list()
+        if not active_repeats:
             break
 
         if time.perf_counter() - global_start_time > loc_timeout_s:
             log.warning(f"Combination timeout ({loc_timeout_s}s) reached. Finalizing.")
+            for rid in active_repeats:
+                if not repeat_stop_reasons[rid]:
+                    repeat_stop_reasons[rid] = "combination_timeout"
             break
 
-        for attempt_idx_in_combo in range(n_repeats):
-            if finished_repeats[attempt_idx_in_combo]:
+        # Build current history DataFrame
+        if history_rows:
+            history_df = pl.DataFrame(history_rows)
+        else:
+            history_df = pl.DataFrame(
+                {
+                    "repeat_id": pl.Series("repeat_id", [], dtype=pl.Int64),
+                    "step": pl.Series("step", [], dtype=pl.Int64),
+                    "x": pl.Series("x", [], dtype=pl.Float64),
+                    "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
+                }
+            )
+
+        # Check which repeats should stop
+        stop_decisions = strat_obj.should_stop(history_df, repeats_df, initial_scans[0])
+        for row_dict in stop_decisions.to_dicts():
+            rid = row_dict["repeat_id"]
+            if row_dict["stop"] and rid in active_repeats:
+                repeats_df = repeats_df.with_columns(
+                    pl.when(pl.col("repeat_id") == rid)
+                    .then(pl.lit(False))
+                    .otherwise(pl.col("active"))
+                    .alias("active")
+                )
+                if not repeat_stop_reasons[rid]:
+                    repeat_stop_reasons[rid] = "locator_stop"
+
+        # Refresh active list after stop check
+        active_repeats = repeats_df.filter(pl.col("active")).get_column("repeat_id").to_list()
+        if not active_repeats:
+            break
+
+        # Propose next measurements for active repeats
+        proposals = strat_obj.propose_next(history_df, repeats_df, initial_scans[0])
+
+        # Execute measurements for each active repeat
+        for row_dict in proposals.to_dicts():
+            rid = row_dict["repeat_id"]
+            if rid not in active_repeats:
                 continue
 
-            current_locator = repeat_locators[attempt_idx_in_combo]
-            current_scan = initial_scans[attempt_idx_in_combo]
-            current_history_list = repeat_histories[attempt_idx_in_combo]
-
-            current_history_df = pl.DataFrame(current_history_list)
-
-            if current_locator.should_stop(current_history_df, current_scan):
-                finished_repeats[attempt_idx_in_combo] = True
-                continue
-
-            if time.perf_counter() - repeat_start_times[attempt_idx_in_combo] > loc_timeout_s:
-                log.warning(f"Repeat {attempt_idx_in_combo+1} ({gen_name}/{noise_name}) timed out.")
-                finished_repeats[attempt_idx_in_combo] = True
-                continue
-
-            x_next = current_locator.propose_next(current_history_df, current_scan)
+            x_next = row_dict["x"]
+            current_scan = initial_scans[rid]
             y_ideal = current_scan.signal(x_next)
 
             y_measured = (
-                noise_obj.over_probe_noise.apply(
-                    y_ideal, repeat_rngs[attempt_idx_in_combo], current_locator
-                )
+                noise_obj.over_probe_noise.apply(y_ideal, repeat_rngs[rid], strat_obj)
                 if noise_obj and noise_obj.over_probe_noise
                 else y_ideal
             )
 
-            current_history_list.append({"x": x_next, "signal_values": y_measured})
-            repeat_histories[attempt_idx_in_combo] = current_history_list
+            history_rows.append(
+                {
+                    "repeat_id": rid,
+                    "step": step_num,
+                    "x": x_next,
+                    "signal_values": y_measured,
+                }
+            )
 
-    # Finalize and collect results for each repeat
+    # Mark remaining active repeats as max_steps_reached
+    for rid in range(n_repeats):
+        if not repeat_stop_reasons[rid]:
+            repeat_stop_reasons[rid] = "max_steps_reached"
+
+    # Build final history DataFrame
+    if history_rows:
+        final_history_df = pl.DataFrame(history_rows)
+    else:
+        final_history_df = pl.DataFrame(
+            {
+                "repeat_id": pl.Series("repeat_id", [], dtype=pl.Int64),
+                "step": pl.Series("step", [], dtype=pl.Int64),
+                "x": pl.Series("x", [], dtype=pl.Float64),
+                "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
+            }
+        )
+
+    # Finalize all repeats at once
+    finalize_results = strat_obj.finalize(final_history_df, repeats_df, initial_scans[0])
+
+    # Collect results for each repeat
     for attempt_idx_in_combo in range(n_repeats):
-        current_locator = repeat_locators[attempt_idx_in_combo]
         current_scan = initial_scans[attempt_idx_in_combo]
-        current_history_list = repeat_histories[attempt_idx_in_combo]
-        current_history_df = pl.DataFrame(current_history_list)
+
+        # Extract history for this repeat
+        if not final_history_df.is_empty():
+            current_history_df = final_history_df.filter(
+                pl.col("repeat_id") == attempt_idx_in_combo
+            ).drop("repeat_id")
+        else:
+            current_history_df = pl.DataFrame(
+                {
+                    "x": pl.Series("x", [], dtype=pl.Float64),
+                    "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
+                }
+            )
+
+        if current_history_df.is_empty():
+            log.info(
+                "No measurements recorded for repeat %s (reason=%s); "
+                "generating baseline scan plot.",
+                attempt_idx_in_combo + 1,
+                repeat_stop_reasons[attempt_idx_in_combo],
+            )
 
         duration_ms = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
 
-        if current_history_df.is_empty():
+        # Extract finalize result for this repeat
+        finalize_row = finalize_results.filter(pl.col("repeat_id") == attempt_idx_in_combo)
+        if finalize_row.is_empty() or current_history_df.is_empty():
             estimate = {"x_hat": math.nan, "uncert": math.inf}
             measurements = 0
         else:
-            estimate = current_locator.finalize(current_history_df, current_scan)
+            estimate_dict = finalize_row.drop("repeat_id").to_dicts()[0]
+            estimate = {k: float(v) for k, v in estimate_dict.items()}
             measurements = current_history_df.height
 
         attempt_metrics = _scan_attempt_metrics(current_scan.truth_positions, estimate)
@@ -321,6 +447,7 @@ def _run_combination(args):  # noqa: C901
                 "strategy": strat_name,
                 "repeat": attempt_idx_in_combo + 1,
                 "repeat_total": n_repeats,
+                "stop_reason": repeat_stop_reasons[attempt_idx_in_combo],
                 "abs_err_x": metrics_serialized.get("abs_err_x"),
                 "uncert": metrics_serialized.get("uncert"),
                 "measurements": metrics_serialized.get("measurements"),
@@ -330,58 +457,11 @@ def _run_combination(args):  # noqa: C901
             }
         ]
 
-        is_bayesian = isinstance(current_locator, NVCenterSequentialBayesianLocator)
+        # is_bayesian is currently unused
+        # is_bayesian = isinstance(strat_obj, NVCenterSequentialBayesianLocator)
 
-        if is_bayesian and measurements > 0:
-            bo_output_path = bayes_dir / f"{attempt_slug}_bo.png"
-            bo_result = current_locator.plot_bo(bo_output_path)
-            if bo_result is not None:
-                entries.append(
-                    {
-                        "type": "bayesian",
-                        "generator": gen_name,
-                        "noise": noise_name,
-                        "strategy": strat_name,
-                        "repeat": attempt_idx_in_combo + 1,
-                        "repeat_total": n_repeats,
-                        "path": bo_result.relative_to(out_dir).as_posix(),
-                        "format": "png",
-                    }
-                )
-
-            posterior_hist_path = bayes_dir / f"{attempt_slug}_posterior_history.png"
-            posterior_result = current_locator.plot_posterior_history(posterior_hist_path)
-            if posterior_result is not None:
-                entries.append(
-                    {
-                        "type": "bayesian_stats",
-                        "kind": "posterior_history",
-                        "generator": gen_name,
-                        "noise": noise_name,
-                        "strategy": strat_name,
-                        "repeat": attempt_idx_in_combo + 1,
-                        "repeat_total": n_repeats,
-                        "path": posterior_result.relative_to(out_dir).as_posix(),
-                        "format": "png",
-                    }
-                )
-
-            convergence_stats_path = bayes_dir / f"{attempt_slug}_convergence_stats.png"
-            convergence_result = current_locator.plot_convergence_stats(convergence_stats_path)
-            if convergence_result is not None:
-                entries.append(
-                    {
-                        "type": "bayesian_stats",
-                        "kind": "convergence_stats",
-                        "generator": gen_name,
-                        "noise": noise_name,
-                        "strategy": strat_name,
-                        "repeat": attempt_idx_in_combo + 1,
-                        "repeat_total": n_repeats,
-                        "path": convergence_result.relative_to(out_dir).as_posix(),
-                        "format": "png",
-                    }
-                )
+        # Bayesian plotting is currently not supported in batched mode
+        # TODO: Implement per-repeat Bayesian plot extraction from batched locator
 
         main_result_row = {
             "generator": gen_name,
@@ -389,6 +469,7 @@ def _run_combination(args):  # noqa: C901
             "strategy": strat_name,
             "repeats": n_repeats,
             "attempt": attempt_idx_in_combo + 1,
+            "stop_reason": repeat_stop_reasons[attempt_idx_in_combo],
             **metrics_serialized,
         }
 
@@ -426,7 +507,8 @@ def _run_combination(args):  # noqa: C901
     return all_results_for_combination
 
 
-def cli(  # noqa: C901
+@app.command()
+def run(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
     seed: Annotated[int, typer.Option("--seed", help="RNG seed (int)")] = 123,
@@ -437,7 +519,7 @@ def cli(  # noqa: C901
     loc_timeout_s: Annotated[
         int,
         typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
-    ] = 300,
+    ] = 1500,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache", help="Disable caching for this run"),
@@ -504,33 +586,48 @@ def cli(  # noqa: C901
         generator_map = dict(sim_cases.generators_basic())
         noise_map = dict(_noise_presets())
 
-        all_tasks = []
+        tasks: list[LocatorTask] = []
+        seen_configs: set[tuple[str, str, str]] = set()
+        used_slugs: set[str] = set()
+
         for gen_name, gen_obj in generator_map.items():
             for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
                 for noise_name, noise_obj in noise_map.items():
+                    config_key = (gen_name, noise_name, strat_name)
+                    if config_key in seen_configs:
+                        continue
+                    seen_configs.add(config_key)
+
                     slug_base = "_".join(
                         slugify(part) for part in (gen_name, noise_name, strat_name)
                     )
-                    all_tasks.append(
-                        (
-                            gen_name,
-                            gen_obj,
-                            noise_name,
-                            noise_obj,
-                            strat_name,
-                            strat_obj,
-                            repeats,
-                            seed,
-                            slug_base,
-                            out_dir,
-                            scans_dir,
-                            bayes_dir,
-                            loc_max_steps,
-                            loc_timeout_s,
-                            not no_cache,
-                            cache_dir,
-                            log_queue,
-                            log_level_value,
+                    slug_candidate = slug_base
+                    suffix = 1
+                    while slug_candidate in used_slugs:
+                        suffix += 1
+                        slug_candidate = f"{slug_base}-{suffix}"
+                    used_slugs.add(slug_candidate)
+
+                    tasks.append(
+                        LocatorTask(
+                            generator_name=gen_name,
+                            generator=gen_obj,
+                            noise_name=noise_name,
+                            noise=noise_obj,
+                            strategy_name=strat_name,
+                            strategy=strat_obj,
+                            repeats=repeats,
+                            seed=seed,
+                            slug=slug_candidate,
+                            out_dir=out_dir,
+                            scans_dir=scans_dir,
+                            bayes_dir=bayes_dir,
+                            loc_max_steps=loc_max_steps,
+                            loc_timeout_s=loc_timeout_s,
+                            use_cache=not no_cache,
+                            cache_dir=cache_dir,
+                            log_queue=log_queue,
+                            log_level=log_level_value,
                         )
                     )
 
@@ -553,29 +650,32 @@ def cli(  # noqa: C901
             "[progress.completed]{task.completed}/{task.total}",
             **progress_kwargs,
         ) as progress:
-            task = progress.add_task("[cyan]Running simulations...", total=len(all_tasks) * repeats)
+            progress_task_id = progress.add_task(
+                "[cyan]Running simulations...", total=len(tasks) * repeats
+            )
 
             if parallel:
                 with ProcessPoolExecutor() as executor:
                     futures = {
-                        executor.submit(_run_combination, task_args): task_args
-                        for task_args in all_tasks
+                        executor.submit(_run_combination, locator_task): locator_task
+                        for locator_task in tasks
                     }
                     for future in as_completed(futures):
+                        locator_task = futures[future]
                         results_for_combination = future.result()
                         for entries, main_result_row in results_for_combination:
                             plot_manifest.extend(entries)
                             df_rows.append(main_result_row)
-                        desc = f"Done: {main_result_row['generator']}/{main_result_row['noise']}"
-                        progress.update(task, advance=repeats, description=desc)
+                        desc = f"Done: {locator_task.generator_name}/{locator_task.noise_name}"
+                        progress.update(progress_task_id, advance=repeats, description=desc)
             else:
-                for task_args in all_tasks:
-                    results_for_combination = _run_combination(task_args)
+                for locator_task in tasks:
+                    results_for_combination = _run_combination(locator_task)
                     for entries, main_result_row in results_for_combination:
                         plot_manifest.extend(entries)
                         df_rows.append(main_result_row)
-                    desc = f"Done: {main_result_row['generator']}/{main_result_row['noise']}"
-                    progress.update(task, advance=repeats, description=desc)
+                    desc = f"Done: {locator_task.generator_name}/{locator_task.noise_name}"
+                    progress.update(progress_task_id, advance=repeats, description=desc)
 
         listener.stop()
 
@@ -605,6 +705,147 @@ def cli(  # noqa: C901
 
         log.info(f"Wrote locator results to: {out_dir}")
     return 0
+
+
+def _should_delete_file(
+    file_path: Path,
+    strategy: str | None,
+    generator: str | None,
+    noise: str | None,
+) -> bool:
+    """Determine if a file should be deleted based on filters."""
+    with file_path.open() as f:
+        try:
+            config = json.load(f)
+        except json.JSONDecodeError:
+            return False
+
+    return all(
+        [
+            not (strategy and config.get("strategy") != strategy),
+            not (generator and config.get("generator") != generator),
+            not (noise and config.get("noise") != noise),
+        ]
+    )
+
+
+def _get_cache_dirs(cache_base_dir: Path, category: str | None) -> list[Path]:
+    """Get list of cache directories to process."""
+    if category:
+        return [cache_base_dir / category]
+    categories = [p for p in cache_base_dir.iterdir() if p.is_dir()]
+    return categories if categories else [cache_base_dir / "unknown"]
+
+
+def _find_matching_files(
+    cache_base_dir: Path,
+    category: str | None,
+    strategy: str | None,
+    generator: str | None,
+    noise: str | None,
+) -> tuple[list[Path], list[Path]]:
+    """Find cache files matching the given filters."""
+    matches = []
+    configs = []
+    for cat_dir in _get_cache_dirs(cache_base_dir, category):
+        if not cat_dir.exists():
+            continue
+        for entry in cat_dir.glob("*.parquet"):
+            cfg_path = entry.with_suffix(".json")
+            if not cfg_path.exists():
+                continue
+            try:
+                with cfg_path.open() as f:
+                    config = json.load(f)
+                if _matches_filter(config, category, strategy, generator, noise):
+                    matches.append(entry)
+                    configs.append(cfg_path)
+            except json.JSONDecodeError:
+                continue
+    return matches, configs
+
+
+def _delete_files(files: list[Path], dry_run: bool) -> None:
+    """Delete files with dry run support."""
+    for path in files:
+        if dry_run:
+            typer.echo(f"[dry-run] Would delete: {path}")
+        else:
+            path.unlink(missing_ok=True)
+            typer.echo(f"Deleted: {path}")
+
+
+@app.command()
+def cache_clean(
+    out: Annotated[Path, typer.Option("--out", help="Output directory", dir_okay=True)] = Path(
+        "artifacts"
+    ),
+    category: Annotated[
+        str | None,
+        typer.Option("--category", help="Generator category (OnePeak, TwoPeak, NVCenter)"),
+    ] = None,
+    strategy: Annotated[
+        str | None, typer.Option("--strategy", help="Locator strategy filter")
+    ] = None,
+    generator: Annotated[
+        str | None, typer.Option("--generator", help="Generator name filter")
+    ] = None,
+    noise: Annotated[str | None, typer.Option("--noise", help="Noise preset filter")] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show matches without deleting")
+    ] = False,
+) -> None:
+    """Delete cached simulation artifacts matching optional filters."""
+
+    cache_base_dir = out / "cache"
+    if not cache_base_dir.exists():
+        typer.echo(f"No cache directory found at {cache_base_dir}")
+        raise typer.Exit(code=0)
+
+    # Find matching files
+    matches, configs = _find_matching_files(cache_base_dir, category, strategy, generator, noise)
+
+    if not matches:
+        typer.echo("No cache parts matched the provided filters.")
+        raise typer.Exit(code=0)
+
+    # Show what will be deleted
+    typer.echo("Matched cache files:")
+    for path in matches + configs:
+        typer.echo(f"  {path}")
+
+    if dry_run:
+        typer.echo("\nRun without --dry-run to delete these files.")
+        raise typer.Exit(code=0)
+
+    # Confirm before deletion
+    if not typer.confirm(f"\nDelete {len(matches)} cache files and {len(configs)} configs?"):
+        raise typer.Abort()
+
+    # Perform deletion
+    _delete_files(matches + configs, dry_run)
+
+
+def _matches_filter(
+    config: dict[str, Any],
+    category: str | None,
+    strategy: str | None,
+    generator: str | None,
+    noise: str | None,
+) -> bool:
+    """Check if a config matches all the given filters."""
+    return all(
+        [
+            strategy is None or config.get("strategy") == strategy,
+            generator is None or config.get("generator") == generator,
+            noise is None or config.get("noise") == noise,
+        ]
+    )
+
+
+def cli(*args, **kwargs):
+    """Backward-compatible entry point invoking the Typer app."""
+    return app(*args, **kwargs)
 
 
 __all__ = ["cli"]
