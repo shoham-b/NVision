@@ -2,7 +2,10 @@
 
 ## Overview
 
-The NV Center Sequential Bayesian Experiment Design (SBED) locator implements an advanced adaptive measurement strategy for Optically Detected Magnetic Resonance (ODMR) of Nitrogen-Vacancy (NV) centers in diamond. This implementation is based on the groundbreaking research by Dushenko et al. published in Physical Review Applied (2020), which demonstrated **order-of-magnitude speedup** compared to conventional frequency-swept measurements.
+The NV Center Sequential Bayesian Experiment Design (SBED) locator implements an advanced adaptive measurement strategy
+for Optically Detected Magnetic Resonance (ODMR) of Nitrogen-Vacancy (NV) centers in diamond. This implementation is
+based on the groundbreaking research by Dushenko et al. published in Physical Review Applied (2020), which demonstrated
+**order-of-magnitude speedup** compared to conventional frequency-swept measurements.
 
 ## Key Features
 
@@ -41,6 +44,7 @@ P(θ|D) ∝ P(D|θ) × P(θ)
 ```
 
 Where:
+
 - `P(θ|D)` is the posterior distribution over parameters θ given data D
 - `P(D|θ)` is the likelihood of data given parameters
 - `P(θ)` is the prior distribution over parameters
@@ -54,6 +58,7 @@ U(f) = H[P(θ)] - E[H[P(θ|D_f)]]
 ```
 
 Where:
+
 - `U(f)` is utility of measuring at frequency f
 - `H[P(θ)]` is current entropy of parameter distribution
 - `E[H[P(θ|D_f)]]` is expected entropy after measurement at f
@@ -67,6 +72,7 @@ I(f) = I_bg - A × (Γ/2)² / ((f - f₀)² + (Γ/2)²)
 ```
 
 Where:
+
 - `I(f)` is fluorescence intensity at frequency f
 - `I_bg` is background fluorescence
 - `A` is contrast amplitude
@@ -94,15 +100,19 @@ class NVCenterSequentialBayesianLocator:
 ### Core Methods
 
 #### `propose_next(history, domain) -> float`
+
 Selects the optimal next measurement frequency using the acquisition function.
 
 #### `should_stop(history) -> bool`
+
 Determines if measurement sequence should terminate based on:
+
 - Maximum evaluations reached
 - Convergence threshold achieved
 - Diminishing information gain
 
 #### `finalize(history) -> Dict[str, float]`
+
 Produces final parameter estimates and performs peak detection.
 
 ### Acquisition Functions
@@ -201,16 +211,17 @@ results = nv.run_simulation(scenario, n_runs=10)
 
 Based on the original research and our implementation:
 
-| Metric | Grid Scan | Sequential Bayesian | Improvement |
-|--------|-----------|-------------------|-------------|
-| Measurements | 100-500 | 10-50 | **10-50x fewer** |
-| Time to Convergence | 10-60 min | 1-6 min | **10x faster** |
-| Precision | Standard | Enhanced | **2-5x better** |
-| Adaptive Capability | None | Full | **Real-time adaptation** |
+| Metric              | Grid Scan | Sequential Bayesian | Improvement              |
+|---------------------|-----------|---------------------|--------------------------|
+| Measurements        | 100-500   | 10-50               | **10-50x fewer**         |
+| Time to Convergence | 10-60 min | 1-6 min             | **10x faster**           |
+| Precision           | Standard  | Enhanced            | **2-5x better**          |
+| Adaptive Capability | None      | Full                | **Real-time adaptation** |
 
 ### When to Use Sequential Bayesian Design
 
 **Ideal for:**
+
 - High-precision magnetometry
 - Expensive measurement setups
 - Time-critical applications
@@ -218,6 +229,7 @@ Based on the original research and our implementation:
 - Research requiring optimal efficiency
 
 **Consider alternatives for:**
+
 - Quick qualitative measurements
 - Very noisy environments (SNR < 2)
 - Extremely broad frequency searches
@@ -227,24 +239,24 @@ Based on the original research and our implementation:
 
 ### Sequential Bayesian vs Grid Scan
 
-| Aspect | Grid Scan | Sequential Bayesian |
-|--------|-----------|--------------------|
-| Strategy | Predetermined | Adaptive |
-| Information Use | None | Full Bayesian updating |
-| Convergence | Fixed endpoints | Dynamic stopping |
-| Efficiency | Low | High |
-| Complexity | Simple | Moderate |
-| Robustness | High | Moderate-High |
+| Aspect          | Grid Scan       | Sequential Bayesian    |
+|-----------------|-----------------|------------------------|
+| Strategy        | Predetermined   | Adaptive               |
+| Information Use | None            | Full Bayesian updating |
+| Convergence     | Fixed endpoints | Dynamic stopping       |
+| Efficiency      | Low             | High                   |
+| Complexity      | Simple          | Moderate               |
+| Robustness      | High            | Moderate-High          |
 
 ### Sequential Bayesian vs Golden Section Search
 
-| Aspect | Golden Section | Sequential Bayesian |
-|--------|----------------|--------------------|
-| Model Use | None | Full ODMR model |
-| Noise Handling | Simple | Sophisticated |
-| Multi-peak | Limited | Excellent |
-| Uncertainty Quantification | Basic | Comprehensive |
-| Prior Knowledge | None | Fully utilized |
+| Aspect                     | Golden Section | Sequential Bayesian |
+|----------------------------|----------------|---------------------|
+| Model Use                  | None           | Full ODMR model     |
+| Noise Handling             | Simple         | Sophisticated       |
+| Multi-peak                 | Limited        | Excellent           |
+| Uncertainty Quantification | Basic          | Comprehensive       |
+| Prior Knowledge            | None           | Fully utilized      |
 
 ## Best Practices
 
@@ -259,18 +271,21 @@ Based on the original research and our implementation:
 ### Troubleshooting
 
 **Slow Convergence**:
+
 - Check prior bounds are reasonable
 - Increase grid resolution
 - Verify noise model matches reality
 - Consider measurement SNR
 
 **Poor Accuracy**:
+
 - Reduce convergence threshold
 - Increase max evaluations
 - Check ODMR model parameters
 - Verify measurement calibration
 
 **Computational Issues**:
+
 - Reduce grid resolution
 - Use "mutual_information" acquisition function
 - Decrease Monte Carlo samples
@@ -281,6 +296,7 @@ Based on the original research and our implementation:
 This implementation is based on:
 
 **"Sequential Bayesian experiment design for optically detected magnetic resonance of nitrogen-vacancy centers"**
+
 - Authors: Sergey Dushenko, Kapildeb Ambal, Robert D. McMichael
 - Journal: Physical Review Applied 14, 054036 (2020)
 - DOI: 10.1103/PhysRevApplied.14.054036
@@ -335,4 +351,5 @@ When contributing to the Sequential Bayesian locator:
 
 ## License
 
-This implementation is provided under the same license as the NVision project. When using this code in research, please cite both the NVision project and the original Sequential Bayesian Experiment Design paper.
+This implementation is provided under the same license as the NVision project. When using this code in research, please
+cite both the NVision project and the original Sequential Bayesian Experiment Design paper.

@@ -8,8 +8,8 @@ from nvision.sim.gen.generators.two_peak_generator import TwoPeakGenerator as Tw
 
 __all__ = [
     "MultiPeakGenerator",
+    "NVCenterGenerator",
     "OnePeakGenerator",
     "SymmetricTwoPeakGenerator",
     "TwoPeakGenerator",
-    "NVCenterGenerator",
 ]
