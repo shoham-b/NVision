@@ -18,48 +18,106 @@ class OnePeakSweepLocator(Locator):
     coarse_points: int = 20
     refine_points: int = 10
 
-    def propose_next(self, history: pl.DataFrame, scan: ScanBatch) -> float:
-        if history.is_empty():
-            return scan.x_min
+    def propose_next(
+        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
+    ) -> pl.DataFrame:
+        active = repeats.filter(pl.col("active"))
+        if active.is_empty():
+            return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
 
-        # --- 1. Coarse Scan Phase ---
-        if len(history) < self.coarse_points:
-            coarse_candidates = np.linspace(scan.x_min, scan.x_max, self.coarse_points)
-            candidates_df = pl.DataFrame({"candidate": coarse_candidates})
+        coarse_grid = np.linspace(scan.x_min, scan.x_max, self.coarse_points).tolist()
 
-            history_points = (
-                history.select(pl.col("x").round(12))
-                if not history.is_empty()
-                else pl.DataFrame({"x": pl.Series([], dtype=pl.Float64)})
-            )
+        counts = history.group_by("repeat_id").agg(pl.len().alias("n_measurements"))
 
-            untaken_candidates = candidates_df.join(
-                history_points,
-                left_on=pl.col("candidate").round(12),
-                right_on=pl.col("x"),
-                how="anti",
-            )
-
-            if not untaken_candidates.is_empty():
-                return untaken_candidates["candidate"][0]
-
-        # --- 2. Refinement Phase ---
-        best_obs = (
-            history.sort("signal_values", descending=True).row(0, named=True)
-            if not history.is_empty()
-            else {"x": scan.x_min}
+        active_with_counts = active.join(counts, on="repeat_id", how="left").with_columns(
+            pl.col("n_measurements").fill_null(0).cast(pl.Int64)
         )
-        best_x = best_obs["x"]
 
-        width = (scan.x_max - scan.x_min) * 0.1
-        refine_candidates = [best_x - width / 2, best_x, best_x + width / 2]
-        return next((p for p in refine_candidates if p not in history["x"]), best_x)
+        # Coarse phase: propose next grid point
+        coarse_phase = active_with_counts.filter(pl.col("n_measurements") < self.coarse_points)
+        coarse_proposals = []
+        for row in coarse_phase.iter_rows(named=True):
+            repeat_id = row["repeat_id"]
+            n_taken = row["n_measurements"]
+            x_next = coarse_grid[n_taken] if n_taken < len(coarse_grid) else coarse_grid[-1]
+            coarse_proposals.append({"repeat_id": repeat_id, "x": x_next})
 
-    def should_stop(self, history: pl.DataFrame, scan: ScanBatch) -> bool:
-        return len(history) >= (self.coarse_points + self.refine_points)
+        # Refine phase: propose around best point
+        refine_phase = active_with_counts.filter(pl.col("n_measurements") >= self.coarse_points)
+        refine_proposals = []
+        if not refine_phase.is_empty():
+            best_per_repeat = (
+                history.filter(pl.col("repeat_id").is_in(refine_phase.get_column("repeat_id")))
+                .sort(["repeat_id", "signal_values"], descending=[False, True])
+                .group_by("repeat_id")
+                .agg(pl.col("x").first().alias("best_x"))
+            )
+            refine_with_best = refine_phase.join(best_per_repeat, on="repeat_id", how="left")
+            width = (scan.x_max - scan.x_min) * 0.1
+            for row in refine_with_best.iter_rows(named=True):
+                repeat_id = row["repeat_id"]
+                best_x = row.get("best_x", scan.x_min)
+                n_taken = row["n_measurements"]
+                offset_idx = n_taken - self.coarse_points
+                if offset_idx == 0:
+                    x_next = best_x - width / 2
+                elif offset_idx == 1:
+                    x_next = best_x
+                elif offset_idx == 2:
+                    x_next = best_x + width / 2
+                else:
+                    x_next = best_x
+                refine_proposals.append({"repeat_id": repeat_id, "x": x_next})
 
-    def finalize(self, history: pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
+        all_proposals = coarse_proposals + refine_proposals
+        if not all_proposals:
+            return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
+        return pl.DataFrame(all_proposals)
+
+    def should_stop(
+        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
+    ) -> pl.DataFrame:
+        counts = history.group_by("repeat_id").agg(pl.len().alias("n_measurements"))
+        result = (
+            repeats.select("repeat_id")
+            .join(counts, on="repeat_id", how="left")
+            .with_columns(pl.col("n_measurements").fill_null(0).cast(pl.Int64))
+            .with_columns(
+                (pl.col("n_measurements") >= (self.coarse_points + self.refine_points)).alias(
+                    "stop"
+                )
+            )
+            .select("repeat_id", "stop")
+        )
+        return result
+
+    def finalize(
+        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
+    ) -> pl.DataFrame:
+        base = repeats.select("repeat_id")
         if history.is_empty():
-            return {"n_peaks": 0.0, "x1_hat": 0.0, "uncert": float("inf")}
-        best = history.sort("signal_values", descending=True).row(0, named=True)
-        return {"n_peaks": 1.0, "x1_hat": best["x"], "uncert": 0.0}
+            return base.with_columns(
+                pl.lit(1.0).alias("n_peaks"),
+                pl.lit(float("nan")).alias("x1_hat"),
+                pl.lit(float("inf")).alias("uncert"),
+                pl.lit(0).alias("measurements"),
+            )
+
+        best_per_repeat = (
+            history.sort(["repeat_id", "signal_values"], descending=[False, True])
+            .group_by("repeat_id")
+            .agg(
+                pl.col("x").first().alias("x1_hat"),
+                pl.len().alias("measurements"),
+            )
+        )
+
+        result = (
+            base.join(best_per_repeat, on="repeat_id", how="left")
+            .with_columns(pl.col("x1_hat").cast(pl.Float64))
+            .with_columns(pl.col("x1_hat").fill_null(float("nan")))
+            .with_columns(pl.col("measurements").fill_null(0).cast(pl.Int64))
+            .with_columns(pl.lit(1.0).alias("n_peaks"))
+            .with_columns(pl.lit(0.0).alias("uncert"))
+        )
+        return result.select("repeat_id", "n_peaks", "x1_hat", "uncert", "measurements")

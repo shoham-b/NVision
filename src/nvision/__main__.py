@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import typer
-
-from nvision.cli import cli
+from nvision.cli import app
 
 
 def main() -> None:
     """Run the Typer CLI."""
-    typer.run(cli)
+    app()
 
 
-__all__ = []
+__all__ = ["main"]
 
 if __name__ == "__main__":  # pragma: no cover
     main()

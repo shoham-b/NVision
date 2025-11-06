@@ -20,103 +20,169 @@ class TwoPeakSweepLocator(Locator):
     refine_points: int = 10
     min_separation_frac: float = 0.05
 
-    def propose_next(self, history: pl.DataFrame, scan: ScanBatch) -> float:
+    def propose_next(
+        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
+    ) -> pl.DataFrame:
+        active = repeats.filter(pl.col("active"))
+        if active.is_empty():
+            return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
+
         lo, hi = scan.x_min, scan.x_max
-
-        # --- 1. Coarse Scan Phase ---
-        if history.is_empty() or len(history) < self.coarse_points:
-            coarse_candidates = np.linspace(lo, hi, self.coarse_points)
-            candidates_df = pl.DataFrame({"candidate": coarse_candidates})
-
-            history_points = (
-                history.select(pl.col("x").round(12))
-                if not history.is_empty()
-                else pl.DataFrame({"x": pl.Series([], dtype=pl.Float64)})
-            )
-
-            untaken_candidates = candidates_df.join(
-                history_points,
-                left_on=pl.col("candidate").round(12),
-                right_on=pl.col("x"),
-                how="anti",
-            )
-
-            if not untaken_candidates.is_empty():
-                return untaken_candidates["candidate"][0]
-
-        if history.is_empty():
-            return 0.5 * (lo + hi)
-
-        # --- 2. Refinement Phase ---
-        # Identify two best peaks
-        sorted_history = history.sort("signal_values", descending=True)
-        x1 = sorted_history["x"][0]
+        coarse_grid = np.linspace(lo, hi, self.coarse_points).tolist()
         w = (hi - lo) * self.min_separation_frac
 
-        second_peak_candidates = sorted_history.filter(pl.col("x").is_not_nan())
-        second_peak_candidates = second_peak_candidates.filter((pl.col("x") - x1).abs() >= w)
+        counts = history.group_by("repeat_id").agg(pl.len().alias("n_measurements"))
+        active_with_counts = active.join(counts, on="repeat_id", how="left").with_columns(
+            pl.col("n_measurements").fill_null(0).cast(pl.Int64)
+        )
 
-        x2 = second_peak_candidates["x"][0] if not second_peak_candidates.is_empty() else x1
+        # Coarse phase
+        coarse_phase = active_with_counts.filter(pl.col("n_measurements") < self.coarse_points)
+        coarse_proposals = []
+        for row in coarse_phase.iter_rows(named=True):
+            repeat_id = row["repeat_id"]
+            n_taken = row["n_measurements"]
+            x_next = coarse_grid[n_taken] if n_taken < len(coarse_grid) else coarse_grid[-1]
+            coarse_proposals.append({"repeat_id": repeat_id, "x": x_next})
 
-        # Refine around both peaks
-        width = w * 0.5
-        refine_candidates = [
-            x1 - width,
-            x1,
-            x1 + width,
-            x2 - width,
-            x2,
-            x2 + width,
-        ]
+        # Refine phase
+        refine_phase = active_with_counts.filter(pl.col("n_measurements") >= self.coarse_points)
+        refine_proposals = []
+        for row in refine_phase.iter_rows(named=True):
+            repeat_id = row["repeat_id"]
+            repeat_history = history.filter(pl.col("repeat_id") == repeat_id)
+            if repeat_history.is_empty():
+                refine_proposals.append({"repeat_id": repeat_id, "x": 0.5 * (lo + hi)})
+                continue
 
-        taken = set(history["x"])
-        for candidate in refine_candidates:
-            if lo <= candidate <= hi and candidate not in taken:
-                return candidate
+            sorted_history = repeat_history.sort("signal_values", descending=True)
+            x1 = sorted_history["x"][0]
+            second_peak_candidates = sorted_history.filter((pl.col("x") - x1).abs() >= w)
+            x2 = second_peak_candidates["x"][0] if not second_peak_candidates.is_empty() else x1
 
-        return x1
+            width = w * 0.5
+            refine_candidates = [
+                x1 - width,
+                x1,
+                x1 + width,
+                x2 - width,
+                x2,
+                x2 + width,
+            ]
+            taken = set(repeat_history["x"])
+            x_next = x1
+            for candidate in refine_candidates:
+                if lo <= candidate <= hi and candidate not in taken:
+                    x_next = candidate
+                    break
+            refine_proposals.append({"repeat_id": repeat_id, "x": x_next})
 
-    def should_stop(self, history: pl.DataFrame, scan: ScanBatch) -> bool:
-        return len(history) >= (self.coarse_points + self.refine_points)
+        all_proposals = coarse_proposals + refine_proposals
+        if not all_proposals:
+            return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
+        return pl.DataFrame(all_proposals)
 
-    def finalize(self, history: pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
+    def should_stop(
+        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
+    ) -> pl.DataFrame:
+        counts = history.group_by("repeat_id").agg(pl.len().alias("n_measurements"))
+        result = (
+            repeats.select("repeat_id")
+            .join(counts, on="repeat_id", how="left")
+            .with_columns(pl.col("n_measurements").fill_null(0).cast(pl.Int64))
+            .with_columns(
+                (pl.col("n_measurements") >= (self.coarse_points + self.refine_points)).alias(
+                    "stop"
+                )
+            )
+            .select("repeat_id", "stop")
+        )
+        return result
+
+    def finalize(
+        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
+    ) -> pl.DataFrame:
+        base = repeats.select("repeat_id")
         if history.is_empty():
-            return {
-                "n_peaks": 2.0,
-                "x1_hat": math.nan,
-                "x2_hat": math.nan,
-                "uncert": math.inf,
-                "uncert_pos": math.inf,
-                "uncert_sep": math.inf,
-            }
+            return base.with_columns(
+                pl.lit(2.0).alias("n_peaks"),
+                pl.lit(math.nan).alias("x1_hat"),
+                pl.lit(math.nan).alias("x2_hat"),
+                pl.lit(math.inf).alias("uncert"),
+                pl.lit(math.inf).alias("uncert_pos"),
+                pl.lit(math.inf).alias("uncert_sep"),
+                pl.lit(0).alias("measurements"),
+            )
 
-        sorted_history = history.sort("signal_values", descending=True)
         w = (scan.x_max - scan.x_min) * self.min_separation_frac
 
-        picks: list[float] = []
-        for x in sorted_history["x"]:
-            if not picks or all(abs(x - p) > w for p in picks):
-                picks.append(x)
-            if len(picks) == 2:
-                break
+        def _find_two_peaks(repeat_id: int) -> dict:
+            repeat_history = history.filter(pl.col("repeat_id") == repeat_id)
+            if repeat_history.is_empty():
+                return {
+                    "repeat_id": repeat_id,
+                    "x1_hat": math.nan,
+                    "x2_hat": math.nan,
+                    "uncert": math.inf,
+                    "uncert_pos": math.inf,
+                    "uncert_sep": math.inf,
+                    "measurements": 0,
+                }
 
-        picks.sort()
-        if len(picks) == 1:
+            sorted_history = repeat_history.sort("signal_values", descending=True)
+            picks: list[float] = []
+            for x in sorted_history["x"]:
+                if not picks or all(abs(x - p) > w for p in picks):
+                    picks.append(x)
+                if len(picks) == 2:
+                    break
+
+            picks.sort()
+            if len(picks) == 0:
+                return {
+                    "repeat_id": repeat_id,
+                    "x1_hat": math.nan,
+                    "x2_hat": math.nan,
+                    "uncert": math.inf,
+                    "uncert_pos": math.inf,
+                    "uncert_sep": math.inf,
+                    "measurements": repeat_history.height,
+                }
+            if len(picks) == 1:
+                return {
+                    "repeat_id": repeat_id,
+                    "x1_hat": float(picks[0]),
+                    "x2_hat": float(picks[0]),
+                    "uncert": 0.0,
+                    "uncert_pos": 0.0,
+                    "uncert_sep": 0.0,
+                    "measurements": repeat_history.height,
+                }
+
+            dist = abs(picks[1] - picks[0])
             return {
-                "n_peaks": 2.0,
+                "repeat_id": repeat_id,
                 "x1_hat": float(picks[0]),
-                "x2_hat": float(picks[0]),
-                "uncert": 0.0,
-                "uncert_pos": 0.0,
-                "uncert_sep": 0.0,
+                "x2_hat": float(picks[1]),
+                "uncert": float(0.5 * dist),
+                "uncert_pos": float(0.5 * dist),
+                "uncert_sep": float(0.5 * dist),
+                "measurements": repeat_history.height,
             }
 
-        dist = abs(picks[1] - picks[0])
-        return {
-            "n_peaks": 2.0,
-            "x1_hat": float(picks[0]),
-            "x2_hat": float(picks[1]),
-            "uncert": float(0.5 * dist),
-            "uncert_pos": float(0.5 * dist),
-            "uncert_sep": float(0.5 * dist),
-        }
+        results = [_find_two_peaks(rid) for rid in base.get_column("repeat_id")]
+        results_df = pl.DataFrame(results)
+
+        final = base.join(results_df, on="repeat_id", how="left").with_columns(
+            pl.lit(2.0).alias("n_peaks")
+        )
+        return final.select(
+            "repeat_id",
+            "n_peaks",
+            "x1_hat",
+            "x2_hat",
+            "uncert",
+            "uncert_pos",
+            "uncert_sep",
+            "measurements",
+        )

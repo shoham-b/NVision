@@ -19,6 +19,12 @@ from .two_peak import TwoPeakGoldenLocator, TwoPeakGridLocator, TwoPeakSweepLoca
 log = logging.getLogger(__name__)
 
 
+class TimeoutError(Exception):
+    """Raised when a locator run exceeds its time limit."""
+
+    pass
+
+
 def run_locator(
     *,
     locator: Locator,
@@ -29,23 +35,62 @@ def run_locator(
     max_steps: int = 200,
     timeout_s: float = 300.0,
 ) -> pl.DataFrame:
-    """Orchestrates a peak-finding simulation using a given locator and noise model."""
-    rng = random.Random(seed)
+    """Orchestrates a peak-finding simulation using a given locator and noise model.
 
-    history: list[dict[str, float]] = []
+    Args:
+        locator: The locator strategy to use for finding peaks.
+        scan: The scan batch containing the signal to analyze.
+        seed: Random seed for reproducibility.
+        over_frequency_noise: Optional noise to apply to the frequency axis.
+        over_probe_noise: Optional noise to apply to the signal measurements.
+        max_steps: Maximum number of measurement steps to perform.
+        timeout_s: Maximum time in seconds to run before timing out.
+
+    Returns:
+        A DataFrame containing the measurement history.
+
+    Raises:
+        TimeoutError: If the operation exceeds the specified timeout.
+    """
+    rng = random.Random(seed)
     start_time = time.perf_counter()
 
+    def check_timeout() -> None:
+        if time.perf_counter() - start_time > timeout_s:
+            raise TimeoutError(f"Locator run timed out after {timeout_s:.1f} seconds")
+
+    # Build repeat tracking DataFrame for single repeat
+    repeats_df = pl.DataFrame({"repeat_id": [0], "active": [True]})
+    history_rows = []
+
     try:
-        for _ in range(max_steps):
-            if time.perf_counter() - start_time > timeout_s:
-                log.warning(f"Timeout of {timeout_s}s reached. Finalizing run.")
+        for step_num in range(max_steps):
+            check_timeout()
+
+            # Build history DataFrame with repeat_id
+            if history_rows:
+                history_df = pl.DataFrame(history_rows)
+            else:
+                history_df = pl.DataFrame(
+                    {
+                        "repeat_id": pl.Series("repeat_id", [], dtype=pl.Int64),
+                        "step": pl.Series("step", [], dtype=pl.Int64),
+                        "x": pl.Series("x", [], dtype=pl.Float64),
+                        "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
+                    }
+                )
+
+            # Check stop condition
+            stop_decisions = locator.should_stop(history_df, repeats_df, scan)
+            if not stop_decisions.is_empty() and stop_decisions.get_column("stop")[0]:
                 break
 
-            current_history_df = pl.DataFrame(history)
-            if locator.should_stop(current_history_df, scan):
+            # Propose next measurement
+            proposals = locator.propose_next(history_df, repeats_df, scan)
+            if proposals.is_empty():
                 break
+            x_next = float(proposals.get_column("x")[0])
 
-            x_next = locator.propose_next(current_history_df, scan)
             y_ideal = scan.signal(x_next)
 
             y_measured = (
@@ -54,14 +99,26 @@ def run_locator(
                 else y_ideal
             )
 
-            history.append({"x": x_next, "signal_values": y_measured})
-    except KeyboardInterrupt:
-        log.warning("Keyboard interrupt received. Finalizing partial run...")
+            history_rows.append(
+                {
+                    "repeat_id": 0,
+                    "step": step_num,
+                    "x": x_next,
+                    "signal_values": y_measured,
+                }
+            )
+    except (KeyboardInterrupt, TimeoutError) as e:
+        if isinstance(e, TimeoutError):
+            log.warning("%s. Finalizing with current measurements...", str(e))
+        else:
+            log.warning("Keyboard interrupt received. Finalizing partial run...")
 
-    if not history:
+    if not history_rows:
         return pl.DataFrame()
 
-    return pl.DataFrame(history)
+    # Return history without repeat_id for backward compatibility
+    result_df = pl.DataFrame(history_rows).drop("repeat_id")
+    return result_df
 
 
 __all__ = [
