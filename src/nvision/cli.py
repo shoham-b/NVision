@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import logging
 import math
+import multiprocessing
 import random
 import shutil
+import time
 from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from typing import Annotated
 
 import polars as pl
 import typer
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from nvision.cache import DataFrameCache
 from nvision.index_html import compile_html_index
@@ -26,8 +36,9 @@ from nvision.sim import (
     TwoPeakSweepLocator,
 )
 from nvision.sim import cases as sim_cases
-from nvision.sim.loc_runner import LocatorRunner
 from nvision.viz import Viz
+
+log = logging.getLogger("nvision")
 
 
 def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
@@ -47,17 +58,9 @@ def _get_generator_category(generator_name: str) -> str:
 
 
 def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, object]]:
-    """Get the appropriate locator strategies for a given generator category.
-
-    Each generator category has multiple locator types:
-    - OnePeak: Grid, Golden, Sweep
-    - TwoPeak: Grid, Golden, Sweep
-    - NVCenter: Sweep, Bayesian
-    """
+    """Get the appropriate locator strategies for a given generator category."""
     category = _get_generator_category(generator_name)
-
     strategies: list[tuple[str, object]] = []
-
     if category == "OnePeak":
         strategies = [
             ("OnePeak-Grid", OnePeakGridLocator(n_points=21)),
@@ -78,7 +81,6 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, ob
                 NVCenterSequentialBayesianLocator(max_evals=60, grid_resolution=400),
             ),
         ]
-
     return strategies
 
 
@@ -125,154 +127,240 @@ def _scan_attempt_metrics(
     return metrics
 
 
-def _run_locator_attempt(
-    *,
-    viz: Viz,
-    generator: object,
-    noise_obj: CompositeNoise | None,
-    strategy: object,
-    strategy_name: str,
-    gen_name: str,
-    noise_name: str,
-    attempt_idx: int,
-    total_repeats: int,
-    attempt_seed: int,
-    slug_base: str,
-    out_dir: Path,
-    scans_dir: Path,
-    bayes_dir: Path,
-    loc_max_steps: int,
-) -> list[dict[str, object]]:
-    scan_rng = random.Random(attempt_seed)
-    scan = generator.generate(scan_rng)
+def _run_combination(args):  # noqa: C901
+    (
+        gen_name,
+        gen_obj,
+        noise_name,
+        noise_obj,
+        strat_name,
+        strat_obj,
+        n_repeats,
+        main_seed,
+        slug_base,
+        out_dir,
+        scans_dir,
+        bayes_dir,
+        loc_max_steps,
+        loc_timeout_s,
+        use_cache,
+        cache_dir,
+        log_queue,
+    ) = args
 
-    plot_runner = LocatorRunner(rng_seed=attempt_seed)
-    is_bayesian = isinstance(strategy, NVCenterSequentialBayesianLocator)
-    if is_bayesian:
-        strategy.reset_run_state()
+    if log_queue:
+        queue_handler = QueueHandler(log_queue)
+        worker_log = logging.getLogger()
+        worker_log.addHandler(queue_handler)
+        worker_log.setLevel(logging.INFO)
 
-    run_stats = plot_runner.run_once(scan, strategy, noise_obj, loc_max_steps)
-    history_df = run_stats.history
-    estimate = run_stats.estimate
+    log.info(f"Starting combination: {gen_name}/{noise_name}/{strat_name} for {n_repeats} repeats")
 
-    attempt_metrics = _scan_attempt_metrics(scan.truth_positions, estimate)
-    attempt_slug = f"{slug_base}_r{attempt_idx + 1}"
-    out_path = scans_dir / f"{attempt_slug}.html"
-    viz.plot_scan_measurements(
-        scan,
-        history_df,
-        out_path,
-        over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
-    )
+    cache = DataFrameCache(cache_dir)
+    graphs_dir = out_dir / "graphs"
+    viz = Viz(graphs_dir)
 
-    metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
-    metrics_serialized["measurements"] = _maybe_finite(run_stats.measurements)
-    metrics_serialized["duration_ms"] = _maybe_finite(run_stats.duration_ms)
+    all_results_for_combination = []
 
-    entries: list[dict[str, object]] = [
-        {
-            "type": "scan",
-            "generator": gen_name,
-            "noise": noise_name,
-            "strategy": strategy_name,
-            "repeat": attempt_idx + 1,
-            "repeat_total": total_repeats,
-            "abs_err_x": metrics_serialized.get("abs_err_x"),
-            "uncert": metrics_serialized.get("uncert"),
-            "measurements": metrics_serialized.get("measurements"),
-            "duration_ms": metrics_serialized.get("duration_ms"),
-            "metrics": metrics_serialized,
-            "path": out_path.relative_to(out_dir).as_posix(),
-        }
-    ]
+    # Initialize state for all repeats
+    repeat_rngs = []
+    initial_scans = []
+    repeat_locators = []
+    repeat_histories = []
+    repeat_start_times = []
+    finished_repeats = [False] * n_repeats
 
-    if is_bayesian and run_stats.measurements > 0:
-        bo_output_path = bayes_dir / f"{attempt_slug}_bo.png"
-        bo_result = strategy.plot_bo(bo_output_path)
-        if bo_result is not None:
-            entries.append(
-                {
-                    "type": "bayesian",
-                    "generator": gen_name,
-                    "noise": noise_name,
-                    "strategy": strategy_name,
-                    "repeat": attempt_idx + 1,
-                    "repeat_total": total_repeats,
-                    "path": bo_result.relative_to(out_dir).as_posix(),
-                    "format": "png",
-                }
+    for attempt_idx_in_combo in range(n_repeats):
+        combo_seed_str = f"{main_seed}-{gen_name}-{strat_name}-{noise_name}-{attempt_idx_in_combo}"
+        attempt_seed = int(hashlib.sha256(combo_seed_str.encode("utf-8")).hexdigest(), 16) % (10**8)
+
+        repeat_rngs.append(random.Random(attempt_seed))
+        initial_scans.append(gen_obj.generate(repeat_rngs[-1]))
+
+        repeat_locators.append(copy.deepcopy(strat_obj))
+        repeat_histories.append([])
+        repeat_start_times.append(time.perf_counter())
+
+    # Lockstep simulation loop
+    global_start_time = time.perf_counter()
+    for _step in range(loc_max_steps):
+        if all(finished_repeats):
+            break
+
+        if time.perf_counter() - global_start_time > loc_timeout_s:
+            log.warning(f"Combination timeout ({loc_timeout_s}s) reached. Finalizing.")
+            break
+
+        for attempt_idx_in_combo in range(n_repeats):
+            if finished_repeats[attempt_idx_in_combo]:
+                continue
+
+            current_locator = repeat_locators[attempt_idx_in_combo]
+            current_scan = initial_scans[attempt_idx_in_combo]
+            current_history_list = repeat_histories[attempt_idx_in_combo]
+
+            current_history_df = pl.DataFrame(current_history_list)
+
+            if current_locator.should_stop(current_history_df, current_scan):
+                finished_repeats[attempt_idx_in_combo] = True
+                continue
+
+            if time.perf_counter() - repeat_start_times[attempt_idx_in_combo] > loc_timeout_s:
+                log.warning(f"Repeat {attempt_idx_in_combo+1} ({gen_name}/{noise_name}) timed out.")
+                finished_repeats[attempt_idx_in_combo] = True
+                continue
+
+            x_next = current_locator.propose_next(current_history_df, current_scan)
+            y_ideal = current_scan.signal(x_next)
+
+            y_measured = (
+                noise_obj.over_probe_noise.apply(
+                    y_ideal, repeat_rngs[attempt_idx_in_combo], current_locator
+                )
+                if noise_obj and noise_obj.over_probe_noise
+                else y_ideal
             )
 
-    if is_bayesian:
-        strategy.reset_run_state()
+            current_history_list.append({"x": x_next, "signal_values": y_measured})
+            repeat_histories[attempt_idx_in_combo] = current_history_list
 
-    return entries
+    # Finalize and collect results for each repeat
+    for attempt_idx_in_combo in range(n_repeats):
+        current_locator = repeat_locators[attempt_idx_in_combo]
+        current_scan = initial_scans[attempt_idx_in_combo]
+        current_history_list = repeat_histories[attempt_idx_in_combo]
+        current_history_df = pl.DataFrame(current_history_list)
 
+        duration_ms = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
 
-def run_locator_workflow(
-    out_dir: Path,
-    repeats: int,
-    rng_seed: int | None,
-    max_steps: int,
-    use_cache: bool = True,
-) -> pl.DataFrame:
-    """Execute locator sweeps and persist the resulting CSV and plots."""
-    runner = LocatorRunner(rng_seed=rng_seed)
+        if current_history_df.is_empty():
+            estimate = {"x_hat": math.nan, "uncert": math.inf}
+            measurements = 0
+        else:
+            estimate = current_locator.finalize(current_history_df, current_scan)
+            measurements = current_history_df.height
 
-    generators: list[tuple[str, object]] = sim_cases.generators_basic()
-    noises = _noise_presets()
+        attempt_metrics = _scan_attempt_metrics(current_scan.truth_positions, estimate)
+        attempt_slug = f"{slug_base}_r{attempt_idx_in_combo + 1}"
+        out_path = scans_dir / f"{attempt_slug}.html"
 
-    # Build all generator-strategy combinations
-    all_combinations: list[tuple[str, object, str, object]] = []
-    for gen_name, gen_obj in generators:
-        strategies = _locator_strategies_for_generator(gen_name)
-        for strat_name, strat_obj in strategies:
-            all_combinations.append((gen_name, gen_obj, strat_name, strat_obj))
+        viz.plot_scan_measurements(
+            current_scan,
+            current_history_df,
+            out_path,
+            over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
+        )
 
-    cache_dir = out_dir / "cache"
-    cfg = {
-        "kind": "locator",
-        "generators": [name for name, _ in generators],
-        "noises": [name for name, _ in noises],
-        "combinations": [(g, s) for g, _, s, _ in all_combinations],
-        "repeats": int(repeats),
-        "seed": int(rng_seed) if rng_seed is not None else None,
-        "max_steps": int(max_steps),
-    }
-    cache = DataFrameCache(cache_dir)
-    key = DataFrameCache.make_key(cfg)
-    cached = cache.load_df(key) if use_cache else None
-    required_object_columns = {"scan", "noise_obj"}
+        metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
+        metrics_serialized["measurements"] = _maybe_finite(measurements)
+        metrics_serialized["duration_ms"] = _maybe_finite(duration_ms)
 
-    if cached is not None and required_object_columns.issubset({*cached.columns}):
-        df = cached
-    else:
-        # Run sweeps for each combination
-        results: list[pl.DataFrame] = []
-        for gen_name, gen_obj, strat_name, strat_obj in all_combinations:
-            for noise_name, noise_obj in noises:
-                df_part = runner.sweep(
-                    [(gen_name, gen_obj)],
-                    [(strat_name, strat_obj)],
-                    [(noise_name, noise_obj)],
-                    repeats=repeats,
-                    max_steps=max_steps,
+        entries: list[dict[str, object]] = [
+            {
+                "type": "scan",
+                "generator": gen_name,
+                "noise": noise_name,
+                "strategy": strat_name,
+                "repeat": attempt_idx_in_combo + 1,
+                "repeat_total": n_repeats,
+                "abs_err_x": metrics_serialized.get("abs_err_x"),
+                "uncert": metrics_serialized.get("uncert"),
+                "measurements": metrics_serialized.get("measurements"),
+                "duration_ms": metrics_serialized.get("duration_ms"),
+                "metrics": metrics_serialized,
+                "path": out_path.relative_to(out_dir).as_posix(),
+            }
+        ]
+
+        is_bayesian = isinstance(current_locator, NVCenterSequentialBayesianLocator)
+
+        if is_bayesian and measurements > 0:
+            bo_output_path = bayes_dir / f"{attempt_slug}_bo.png"
+            bo_result = current_locator.plot_bo(bo_output_path)
+            if bo_result is not None:
+                entries.append(
+                    {
+                        "type": "bayesian",
+                        "generator": gen_name,
+                        "noise": noise_name,
+                        "strategy": strat_name,
+                        "repeat": attempt_idx_in_combo + 1,
+                        "repeat_total": n_repeats,
+                        "path": bo_result.relative_to(out_dir).as_posix(),
+                        "format": "png",
+                    }
                 )
-                results.append(df_part)
 
-        df = pl.concat(results, how="diagonal_relaxed") if results else pl.DataFrame()
+            posterior_hist_path = bayes_dir / f"{attempt_slug}_posterior_history.png"
+            posterior_result = current_locator.plot_posterior_history(posterior_hist_path)
+            if posterior_result is not None:
+                entries.append(
+                    {
+                        "type": "bayesian_stats",
+                        "kind": "posterior_history",
+                        "generator": gen_name,
+                        "noise": noise_name,
+                        "strategy": strat_name,
+                        "repeat": attempt_idx_in_combo + 1,
+                        "repeat_total": n_repeats,
+                        "path": posterior_result.relative_to(out_dir).as_posix(),
+                        "format": "png",
+                    }
+                )
+
+            convergence_stats_path = bayes_dir / f"{attempt_slug}_convergence_stats.png"
+            convergence_result = current_locator.plot_convergence_stats(convergence_stats_path)
+            if convergence_result is not None:
+                entries.append(
+                    {
+                        "type": "bayesian_stats",
+                        "kind": "convergence_stats",
+                        "generator": gen_name,
+                        "noise": noise_name,
+                        "strategy": strat_name,
+                        "repeat": attempt_idx_in_combo + 1,
+                        "repeat_total": n_repeats,
+                        "path": convergence_result.relative_to(out_dir).as_posix(),
+                        "format": "png",
+                    }
+                )
+
+        main_result_row = {
+            "generator": gen_name,
+            "noise": noise_name,
+            "strategy": strat_name,
+            "repeats": n_repeats,
+            "attempt": attempt_idx_in_combo + 1,
+            **metrics_serialized,
+        }
+
         if use_cache:
-            cache.save_df(df, key)
+            part_cfg = {
+                "kind": "locator_run",
+                "generator": gen_name,
+                "noise": noise_name,
+                "strategy": strat_name,
+                "repeat": attempt_idx_in_combo,
+                "seed": main_seed,
+                "max_steps": loc_max_steps,
+                "timeout_s": loc_timeout_s,
+            }
+            repeat_part_key = cache.make_key(part_cfg)
+            cache_df = pl.DataFrame(
+                {
+                    "plot_manifest": [json.dumps(entries)],
+                    "result_row": [json.dumps(main_result_row)],
+                }
+            )
+            cache.save_df(cache_df, repeat_part_key)
 
-    object_cols = [col for col, dtype in df.schema.items() if dtype == pl.Object]
-    df_serializable = df.drop(object_cols)
+        log.info(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
+        all_results_for_combination.append((entries, main_result_row))
 
-    out_path = out_dir / "locator_results.csv"
-    df_serializable.write_csv(out_path.as_posix())
-    return df
+    return all_results_for_combination
 
 
-def cli(
+def cli(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
     seed: Annotated[int, typer.Option("--seed", help="RNG seed (int)")] = 123,
@@ -280,108 +368,145 @@ def cli(
         int,
         typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
     ] = 150,
+    loc_timeout_s: Annotated[
+        int,
+        typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
+    ] = 300,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache", help="Disable caching for this run"),
     ] = False,
+    parallel: Annotated[
+        bool,
+        typer.Option("--parallel", help="Run simulations in parallel"),
+    ] = True,
 ) -> int:
     """Typer-driven command-line interface entry point."""
-    out_dir: Path = out
-    ensure_out_dir(out_dir)
+    console = Console()
+    handlers = [RichHandler(console=console, rich_tracebacks=True)]
+    logging.basicConfig(level="INFO", format="%(message)s", datefmt="[%X]", handlers=handlers)
 
-    cache_dir = out_dir / "cache"
-    if no_cache and cache_dir.exists():
-        print("Clearing cache.")
-        shutil.rmtree(cache_dir)
+    with multiprocessing.Manager() as manager:
+        log_queue = manager.Queue(-1)
+        listener = QueueListener(log_queue, *handlers)
+        listener.start()
 
-    graphs_dir = out_dir / "graphs"
-    ensure_out_dir(graphs_dir)
-    scans_dir = graphs_dir / "scans"
-    ensure_out_dir(scans_dir)
-    bayes_dir = graphs_dir / "bayes"
-    ensure_out_dir(bayes_dir)
+        out_dir: Path = out
+        ensure_out_dir(out_dir)
 
-    viz = Viz(graphs_dir)
-    plot_manifest: list[dict[str, object]] = []
+        cache_dir = out_dir / "cache"
+        if no_cache and cache_dir.exists():
+            log.info("Clearing cache.")
+            shutil.rmtree(cache_dir)
+        ensure_out_dir(cache_dir)
 
-    df_loc = run_locator_workflow(
-        out_dir,
-        repeats=repeats,
-        rng_seed=seed,
-        max_steps=loc_max_steps,
-        use_cache=not no_cache,
-    )
+        graphs_dir = out_dir / "graphs"
+        ensure_out_dir(graphs_dir)
+        scans_dir = graphs_dir / "scans"
+        ensure_out_dir(scans_dir)
+        bayes_dir = graphs_dir / "bayes"
+        ensure_out_dir(bayes_dir)
 
-    generator_map = dict(sim_cases.generators_basic())
-    noise_map = dict(_noise_presets())
+        log.info("Starting simulations...")
 
-    # Build strategy map for all generators
-    strategy_map: dict[str, object] = {}
-    for gen_name in generator_map:
-        for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
-            strategy_map[strat_name] = strat_obj
+        generator_map = dict(sim_cases.generators_basic())
+        noise_map = dict(_noise_presets())
+        strategy_map: dict[str, object] = {}
+        for gen_name in generator_map:
+            for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
+                strategy_map[strat_name] = strat_obj
 
-    for idx, row in enumerate(df_loc.iter_rows(named=True)):
-        gen_name = row["generator"]
-        noise_name = row["noise"]
-        strategy_name = row["strategy"]
+        all_tasks = []
+        for gen_name, gen_obj in generator_map.items():
+            for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
+                for noise_name, noise_obj in noise_map.items():
+                    slug_base = "_".join(
+                        slugify(part) for part in (gen_name, noise_name, strat_name)
+                    )
+                    all_tasks.append(
+                        (
+                            gen_name,
+                            gen_obj,
+                            noise_name,
+                            noise_obj,
+                            strat_name,
+                            strat_obj,
+                            repeats,
+                            seed,
+                            slug_base,
+                            out_dir,
+                            scans_dir,
+                            bayes_dir,
+                            loc_max_steps,
+                            loc_timeout_s,
+                            not no_cache,
+                            cache_dir,
+                            log_queue,
+                        )
+                    )
 
-        generator = generator_map[gen_name]
-        noise_obj = noise_map[noise_name]
-        strategy = strategy_map[strategy_name]
+        plot_manifest: list[dict[str, object]] = []
+        df_rows: list[dict] = []
 
-        combo_seed = (seed or 0) + idx
-        total_repeats = max(int(row.get("repeats", 1)), 1)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("[cyan]Running simulations...", total=len(all_tasks) * repeats)
 
-        slug_base = "_".join(
-            slugify(part)
-            for part in (
-                gen_name,
-                noise_name,
-                strategy_name,
-            )
-        )
-        for attempt_idx in range(total_repeats):
-            attempt_seed = combo_seed + attempt_idx
-            attempt_entries = _run_locator_attempt(
-                viz=viz,
-                generator=generator,
-                noise_obj=noise_obj,
-                strategy=strategy,
-                strategy_name=strategy_name,
-                gen_name=gen_name,
-                noise_name=noise_name,
-                attempt_idx=attempt_idx,
-                total_repeats=total_repeats,
-                attempt_seed=attempt_seed,
-                slug_base=slug_base,
-                out_dir=out_dir,
-                scans_dir=scans_dir,
-                bayes_dir=bayes_dir,
-                loc_max_steps=loc_max_steps,
-            )
-            plot_manifest.extend(attempt_entries)
-    try:
-        summary_plots_meta = viz.plot_locator_summary(df_loc)
-        for meta in summary_plots_meta:
-            meta["path"] = Path(meta["path"]).relative_to(out_dir).as_posix()
-        plot_manifest.extend(summary_plots_meta)
-        print(f"Saved {len(summary_plots_meta)} summary plots")
-        print(f"Saved scan plots to: {scans_dir}")
-    except Exception as exc:  # pragma: no cover - plotting is optional
-        print(f"[warn] plotting failed: {exc}")
+            if parallel:
+                with ProcessPoolExecutor() as executor:
+                    futures = {
+                        executor.submit(_run_combination, task_args): task_args
+                        for task_args in all_tasks
+                    }
+                    for future in as_completed(futures):
+                        results_for_combination = future.result()
+                        for entries, main_result_row in results_for_combination:
+                            plot_manifest.extend(entries)
+                            df_rows.append(main_result_row)
+                        desc = f"Done: {main_result_row['generator']}/{main_result_row['noise']}"
+                        progress.update(task, advance=repeats, description=desc)
+            else:
+                for task_args in all_tasks:
+                    results_for_combination = _run_combination(task_args)
+                    for entries, main_result_row in results_for_combination:
+                        plot_manifest.extend(entries)
+                        df_rows.append(main_result_row)
+                    desc = f"Done: {main_result_row['generator']}/{main_result_row['noise']}"
+                    progress.update(task, advance=repeats, description=desc)
 
-    manifest_path = out_dir / "plots_manifest.json"
-    manifest_path.write_text(json.dumps(plot_manifest, indent=2), encoding="utf-8")
+        listener.stop()
 
-    try:
-        idx = compile_html_index(out_dir)
-        print(f"Generated HTML index at: {idx.absolute().as_uri()}")
-    except Exception as exc:  # pragma: no cover - best-effort
-        print(f"[warn] failed to build HTML index: {exc}")
+        df_loc = pl.DataFrame(df_rows)
+        out_path = out_dir / "locator_results.csv"
+        df_loc.write_csv(out_path.as_posix())
+        log.info(f"Wrote locator results to: {out_path}")
 
-    print(f"Wrote locator results to: {out_dir}")
+        viz = Viz(graphs_dir)
+        try:
+            summary_plots_meta = viz.plot_locator_summary(df_loc)
+            for meta in summary_plots_meta:
+                meta["path"] = Path(meta["path"]).relative_to(out_dir).as_posix()
+            plot_manifest.extend(summary_plots_meta)
+            log.info(f"Saved {len(summary_plots_meta)} summary plots")
+        except Exception as exc:
+            log.warning(f"Plotting failed: {exc}")
+
+        manifest_path = out_dir / "plots_manifest.json"
+        manifest_path.write_text(json.dumps(plot_manifest, indent=2), encoding="utf-8")
+
+        try:
+            idx = compile_html_index(out_dir)
+            log.info(f"Generated HTML index at: {idx.absolute().as_uri()}")
+        except Exception as exc:
+            log.warning(f"Failed to build HTML index: {exc}")
+
+        log.info(f"Wrote locator results to: {out_dir}")
     return 0
 
 
-__all__ = ["cli", "run_locator_workflow"]
+__all__ = ["cli"]
