@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 class OverProbeDriftNoise:
     """Adds a slow linear drift across sequential probes."""
 
-    drift_per_unit: float = 0.001
+    drift_per_unit: float = 0.0001
     stateful: bool = True
     _current_drift: float | None = None
 
