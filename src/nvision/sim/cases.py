@@ -103,8 +103,8 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
             ),
         ),
         (
-            "OverProbeDrift(0.05)",
-            CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.05)])),
+            "OverProbeDrift(0.001)",
+            CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.001)])),
         ),
     ]
 
@@ -117,7 +117,7 @@ def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
                 over_frequency_noise=CompositeOverFrequencyNoise(
                     [OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.02, 0.5)]
                 ),
-                over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.05)]),
+                over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.001)]),
             ),
         ),
     ]
