@@ -36,17 +36,9 @@ import polars as pl
 from matplotlib import pyplot as plt
 from scipy.optimize import minimize, minimize_scalar
 from scipy.special import logsumexp, voigt_profile
+from scipy.stats import cauchy
 
 from nvision.sim.locs.base import Locator, ScanBatch
-
-try:  # pragma: no cover - import guarded for optional dependency resilience
-    from bayes_opt import BayesianOptimization, UtilityFunction
-except ImportError:  # pragma: no cover
-    BayesianOptimization = None  # type: ignore[assignment]
-    UtilityFunction = None  # type: ignore[assignment]
-
-
-from scipy.stats import cauchy
 
 
 @dataclass
@@ -90,7 +82,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
     k_np_prior: tuple[float, float] = (2.0, 4.0)
     amplitude_prior: tuple[float, float] = (0.01, 1.0)
     background_prior: tuple[float, float] = (0.99, 1.01)
-    bo_enabled: bool = True
+    bo_enabled: bool = False
     bo_acq_func: str = "ucb"
     bo_kappa: float = 2.576
     bo_xi: float = 0.0
@@ -144,26 +136,14 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         self.reset_posterior()
 
     def _init_bayes_optimizer(self) -> None:
-        if not self.bo_enabled or BayesianOptimization is None or UtilityFunction is None:
-            self._bo = None
-            self._bo_utility = None
-            return
+        self._bo = None
+        self._bo_utility = None
 
-        pbounds = {"freq": (float(self.prior_bounds[0]), float(self.prior_bounds[1]))}
-        self._bo = BayesianOptimization(
-            f=None,
-            pbounds=pbounds,
-            verbose=0,
-            random_state=self.bo_random_state,
-            allow_duplicate_points=True,
-        )
-        self._bo_utility = UtilityFunction(
-            kind=self.bo_acq_func,
-            kappa=self.bo_kappa,
-            xi=self.bo_xi,
-        )
-
-    def odmr_model(self, frequency: float, params: dict[str, float]) -> float:
+    def odmr_model(
+        self,
+        frequency: float | np.ndarray,
+        params: dict[str, float | np.ndarray],
+    ) -> np.ndarray:
         f0 = params["frequency"]
         gamma = params["linewidth"]
         amplitude = params["amplitude"]
@@ -178,25 +158,22 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             sigma = params["gaussian_width"]
             peak_val = voigt_profile(0, sigma, gamma)
             if peak_val < 1e-9:
-                return bg
+                return np.full_like(f0, bg, dtype=float)
             profile = voigt_profile(frequency - f0, sigma, gamma)
             return bg - amplitude * profile / peak_val
 
         if self.distribution == "voigt-zeeman":
-            # Match generator: broadened NV center (triple lines) convolved with Gaussian
             split = params["split"]
             k_np = params["k_np"]
-            # Generator uses sigma = delta_f_hf / 10.0; here split == delta_f_hf
             sigma = max(split / 10.0, 1e-9)
             peak_val = voigt_profile(0, sigma, gamma)
             if peak_val < 1e-12:
-                return bg
+                return np.full_like(f0, bg, dtype=float)
 
             f_left = f0 - split
             f_center = f0
             f_right = f0 + split
 
-            # Weights mirror NVCenterManufacturer: a*k_np, a, a/k_np (amplitude scales overall)
             w_left = 1.0 / max(k_np, 1e-9)
             w_center = 1.0
             w_right = max(k_np, 1e-9)
@@ -221,20 +198,26 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             return measurement
         raise KeyError("measurement must include either frequency/intensity or x/signal_values")
 
-    def likelihood(self, measurement: dict[str, float], params: dict[str, float]) -> float:
+    def likelihood(
+        self,
+        measurement: dict[str, float],
+        params: dict[str, float | np.ndarray],
+    ) -> np.ndarray:
         measurement = self._coerce_measurement(measurement)
         predicted = self.odmr_model(measurement["x"], params)
-        observed = measurement["signal_values"]
+        observed = np.array(measurement["signal_values"])
+        if observed.ndim == 1:
+            observed = observed[:, np.newaxis]  # Prepare for broadcasting
+
         sigma = 0.05  # Placeholder
 
         if self.noise_model == "gaussian":
             return -0.5 * ((observed - predicted) / sigma) ** 2 - 0.5 * np.log(2 * np.pi * sigma**2)
-        elif self.noise_model == "poisson":
-            if predicted <= 0:
-                return -np.inf
+        if self.noise_model == "poisson":
+            predicted[predicted <= 0] = 1e-9  # Avoid log of non-positive
             return observed * np.log(predicted) - predicted - math.lgamma(observed + 1)
-        else:
-            raise ValueError(f"Unknown noise model: {self.noise_model}")
+
+        raise ValueError(f"Unknown noise model: {self.noise_model}")
 
     def _get_optim_config(self):
         if self.distribution == "lorentzian":
@@ -270,12 +253,31 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
 
         params["frequency"] = self.current_estimates["frequency"]
 
-        total_log_likelihood = 0
-        for m in self.measurement_history:
-            log_likelihood = self.likelihood(m, params)
-            if np.isneginf(log_likelihood):
-                return np.inf
-            total_log_likelihood += log_likelihood
+        if not self.measurement_history:
+            return 0.0
+
+        history_df = pl.DataFrame(self.measurement_history)
+        measurements_x = history_df["x"].to_numpy()
+        measurements_y = history_df["signal_values"].to_numpy()
+
+        predicted = self.odmr_model(measurements_x, params)
+        observed = measurements_y
+        sigma = 0.05  # Placeholder
+
+        if self.noise_model == "gaussian":
+            log_lik_array = -0.5 * ((observed - predicted) / sigma) ** 2 - 0.5 * np.log(
+                2 * np.pi * sigma**2
+            )
+        elif self.noise_model == "poisson":
+            predicted[predicted <= 0] = 1e-9
+            lgamma_observed = np.vectorize(math.lgamma)(observed + 1)
+            log_lik_array = observed * np.log(predicted) - predicted - lgamma_observed
+        else:
+            raise ValueError(f"Unknown noise model: {self.noise_model}")
+
+        total_log_likelihood = np.sum(log_lik_array)
+        if np.isneginf(total_log_likelihood):
+            return np.inf
 
         return -total_log_likelihood
 
@@ -307,31 +309,34 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             for key, value in zip(param_keys, result.x, strict=False):
                 self.current_estimates[key] = value
 
+    def _calculate_log_likelihoods(
+        self,
+        measurement: dict[str, float],
+        base_params: dict[str, float],
+    ) -> np.ndarray:
+        """Calculate log-likelihoods over the frequency grid using vectorized operations."""
+        params = base_params.copy()
+        params["frequency"] = self.freq_grid
+        return self.likelihood(measurement, params)
+
     def update_posterior(self, measurement: dict[str, float]):
         measurement = self._coerce_measurement(measurement)
-        log_likelihoods = np.zeros(self.grid_resolution)
-        for i, freq in enumerate(self.freq_grid):
-            params = {
-                "frequency": freq,
-                "linewidth": self.current_estimates["linewidth"],
-                "amplitude": self.current_estimates["amplitude"],
-                "background": self.current_estimates["background"],
-                "gaussian_width": self.current_estimates["gaussian_width"],
-                "split": self.current_estimates["split"],
-                "k_np": self.current_estimates["k_np"],
-            }
-            log_likelihoods[i] = self.likelihood(measurement, params)
+
+        base_params = {k: v for k, v in self.current_estimates.items() if k != "frequency"}
+        log_likelihoods = self._calculate_log_likelihoods(measurement, base_params)
 
         log_posterior = np.log(self.freq_posterior + 1e-300) + log_likelihoods
         log_posterior -= logsumexp(log_posterior)
         self.freq_posterior = np.exp(log_posterior)
 
-        self.current_estimates["frequency"] = np.sum(self.freq_grid * self.freq_posterior)
-        self.current_estimates["uncertainty"] = np.sqrt(
-            np.sum(
-                (self.freq_grid - self.current_estimates["frequency"]) ** 2 * self.freq_posterior
-            )
-        )
+        # Vectorized calculation of estimates using Polars
+        df = pl.DataFrame({"freq": self.freq_grid, "posterior": self.freq_posterior})
+        est_freq = (df["freq"] * df["posterior"]).sum()
+        self.current_estimates["frequency"] = est_freq
+        self.current_estimates["uncertainty"] = (
+            ((df["freq"] - est_freq).pow(2) * df["posterior"]).sum()
+        ) ** 0.5
+
         self.measurement_history.append(measurement.copy())
         self.posterior_history.append(self.freq_posterior.copy())
         self._optimize_lineshape_params()
@@ -363,21 +368,10 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
 
             sim_measurement = {"x": test_frequency, "signal_values": simulated_intensity}
 
-            temp_posterior = self.freq_posterior.copy()
-            log_likelihoods = np.zeros(self.grid_resolution)
-            for i, freq in enumerate(self.freq_grid):
-                params = {
-                    "frequency": freq,
-                    "linewidth": self.current_estimates["linewidth"],
-                    "amplitude": self.current_estimates["amplitude"],
-                    "background": self.current_estimates["background"],
-                    "gaussian_width": self.current_estimates["gaussian_width"],
-                    "split": self.current_estimates["split"],
-                    "k_np": self.current_estimates["k_np"],
-                }
-                log_likelihoods[i] = self.likelihood(sim_measurement, params)
+            base_params = {k: v for k, v in self.current_estimates.items() if k != "frequency"}
+            log_likelihoods = self._calculate_log_likelihoods(sim_measurement, base_params)
 
-            log_temp_posterior = np.log(temp_posterior + 1e-300) + log_likelihoods
+            log_temp_posterior = np.log(self.freq_posterior + 1e-300) + log_likelihoods
             log_temp_posterior -= logsumexp(log_temp_posterior)
             temp_posterior = np.exp(log_temp_posterior)
             entropy = -np.sum(temp_posterior * np.log(temp_posterior + 1e-300))
@@ -393,71 +387,11 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         fig_size: tuple[int, int] = (12, 8),
         dpi: int = 100,
     ) -> Path | None:
-        if (
-            not self.bo_enabled
-            or self._bo is None
-            or self._bo_utility is None
-            or output_path is None
-        ):
-            return None
-
-        if getattr(self._bo.space, "params", None) is None or self._bo.space.params.size == 0:
-            return None
-
-        try:
-            x = np.linspace(
-                self.prior_bounds[0], self.prior_bounds[1], self.grid_resolution
-            ).reshape(-1, 1)
-            mu, sigma = self._bo._gp.predict(x, return_std=True)
-        except Exception:
-            return None
-
-        fig, ax = plt.subplots(figsize=fig_size, dpi=dpi)
-        ax.plot(x, mu, lw=2, label="Surrogate Model (GP)")
-        ax.fill_between(
-            x.ravel(),
-            mu - 1.96 * sigma,
-            mu + 1.96 * sigma,
-            alpha=0.2,
-            label="95% Confidence Interval",
+        warnings.warn(
+            "Bayesian Optimization plotting is disabled as the dependency was removed.",
+            stacklevel=1,
         )
-
-        params = self._bo.space.params.ravel()
-        targets = self._bo.space.target
-        if params.size and targets.size:
-            ax.scatter(
-                params,
-                targets,
-                c="red",
-                s=50,
-                zorder=10,
-                edgecolors=(0, 0, 0),
-                label="Observed Points",
-            )
-
-        try:
-            utility = self._bo_utility.utility(x, self._bo._gp, 0)
-        except Exception:
-            utility = None
-
-        if utility is not None:
-            ax2 = ax.twinx()
-            ax2.plot(x, utility, "g--", label=f"Acquisition Function ({self.bo_acq_func})")
-            ax2.set_ylabel("Acquisition Function Value", color="green")
-            ax2.tick_params(axis="y", labelcolor="green")
-            ax2.legend(loc="upper right")
-
-        ax.set_title(f"Bayesian Optimization after {len(self.measurement_history)} measurements")
-        ax.set_xlabel("Frequency (Hz)")
-        ax.set_ylabel("Objective (negative signal)")
-        ax.legend(loc="upper left")
-        ax.grid(True)
-        plt.tight_layout()
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path.as_posix(), bbox_inches="tight")
-        plt.close(fig)
-        return output_path
+        return None
 
     def plot_posterior_history(self, output_path: Path) -> Path | None:
         if not self.posterior_history:
