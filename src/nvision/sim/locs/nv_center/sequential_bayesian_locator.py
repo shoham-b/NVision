@@ -214,8 +214,12 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         if self.noise_model == "gaussian":
             return -0.5 * ((observed - predicted) / sigma) ** 2 - 0.5 * np.log(2 * np.pi * sigma**2)
         if self.noise_model == "poisson":
-            predicted[predicted <= 0] = 1e-9  # Avoid log of non-positive
-            return observed * np.log(predicted) - predicted - math.lgamma(observed + 1)
+            safe_predicted = np.maximum(predicted, 1e-9)
+            if isinstance(observed, np.ndarray):
+                lgamma_values = np.vectorize(math.lgamma)(observed + 1)
+            else:
+                lgamma_values = math.lgamma(observed + 1)
+            return observed * np.log(safe_predicted) - safe_predicted - lgamma_values
 
         raise ValueError(f"Unknown noise model: {self.noise_model}")
 
@@ -343,41 +347,44 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
 
     def expected_information_gain(self, test_frequency: float) -> float:
         current_entropy = -np.sum(self.freq_posterior * np.log(self.freq_posterior + 1e-300))
-        expected_entropy = 0.0
         n_samples = min(self.n_monte_carlo // 10, 100)
 
-        for _ in range(n_samples):
-            freq_idx = np.random.choice(self.grid_resolution, p=self.freq_posterior)
-            true_freq = self.freq_grid[freq_idx]
-            true_params = {
-                "frequency": true_freq,
-                "linewidth": self.current_estimates["linewidth"],
-                "amplitude": self.current_estimates["amplitude"],
-                "background": self.current_estimates["background"],
-                "gaussian_width": self.current_estimates["gaussian_width"],
-                "split": self.current_estimates["split"],
-            }
-            expected_signal = self.odmr_model(test_frequency, true_params)
+        # Vectorized Monte Carlo Sampling
+        freq_indices = np.random.choice(self.grid_resolution, size=n_samples, p=self.freq_posterior)
+        true_freqs = self.freq_grid[freq_indices]
 
-            if self.noise_model == "gaussian":
-                noise_std = 0.05 * abs(expected_signal) + 0.01
-                simulated_intensity = np.random.normal(expected_signal, noise_std)
-            else:
-                rate = max(expected_signal, 0.1)
-                simulated_intensity = np.random.poisson(rate)
+        true_params = {
+            "frequency": true_freqs,
+            "linewidth": self.current_estimates["linewidth"],
+            "amplitude": self.current_estimates["amplitude"],
+            "background": self.current_estimates["background"],
+            "gaussian_width": self.current_estimates["gaussian_width"],
+            "split": self.current_estimates["split"],
+        }
+        expected_signals = self.odmr_model(test_frequency, true_params)
 
-            sim_measurement = {"x": test_frequency, "signal_values": simulated_intensity}
+        if self.noise_model == "gaussian":
+            noise_stds = 0.05 * np.abs(expected_signals) + 0.01
+            simulated_intensities = np.random.normal(expected_signals, noise_stds)
+        else:  # poisson
+            rates = np.maximum(expected_signals, 0.1)
+            simulated_intensities = np.random.poisson(rates)
 
-            base_params = {k: v for k, v in self.current_estimates.items() if k != "frequency"}
-            log_likelihoods = self._calculate_log_likelihoods(sim_measurement, base_params)
+        sim_measurement = {"x": test_frequency, "signal_values": simulated_intensities}
 
-            log_temp_posterior = np.log(self.freq_posterior + 1e-300) + log_likelihoods
-            log_temp_posterior -= logsumexp(log_temp_posterior)
-            temp_posterior = np.exp(log_temp_posterior)
-            entropy = -np.sum(temp_posterior * np.log(temp_posterior + 1e-300))
-            expected_entropy += entropy
+        base_params = {k: v for k, v in self.current_estimates.items() if k != "frequency"}
+        log_likelihoods = self._calculate_log_likelihoods(
+            sim_measurement, base_params
+        )  # Shape: (n_samples, grid_resolution)
 
-        expected_entropy /= n_samples
+        # Vectorized posterior update and entropy calculation
+        log_posteriors = np.log(self.freq_posterior + 1e-300) + log_likelihoods
+        log_posteriors -= logsumexp(log_posteriors, axis=1, keepdims=True)
+        temp_posteriors = np.exp(log_posteriors)
+
+        entropies = -np.sum(temp_posteriors * np.log(temp_posteriors + 1e-300), axis=1)
+        expected_entropy = np.mean(entropies)
+
         info_gain = current_entropy - expected_entropy
         return max(info_gain, 0.0)
 
