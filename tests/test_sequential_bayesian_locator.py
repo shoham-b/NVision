@@ -157,7 +157,7 @@ def test_sampling_loop_generates_adaptive_points():
     for i, (x, y) in enumerate(
         zip(history["x"].to_list(), history["signal_values"].to_list(), strict=False)
     ):
-        print(f"  {i+1}. x={x:.3e}, y={y:.3f}")
+        print(f"  {i + 1}. x={x:.3e}, y={y:.3f}")
 
     # Check that we have the expected number of measurements
     assert len(history) == 5, f"Expected 5 measurements, got {len(history)}"
