@@ -526,7 +526,7 @@ def run(  # noqa: C901
     ] = False,
     parallel: Annotated[
         bool,
-        typer.Option("--parallel", help="Run simulations in parallel"),
+        typer.Option("--parallel/--no-parallel", help="Run simulations in parallel"),
     ] = True,
     log_level: Annotated[
         str,

@@ -5,14 +5,14 @@ description = "NVision: project scaffold with tests, ruff, CI, and fuzzing"
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "bayesian-optimization>=1.5.0",
-    "polars>=0.20",
+    "polars>=1.35.1",
     "typer>=0.12.0",
     "matplotlib>=3.7",
     "diskcache>=5.6",
     "scipy>=1.16.3",
     "pandas>=2.3.3",
     "pandas-stubs==2.3.2.250926",
-    "plotly>=6.3.1",
+    "plotly>=6.4.0",
     "pytest-cov>=7.0.0",
     "scipy-stubs==1.16.3.0",
     "rich>=13.0",
@@ -23,9 +23,9 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.5",
-    "hypothesis>=6.0",
-    "ruff==0.6.9",
-    "pre-commit>=3.6",
+    "hypothesis>=6.147.0",
+    "ruff==0.14.4",
+    "pre-commit==4.3.0",
 ]
 
 [project.scripts]
@@ -88,10 +88,10 @@ build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
-    "hypothesis>=6.141.1",
-    "pre-commit>=3.6",
+    "hypothesis>=6.147.0",
+    "pre-commit==4.3.0",
     "pytest>=8.0",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.5",
-    "ruff==0.6.9",
+    "ruff==0.14.4",
 ]
