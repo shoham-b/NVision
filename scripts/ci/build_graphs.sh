@@ -6,7 +6,7 @@ GRAPHS_DIR="$OUT_DIR/graphs"
 TEMPLATE=${2:-scripts/pages_index.html}
 
 # Generate graphs via project CLI
-uv run python -m nvision --out "$OUT_DIR" --repeats 5 --seed 123 --loc-max-steps 150
+uv run python -m nvision run --out "$OUT_DIR" --repeats 5 --seed 123 --loc-max-steps 150
 
 INDEX_PATH="$OUT_DIR/index.html"
 

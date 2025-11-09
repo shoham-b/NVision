@@ -77,7 +77,7 @@ Run simulations, analyze results, and visualize outcomes—all in a reproducible
 - **Run NV-center simulations**
 ```
 
-uv run python -m nvision --repeats 5 --seed 123 --loc-max-steps 150
+uv run python -m nvision run --repeats 5 --seed 123 --loc-max-steps 150
 
 ```
 - Generates experimental datasets across strategies and noise conditions
