@@ -24,6 +24,7 @@ Key Features:
 
 from __future__ import annotations
 
+import logging
 import math
 import warnings
 from collections.abc import Iterable, Sequence
@@ -35,10 +36,14 @@ import numpy as np
 import polars as pl
 from matplotlib import pyplot as plt
 from scipy.optimize import minimize, minimize_scalar
+from scipy.signal import find_peaks
 from scipy.special import logsumexp, voigt_profile
 from scipy.stats import cauchy
 
 from nvision.sim.locs.base import Locator, ScanBatch
+from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -89,11 +94,15 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
     bo_random_state: int | None = None
     utility_history_window: int = 9
     n_warmup: int = 10
+    sweeper: NVCenterSweepLocator = None
 
     def __post_init__(self):
         """Initialize the locator after dataclass creation."""
         if self.n_warmup >= self.max_evals:
             raise ValueError("n_warmup must be smaller than max_evals")
+        self.sweeper = NVCenterSweepLocator(
+            coarse_points=self.n_warmup, refine_points=self.n_warmup
+        )
         self._bo: Any = None
         self._bo_utility: Any = None
 
@@ -138,6 +147,36 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
     def _init_bayes_optimizer(self) -> None:
         self._bo = None
         self._bo_utility = None
+
+    def _infer_distribution_from_history(self, history: pl.DataFrame):
+        """Infer the distribution type from the warmup history."""
+        if history.is_empty() or history.height < 3:
+            return
+
+        # Use a simple peak counting method on the raw signal
+        sorted_history = history.sort("x")
+        y = sorted_history["signal_values"].to_numpy()
+
+        # Find points that are dips. Dips are values lower than baseline.
+        # We are looking for peaks in negative signal.
+        baseline = np.quantile(y, 0.95)
+        max_dip = np.abs(np.min(y) - baseline)
+
+        # find_peaks finds maxima. We look for minima, so we invert the signal.
+        # Height is also inverted. A distance helps to avoid multiple peaks for one dip.
+        peaks_indices, _ = find_peaks(-y, height=-(baseline - 0.3 * max_dip), distance=3)
+
+        num_peaks = len(peaks_indices)
+        log.info(f"Inferred {num_peaks} peaks from warmup sweep.")
+
+        new_distribution = "voigt-zeeman" if num_peaks > 1 else "voigt"
+
+        if self.distribution != new_distribution:
+            log.info(f"Switching distribution model from {self.distribution} to {new_distribution}")
+            self.distribution = new_distribution
+            # Force re-processing of history by clearing internal state.
+            # The subsequent _ingest_history call in propose_next will rebuild the posterior.
+            self.reset_run_state()
 
     def odmr_model(
         self,
@@ -573,10 +612,31 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         if not isinstance(history, pl.DataFrame):
             history = pl.DataFrame(history)
 
+        hist_len = history.height
+        if hist_len == self.n_warmup and self.n_warmup > 0:
+            self._infer_distribution_from_history(history)
+
         self._rescale_priors_if_needed(scan)
 
         self._ingest_history(history)
-        next_freq, _ = self._optimize_acquisition(self.prior_bounds)
+
+        if hist_len < self.n_warmup:
+            # The sweeper is designed for batch mode. We adapt the single-run call.
+            dummy_repeats = pl.DataFrame({"repeat_id": [0], "active": [True]})
+            history_with_id = history.with_columns(pl.lit(0, dtype=pl.Int64).alias("repeat_id"))
+
+            proposals = self.sweeper.propose_next(history_with_id, dummy_repeats, scan)
+
+            if not proposals.is_empty():
+                return proposals.item(0, "x")
+
+            # Fallback if sweeper gives no proposal
+            return (scan.x_min + scan.x_max) / 2.0
+
+        next_freq, utility = self._optimize_acquisition(self.prior_bounds)
+        self.utility_history.append(utility)
+        if len(self.utility_history) > self.utility_history_window:
+            self.utility_history.pop(0)
         return float(next_freq)
 
     def should_stop(self, history: Sequence | pl.DataFrame, scan: ScanBatch) -> bool:

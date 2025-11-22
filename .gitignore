@@ -87,6 +87,7 @@ cython_debug/
 
 # IDEs and editors
 .vscode/
+!.vscode/launch.json
 .idea/
 *.iml
 *.ipr
