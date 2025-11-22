@@ -12,6 +12,7 @@ from .base import Locator, ScanBatch
 from .nv_center import (
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
+    SimpleSequentialLocator,
 )
 from .one_peak import OnePeakGoldenLocator, OnePeakGridLocator, OnePeakSweepLocator
 from .two_peak import TwoPeakGoldenLocator, TwoPeakGridLocator, TwoPeakSweepLocator
@@ -129,6 +130,7 @@ __all__ = [
     "OnePeakGridLocator",
     "OnePeakSweepLocator",
     "ScanBatch",
+    "SimpleSequentialLocator",
     "TwoPeakGoldenLocator",
     "TwoPeakGridLocator",
     "TwoPeakSweepLocator",
