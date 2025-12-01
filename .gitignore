@@ -121,3 +121,4 @@ artifacts/graphs/
 
 .gemini/
 gha-creds-*.json
+.\junit-result.xml
