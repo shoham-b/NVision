@@ -72,6 +72,7 @@ def run_locator(
             if history_rows:
                 history_df = pl.DataFrame(history_rows)
             else:
+                # Initialize with basic schema, but allow it to grow
                 history_df = pl.DataFrame(
                     {
                         "repeat_id": pl.Series("repeat_id", [], dtype=pl.Int64),
@@ -100,14 +101,23 @@ def run_locator(
                 else y_ideal
             )
 
-            history_rows.append(
-                {
-                    "repeat_id": 0,
-                    "step": step_num,
-                    "x": x_next,
-                    "signal_values": y_measured,
-                }
-            )
+            # Capture current estimates if available
+            row_data = {
+                "repeat_id": 0,
+                "step": step_num,
+                "x": x_next,
+                "signal_values": y_measured,
+            }
+
+            if hasattr(locator, "current_estimates") and isinstance(
+                locator.current_estimates, dict
+            ):
+                for key, value in locator.current_estimates.items():
+                    # Prefix with est_ to avoid collisions and clearly mark as estimates
+                    if isinstance(value, (int, float, str, bool)) or value is None:
+                        row_data[f"est_{key}"] = value
+
+            history_rows.append(row_data)
     except (KeyboardInterrupt, TimeoutError) as e:
         if isinstance(e, TimeoutError):
             log.warning("%s. Finalizing with current measurements...", str(e))

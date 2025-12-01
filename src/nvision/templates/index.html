@@ -182,9 +182,9 @@
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
     <h2>Scan Measurements</h2>
     <div class="control-row">
-        <span class="control-label">Generator Type:</span>
+        <span class="control-label">Target:</span>
         <div
-                aria-label="Scan generator type"
+                aria-label="Scan target"
                 class="segmented-control"
                 id="scan-generator-type"
                 role="radiogroup"
@@ -302,14 +302,10 @@
 
         plots.forEach(p => {
             const gen = p.generator || '';
-            if (gen.startsWith('OnePeak-')) {
-                p.generator_type = 'OnePeak';
-            } else if (gen.startsWith('TwoPeak-')) {
-                p.generator_type = 'TwoPeak';
-            } else if (gen.startsWith('NVCenter-')) {
-                p.generator_type = 'NVCenter';
+            if (gen.startsWith('NVCenter-')) {
+                p.generator_type = 'NV Center';
             } else {
-                p.generator_type = 'Unknown';
+                p.generator_type = 'Complementary';
             }
         });
 
@@ -400,7 +396,7 @@
             }
         }
 
-        const nvCenterDefault = scanPlots.find(p => p.generator_type === 'NVCenter');
+        const nvCenterDefault = scanPlots.find(p => p.generator_type === 'NV Center');
         const scanDefault = nvCenterDefault || (scanPlots.length > 0 ? scanPlots[0] : null);
 
         const scanGeneratorType = document.getElementById('scan-generator-type');
@@ -468,7 +464,11 @@
                 ),
             ]
                 .map((item) => String(item))
-                .sort((a, b) => a.localeCompare(b));
+                .sort((a, b) => {
+                    if (a === 'NV Center') return -1;
+                    if (b === 'NV Center') return 1;
+                    return a.localeCompare(b);
+                });
 
             control.innerHTML = '';
 

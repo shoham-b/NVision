@@ -16,6 +16,7 @@ dependencies = [
     "pytest-cov>=7.0.0",
     "scipy-stubs==1.16.3.0",
     "rich>=13.0",
+    "nicegui>=1.4.0",
 ]
 
 [project.optional-dependencies]
