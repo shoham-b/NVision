@@ -64,6 +64,7 @@ class LocatorTask:
     cache_dir: Path
     log_queue: Any
     log_level: int
+    ignore_cache_strategy: str | None
 
     def __str__(self) -> str:
         return self.slug
@@ -200,6 +201,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     loc_timeout_s = task.loc_timeout_s
     use_cache = task.use_cache
     cache_dir = task.cache_dir
+    ignore_cache_strategy = task.ignore_cache_strategy
 
     log.info(
         "Starting combination: %s/%s/%s for %s repeats",
@@ -227,7 +229,12 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     }
     combo_key = cache.make_key(combo_cfg)
 
-    if use_cache:
+    # Check if cache should be ignored for this specific strategy
+    skip_cache_for_strategy = (
+        ignore_cache_strategy is not None and strat_name == ignore_cache_strategy
+    )
+
+    if use_cache and not skip_cache_for_strategy:
         cached_combo_df = cache.load_df(combo_key)
         if (
             cached_combo_df is not None
@@ -478,7 +485,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
             **metrics_serialized,
         }
 
-        if use_cache:
+        if use_cache and not skip_cache_for_strategy:
             part_cfg = {
                 "kind": "locator_run",
                 "generator": gen_name,
@@ -501,7 +508,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         log.info(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
         all_results_for_combination.append((entries, main_result_row))
 
-    if use_cache and all_results_for_combination:
+    if use_cache and not skip_cache_for_strategy and all_results_for_combination:
         combo_payload = [
             {"entries": entries, "main_result_row": main_result_row}
             for entries, main_result_row in all_results_for_combination
@@ -529,6 +536,13 @@ def run(  # noqa: C901
         bool,
         typer.Option("--no-cache", help="Disable caching for this run"),
     ] = False,
+    ignore_cache_strategy: Annotated[
+        str | None,
+        typer.Option(
+            "--ignore-cache-strategy",
+            help="Ignore cache for a specific strategy (e.g., 'NVCenter-SimpleSequential')",
+        ),
+    ] = None,
     parallel: Annotated[
         bool,
         typer.Option("--parallel/--no-parallel", help="Run simulations in parallel"),
@@ -633,6 +647,7 @@ def run(  # noqa: C901
                             cache_dir=cache_dir,
                             log_queue=log_queue,
                             log_level=log_level_value,
+                            ignore_cache_strategy=ignore_cache_strategy,
                         )
                     )
 
@@ -730,6 +745,22 @@ def run(  # noqa: C901
 
         log.info(f"Wrote locator results to: {out_dir}")
     return 0
+
+
+@app.command()
+def gui(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    port: Annotated[int, typer.Option("--port", help="Port to run the server on")] = 8080,
+    no_browser: Annotated[
+        bool,
+        typer.Option("--no-browser", help="Do not open the browser automatically"),
+    ] = False,
+) -> None:
+    """Launch the NiceGUI results viewer."""
+    from nvision.gui import run_gui
+
+    ensure_out_dir(out)
+    run_gui(out, port=port, show=not no_browser)
 
 
 def _should_delete_file(
@@ -866,6 +897,40 @@ def _matches_filter(
             noise is None or config.get("noise") == noise,
         ]
     )
+
+
+@app.command()
+def evaluate_bayesian(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts/eval"),
+    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
+    max_steps: Annotated[int, typer.Option("--max-steps", help="Max steps per run")] = 50,
+) -> None:
+    """
+    Evaluate the Bayesian locator against a set of standard scenarios.
+    """
+    from nvision.evaluation.bayesian_eval import EvalScenario, print_results, run_evaluation
+
+    scenarios = [
+        EvalScenario(
+            "Standard NV",
+            {"frequency": 2.87e9, "linewidth": 12e6, "amplitude": 0.05, "background": 1.0},
+        ),
+        EvalScenario(
+            "Weak Signal",
+            {"frequency": 2.87e9, "linewidth": 12e6, "amplitude": 0.01, "background": 1.0},
+        ),
+        EvalScenario(
+            "Off-Resonance",
+            {"frequency": 3.00e9, "linewidth": 12e6, "amplitude": 0.05, "background": 1.0},
+        ),
+    ]
+
+    log.info(
+        f"Starting Bayesian evaluation with {len(scenarios)} scenarios, {repeats} repeats each."
+    )
+    results = run_evaluation(scenarios, repeats=repeats, max_steps=max_steps, output_dir=out)
+    print_results(results)
+    log.info(f"Evaluation complete. Results saved to {out}")
 
 
 def cli(*args, **kwargs):
