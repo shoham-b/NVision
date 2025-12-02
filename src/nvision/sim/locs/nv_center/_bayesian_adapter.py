@@ -27,11 +27,11 @@ class NVCenterSequentialBayesianLocatorBatched(Locator):
     but allows the Bayesian locator to work with the new batched runner.
     """
 
-    max_evals: int = 50
+    max_evals: int = 500
     prior_bounds: tuple[float, float] = (2.6e9, 3.1e9)
     noise_model: str = "gaussian"
     acquisition_function: str = "expected_information_gain"
-    convergence_threshold: float = 1e-8
+    convergence_threshold: float = 1e-10
     min_uncertainty_reduction: float = 1e-9
     n_monte_carlo: int = 100
     grid_resolution: int = 1000
@@ -48,6 +48,8 @@ class NVCenterSequentialBayesianLocatorBatched(Locator):
     bo_random_state: int | None = None
     utility_history_window: int = 9
     n_warmup: int = 10
+    locator_cls: type[_OriginalBayesianLocator] = _OriginalBayesianLocator
+    pickiness: float = 5.0  # For ProjectBayesianLocator
 
     _locators: dict[int, _OriginalBayesianLocator] = field(
         default_factory=dict, init=False, repr=False
@@ -56,29 +58,34 @@ class NVCenterSequentialBayesianLocatorBatched(Locator):
     def _get_locator(self, repeat_id: int) -> _OriginalBayesianLocator:
         """Get or create a locator instance for a given repeat_id."""
         if repeat_id not in self._locators:
-            self._locators[repeat_id] = _OriginalBayesianLocator(
-                max_evals=self.max_evals,
-                prior_bounds=self.prior_bounds,
-                noise_model=self.noise_model,
-                acquisition_function=self.acquisition_function,
-                convergence_threshold=self.convergence_threshold,
-                min_uncertainty_reduction=self.min_uncertainty_reduction,
-                n_monte_carlo=self.n_monte_carlo,
-                grid_resolution=self.grid_resolution,
-                linewidth_prior=self.linewidth_prior,
-                distribution=self.distribution,
-                gaussian_width_prior=self.gaussian_width_prior,
-                split_prior=self.split_prior,
-                amplitude_prior=self.amplitude_prior,
-                background_prior=self.background_prior,
-                bo_enabled=self.bo_enabled,
-                bo_acq_func=self.bo_acq_func,
-                bo_kappa=self.bo_kappa,
-                bo_xi=self.bo_xi,
-                bo_random_state=self.bo_random_state,
-                utility_history_window=self.utility_history_window,
-                n_warmup=self.n_warmup,
-            )
+            kwargs = {
+                "max_evals": self.max_evals,
+                "prior_bounds": self.prior_bounds,
+                "noise_model": self.noise_model,
+                "acquisition_function": self.acquisition_function,
+                "convergence_threshold": self.convergence_threshold,
+                "min_uncertainty_reduction": self.min_uncertainty_reduction,
+                "n_monte_carlo": self.n_monte_carlo,
+                "grid_resolution": self.grid_resolution,
+                "linewidth_prior": self.linewidth_prior,
+                "distribution": self.distribution,
+                "gaussian_width_prior": self.gaussian_width_prior,
+                "split_prior": self.split_prior,
+                "amplitude_prior": self.amplitude_prior,
+                "background_prior": self.background_prior,
+                "bo_enabled": self.bo_enabled,
+                "bo_acq_func": self.bo_acq_func,
+                "bo_kappa": self.bo_kappa,
+                "bo_xi": self.bo_xi,
+                "bo_random_state": self.bo_random_state,
+                "utility_history_window": self.utility_history_window,
+                "n_warmup": self.n_warmup,
+            }
+            # Add pickiness if the class supports it (ProjectBayesianLocator)
+            if hasattr(self.locator_cls, "pickiness"):
+                kwargs["pickiness"] = self.pickiness
+
+            self._locators[repeat_id] = self.locator_cls(**kwargs)
         return self._locators[repeat_id]
 
     def propose_next(
