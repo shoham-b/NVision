@@ -22,6 +22,29 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import BarColumn, Progress, SpinnerColumn, ProgressColumn, Task
 
+from nvision.cache import DataFrameCache
+from nvision.index_html import compile_html_index
+from nvision.pathutils import ensure_out_dir, slugify
+from nvision.sim import (
+    CompositeNoise,
+    NVCenterSequentialBayesianLocator,
+    NVCenterSweepLocator,
+    ProjectBayesianLocator,
+    OnePeakGoldenLocator,
+    OnePeakGridLocator,
+    OnePeakSweepLocator,
+    SimpleSequentialLocator,
+    TwoPeakGoldenLocator,
+    TwoPeakGridLocator,
+    TwoPeakSweepLocator,
+)
+from nvision.sim import cases as sim_cases
+from nvision.viz import Viz
+
+log = logging.getLogger("nvision")
+
+app = typer.Typer(help="NVision simulation runner")
+
 
 class DotsColumn(ProgressColumn):
     def render(self, task: Task) -> Any:
