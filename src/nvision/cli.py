@@ -658,6 +658,27 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     return all_results_for_combination
 
 
+def _load_duration_estimates(out_dir: Path) -> dict[tuple[str, str, str], float]:
+    csv_path = out_dir / "locator_results.csv"
+    if not csv_path.exists():
+        return {}
+    try:
+        df = pl.read_csv(csv_path)
+        if "duration_ms" not in df.columns:
+            return {}
+
+        # Group by config and take mean duration
+        stats = df.group_by(["generator", "noise", "strategy"]).agg(pl.col("duration_ms").mean())
+
+        estimates = {}
+        for row in stats.to_dicts():
+            key = (row["generator"], row["noise"], row["strategy"])
+            estimates[key] = row["duration_ms"]
+        return estimates
+    except Exception:
+        return {}
+
+
 @app.command()
 def run(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
@@ -773,8 +794,11 @@ def run(  # noqa: C901
         progress_group = Group(main_progress, sub_progress)
 
         with Live(progress_group, refresh_per_second=10):
+            duration_estimates = _load_duration_estimates(out_dir)
+            tid_to_weight = {}
+
             main_task_id = main_progress.add_task("[cyan]Total Progress", total=0)
-            total_repeats_count = 0
+            total_weighted_repeats = 0.0
 
             for gen_name, gen_obj in generator_map.items():
                 if filter_category and _get_generator_category(gen_name) != filter_category:
@@ -799,7 +823,12 @@ def run(  # noqa: C901
 
                         desc = f"[cyan]{gen_name}/{noise_name}/{strat_name}[/cyan]"
                         task_id = sub_progress.add_task(desc, total=repeats)
-                        total_repeats_count += repeats
+
+                        est_duration = duration_estimates.get(
+                            (gen_name, noise_name, strat_name), 1000.0
+                        )
+                        tid_to_weight[task_id] = est_duration
+                        total_weighted_repeats += repeats * est_duration
 
                         tasks.append(
                             LocatorTask(
@@ -827,21 +856,23 @@ def run(  # noqa: C901
                             )
                         )
 
-            main_progress.update(main_task_id, total=total_repeats_count)
+            main_progress.update(main_task_id, total=total_weighted_repeats)
 
             plot_manifest: list[dict[str, object]] = []
             df_rows: list[dict] = []
 
             def monitor_progress():
-                completed_total = 0
+                completed_weighted = 0.0
                 while True:
                     item = progress_queue.get()
                     if item is None:
                         break
                     tid, advance = item
                     sub_progress.update(tid, advance=advance)
-                    completed_total += advance
-                    main_progress.update(main_task_id, completed=completed_total)
+
+                    weight = tid_to_weight.get(tid, 1000.0)
+                    completed_weighted += advance * weight
+                    main_progress.update(main_task_id, completed=completed_weighted)
 
                     for task in sub_progress.tasks:
                         if task.id == tid and task.completed >= task.total:
