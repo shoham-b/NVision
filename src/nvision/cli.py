@@ -723,73 +723,80 @@ def run(  # noqa: C901
         seen_configs: set[tuple[str, str, str]] = set()
         used_slugs: set[str] = set()
 
-        for gen_name, gen_obj in generator_map.items():
-            if filter_category and _get_generator_category(gen_name) != filter_category:
-                continue
+        progress_queue = manager.Queue()
 
-            for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
-                for noise_name, noise_obj in noise_map.items():
-                    config_key = (gen_name, noise_name, strat_name)
-                    if config_key in seen_configs:
-                        continue
-                    seen_configs.add(config_key)
+        progress = Progress(
+            "{task.description}",
+            DotsColumn(),
+            console=console,
+            refresh_per_second=10,
+            disable=no_progress,
+        )
 
-                    slug_base = "_".join(
-                        slugify(part) for part in (gen_name, noise_name, strat_name)
-                    )
-                    slug_candidate = slug_base
-                    suffix = 1
-                    while slug_candidate in used_slugs:
-                        suffix += 1
-                        slug_candidate = f"{slug_base}-{suffix}"
-                    used_slugs.add(slug_candidate)
+        with progress:
+            for gen_name, gen_obj in generator_map.items():
+                if filter_category and _get_generator_category(gen_name) != filter_category:
+                    continue
 
-                    tasks.append(
-                        LocatorTask(
-                            generator_name=gen_name,
-                            generator=gen_obj,
-                            noise_name=noise_name,
-                            noise=noise_obj,
-                            strategy_name=strat_name,
-                            strategy=strat_obj,
-                            repeats=repeats,
-                            seed=seed,
-                            slug=slug_candidate,
-                            out_dir=out_dir,
-                            scans_dir=scans_dir,
-                            bayes_dir=bayes_dir,
-                            loc_max_steps=loc_max_steps,
-                            loc_timeout_s=loc_timeout_s,
-                            use_cache=not no_cache,
-                            cache_dir=cache_dir,
-                            log_queue=log_queue,
-                            log_level=log_level_value,
-                            ignore_cache_strategy=ignore_cache_strategy,
+                for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
+                    for noise_name, noise_obj in noise_map.items():
+                        config_key = (gen_name, noise_name, strat_name)
+                        if config_key in seen_configs:
+                            continue
+                        seen_configs.add(config_key)
+
+                        slug_base = "_".join(
+                            slugify(part) for part in (gen_name, noise_name, strat_name)
                         )
-                    )
+                        slug_candidate = slug_base
+                        suffix = 1
+                        while slug_candidate in used_slugs:
+                            suffix += 1
+                            slug_candidate = f"{slug_base}-{suffix}"
+                        used_slugs.add(slug_candidate)
 
-        plot_manifest: list[dict[str, object]] = []
-        df_rows: list[dict] = []
+                        desc = f"[cyan]{gen_name}/{noise_name}/{strat_name}[/cyan]"
+                        task_id = progress.add_task(desc, total=repeats)
 
-        progress_kwargs = {
-            "console": console,
-            "refresh_per_second": 10,
-        }
-        if no_progress:
-            progress_kwargs["disable"] = True
+                        tasks.append(
+                            LocatorTask(
+                                generator_name=gen_name,
+                                generator=gen_obj,
+                                noise_name=noise_name,
+                                noise=noise_obj,
+                                strategy_name=strat_name,
+                                strategy=strat_obj,
+                                repeats=repeats,
+                                seed=seed,
+                                slug=slug_candidate,
+                                out_dir=out_dir,
+                                scans_dir=scans_dir,
+                                bayes_dir=bayes_dir,
+                                loc_max_steps=loc_max_steps,
+                                loc_timeout_s=loc_timeout_s,
+                                use_cache=not no_cache,
+                                cache_dir=cache_dir,
+                                log_queue=log_queue,
+                                log_level=log_level_value,
+                                ignore_cache_strategy=ignore_cache_strategy,
+                                progress_queue=progress_queue,
+                                task_id=task_id,
+                            )
+                        )
 
-        with Progress(
-            SpinnerColumn(),
-            "•",
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            BarColumn(bar_width=None),
-            "•",
-            "[progress.completed]{task.completed}/{task.total}",
-            **progress_kwargs,
-        ) as progress:
-            progress_task_id = progress.add_task(
-                "[cyan]Running simulations...", total=len(tasks) * repeats
-            )
+            plot_manifest: list[dict[str, object]] = []
+            df_rows: list[dict] = []
+
+            def monitor_progress():
+                while True:
+                    item = progress_queue.get()
+                    if item is None:
+                        break
+                    tid, advance = item
+                    progress.update(tid, advance=advance)
+
+            monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
+            monitor_thread.start()
 
             if parallel:
                 with ProcessPoolExecutor() as executor:
@@ -798,21 +805,19 @@ def run(  # noqa: C901
                         for locator_task in tasks
                     }
                     for future in as_completed(futures):
-                        locator_task = futures[future]
                         results_for_combination = future.result()
                         for entries, main_result_row in results_for_combination:
                             plot_manifest.extend(entries)
                             df_rows.append(main_result_row)
-                        desc = f"Done: {locator_task.generator_name}/{locator_task.noise_name}"
-                        progress.update(progress_task_id, advance=repeats, description=desc)
             else:
                 for locator_task in tasks:
                     results_for_combination = _run_combination(locator_task)
                     for entries, main_result_row in results_for_combination:
                         plot_manifest.extend(entries)
                         df_rows.append(main_result_row)
-                    desc = f"Done: {locator_task.generator_name}/{locator_task.noise_name}"
-                    progress.update(progress_task_id, advance=repeats, description=desc)
+
+            progress_queue.put(None)
+            monitor_thread.join()
 
         listener.stop()
 
