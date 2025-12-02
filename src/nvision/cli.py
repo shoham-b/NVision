@@ -8,6 +8,7 @@ import multiprocessing
 import random
 import shutil
 import time
+import threading
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -19,29 +20,12 @@ import polars as pl
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.progress import BarColumn, Progress, SpinnerColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, ProgressColumn, Task
 
-from nvision.cache import DataFrameCache
-from nvision.index_html import compile_html_index
-from nvision.pathutils import ensure_out_dir, slugify
-from nvision.sim import (
-    CompositeNoise,
-    NVCenterSequentialBayesianLocator,
-    NVCenterSweepLocator,
-    OnePeakGoldenLocator,
-    OnePeakGridLocator,
-    OnePeakSweepLocator,
-    SimpleSequentialLocator,
-    TwoPeakGoldenLocator,
-    TwoPeakGridLocator,
-    TwoPeakSweepLocator,
-)
-from nvision.sim import cases as sim_cases
-from nvision.viz import Viz
 
-log = logging.getLogger("nvision")
-
-app = typer.Typer(help="NVision simulation runner")
+class DotsColumn(ProgressColumn):
+    def render(self, task: Task) -> Any:
+        return "." * int(task.completed)
 
 
 @dataclass(slots=True)
@@ -65,6 +49,8 @@ class LocatorTask:
     log_queue: Any
     log_level: int
     ignore_cache_strategy: str | None
+    progress_queue: Any = None
+    task_id: Any = None
 
     def __str__(self) -> str:
         return self.slug
@@ -107,11 +93,19 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, ob
             ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
             (
                 "NVCenter-SequentialBayesian",
-                NVCenterSequentialBayesianLocator(max_evals=60, grid_resolution=400),
+                NVCenterSequentialBayesianLocator(
+                    max_evals=500, grid_resolution=400, distribution="voigt-zeeman"
+                ),
             ),
             (
                 "NVCenter-SimpleSequential",
                 SimpleSequentialLocator(max_evals=60, grid_resolution=400),
+            ),
+            (
+                "NVCenter-ProjectBayesian",
+                ProjectBayesianLocator(
+                    max_evals=500, grid_resolution=400, distribution="voigt-zeeman"
+                ),
             ),
         ]
     return strategies
@@ -152,7 +146,7 @@ def _scan_attempt_metrics(
             metrics["abs_err_x2"] = err2
             metrics["pair_rmse"] = math.sqrt(0.5 * (err1 * err1 + err2 * err2))
 
-    for key in ("uncert", "uncert_pos", "uncert_sep"):
+    for key in ("uncert", "uncert_pos", "uncert_sep", "final_entropy", "final_max_prob"):
         value = estimate.get(key)
         if isinstance(value, int | float) and math.isfinite(float(value)):
             metrics[key] = float(value)
@@ -196,7 +190,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     slug_base = task.slug
     out_dir = task.out_dir
     scans_dir = task.scans_dir
-    # bayes_dir is currently unused
+    bayes_dir = task.bayes_dir
     loc_max_steps = task.loc_max_steps
     loc_timeout_s = task.loc_timeout_s
     use_cache = task.use_cache
@@ -369,14 +363,29 @@ def _run_combination(task: LocatorTask):  # noqa: C901
                 else y_ideal
             )
 
-            history_rows.append(
-                {
-                    "repeat_id": rid,
-                    "step": step_num,
-                    "x": x_next,
-                    "signal_values": y_measured,
-                }
-            )
+            row_data = {
+                "repeat_id": rid,
+                "step": step_num,
+                "x": x_next,
+                "signal_values": y_measured,
+            }
+
+            # Capture Bayesian metrics if available
+            if hasattr(strat_obj, "_get_locator"):
+                try:
+                    locator_instance = strat_obj._get_locator(rid)
+                    if hasattr(locator_instance, "current_estimates"):
+                        est = locator_instance.current_estimates
+                        if "entropy" in est:
+                            row_data["entropy"] = est["entropy"]
+                        if "max_prob" in est:
+                            row_data["max_prob"] = est["max_prob"]
+                        if "uncertainty" in est:
+                            row_data["uncertainty"] = est["uncertainty"]
+                except Exception:
+                    pass  # Ignore if accessing locator fails
+
+            history_rows.append(row_data)
 
     # Mark remaining active repeats as max_steps_reached
     for rid in range(n_repeats):
@@ -469,11 +478,106 @@ def _run_combination(task: LocatorTask):  # noqa: C901
             }
         ]
 
-        # is_bayesian is currently unused
-        # is_bayesian = isinstance(strat_obj, NVCenterSequentialBayesianLocator)
+        # Bayesian plotting
+        if hasattr(strat_obj, "_get_locator"):
+            try:
+                locator_instance = strat_obj._get_locator(attempt_idx_in_combo)
+                if hasattr(locator_instance, "posterior_history") and hasattr(
+                    locator_instance, "freq_grid"
+                ):
+                    # Compute model history
+                    model_history = []
+                    if hasattr(locator_instance, "parameter_history"):
+                        for params in locator_instance.parameter_history:
+                            model_history.append(
+                                locator_instance.odmr_model(locator_instance.freq_grid, params)
+                            )
 
-        # Bayesian plotting is currently not supported in batched mode
-        # TODO: Implement per-repeat Bayesian plot extraction from batched locator
+                    bayes_anim_path = bayes_dir / f"{attempt_slug}_posterior_anim.html"
+                    viz.plot_posterior_animation(
+                        locator_instance.posterior_history,
+                        locator_instance.freq_grid,
+                        bayes_anim_path,
+                        model_history=model_history,
+                    )
+                    entries.append(
+                        {
+                            "type": "bayesian_interactive",
+                            "generator": gen_name,
+                            "noise": noise_name,
+                            "strategy": strat_name,
+                            "repeat": attempt_idx_in_combo + 1,
+                            "path": bayes_anim_path.relative_to(out_dir).as_posix(),
+                        }
+                    )
+
+                    if hasattr(locator_instance, "parameter_history"):
+                        param_conv_path = bayes_dir / f"{attempt_slug}_param_convergence.html"
+                        viz.plot_parameter_convergence(
+                            locator_instance.parameter_history,
+                            param_conv_path,
+                        )
+                        entries.append(
+                            {
+                                "type": "bayesian_parameter_convergence",
+                                "generator": gen_name,
+                                "noise": noise_name,
+                                "strategy": strat_name,
+                                "repeat": attempt_idx_in_combo + 1,
+                                "path": param_conv_path.relative_to(out_dir).as_posix(),
+                            }
+                        )
+            except Exception as e:
+                log.warning(f"Failed to generate Bayesian animation: {e}")
+        elif isinstance(strat_obj, NVCenterSequentialBayesianLocator):
+            try:
+                # Reconstruct state for this repeat
+                strat_obj.reset_run_state()
+                strat_obj._ingest_history(current_history_df)
+
+                if hasattr(strat_obj, "posterior_history") and hasattr(strat_obj, "freq_grid"):
+                    # Compute model history
+                    model_history = []
+                    if hasattr(strat_obj, "parameter_history"):
+                        for params in strat_obj.parameter_history:
+                            model_history.append(strat_obj.odmr_model(strat_obj.freq_grid, params))
+
+                    bayes_anim_path = bayes_dir / f"{attempt_slug}_posterior_anim.html"
+                    viz.plot_posterior_animation(
+                        strat_obj.posterior_history,
+                        strat_obj.freq_grid,
+                        bayes_anim_path,
+                        model_history=model_history,
+                    )
+                    entries.append(
+                        {
+                            "type": "bayesian_interactive",
+                            "generator": gen_name,
+                            "noise": noise_name,
+                            "strategy": strat_name,
+                            "repeat": attempt_idx_in_combo + 1,
+                            "path": bayes_anim_path.relative_to(out_dir).as_posix(),
+                        }
+                    )
+
+                    if hasattr(strat_obj, "parameter_history"):
+                        param_conv_path = bayes_dir / f"{attempt_slug}_param_convergence.html"
+                        viz.plot_parameter_convergence(
+                            strat_obj.parameter_history,
+                            param_conv_path,
+                        )
+                        entries.append(
+                            {
+                                "type": "bayesian_parameter_convergence",
+                                "generator": gen_name,
+                                "noise": noise_name,
+                                "strategy": strat_name,
+                                "repeat": attempt_idx_in_combo + 1,
+                                "path": param_conv_path.relative_to(out_dir).as_posix(),
+                            }
+                        )
+            except Exception as e:
+                log.warning(f"Failed to generate Bayesian animation for single locator: {e}")
 
         main_result_row = {
             "generator": gen_name,
@@ -505,7 +609,10 @@ def _run_combination(task: LocatorTask):  # noqa: C901
             )
             cache.save_df(cache_df, repeat_part_key)
 
-        log.info(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
+        if task.progress_queue:
+            task.progress_queue.put((task.task_id, 1))
+        else:
+            log.info(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
         all_results_for_combination.append((entries, main_result_row))
 
     if use_cache and not skip_cache_for_strategy and all_results_for_combination:
@@ -541,6 +648,13 @@ def run(  # noqa: C901
         typer.Option(
             "--ignore-cache-strategy",
             help="Ignore cache for a specific strategy (e.g., 'NVCenter-SimpleSequential')",
+        ),
+    ] = None,
+    filter_category: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-category",
+            help="Filter by generator category (e.g., 'NVCenter')",
         ),
     ] = None,
     parallel: Annotated[
@@ -610,6 +724,9 @@ def run(  # noqa: C901
         used_slugs: set[str] = set()
 
         for gen_name, gen_obj in generator_map.items():
+            if filter_category and _get_generator_category(gen_name) != filter_category:
+                continue
+
             for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
                 for noise_name, noise_obj in noise_map.items():
                     config_key = (gen_name, noise_name, strat_name)

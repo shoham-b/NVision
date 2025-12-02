@@ -1,15 +1,21 @@
-from nvision.sim.locs.nv_center._bayesian_adapter import NVCenterSequentialBayesianLocatorBatched
-from nvision.sim.locs.nv_center._simple_adapter import SimpleSequentialLocatorBatched
-from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
-
-# Alias the batched versions as the main class names for backward compatibility
-NVCenterSequentialBayesianLocator = NVCenterSequentialBayesianLocatorBatched
-SimpleSequentialLocator = SimpleSequentialLocatorBatched
+from .sequential_bayesian_locator import (
+    NVCenterSequentialBayesianLocator,
+    NVCenterSequentialBayesianLocatorBatched,
+    NVCenterSequentialBayesianLocatorSingle,
+)
+from .simple_sequential_locator import (
+    SimpleSequentialLocator,
+    SimpleSequentialLocatorBatched,
+)
+from .sweep_locator import NVCenterSweepLocator
+from .project_bayesian_locator import ProjectBayesianLocator
 
 __all__ = [
     "NVCenterSequentialBayesianLocator",
     "NVCenterSequentialBayesianLocatorBatched",
-    "NVCenterSweepLocator",
+    "NVCenterSequentialBayesianLocatorSingle",
     "SimpleSequentialLocator",
     "SimpleSequentialLocatorBatched",
+    "NVCenterSweepLocator",
+    "ProjectBayesianLocator",
 ]
