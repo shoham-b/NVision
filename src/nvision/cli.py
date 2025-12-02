@@ -18,9 +18,18 @@ from typing import Annotated, Any
 
 import polars as pl
 import typer
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
 from rich.logging import RichHandler
-from rich.progress import BarColumn, Progress, SpinnerColumn, ProgressColumn, Task
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    ProgressColumn,
+    Task,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 from nvision.cache import DataFrameCache
 from nvision.index_html import compile_html_index
@@ -220,7 +229,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     cache_dir = task.cache_dir
     ignore_cache_strategy = task.ignore_cache_strategy
 
-    log.info(
+    log.debug(
         "Starting combination: %s/%s/%s for %s repeats",
         gen_name,
         noise_name,
@@ -281,7 +290,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
                         cached_results.append((entries, result_row))
                     else:
                         if cached_results:
-                            log.info(
+                            log.debug(
                                 "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
                                 gen_name,
                                 noise_name,
@@ -635,7 +644,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         if task.progress_queue:
             task.progress_queue.put((task.task_id, 1))
         else:
-            log.info(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
+            log.debug(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
         all_results_for_combination.append((entries, main_result_row))
 
     if use_cache and not skip_cache_for_strategy and all_results_for_combination:
@@ -726,7 +735,7 @@ def run(  # noqa: C901
 
         cache_dir = out_dir / "cache"
         if no_cache and cache_dir.exists():
-            log.info("Clearing cache.")
+            log.debug("Clearing cache.")
             shutil.rmtree(cache_dir)
         ensure_out_dir(cache_dir)
 
@@ -737,7 +746,7 @@ def run(  # noqa: C901
         bayes_dir = graphs_dir / "bayes"
         ensure_out_dir(bayes_dir)
 
-        log.info("Starting simulations...")
+        log.debug("Starting simulations...")
 
         generator_map = dict(sim_cases.generators_basic())
         noise_map = dict(_noise_presets())
@@ -748,15 +757,25 @@ def run(  # noqa: C901
 
         progress_queue = manager.Queue()
 
-        progress = Progress(
-            "{task.description}",
-            DotsColumn(),
-            console=console,
-            refresh_per_second=10,
-            disable=no_progress,
+        main_progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
         )
 
-        with progress:
+        sub_progress = Progress(
+            TextColumn("{task.description}"),
+            DotsColumn(),
+        )
+
+        progress_group = Group(main_progress, sub_progress)
+
+        with Live(progress_group, refresh_per_second=10):
+            main_task_id = main_progress.add_task("[cyan]Total Progress", total=0)
+            total_repeats_count = 0
+
             for gen_name, gen_obj in generator_map.items():
                 if filter_category and _get_generator_category(gen_name) != filter_category:
                     continue
@@ -779,7 +798,8 @@ def run(  # noqa: C901
                         used_slugs.add(slug_candidate)
 
                         desc = f"[cyan]{gen_name}/{noise_name}/{strat_name}[/cyan]"
-                        task_id = progress.add_task(desc, total=repeats)
+                        task_id = sub_progress.add_task(desc, total=repeats)
+                        total_repeats_count += repeats
 
                         tasks.append(
                             LocatorTask(
@@ -807,16 +827,26 @@ def run(  # noqa: C901
                             )
                         )
 
+            main_progress.update(main_task_id, total=total_repeats_count)
+
             plot_manifest: list[dict[str, object]] = []
             df_rows: list[dict] = []
 
             def monitor_progress():
+                completed_total = 0
                 while True:
                     item = progress_queue.get()
                     if item is None:
                         break
                     tid, advance = item
-                    progress.update(tid, advance=advance)
+                    sub_progress.update(tid, advance=advance)
+                    completed_total += advance
+                    main_progress.update(main_task_id, completed=completed_total)
+
+                    for task in sub_progress.tasks:
+                        if task.id == tid and task.completed >= task.total:
+                            sub_progress.remove_task(tid)
+                            break
 
             monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
             monitor_thread.start()
