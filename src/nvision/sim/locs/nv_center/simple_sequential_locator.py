@@ -6,7 +6,9 @@ import math
 import warnings
 
 import polars as pl
+import numpy as np
 
+from nvision.sim.locs.nv_center._jit_kernels import _lorentzian_model
 from nvision.sim.locs.base import ScanBatch
 from nvision.sim.locs.nv_center._base_locator import NVCenterLocatorBase
 
@@ -18,6 +20,63 @@ class SimpleSequentialLocator(NVCenterLocatorBase):
     This locator uses a deterministic strategy instead of Monte Carlo simulations,
     selecting points at the inflection points of Lorentzian peaks.
     """
+
+    def _update_estimates(self, measurement: dict[str, float]) -> None:
+        """Update estimates by fitting a Lorentzian to the history."""
+        # Need at least a few points to fit
+        if len(self.measurement_history) < 5:
+            return
+
+        try:
+            from scipy.optimize import curve_fit
+        except ImportError:
+            warnings.warn("scipy.optimize.curve_fit not available", stacklevel=2)
+            return
+
+        # Prepare data
+        x_data = np.array([m["x"] for m in self.measurement_history])
+        y_data = np.array([m["signal_values"] for m in self.measurement_history])
+
+        # Define model function (Lorentzian)
+        def lorentzian(x, f0, gamma, amp, bg):
+            return _lorentzian_model(x, f0, gamma, amp, bg)
+
+        # Initial guesses
+        # Find the point with the minimum signal (dip) to guess f0
+        min_idx = np.argmin(y_data)
+        f0_guess = x_data[min_idx]
+
+        p0 = [
+            f0_guess,
+            self.current_estimates["linewidth"],
+            self.current_estimates["amplitude"],
+            self.current_estimates["background"],
+        ]
+
+        # Bounds
+        domain_width = self.prior_bounds[1] - self.prior_bounds[0]
+        bounds = (
+            [self.prior_bounds[0], 1e3, 0.0, 0.0],
+            [self.prior_bounds[1], domain_width, 2.0, 2.0],
+        )
+
+        try:
+            popt, pcov = curve_fit(lorentzian, x_data, y_data, p0=p0, bounds=bounds, maxfev=1000)
+
+            # Update estimates
+            self.current_estimates["frequency"] = popt[0]
+            self.current_estimates["linewidth"] = min(popt[1], domain_width)
+            self.current_estimates["amplitude"] = popt[2]
+            self.current_estimates["background"] = popt[3]
+
+            # Calculate uncertainty (std dev of frequency)
+            perr = np.sqrt(np.diag(pcov))
+            self.current_estimates["uncertainty"] = perr[0]
+
+        except Exception as e:
+            # Fitting failed, keep previous estimates
+            # log.debug(f"Fitting failed: {e}")
+            pass
 
     def _propose_measurement(self, history: pl.DataFrame, scan: ScanBatch) -> float:
         """Select the next measurement point deterministically based on current estimates.
@@ -60,7 +119,16 @@ class SimpleSequentialLocator(NVCenterLocatorBase):
         idx = len(self.measurement_history) % len(candidates)
         selected_freq = candidates[idx]
 
+        # Add jitter to avoid measuring the exact same points repeatedly
+        # Jitter is +/- 5% of linewidth
+        jitter = (np.random.random() - 0.5) * 0.1 * gamma
+        selected_freq += jitter
+
         # Ensure within bounds
         selected_freq = max(domain_low, min(selected_freq, domain_high))
 
         return selected_freq
+
+
+# Alias for backward compatibility
+SimpleSequentialLocatorBatched = SimpleSequentialLocator

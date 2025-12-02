@@ -48,11 +48,29 @@ class Viz:
         xs = np.linspace(scan.x_min, scan.x_max, 1000)
         ys = [float(scan.signal(x)) for x in xs]
 
-        fig = go.Figure()
+        has_metrics = history.height > 0 and any(
+            col in history.columns for col in ["entropy", "max_prob", "uncertainty"]
+        )
+
+        if has_metrics:
+            from plotly.subplots import make_subplots
+
+            fig = make_subplots(
+                rows=2,
+                cols=1,
+                shared_xaxes=False,
+                vertical_spacing=0.15,
+                subplot_titles=("Scan Measurements", "Convergence Metrics"),
+                row_heights=[0.7, 0.3],
+            )
+        else:
+            fig = go.Figure()
 
         # True signal
         fig.add_trace(
-            go.Scatter(x=xs, y=ys, mode="lines", name="true signal", line=dict(color="blue"))
+            go.Scatter(x=xs, y=ys, mode="lines", name="true signal", line=dict(color="blue")),
+            row=1 if has_metrics else None,
+            col=1 if has_metrics else None,
         )
 
         # Simulated noisy curve (e.g., over-frequency noise)
@@ -67,7 +85,9 @@ class Viz:
                     mode="lines",
                     name="simulated noisy signal (over-frequency)",
                     line=dict(color="orange", dash="dot"),
-                )
+                ),
+                row=1 if has_metrics else None,
+                col=1 if has_metrics else None,
             )
 
         # Overlay samples
@@ -91,19 +111,79 @@ class Viz:
                         color=steps,
                         colorscale="Viridis",
                         showscale=True,
-                        colorbar=dict(title="step"),
+                        colorbar=dict(title="step", len=0.6, y=0.8)
+                        if has_metrics
+                        else dict(title="step"),
                         line=dict(width=0.5, color="black"),
                     ),
+                ),
+                row=1 if has_metrics else None,
+                col=1 if has_metrics else None,
+            )
+
+            # Plot metrics if available
+            if has_metrics:
+                steps_arr = np.array(steps)
+                if "entropy" in history.columns:
+                    entropy = history.get_column("entropy").to_list()
+                    # Filter out None/NaN
+                    valid_mask = [x is not None and not np.isnan(x) for x in entropy]
+                    if any(valid_mask):
+                        fig.add_trace(
+                            go.Scatter(
+                                x=steps_arr,
+                                y=entropy,
+                                mode="lines+markers",
+                                name="Entropy",
+                                line=dict(color="red"),
+                            ),
+                            row=2,
+                            col=1,
+                        )
+
+                if "uncertainty" in history.columns:
+                    uncert = history.get_column("uncertainty").to_list()
+                    valid_mask = [x is not None and not np.isnan(x) for x in uncert]
+                    if any(valid_mask):
+                        fig.add_trace(
+                            go.Scatter(
+                                x=steps_arr,
+                                y=uncert,
+                                mode="lines+markers",
+                                name="Uncertainty",
+                                line=dict(color="green"),
+                                yaxis="y3" if "entropy" in history.columns else "y2",
+                            ),
+                            row=2,
+                            col=1,
+                        )
+
+        layout_args = dict(
+            title="Scan with sampled measurements",
+            template="plotly_white",
+        )
+
+        if has_metrics:
+            layout_args.update(
+                dict(
+                    xaxis_title="frequency",
+                    yaxis_title="intensity",
+                    xaxis2_title="step",
+                    yaxis2_title="metric value",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    height=800,
+                )
+            )
+        else:
+            layout_args.update(
+                dict(
+                    xaxis_title="frequency",
+                    yaxis_title="intensity (photon count)",
+                    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
                 )
             )
 
-        fig.update_layout(
-            title="Scan with sampled measurements",
-            xaxis_title="frequency",
-            yaxis_title="intensity (photon count)",
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-            template="plotly_white",
-        )
+        fig.update_layout(**layout_args)
 
         fig.write_html(out_path.as_posix(), include_plotlyjs="inline")
         return out_path
@@ -191,8 +271,22 @@ class Viz:
         """Handle plotting for NV center generator subset."""
         # Plot errors for each peak position if available
         for col, title in zip(
-            ["abs_err_x1", "abs_err_x2", "abs_err_x3", "uncert_pos"],
-            ["Abs Error X1", "Abs Error X2", "Abs Error X3", "Uncertainty (pos)"],
+            [
+                "abs_err_x1",
+                "abs_err_x2",
+                "abs_err_x3",
+                "uncert_pos",
+                "final_entropy",
+                "final_max_prob",
+            ],
+            [
+                "Abs Error X1",
+                "Abs Error X2",
+                "Abs Error X3",
+                "Uncertainty (pos)",
+                "Final Entropy",
+                "Final Max Prob",
+            ],
             strict=False,
         ):
             if col not in sub.columns:
@@ -239,3 +333,243 @@ class Viz:
                         plot_func(sub, gen, paths)
 
         return paths
+
+    def plot_posterior_animation(
+        self,
+        posterior_history: list[np.ndarray],
+        freq_grid: np.ndarray,
+        out_path: Path,
+        model_history: list[np.ndarray] | None = None,
+    ) -> Path:
+        """Create an interactive Plotly animation of the posterior distribution evolution."""
+        ensure_out_dir(out_path.parent)
+
+        if not posterior_history:
+            return out_path
+
+        # Create figure
+        fig = go.Figure()
+
+        # Add initial trace (step 0)
+        fig.add_trace(
+            go.Scatter(
+                x=freq_grid,
+                y=posterior_history[0],
+                mode="lines",
+                name="Posterior",
+                line=dict(color="blue"),
+            )
+        )
+
+        if model_history:
+            # Normalize model for visualization scale if needed, or plot on secondary y-axis?
+            # Posterior is a probability density (integral=1). Model is signal intensity (e.g. 0.99 to 1.01).
+            # They have vastly different scales. We should use a secondary y-axis.
+            fig.add_trace(
+                go.Scatter(
+                    x=freq_grid,
+                    y=model_history[0],
+                    mode="lines",
+                    name="Best Fit Model",
+                    line=dict(color="red", dash="dash"),
+                    yaxis="y2",
+                )
+            )
+
+        # Create frames for animation
+        frames = []
+        for i, posterior in enumerate(posterior_history):
+            frame_data = [
+                go.Scatter(
+                    x=freq_grid,
+                    y=posterior,
+                    mode="lines",
+                    line=dict(color="blue"),
+                )
+            ]
+            if model_history and i < len(model_history):
+                frame_data.append(
+                    go.Scatter(
+                        x=freq_grid,
+                        y=model_history[i],
+                        mode="lines",
+                        line=dict(color="red", dash="dash"),
+                        yaxis="y2",
+                    )
+                )
+
+            frames.append(
+                go.Frame(
+                    data=frame_data,
+                    name=str(i),
+                )
+            )
+
+        fig.frames = frames
+
+        # Add slider and buttons
+        fig.update_layout(
+            title="Posterior Distribution Evolution",
+            xaxis_title="Frequency (Hz)",
+            yaxis_title="Probability Density",
+            yaxis2=dict(
+                title="Signal Intensity",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+            ),
+            template="plotly_white",
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    showactive=False,
+                    y=1.05,
+                    x=1.15,
+                    xanchor="right",
+                    yanchor="top",
+                    buttons=[
+                        dict(
+                            label="Play",
+                            method="animate",
+                            args=[
+                                None,
+                                dict(
+                                    frame=dict(duration=100, redraw=True),
+                                    fromcurrent=True,
+                                    transition=dict(duration=0),
+                                ),
+                            ],
+                        ),
+                        dict(
+                            label="Pause",
+                            method="animate",
+                            args=[
+                                [None],
+                                dict(
+                                    frame=dict(duration=0, redraw=False),
+                                    mode="immediate",
+                                    transition=dict(duration=0),
+                                ),
+                            ],
+                        ),
+                    ],
+                )
+            ],
+            sliders=[
+                dict(
+                    active=0,
+                    yanchor="top",
+                    xanchor="left",
+                    currentvalue=dict(
+                        font=dict(size=16),
+                        prefix="Step: ",
+                        visible=True,
+                        xanchor="right",
+                    ),
+                    transition=dict(duration=0, easing="cubic-in-out"),
+                    pad=dict(b=10, t=50),
+                    len=0.9,
+                    x=0.1,
+                    y=0,
+                    steps=[
+                        dict(
+                            args=[
+                                [str(k)],
+                                dict(
+                                    frame=dict(duration=0, redraw=True),
+                                    mode="immediate",
+                                    transition=dict(duration=0),
+                                ),
+                            ],
+                            label=str(k),
+                            method="animate",
+                        )
+                        for k in range(len(posterior_history))
+                    ],
+                )
+            ],
+        )
+
+        fig.write_html(out_path.as_posix(), include_plotlyjs="inline")
+        return out_path
+
+    def plot_parameter_convergence(
+        self,
+        parameter_history: list[dict[str, float]],
+        out_path: Path,
+    ) -> Path:
+        """Plot the convergence of parameters with uncertainty bands."""
+        ensure_out_dir(out_path.parent)
+
+        if not parameter_history:
+            return out_path
+
+        # Identify parameters to plot (exclude frequency, entropy, max_prob, uncertainty)
+        # We want things like linewidth, amplitude, background, split, etc.
+        all_keys = set().union(*(d.keys() for d in parameter_history))
+        exclude = {"frequency", "entropy", "max_prob", "uncertainty", "uncert", "uncert_pos"}
+        param_keys = [k for k in all_keys if k not in exclude and not k.endswith("_uncertainty")]
+
+        if not param_keys:
+            return out_path
+
+        from plotly.subplots import make_subplots
+
+        n_params = len(param_keys)
+        # Calculate rows/cols
+        cols = 2
+        rows = (n_params + 1) // 2
+
+        fig = make_subplots(rows=rows, cols=cols, subplot_titles=param_keys, vertical_spacing=0.1)
+
+        steps = list(range(len(parameter_history)))
+
+        for i, key in enumerate(sorted(param_keys)):
+            row = i // cols + 1
+            col = i % cols + 1
+
+            values = [d.get(key, float("nan")) for d in parameter_history]
+            uncerts = [d.get(f"{key}_uncertainty", 0.0) for d in parameter_history]
+
+            # Upper and lower bounds
+            upper = [v + u for v, u in zip(values, uncerts, strict=False)]
+            lower = [v - u for v, u in zip(values, uncerts, strict=False)]
+
+            # Plot value
+            fig.add_trace(
+                go.Scatter(
+                    x=steps,
+                    y=values,
+                    mode="lines+markers",
+                    name=key,
+                    line=dict(color="blue"),
+                    showlegend=False,
+                ),
+                row=row,
+                col=col,
+            )
+
+            # Plot uncertainty band if any uncertainty exists
+            if any(u > 0 for u in uncerts):
+                fig.add_trace(
+                    go.Scatter(
+                        x=steps + steps[::-1],
+                        y=upper + lower[::-1],
+                        fill="toself",
+                        fillcolor="rgba(0,0,255,0.2)",
+                        line=dict(color="rgba(255,255,255,0)"),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ),
+                    row=row,
+                    col=col,
+                )
+
+        fig.update_layout(
+            title="Parameter Convergence",
+            height=300 * rows,
+            template="plotly_white",
+        )
+
+        fig.write_html(out_path.as_posix(), include_plotlyjs="inline")
+        return out_path

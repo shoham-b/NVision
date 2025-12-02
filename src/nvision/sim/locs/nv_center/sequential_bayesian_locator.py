@@ -43,6 +43,19 @@ from scipy.stats import cauchy
 from nvision.sim.locs.base import Locator, ScanBatch
 from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
 
+from nvision.sim.locs.nv_center._jit_kernels import (
+    _lorentzian_model,
+    _voigt_model,
+    _voigt_zeeman_model,
+    _gaussian_log_likelihood,
+    _poisson_log_likelihood,
+    _poisson_log_likelihood_scalar,
+    _poisson_log_likelihood_scalar_obs,
+    _update_posterior_math,
+    _expected_info_gain_jit,
+    _calculate_total_log_likelihood_jit,
+)
+
 log = logging.getLogger(__name__)
 
 
@@ -72,11 +85,11 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         linewidth_prior: Prior bounds for linewidth parameter (Hz)
     """
 
-    max_evals: int = 50
+    max_evals: int = 500
     prior_bounds: tuple[float, float] = (2.6e9, 3.1e9)
     noise_model: str = "gaussian"
     acquisition_function: str = "expected_information_gain"
-    convergence_threshold: float = 1e-8
+    convergence_threshold: float = 1e-10
     min_uncertainty_reduction: float = 1e-9
     n_monte_carlo: int = 100
     grid_resolution: int = 1000
@@ -115,6 +128,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         self.measurement_history: list[dict[str, float]] = []
         self.utility_history: list[float] = []
         self.posterior_history: list[np.ndarray] = []
+        self.parameter_history: list[dict[str, float]] = []
 
     def reset_posterior(self):
         """Reset posterior distributions to priors."""
@@ -130,7 +144,10 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             "uncertainty": np.inf,
             "gaussian_width": np.mean(self.gaussian_width_prior),
             "split": np.mean(self.split_prior),
+            "split": np.mean(self.split_prior),
             "k_np": np.mean(self.k_np_prior),
+            "entropy": np.log(self.grid_resolution),  # Max entropy for uniform
+            "max_prob": 1.0 / self.grid_resolution,  # Uniform probability
         }
         self._init_bayes_optimizer()
 
@@ -142,41 +159,13 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             self.posterior_history.clear()
         if hasattr(self, "utility_history"):
             self.utility_history.clear()
+        if hasattr(self, "parameter_history"):
+            self.parameter_history.clear()
         self.reset_posterior()
 
     def _init_bayes_optimizer(self) -> None:
         self._bo = None
         self._bo_utility = None
-
-    def _infer_distribution_from_history(self, history: pl.DataFrame):
-        """Infer the distribution type from the warmup history."""
-        if history.is_empty() or history.height < 3:
-            return
-
-        # Use a simple peak counting method on the raw signal
-        sorted_history = history.sort("x")
-        y = sorted_history["signal_values"].to_numpy()
-
-        # Find points that are dips. Dips are values lower than baseline.
-        # We are looking for peaks in negative signal.
-        baseline = np.quantile(y, 0.95)
-        max_dip = np.abs(np.min(y) - baseline)
-
-        # find_peaks finds maxima. We look for minima, so we invert the signal.
-        # Height is also inverted. A distance helps to avoid multiple peaks for one dip.
-        peaks_indices, _ = find_peaks(-y, height=-(baseline - 0.3 * max_dip), distance=3)
-
-        num_peaks = len(peaks_indices)
-        log.info(f"Inferred {num_peaks} peaks from warmup sweep.")
-
-        new_distribution = "voigt-zeeman" if num_peaks > 1 else "voigt"
-
-        if self.distribution != new_distribution:
-            log.info(f"Switching distribution model from {self.distribution} to {new_distribution}")
-            self.distribution = new_distribution
-            # Force re-processing of history by clearing internal state.
-            # The subsequent _ingest_history call in propose_next will rebuild the posterior.
-            self.reset_run_state()
 
     def odmr_model(
         self,
@@ -189,40 +178,17 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         bg = params["background"]
 
         if self.distribution == "lorentzian":
-            scale = gamma / 2
-            lorentzian = amplitude * math.pi * scale * cauchy.pdf(frequency, loc=f0, scale=scale)
-            return bg - lorentzian
+            # Use Numba JIT compiled kernel
+            return _lorentzian_model(frequency, f0, gamma, amplitude, bg)
 
         if self.distribution == "voigt":
             sigma = params["gaussian_width"]
-            peak_val = voigt_profile(0, sigma, gamma)
-            if peak_val < 1e-9:
-                return np.full_like(f0, bg, dtype=float)
-            profile = voigt_profile(frequency - f0, sigma, gamma)
-            return bg - amplitude * profile / peak_val
+            return _voigt_model(frequency, f0, gamma, sigma, amplitude, bg)
 
         if self.distribution == "voigt-zeeman":
             split = params["split"]
             k_np = params["k_np"]
-            sigma = max(split / 10.0, 1e-9)
-            peak_val = voigt_profile(0, sigma, gamma)
-            if peak_val < 1e-12:
-                return np.full_like(f0, bg, dtype=float)
-
-            f_left = f0 - split
-            f_center = f0
-            f_right = f0 + split
-
-            w_left = 1.0 / max(k_np, 1e-9)
-            w_center = 1.0
-            w_right = max(k_np, 1e-9)
-
-            v_left = voigt_profile(frequency - f_left, sigma, gamma) / peak_val
-            v_center = voigt_profile(frequency - f_center, sigma, gamma) / peak_val
-            v_right = voigt_profile(frequency - f_right, sigma, gamma) / peak_val
-
-            composite = w_left * v_left + w_center * v_center + w_right * v_right
-            return bg - amplitude * composite / max(k_np, 1e-9)
+            return _voigt_zeeman_model(frequency, f0, gamma, split, k_np, amplitude, bg)
 
         raise ValueError(f"Unknown distribution: {self.distribution}")
 
@@ -251,14 +217,38 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         sigma = 0.05  # Placeholder
 
         if self.noise_model == "gaussian":
-            return -0.5 * ((observed - predicted) / sigma) ** 2 - 0.5 * np.log(2 * np.pi * sigma**2)
+            # Optimization: Pre-compute constant term
+            log_const = -4.153244906  # log(2 * pi * 0.05^2)
+            return _gaussian_log_likelihood(observed, predicted, sigma, log_const)
+
         if self.noise_model == "poisson":
-            safe_predicted = np.maximum(predicted, 1e-9)
-            if isinstance(observed, np.ndarray):
-                lgamma_values = np.vectorize(math.lgamma)(observed + 1)
+            # Handle different shapes
+            # observed can be scalar (float/int) or 0-d array or 1-d array
+            # predicted can be scalar or array
+
+            # Normalize observed to scalar or 1-d array
+            obs_is_scalar = False
+            if isinstance(observed, (int, float)):
+                obs_is_scalar = True
+                obs_val = float(observed)
+            elif isinstance(observed, np.ndarray) and observed.ndim == 0:
+                obs_is_scalar = True
+                obs_val = float(observed.item())
             else:
-                lgamma_values = math.lgamma(observed + 1)
-            return observed * np.log(safe_predicted) - safe_predicted - lgamma_values
+                obs_val = observed  # Assumed 1-d array
+
+            pred_is_array = isinstance(predicted, np.ndarray) and predicted.ndim > 0
+
+            if obs_is_scalar:
+                if pred_is_array:
+                    return _poisson_log_likelihood_scalar_obs(obs_val, predicted)
+                else:
+                    return _poisson_log_likelihood_scalar(obs_val, float(predicted))
+            else:
+                # Array observed
+                # Assume predicted is also array of same shape or broadcastable
+                # For _poisson_log_likelihood we assumed 1D array matching shapes
+                return _poisson_log_likelihood(obs_val, np.atleast_1d(predicted))
 
         raise ValueError(f"Unknown noise model: {self.noise_model}")
 
@@ -299,10 +289,28 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         if not self.measurement_history:
             return 0.0
 
-        history_df = pl.DataFrame(self.measurement_history)
-        measurements_x = history_df["x"].to_numpy()
-        measurements_y = history_df["signal_values"].to_numpy()
+        measurements_x = np.array([m["x"] for m in self.measurement_history])
+        measurements_y = np.array([m["signal_values"] for m in self.measurement_history])
 
+        # Prepare params array for JIT
+        # [f0, linewidth, amplitude, background]
+        params_array = np.array(
+            [params["frequency"], params["linewidth"], params["amplitude"], params["background"]],
+            dtype=np.float64,
+        )
+
+        noise_model_code = 0 if self.noise_model == "gaussian" else 1
+
+        # Only use JIT if distribution is lorentzian (our kernel is specialized)
+        if self.distribution == "lorentzian":
+            total_log_likelihood = _calculate_total_log_likelihood_jit(
+                measurements_x, measurements_y, params_array, noise_model_code
+            )
+            if np.isneginf(total_log_likelihood):
+                return np.inf
+            return -total_log_likelihood
+
+        # Fallback for other distributions
         predicted = self.odmr_model(measurements_x, params)
         observed = measurements_y
         sigma = 0.05  # Placeholder
@@ -352,6 +360,23 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             for key, value in zip(param_keys, result.x, strict=False):
                 self.current_estimates[key] = value
 
+            # Estimate uncertainties from inverse Hessian (Laplace approximation)
+            try:
+                # L-BFGS-B returns hess_inv as a LinearOperator or matrix
+                hess_inv = result.hess_inv
+                if hasattr(hess_inv, "todense"):
+                    hess_inv = hess_inv.todense()
+
+                # Diagonal elements are variances
+                variances = np.diag(hess_inv)
+                uncertainties = np.sqrt(np.maximum(variances, 0))
+
+                for key, uncert in zip(param_keys, uncertainties, strict=False):
+                    self.current_estimates[f"{key}_uncertainty"] = uncert
+            except Exception:
+                # Fallback if hess_inv is not available or invalid
+                pass
+
     def _calculate_log_likelihoods(
         self,
         measurement: dict[str, float],
@@ -368,25 +393,49 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         base_params = {k: v for k, v in self.current_estimates.items() if k != "frequency"}
         log_likelihoods = self._calculate_log_likelihoods(measurement, base_params)
 
-        log_posterior = np.log(self.freq_posterior + 1e-300) + log_likelihoods
-        log_posterior -= logsumexp(log_posterior)
-        self.freq_posterior = np.exp(log_posterior)
+        # Use JIT kernel for posterior update math
+        new_posterior, est_freq, uncertainty, entropy, max_prob = _update_posterior_math(
+            self.freq_grid, self.freq_posterior, log_likelihoods
+        )
 
-        # Vectorized calculation of estimates using Polars
-        df = pl.DataFrame({"freq": self.freq_grid, "posterior": self.freq_posterior})
-        est_freq = (df["freq"] * df["posterior"]).sum()
+        self.freq_posterior = new_posterior
         self.current_estimates["frequency"] = est_freq
-        self.current_estimates["uncertainty"] = (
-            ((df["freq"] - est_freq).pow(2) * df["posterior"]).sum()
-        ) ** 0.5
+        self.current_estimates["uncertainty"] = uncertainty
+        self.current_estimates["entropy"] = entropy
+        self.current_estimates["max_prob"] = max_prob
 
         self.measurement_history.append(measurement.copy())
         self.posterior_history.append(self.freq_posterior.copy())
         self._optimize_lineshape_params()
+        self.parameter_history.append(self.current_estimates.copy())
 
     def expected_information_gain(self, test_frequency: float) -> float:
-        current_entropy = -np.sum(self.freq_posterior * np.log(self.freq_posterior + 1e-300))
         n_samples = min(self.n_monte_carlo // 10, 100)
+
+        # Use JIT kernel if distribution is lorentzian
+        if self.distribution == "lorentzian":
+            current_estimates_array = np.array(
+                [
+                    self.current_estimates["linewidth"],
+                    self.current_estimates["amplitude"],
+                    self.current_estimates["background"],
+                ],
+                dtype=np.float64,
+            )
+
+            noise_model_code = 0 if self.noise_model == "gaussian" else 1
+
+            return _expected_info_gain_jit(
+                test_frequency,
+                self.freq_grid,
+                self.freq_posterior,
+                n_samples,
+                current_estimates_array,
+                noise_model_code,
+            )
+
+        # Fallback for other distributions
+        current_entropy = -np.sum(self.freq_posterior * np.log(self.freq_posterior + 1e-300))
 
         # Vectorized Monte Carlo Sampling
         freq_indices = np.random.choice(self.grid_resolution, size=n_samples, p=self.freq_posterior)
@@ -399,6 +448,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             "background": self.current_estimates["background"],
             "gaussian_width": self.current_estimates["gaussian_width"],
             "split": self.current_estimates["split"],
+            "k_np": self.current_estimates["k_np"],
         }
         expected_signals = self.odmr_model(test_frequency, true_params)
 
@@ -577,35 +627,60 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         1. If called with just history and scan, returns a single float (old interface)
         2. If called with repeats, returns a DataFrame with repeat_id and x columns (new interface)
         """
+        # Handle argument swapping if called as (history, repeats, scan)
+        if (
+            isinstance(scan, pl.DataFrame)
+            and repeats is not None
+            and not isinstance(repeats, pl.DataFrame)
+        ):
+            # scan argument received repeats DataFrame
+            # repeats argument received ScanBatch (or something else)
+            real_repeats = scan
+            real_scan = repeats
+            scan = real_scan
+            repeats = real_repeats
+        elif isinstance(repeats, ScanBatch) and scan is None:
+            # repeats argument received ScanBatch, scan is None (if called with 2 args? No, 3 args)
+            # If called as (history, repeats, scan) where scan is ScanBatch and repeats is DataFrame:
+            # scan arg gets repeats (DataFrame)
+            # repeats arg gets scan (ScanBatch)
+            # This matches the first if block.
+            pass
+
         if repeats is not None:
             # Batched interface - delegate to the batched adapter
             from nvision.sim.locs.nv_center._bayesian_adapter import (
                 NVCenterSequentialBayesianLocatorBatched,
             )
 
-            adapter = NVCenterSequentialBayesianLocatorBatched(
-                max_evals=self.max_evals,
-                prior_bounds=self.prior_bounds,
-                noise_model=self.noise_model,
-                acquisition_function=self.acquisition_function,
-                convergence_threshold=self.convergence_threshold,
-                min_uncertainty_reduction=self.min_uncertainty_reduction,
-                n_monte_carlo=self.n_monte_carlo,
-                grid_resolution=self.grid_resolution,
-                linewidth_prior=self.linewidth_prior,
-                distribution=self.distribution,
-                gaussian_width_prior=self.gaussian_width_prior,
-                split_prior=self.split_prior,
-                amplitude_prior=self.amplitude_prior,
-                background_prior=self.background_prior,
-                bo_enabled=self.bo_enabled,
-                bo_acq_func=self.bo_acq_func,
-                bo_kappa=self.bo_kappa,
-                bo_xi=self.bo_xi,
-                bo_random_state=self.bo_random_state,
-                utility_history_window=self.utility_history_window,
-                n_warmup=self.n_warmup,
-            )
+            adapter_kwargs = {
+                "max_evals": self.max_evals,
+                "prior_bounds": self.prior_bounds,
+                "noise_model": self.noise_model,
+                "acquisition_function": self.acquisition_function,
+                "convergence_threshold": self.convergence_threshold,
+                "min_uncertainty_reduction": self.min_uncertainty_reduction,
+                "n_monte_carlo": self.n_monte_carlo,
+                "grid_resolution": self.grid_resolution,
+                "linewidth_prior": self.linewidth_prior,
+                "distribution": self.distribution,
+                "gaussian_width_prior": self.gaussian_width_prior,
+                "split_prior": self.split_prior,
+                "amplitude_prior": self.amplitude_prior,
+                "background_prior": self.background_prior,
+                "bo_enabled": self.bo_enabled,
+                "bo_acq_func": self.bo_acq_func,
+                "bo_kappa": self.bo_kappa,
+                "bo_xi": self.bo_xi,
+                "bo_random_state": self.bo_random_state,
+                "utility_history_window": self.utility_history_window,
+                "n_warmup": self.n_warmup,
+                "locator_cls": self.__class__,
+            }
+            if hasattr(self, "pickiness"):
+                adapter_kwargs["pickiness"] = self.pickiness
+
+            adapter = NVCenterSequentialBayesianLocatorBatched(**adapter_kwargs)
             return adapter.propose_next(history, repeats, scan)
 
         # Original single-value interface
@@ -613,9 +688,6 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             history = pl.DataFrame(history)
 
         hist_len = history.height
-        if hist_len == self.n_warmup and self.n_warmup > 0:
-            self._infer_distribution_from_history(history)
-
         self._rescale_priors_if_needed(scan)
 
         self._ingest_history(history)
@@ -639,7 +711,55 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             self.utility_history.pop(0)
         return float(next_freq)
 
-    def should_stop(self, history: Sequence | pl.DataFrame, scan: ScanBatch) -> bool:
+    def should_stop(
+        self,
+        history: Sequence | pl.DataFrame,
+        repeats: pl.DataFrame | None = None,
+        scan: ScanBatch | None = None,
+    ) -> bool | pl.DataFrame:
+        if isinstance(repeats, ScanBatch) and scan is None:
+            scan = repeats
+            repeats = None
+
+        if repeats is not None:
+            # Batched interface - delegate to the batched adapter
+            from nvision.sim.locs.nv_center._bayesian_adapter import (
+                NVCenterSequentialBayesianLocatorBatched,
+            )
+
+            adapter_kwargs = {
+                "max_evals": self.max_evals,
+                "prior_bounds": self.prior_bounds,
+                "noise_model": self.noise_model,
+                "acquisition_function": self.acquisition_function,
+                "convergence_threshold": self.convergence_threshold,
+                "min_uncertainty_reduction": self.min_uncertainty_reduction,
+                "n_monte_carlo": self.n_monte_carlo,
+                "grid_resolution": self.grid_resolution,
+                "linewidth_prior": self.linewidth_prior,
+                "distribution": self.distribution,
+                "gaussian_width_prior": self.gaussian_width_prior,
+                "split_prior": self.split_prior,
+                "amplitude_prior": self.amplitude_prior,
+                "background_prior": self.background_prior,
+                "bo_enabled": self.bo_enabled,
+                "bo_acq_func": self.bo_acq_func,
+                "bo_kappa": self.bo_kappa,
+                "bo_xi": self.bo_xi,
+                "bo_random_state": self.bo_random_state,
+                "utility_history_window": self.utility_history_window,
+                "n_warmup": self.n_warmup,
+                "locator_cls": self.__class__,
+            }
+            if hasattr(self, "pickiness"):
+                adapter_kwargs["pickiness"] = self.pickiness
+
+            adapter = NVCenterSequentialBayesianLocatorBatched(**adapter_kwargs)
+            return adapter.should_stop(history, repeats, scan)
+
+        if scan is None:
+            raise ValueError("scan must be provided")
+
         hist_len = history.height if isinstance(history, pl.DataFrame) else len(history)
         if hist_len >= self.max_evals:
             return True
@@ -649,7 +769,55 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             u < self.min_uncertainty_reduction for u in self.utility_history
         )
 
-    def finalize(self, history: Sequence | pl.DataFrame, scan: ScanBatch) -> dict[str, float]:
+    def finalize(
+        self,
+        history: Sequence | pl.DataFrame,
+        repeats: pl.DataFrame | None = None,
+        scan: ScanBatch | None = None,
+    ) -> dict[str, float] | pl.DataFrame:
+        if isinstance(repeats, ScanBatch) and scan is None:
+            scan = repeats
+            repeats = None
+
+        if repeats is not None:
+            # Batched interface - delegate to the batched adapter
+            from nvision.sim.locs.nv_center._bayesian_adapter import (
+                NVCenterSequentialBayesianLocatorBatched,
+            )
+
+            adapter_kwargs = {
+                "max_evals": self.max_evals,
+                "prior_bounds": self.prior_bounds,
+                "noise_model": self.noise_model,
+                "acquisition_function": self.acquisition_function,
+                "convergence_threshold": self.convergence_threshold,
+                "min_uncertainty_reduction": self.min_uncertainty_reduction,
+                "n_monte_carlo": self.n_monte_carlo,
+                "grid_resolution": self.grid_resolution,
+                "linewidth_prior": self.linewidth_prior,
+                "distribution": self.distribution,
+                "gaussian_width_prior": self.gaussian_width_prior,
+                "split_prior": self.split_prior,
+                "amplitude_prior": self.amplitude_prior,
+                "background_prior": self.background_prior,
+                "bo_enabled": self.bo_enabled,
+                "bo_acq_func": self.bo_acq_func,
+                "bo_kappa": self.bo_kappa,
+                "bo_xi": self.bo_xi,
+                "bo_random_state": self.bo_random_state,
+                "utility_history_window": self.utility_history_window,
+                "n_warmup": self.n_warmup,
+                "locator_cls": self.__class__,
+            }
+            if hasattr(self, "pickiness"):
+                adapter_kwargs["pickiness"] = self.pickiness
+
+            adapter = NVCenterSequentialBayesianLocatorBatched(**adapter_kwargs)
+            return adapter.finalize(history, repeats, scan)
+
+        if scan is None:
+            raise ValueError("scan must be provided")
+
         self._ingest_history(history)
 
         posterior_smooth = np.convolve(self.freq_posterior, np.ones(5) / 5, mode="same")
@@ -689,5 +857,12 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             "x1_hat": top_peaks[0] if len(top_peaks) >= 1 else math.nan,
             "x2_hat": top_peaks[1] if len(top_peaks) >= 2 else math.nan,
             "x3_hat": top_peaks[2] if len(top_peaks) >= 3 else math.nan,
+            "final_entropy": float(self.current_estimates.get("entropy", math.nan)),
+            "final_max_prob": float(self.current_estimates.get("max_prob", math.nan)),
         }
         return result
+
+
+# Aliases for backward compatibility and cleaner imports
+NVCenterSequentialBayesianLocator = NVCenterSequentialBayesianLocatorSingle
+NVCenterSequentialBayesianLocatorBatched = NVCenterSequentialBayesianLocatorSingle
