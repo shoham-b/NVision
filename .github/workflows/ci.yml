@@ -32,6 +32,7 @@ jobs:
   build-test-windows:
     name: Test (windows-latest, py${{ matrix.python-version }})
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -86,6 +87,7 @@ jobs:
   build-test-unix:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     needs: build-test-windows
     strategy:
       fail-fast: false
@@ -141,6 +143,7 @@ jobs:
   coverage-aggregate:
     name: Coverage Aggregate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [ build-test-windows, build-test-unix ]
     steps:
       - uses: actions/checkout@v4
@@ -182,6 +185,7 @@ jobs:
   build-index:
     name: Build NVision index artifact
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: coverage-aggregate
     steps:
       - uses: actions/checkout@v4
@@ -205,7 +209,7 @@ jobs:
           uv sync --group dev
       - name: Generate NVision artifacts
         run: |
-          uv run python -m nvision run --out artifacts --repeats 2 --loc-max-steps 80 --no-cache
+          uv run python -m nvision run --out artifacts --loc-max-steps 80 --require-cache
       - name: Upload NVision index artifact
         uses: actions/upload-artifact@v4
         with:
