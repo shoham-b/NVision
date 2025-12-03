@@ -81,6 +81,7 @@ class LocatorTask:
     log_queue: Any
     log_level: int
     ignore_cache_strategy: str | None
+    require_cache: bool = False
     progress_queue: Any = None
     task_id: Any = None
 
@@ -228,6 +229,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     use_cache = task.use_cache
     cache_dir = task.cache_dir
     ignore_cache_strategy = task.ignore_cache_strategy
+    require_cache = task.require_cache
 
     log.debug(
         "Starting combination: %s/%s/%s for %s repeats",
@@ -259,6 +261,50 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     skip_cache_for_strategy = (
         ignore_cache_strategy is not None and strat_name == ignore_cache_strategy
     )
+
+    if require_cache:
+        cached_combo_df = cache.load_df(combo_key)
+        if (
+            cached_combo_df is not None
+            and "results" in cached_combo_df.columns
+            and not cached_combo_df.is_empty()
+        ):
+            # Cache hit logic (same as below)
+            cached_payload_raw = cached_combo_df.get_column("results")[0]
+            if isinstance(cached_payload_raw, str):
+                try:
+                    cached_payload = json.loads(cached_payload_raw)
+                    cached_results: list[tuple[list[dict[str, object]], dict[str, object]]] = []
+                    for record in cached_payload:
+                        if not isinstance(record, dict):
+                            break
+                        entries = record.get("entries")
+                        result_row = record.get("main_result_row")
+                        if not isinstance(entries, list) or not isinstance(result_row, dict):
+                            break
+                        cached_results.append((entries, result_row))
+                    else:
+                        if cached_results:
+                            log.debug(
+                                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                                gen_name,
+                                noise_name,
+                                strat_name,
+                                main_seed,
+                            )
+                            return cached_results
+                except Exception:
+                    pass
+
+        # If we are here, cache is missing or invalid, but require_cache is True
+        log.warning(
+            "Cache missing for %s/%s/%s (seed=%s) and --require-cache is set. Skipping.",
+            gen_name,
+            noise_name,
+            strat_name,
+            main_seed,
+        )
+        return []
 
     if use_cache and not skip_cache_for_strategy:
         cached_combo_df = cache.load_df(combo_key)
@@ -726,6 +772,10 @@ def run(  # noqa: C901
         bool,
         typer.Option("--no-progress", help="Disable progress bars"),
     ] = False,
+    require_cache: Annotated[
+        bool,
+        typer.Option("--require-cache", help="Skip simulation if cache is missing"),
+    ] = False,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -851,6 +901,7 @@ def run(  # noqa: C901
                                 log_queue=log_queue,
                                 log_level=log_level_value,
                                 ignore_cache_strategy=ignore_cache_strategy,
+                                require_cache=require_cache,
                                 progress_queue=progress_queue,
                                 task_id=task_id,
                             )
