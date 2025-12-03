@@ -136,7 +136,7 @@ def test_should_stop_when_utility_stalls():
 
 def test_sampling_loop_generates_adaptive_points():
     """Integration test that verifies the locator adapts to the signal."""
-    locator = build_locator(max_evals=5, n_warmup=2)
+    locator = build_locator(max_evals=10, n_warmup=2, grid_resolution=128, n_monte_carlo=100)
     scan = build_scan()
 
     # Initialize with proper schema
@@ -144,7 +144,7 @@ def test_sampling_loop_generates_adaptive_points():
     history = pl.DataFrame(schema=schema)
 
     # Run the sampling loop
-    for _ in range(5):
+    for _ in range(10):
         if locator.should_stop(history, scan):
             break
         x = locator.propose_next(history, scan)
@@ -160,7 +160,7 @@ def test_sampling_loop_generates_adaptive_points():
         print(f"  {i + 1}. x={x:.3e}, y={y:.3f}")
 
     # Check that we have the expected number of measurements
-    assert len(history) == 5, f"Expected 5 measurements, got {len(history)}"
+    assert len(history) == 10, f"Expected 10 measurements, got {len(history)}"
 
     # Check that we have measurements within the expected range
     # The locator should explore the space, so we'll check a wider range
