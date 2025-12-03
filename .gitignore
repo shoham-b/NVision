@@ -117,6 +117,8 @@ logs/
 artifacts/graphs/
 # Allow artifacts to be committed
 !artifacts/
+!artifacts/cache/
+
 /.hypothesis/
 
 .gemini/
