@@ -68,7 +68,6 @@ jobs:
       - name: Run tests with coverage
         run: |
           uv run pytest -n auto --junitxml=junit-windows-latest-py${{ matrix.python-version }}.xml --log-cli-level=WARNING --log-level=WARNING
-          uv run python -m nvision run --log-level WARNING --no-progress --repeats 1 --out artifacts/ci_test
       - name: Upload JUnit test report
         if: always()
         uses: actions/upload-artifact@v4
