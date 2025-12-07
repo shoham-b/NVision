@@ -231,7 +231,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     ignore_cache_strategy = task.ignore_cache_strategy
     require_cache = task.require_cache
 
-    log.debug(
+    log.info(
         "Starting combination: %s/%s/%s for %s repeats",
         gen_name,
         noise_name,
