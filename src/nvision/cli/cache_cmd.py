@@ -13,8 +13,12 @@ from nvision.cli.main import app
 
 console = Console()
 
+# Create a Typer app for the cache command group
+cache_app = typer.Typer(help="Manage simulation cache.")
+app.add_typer(cache_app, name="cache")
 
-@app.command(name="list-cache")
+
+@cache_app.command(name="list")
 def list_cache(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
 ) -> None:
@@ -58,21 +62,6 @@ def list_cache(
         console.print("[yellow]No cached combinations found (or no metadata available).[/yellow]")
 
 
-def _should_delete_file(
-    file_path: Path,
-    strategy: str | None,
-    generator: str | None,
-    noise: str | None,
-) -> bool:
-    """Determine if a file should be deleted based on filters."""
-    # This logic assumes file names contain patterns or we look at cache content?
-    # Original logic in cli_old.py likely relied on iterating config in cache, not file names directly,
-    # OR it assumed cache files are opaque and we need to check metadata.
-    # Actually, CategoryCache stores files by hash. We can't know by filename.
-    # We must iterate cache and check config.
-    return False
-
-
 def _matches_filter(
     config: dict[str, Any],
     category: str | None,
@@ -91,7 +80,7 @@ def _matches_filter(
     return True
 
 
-@app.command(name="cache-clean")
+@cache_app.command(name="clean")
 def cache_clean(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     category: Annotated[
@@ -162,7 +151,7 @@ def cache_clean(
         # FanoutCache uses `.diskcache` or similar structure.
         # If we delete, we should use `cache.delete(key)`.
 
-        cat_cache = CategoryCache(cat_dir)
+        # cat_cache = CategoryCache(cat_dir)
         # We need method to iterate keys and configs.
         # `cat_cache.list_content` iterates `for key in cache`.
 
