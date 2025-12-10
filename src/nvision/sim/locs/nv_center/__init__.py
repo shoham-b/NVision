@@ -9,6 +9,7 @@ from .simple_sequential_locator import (
 )
 from .sweep_locator import NVCenterSweepLocator
 from .project_bayesian_locator import ProjectBayesianLocator
+from .analytical_bayesian_locator import AnalyticalBayesianLocator
 
 __all__ = [
     "NVCenterSequentialBayesianLocator",
@@ -18,4 +19,5 @@ __all__ = [
     "SimpleSequentialLocatorBatched",
     "NVCenterSweepLocator",
     "ProjectBayesianLocator",
+    "AnalyticalBayesianLocator",
 ]
