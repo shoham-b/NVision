@@ -7,8 +7,8 @@ import math
 import multiprocessing
 import random
 import shutil
-import time
 import threading
+import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -16,6 +16,7 @@ from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from typing import Annotated, Any
 
+import numpy as np
 import polars as pl
 import typer
 from rich.console import Console, Group
@@ -24,30 +25,33 @@ from rich.logging import RichHandler
 from rich.progress import (
     BarColumn,
     Progress,
-    SpinnerColumn,
     ProgressColumn,
+    SpinnerColumn,
     Task,
     TextColumn,
     TimeRemainingColumn,
 )
+from rich.table import Table
 
-from nvision.cache import DataFrameCache
+from nvision.cache import CategoryCache, SimulationCache
 from nvision.index_html import compile_html_index
 from nvision.pathutils import ensure_out_dir, slugify
 from nvision.sim import (
+    AnalyticalBayesianLocator,
     CompositeNoise,
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
-    ProjectBayesianLocator,
     OnePeakGoldenLocator,
     OnePeakGridLocator,
     OnePeakSweepLocator,
+    ProjectBayesianLocator,
     SimpleSequentialLocator,
     TwoPeakGoldenLocator,
     TwoPeakGridLocator,
     TwoPeakSweepLocator,
 )
 from nvision.sim import cases as sim_cases
+from nvision.sim.locs.nv_center.test_bayesian_locator import TestBayesianLocator
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
@@ -92,6 +96,17 @@ class LocatorTask:
 def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     """Return the predefined noise combinations for scenarios."""
     return sim_cases.noises_none() + sim_cases.noises_single_each() + sim_cases.noises_complex()
+
+
+def _to_native(obj: Any) -> Any:
+    """Recursively convert NumPy scalars to native Python types."""
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, dict):
+        return {k: _to_native(v) for k, v in obj.items()}
+    if isinstance(obj, list | tuple):
+        return [_to_native(v) for v in obj]
+    return obj
 
 
 def _get_generator_category(generator_name: str) -> str:
@@ -140,6 +155,19 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, ob
                     max_evals=500, grid_resolution=400, distribution="voigt-zeeman"
                 ),
             ),
+            (
+                "NVCenter-AnalyticalBayesian",
+                AnalyticalBayesianLocator(
+                    max_evals=500,
+                    grid_resolution=400,
+                    distribution="voigt-zeeman",
+                    n_warmup=20,
+                ),
+            ),
+            (
+                "NVCenter-TestBayesian",
+                TestBayesianLocator(max_evals=20),
+            ),
         ]
     return strategies
 
@@ -150,6 +178,29 @@ def _maybe_finite(value: object) -> float | None:
         if math.isfinite(value_float):
             return value_float
     return None
+
+
+def _recalculate_subset_result(
+    result_row: dict,
+    entries: list[dict],
+    scan: Any,
+    max_steps: int,
+) -> tuple[list[dict], dict] | None:
+    param_hist = result_row.get("parameter_history")
+    if not param_hist or len(param_hist) < max_steps:
+        return None
+
+    estimate_raw = param_hist[max_steps - 1]
+    estimate = {k: float(v) for k, v in estimate_raw.items()}
+
+    # Recalculate metrics
+    truth = getattr(scan, "truth_positions", [])
+    metrics = _scan_attempt_metrics(truth, estimate)
+
+    new_res = result_row.copy()
+    new_res.update({k: _maybe_finite(v) for k, v in metrics.items()})
+
+    return entries, new_res
 
 
 def _scan_attempt_metrics(
@@ -185,11 +236,6 @@ def _scan_attempt_metrics(
             metrics[key] = float(value)
 
     return metrics
-
-
-def _category_cache_dir(base: Path, category: str) -> Path:
-    slug = slugify(category or "unknown")
-    return base / slug
 
 
 def _ensure_worker_queue_logging(queue: Any, level: int) -> None:
@@ -240,41 +286,73 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     )
 
     category = _get_generator_category(gen_name)
-    cache_category_dir = _category_cache_dir(cache_dir, category)
-    cache = DataFrameCache(cache_category_dir)
+    category = _get_generator_category(gen_name)
+    sim_cache = SimulationCache(cache_dir)
+    cache = sim_cache.for_category(category)
     graphs_dir = out_dir / "graphs"
     viz = Viz(graphs_dir)
 
-    combo_cfg = {
+    combo_cfg_meta = {
         "kind": "locator_combination",
         "generator": gen_name,
         "noise": noise_name,
         "strategy": strat_name,
-        "repeats": n_repeats,
+        # "repeats": n_repeats,  # Removed to allow elastic repeats
         "seed": main_seed,
         "max_steps": loc_max_steps,
         "timeout_s": loc_timeout_s,
     }
-    combo_key = cache.make_key(combo_cfg)
+    # Create key configuration by removing runtime constraints that shouldn't invalidate cache
+    combo_cfg_key = combo_cfg_meta.copy()
+    combo_cfg_key.pop("max_steps", None)
+    combo_cfg_key.pop("timeout_s", None)
+    combo_key = cache.make_key(combo_cfg_key)
 
     # Check if cache should be ignored for this specific strategy
     skip_cache_for_strategy = (
         ignore_cache_strategy is not None and strat_name == ignore_cache_strategy
     )
 
-    if require_cache:
-        cached_combo_df = cache.load_df(combo_key)
+    cached_results_full: list[tuple[list[dict[str, object]], dict[str, object]]] = []
+
+    # Initialize state for all repeats (moved up for elastic subsetting)
+    repeat_rngs = []
+    initial_scans = []
+    repeat_start_times = []
+    repeat_stop_reasons = ["" for _ in range(n_repeats)]
+    repeats_needed = []
+
+    for attempt_idx_in_combo in range(n_repeats):
+        combo_seed_str = f"{main_seed}-{gen_name}-{strat_name}-{noise_name}-{attempt_idx_in_combo}"
+        attempt_seed = int(hashlib.sha256(combo_seed_str.encode("utf-8")).hexdigest(), 16) % (10**8)
+        repeat_rngs.append(random.Random(attempt_seed))
+        initial_scans.append(gen_obj.generate(repeat_rngs[-1]))
+        repeat_start_times.append(time.perf_counter())
+
+    cached_steps = 0
+    needs_subsetting = False
+
+    if require_cache or (use_cache and not skip_cache_for_strategy):
+        # Elastic Steps: Check if cached steps are sufficient
+        cached_config = cache.get_config(combo_key)
+        cached_steps = cached_config.get("max_steps", 0) if cached_config else 0
+
+        if cached_steps >= loc_max_steps:
+            cached_combo_df = cache.load_df(combo_key)
+            if cached_steps > loc_max_steps:
+                needs_subsetting = True
+        else:
+            cached_combo_df = None
+
         if (
             cached_combo_df is not None
             and "results" in cached_combo_df.columns
             and not cached_combo_df.is_empty()
         ):
-            # Cache hit logic (same as below)
             cached_payload_raw = cached_combo_df.get_column("results")[0]
             if isinstance(cached_payload_raw, str):
                 try:
                     cached_payload = json.loads(cached_payload_raw)
-                    cached_results: list[tuple[list[dict[str, object]], dict[str, object]]] = []
                     for record in cached_payload:
                         if not isinstance(record, dict):
                             break
@@ -282,97 +360,158 @@ def _run_combination(task: LocatorTask):  # noqa: C901
                         result_row = record.get("main_result_row")
                         if not isinstance(entries, list) or not isinstance(result_row, dict):
                             break
-                        cached_results.append((entries, result_row))
-                    else:
-                        if cached_results:
-                            log.debug(
-                                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
-                                gen_name,
-                                noise_name,
-                                strat_name,
-                                main_seed,
-                            )
-                            return cached_results
+                        cached_results_full.append((entries, result_row))
                 except Exception:
-                    pass
+                    log.warning(
+                        "Cached combination payload for %s/%s/%s is corrupted.",
+                        gen_name,
+                        noise_name,
+                        strat_name,
+                    )
 
-        # If we are here, cache is missing or invalid, but require_cache is True
+    if require_cache:
+        if len(cached_results_full) >= n_repeats:
+            if task.progress_queue:
+                task.progress_queue.put((task.task_id, n_repeats))
+            log.debug(
+                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                gen_name,
+                noise_name,
+                strat_name,
+                main_seed,
+            )
+            return cached_results_full[:n_repeats]
+
+        # If we are here, cache is missing or insufficient, but require_cache is True
         log.warning(
-            "Cache missing for %s/%s/%s (seed=%s) and --require-cache is set. Skipping.",
+            "Cache missing/insufficient (%d/%d) for %s/%s/%s (seed=%s) and --require-cache is set. Skipping.",
+            len(cached_results_full),
+            n_repeats,
             gen_name,
             noise_name,
             strat_name,
             main_seed,
         )
+        if task.progress_queue:
+            task.progress_queue.put((task.task_id, n_repeats))
         return []
 
     if use_cache and not skip_cache_for_strategy:
-        cached_combo_df = cache.load_df(combo_key)
-        if (
-            cached_combo_df is not None
-            and "results" in cached_combo_df.columns
-            and not cached_combo_df.is_empty()
-        ):
-            cached_payload_raw = cached_combo_df.get_column("results")[0]
-            if isinstance(cached_payload_raw, str):
-                try:
-                    cached_payload = json.loads(cached_payload_raw)
-                except json.JSONDecodeError:
-                    log.warning(
-                        "Cached combination payload for %s/%s/%s is corrupted; recomputing.",
-                        gen_name,
-                        noise_name,
-                        strat_name,
-                    )
-                else:
-                    cached_results: list[tuple[list[dict[str, object]], dict[str, object]]] = []
-                    for record in cached_payload:
-                        if not isinstance(record, dict):
-                            break
-                        entries = record.get("entries")
-                        result_row = record.get("main_result_row")
-                        if not isinstance(entries, list) or not isinstance(result_row, dict):
-                            break
-                        cached_results.append((entries, result_row))
-                    else:
-                        if cached_results:
-                            log.debug(
-                                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
-                                gen_name,
-                                noise_name,
-                                strat_name,
-                                main_seed,
-                            )
-                            return cached_results
-                    log.warning(
-                        "Cached combination payload for %s/%s/%s malformed; recomputing.",
-                        gen_name,
-                        noise_name,
-                        strat_name,
-                    )
+        if len(cached_results_full) >= n_repeats:
+            if task.progress_queue:
+                task.progress_queue.put((task.task_id, n_repeats))
+            log.debug(
+                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                gen_name,
+                noise_name,
+                strat_name,
+                main_seed,
+            )
+            return cached_results_full[:n_repeats]
+        elif cached_results_full:
+            log.info(
+                "Partial cache hit for %s/%s/%s: found %d/%d repeats.",
+                gen_name,
+                noise_name,
+                strat_name,
+                len(cached_results_full),
+                n_repeats,
+            )
+            if task.progress_queue:
+                task.progress_queue.put((task.task_id, len(cached_results_full)))
 
-    all_results_for_combination = []
+    all_results_for_combination = [None] * n_repeats
 
-    # Initialize state for all repeats (batched)
-    repeat_rngs = []
-    initial_scans = []
-    repeat_start_times = []
-    repeat_stop_reasons = ["" for _ in range(n_repeats)]
+    # Fill from elastic cache first
+    n_cached = len(cached_results_full)
+    for i in range(min(n_repeats, n_cached)):
+        all_results_for_combination[i] = cached_results_full[i]
 
+    # Batched history and repeat tracking
+    history_rows = []
+
+    # Process loaded results (subsetting) and check partial cache
     for attempt_idx_in_combo in range(n_repeats):
-        combo_seed_str = f"{main_seed}-{gen_name}-{strat_name}-{noise_name}-{attempt_idx_in_combo}"
-        attempt_seed = int(hashlib.sha256(combo_seed_str.encode("utf-8")).hexdigest(), 16) % (10**8)
+        if attempt_idx_in_combo < n_cached:
+            # Already loaded from combo cache
+            if needs_subsetting:
+                res = all_results_for_combination[attempt_idx_in_combo]
+                if res:
+                    sub = _recalculate_subset_result(
+                        res[1], res[0], initial_scans[attempt_idx_in_combo], loc_max_steps
+                    )
+                    if sub:
+                        all_results_for_combination[attempt_idx_in_combo] = sub
+                        continue
+                    # If subsetting fails (no history), fall through to re-run?
+                    # For now we assume history is present if greater steps.
+            continue
 
-        repeat_rngs.append(random.Random(attempt_seed))
-        initial_scans.append(gen_obj.generate(repeat_rngs[-1]))
-        repeat_start_times.append(time.perf_counter())
+        # Check partial cache if enabled (for repeats NOT in combo cache)
+        if use_cache and not skip_cache_for_strategy:
+            # Logic similar to elastic combo
+            part_cfg_meta = {
+                "kind": "locator_run",
+                "generator": gen_name,
+                "noise": noise_name,
+                "strategy": strat_name,
+                "repeat": attempt_idx_in_combo,
+                "seed": main_seed,
+                "max_steps": loc_max_steps,
+                "timeout_s": loc_timeout_s,
+            }
+            part_cfg_key = part_cfg_meta.copy()
+            part_cfg_key.pop("max_steps", None)
+            part_cfg_key.pop("timeout_s", None)
+
+            repeat_part_key = cache.make_key(part_cfg_key)
+
+            # Check steps for partial
+            pc_config = cache.get_config(repeat_part_key)
+            pc_steps = pc_config.get("max_steps", 0) if pc_config else 0
+
+            if pc_steps >= loc_max_steps:
+                part_df = cache.load_df(repeat_part_key)
+                if part_df is not None and not part_df.is_empty():
+                    try:
+                        entries_raw = part_df["plot_manifest"][0]
+                        result_row_raw = part_df["result_row"][0]
+                        entries = json.loads(entries_raw)
+                        result_row = json.loads(result_row_raw)
+
+                        if isinstance(entries, list) and isinstance(result_row, dict):
+                            # Subsetting for partial
+                            if pc_steps > loc_max_steps:
+                                sub = _recalculate_subset_result(
+                                    result_row,
+                                    entries,
+                                    initial_scans[attempt_idx_in_combo],
+                                    loc_max_steps,
+                                )
+                                if sub:
+                                    entries, result_row = sub
+                                else:
+                                    repeats_needed.append(attempt_idx_in_combo)
+                                    continue
+
+                            all_results_for_combination[attempt_idx_in_combo] = (
+                                entries,
+                                result_row,
+                            )
+                            if task.progress_queue:
+                                task.progress_queue.put((task.task_id, 1))
+                            continue
+                    except Exception:
+                        pass
+
+        repeats_needed.append(attempt_idx_in_combo)
 
     # Batched history and repeat tracking
     history_rows = []
     repeats_df = pl.DataFrame(
         {
             "repeat_id": list(range(n_repeats)),
-            "active": [True] * n_repeats,
+            "active": [rid in repeats_needed for rid in range(n_repeats)],
         }
     )
 
@@ -488,6 +627,9 @@ def _run_combination(task: LocatorTask):  # noqa: C901
 
     # Collect results for each repeat
     for attempt_idx_in_combo in range(n_repeats):
+        if all_results_for_combination[attempt_idx_in_combo] is not None:
+            continue
+
         current_scan = initial_scans[attempt_idx_in_combo]
 
         # Extract history for this repeat
@@ -537,6 +679,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
         metrics_serialized["measurements"] = _maybe_finite(measurements)
         metrics_serialized["duration_ms"] = _maybe_finite(duration_ms)
+        metrics_serialized["bayesian_convergence"] = 0.0
 
         entries: list[dict[str, object]] = [
             {
@@ -666,9 +809,12 @@ def _run_combination(task: LocatorTask):  # noqa: C901
             "stop_reason": repeat_stop_reasons[attempt_idx_in_combo],
             **metrics_serialized,
         }
+        if hasattr(strat_obj, "parameter_history"):
+            # Serialize history for elastic steps (subsetting)
+            main_result_row["parameter_history"] = _to_native(strat_obj.parameter_history)
 
         if use_cache and not skip_cache_for_strategy:
-            part_cfg = {
+            part_cfg_meta = {
                 "kind": "locator_run",
                 "generator": gen_name,
                 "noise": noise_name,
@@ -678,30 +824,43 @@ def _run_combination(task: LocatorTask):  # noqa: C901
                 "max_steps": loc_max_steps,
                 "timeout_s": loc_timeout_s,
             }
-            repeat_part_key = cache.make_key(part_cfg)
+            part_cfg_key = part_cfg_meta.copy()
+            part_cfg_key.pop("max_steps", None)
+            part_cfg_key.pop("timeout_s", None)
+
+            repeat_part_key = cache.make_key(part_cfg_key)
             cache_df = pl.DataFrame(
                 {
                     "plot_manifest": [json.dumps(entries)],
                     "result_row": [json.dumps(main_result_row)],
                 }
             )
-            cache.save_df(cache_df, repeat_part_key)
+            cache.save_df(cache_df, repeat_part_key, metadata={"config": part_cfg_meta})
 
         if task.progress_queue:
             task.progress_queue.put((task.task_id, 1))
         else:
             log.debug(f"Finished repeat {attempt_idx_in_combo + 1} for {gen_name}/{noise_name}")
-        all_results_for_combination.append((entries, main_result_row))
+        all_results_for_combination[attempt_idx_in_combo] = (entries, main_result_row)
 
-    if use_cache and not skip_cache_for_strategy and all_results_for_combination:
+    if (
+        use_cache
+        and not skip_cache_for_strategy
+        and all(r is not None for r in all_results_for_combination)
+    ):
+        # Only cache combo if ALL results are present (which they should be, either from cache or run)
+        # Note: if some failed (kept as None?), we should handle it.
+        # But we initialize with None. If logic is correct, all indices are filled.
+        # Filter Nones just in case?
+        valid_results = [r for r in all_results_for_combination if r is not None]
         combo_payload = [
             {"entries": entries, "main_result_row": main_result_row}
-            for entries, main_result_row in all_results_for_combination
+            for entries, main_result_row in valid_results
         ]
         combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
-        cache.save_df(combo_df, combo_key)
+        cache.save_df(combo_df, combo_key, metadata={"config": combo_cfg_meta})
 
-    return all_results_for_combination
+    return [r for r in all_results_for_combination if r is not None]
 
 
 def _load_duration_estimates(out_dir: Path) -> dict[tuple[str, str, str], float]:
@@ -723,6 +882,53 @@ def _load_duration_estimates(out_dir: Path) -> dict[tuple[str, str, str], float]
         return estimates
     except Exception:
         return {}
+
+
+@app.command(name="list")
+def list_cache(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+):
+    """List all cached simulations."""
+    cache_root = out / "cache"
+    if not cache_root.exists():
+        console = Console()
+        console.print("[yellow]No cache directory found.[/yellow]")
+        return
+
+    table = Table(title="Cached Simulations")
+    table.add_column("Category", style="cyan")
+    table.add_column("Generator", style="green")
+    table.add_column("Noise", style="magenta")
+    table.add_column("Strategy", style="blue")
+    table.add_column("Seed", justify="right")
+    table.add_column("Repeats", justify="right")
+
+    console = Console()
+
+    # Iterate over all subdirectories in cache root
+    found_any = False
+    for category_dir in cache_root.iterdir():
+        if category_dir.is_dir():
+            cat_cache = CategoryCache(category_dir)
+            items = cat_cache.list_content()
+            for config in items:
+                # We only want to list "locator_combination" items
+                kind = config.get("kind")
+                if kind == "locator_combination":
+                    found_any = True
+                    table.add_row(
+                        category_dir.name,
+                        str(config.get("generator", "-")),
+                        str(config.get("noise", "-")),
+                        str(config.get("strategy", "-")),
+                        str(config.get("seed", "-")),
+                        str(config.get("repeats", "-")),
+                    )
+
+    if found_any:
+        console.print(table)
+    else:
+        console.print("[yellow]No cached combinations found (or no metadata available).[/yellow]")
 
 
 @app.command()
@@ -754,6 +960,20 @@ def run(  # noqa: C901
         typer.Option(
             "--filter-category",
             help="Filter by generator category (e.g., 'NVCenter')",
+        ),
+    ] = None,
+    strategy: Annotated[
+        str | None,
+        typer.Option(
+            "--strategy",
+            help="Filter by strategy name (e.g., 'NVCenter-SequentialBayesian')",
+        ),
+    ] = None,
+    noise: Annotated[
+        str | None,
+        typer.Option(
+            "--noise",
+            help="Filter by noise preset name (e.g., 'NoNoise')",
         ),
     ] = None,
     parallel: Annotated[
@@ -855,7 +1075,11 @@ def run(  # noqa: C901
                     continue
 
                 for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
+                    if strategy and strat_name != strategy:
+                        continue
                     for noise_name, noise_obj in noise_map.items():
+                        if noise and noise_name != noise:
+                            continue
                         config_key = (gen_name, noise_name, strat_name)
                         if config_key in seen_configs:
                             continue
@@ -957,6 +1181,10 @@ def run(  # noqa: C901
         listener.stop()
 
         df_loc = pl.DataFrame(df_rows)
+        # Drop complex columns not supported in CSV
+        if "parameter_history" in df_loc.columns:
+            df_loc = df_loc.drop("parameter_history")
+
         out_path = out_dir / "locator_results.csv"
         df_loc.write_csv(out_path.as_posix())
         log.info(f"Wrote locator results to: {out_path}")
@@ -1188,6 +1416,15 @@ def evaluate_bayesian(
     results = run_evaluation(scenarios, repeats=repeats, max_steps=max_steps, output_dir=out)
     print_results(results)
     log.info(f"Evaluation complete. Results saved to {out}")
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
+    """
+    NVision simulation runner.
+    """
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(run)
 
 
 def cli(*args, **kwargs):

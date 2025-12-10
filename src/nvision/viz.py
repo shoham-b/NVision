@@ -214,6 +214,13 @@ class Viz:
             xaxis_title="Noise",
             yaxis_title=ylabel,
             template="plotly_white",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+            ),
         )
         fig.write_html(out_path.as_posix(), include_plotlyjs="cdn")
         return out_path

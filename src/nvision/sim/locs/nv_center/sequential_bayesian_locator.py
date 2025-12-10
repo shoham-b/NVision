@@ -841,8 +841,8 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
                 "x1_hat": x1,
                 "x2_hat": math.nan,
                 "x3_hat": math.nan,
-                "uncert": uncertainty,
-                "uncert_pos": uncertainty,
+                "uncert": float(uncertainty),
+                "uncert_pos": float(uncertainty),
             }
 
         peak_strengths = [(idx, self.freq_posterior[idx]) for idx in peaks]
@@ -852,11 +852,11 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
 
         result: dict[str, float] = {
             "n_peaks": float(len(top_peaks)),
-            "uncert": uncertainty,
-            "uncert_pos": uncertainty,
-            "x1_hat": top_peaks[0] if len(top_peaks) >= 1 else math.nan,
-            "x2_hat": top_peaks[1] if len(top_peaks) >= 2 else math.nan,
-            "x3_hat": top_peaks[2] if len(top_peaks) >= 3 else math.nan,
+            "uncert": float(uncertainty),
+            "uncert_pos": float(uncertainty),
+            "x1_hat": float(top_peaks[0]) if len(top_peaks) >= 1 else math.nan,
+            "x2_hat": float(top_peaks[1]) if len(top_peaks) >= 2 else math.nan,
+            "x3_hat": float(top_peaks[2]) if len(top_peaks) >= 3 else math.nan,
             "final_entropy": float(self.current_estimates.get("entropy", math.nan)),
             "final_max_prob": float(self.current_estimates.get("max_prob", math.nan)),
         }

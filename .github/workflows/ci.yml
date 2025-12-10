@@ -219,3 +219,29 @@ jobs:
             artifacts/graphs
             artifacts/plots_manifest.json
           if-no-files-found: error
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build-index
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download NVision index artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nvision-index
+          path: site
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'site'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
