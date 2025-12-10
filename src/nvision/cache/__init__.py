@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 import threading
 from contextlib import suppress
@@ -129,6 +130,58 @@ class CategoryCache:
 
         self.backend.set(key, payload)
         return self.db_path
+
+    def get_cached_results(
+        self, config: dict
+    ) -> list[tuple[list[dict[str, Any]], dict[str, Any]]] | None:
+        """High-level method to retrieve cached simulation results."""
+        key = self.make_key(config)
+        cached_df = self.load_df(key)
+        if cached_df is not None and "results" in cached_df.columns and not cached_df.is_empty():
+            cached_payload_raw = cached_df.get_column("results")[0]
+            if isinstance(cached_payload_raw, str):
+                try:
+                    cached_payload = json.loads(cached_payload_raw)
+                    cached_results: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
+                    for record in cached_payload:
+                        if not isinstance(record, dict):
+                            break
+                        entries = record.get("entries")
+                        result_row = record.get("main_result_row")
+                        if not isinstance(entries, list) or not isinstance(result_row, dict):
+                            break
+                        cached_results.append((entries, result_row))
+                    else:
+                        if cached_results:
+                            return cached_results
+                except Exception:
+                    pass
+        return None
+
+    def save_cached_results(
+        self, config: dict, results: list[tuple[list[dict[str, Any]], dict[str, Any]]]
+    ) -> Path:
+        """High-level method to save simulation results."""
+        key = self.make_key(config)
+        combo_payload = [
+            {"entries": entries, "main_result_row": main_result_row}
+            for entries, main_result_row in results
+        ]
+        combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
+        return self.save_df(combo_df, key, metadata={"config": config})
+
+    def save_cached_repeat(
+        self, config: dict, entries: list[dict[str, Any]], result_row: dict[str, Any]
+    ) -> Path:
+        """High-level method to save a single simulation repeat."""
+        key = self.make_key(config)
+        cache_df = pl.DataFrame(
+            {
+                "plot_manifest": [json.dumps(entries)],
+                "result_row": [json.dumps(result_row)],
+            }
+        )
+        return self.save_df(cache_df, key, metadata={"config": config})
 
 
 class CacheBridge:
