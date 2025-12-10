@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from nvision.cache.category import CategoryCache as DataFrameCache
+from nvision.cache import CacheBridge
 from nvision.cli.utils import (
     _get_generator_category,
     _scan_attempt_metrics,
@@ -59,8 +59,9 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     )
 
     category = _get_generator_category(gen_name)
-    cache_category_dir = _category_cache_dir(cache_dir, category)
-    cache = DataFrameCache(cache_category_dir)
+    # cache_category_dir = _category_cache_dir(cache_dir, category)  # No longer needed with CacheBridge
+    bridge = CacheBridge(cache_dir)
+    cache = bridge.get_cache_for_category(category)
     graphs_dir = out_dir / "graphs"
     viz = Viz(graphs_dir)
 
@@ -504,7 +505,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
                     "result_row": [json.dumps(main_result_row)],
                 }
             )
-            cache.save_df(cache_df, repeat_part_key)
+            cache.save_df(cache_df, repeat_part_key, metadata={"config": part_cfg})
 
         if task.progress_queue:
             task.progress_queue.put((task.task_id, 1))
@@ -518,6 +519,6 @@ def _run_combination(task: LocatorTask):  # noqa: C901
             for entries, main_result_row in all_results_for_combination
         ]
         combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
-        cache.save_df(combo_df, combo_key)
+        cache.save_df(combo_df, combo_key, metadata={"config": combo_cfg})
 
     return all_results_for_combination
