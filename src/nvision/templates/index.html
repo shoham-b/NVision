@@ -214,6 +214,11 @@
         </div>
         <p class="metrics" id="scan-metrics"></p>
         <iframe id="scan-iframe"></iframe>
+
+        <div id="scan-convergence-section" style="margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em;">
+            <h3>Convergence Statistics</h3>
+            <iframe id="scan-convergence-iframe"></iframe>
+        </div>
     </div>
 
     </div>
@@ -223,14 +228,18 @@
         <p>This section shows plots related to the Bayesian optimization process.</p>
         <img alt="Bayesian optimization visualization" hidden id="bayes-image">
 
-        <div id="bayes-interactive-section" hidden>
-            <h3>Posterior Evolution</h3>
-            <iframe id="bayes-interactive-iframe"></iframe>
-        </div>
+        <div id="nv-center-specific-section" hidden>
+            <div class="subsection">
+                <h3>Precision of distribution and convergence</h3>
+                <p>Visualizing how the posterior distribution evolves over time.</p>
+                <iframe id="bayes-interactive-iframe"></iframe>
+            </div>
 
-        <div id="bayes-convergence-section" hidden>
-            <h3>Parameter Convergence</h3>
-            <iframe id="bayes-convergence-iframe"></iframe>
+            <div class="subsection">
+                <h3>Uncertainty reduction</h3>
+                <p>Tracking the reduction in parameter uncertainty.</p>
+                <iframe id="bayes-convergence-iframe"></iframe>
+            </div>
         </div>
 
         <div id="bayes-stats-section">
@@ -244,6 +253,17 @@
                 <img id="convergence-stats-image" alt="Convergence stats plot" hidden>
             </div>
         </div>
+    </div>
+
+    <div aria-label="Comparison" class="section tab-panel is-hidden" id="comparison-section" role="tabpanel">
+        <h2>Model Comparison</h2>
+        <p>Comparing performance metrics across different strategies.</p>
+        <div class="control-row">
+            <span class="control-label">Statistic:</span>
+            <div aria-label="Comparison statistic" class="segmented-control" id="comparison-metric" role="radiogroup">
+            </div>
+        </div>
+        <div id="comparison-plots-container"></div>
     </div>
 
     <script id="plots-manifest" type="application/json">${manifest_json}</script>
@@ -309,6 +329,17 @@
             const posteriorHistoryImage = document.getElementById('posterior-history-image');
             const convergenceStatsImage = document.getElementById('convergence-stats-image');
 
+            const nvCenterSection = document.getElementById('nv-center-specific-section');
+            const comparisonSection = document.getElementById('comparison-section');
+            const comparisonMetric = document.getElementById('comparison-metric');
+            const comparisonPlotsContainer = document.getElementById('comparison-plots-container');
+
+            if (comparisonMetric) {
+                comparisonMetric.addEventListener('controlchange', () => {
+                    renderComparisonTab();
+                });
+            }
+
             function updateBayesView(selectedPlot) {
                 if (!bayesSection || !bayesImage) {
                     return;
@@ -339,17 +370,22 @@
             }
 
             function updateBayesInteractiveView(selectedPlot) {
-                if (!bayesInteractiveSection || !bayesInteractiveIframe) {
+                // Elements for the new NV Center specific section
+                const interactiveIframe = document.getElementById('bayes-interactive-iframe');
+                const convergenceIframe = document.getElementById('bayes-convergence-iframe');
+
+                if (!nvCenterSection) {
                     return;
                 }
 
-                if (!selectedPlot) {
-                    bayesInteractiveSection.hidden = true;
-                    bayesInteractiveIframe.src = '';
-                    bayesConvergenceSection.hidden = true;
-                    bayesConvergenceIframe.src = '';
+                if (!selectedPlot || selectedPlot.generator_type !== 'NV Center') {
+                    nvCenterSection.hidden = true;
+                    if (interactiveIframe) interactiveIframe.src = '';
+                    if (convergenceIframe) convergenceIframe.src = '';
                     return;
                 }
+
+                nvCenterSection.hidden = false;
 
                 const interactivePlot = bayesInteractivePlots.find(
                     (p) =>
@@ -359,12 +395,12 @@
                         p.repeat === selectedPlot.repeat
                 );
 
-                if (interactivePlot) {
-                    bayesInteractiveIframe.src = interactivePlot.path;
-                    bayesInteractiveSection.hidden = false;
-                } else {
-                    bayesInteractiveSection.hidden = true;
-                    bayesInteractiveIframe.src = '';
+                if (interactiveIframe) {
+                    if (interactivePlot) {
+                        interactiveIframe.src = interactivePlot.path;
+                    } else {
+                        interactiveIframe.src = '';
+                    }
                 }
 
                 const convergencePlot = plots.find(
@@ -376,12 +412,12 @@
                         p.repeat === selectedPlot.repeat
                 );
 
-                if (convergencePlot) {
-                    bayesConvergenceIframe.src = convergencePlot.path;
-                    bayesConvergenceSection.hidden = false;
-                } else {
-                    bayesConvergenceSection.hidden = true;
-                    bayesConvergenceIframe.src = '';
+                if (convergenceIframe) {
+                    if (convergencePlot) {
+                        convergenceIframe.src = convergencePlot.path;
+                    } else {
+                        convergenceIframe.src = '';
+                    }
                 }
             }
 
@@ -434,6 +470,61 @@
                 }
             }
 
+            function renderComparisonControls() {
+                if (!comparisonMetric) return;
+                const summaryPlots = plots.filter(p => p.type === 'summary');
+                const metrics = [...new Set(summaryPlots.map(p => p.metric))].sort();
+                renderSegmentedControl(comparisonMetric, metrics, controlValue(comparisonMetric));
+            }
+
+            function renderComparisonTab() {
+                if (!comparisonPlotsContainer) return;
+                comparisonPlotsContainer.innerHTML = '';
+
+                const selectedMetric = controlValue(comparisonMetric);
+                if (!selectedMetric) {
+                    // Try to select the first available metric if none selected
+                    renderComparisonControls();
+                    const newMetric = controlValue(comparisonMetric);
+                    if (!newMetric) {
+                        comparisonPlotsContainer.innerHTML = '<p>No comparison plots available.</p>';
+                        return;
+                    }
+                    // recursive intent: the control update will trigger this again via event, 
+                    // but to be safe/immediate let's just use the value.
+                    // Actually, renderSegmentedControl selects the first one if prev is null.
+                }
+
+                // Re-fetch in case it changed inside the if block (though relying on event is safer, but we are here)
+                const effectiveMetric = controlValue(comparisonMetric);
+
+                const summaryPlots = plots.filter(p => p.type === 'summary' && p.metric === effectiveMetric);
+
+                if (summaryPlots.length === 0) {
+                    comparisonPlotsContainer.innerHTML = '<p>No plots available for this metric.</p>';
+                    return;
+                }
+
+                summaryPlots.forEach(plot => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'subsection';
+                    wrapper.style.marginBottom = '2em';
+
+                    const title = document.createElement('h3');
+                    title.textContent = `${plot.generator} - ${plot.metric}`;
+                    wrapper.appendChild(title);
+
+                    const iframe = document.createElement('iframe');
+                    iframe.src = plot.path;
+                    iframe.style.width = '100%';
+                    iframe.style.height = '500px';
+                    iframe.style.border = 'none';
+                    wrapper.appendChild(iframe);
+
+                    comparisonPlotsContainer.appendChild(wrapper);
+                });
+            }
+
             const nvCenterDefault = scanPlots.find(p => p.generator_type === 'NV Center');
             const scanDefault = nvCenterDefault || (scanPlots.length > 0 ? scanPlots[0] : null);
 
@@ -445,6 +536,7 @@
             const scanRepeatPrev = document.getElementById('scan-repeat-prev');
             const scanRepeatNext = document.getElementById('scan-repeat-next');
             const scanIframe = document.getElementById('scan-iframe');
+            const scanConvergenceIframe = document.getElementById('scan-convergence-iframe');
             const scanMetrics = document.getElementById('scan-metrics');
             let currentRepeatItems = [];
 
@@ -726,12 +818,29 @@
                         updateBayesView(plot);
                         updateBayesStatsView(plot);
                         updateBayesInteractiveView(plot);
+
+                        if (scanConvergenceIframe) {
+                            const convPlot = plots.find(
+                                (p) =>
+                                    p.type === 'bayesian_parameter_convergence' &&
+                                    p.generator === plot.generator &&
+                                    p.noise === plot.noise &&
+                                    p.strategy === plot.strategy &&
+                                    p.repeat === plot.repeat
+                            );
+                            scanConvergenceIframe.src = convPlot ? convPlot.path : '';
+                            scanConvergenceIframe.hidden = !convPlot;
+                        }
                     } else {
                         scanIframe.src = '';
                         scanMetrics.textContent = '';
                         updateBayesView(null);
                         updateBayesStatsView(null);
                         updateBayesInteractiveView(null);
+                        if (scanConvergenceIframe) {
+                            scanConvergenceIframe.src = '';
+                            scanConvergenceIframe.hidden = true;
+                        }
                     }
                 } else {
                     scanIframe.src = '';
@@ -740,6 +849,10 @@
                     updateBayesView(null);
                     updateBayesStatsView(null);
                     updateBayesInteractiveView(null);
+                    if (scanConvergenceIframe) {
+                        scanConvergenceIframe.src = '';
+                        scanConvergenceIframe.hidden = true;
+                    }
                 }
             }
 
@@ -764,6 +877,16 @@
                     button.textContent = 'Bayesian Analysis';
                     button.dataset.tab = 'bayes-section';
                     tabBar.appendChild(button);
+                }
+
+                const hasComparison = plots.some(p => p.type === 'summary');
+                if (hasComparison) {
+                    const button = document.createElement('button');
+                    button.className = 'tab-button';
+                    button.textContent = 'Comparison';
+                    button.dataset.tab = 'comparison-section';
+                    tabBar.appendChild(button);
+                    renderComparisonTab();
                 }
 
                 const tabButtons = tabBar.querySelectorAll('.tab-button');

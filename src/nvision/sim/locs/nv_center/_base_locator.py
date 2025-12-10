@@ -64,11 +64,14 @@ class NVCenterLocatorBase(Locator):
             "k_np": np.mean(self.k_np_prior),
         }
         self.measurement_history: list[dict[str, float]] = []
+        self.parameter_history: list[dict[str, float]] = []  # Initialize history
 
     def reset_run_state(self) -> None:
         """Clear accumulated histories and reinitialize estimates."""
         if hasattr(self, "measurement_history"):
             self.measurement_history.clear()
+        if hasattr(self, "parameter_history"):
+            self.parameter_history.clear()
 
         self.current_estimates = {
             "frequency": np.mean(self.prior_bounds),
@@ -107,8 +110,12 @@ class NVCenterLocatorBase(Locator):
             is_new = not any(existing["x"] == row["x"] for existing in self.measurement_history)
             if is_new:
                 self.measurement_history.append(row)
-                # Update estimates based on new measurement
+                # Update estimates based on a new measurement
                 self._update_estimates(row)
+
+                # Auto-track history for non-Bayesian locators (Bayesian track themselves)
+                if "Bayesian" not in self.__class__.__name__:
+                    self.parameter_history.append(self.current_estimates.copy())
 
     def _update_estimates(self, measurement: dict[str, float]) -> None:
         """Update current estimates based on a new measurement.
