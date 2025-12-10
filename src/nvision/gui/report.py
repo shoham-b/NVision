@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Final
 
 _TEMPLATE_CACHE: str | None = None
-_TEMPLATE_PATH: Final = Path(__file__).with_name("templates") / "index.html"
+# Template is in gui/templates/index.html
+# __file__ is src/nvision/gui/report.py, so parent is gui, parent/templates is correct.
+_TEMPLATE_PATH: Final = Path(__file__).parent / "templates" / "index.html"
 
 
 def _load_template() -> str:
@@ -31,7 +33,12 @@ def compile_html_index(out_dir: Path) -> Path:
 
     index_path = out_dir / "index.html"
     index_path.write_text(html_content, encoding="utf-8")
+
+    # Copy static assets
+    import shutil
+
+    gif_source = _TEMPLATE_PATH.parent / "locator_progress.gif"
+    if gif_source.exists():
+        shutil.copy(gif_source, out_dir / "locator_progress.gif")
+
     return index_path
-
-
-__all__ = ["compile_html_index"]

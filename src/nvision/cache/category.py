@@ -9,8 +9,6 @@ from typing import Any
 import polars as pl
 from diskcache import FanoutCache
 
-from nvision.pathutils import slugify
-
 
 class CategoryCache:
     """A cache for a specific category of simulations."""
@@ -59,8 +57,7 @@ class CategoryCache:
         try:
             with FanoutCache(self.cache_dir.as_posix()) as cache:
                 obj = cache.get(key, default=None)
-                if isinstance(obj, pl.DataFrame):
-                    return obj
+                # Strict checking: must be our dict wrapper format
                 if isinstance(obj, dict) and obj.get("__nvision_cache__") == "dataframe":
                     rows = obj.get("data", [])
                     df = pl.DataFrame(rows)
@@ -69,8 +66,6 @@ class CategoryCache:
                         with suppress(pl.ColumnNotFoundError):
                             df = df.select(columns)
                     return df
-                if isinstance(obj, list):
-                    return pl.DataFrame(obj)
                 return None
         except Exception:
             return None
@@ -111,15 +106,3 @@ class CategoryCache:
         except Exception:
             pass
         return items
-
-
-class SimulationCache:
-    """Manager for simulation caches organized by category."""
-
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = base_dir
-
-    def for_category(self, category: str) -> CategoryCache:
-        """Get the cache for a specific category."""
-        slug = slugify(category or "unknown")
-        return CategoryCache(self.base_dir / slug)
