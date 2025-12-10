@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import math
 import random
@@ -75,7 +74,6 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         "max_steps": loc_max_steps,
         "timeout_s": loc_timeout_s,
     }
-    combo_key = cache.make_key(combo_cfg)
 
     # Check if cache should be ignored for this specific strategy
     skip_cache_for_strategy = (
@@ -83,38 +81,16 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     )
 
     if require_cache:
-        cached_combo_df = cache.load_df(combo_key)
-        if (
-            cached_combo_df is not None
-            and "results" in cached_combo_df.columns
-            and not cached_combo_df.is_empty()
-        ):
-            # Cache hit logic (same as below)
-            cached_payload_raw = cached_combo_df.get_column("results")[0]
-            if isinstance(cached_payload_raw, str):
-                try:
-                    cached_payload = json.loads(cached_payload_raw)
-                    cached_results: list[tuple[list[dict[str, object]], dict[str, object]]] = []
-                    for record in cached_payload:
-                        if not isinstance(record, dict):
-                            break
-                        entries = record.get("entries")
-                        result_row = record.get("main_result_row")
-                        if not isinstance(entries, list) or not isinstance(result_row, dict):
-                            break
-                        cached_results.append((entries, result_row))
-                    else:
-                        if cached_results:
-                            log.debug(
-                                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
-                                gen_name,
-                                noise_name,
-                                strat_name,
-                                main_seed,
-                            )
-                            return cached_results
-                except Exception:
-                    pass
+        cached_results = cache.get_cached_results(combo_cfg)
+        if cached_results:
+            log.debug(
+                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                gen_name,
+                noise_name,
+                strat_name,
+                main_seed,
+            )
+            return cached_results
 
         # If we are here, cache is missing or invalid, but require_cache is True
         log.warning(
@@ -127,49 +103,20 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         return []
 
     if use_cache and not skip_cache_for_strategy:
-        cached_combo_df = cache.load_df(combo_key)
-        if (
-            cached_combo_df is not None
-            and "results" in cached_combo_df.columns
-            and not cached_combo_df.is_empty()
-        ):
-            cached_payload_raw = cached_combo_df.get_column("results")[0]
-            if isinstance(cached_payload_raw, str):
-                try:
-                    cached_payload = json.loads(cached_payload_raw)
-                except json.JSONDecodeError:
-                    log.warning(
-                        "Cached combination payload for %s/%s/%s is corrupted; recomputing.",
-                        gen_name,
-                        noise_name,
-                        strat_name,
-                    )
-                else:
-                    cached_results: list[tuple[list[dict[str, object]], dict[str, object]]] = []
-                    for record in cached_payload:
-                        if not isinstance(record, dict):
-                            break
-                        entries = record.get("entries")
-                        result_row = record.get("main_result_row")
-                        if not isinstance(entries, list) or not isinstance(result_row, dict):
-                            break
-                        cached_results.append((entries, result_row))
-                    else:
-                        if cached_results:
-                            log.debug(
-                                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
-                                gen_name,
-                                noise_name,
-                                strat_name,
-                                main_seed,
-                            )
-                            return cached_results
-                    log.warning(
-                        "Cached combination payload for %s/%s/%s malformed; recomputing.",
-                        gen_name,
-                        noise_name,
-                        strat_name,
-                    )
+        cached_results = cache.get_cached_results(combo_cfg)
+        if cached_results:
+            log.debug(
+                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                gen_name,
+                noise_name,
+                strat_name,
+                main_seed,
+            )
+            return cached_results
+
+        # Original code had a "corrupted cache" warning if JSON parse failed.
+        # get_cached_results returns None on failure.
+        # We can just proceed to recompute.
 
     all_results_for_combination = []
 
@@ -498,14 +445,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
                 "max_steps": loc_max_steps,
                 "timeout_s": loc_timeout_s,
             }
-            repeat_part_key = cache.make_key(part_cfg)
-            cache_df = pl.DataFrame(
-                {
-                    "plot_manifest": [json.dumps(entries)],
-                    "result_row": [json.dumps(main_result_row)],
-                }
-            )
-            cache.save_df(cache_df, repeat_part_key, metadata={"config": part_cfg})
+            cache.save_cached_repeat(part_cfg, entries, main_result_row)
 
         if task.progress_queue:
             task.progress_queue.put((task.task_id, 1))
@@ -514,11 +454,6 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         all_results_for_combination.append((entries, main_result_row))
 
     if use_cache and not skip_cache_for_strategy and all_results_for_combination:
-        combo_payload = [
-            {"entries": entries, "main_result_row": main_result_row}
-            for entries, main_result_row in all_results_for_combination
-        ]
-        combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
-        cache.save_df(combo_df, combo_key, metadata={"config": combo_cfg})
+        cache.save_cached_results(combo_cfg, all_results_for_combination)
 
     return all_results_for_combination
