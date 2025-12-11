@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -149,6 +150,3 @@ class BayesianMixin:
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path)
-
-
-import math

@@ -110,9 +110,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         """Initialize the locator after dataclass creation."""
         if self.n_warmup >= self.max_evals:
             raise ValueError("n_warmup must be smaller than max_evals")
-        self.sweeper = NVCenterSweepLocator(
-            coarse_points=self.n_warmup, refine_points=self.n_warmup
-        )
+        self.sweeper = NVCenterSweepLocator(coarse_points=self.n_warmup, refine_points=self.n_warmup)
         self._bo: Any = None
         self._bo_utility: Any = None
 
@@ -129,9 +127,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
 
     def reset_posterior(self):
         """Reset posterior distributions to priors."""
-        self.freq_grid = np.linspace(
-            self.prior_bounds[0], self.prior_bounds[1], self.grid_resolution
-        )
+        self.freq_grid = np.linspace(self.prior_bounds[0], self.prior_bounds[1], self.grid_resolution)
         self.freq_posterior = np.ones(self.grid_resolution) / self.grid_resolution
         self.current_estimates = {
             "frequency": np.mean(self.prior_bounds),
@@ -312,9 +308,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         sigma = 0.05  # Placeholder
 
         if self.noise_model == "gaussian":
-            log_lik_array = -0.5 * ((observed - predicted) / sigma) ** 2 - 0.5 * np.log(
-                2 * np.pi * sigma**2
-            )
+            log_lik_array = -0.5 * ((observed - predicted) / sigma) ** 2 - 0.5 * np.log(2 * np.pi * sigma**2)
         elif self.noise_model == "poisson":
             predicted[predicted <= 0] = 1e-9
             lgamma_observed = np.vectorize(math.lgamma)(observed + 1)
@@ -515,8 +509,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), dpi=100, sharex=True)
 
         uncertainty_history = [
-            np.sqrt(np.sum((self.freq_grid - np.sum(self.freq_grid * p)) ** 2 * p))
-            for p in self.posterior_history
+            np.sqrt(np.sum((self.freq_grid - np.sum(self.freq_grid * p)) ** 2 * p)) for p in self.posterior_history
         ]
 
         steps = range(len(uncertainty_history))
@@ -548,9 +541,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
                 else:
                     entry_map = {
                         "x": getattr(entry, "x", None),
-                        "signal_values": getattr(
-                            entry, "signal_values", getattr(entry, "intensity", None)
-                        ),
+                        "signal_values": getattr(entry, "signal_values", getattr(entry, "intensity", None)),
                         "uncertainty": getattr(entry, "uncertainty", 0.05),
                     }
                     if entry_map["x"] is None or entry_map["signal_values"] is None:
@@ -602,12 +593,8 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             scale_factor = self._unscaled_prior_bounds[1] - self._unscaled_prior_bounds[0]
             if scale_factor > 0:
                 self.prior_bounds = (0.0, 1.0)
-                self.linewidth_prior = tuple(
-                    p / scale_factor for p in self._unscaled_linewidth_prior
-                )
-                self.gaussian_width_prior = tuple(
-                    p / scale_factor for p in self._unscaled_gaussian_width_prior
-                )
+                self.linewidth_prior = tuple(p / scale_factor for p in self._unscaled_linewidth_prior)
+                self.gaussian_width_prior = tuple(p / scale_factor for p in self._unscaled_gaussian_width_prior)
                 self.split_prior = tuple(p / scale_factor for p in self._unscaled_split_prior)
                 self.reset_run_state()
 
@@ -624,11 +611,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
         2. If called with repeats, returns a DataFrame with repeat_id and x columns (new interface)
         """
         # Handle argument swapping if called as (history, repeats, scan)
-        if (
-            isinstance(scan, pl.DataFrame)
-            and repeats is not None
-            and not isinstance(repeats, pl.DataFrame)
-        ):
+        if isinstance(scan, pl.DataFrame) and repeats is not None and not isinstance(repeats, pl.DataFrame):
             # scan argument received repeats DataFrame
             # repeats argument received ScanBatch (or something else)
             real_repeats = scan
@@ -637,7 +620,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             repeats = real_repeats
         elif isinstance(repeats, ScanBatch) and scan is None:
             # repeats argument received ScanBatch, scan is None (if called with 2 args? No, 3 args)
-            # If called as (history, repeats, scan) where scan is ScanBatch and repeats is DataFrame:
+            # If called as (history, repeats, scan) where scan=ScanBatch and repeats=DataFrame:
             # scan arg gets repeats (DataFrame)
             # repeats arg gets scan (ScanBatch)
             # This matches the first if block.
