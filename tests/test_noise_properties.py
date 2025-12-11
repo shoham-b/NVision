@@ -44,8 +44,6 @@ def test_composite_noise_preserves_length(values):
     t = list(range(len(values)))
     data = DataBatch(x=t, signal_values=values, meta={})
     rng = random.Random(999)
-    comp = CompositeOverFrequencyNoise(
-        [OverFrequencyGaussianNoise(0.1), OverFrequencyGaussianNoise(0.2)]
-    )
+    comp = CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.1), OverFrequencyGaussianNoise(0.2)])
     out = comp.apply(data, rng)
     assert len(out.signal_values) == len(values)

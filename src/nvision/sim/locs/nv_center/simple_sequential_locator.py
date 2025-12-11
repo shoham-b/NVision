@@ -15,7 +15,7 @@ from nvision.sim.locs.nv_center._jit_kernels import _lorentzian_model
 
 class SimpleSequentialLocator(NVCenterLocatorBase):
     """A simplified sequential locator that selects measurement points based on
-    characteristic features of the estimated distribution (peaks ± gamma/sqrt(3)).
+    characteristic features of the estimated distribution (peaks +/- gamma/sqrt(3)).
 
     This locator uses a deterministic strategy instead of Monte Carlo simulations,
     selecting points at the inflection points of Lorentzian peaks.
@@ -81,7 +81,7 @@ class SimpleSequentialLocator(NVCenterLocatorBase):
     def _propose_measurement(self, history: pl.DataFrame, scan: ScanBatch) -> float:
         """Select the next measurement point deterministically based on current estimates.
 
-        Uses the formula x = μ ± gamma/√3 for Lorentzian inflection points.
+        Uses the formula x = mu +/- gamma/sqrt(3) for Lorentzian inflection points.
         """
         domain_low, domain_high = self.prior_bounds
 

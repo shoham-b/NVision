@@ -133,9 +133,7 @@ class Locator(ABC):
             history_df = history_df.with_columns(pl.col("repeat_id").cast(pl.Int64))
 
         if "step" not in history_df.columns:
-            history_df = history_df.with_row_count("step").with_columns(
-                pl.col("step").cast(pl.Int64)
-            )
+            history_df = history_df.with_row_count("step").with_columns(pl.col("step").cast(pl.Int64))
         else:
             history_df = history_df.with_columns(pl.col("step").cast(pl.Int64))
 

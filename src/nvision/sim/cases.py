@@ -90,17 +90,11 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     return [
         (
             "Gauss(0.05)",
-            CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)])
-            ),
+            CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)])),
         ),
         (
             "Poisson(50)",
-            CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise(
-                    [OverFrequencyPoissonNoise(scale=50.0)]
-                )
-            ),
+            CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyPoissonNoise(scale=50.0)])),
         ),
         (
             "OverProbeDrift(0.001)",

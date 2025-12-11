@@ -94,9 +94,7 @@ def cache_clean(
         typer.Option("--generator", help="Generator filter"),
     ] = None,
     noise: Annotated[str | None, typer.Option("--noise", help="Noise preset filter")] = None,
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Show matches without deleting")
-    ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
     force: Annotated[bool, typer.Option("--force", help="Skip confirmation")] = False,
 ) -> None:
     """Delete cached simulation artifacts matching optional filters."""

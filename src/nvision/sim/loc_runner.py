@@ -90,7 +90,7 @@ def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, fl
             # Split represents the distance from center to outer peaks
             split_hat = est.get("split")
             if split_hat is not None and isinstance(split_hat, int | float) and math.isfinite(split_hat):
-                # For 3-peak symmetric distribution, split is distance from center to outer peaks
+                # For 3-peak symmetric distribution, split is the distance from center to outer peaks
                 # True split = (t[2] - t[1]) or (t[1] - t[0]), assuming symmetric
                 split_true = (t[2] - t[1] + t[1] - t[0]) / 2.0
                 result["split_err"] = abs(float(split_hat) - split_true)

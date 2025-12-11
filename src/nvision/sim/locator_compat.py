@@ -35,9 +35,7 @@ class LegacyLocatorShim(Locator):
             }
         )
 
-    def _prepare_history(
-        self, history: pl.DataFrame | Sequence[Mapping[str, float]] | None
-    ) -> pl.DataFrame:
+    def _prepare_history(self, history: pl.DataFrame | Sequence[Mapping[str, float]] | None) -> pl.DataFrame:
         if history is None:
             history_df = self._empty_history()
         elif isinstance(history, pl.DataFrame):
@@ -49,9 +47,7 @@ class LegacyLocatorShim(Locator):
             return self._empty_history()
 
         if "repeat_id" not in history_df.columns:
-            history_df = history_df.with_columns(
-                pl.lit(self._repeat_id).cast(pl.Int64).alias("repeat_id")
-            )
+            history_df = history_df.with_columns(pl.lit(self._repeat_id).cast(pl.Int64).alias("repeat_id"))
         else:
             history_df = history_df.with_columns(pl.col("repeat_id").cast(pl.Int64))
 

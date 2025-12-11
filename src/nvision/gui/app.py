@@ -68,9 +68,7 @@ def run_gui(out_dir: Path, port: int = 8080, show: bool = True) -> None:
                     ),
                     html.Div(
                         [
-                            html.Label(
-                                "Generator", style={"fontWeight": "bold", "fontSize": "0.9rem"}
-                            ),
+                            html.Label("Generator", style={"fontWeight": "bold", "fontSize": "0.9rem"}),
                             dcc.Dropdown(
                                 id="generator-dropdown",
                                 options=generators,
@@ -92,9 +90,7 @@ def run_gui(out_dir: Path, port: int = 8080, show: bool = True) -> None:
                     ),
                     html.Div(
                         [
-                            html.Label(
-                                "Strategy", style={"fontWeight": "bold", "fontSize": "0.9rem"}
-                            ),
+                            html.Label("Strategy", style={"fontWeight": "bold", "fontSize": "0.9rem"}),
                             dcc.Dropdown(
                                 id="strategy-dropdown",
                                 options=strategies,
@@ -105,9 +101,7 @@ def run_gui(out_dir: Path, port: int = 8080, show: bool = True) -> None:
                     ),
                     html.Div(
                         [
-                            html.Label(
-                                "Repeat", style={"fontWeight": "bold", "fontSize": "0.9rem"}
-                            ),
+                            html.Label("Repeat", style={"fontWeight": "bold", "fontSize": "0.9rem"}),
                             dcc.Input(
                                 id="repeat-input",
                                 type="number",
@@ -130,9 +124,7 @@ def run_gui(out_dir: Path, port: int = 8080, show: bool = True) -> None:
                     "height": "100%",
                 },
                 children=[
-                    html.Div(
-                        id="metrics-display", style={"marginBottom": "10px", "fontSize": "1.1rem"}
-                    ),
+                    html.Div(id="metrics-display", style={"marginBottom": "10px", "fontSize": "1.1rem"}),
                     html.Iframe(
                         id="plot-frame",
                         style={

@@ -21,7 +21,7 @@ class ExperimentsMixin:
 
         for gen in generators:
             sub = df.filter(pl.col("generator") == gen)
-            # Create a pivot table: Index=Noise, Columns=Strategy, Value=RMSE (mean) etc.
+            # Create a pivot table: Index=Noise, Columns=Strategy, Value=RMSE (mean) or similar metric
             # Using metric 'pair_rmse' or 'abs_err_x' depending on availability
 
             metric = "pair_rmse" if "pair_rmse" in sub.columns else "abs_err_x"
