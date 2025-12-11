@@ -14,7 +14,6 @@ from nvision.sim import (
     OnePeakGridLocator,
     ScanBatch,
 )
-from tests.locator_compat import LegacyLocatorShim
 
 
 class UniformPrior:
