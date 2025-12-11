@@ -130,7 +130,7 @@ def test_3_peak_metrics():
     print(
         f"Estimated peaks: {[f'{estimates[k] / 1e9:.3f} GHz' for k in ['x1_hat', 'x2_hat', 'x3_hat']]}"
     )
-    print(f"\nMetrics:")
+    print("\nMetrics:")
     for key, value in sorted(metrics.items()):
         if "err" in key or "rmse" in key:
             print(f"  {key}: {value / 1e6:.3f} MHz")
@@ -164,7 +164,7 @@ def test_3_peak_metrics():
     print(
         f"Estimated outer distance (1-3): {(estimates['x3_hat'] - estimates['x1_hat']) / 1e6:.1f} MHz"
     )
-    print(f"\nMetrics:")
+    print("\nMetrics:")
     for key, value in sorted(metrics.items()):
         if "err" in key or "rmse" in key:
             print(f"  {key}: {value / 1e6:.3f} MHz")
@@ -187,7 +187,7 @@ def test_3_peak_metrics():
     metrics = _pairing_error(truth, estimates)
     print(f"True split: {((truth[2] - truth[1] + truth[1] - truth[0]) / 2.0) / 1e6:.1f} MHz")
     print(f"Estimated split: {estimates['split'] / 1e6:.1f} MHz")
-    print(f"\nMetrics:")
+    print("\nMetrics:")
     for key, value in sorted(metrics.items()):
         if "err" in key or "rmse" in key:
             print(f"  {key}: {value / 1e6:.3f} MHz")

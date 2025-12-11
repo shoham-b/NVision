@@ -90,7 +90,7 @@ def animate_locator_progress(
     # Filter out steps where we don't have estimates yet (e.g. very first step if not captured)
     # But our run_locator modification captures estimates at each step.
 
-    steps = history_df["step"].to_list()
+    history_df["step"].to_list()
     measurements_x = history_df["x"].to_list()
     measurements_y = history_df["signal_values"].to_list()
 

@@ -10,11 +10,11 @@ from nvision.sim.core import OverFrequencyNoise, OverProbeNoise
 
 from .base import Locator, ScanBatch
 from .nv_center import (
+    AnalyticalBayesianLocator,
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
-    SimpleSequentialLocator,
     ProjectBayesianLocator,
-    AnalyticalBayesianLocator,
+    SimpleSequentialLocator,
 )
 from .one_peak import OnePeakGoldenLocator, OnePeakGridLocator, OnePeakSweepLocator
 from .two_peak import TwoPeakGoldenLocator, TwoPeakGridLocator, TwoPeakSweepLocator
@@ -141,9 +141,9 @@ __all__ = [
     "OnePeakGoldenLocator",
     "OnePeakGridLocator",
     "OnePeakSweepLocator",
+    "ProjectBayesianLocator",
     "ScanBatch",
     "SimpleSequentialLocator",
-    "ProjectBayesianLocator",
     "TwoPeakGoldenLocator",
     "TwoPeakGridLocator",
     "TwoPeakSweepLocator",

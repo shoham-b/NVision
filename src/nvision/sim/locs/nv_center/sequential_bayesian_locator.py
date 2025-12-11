@@ -36,25 +36,22 @@ import numpy as np
 import polars as pl
 from matplotlib import pyplot as plt
 from scipy.optimize import minimize, minimize_scalar
-from scipy.signal import find_peaks
-from scipy.special import logsumexp, voigt_profile
-from scipy.stats import cauchy
+from scipy.special import logsumexp
 
 from nvision.sim.locs.base import Locator, ScanBatch
-from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
-
 from nvision.sim.locs.nv_center._jit_kernels import (
-    _lorentzian_model,
-    _voigt_model,
-    _voigt_zeeman_model,
+    _calculate_total_log_likelihood_jit,
+    _expected_info_gain_jit,
     _gaussian_log_likelihood,
+    _lorentzian_model,
     _poisson_log_likelihood,
     _poisson_log_likelihood_scalar,
     _poisson_log_likelihood_scalar_obs,
     _update_posterior_math,
-    _expected_info_gain_jit,
-    _calculate_total_log_likelihood_jit,
+    _voigt_model,
+    _voigt_zeeman_model,
 )
+from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
 
 log = logging.getLogger(__name__)
 
@@ -143,7 +140,6 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             "background": np.mean(self.background_prior),
             "uncertainty": np.inf,
             "gaussian_width": np.mean(self.gaussian_width_prior),
-            "split": np.mean(self.split_prior),
             "split": np.mean(self.split_prior),
             "k_np": np.mean(self.k_np_prior),
             "entropy": np.log(self.grid_resolution),  # Max entropy for uniform

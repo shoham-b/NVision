@@ -5,12 +5,12 @@ from __future__ import annotations
 import math
 import warnings
 
-import polars as pl
 import numpy as np
+import polars as pl
 
-from nvision.sim.locs.nv_center._jit_kernels import _lorentzian_model
 from nvision.sim.locs.base import ScanBatch
 from nvision.sim.locs.nv_center._base_locator import NVCenterLocatorBase
+from nvision.sim.locs.nv_center._jit_kernels import _lorentzian_model
 
 
 class SimpleSequentialLocator(NVCenterLocatorBase):
@@ -73,7 +73,7 @@ class SimpleSequentialLocator(NVCenterLocatorBase):
             perr = np.sqrt(np.diag(pcov))
             self.current_estimates["uncertainty"] = perr[0]
 
-        except Exception as e:
+        except Exception:
             # Fitting failed, keep previous estimates
             # log.debug(f"Fitting failed: {e}")
             pass

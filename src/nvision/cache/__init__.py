@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
+
 import sqlite3
 import threading
 from contextlib import suppress

@@ -84,7 +84,7 @@ def run_evaluation(
             )
 
             # We need a signal generator function
-            def get_signal(freq):
+            def get_signal(freq, locator=locator, scenario=scenario, true_params=true_params):
                 # Use the locator's model to generate "true" signal
                 # We need to adapt the params to what odmr_model expects
                 model_params = {

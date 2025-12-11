@@ -11,8 +11,9 @@ src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
 import numpy as np
+
 from nvision.sim.gen.distributions.nv_center_manufacturer import NVCenterManufacturer
-from nvision.sim.locs import run_locator, ScanBatch, NVCenterSequentialBayesianLocator
+from nvision.sim.locs import NVCenterSequentialBayesianLocator, ScanBatch, run_locator
 from nvision.sim.vis.animator import animate_locator_progress
 
 
@@ -33,7 +34,7 @@ def verify_animation():
 
     # We need to manually create the signal function
     # NVCenterManufacturer.build_peak returns (func, params)
-    signal_func, params = manufacturer.build_peak(
+    signal_func, _params = manufacturer.build_peak(
         center=true_f0, base=1.0, x_min=x_min, x_max=x_max, rng=rng
     )
 
