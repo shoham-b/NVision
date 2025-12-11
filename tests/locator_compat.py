@@ -31,9 +31,7 @@ class LegacyLocatorShim:
             }
         )
 
-    def _prepare_history(
-        self, history: pl.DataFrame | list[dict[str, float]] | None
-    ) -> pl.DataFrame:
+    def _prepare_history(self, history: pl.DataFrame | list[dict[str, float]] | None) -> pl.DataFrame:
         if history is None:
             history_df = self._empty_history()
         elif isinstance(history, list):
@@ -45,9 +43,7 @@ class LegacyLocatorShim:
             return self._empty_history()
 
         if "repeat_id" not in history_df.columns:
-            history_df = history_df.with_columns(
-                pl.lit(self._repeat_id).cast(pl.Int64).alias("repeat_id")
-            )
+            history_df = history_df.with_columns(pl.lit(self._repeat_id).cast(pl.Int64).alias("repeat_id"))
         else:
             history_df = history_df.with_columns(pl.col("repeat_id").cast(pl.Int64))
 
@@ -62,9 +58,7 @@ class LegacyLocatorShim:
         row = frame.filter(pl.col("repeat_id") == self._repeat_id)
         return row if not row.is_empty() else frame.head(1)
 
-    def propose_next(
-        self, history: pl.DataFrame, repeats_df: pl.DataFrame, scan, **kwargs
-    ) -> pl.DataFrame:
+    def propose_next(self, history: pl.DataFrame, repeats_df: pl.DataFrame, scan, **kwargs) -> pl.DataFrame:
         prepared = self._prepare_history(history)
         # Update our internal repeats_df with the one passed in
         if not repeats_df.is_empty():
@@ -79,9 +73,7 @@ class LegacyLocatorShim:
         # Return the proposal with the correct structure
         return pl.DataFrame({"repeat_id": [self._repeat_id], "x": [float(row.get_column("x")[0])]})
 
-    def should_stop(
-        self, history: pl.DataFrame, repeats_df: pl.DataFrame, scan, **kwargs
-    ) -> pl.DataFrame:
+    def should_stop(self, history: pl.DataFrame, repeats_df: pl.DataFrame, scan, **kwargs) -> pl.DataFrame:
         prepared = self._prepare_history(history)
         # Update our internal repeats_df with the one passed in
         if not repeats_df.is_empty():
@@ -89,11 +81,7 @@ class LegacyLocatorShim:
         # Pass through any additional keyword arguments
         decisions = self._locator.should_stop(prepared, self._repeats_df, scan, **kwargs)
         row = self._extract_row(decisions)
-        stop = (
-            bool(row.get_column("stop")[0])
-            if not row.is_empty() and "stop" in row.columns
-            else False
-        )
+        stop = bool(row.get_column("stop")[0]) if not row.is_empty() and "stop" in row.columns else False
         # Update the active status in our internal repeats_df
         self._repeats_df = self._repeats_df.with_columns(pl.lit(not stop).alias("active"))
         # Return a DataFrame with the stop decision for this repeat

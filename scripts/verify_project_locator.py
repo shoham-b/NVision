@@ -94,9 +94,7 @@ def run_verification():
             break
 
         current_est = locator.current_estimates
-        print(
-            f"Estimates: Freq={current_est['frequency']:.4e}, Uncert={current_est['uncertainty']:.4e}"
-        )
+        print(f"Estimates: Freq={current_est['frequency']:.4e}, Uncert={current_est['uncertainty']:.4e}")
 
     print("SUCCESS: ProjectBayesianLocator verified.")
 

@@ -620,7 +620,7 @@ class NVCenterSequentialBayesianLocatorSingle(Locator):
             repeats = real_repeats
         elif isinstance(repeats, ScanBatch) and scan is None:
             # repeats argument received ScanBatch, scan is None (if called with 2 args? No, 3 args)
-            # If called as (history, repeats, scan) where scan=ScanBatch and repeats=DataFrame:
+            # If called as (history, repeats, scan) where scan is ScanBatch and repeats is DataFrame:
             # scan arg gets repeats (DataFrame)
             # repeats arg gets scan (ScanBatch)
             # This matches the first if block.

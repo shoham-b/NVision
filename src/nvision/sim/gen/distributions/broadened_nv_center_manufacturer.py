@@ -7,9 +7,7 @@ from collections.abc import Callable
 from nvision.sim.gen._protocols import PeakManufacturer
 
 
-def peak_normalized_pseudo_voigt(
-    x: float, center: float, amplitude: float, fwhm_g: float, fwhm_l: float
-) -> float:
+def peak_normalized_pseudo_voigt(x: float, center: float, amplitude: float, fwhm_g: float, fwhm_l: float) -> float:
     """
     Computes a peak-normalized pseudo-Voigt profile.
 
@@ -37,11 +35,7 @@ def peak_normalized_pseudo_voigt(
     ) ** 0.2
 
     # Mixing parameter eta
-    eta = (
-        1.36603 * (fwhm_l / fwhm_total)
-        - 0.47719 * (fwhm_l / fwhm_total) ** 2
-        + 0.11116 * (fwhm_l / fwhm_total) ** 3
-    )
+    eta = 1.36603 * (fwhm_l / fwhm_total) - 0.47719 * (fwhm_l / fwhm_total) ** 2 + 0.11116 * (fwhm_l / fwhm_total) ** 3
 
     # Peak-normalized Lorentzian and Gaussian components
     lorentzian_part = gamma**2 / ((x - center) ** 2 + gamma**2)
@@ -89,13 +83,9 @@ class BroadenedNVCenterManufacturer(PeakManufacturer):
             # We use a peak-normalized pseudo-Voigt, so the amplitudes from the
             # NV model can be used directly.
 
-            dip1 = peak_normalized_pseudo_voigt(
-                x, f_b + self.delta_f_hf, self.a * self.k_np, self.fwhm_g, self.fwhm_l
-            )
+            dip1 = peak_normalized_pseudo_voigt(x, f_b + self.delta_f_hf, self.a * self.k_np, self.fwhm_g, self.fwhm_l)
             dip2 = peak_normalized_pseudo_voigt(x, f_b, self.a, self.fwhm_g, self.fwhm_l)
-            dip3 = peak_normalized_pseudo_voigt(
-                x, f_b - self.delta_f_hf, self.a / self.k_np, self.fwhm_g, self.fwhm_l
-            )
+            dip3 = peak_normalized_pseudo_voigt(x, f_b - self.delta_f_hf, self.a / self.k_np, self.fwhm_g, self.fwhm_l)
 
             total_dip = dip1 + dip2 + dip3
 

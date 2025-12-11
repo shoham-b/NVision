@@ -42,9 +42,7 @@ def _maybe_finite(value: object) -> float | None:
     return None
 
 
-def _scan_attempt_metrics(
-    truth_positions: Sequence[float], estimate: dict[str, object]
-) -> dict[str, float]:
+def _scan_attempt_metrics(truth_positions: Sequence[float], estimate: dict[str, object]) -> dict[str, float]:
     metrics: dict[str, float] = {}
     truth = [float(pos) for pos in truth_positions]
 

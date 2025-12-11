@@ -46,9 +46,7 @@ class NVCenterSweepLocator(Locator):
                 break
         return peaks
 
-    def _get_refine_point(
-        self, center: float, width: float, lo: float, hi: float, step: int
-    ) -> float:
+    def _get_refine_point(self, center: float, width: float, lo: float, hi: float, step: int) -> float:
         """Get next refinement point around a peak."""
         # Create a grid of points around the peak
         radius = min(center - lo, hi - center, 2 * width)
@@ -95,9 +93,7 @@ class NVCenterSweepLocator(Locator):
 
         return refine_proposals
 
-    def propose_next(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def propose_next(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         """Propose next measurement points for active repeats."""
         active = repeats.filter(pl.col("active"))
         if active.is_empty():
@@ -123,26 +119,18 @@ class NVCenterSweepLocator(Locator):
             return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
         return pl.DataFrame(all_proposals)
 
-    def should_stop(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def should_stop(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         counts = history.group_by("repeat_id").agg(pl.len().alias("n_measurements"))
         result = (
             repeats.select("repeat_id")
             .join(counts, on="repeat_id", how="left")
             .with_columns(pl.col("n_measurements").fill_null(0).cast(pl.Int64))
-            .with_columns(
-                (pl.col("n_measurements") >= (self.coarse_points + self.refine_points)).alias(
-                    "stop"
-                )
-            )
+            .with_columns((pl.col("n_measurements") >= (self.coarse_points + self.refine_points)).alias("stop"))
             .select("repeat_id", "stop")
         )
         return result
 
-    def finalize(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def finalize(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         base = repeats.select("repeat_id")
         if history.is_empty():
             return base.with_columns(

@@ -10,7 +10,7 @@ from nvision.sim.core import OverFrequencyNoise, OverProbeNoise
 
 from .base import Locator, ScanBatch
 from .nv_center import (
-    AnalyticalBayesianLocator,  # noqa: F401
+    AnalyticalBayesianLocator,
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
     ProjectBayesianLocator,
@@ -28,7 +28,7 @@ class TimeoutError(Exception):
     pass
 
 
-def run_locator(
+def run_locator(  # noqa: C901
     *,
     locator: Locator,
     scan: ScanBatch,
@@ -129,6 +129,7 @@ def run_locator(
 
 
 __all__ = [
+    "AnalyticalBayesianLocator",
     "Locator",
     "NVCenterSequentialBayesianLocator",
     "NVCenterSweepLocator",

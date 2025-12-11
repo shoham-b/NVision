@@ -10,7 +10,7 @@ from nvision.cli import app
 runner = CliRunner()
 
 
-def test_elastic_steps():
+def test_elastic_steps():  # noqa: C901
     cache_dir = Path("artifacts_steps_test/cache")
     if cache_dir.exists():
         shutil.rmtree(cache_dir)

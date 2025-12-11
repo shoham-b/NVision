@@ -42,9 +42,7 @@ def test_locator_sweep_dataframe_shape():
         ("NoNoise", None),
         (
             "Gauss",
-            CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)])
-            ),
+            CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)])),
         ),
         (
             "Heavy",

@@ -19,9 +19,7 @@ class TwoPeakGridLocator(Locator):
     coarse_points: int = 25
     min_separation_frac: float = 0.05
 
-    def propose_next(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def propose_next(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         active = repeats.filter(pl.col("active"))
         if active.is_empty():
             return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
@@ -50,9 +48,7 @@ class TwoPeakGridLocator(Locator):
         )
         return proposals
 
-    def should_stop(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def should_stop(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         counts = history.group_by("repeat_id").agg(pl.col("x").n_unique().alias("n_unique"))
         result = (
             repeats.select("repeat_id")
@@ -63,9 +59,7 @@ class TwoPeakGridLocator(Locator):
         )
         return result
 
-    def finalize(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def finalize(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         base = repeats.select("repeat_id")
         if history.is_empty():
             return base.with_columns(
@@ -137,9 +131,7 @@ class TwoPeakGridLocator(Locator):
         results = [_find_two_peaks(rid) for rid in base.get_column("repeat_id")]
         results_df = pl.DataFrame(results)
 
-        final = base.join(results_df, on="repeat_id", how="left").with_columns(
-            pl.lit(2.0).alias("n_peaks")
-        )
+        final = base.join(results_df, on="repeat_id", how="left").with_columns(pl.lit(2.0).alias("n_peaks"))
         return final.select(
             "repeat_id",
             "n_peaks",

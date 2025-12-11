@@ -126,11 +126,7 @@ class AnalyticalBayesianLocator(NVCenterSequentialBayesianLocatorSingle):
         repeats: pl.DataFrame | None = None,
     ) -> float | pl.DataFrame:
         # Handle batched/argument swapping logic (copied from base)
-        if (
-            isinstance(scan, pl.DataFrame)
-            and repeats is not None
-            and not isinstance(repeats, pl.DataFrame)
-        ):
+        if isinstance(scan, pl.DataFrame) and repeats is not None and not isinstance(repeats, pl.DataFrame):
             real_repeats = scan
             real_scan = repeats
             scan = real_scan

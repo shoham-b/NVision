@@ -78,14 +78,10 @@ def test_one_peak_locators_basic():
             assert 0.0 <= x <= 1.0
             y = signal(x) + rng.gauss(0, 0.05)
             # Update history with new measurement
-            current_history = pl.concat(
-                [current_history, pl.DataFrame({"x": [x], "signal_values": [y]})]
-            )
+            current_history = pl.concat([current_history, pl.DataFrame({"x": [x], "signal_values": [y]})])
             # Update repeats_df based on should_stop result
             stop_df = locator.should_stop(current_history, repeats_df, scan)
-            repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(
-                pl.lit(True).alias("active")
-            )
+            repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(pl.lit(True).alias("active"))
 
         # Final check and result
         final_stop = locator.should_stop(current_history, repeats_df, scan)
@@ -130,14 +126,10 @@ def test_nv_center_locators_basic():
         assert 0.0 <= x <= 1.0
         y = signal(x) + rng.gauss(0, 0.03)
         # Update history with new measurement
-        current_history = pl.concat(
-            [current_history, pl.DataFrame({"x": [x], "signal_values": [y]})]
-        )
+        current_history = pl.concat([current_history, pl.DataFrame({"x": [x], "signal_values": [y]})])
         # Update repeats_df based on should_stop result
         stop_df = locator.should_stop(current_history, repeats_df, scan)
-        repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(
-            pl.lit(True).alias("active")
-        )
+        repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(pl.lit(True).alias("active"))
 
     # Final check and result
     final_stop = locator.should_stop(current_history, repeats_df, scan)
@@ -182,9 +174,7 @@ def test_uncertainty_calculation():
 
         # Update repeats_df based on should_stop result
         stop_df = locator.should_stop(current_history, repeats_df, scan)
-        repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(
-            pl.lit(True).alias("active")
-        )
+        repeats_df = stop_df.select(["repeat_id", "stop"]).with_columns(pl.lit(True).alias("active"))
 
     # Check that we have measurements
     assert current_history.height > 0
@@ -218,25 +208,17 @@ def test_locator_comparison():
         grid_proposal = grid_locator.propose_next(grid_history, grid_repeats, scan)
         x_grid = grid_proposal.get_column("x")[0]
         y_grid = signal(x_grid) + rng.gauss(0, 0.02)
-        grid_history = pl.concat(
-            [grid_history, pl.DataFrame({"x": [x_grid], "signal_values": [y_grid]})]
-        )
+        grid_history = pl.concat([grid_history, pl.DataFrame({"x": [x_grid], "signal_values": [y_grid]})])
         grid_stop = grid_locator.should_stop(grid_history, grid_repeats, scan)
-        grid_repeats = grid_stop.select(["repeat_id", "stop"]).with_columns(
-            pl.lit(True).alias("active")
-        )
+        grid_repeats = grid_stop.select(["repeat_id", "stop"]).with_columns(pl.lit(True).alias("active"))
 
         # Golden locator step
         golden_proposal = golden_locator.propose_next(golden_history, golden_repeats, scan)
         x_golden = golden_proposal.get_column("x")[0]
         y_golden = signal(x_golden) + rng.gauss(0, 0.02)
-        golden_history = pl.concat(
-            [golden_history, pl.DataFrame({"x": [x_golden], "signal_values": [y_golden]})]
-        )
+        golden_history = pl.concat([golden_history, pl.DataFrame({"x": [x_golden], "signal_values": [y_golden]})])
         golden_stop = golden_locator.should_stop(golden_history, golden_repeats, scan)
-        golden_repeats = golden_stop.select(["repeat_id", "stop"]).with_columns(
-            pl.lit(True).alias("active")
-        )
+        golden_repeats = golden_stop.select(["repeat_id", "stop"]).with_columns(pl.lit(True).alias("active"))
 
     # Get final results
     grid_result = grid_locator.finalize(grid_history, scan)
