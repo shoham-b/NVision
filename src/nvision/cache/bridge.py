@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nvision.cache import CategoryCache
+from nvision.cache.category import CategoryCache
 
 
 class CacheBridge:

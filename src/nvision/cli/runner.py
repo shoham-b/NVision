@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import logging
 import math
@@ -20,12 +21,51 @@ from nvision.core.types import LocatorTask
 from nvision.sim import (
     NVCenterSequentialBayesianLocator,
 )
+from nvision.sim.locs.nv_center.evaluation import BayesianMetrics
 from nvision.viz import Viz
 
 
 def _category_cache_dir(base: Path, category: str) -> Path:
     slug = slugify(category or "unknown")
     return base / slug
+
+
+def _restore_graphs(cached_results: list, out_dir: Path, log: logging.Logger) -> None:
+    """Restore cached graph content to files."""
+    count = 0
+    try:
+        for entries, _ in cached_results:
+            for entry in entries:
+                if "path" in entry and "content" in entry:
+                    file_path = out_dir / entry["path"]
+                    if not file_path.exists():
+                        file_path.parent.mkdir(parents=True, exist_ok=True)
+                        file_path.write_text(entry["content"], encoding="utf-8")
+                        count += 1
+        if count > 0:
+            log.debug(f"Restored {count} graph files from cache.")
+        else:
+            log.debug("No graph content found in cache entries to restore.")
+    except Exception as e:
+        log.warning(f"Failed to restore cached graphs: {e}")
+
+
+def _embed_graph_content(entries: list[dict], out_dir: Path, log: logging.Logger) -> list[dict]:
+    """Embed graph file content into entries for caching."""
+    entries_with_content = copy.deepcopy(entries)
+    count = 0
+    for entry in entries_with_content:
+        if "path" in entry:
+            try:
+                file_path = out_dir / entry["path"]
+                if file_path.exists():
+                    entry["content"] = file_path.read_text(encoding="utf-8")
+                    count += 1
+            except Exception as e:
+                log.warning(f"Failed to read graph content for caching: {e}")
+    if count > 0:
+        log.debug(f"Embedded content for {count} graph files.")
+    return entries_with_content
 
 
 def _run_combination(task: LocatorTask):  # noqa: C901
@@ -82,12 +122,13 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         cached_results = cache.get_cached_results(combo_cfg)
         if cached_results:
             log.debug(
-                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                "Cache hit for %s/%s/%s (seed=%s); restoring graphs and skipping simulation.",
                 gen_name,
                 noise_name,
                 strat_name,
                 main_seed,
             )
+            _restore_graphs(cached_results, out_dir, log)
             return cached_results
 
         # If we are here, cache is missing or invalid, but require_cache is True
@@ -104,17 +145,40 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         cached_results = cache.get_cached_results(combo_cfg)
         if cached_results:
             log.debug(
-                "Cache hit for %s/%s/%s (seed=%s); skipping simulation.",
+                "Cache hit for %s/%s/%s (seed=%s); restoring graphs and skipping simulation.",
                 gen_name,
                 noise_name,
                 strat_name,
                 main_seed,
             )
+            _restore_graphs(cached_results, out_dir, log)
             return cached_results
 
         # Original code had a "corrupted cache" warning if JSON parse failed.
         # get_cached_results returns None on failure.
         # We can just proceed to recompute.
+
+        # Restore cached graphs if available
+        if cached_results:
+            log.debug(
+                "Cache hit for %s/%s/%s (seed=%s); restoring graphs and skipping simulation.",
+                gen_name,
+                noise_name,
+                strat_name,
+                main_seed,
+            )
+            try:
+                for entries, _ in cached_results:
+                    for entry in entries:
+                        if "path" in entry and "content" in entry:
+                            file_path = out_dir / entry["path"]
+                            if not file_path.exists():
+                                file_path.parent.mkdir(parents=True, exist_ok=True)
+                                file_path.write_text(entry["content"], encoding="utf-8")
+            except Exception as e:
+                log.warning(f"Failed to restore cached graphs: {e}")
+
+            return cached_results
 
     all_results_for_combination = []
 
@@ -412,6 +476,47 @@ def _run_combination(task: LocatorTask):  # noqa: C901
             except Exception as e:
                 log.warning(f"Failed to generate Bayesian animation for single locator: {e}")
 
+        # Calculate extended Bayesian metrics for this repeat
+        try:
+            # Reconstruct locator or retrieve from strategy if possible
+            locator_for_metrics = None
+            if hasattr(strat_obj, "_get_locator"):
+                locator_for_metrics = strat_obj._get_locator(attempt_idx_in_combo)
+            elif isinstance(strat_obj, NVCenterSequentialBayesianLocator):
+                # For single locator, state might be reset or overwritten, need care
+                # But here we are just after finalize, so state should be "final" for this repeat?
+                # Actually strat_obj is shared for single locator if not carefully managed.
+                # But our loop re-initializes it or we can re-ingest.
+                # strat_obj.reset_run_state() # Don't reset if we want to use it
+                # strat_obj._ingest_history(current_history_df) # Already done in finalize?
+                locator_for_metrics = strat_obj
+
+            if locator_for_metrics and hasattr(locator_for_metrics, "parameter_history"):
+                # Initial ground truth from scan
+                ground_truth = {
+                    "frequency": current_scan.truth_positions[0] if current_scan.truth_positions else None,
+                    "linewidth": getattr(current_scan, "linewidth", None),
+                    # Add others if available in scan/generator
+                }
+                # Filter None values
+                ground_truth = {k: v for k, v in ground_truth.items() if v is not None}
+
+                metrics_obj = BayesianMetrics.from_history(
+                    parameter_history=locator_for_metrics.parameter_history,
+                    ground_truth=ground_truth,
+                    measurement_history=current_history_df,
+                    noise_model=noise_name if "poisson" in noise_name.lower() else "gaussian",
+                    noise_params={"sigma": 0.05} if "gaussian" in noise_name.lower() else None,
+                )
+
+                bayes_summary = metrics_obj.summary()
+                # Merge into metrics_serialized
+                for k, v in bayes_summary.items():
+                    metrics_serialized[k] = _maybe_finite(v)
+
+        except Exception as e:
+            log.warning(f"Failed to calculate Bayesian metrics for repeat {attempt_idx_in_combo + 1}: {e}")
+
         main_result_row = {
             "generator": gen_name,
             "noise": noise_name,
@@ -433,7 +538,9 @@ def _run_combination(task: LocatorTask):  # noqa: C901
                 "max_steps": loc_max_steps,
                 "timeout_s": loc_timeout_s,
             }
-            cache.save_cached_repeat(part_cfg, entries, main_result_row)
+            # Embed graph content for caching
+            entries_to_cache = _embed_graph_content(entries, out_dir, log)
+            cache.save_cached_repeat(part_cfg, entries_to_cache, main_result_row)
 
         if task.progress_queue:
             task.progress_queue.put((task.task_id, 1))
@@ -442,6 +549,15 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         all_results_for_combination.append((entries, main_result_row))
 
     if use_cache and not skip_cache_for_strategy and all_results_for_combination:
-        cache.save_cached_results(combo_cfg, all_results_for_combination)
+        # Re-construct full results with content for saving full combination
+        # The repeats were already saved with content, but save_cached_results takes a list
+        # We need to make sure the list used here also has content if we want consistent saving behavior
+
+        full_results_with_content = []
+        for entries, res_row in all_results_for_combination:
+            entries_with_content = _embed_graph_content(entries, out_dir, log)
+            full_results_with_content.append((entries_with_content, res_row))
+
+        cache.save_cached_results(combo_cfg, full_results_with_content)
 
     return all_results_for_combination

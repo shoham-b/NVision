@@ -214,37 +214,143 @@
         </div>
         <p class="metrics" id="scan-metrics"></p>
         <iframe id="scan-iframe"></iframe>
-    </div>
 
-    </div>
+        <div id="bayes-section-container" style="margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em;">
+            <h2>Bayesian Analysis</h2>
 
-    <div aria-label="Bayesian Analysis" class="section tab-panel is-hidden" id="bayes-section" role="tabpanel">
-        <h2>Bayesian Analysis</h2>
-        <p>This section shows plots related to the Bayesian optimization process.</p>
-        <img alt="Bayesian optimization visualization" hidden id="bayes-image">
-
-        <div id="bayes-interactive-section" hidden>
-            <h3>Posterior Evolution</h3>
-            <iframe id="bayes-interactive-iframe"></iframe>
-        </div>
-
-        <div id="bayes-convergence-section" hidden>
-            <h3>Parameter Convergence</h3>
-            <iframe id="bayes-convergence-iframe"></iframe>
-        </div>
-
-        <div id="bayes-stats-section">
-            <h2>Bayesian Inference Statistics</h2>
-            <div>
-                <h3>Posterior History</h3>
-                <img id="posterior-history-image" alt="Posterior history plot" hidden>
+            <div id="bayes-interactive-section" hidden>
+                <h3>Posterior Evolution</h3>
+                <iframe id="bayes-interactive-iframe"></iframe>
             </div>
-            <div>
-                <h3>Convergence Stats</h3>
-                <img id="convergence-stats-image" alt="Convergence stats plot" hidden>
+
+            <div id="bayes-convergence-section" hidden>
+                <h3>Parameter Convergence</h3>
+                <iframe id="bayes-convergence-iframe"></iframe>
+            </div>
+
+            <div id="bayes-stats-section" hidden>
+                <h3>Bayesian Inference Statistics</h3>
+                <div>
+                    <h4>Posterior History</h4>
+                    <img id="posterior-history-image" alt="Posterior history plot" hidden>
+                </div>
+                <div>
+                    <h4>Convergence Stats</h4>
+                    <img id="convergence-stats-image" alt="Convergence stats plot" hidden>
+                </div>
+                <img alt="Bayesian optimization visualization" hidden id="bayes-image">
             </div>
         </div>
     </div>
+
+    <div aria-labelledby="tab-scan-comparison" class="section tab-panel is-hidden" id="scan-comparison-section"
+        role="tabpanel">
+        <h2>Scan Comparison</h2>
+        <p>Compare two specific scan measurements side-by-side.</p>
+
+        <div style="display: flex; gap: 2em; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Left Side</h3>
+                <div class="control-row">
+                    <span class="control-label">Target:</span>
+                    <div aria-label="Left comparison generator type" class="segmented-control" id="left-generator-type"
+                        role="radiogroup"></div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Generator:</span>
+                    <div aria-label="Left comparison generator" class="segmented-control" id="left-generator"
+                        role="radiogroup"></div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Noise:</span>
+                    <div aria-label="Left comparison noise" class="segmented-control" id="left-noise" role="radiogroup">
+                    </div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Strategy:</span>
+                    <div aria-label="Left comparison strategy" class="segmented-control" id="left-strategy"
+                        role="radiogroup"></div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Repeat:</span>
+                    <select aria-label="Left comparison repeat" class="control-select" id="left-repeat"></select>
+                </div>
+                <p class="metrics" id="left-metrics"></p>
+                <iframe id="left-iframe"></iframe>
+            </div>
+
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Right Side</h3>
+                <div class="control-row">
+                    <span class="control-label">Target:</span>
+                    <div aria-label="Right comparison generator type" class="segmented-control"
+                        id="right-generator-type" role="radiogroup"></div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Generator:</span>
+                    <div aria-label="Right comparison generator" class="segmented-control" id="right-generator"
+                        role="radiogroup"></div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Noise:</span>
+                    <div aria-label="Right comparison noise" class="segmented-control" id="right-noise"
+                        role="radiogroup"></div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Strategy:</span>
+                    <div aria-label="Right comparison strategy" class="segmented-control" id="right-strategy"
+                        role="radiogroup"></div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">Repeat:</span>
+                    <select aria-label="Right comparison repeat" class="control-select" id="right-repeat"></select>
+                </div>
+                <p class="metrics" id="right-metrics"></p>
+                <iframe id="right-iframe"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <div aria-labelledby="tab-model-comparison" class="section tab-panel is-hidden" id="strategy-comparison-section"
+        role="tabpanel">
+        <h2>Strategy Comparison</h2>
+        <p>Compare statistics across all strategies for a given generator and noise level.</p>
+
+        <div class="control-row">
+            <span class="control-label">Target:</span>
+            <div aria-label="Comparison generator type" class="segmented-control" id="comp-generator-type"
+                role="radiogroup">
+            </div>
+        </div>
+        <div class="control-row">
+            <span class="control-label">Generator:</span>
+            <div aria-label="Comparison generator" class="segmented-control" id="comp-generator" role="radiogroup">
+            </div>
+        </div>
+        <div class="control-row">
+            <span class="control-label">Noise:</span>
+            <div aria-label="Comparison noise" class="segmented-control" id="comp-noise" role="radiogroup"></div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Absolute Frequency Error</h3>
+                <iframe id="comp-iframe-abs-err" style="height: 500px;"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Measurements</h3>
+                <iframe id="comp-iframe-measurements" style="height: 500px;"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Duration</h3>
+                <iframe id="comp-iframe-duration" style="height: 500px;"></iframe>
+            </div>
+        </div>
+    </div>
+
+    </div>
+
+
 
     <script id="plots-manifest" type="application/json">${manifest_json}</script>
     <script>
@@ -296,7 +402,7 @@
             });
 
             const scanPlots = plots.filter((p) => p.type === 'scan' && p.generator_type);
-            const bayesSection = document.getElementById('bayes-section');
+            const bayesSection = document.getElementById('bayes-section-container');
             const bayesImage = document.getElementById('bayes-image');
             const bayesPlots = plots.filter((p) => p.type === 'bayesian');
             const bayesInteractivePlots = plots.filter((p) => p.type === 'bayesian_interactive');
@@ -747,8 +853,12 @@
                 const tabBar = document.querySelector('.tab-bar');
                 const tabPanels = document.querySelectorAll('.tab-panel');
 
+                tabBar.style.display = 'flex';
+                tabBar.innerHTML = ''; // Clear existing
+
                 const hasScans = scanPlots.length > 0;
-                const hasBayes = bayesPlots.length > 0 || bayesStatsPlots.length > 0;
+                // Check for generic comparison plots
+                const hasModelComp = plots.some(p => p.type === 'model_comparison');
 
                 if (hasScans) {
                     const button = document.createElement('button');
@@ -758,11 +868,19 @@
                     tabBar.appendChild(button);
                 }
 
-                if (hasBayes) {
+                if (hasModelComp) {
                     const button = document.createElement('button');
                     button.className = 'tab-button';
-                    button.textContent = 'Bayesian Analysis';
-                    button.dataset.tab = 'bayes-section';
+                    button.textContent = 'Strategy Comparison';
+                    button.dataset.tab = 'strategy-comparison-section';
+                    tabBar.appendChild(button);
+                }
+
+                if (hasScans) { // Reuse hasScans for locator comparison as it relies on same data
+                    const button = document.createElement('button');
+                    button.className = 'tab-button';
+                    button.textContent = 'Scan Comparison';
+                    button.dataset.tab = 'scan-comparison-section';
                     tabBar.appendChild(button);
                 }
 
@@ -770,12 +888,16 @@
                 if (tabButtons.length > 0) {
                     tabButtons[0].classList.add('is-active');
                     const initialTabId = tabButtons[0].dataset.tab;
-                    const initialPanel = document.getElementById(initialTabId);
-                    if (initialPanel) {
-                        initialPanel.classList.remove('is-hidden');
-                    }
+                    tabPanels.forEach(panel => {
+                        if (panel.id === initialTabId) {
+                            panel.classList.remove('is-hidden');
+                        } else {
+                            panel.classList.add('is-hidden');
+                        }
+                    });
+                } else {
+                    tabBar.style.display = 'none';
                 }
-
 
                 tabBar.addEventListener('click', (e) => {
                     const target = e.target;
@@ -794,6 +916,165 @@
                         }
                     });
                 });
+            }
+
+            // --- Strategy Comparison Logic ---
+            const compGeneratorType = document.getElementById('comp-generator-type');
+            const compGenerator = document.getElementById('comp-generator');
+            const compNoise = document.getElementById('comp-noise');
+            const compIframeAbsErr = document.getElementById('comp-iframe-abs-err');
+            const compIframeMeasurements = document.getElementById('comp-iframe-measurements');
+            const compIframeDuration = document.getElementById('comp-iframe-duration');
+
+            const modelCompPlots = plots.filter(p => p.type === 'model_comparison');
+
+            function updateCompControls() {
+                const uniqueGenTypes = [...new Set(modelCompPlots.map(p => p.generator_type || (p.generator.startsWith('NVCenter-') ? 'NV Center' : 'Complementary')))].sort();
+                const selectedGenType = renderSegmentedControl(compGeneratorType, uniqueGenTypes, controlValue(compGeneratorType));
+
+                const uniqueGenerators = [...new Set(
+                    modelCompPlots
+                        .filter(p => (p.generator_type || (p.generator.startsWith('NVCenter-') ? 'NV Center' : 'Complementary')) === selectedGenType)
+                        .map(p => p.generator)
+                )].sort();
+                const selectedGen = renderSegmentedControl(compGenerator, uniqueGenerators, controlValue(compGenerator));
+
+                const uniqueNoises = [...new Set(
+                    modelCompPlots
+                        .filter(p => p.generator === selectedGen)
+                        .map(p => p.noise)
+                )].sort();
+
+                renderSegmentedControl(compNoise, uniqueNoises, controlValue(compNoise));
+            }
+
+            function updateCompPlots() {
+                const gen = controlValue(compGenerator);
+                const noise = controlValue(compNoise);
+
+                if (!gen || !noise) return;
+
+                const absErrPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'abs_err_x');
+                const measurementsPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'measurements');
+                const durationPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'duration_ms');
+
+                compIframeAbsErr.src = absErrPlot ? absErrPlot.path : '';
+                compIframeMeasurements.src = measurementsPlot ? measurementsPlot.path : '';
+                compIframeDuration.src = durationPlot ? durationPlot.path : '';
+            }
+
+            compGeneratorType.addEventListener('controlchange', () => {
+                updateCompControls();
+                updateCompPlots();
+            });
+
+            compGenerator.addEventListener('controlchange', () => {
+                updateCompControls();
+                updateCompPlots();
+            });
+
+
+            compNoise.addEventListener('controlchange', () => {
+                updateCompPlots();
+            });
+
+            // --- Scan Comparison Logic ---
+            function setupSide(prefix) {
+                const genType = document.getElementById(prefix + '-generator-type');
+                const gen = document.getElementById(prefix + '-generator');
+                const noise = document.getElementById(prefix + '-noise');
+                const strat = document.getElementById(prefix + '-strategy');
+                const rep = document.getElementById(prefix + '-repeat');
+                const iframe = document.getElementById(prefix + '-iframe');
+                const metrics = document.getElementById(prefix + '-metrics');
+
+                let currentRepItems = [];
+
+                function updateSideControls() {
+                    const selGenType = renderSegmentedControl(genType, [...new Set(scanPlots.map(p => p.generator_type))].sort(), controlValue(genType));
+
+                    const genItems = scanPlots.filter(p => p.generator_type === selGenType).map(p => p.generator);
+                    const selGen = renderSegmentedControl(gen, genItems, controlValue(gen));
+
+                    const noiseItems = scanPlots.filter(p => p.generator_type === selGenType && p.generator === selGen).map(p => p.noise);
+                    const selNoise = renderSegmentedControl(noise, noiseItems, controlValue(noise));
+
+                    const stratItems = [...new Set(scanPlots.filter(p => p.generator_type === selGenType && p.generator === selGen && p.noise === selNoise).map(p => p.strategy))];
+                    const selStrat = renderSegmentedControl(strat, stratItems, controlValue(strat));
+
+                    const repItems = scanPlots.filter(p =>
+                        p.generator_type === selGenType &&
+                        p.generator === selGen &&
+                        p.noise === selNoise &&
+                        p.strategy === selStrat
+                    ).map(p => String(p.repeat ?? p.attempt ?? 1));
+
+                    const { value: selRep, items } = renderSelectControl(rep, repItems, controlValue(rep) || rep.dataset.value || '');
+                    currentRepItems = items;
+                    if (selRep) rep.dataset.value = selRep;
+                }
+
+                function updateSidePlot() {
+                    const vGenType = controlValue(genType);
+                    const vGen = controlValue(gen);
+                    const vNoise = controlValue(noise);
+                    const vStrat = controlValue(strat);
+                    const vRep = parseInt(controlValue(rep), 10);
+
+                    if (vGenType && vGen && vNoise && vStrat && vRep) {
+                        const plot = scanPlots.find(p =>
+                            p.generator_type === vGenType &&
+                            p.generator === vGen &&
+                            p.noise === vNoise &&
+                            p.strategy === vStrat &&
+                            p.repeat === vRep
+                        );
+
+                        iframe.src = plot ? plot.path : '';
+                        if (plot) {
+                            const absErr = formatMetricValue(plot.abs_err_x);
+                            const uncertainty = formatMetricValue(plot.uncert);
+                            const measurements = formatCount(plot.measurements);
+                            const duration = formatDuration(plot.duration_ms);
+                            metrics.textContent = `Measurements: ${measurements} • Duration: ${duration} • Abs Error: ${absErr} • Uncertainty: ${uncertainty}`;
+                        } else {
+                            metrics.textContent = '';
+                        }
+                    } else {
+                        iframe.src = '';
+                        metrics.textContent = '';
+                    }
+                }
+
+                function onControlChange() {
+                    updateSideControls();
+                    updateSidePlot();
+                }
+
+                genType.addEventListener('controlchange', onControlChange);
+                gen.addEventListener('controlchange', onControlChange);
+                noise.addEventListener('controlchange', onControlChange);
+                strat.addEventListener('controlchange', onControlChange);
+                rep.addEventListener('change', () => {
+                    rep.dataset.value = rep.value || '';
+                    updateSidePlot();
+                });
+
+                // Init
+                if (scanDefault) {
+                    genType.dataset.value = scanDefault.generator_type ?? '';
+                    gen.dataset.value = scanDefault.generator ?? '';
+                    noise.dataset.value = scanDefault.noise ?? '';
+                    strat.dataset.value = scanDefault.strategy ?? '';
+                    rep.dataset.value = scanDefault.repeat === undefined ? '' : String(scanDefault.repeat);
+                }
+                updateSideControls();
+                updateSidePlot();
+            }
+
+            if (document.getElementById('scan-comparison-section')) {
+                setupSide('left');
+                setupSide('right');
             }
 
 

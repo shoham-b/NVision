@@ -8,7 +8,7 @@ from typing import Any
 
 import polars as pl
 
-from nvision.cache import SqliteCache
+from nvision.cache.sqlite import SqliteCache
 
 
 class CategoryCache:
