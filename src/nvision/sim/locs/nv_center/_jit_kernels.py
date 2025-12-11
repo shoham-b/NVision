@@ -173,9 +173,7 @@ def _update_posterior_math(freq_grid, freq_posterior, log_likelihoods):
 
 
 @numba.jit(nopython=True, cache=True)
-def _calculate_utility_grid_jit(
-    freq_grid, freq_posterior, n_samples, current_estimates_array, sigma
-):
+def _calculate_utility_grid_jit(freq_grid, freq_posterior, n_samples, current_estimates_array, sigma):
     """
     Calculate utility grid for Project Bayesian Locator.
 
@@ -244,9 +242,7 @@ def _calculate_utility_grid_jit(
 
 
 @numba.jit(nopython=True, cache=True)
-def _calculate_total_log_likelihood_jit(
-    measurements_x, measurements_y, params_array, noise_model_code
-):
+def _calculate_total_log_likelihood_jit(measurements_x, measurements_y, params_array, noise_model_code):
     """
     Calculate total log likelihood for optimization.
     params_array: [f0, linewidth, amplitude, background]
@@ -287,7 +283,7 @@ def _calculate_total_log_likelihood_jit(
 
 
 @numba.jit(nopython=True, cache=True)
-def _expected_info_gain_jit(
+def _expected_info_gain_jit(  # noqa: C901
     test_frequency, freq_grid, freq_posterior, n_samples, current_estimates_array, noise_model_code
 ):
     """

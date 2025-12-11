@@ -58,7 +58,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     )
 
     category = _get_generator_category(gen_name)
-
+    # cache_category_dir = _category_cache_dir(cache_dir, category)  # No longer needed with CacheBridge
     bridge = CacheBridge(cache_dir)
     cache = bridge.get_cache_for_category(category)
     graphs_dir = out_dir / "graphs"
@@ -76,9 +76,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     }
 
     # Check if cache should be ignored for this specific strategy
-    skip_cache_for_strategy = (
-        ignore_cache_strategy is not None and strat_name == ignore_cache_strategy
-    )
+    skip_cache_for_strategy = ignore_cache_strategy is not None and strat_name == ignore_cache_strategy
 
     if require_cache:
         cached_results = cache.get_cached_results(combo_cfg)
@@ -176,10 +174,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
             rid = row_dict["repeat_id"]
             if row_dict["stop"] and rid in active_repeats:
                 repeats_df = repeats_df.with_columns(
-                    pl.when(pl.col("repeat_id") == rid)
-                    .then(pl.lit(False))
-                    .otherwise(pl.col("active"))
-                    .alias("active")
+                    pl.when(pl.col("repeat_id") == rid).then(pl.lit(False)).otherwise(pl.col("active")).alias("active")
                 )
                 if not repeat_stop_reasons[rid]:
                     repeat_stop_reasons[rid] = "locator_stop"
@@ -259,9 +254,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
 
         # Extract history for this repeat
         if not final_history_df.is_empty():
-            current_history_df = final_history_df.filter(
-                pl.col("repeat_id") == attempt_idx_in_combo
-            ).drop("repeat_id")
+            current_history_df = final_history_df.filter(pl.col("repeat_id") == attempt_idx_in_combo).drop("repeat_id")
         else:
             current_history_df = pl.DataFrame(
                 {
@@ -272,8 +265,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
 
         if current_history_df.is_empty():
             log.info(
-                "No measurements recorded for repeat %s (reason=%s); "
-                "generating baseline scan plot.",
+                "No measurements recorded for repeat %s (reason=%s); generating baseline scan plot.",
                 attempt_idx_in_combo + 1,
                 repeat_stop_reasons[attempt_idx_in_combo],
             )
@@ -327,16 +319,12 @@ def _run_combination(task: LocatorTask):  # noqa: C901
         if hasattr(strat_obj, "_get_locator"):
             try:
                 locator_instance = strat_obj._get_locator(attempt_idx_in_combo)
-                if hasattr(locator_instance, "posterior_history") and hasattr(
-                    locator_instance, "freq_grid"
-                ):
+                if hasattr(locator_instance, "posterior_history") and hasattr(locator_instance, "freq_grid"):
                     # Compute model history
                     model_history = []
                     if hasattr(locator_instance, "parameter_history"):
                         for params in locator_instance.parameter_history:
-                            model_history.append(
-                                locator_instance.odmr_model(locator_instance.freq_grid, params)
-                            )
+                            model_history.append(locator_instance.odmr_model(locator_instance.freq_grid, params))
 
                     bayes_anim_path = bayes_dir / f"{attempt_slug}_posterior_anim.html"
                     viz.plot_posterior_animation(

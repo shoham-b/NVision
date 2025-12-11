@@ -23,9 +23,7 @@ class OnePeakGridLocator(Locator):
             return [0.5 * (lo + hi)]
         return np.linspace(lo, hi, self.n_points).tolist()
 
-    def propose_next(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def propose_next(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         grid = self._grid(scan.x_min, scan.x_max)
         if not grid:
             return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
@@ -58,9 +56,7 @@ class OnePeakGridLocator(Locator):
 
         return proposals
 
-    def should_stop(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def should_stop(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         counts = (
             history.group_by("repeat_id")
             .agg(pl.col("x").n_unique().alias("n_unique"))
@@ -77,9 +73,7 @@ class OnePeakGridLocator(Locator):
 
         return result
 
-    def finalize(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def finalize(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         base = repeats.select("repeat_id")
 
         if history.is_empty():
@@ -130,6 +124,4 @@ class OnePeakGridLocator(Locator):
             .with_columns(pl.col("uncert").alias("uncert_pos"))
         )
 
-        return result.select(
-            "repeat_id", "n_peaks", "x1_hat", "uncert", "uncert_pos", "measurements"
-        )
+        return result.select("repeat_id", "n_peaks", "x1_hat", "uncert", "uncert_pos", "measurements")

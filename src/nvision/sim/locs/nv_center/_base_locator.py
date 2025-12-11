@@ -42,9 +42,7 @@ class NVCenterLocatorBase(Locator):
         if self.n_warmup >= self.max_evals:
             raise ValueError("n_warmup must be smaller than max_evals")
 
-        self.sweeper = NVCenterSweepLocator(
-            coarse_points=self.n_warmup, refine_points=self.n_warmup
-        )
+        self.sweeper = NVCenterSweepLocator(coarse_points=self.n_warmup, refine_points=self.n_warmup)
 
         # Store unscaled priors for potential rescaling
         self._unscaled_prior_bounds = self.prior_bounds
@@ -95,9 +93,7 @@ class NVCenterLocatorBase(Locator):
                 else:
                     entry_map = {
                         "x": getattr(entry, "x", None),
-                        "signal_values": getattr(
-                            entry, "signal_values", getattr(entry, "intensity", None)
-                        ),
+                        "signal_values": getattr(entry, "signal_values", getattr(entry, "intensity", None)),
                         "uncertainty": getattr(entry, "uncertainty", 0.05),
                     }
                     if entry_map["x"] is None or entry_map["signal_values"] is None:
@@ -140,12 +136,8 @@ class NVCenterLocatorBase(Locator):
             scale_factor = self._unscaled_prior_bounds[1] - self._unscaled_prior_bounds[0]
             if scale_factor > 0:
                 self.prior_bounds = (0.0, 1.0)
-                self.linewidth_prior = tuple(
-                    p / scale_factor for p in self._unscaled_linewidth_prior
-                )
-                self.gaussian_width_prior = tuple(
-                    p / scale_factor for p in self._unscaled_gaussian_width_prior
-                )
+                self.linewidth_prior = tuple(p / scale_factor for p in self._unscaled_linewidth_prior)
+                self.gaussian_width_prior = tuple(p / scale_factor for p in self._unscaled_gaussian_width_prior)
                 self.split_prior = tuple(p / scale_factor for p in self._unscaled_split_prior)
                 self.reset_run_state()
 
@@ -172,11 +164,7 @@ class NVCenterLocatorBase(Locator):
     ) -> float | pl.DataFrame:
         """Propose the next measurement point."""
         # Handle argument swapping if called as (history, repeats, scan)
-        if (
-            isinstance(scan, pl.DataFrame)
-            and repeats is not None
-            and not isinstance(repeats, pl.DataFrame)
-        ):
+        if isinstance(scan, pl.DataFrame) and repeats is not None and not isinstance(repeats, pl.DataFrame):
             real_repeats = scan
             real_scan = repeats
             scan = real_scan

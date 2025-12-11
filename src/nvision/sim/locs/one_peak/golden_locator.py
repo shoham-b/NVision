@@ -21,9 +21,7 @@ class OnePeakGoldenLocator(Locator):
     # Per-repeat state is now stored in the repeats DataFrame columns:
     # lower_bound, upper_bound, inner_c, inner_d
 
-    def _get_averaged_history_per_repeat(
-        self, history: pl.DataFrame, repeat_id: int
-    ) -> dict[float, float]:
+    def _get_averaged_history_per_repeat(self, history: pl.DataFrame, repeat_id: int) -> dict[float, float]:
         """Averages intensities for a single repeat."""
         repeat_history = history.filter(pl.col("repeat_id") == repeat_id)
         if repeat_history.is_empty():
@@ -31,9 +29,7 @@ class OnePeakGoldenLocator(Locator):
         averaged_df = repeat_history.group_by("x").agg(pl.mean("signal_values"))
         return dict(zip(averaged_df["x"], averaged_df["signal_values"], strict=False))
 
-    def propose_next(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def propose_next(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         """Proposes the next point for each active repeat using golden-section search."""
         active = repeats.filter(pl.col("active"))
         if active.is_empty():
@@ -156,9 +152,7 @@ class OnePeakGoldenLocator(Locator):
             return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
         return pl.DataFrame(proposals)
 
-    def should_stop(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def should_stop(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         """Stops after a fixed number of evaluations per repeat."""
         counts = history.group_by("repeat_id").agg(pl.len().alias("n_measurements"))
         result = (
@@ -170,9 +164,7 @@ class OnePeakGoldenLocator(Locator):
         )
         return result
 
-    def finalize(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def finalize(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         """Returns the point with the highest observed intensity per repeat."""
         base = repeats.select("repeat_id")
         if history.is_empty():

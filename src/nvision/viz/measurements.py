@@ -82,11 +82,7 @@ class MeasurementsMixin:
         if history.height > 0:
             steps = list(range(history.height))
             xs_s = history.get_column("x").to_list() if "x" in history.columns else []
-            ys_s = (
-                history.get_column("signal_values").to_list()
-                if "signal_values" in history.columns
-                else []
-            )
+            ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
             # Noisy measurements
             fig.add_trace(
                 go.Scatter(
@@ -99,9 +95,7 @@ class MeasurementsMixin:
                         color=steps,
                         colorscale="Viridis",
                         showscale=True,
-                        colorbar=dict(title="step", len=0.6, y=0.8)
-                        if has_metrics
-                        else dict(title="step"),
+                        colorbar=dict(title="step", len=0.6, y=0.8) if has_metrics else dict(title="step"),
                         line=dict(width=0.5, color="black"),
                     ),
                 ),

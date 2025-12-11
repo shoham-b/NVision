@@ -80,9 +80,7 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, An
             ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
             (
                 "NVCenter-SequentialBayesian",
-                NVCenterSequentialBayesianLocator(
-                    max_evals=500, grid_resolution=400, distribution="voigt-zeeman"
-                ),
+                NVCenterSequentialBayesianLocator(max_evals=500, grid_resolution=400, distribution="voigt-zeeman"),
             ),
             (
                 "NVCenter-SimpleSequential",
@@ -90,9 +88,7 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, An
             ),
             (
                 "NVCenter-ProjectBayesian",
-                ProjectBayesianLocator(
-                    max_evals=500, grid_resolution=400, distribution="voigt-zeeman"
-                ),
+                ProjectBayesianLocator(max_evals=500, grid_resolution=400, distribution="voigt-zeeman"),
             ),
             # TestBayesianLocator REMOVED as per cleanup requirements
         ]
@@ -235,9 +231,7 @@ def run(  # noqa: C901
                             continue
                         seen_configs.add(config_key)
 
-                        slug_base = "_".join(
-                            slugify(part) for part in (gen_name, noise_name, strat_name)
-                        )
+                        slug_base = "_".join(slugify(part) for part in (gen_name, noise_name, strat_name))
                         slug_candidate = slug_base
                         suffix = 1
                         while slug_candidate in used_slugs:
@@ -248,9 +242,7 @@ def run(  # noqa: C901
                         desc = f"[cyan]{gen_name}/{noise_name}/{strat_name}[/cyan]"
                         task_id = sub_progress.add_task(desc, total=repeats)
 
-                        est_duration = duration_estimates.get(
-                            (gen_name, noise_name, strat_name), 1000.0
-                        )
+                        est_duration = duration_estimates.get((gen_name, noise_name, strat_name), 1000.0)
                         tid_to_weight[task_id] = est_duration
                         total_weighted_repeats += repeats * est_duration
 
@@ -309,10 +301,7 @@ def run(  # noqa: C901
 
             if parallel:
                 with ProcessPoolExecutor() as executor:
-                    futures = {
-                        executor.submit(_run_combination, locator_task): locator_task
-                        for locator_task in tasks
-                    }
+                    futures = {executor.submit(_run_combination, locator_task): locator_task for locator_task in tasks}
                     for future in as_completed(futures):
                         results_for_combination = future.result()
                         for entries, main_result_row in results_for_combination:

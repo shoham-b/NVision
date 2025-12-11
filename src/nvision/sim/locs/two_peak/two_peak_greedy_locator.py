@@ -27,9 +27,7 @@ class TwoPeakGreedyLocator(Locator):
     refine_points: int = 5
     min_separation_frac: float = 0.05
 
-    def propose_next(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def propose_next(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         active = repeats.filter(pl.col("active"))
         if active.is_empty():
             return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
@@ -84,26 +82,18 @@ class TwoPeakGreedyLocator(Locator):
             return pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
         return pl.DataFrame(all_proposals)
 
-    def should_stop(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def should_stop(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         counts = history.group_by("repeat_id").agg(pl.len().alias("n_measurements"))
         result = (
             repeats.select("repeat_id")
             .join(counts, on="repeat_id", how="left")
             .with_columns(pl.col("n_measurements").fill_null(0).cast(pl.Int64))
-            .with_columns(
-                (pl.col("n_measurements") >= (self.coarse_points + 2 * self.refine_points)).alias(
-                    "stop"
-                )
-            )
+            .with_columns((pl.col("n_measurements") >= (self.coarse_points + 2 * self.refine_points)).alias("stop"))
             .select("repeat_id", "stop")
         )
         return result
 
-    def finalize(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def finalize(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         base = repeats.select("repeat_id")
         if history.is_empty():
             return base.with_columns(
@@ -173,9 +163,7 @@ class TwoPeakGreedyLocator(Locator):
         results = [_find_two_peaks(rid) for rid in base.get_column("repeat_id")]
         results_df = pl.DataFrame(results)
 
-        final = base.join(results_df, on="repeat_id", how="left").with_columns(
-            pl.lit(2.0).alias("n_peaks")
-        )
+        final = base.join(results_df, on="repeat_id", how="left").with_columns(pl.lit(2.0).alias("n_peaks"))
         return final.select(
             "repeat_id",
             "n_peaks",

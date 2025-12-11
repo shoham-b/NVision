@@ -51,9 +51,7 @@ class NVCenterSequentialBayesianLocatorBatched(Locator):
     locator_cls: type[_OriginalBayesianLocator] = _OriginalBayesianLocator
     pickiness: float = 5.0  # For ProjectBayesianLocator
 
-    _locators: dict[int, _OriginalBayesianLocator] = field(
-        default_factory=dict, init=False, repr=False
-    )
+    _locators: dict[int, _OriginalBayesianLocator] = field(default_factory=dict, init=False, repr=False)
 
     def _get_locator(self, repeat_id: int) -> _OriginalBayesianLocator:
         """Get or create a locator instance for a given repeat_id."""
@@ -88,9 +86,7 @@ class NVCenterSequentialBayesianLocatorBatched(Locator):
             self._locators[repeat_id] = self.locator_cls(**kwargs)
         return self._locators[repeat_id]
 
-    def propose_next(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def propose_next(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         """Propose next measurement for each active repeat."""
         active = repeats.filter(pl.col("active"))
         if active.is_empty():
@@ -99,50 +95,34 @@ class NVCenterSequentialBayesianLocatorBatched(Locator):
         proposals = []
         for row in active.iter_rows(named=True):
             repeat_id = row["repeat_id"]
-            repeat_history = history.filter(pl.col("repeat_id") == repeat_id).drop(
-                "repeat_id", "step"
-            )
+            repeat_history = history.filter(pl.col("repeat_id") == repeat_id).drop("repeat_id", "step")
             locator = self._get_locator(repeat_id)
             x_next = locator.propose_next(repeat_history, scan)
             proposals.append({"repeat_id": repeat_id, "x": float(x_next)})
 
-        return (
-            pl.DataFrame(proposals)
-            if proposals
-            else pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
-        )
+        return pl.DataFrame(proposals) if proposals else pl.DataFrame(schema={"repeat_id": pl.Int64, "x": pl.Float64})
 
-    def should_stop(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def should_stop(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         """Check stopping criteria for each repeat."""
         stop_flags = []
         for row in repeats.iter_rows(named=True):
             repeat_id = row["repeat_id"]
-            repeat_history = history.filter(pl.col("repeat_id") == repeat_id).drop(
-                "repeat_id", "step"
-            )
+            repeat_history = history.filter(pl.col("repeat_id") == repeat_id).drop("repeat_id", "step")
             locator = self._get_locator(repeat_id)
             stop = locator.should_stop(repeat_history, scan)
             stop_flags.append({"repeat_id": repeat_id, "stop": bool(stop)})
 
         return pl.DataFrame(stop_flags)
 
-    def finalize(
-        self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch
-    ) -> pl.DataFrame:
+    def finalize(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
         """Finalize all repeats and return per-repeat metrics."""
         results = []
         for row in repeats.iter_rows(named=True):
             repeat_id = row["repeat_id"]
-            repeat_history = history.filter(pl.col("repeat_id") == repeat_id).drop(
-                "repeat_id", "step"
-            )
+            repeat_history = history.filter(pl.col("repeat_id") == repeat_id).drop("repeat_id", "step")
             locator = self._get_locator(repeat_id)
             metrics = locator.finalize(repeat_history, scan)
-            results.append(
-                {"repeat_id": repeat_id, **metrics, "measurements": repeat_history.height}
-            )
+            results.append({"repeat_id": repeat_id, **metrics, "measurements": repeat_history.height})
 
         return (
             pl.DataFrame(results)
