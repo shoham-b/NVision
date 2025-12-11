@@ -8,7 +8,7 @@ import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from logging.handlers import QueueListener
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import polars as pl
 import typer
@@ -29,70 +29,17 @@ from nvision.cli.types import DotsColumn
 from nvision.cli.utils import (
     _get_generator_category,
     _load_duration_estimates,
+    _locator_strategies_for_generator,
+    _noise_presets,
 )
 from nvision.core.paths import ensure_out_dir, slugify
 from nvision.core.types import LocatorTask
 from nvision.gui.report import compile_html_index
-from nvision.sim import (
-    CompositeNoise,
-    NVCenterSequentialBayesianLocator,
-    NVCenterSweepLocator,
-    OnePeakGoldenLocator,
-    OnePeakGridLocator,
-    OnePeakSweepLocator,
-    ProjectBayesianLocator,
-    SimpleSequentialLocator,
-    TwoPeakGoldenLocator,
-    TwoPeakGridLocator,
-    TwoPeakSweepLocator,
-)
 from nvision.sim import cases as sim_cases
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
 console = Console()
-
-
-def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
-    """Return the predefined noise combinations for scenarios."""
-    return sim_cases.noises_none() + sim_cases.noises_single_each() + sim_cases.noises_complex()
-
-
-def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, Any]]:
-    """Get the appropriate locator strategies for a given generator category."""
-    category = _get_generator_category(generator_name)
-    strategies: list[tuple[str, Any]] = []
-
-    if category == "OnePeak":
-        strategies = [
-            ("OnePeak-Grid", OnePeakGridLocator(n_points=21)),
-            ("OnePeak-Golden", OnePeakGoldenLocator(max_evals=25)),
-            ("OnePeak-Sweep", OnePeakSweepLocator(coarse_points=20, refine_points=10)),
-        ]
-    elif category == "TwoPeak":
-        strategies = [
-            ("TwoPeak-Grid", TwoPeakGridLocator(coarse_points=25)),
-            ("TwoPeak-Golden", TwoPeakGoldenLocator(coarse_points=25, refine_points=5)),
-            ("TwoPeak-Sweep", TwoPeakSweepLocator(coarse_points=25, refine_points=10)),
-        ]
-    elif category == "NVCenter":
-        strategies = [
-            ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
-            (
-                "NVCenter-SequentialBayesian",
-                NVCenterSequentialBayesianLocator(max_evals=500, grid_resolution=400, distribution="voigt-zeeman"),
-            ),
-            (
-                "NVCenter-SimpleSequential",
-                SimpleSequentialLocator(max_evals=60, grid_resolution=400),
-            ),
-            (
-                "NVCenter-ProjectBayesian",
-                ProjectBayesianLocator(max_evals=500, grid_resolution=400, distribution="voigt-zeeman"),
-            ),
-            # TestBayesianLocator REMOVED as per cleanup requirements
-        ]
-    return strategies
 
 
 @app.command()
