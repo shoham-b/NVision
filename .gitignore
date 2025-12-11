@@ -116,7 +116,6 @@ logs/
 
 # Allow artifacts to be committed
 !artifacts/
-!artifacts/graphs/
 !artifacts/cache/
 
 /.hypothesis/
