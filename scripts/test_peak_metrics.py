@@ -83,11 +83,7 @@ def _pairing_error(truth: list[float], est: dict[str, float]) -> dict[str, float
             # Add split error if available in estimates
             # Split represents the distance from center to outer peaks
             split_hat = est.get("split")
-            if (
-                split_hat is not None
-                and isinstance(split_hat, int | float)
-                and math.isfinite(split_hat)
-            ):
+            if split_hat is not None and isinstance(split_hat, int | float) and math.isfinite(split_hat):
                 # For 3-peak symmetric distribution, split is the distance from center to outer peaks
                 # True split = (t[2] - t[1]) or (t[1] - t[0]), assuming symmetric
                 split_true = (t[2] - t[1] + t[1] - t[0]) / 2.0
@@ -127,9 +123,7 @@ def test_3_peak_metrics():
 
     metrics = _pairing_error(truth, estimates)
     print(f"Truth peaks: {[f'{x / 1e9:.3f} GHz' for x in truth]}")
-    print(
-        f"Estimated peaks: {[f'{estimates[k] / 1e9:.3f} GHz' for k in ['x1_hat', 'x2_hat', 'x3_hat']]}"
-    )
+    print(f"Estimated peaks: {[f'{estimates[k] / 1e9:.3f} GHz' for k in ['x1_hat', 'x2_hat', 'x3_hat']]}")
     print("\nMetrics:")
     for key, value in sorted(metrics.items()):
         if "err" in key or "rmse" in key:
@@ -157,13 +151,9 @@ def test_3_peak_metrics():
 
     metrics = _pairing_error(truth, estimates)
     print(f"Truth peaks: {[f'{x / 1e9:.3f} GHz' for x in truth]}")
-    print(
-        f"Estimated peaks: {[f'{estimates[k] / 1e9:.3f} GHz' for k in ['x1_hat', 'x2_hat', 'x3_hat']]}"
-    )
+    print(f"Estimated peaks: {[f'{estimates[k] / 1e9:.3f} GHz' for k in ['x1_hat', 'x2_hat', 'x3_hat']]}")
     print(f"\nTrue outer distance (1-3): {(truth[2] - truth[0]) / 1e6:.1f} MHz")
-    print(
-        f"Estimated outer distance (1-3): {(estimates['x3_hat'] - estimates['x1_hat']) / 1e6:.1f} MHz"
-    )
+    print(f"Estimated outer distance (1-3): {(estimates['x3_hat'] - estimates['x1_hat']) / 1e6:.1f} MHz")
     print("\nMetrics:")
     for key, value in sorted(metrics.items()):
         if "err" in key or "rmse" in key:

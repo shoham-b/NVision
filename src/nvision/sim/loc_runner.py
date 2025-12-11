@@ -89,12 +89,8 @@ def _pairing_error(truth: list[float], est: Mapping[str, float]) -> dict[str, fl
             # Add split error if available in estimates
             # Split represents the distance from center to outer peaks
             split_hat = est.get("split")
-            if (
-                split_hat is not None
-                and isinstance(split_hat, int | float)
-                and math.isfinite(split_hat)
-            ):
-                # For 3-peak symmetric distribution, split is the distance from center to outer peaks
+            if split_hat is not None and isinstance(split_hat, int | float) and math.isfinite(split_hat):
+                # For 3-peak symmetric distribution, split is distance from center to outer peaks
                 # True split = (t[2] - t[1]) or (t[1] - t[0]), assuming symmetric
                 split_true = (t[2] - t[1] + t[1] - t[0]) / 2.0
                 result["split_err"] = abs(float(split_hat) - split_true)
@@ -137,19 +133,10 @@ def _aggregate_repeat_records(records: list[dict[str, float]]) -> dict[str, floa
         if name in {"measurements", "duration_ms"}:
             agg_exprs.append(pl.col(name).mean().alias(name))
         else:
-            agg_exprs.append(
-                pl.when(pl.col(name).is_finite())
-                .then(pl.col(name))
-                .otherwise(None)
-                .mean()
-                .alias(name)
-            )
+            agg_exprs.append(pl.when(pl.col(name).is_finite()).then(pl.col(name)).otherwise(None).mean().alias(name))
 
     aggregated_row = metrics_df.select(agg_exprs).to_dicts()[0]
-    return {
-        name: float(value) if value is not None else float("nan")
-        for name, value in aggregated_row.items()
-    }
+    return {name: float(value) if value is not None else float("nan") for name, value in aggregated_row.items()}
 
 
 @dataclass
@@ -291,9 +278,7 @@ class LocatorRunner:
                 }
             )
         df = pl.DataFrame(rows)
-        metric_cols = [
-            c for c in df.columns if c not in ("generator", "noise", "strategy", "repeats")
-        ]
+        metric_cols = [c for c in df.columns if c not in ("generator", "noise", "strategy", "repeats")]
         if metric_cols:
             df = df.with_columns(pl.col(metric_cols).cast(pl.Float64))
         return df

@@ -67,7 +67,7 @@ def odmr_model(
     return np.full_like(frequency, bg, dtype=float)
 
 
-def animate_locator_progress(
+def animate_locator_progress(  # noqa: C901
     history_df: pl.DataFrame,
     output_path: str | Path,
     true_params: dict[str, float] | None = None,
@@ -186,9 +186,7 @@ def animate_locator_progress(
 
         return line_est, scat, point_current, line_metric
 
-    ani = FuncAnimation(
-        fig, update, frames=len(history_df), init_func=init, blit=True, interval=1000 / fps
-    )
+    ani = FuncAnimation(fig, update, frames=len(history_df), init_func=init, blit=True, interval=1000 / fps)
 
     # Save
     writer = "pillow" if output_path.suffix == ".gif" else "ffmpeg"
