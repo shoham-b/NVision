@@ -1,5 +1,0 @@
-generator,noise,strategy,repeats,attempt,stop_reason,abs_err_x,uncert,uncert_pos,measurements,duration_ms,bayesian_convergence
-NVCenter-voigt_one_peak,NoNoise,NVCenter-TestBayesian,1,1,max_steps_reached,2847474747.4272637,900000.0,900000.0,150.0,319.0132000017911,0.0
-NVCenter-voigt_zeeman,NoNoise,NVCenter-TestBayesian,1,1,max_steps_reached,2847474747.079224,900000.0,900000.0,150.0,317.8475000022445,0.0
-NVCenter-one_peak,NoNoise,NVCenter-TestBayesian,1,1,max_steps_reached,2847474747.3992915,900000.0,900000.0,150.0,286.10960001242347,0.0
-NVCenter-zeeman,NoNoise,NVCenter-TestBayesian,1,1,max_steps_reached,2847474747.0757036,900000.0,900000.0,150.0,331.52249999693595,0.0
