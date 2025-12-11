@@ -208,7 +208,7 @@ jobs:
           uv sync --group dev
       - name: Generate NVision artifacts
         run: |
-          uv run python -m nvision run --out artifacts --loc-max-steps 80 --require-cache
+          uv run python -m nvision render --out artifacts --loc-max-steps 80
       - name: Upload NVision index artifact
         uses: actions/upload-artifact@v4
         with:
