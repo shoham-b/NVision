@@ -1,6 +1,8 @@
 import logging
+
 import numpy as np
 import polars as pl
+
 from nvision.sim import ProjectBayesianLocator
 from nvision.sim.locs.base import ScanBatch
 
@@ -34,7 +36,7 @@ def run_verification():
         meta={},
     )
 
-    repeats = pl.DataFrame({"repeat_id": [0], "active": [True]})
+    pl.DataFrame({"repeat_id": [0], "active": [True]})
     history_df = pl.DataFrame(
         schema={
             "repeat_id": pl.Int64,
@@ -53,7 +55,7 @@ def run_verification():
         # But propose_next expects history as DataFrame or list.
         # And it handles warmup.
 
-        proposals = locator.propose_next(history_df, scan=scan)
+        locator.propose_next(history_df, scan=scan)
         # propose_next returns float or DataFrame depending on args.
         # If we pass repeats, it uses batched adapter.
         # But ProjectBayesianLocator is a Single locator.

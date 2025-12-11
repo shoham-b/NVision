@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from dash import Dash, Input, Output, dcc, html
 from flask import Flask, send_from_directory
-from dash import Dash, html, dcc, Input, Output
 
 
 def load_manifest(out_dir: Path) -> list[dict[str, Any]]:

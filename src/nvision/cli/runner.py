@@ -12,8 +12,8 @@ import polars as pl
 from nvision.cache import CacheBridge
 from nvision.cli.utils import (
     _get_generator_category,
-    _scan_attempt_metrics,
     _maybe_finite,
+    _scan_attempt_metrics,
 )
 from nvision.core.paths import slugify
 from nvision.core.types import LocatorTask
@@ -58,7 +58,7 @@ def _run_combination(task: LocatorTask):  # noqa: C901
     )
 
     category = _get_generator_category(gen_name)
-    # cache_category_dir = _category_cache_dir(cache_dir, category)  # No longer needed with CacheBridge
+
     bridge = CacheBridge(cache_dir)
     cache = bridge.get_cache_for_category(category)
     graphs_dir = out_dir / "graphs"

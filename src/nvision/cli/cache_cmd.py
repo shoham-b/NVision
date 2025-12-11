@@ -75,9 +75,7 @@ def _matches_filter(
         return False
     if generator and config.get("generator") != generator:
         return False
-    if noise and config.get("noise") != noise:
-        return False
-    return True
+    return not (noise and config.get("noise") != noise)
 
 
 @cache_app.command(name="clean")
@@ -124,9 +122,8 @@ def cache_clean(
 
     console.print(f"Found {len(keys_to_delete)} entries to delete.")
 
-    if not dry_run and not force:
-        if not Confirm.ask("Are you sure you want to delete these?"):
-            return
+    if not dry_run and not force and not Confirm.ask("Are you sure you want to delete these?"):
+        return
 
     if dry_run:
         console.print("[dim]Dry run: no files deleted.[/dim]")

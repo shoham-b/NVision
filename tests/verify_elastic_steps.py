@@ -1,10 +1,11 @@
 import shutil
-from pathlib import Path
-from nvision.cli import app
-from typer.testing import CliRunner
 import time
-import json
+from pathlib import Path
+
 import polars as pl
+from typer.testing import CliRunner
+
+from nvision.cli import app
 
 runner = CliRunner()
 

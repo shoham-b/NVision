@@ -239,9 +239,7 @@ class NVCenterLocatorBase(Locator):
         hist_len = history.height if isinstance(history, pl.DataFrame) else len(history)
         if hist_len >= self.max_evals:
             return True
-        if self.current_estimates["uncertainty"] < self.convergence_threshold:
-            return True
-        return False
+        return self.current_estimates["uncertainty"] < self.convergence_threshold
 
     def finalize(
         self,

@@ -1,7 +1,5 @@
-import numpy as np
-import pytest
-from nvision.sim.locs.nv_center.project_bayesian_locator import ProjectBayesianLocator
 from nvision.sim.locs.base import ScanBatch
+from nvision.sim.locs.nv_center.project_bayesian_locator import ProjectBayesianLocator
 
 
 def build_locator(**overrides):
