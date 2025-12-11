@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
-import pytest
 
 from nvision.sim.locs.base import ScanBatch
 from nvision.sim.locs.nv_center.analytical_bayesian_locator import AnalyticalBayesianLocator
@@ -29,7 +28,6 @@ def build_scan(center=2.85e9) -> ScanBatch:
 
     def signal(x: float) -> float:
         # Lorentzian signal to allow detection from tails
-        gamma = width
         diff = x - center
         # 1 - depth * (gamma^2 / (4*diff^2 + gamma^2))
         # Using HWHM = width/2
@@ -85,7 +83,7 @@ def test_transition_phase_omp():
     history = pl.DataFrame({"x": xs, "signal_values": ys})
 
     # This call triggers the transition logic (hist_len == n_warmup)
-    next_x = locator.propose_next(history, scan)
+    locator.propose_next(history, scan)
 
     # Check if posterior is now concentrated around 2.85e9
     # Find peak of posterior

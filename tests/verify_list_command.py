@@ -1,7 +1,9 @@
-from pathlib import Path
-from nvision.cli import app
-from typer.testing import CliRunner
 import shutil
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from nvision.cli import app
 
 runner = CliRunner()
 

@@ -21,7 +21,7 @@ def test_cache_repeats_separation():
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
 
-    out_dir = Path("artifacts_test_repeats")
+    Path("artifacts_test_repeats")
 
 
 if __name__ == "__main__":

@@ -12,7 +12,6 @@ from typing import Annotated, Any
 
 import polars as pl
 import typer
-from nvision.core.paths import ensure_out_dir, slugify
 from rich.console import Console, Group
 from rich.live import Live
 from rich.logging import RichHandler
@@ -23,7 +22,7 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
-from nvision.gui.report import compile_html_index
+
 from nvision.cli.main import app
 from nvision.cli.runner import _run_combination
 from nvision.cli.types import DotsColumn
@@ -31,7 +30,9 @@ from nvision.cli.utils import (
     _get_generator_category,
     _load_duration_estimates,
 )
+from nvision.core.paths import ensure_out_dir, slugify
 from nvision.core.types import LocatorTask
+from nvision.gui.report import compile_html_index
 from nvision.sim import (
     CompositeNoise,
     NVCenterSequentialBayesianLocator,

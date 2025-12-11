@@ -7,6 +7,7 @@ import numpy as np
 from scipy.special import logsumexp
 
 from nvision.sim.locs.nv_center._jit_kernels import _calculate_utility_grid_jit
+
 from .sequential_bayesian_locator import (
     NVCenterSequentialBayesianLocatorSingle,
 )

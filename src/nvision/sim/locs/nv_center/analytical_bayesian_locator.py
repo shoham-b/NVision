@@ -16,7 +16,6 @@ from nvision.sim.locs.nv_center.sequential_bayesian_locator import (
     NVCenterSequentialBayesianLocatorSingle,
 )
 
-
 log = logging.getLogger(__name__)
 
 

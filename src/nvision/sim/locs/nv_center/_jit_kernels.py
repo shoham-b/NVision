@@ -3,8 +3,9 @@ JIT-compiled kernels for NV Center locators using Numba.
 """
 
 import math
-import numpy as np
+
 import numba
+import numpy as np
 
 
 @numba.jit(nopython=True, cache=True)

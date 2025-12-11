@@ -30,16 +30,16 @@ from .loc_runner import LocatorRunner
 
 # Locators layer
 from .locs import (
+    AnalyticalBayesianLocator,
     Locator,
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
     OnePeakGoldenLocator,
     OnePeakGridLocator,
     OnePeakSweepLocator,
+    ProjectBayesianLocator,
     ScanBatch,
     SimpleSequentialLocator,
-    ProjectBayesianLocator,
-    AnalyticalBayesianLocator,
     TwoPeakGoldenLocator,
     TwoPeakGridLocator,
     TwoPeakSweepLocator,
@@ -56,6 +56,7 @@ from .noises import (
 )
 
 __all__ = [
+    "AnalyticalBayesianLocator",
     "CompositeNoise",
     "CompositeOverFrequencyNoise",
     "CompositeOverProbeNoise",
@@ -81,10 +82,9 @@ __all__ = [
     "OverProbeDriftNoise",
     "OverProbeNoise",
     "OverProbeRandomWalkNoise",
+    "ProjectBayesianLocator",
     "ScanBatch",
     "SimpleSequentialLocator",
-    "ProjectBayesianLocator",
-    "AnalyticalBayesianLocator",
     "TwoPeakGenerator",
     "TwoPeakGoldenLocator",
     "TwoPeakGridLocator",
