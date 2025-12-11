@@ -10,7 +10,7 @@ from nvision.sim.core import OverFrequencyNoise, OverProbeNoise
 
 from .base import Locator, ScanBatch
 from .nv_center import (
-    AnalyticalBayesianLocator,
+    AnalyticalBayesianLocator,  # noqa: F401
     NVCenterSequentialBayesianLocator,
     NVCenterSweepLocator,
     ProjectBayesianLocator,
@@ -97,11 +97,7 @@ def run_locator(
 
             y_ideal = scan.signal(x_next)
 
-            y_measured = (
-                over_probe_noise.apply(y_ideal, rng, locator)
-                if over_probe_noise is not None
-                else y_ideal
-            )
+            y_measured = over_probe_noise.apply(y_ideal, rng, locator) if over_probe_noise is not None else y_ideal
 
             # Capture current estimates if available
             row_data = {
@@ -111,9 +107,7 @@ def run_locator(
                 "signal_values": y_measured,
             }
 
-            if hasattr(locator, "current_estimates") and isinstance(
-                locator.current_estimates, dict
-            ):
+            if hasattr(locator, "current_estimates") and isinstance(locator.current_estimates, dict):
                 for key, value in locator.current_estimates.items():
                     # Prefix with est_ to avoid collisions and clearly mark as estimates
                     if isinstance(value, (int, float, str, bool)) or value is None:

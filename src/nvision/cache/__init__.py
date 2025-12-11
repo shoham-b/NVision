@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-
 import sqlite3
 import threading
 from contextlib import suppress
@@ -131,9 +130,7 @@ class CategoryCache:
         self.backend.set(key, payload)
         return self.db_path
 
-    def get_cached_results(
-        self, config: dict
-    ) -> list[tuple[list[dict[str, Any]], dict[str, Any]]] | None:
+    def get_cached_results(self, config: dict) -> list[tuple[list[dict[str, Any]], dict[str, Any]]] | None:
         """High-level method to retrieve cached simulation results."""
         key = self.make_key(config)
         cached_df = self.load_df(key)
@@ -158,21 +155,16 @@ class CategoryCache:
                     pass
         return None
 
-    def save_cached_results(
-        self, config: dict, results: list[tuple[list[dict[str, Any]], dict[str, Any]]]
-    ) -> Path:
+    def save_cached_results(self, config: dict, results: list[tuple[list[dict[str, Any]], dict[str, Any]]]) -> Path:
         """High-level method to save simulation results."""
         key = self.make_key(config)
         combo_payload = [
-            {"entries": entries, "main_result_row": main_result_row}
-            for entries, main_result_row in results
+            {"entries": entries, "main_result_row": main_result_row} for entries, main_result_row in results
         ]
         combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
         return self.save_df(combo_df, key, metadata={"config": config})
 
-    def save_cached_repeat(
-        self, config: dict, entries: list[dict[str, Any]], result_row: dict[str, Any]
-    ) -> Path:
+    def save_cached_repeat(self, config: dict, entries: list[dict[str, Any]], result_row: dict[str, Any]) -> Path:
         """High-level method to save a single simulation repeat."""
         key = self.make_key(config)
         cache_df = pl.DataFrame(

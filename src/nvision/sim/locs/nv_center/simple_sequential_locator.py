@@ -81,7 +81,7 @@ class SimpleSequentialLocator(NVCenterLocatorBase):
     def _propose_measurement(self, history: pl.DataFrame, scan: ScanBatch) -> float:
         """Select the next measurement point deterministically based on current estimates.
 
-        Uses the formula x = μ ± γ/√3 for Lorentzian inflection points.
+        Uses the formula x = μ ± gamma/√3 for Lorentzian inflection points.
         """
         domain_low, domain_high = self.prior_bounds
 

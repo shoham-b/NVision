@@ -21,7 +21,7 @@ class ExperimentsMixin:
 
         for gen in generators:
             sub = df.filter(pl.col("generator") == gen)
-            # Create a pivot table: Index=Noise, Columns=Strategy, Value=RMSE (mean) or similar metric
+            # Create a pivot table: Index=Noise, Columns=Strategy, Value=RMSE (mean) etc.
             # Using metric 'pair_rmse' or 'abs_err_x' depending on availability
 
             metric = "pair_rmse" if "pair_rmse" in sub.columns else "abs_err_x"
@@ -39,16 +39,12 @@ class ExperimentsMixin:
                 continue
 
             out_path = self.out_dir / f"summary_{gen}_{metric}.html"
-            self._plot_pivot_from_polars(
-                pivot, f"Summary: {gen} ({metric})", "Noise Level", out_path
-            )
+            self._plot_pivot_from_polars(pivot, f"Summary: {gen} ({metric})", "Noise Level", out_path)
             plots.append(out_path)
 
         return plots
 
-    def _plot_pivot_from_polars(
-        self, pivot_pl: pl.DataFrame, title: str, ylabel: str, out_path: Path
-    ) -> None:
+    def _plot_pivot_from_polars(self, pivot_pl: pl.DataFrame, title: str, ylabel: str, out_path: Path) -> None:
         """Plot a bar chart from a polars pivoted dataframe as an interactive plot."""
         fig = go.Figure()
 
