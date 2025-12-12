@@ -160,7 +160,7 @@ def run(  # noqa: C901
 
         progress_group = Group(main_progress, sub_progress)
 
-        with Live(progress_group, refresh_per_second=10):
+        with Live(progress_group, console=console, refresh_per_second=10):
             duration_estimates = _load_duration_estimates(out_dir)
             tid_to_weight = {}
 
