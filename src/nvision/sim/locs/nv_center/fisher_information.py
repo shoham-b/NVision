@@ -6,27 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 
-
-def _lorentzian_deriv_f0(
-    frequencies: np.ndarray,
-    f0: float,
-    linewidth: float,
-    amplitude: float,
-) -> np.ndarray:
-    """
-    Calculate derivative of Lorentzian signal w.r.t resonance frequency f0.
-
-    Model: S(f) = Background - Amplitude * (gamma/2)^2 / ((f - f0)^2 + (gamma/2)^2)
-    Derivative dS/df0:
-    Let hwhm = gamma/2
-    denom = (f - f0)^2 + hwhm^2
-    dS/df0 = -Amplitude * hwhm^2 * (-1) * denom^(-2) * 2(f - f0) * (-1)
-           = -Amplitude * hwhm^2 * 2(f - f0) / denom^2
-    """
-    hwhm = linewidth / 2.0
-    diff = frequencies - f0
-    denom = diff**2 + hwhm**2
-    return -amplitude * (hwhm**2) * 2 * diff / (denom**2)
+from nvision.sim.locs.nv_center._jit_kernels import _calculate_fisher_info_jit
 
 
 def calculate_fisher_information(
@@ -47,45 +27,34 @@ def calculate_fisher_information(
     Returns:
         Cumulative Fisher Information array corresponding to each step.
     """
-    x = np.array(measurement_x)
-    f0 = true_params["frequency"]
-    gamma = true_params["linewidth"]
-    amp = true_params["amplitude"]
-    bg = true_params.get("background", 1.0)
+    x = np.array(measurement_x, dtype=np.float64)
 
-    # Calculate derivative of the mean signal w.r.t f0
-    # dmu/df0
-    deriv = _lorentzian_deriv_f0(x, f0, gamma, amp)
+    # Prepare params array [f0, linewidth, amplitude, background]
+    params_array = np.array(
+        [
+            true_params["frequency"],
+            true_params["linewidth"],
+            true_params["amplitude"],
+            true_params.get("background", 1.0),
+        ],
+        dtype=np.float64,
+    )
 
-    # Calculate Fisher Information for each measurement
-    # I(f0) = (dmu/df0)^2 * Weight
+    noise_model_code = 0
+    noise_val = 0.05
 
     if noise_model == "gaussian":
-        sigma = 0.05
+        noise_model_code = 0
         if noise_params and "sigma" in noise_params:
-            sigma = noise_params["sigma"]
-        # Weight = 1/sigma^2
-        # I = (dmu/df0)^2 / sigma^2
-        fi_per_step = (deriv**2) / (sigma**2)
-
+            noise_val = noise_params["sigma"]
     elif noise_model == "poisson":
-        # Weight = 1/mu
-        # I = (dmu/df0)^2 / mu
-
-        # Recalculate mean signal mu for the weight
-        hwhm = gamma / 2.0
-        denom = (x - f0) ** 2 + hwhm**2
-        mu = bg - (amp * hwhm**2) / denom
-
-        # Avoid division by zero or negative mu (though physics says mu > 0)
-        mu = np.maximum(mu, 1e-9)
-
-        fi_per_step = (deriv**2) / mu
-
+        noise_model_code = 1
     else:
         raise ValueError(f"Unknown noise model: {noise_model}")
 
-    return np.cumsum(fi_per_step)
+    fi_cumulative = _calculate_fisher_info_jit(x, params_array, noise_model_code, noise_val)
+
+    return fi_cumulative
 
 
 def calculate_crb(

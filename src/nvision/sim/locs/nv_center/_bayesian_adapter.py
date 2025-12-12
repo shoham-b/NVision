@@ -14,7 +14,7 @@ import polars as pl
 
 from nvision.sim.locs.base import Locator, ScanBatch
 from nvision.sim.locs.nv_center.sequential_bayesian_locator import (
-    NVCenterSequentialBayesianLocatorSingle as _OriginalBayesianLocator,
+    NVCenterSequentialBayesianLocator as _OriginalBayesianLocator,
 )
 
 
