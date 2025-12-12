@@ -13,14 +13,14 @@ import polars as pl
 
 from nvision.sim.locs.base import ScanBatch
 from nvision.sim.locs.nv_center.sequential_bayesian_locator import (
-    NVCenterSequentialBayesianLocatorSingle,
+    NVCenterSequentialBayesianLocator,
 )
 
 log = logging.getLogger(__name__)
 
 
 @dataclass
-class AnalyticalBayesianLocator(NVCenterSequentialBayesianLocatorSingle):
+class AnalyticalBayesianLocator(NVCenterSequentialBayesianLocator):
     """
     Analytical Bayesian Locator that uses Compressed Sensing (OMP) for initialization.
 
@@ -55,67 +55,18 @@ class AnalyticalBayesianLocator(NVCenterSequentialBayesianLocatorSingle):
 
         # Create Dictionary
         # Atoms are Lorentzians centered at each grid point
-        # We use the mean linewidth from prior for the dictionary atoms
-        gamma = np.mean(self.linewidth_prior)
+        # Prepare data for JIT
+        gamma = float(np.mean(self.linewidth_prior))
 
-        # We compute correlation of y_prime with each atom
-        # Atom_j = Lorentzian(measurements_x, center=freq_grid[j], gamma)
+        # Use JIT OMP Correlation
+        # self.freq_grid is already initialized in reset_posterior() which is called in __post_init__
+        # but check if available
+        if not hasattr(self, "freq_grid") or self.freq_grid is None:
+            self.freq_grid = np.linspace(self.prior_bounds[0], self.prior_bounds[1], self.grid_resolution)
 
-        # Vectorized correlation calculation
-        # We want to find j that maximizes: dot(y_prime, Atom_j) / norm(Atom_j)
+        from nvision.sim.locs.nv_center._jit_kernels import _omp_correlation_jit
 
-        best_correlation = -np.inf
-        best_freq = np.mean(self.prior_bounds)
-
-        # Iterate over grid (or chunks if grid is huge, but 1000 is small)
-        # We can use the JIT model to generate atoms
-
-        # Pre-calculate constants
-        hwhm = gamma / 2.0
-        hwhm_sq = hwhm * hwhm
-
-        # To speed up, we can broadcast if memory allows.
-        # measurements_x: (M,)
-        # freq_grid: (N,)
-        # diff: (M, N)
-
-        m_len = len(measurements_x)
-        n_len = len(self.freq_grid)
-
-        # If N*M is small (e.g. 50 * 1000 = 50k), we can broadcast
-        if m_len * n_len < 1_000_000:
-            # diff[i, j] = measurements_x[i] - freq_grid[j]
-            diff = measurements_x[:, np.newaxis] - self.freq_grid[np.newaxis, :]
-            denom = diff**2 + hwhm_sq
-            # Atom values (unnormalized Lorentzian shape)
-            atoms = 1.0 / denom
-
-            # Normalize atoms (L2 norm)
-            atom_norms = np.linalg.norm(atoms, axis=0)
-            atom_norms[atom_norms < 1e-9] = 1.0  # Avoid div by zero
-
-            # Correlation
-            correlations = np.dot(y_prime, atoms) / atom_norms
-
-            best_idx = np.argmax(correlations)
-            best_freq = self.freq_grid[best_idx]
-
-        else:
-            # Loop approach for memory safety
-            for j in range(n_len):
-                f_grid = self.freq_grid[j]
-                # Generate atom on measurement points
-                atom = 1.0 / ((measurements_x - f_grid) ** 2 + hwhm_sq)
-
-                norm = np.linalg.norm(atom)
-                if norm < 1e-9:
-                    continue
-
-                corr = np.dot(y_prime, atom) / norm
-
-                if corr > best_correlation:
-                    best_correlation = corr
-                    best_freq = f_grid
+        best_freq = _omp_correlation_jit(y_prime, measurements_x, self.freq_grid, gamma)
 
         return best_freq
 
@@ -173,11 +124,38 @@ class AnalyticalBayesianLocator(NVCenterSequentialBayesianLocatorSingle):
             #    (if we want to start fresh with OMP result).
             #    Or, we can just use the OMP result to *set* the posterior.
 
-            self.reset_posterior()  # Clear uniform/previous updates
+            self.reset_posterior()
 
-            self._ingest_history(history)
+            # Use OMP detection to initialize posterior
+            est_freq = self._omp_estimate(history)
 
-            # Now propose next point using Bayesian logic
+            # Center posterior around OMP estimate (Gaussian initialization)
+            # Use a width related to expected linewidth or search range
+            init_sigma = float(np.mean(self.linewidth_prior)) * 2.0
+
+            diff = self.freq_grid - est_freq
+            self.freq_posterior = np.exp(-0.5 * (diff / init_sigma) ** 2)
+
+            # Avoid zero probability elsewhere (add small uniform background)
+            self.freq_posterior += 1e-6
+            self.freq_posterior /= np.sum(self.freq_posterior)
+
+            # Note: We do NOT ingest the history again for the posterior update
+            # because we used it for OMP (double counting).
+            # Or we assume OMP gives the prior and we *should* ingest?
+            # If we treat OMP as "finding the prior", then utilizing the data again for likelihood update is double counting.
+            # However, standard practice in this specific locator (from context of project/other tests)
+            # often implies using the data to initialize.
+            # Let's trust the "Initialize the Bayesian posterior centered on this estimate" description.
+
+            # Clear measurement history so that _ingest_history (called by super)
+            # sees the warmup points as 'new' and updates the posterior with their likelihoods.
+            # This combines the OMP-based prior with the actual data constraints.
+            self.measurement_history.clear()
+
+            # Update current estimates based on this new posterior
+            self.current_estimates["frequency"] = est_freq
+
             return super().propose_next(history, scan, repeats)
 
         # Phase 3: Adaptive (Standard Bayesian)

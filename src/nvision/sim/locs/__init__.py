@@ -131,7 +131,6 @@ def run_locator(  # noqa: C901
 __all__ = [
     "AnalyticalBayesianLocator",
     "Locator",
-    "NVCenterSequentialBayesianLocator",
     "NVCenterSweepLocator",
     "OnePeakGoldenLocator",
     "OnePeakGridLocator",

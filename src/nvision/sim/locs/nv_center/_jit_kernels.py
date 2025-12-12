@@ -172,7 +172,7 @@ def _update_posterior_math(freq_grid, freq_posterior, log_likelihoods):
     return new_posterior, est_freq, uncertainty, entropy, max_prob
 
 
-@numba.jit(nopython=True, cache=True)
+@numba.jit(nopython=True, cache=True, parallel=True)
 def _calculate_utility_grid_jit(freq_grid, freq_posterior, n_samples, current_estimates_array, sigma):
     """
     Calculate utility grid for Project Bayesian Locator.
@@ -191,6 +191,9 @@ def _calculate_utility_grid_jit(freq_grid, freq_posterior, n_samples, current_es
     cdf = cdf / cdf[-1]
 
     f0_samples = np.empty(n_samples, dtype=np.float64)
+    # Sampling cannot be easily parallelized due to random state,
+    # but strictly speaking random generation can be parallel if state is handled per thread.
+    # For now, keep sampling sequential as it is fast compared to model evaluation.
     for i in range(n_samples):
         r = np.random.random()
         # Binary search for index
@@ -205,35 +208,45 @@ def _calculate_utility_grid_jit(freq_grid, freq_posterior, n_samples, current_es
     background = current_estimates_array[2]
 
     # Calculate signals matrix: (n_samples, grid_resolution)
-    # We can do this with a loop to avoid large memory allocation if needed,
-    # but (100, 1000) is small.
-
-    # signals = np.empty((n_samples, grid_resolution), dtype=np.float64)
-    # But we need variance across samples.
-
-    # We can compute running variance to be even more memory efficient,
-    # but let's stick to the direct approach for clarity first.
-
     signals = np.empty((n_samples, grid_resolution), dtype=np.float64)
 
-    for i in range(n_samples):
+    # Parallelize signal generation
+    for i in numba.prange(n_samples):
         f0 = f0_samples[i]
+        hwhm = linewidth / 2.0
+        hwhm_sq = hwhm * hwhm
+        amp_hwhm_sq = amplitude * hwhm_sq
+
         for j in range(grid_resolution):
             freq = freq_grid[j]
-            # Inline lorentzian model
-            hwhm = linewidth / 2.0
             diff = freq - f0
-            denom = diff * diff + hwhm * hwhm
-            val = background - (amplitude * hwhm * hwhm) / denom
+            denom = diff * diff + hwhm_sq
+            val = background - amp_hwhm_sq / denom
             signals[i, j] = val
 
     # Calculate variance across samples (axis 0)
     var_params = np.empty(grid_resolution, dtype=np.float64)
-    for j in range(grid_resolution):
+
+    # Parallelize variance calculation per frequency point
+    for j in numba.prange(grid_resolution):
         # Compute variance of column j
-        col = signals[:, j]
-        mean_val = np.mean(col)
-        var_val = np.sum((col - mean_val) ** 2) / n_samples
+        # Standard loop to compute variance single pass or two pass
+        # Two pass for numerical stability, or just use sum/sum_sq for speed
+        sum_val = 0.0
+        sum_sq = 0.0
+        for i in range(n_samples):
+            val = signals[i, j]
+            sum_val += val
+            sum_sq += val * val
+
+        mean_val = sum_val / n_samples
+        # Var = E[X^2] - (E[X])^2
+        var_val = (sum_sq / n_samples) - (mean_val * mean_val)
+
+        # Ensure non-negative due to float errors
+        if var_val < 0:
+            var_val = 0.0
+
         var_params[j] = var_val
 
     var_noise = sigma * sigma
@@ -242,16 +255,23 @@ def _calculate_utility_grid_jit(freq_grid, freq_posterior, n_samples, current_es
 
 
 @numba.jit(nopython=True, cache=True)
-def _calculate_total_log_likelihood_jit(measurements_x, measurements_y, params_array, noise_model_code):
+def _calculate_total_log_likelihood_jit(
+    measurements_x, measurements_y, params_array, noise_model_code, distribution_code
+):
     """
     Calculate total log likelihood for optimization.
-    params_array: [f0, linewidth, amplitude, background]
+    params_array: [f0, linewidth, amplitude, background, gaussian_width, split, k_np]
     noise_model_code: 0 for gaussian, 1 for poisson
+    distribution_code: 0 for lorentzian, 1 for voigt, 2 for voigt-zeeman
     """
     f0 = params_array[0]
     linewidth = params_array[1]
     amplitude = params_array[2]
     background = params_array[3]
+    # Extra params (may be unused depending on distribution)
+    gaussian_width = params_array[4]
+    split = params_array[5]
+    k_np = params_array[6]
 
     n = len(measurements_x)
     total_ll = 0.0
@@ -259,15 +279,25 @@ def _calculate_total_log_likelihood_jit(measurements_x, measurements_y, params_a
     sigma = 0.05
     log_const = -4.153244906  # log(2*pi*0.05^2)
 
+    # Optimization objective is usually called sequentially by scipy.minimize
+    # The number of measurements n is usually small (< 500).
+    # Parallelization overhead might strictly outweigh benefits here unless n is very large.
+    # Leaving sequential for now to avoid overhead in inner loop of optimizer.
     for i in range(n):
         freq = measurements_x[i]
         obs = measurements_y[i]
 
-        # Inline lorentzian
-        hwhm = linewidth / 2.0
-        diff = freq - f0
-        denom = diff * diff + hwhm * hwhm
-        pred = background - (amplitude * hwhm * hwhm) / denom
+        pred = 0.0
+        if distribution_code == 0:  # Lorentzian
+            # Inline lorentzian
+            hwhm = linewidth / 2.0
+            diff = freq - f0
+            denom = diff * diff + hwhm * hwhm
+            pred = background - (amplitude * hwhm * hwhm) / denom
+        elif distribution_code == 1:  # Voigt
+            pred = _voigt_model(freq, f0, linewidth, gaussian_width, amplitude, background)
+        elif distribution_code == 2:  # Voigt-Zeeman
+            pred = _voigt_zeeman_model(freq, f0, linewidth, split, k_np, amplitude, background)
 
         if noise_model_code == 0:  # Gaussian
             diff_obs = obs - pred
@@ -282,7 +312,7 @@ def _calculate_total_log_likelihood_jit(measurements_x, measurements_y, params_a
     return total_ll
 
 
-@numba.jit(nopython=True, cache=True)
+@numba.jit(nopython=True, cache=True, parallel=True)
 def _expected_info_gain_jit(  # noqa: C901
     test_frequency, freq_grid, freq_posterior, n_samples, current_estimates_array, noise_model_code
 ):
@@ -295,7 +325,8 @@ def _expected_info_gain_jit(  # noqa: C901
 
     # Current entropy
     current_entropy = 0.0
-    for i in range(grid_resolution):
+    # Parallel reduction for entropy
+    for i in numba.prange(grid_resolution):
         p = freq_posterior[i]
         current_entropy -= p * np.log(p + 1e-300)
 
@@ -304,6 +335,7 @@ def _expected_info_gain_jit(  # noqa: C901
     cdf = cdf / cdf[-1]
 
     true_freqs = np.empty(n_samples, dtype=np.float64)
+    # Sequential sampling
     for i in range(n_samples):
         r = np.random.random()
         idx = np.searchsorted(cdf, r)
@@ -317,7 +349,8 @@ def _expected_info_gain_jit(  # noqa: C901
 
     expected_entropy_sum = 0.0
 
-    for i in range(n_samples):
+    # Parallelize Monte Carlo samples
+    for i in numba.prange(n_samples):
         true_f0 = true_freqs[i]
 
         # Calculate expected signal
@@ -327,6 +360,7 @@ def _expected_info_gain_jit(  # noqa: C901
         expected_signal = background - (amplitude * hwhm * hwhm) / denom
 
         # Simulate measurement
+        # Random generation in parallel thread is supported by Numba
         if noise_model_code == 0:  # Gaussian
             noise_std = 0.05 * abs(expected_signal) + 0.01
             sim_intensity = np.random.normal(expected_signal, noise_std)
@@ -337,14 +371,7 @@ def _expected_info_gain_jit(  # noqa: C901
         # Update posterior for this simulated measurement
         # We need to calculate likelihood over the entire grid
 
-        # We can reuse _update_posterior_math logic but we need likelihoods first
-        # Calculating likelihoods for one measurement over grid
-
-        # Inline likelihood calculation loop over grid
-        # To avoid allocating large arrays, we can compute log_posterior sum on the fly?
-        # No, we need to normalize, so we need all values or at least max for logsumexp.
-
-        # Allocate log_posterior array
+        # Local log_posterior array for this thread/sample
         log_posterior = np.empty(grid_resolution, dtype=np.float64)
         max_log_post = -1e300  # Init with small value
 
@@ -355,7 +382,7 @@ def _expected_info_gain_jit(  # noqa: C901
             f_grid = freq_grid[j]
 
             # Model at f_grid
-            diff_g = test_frequency - f_grid  # test_frequency is x, f_grid is param f0
+            diff_g = test_frequency - f_grid
             denom_g = diff_g * diff_g + hwhm * hwhm
             pred = background - (amplitude * hwhm * hwhm) / denom_g
 
@@ -369,6 +396,7 @@ def _expected_info_gain_jit(  # noqa: C901
                 ll = sim_intensity * np.log(safe_pred) - safe_pred - math.lgamma(sim_intensity + 1)
 
             # Prior
+            # Note: Accessing freq_posterior purely for read is fine
             log_prior = np.log(freq_posterior[j] + 1e-300)
 
             val = log_prior + ll
@@ -387,7 +415,7 @@ def _expected_info_gain_jit(  # noqa: C901
         for j in range(grid_resolution):
             log_p = log_posterior[j] - lse
             p = np.exp(log_p)
-            sample_entropy -= p * log_p  # log_p is log(p)
+            sample_entropy -= p * log_p
 
         expected_entropy_sum += sample_entropy
 
@@ -396,3 +424,175 @@ def _expected_info_gain_jit(  # noqa: C901
     if info_gain < 0:
         return 0.0
     return info_gain
+
+
+@numba.jit(nopython=True, cache=True, parallel=True)
+def _calculate_log_likelihoods_grid_jit(
+    freq_grid,
+    measurement_x,
+    measurement_y,
+    measurement_uncertainty,
+    params_array,
+    distribution_code,
+    noise_model_code,
+):
+    """
+    Calculate log-likelihood for a single measurement across the entire frequency grid.
+
+    params_array: [linewidth, amplitude, background, gaussian_width, split, k_np]
+    distribution_code: 0=Lorentzian, 1=Voigt, 2=Voigt-Zeeman
+    noise_model_code: 0=Gaussian, 1=Poisson
+    """
+    n_grid = len(freq_grid)
+    log_likelihoods = np.empty(n_grid, dtype=np.float64)
+
+    linewidth = params_array[0]
+    amplitude = params_array[1]
+    background = params_array[2]
+    # Extra params
+    gaussian_width = params_array[3]
+    split = params_array[4]
+    k_np = params_array[5]
+
+    # Pre-compute constants for Gaussian noise if applicable
+    log_const = 0.0
+    if noise_model_code == 0:
+        sigma = measurement_uncertainty
+        log_const = -np.log(2 * np.pi * sigma * sigma)
+    else:
+        sigma = 1.0  # Dummy
+
+    obs = measurement_y
+    x_val = measurement_x
+
+    # Parallel loop over grid
+    for i in numba.prange(n_grid):
+        f0 = freq_grid[i]
+
+        # Calculate prediction
+        pred = 0.0
+        if distribution_code == 0:  # Lorentzian
+            hwhm = linewidth / 2.0
+            diff = x_val - f0
+            denom = diff * diff + hwhm * hwhm
+            pred = background - (amplitude * hwhm * hwhm) / denom
+        elif distribution_code == 1:  # Voigt
+            pred = _voigt_model(x_val, f0, linewidth, gaussian_width, amplitude, background)
+        elif distribution_code == 2:  # Voigt-Zeeman
+            pred = _voigt_zeeman_model(x_val, f0, linewidth, split, k_np, amplitude, background)
+
+        # Calculate Likelihood
+        if noise_model_code == 0:  # Gaussian
+            diff_obs = obs - pred
+            term1 = diff_obs / sigma
+            ll = -0.5 * term1 * term1 + 0.5 * log_const
+            log_likelihoods[i] = ll
+        else:  # Poisson
+            safe_pred = max(pred, 1e-9)
+            ll = obs * np.log(safe_pred) - safe_pred - math.lgamma(obs + 1)
+            log_likelihoods[i] = ll
+
+    return log_likelihoods
+
+
+@numba.jit(nopython=True, cache=True)
+def _lorentzian_deriv_f0_jit(frequencies, f0, linewidth, amplitude):
+    """JIT-compiled derivative of Lorentzian w.r.t f0."""
+    hwhm = linewidth / 2.0
+    hwhm_sq = hwhm * hwhm
+    diff = frequencies - f0
+    denom = diff * diff + hwhm_sq
+    # dS/df0 = -Amplitude * hwhm^2 * 2(f - f0) / denom^2
+    # Note: original code returned this.
+    return -amplitude * hwhm_sq * 2 * diff / (denom * denom)
+
+
+@numba.jit(nopython=True, cache=True)
+def _calculate_fisher_info_jit(measurement_x, true_params_array, noise_model_code, noise_param_val):
+    """
+    Calculate accumulated Fisher Information.
+    true_params_array: [f0, linewidth, amplitude, background]
+    """
+    f0 = true_params_array[0]
+    linewidth = true_params_array[1]
+    amplitude = true_params_array[2]
+    background = true_params_array[3]
+
+    n = len(measurement_x)
+    fi_accum = np.zeros(n, dtype=np.float64)
+    current_fi_sum = 0.0
+
+    # Pre-calc for Poisson weight
+    hwhm = linewidth / 2.0
+    hwhm_sq = hwhm * hwhm
+
+    # Sequential accumulation is natural, parallel accumulation is harder (scan).
+    # n is usually small (steps). Leave sequential.
+    for i in range(n):
+        x = measurement_x[i]
+
+        # Derivative
+        diff = x - f0
+        denom = diff * diff + hwhm_sq
+        deriv = -amplitude * hwhm_sq * 2 * diff / (denom * denom)
+
+        weight = 0.0
+        if noise_model_code == 0:  # Gaussian
+            sigma = noise_param_val
+            weight = 1.0 / (sigma * sigma)
+        else:  # Poisson
+            mu = background - (amplitude * hwhm_sq) / denom
+            if mu < 1e-9:
+                mu = 1e-9
+            weight = 1.0 / mu
+
+        fi_step = deriv * deriv * weight
+        current_fi_sum += fi_step
+        fi_accum[i] = current_fi_sum
+
+    return fi_accum
+
+
+@numba.jit(nopython=True, cache=True, parallel=True)
+def _omp_correlation_jit(y_prime, measurements_x, freq_grid, gamma):
+    """
+    Calculate correlations for OMP.
+    y_prime: signal - background (inverted)
+    """
+    n_meas = len(measurements_x)
+    n_grid = len(freq_grid)
+
+    hwhm = gamma / 2.0
+    hwhm_sq = hwhm * hwhm
+
+    # Pre-allocate correlations array
+    correlations = np.empty(n_grid, dtype=np.float64)
+
+    # Parallel loop to calculate all correlations
+    for j in numba.prange(n_grid):
+        f_grid = freq_grid[j]
+
+        # Dot product and norm accumulators
+        dot_prod = 0.0
+        norm_sq = 0.0
+
+        for i in range(n_meas):
+            mx = measurements_x[i]
+            # Atom value
+            diff = mx - f_grid
+            denom = diff * diff + hwhm_sq
+            atom_val = 1.0 / denom
+
+            dot_prod += y_prime[i] * atom_val
+            norm_sq += atom_val * atom_val
+
+        norm = np.sqrt(norm_sq)
+        if norm < 1e-9:
+            norm = 1.0
+
+        correlations[j] = dot_prod / norm
+
+    # Find argmax (sequential or numpy's implementation is fine)
+    best_idx = np.argmax(correlations)
+
+    return freq_grid[best_idx]
