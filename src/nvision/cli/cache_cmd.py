@@ -14,7 +14,7 @@ from nvision.cli.main import app
 console = Console()
 
 # Create a Typer app for the cache command group
-cache_app = typer.Typer(help="Manage simulation cache.")
+cache_app = typer.Typer(help="Manage simulation cache.", pretty_exceptions_show_locals=False)
 app.add_typer(cache_app, name="cache")
 
 

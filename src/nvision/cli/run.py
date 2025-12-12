@@ -10,6 +10,7 @@ from logging.handlers import QueueListener
 from pathlib import Path
 from typing import Annotated
 
+import concurrent.futures
 import polars as pl
 import typer
 from rich.console import Console, Group
@@ -97,12 +98,29 @@ def run(  # noqa: C901
     """Typer-driven command-line interface entry point."""
     console = Console()
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
+    suppress_list = [typer]
+    try:
+        import numba
+
+        suppress_list.append(numba)
+    except ImportError:
+        pass
+
+    # We need to import multiprocessing here since we removed it from top level to avoid Shadowing/Redefinition if it was already imported?
+    # Actually, the lint said "Redefinition of unused `multiprocessing` from line 5".
+    # Line 5 was `import multiprocessing`. I removed the second import on line 14 above.
+    import multiprocessing
+
+    suppress_list.extend([multiprocessing, concurrent.futures])
+
     handlers = [
         RichHandler(
             console=console,
             rich_tracebacks=True,
             show_time=True,
             log_time_format="%Y-%m-%d %H:%M:%S",
+            tracebacks_show_locals=False,
+            tracebacks_suppress=suppress_list,
         )
     ]
     logging.basicConfig(
@@ -257,9 +275,13 @@ def run(  # noqa: C901
                             for entries, main_result_row in results_for_combination:
                                 plot_manifest.extend(entries)
                                 df_rows.append(main_result_row)
-                        except Exception as e:
-                            log.error(f"Task failed with error: {e}")
-                            errors.append(e)
+                        except Exception:
+                            # Use rich traceback
+                            log.exception("Task failed with error")
+                            # We can't easily get the original exception object if we want to suppress frames cleanly via log.exception
+                            # But we need to track that an error occurred.
+                            # Since we are inside an except block, sys.exc_info() is set.
+                            errors.append(RuntimeError("Check logs for details"))
                             if len(errors) > 5:
                                 log.error("Too many errors (>5), terminating...")
                                 executor.shutdown(wait=False, cancel_futures=True)
@@ -271,9 +293,9 @@ def run(  # noqa: C901
                         for entries, main_result_row in results_for_combination:
                             plot_manifest.extend(entries)
                             df_rows.append(main_result_row)
-                    except Exception as e:
-                        log.error(f"Task failed with error: {e}")
-                        errors.append(e)
+                    except Exception:
+                        log.exception("Task failed with error")
+                        errors.append(RuntimeError("Check logs for details"))
                         if len(errors) > 5:
                             log.error("Too many errors (>5), terminating...")
                             break

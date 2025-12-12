@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import concurrent.futures
 import logging
+import multiprocessing
 from pathlib import Path
 from typing import Annotated
 
@@ -59,6 +61,16 @@ def render(
 ) -> int:
     """Render reports and graphs from cache without running simulations."""
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
+    suppress_list = [typer]
+    try:
+        import numba
+
+        suppress_list.append(numba)
+    except ImportError:
+        pass
+
+    suppress_list.extend([multiprocessing, concurrent.futures])
+
     logging.basicConfig(
         level=log_level_value,
         format="%(message)s",
@@ -69,6 +81,8 @@ def render(
                 rich_tracebacks=True,
                 show_time=True,
                 log_time_format="%Y-%m-%d %H:%M:%S",
+                tracebacks_show_locals=False,
+                tracebacks_suppress=suppress_list,
             )
         ],
     )
