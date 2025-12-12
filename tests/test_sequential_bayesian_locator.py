@@ -8,11 +8,11 @@ import pytest
 
 from nvision.sim.locs.base import ScanBatch
 from nvision.sim.locs.nv_center.sequential_bayesian_locator import (
-    NVCenterSequentialBayesianLocatorSingle,
+    NVCenterSequentialBayesianLocator,
 )
 
 
-def build_locator(**overrides: object) -> NVCenterSequentialBayesianLocatorSingle:
+def build_locator(**overrides: object) -> NVCenterSequentialBayesianLocator:
     """Create a locator instance with test-friendly defaults."""
     config: dict[str, object] = {
         "max_evals": 12,
@@ -22,7 +22,7 @@ def build_locator(**overrides: object) -> NVCenterSequentialBayesianLocatorSingl
         "noise_model": "gaussian",
     }
     config.update(overrides)
-    return NVCenterSequentialBayesianLocatorSingle(**config)
+    return NVCenterSequentialBayesianLocator(**config)
 
 
 def build_scan() -> ScanBatch:

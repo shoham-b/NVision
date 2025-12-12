@@ -1,9 +1,8 @@
+from ._bayesian_adapter import NVCenterSequentialBayesianLocatorBatched
 from .analytical_bayesian_locator import AnalyticalBayesianLocator
 from .project_bayesian_locator import ProjectBayesianLocator
 from .sequential_bayesian_locator import (
     NVCenterSequentialBayesianLocator,
-    NVCenterSequentialBayesianLocatorBatched,
-    NVCenterSequentialBayesianLocatorSingle,
 )
 from .simple_sequential_locator import (
     SimpleSequentialLocator,
@@ -13,9 +12,8 @@ from .sweep_locator import NVCenterSweepLocator
 
 __all__ = [
     "AnalyticalBayesianLocator",
-    "NVCenterSequentialBayesianLocator",
     "NVCenterSequentialBayesianLocatorBatched",
-    "NVCenterSequentialBayesianLocatorSingle",
+    "NVCenterSequentialBayesianLocator",
     "NVCenterSweepLocator",
     "ProjectBayesianLocator",
     "SimpleSequentialLocator",
