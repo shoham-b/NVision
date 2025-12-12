@@ -1,6 +1,6 @@
 import typer
 
-app = typer.Typer(help="NVision simulation runner")
+app = typer.Typer(help="NVision simulation runner", pretty_exceptions_show_locals=False)
 
 
 @app.callback(invoke_without_command=True)
