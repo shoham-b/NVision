@@ -246,20 +246,43 @@ def run(  # noqa: C901
             monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
             monitor_thread.start()
 
+            errors: list[Exception] = []
+
             if parallel:
                 with ProcessPoolExecutor() as executor:
                     futures = {executor.submit(_run_combination, locator_task): locator_task for locator_task in tasks}
                     for future in as_completed(futures):
-                        results_for_combination = future.result()
+                        try:
+                            results_for_combination = future.result()
+                            for entries, main_result_row in results_for_combination:
+                                plot_manifest.extend(entries)
+                                df_rows.append(main_result_row)
+                        except Exception as e:
+                            log.error(f"Task failed with error: {e}")
+                            errors.append(e)
+                            if len(errors) > 5:
+                                log.error("Too many errors (>5), terminating...")
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                break
+            else:
+                for locator_task in tasks:
+                    try:
+                        results_for_combination = _run_combination(locator_task)
                         for entries, main_result_row in results_for_combination:
                             plot_manifest.extend(entries)
                             df_rows.append(main_result_row)
-            else:
-                for locator_task in tasks:
-                    results_for_combination = _run_combination(locator_task)
-                    for entries, main_result_row in results_for_combination:
-                        plot_manifest.extend(entries)
-                        df_rows.append(main_result_row)
+                    except Exception as e:
+                        log.error(f"Task failed with error: {e}")
+                        errors.append(e)
+                        if len(errors) > 5:
+                            log.error("Too many errors (>5), terminating...")
+                            break
+
+            if errors:
+                console.print("\n[bold red]Errors occurred during execution:[/bold red]")
+                for i, err in enumerate(errors, 1):
+                    console.print(f"{i}. {err}")
+                raise typer.Exit(code=1)
 
             progress_queue.put(None)
             monitor_thread.join()
