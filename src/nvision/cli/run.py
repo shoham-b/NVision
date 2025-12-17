@@ -267,7 +267,8 @@ def run(  # noqa: C901
             errors: list[Exception] = []
 
             if parallel:
-                with ProcessPoolExecutor() as executor:
+                executor = ProcessPoolExecutor()
+                try:
                     futures = {executor.submit(_run_combination, locator_task): locator_task for locator_task in tasks}
                     for future in as_completed(futures):
                         try:
@@ -286,6 +287,17 @@ def run(  # noqa: C901
                                 log.error("Too many errors (>5), terminating...")
                                 executor.shutdown(wait=False, cancel_futures=True)
                                 break
+                except KeyboardInterrupt:
+                    console.print("\n[bold red]Interrupted by user. Terminating workers...[/bold red]")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    # Use a clean exit code for interrupt
+                    raise typer.Exit(code=130) from None
+                finally:
+                    # Provide a clean shutdown if not already terminated
+                    # If we already called shutdown(wait=False), this might be redundant or fail silently,
+                    # but ProcessPoolExecutor.shutdown is idempotent.
+                    # However, if we want to ensure we wait for normal completion if no error:
+                    executor.shutdown(wait=True)
             else:
                 for locator_task in tasks:
                     try:
