@@ -211,3 +211,61 @@ def test_locator_handles_mixed_active_states():
     # Should return results for all repeats, but only active ones will have meaningful results
     assert len(results) == 3  # One row per repeat, regardless of active state
     assert set(results["repeat_id"].to_list()) == {1, 2, 3}
+
+
+def test_sampling_loop_generates_adaptive_points():
+    """Integration test that verifies the batched locator adapts to the signal."""
+    # This replaces the similar test in test_sequential_bayesian_locator.py
+    locator = build_batched_locator(max_evals=10, n_warmup=2, grid_resolution=128, n_monte_carlo=100)
+    scan = build_scan()
+
+    # Initialize with proper schema
+    schema = {
+        "repeat_id": pl.Int64,
+        "step": pl.Int64,
+        "x": pl.Float64,
+        "signal_values": pl.Float64,
+    }
+    history = pl.DataFrame(schema=schema)
+    repeats = pl.DataFrame({"repeat_id": [1], "active": [True]})
+
+    # Run the sampling loop
+    for step in range(10):
+        # check stopping condition
+        stop_flags = locator.should_stop(history, repeats, scan)
+        active_repeats = stop_flags.filter(pl.col("stop").not_()).select("repeat_id")  # noqa: F841
+
+        # Update active repeats based on stop flags
+        repeats = repeats.join(stop_flags.select(["repeat_id", "stop"]), on="repeat_id").select(
+            pl.col("repeat_id"), (pl.col("active") & pl.col("stop").not_()).alias("active")
+        )
+
+        if repeats.filter(pl.col("active")).is_empty():
+            break
+
+        proposals = locator.propose_next(history, repeats, scan)
+
+        new_rows = []
+        for prop in proposals.iter_rows(named=True):
+            rid = prop["repeat_id"]
+            x = prop["x"]
+            y = scan.signal(x)
+            new_rows.append(
+                {
+                    "repeat_id": rid,
+                    "step": step,
+                    "x": x,
+                    "signal_values": y,
+                }
+            )
+
+        if new_rows:
+            history = pl.concat([history, pl.DataFrame(new_rows, schema=schema)])
+
+    # Check that we have the expected number of measurements
+    assert len(history) == 10, f"Expected 10 measurements, got {len(history)}"
+
+    # Check that we have measurements within the expected range
+    x_values = history["x"].to_list()
+    in_range = [2.8e9 <= x <= 2.9e9 for x in x_values]
+    assert any(in_range), f"No measurements in expected range 2.8e9-2.9e9. Got: {x_values}"
