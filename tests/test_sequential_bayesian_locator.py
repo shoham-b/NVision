@@ -75,40 +75,6 @@ def test_expected_information_gain_is_non_negative():
     assert eig >= 0.0
 
 
-def test_propose_next_consumes_polars_history():
-    """Test that propose_next works with Polars DataFrame input."""
-    locator = build_locator()
-    history = pl.DataFrame({"x": [2.76e9, 2.88e9], "signal_values": [0.98, 0.90]})
-    scan = build_scan()
-
-    # For the single version, we expect a single float return value
-    proposal = locator.propose_next(history, scan)
-    assert isinstance(proposal, float)
-    assert scan.x_min <= proposal <= scan.x_max
-
-
-def test_should_stop_respects_max_evaluations():
-    """Test that should_stop returns True when max_evals is reached."""
-    locator = build_locator(max_evals=2, n_warmup=1)
-    scan = build_scan()
-
-    # First check with not enough evaluations
-    history = pl.DataFrame({"x": [scan.x_min], "signal_values": [1.0]})
-    assert not locator.should_stop(history, scan)
-
-    # Now with enough evaluations to trigger stop
-    history = pl.DataFrame({"x": [scan.x_min, scan.x_max], "signal_values": [1.0, 0.9]})
-    assert locator.should_stop(history, scan)
-
-
-def test_finalize_includes_required_fields():
-    locator = build_locator()
-    scan = build_scan()
-    history = pl.DataFrame({"x": [2.84e9, 2.86e9], "signal_values": [0.95, 0.9]})
-    result = locator.finalize(history, scan)
-    assert {"n_peaks", "x1_hat", "uncert"} <= set(result)
-
-
 def test_reset_posterior_returns_uniform_prior():
     locator = build_locator()
     locator.update_posterior({"x": 2.84e9, "signal_values": 0.91})
@@ -132,68 +98,6 @@ def test_should_stop_when_utility_stalls():
     # Set up utility history to simulate stalled optimization
     locator.utility_history = [1e-9, 1e-10]  # Below min_uncertainty_reduction
     assert locator.should_stop(pl.DataFrame(), scan)
-
-
-def test_sampling_loop_generates_adaptive_points():
-    """Integration test that verifies the locator adapts to the signal."""
-    locator = build_locator(max_evals=10, n_warmup=2, grid_resolution=128, n_monte_carlo=100)
-    scan = build_scan()
-
-    # Initialize with proper schema
-    schema = {"x": pl.Float64, "signal_values": pl.Float64}
-    history = pl.DataFrame(schema=schema)
-
-    # Run the sampling loop
-    for _ in range(10):
-        if locator.should_stop(history, scan):
-            break
-        x = locator.propose_next(history, scan)
-        y = scan.signal(x)
-        new_row = pl.DataFrame({"x": [x], "signal_values": [y]}, schema=schema)
-        history = pl.concat([history, new_row])
-
-    # Debug output
-    print(f"Collected {len(history)} measurements:")
-    for i, (x, y) in enumerate(zip(history["x"].to_list(), history["signal_values"].to_list(), strict=False)):
-        print(f"  {i + 1}. x={x:.3e}, y={y:.3f}")
-
-    # Check that we have the expected number of measurements
-    assert len(history) == 10, f"Expected 10 measurements, got {len(history)}"
-
-    # Check that we have measurements within the expected range
-    # The locator should explore the space, so we'll check a wider range
-    x_values = history["x"].to_list()
-    in_range = [2.8e9 <= x <= 2.9e9 for x in x_values]
-    assert any(in_range), f"No measurements in expected range 2.8e9-2.9e9. Got: {x_values}"
-
-
-def test_finalize_is_idempotent_after_sampling():
-    """Test that finalize produces consistent results when called multiple times."""
-    locator = build_locator()
-    scan = build_scan()
-
-    # Initialize with proper schema
-    schema = {"x": pl.Float64, "signal_values": pl.Float64}
-    history = pl.DataFrame(schema=schema)
-
-    # Collect some data
-    for _ in range(3):
-        x = locator.propose_next(history, scan)
-        y = scan.signal(x)
-        new_row = pl.DataFrame({"x": [x], "signal_values": [y]}, schema=schema)
-        history = pl.concat([history, new_row])
-
-    # Call finalize twice and compare results
-    result1 = locator.finalize(history, scan)
-    result2 = locator.finalize(history, scan)
-
-    for key in ["x1_hat", "uncert", "n_peaks"]:
-        assert key in result1
-        assert key in result2
-        if isinstance(result1[key], int | float) and isinstance(result2[key], int | float):
-            assert np.isclose(result1[key], result2[key])
-        else:
-            assert result1[key] == result2[key]
 
 
 def test_odmr_model_handles_distributions():

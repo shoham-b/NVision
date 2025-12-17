@@ -496,18 +496,6 @@ def _calculate_log_likelihoods_grid_jit(
 
 
 @numba.jit(nopython=True, cache=True)
-def _lorentzian_deriv_f0_jit(frequencies, f0, linewidth, amplitude):
-    """JIT-compiled derivative of Lorentzian w.r.t f0."""
-    hwhm = linewidth / 2.0
-    hwhm_sq = hwhm * hwhm
-    diff = frequencies - f0
-    denom = diff * diff + hwhm_sq
-    # dS/df0 = -Amplitude * hwhm^2 * 2(f - f0) / denom^2
-    # Note: original code returned this.
-    return -amplitude * hwhm_sq * 2 * diff / (denom * denom)
-
-
-@numba.jit(nopython=True, cache=True)
 def _calculate_fisher_info_jit(measurement_x, true_params_array, noise_model_code, noise_param_val):
     """
     Calculate accumulated Fisher Information.

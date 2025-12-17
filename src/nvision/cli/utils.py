@@ -18,7 +18,6 @@ from nvision.sim import (
     OnePeakGridLocator,
     OnePeakSweepLocator,
     ProjectBayesianLocator,
-    SimpleSequentialLocator,
     TwoPeakGoldenLocator,
     TwoPeakGridLocator,
     TwoPeakSweepLocator,
@@ -55,15 +54,8 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, An
                 "NVCenter-SequentialBayesian",
                 NVCenterSequentialBayesianLocator(max_evals=500, grid_resolution=400, distribution="voigt-zeeman"),
             ),
-            (
-                "NVCenter-SimpleSequential",
-                SimpleSequentialLocator(max_evals=60, grid_resolution=400),
-            ),
-            (
-                "NVCenter-ProjectBayesian",
-                ProjectBayesianLocator(max_evals=500, grid_resolution=400, distribution="voigt-zeeman"),
-            ),
         ]
+
     return strategies
 
 
