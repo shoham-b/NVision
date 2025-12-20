@@ -493,10 +493,32 @@ def _run_combination(task: LocatorTask):  # noqa: C901
 
             if locator_for_metrics and hasattr(locator_for_metrics, "parameter_history"):
                 # Initial ground truth from scan
+                # Extract ground truth from scan or its metadata
+                meta = getattr(current_scan, "meta", {}) or {}
+
+                # NVCenterManufacturer uses 'omega' for HWHM, but CRB kernel expects FWHM 'linewidth'
+                linewidth = getattr(current_scan, "linewidth", None)
+                if linewidth is None and "omega" in meta:
+                    # Look for omega (HWHM) -> convert to FWHM
+                    val = meta["omega"]
+                    if val is not None:
+                        linewidth = val * 2.0
+
+                amplitude = getattr(current_scan, "amplitude", None)
+                if amplitude is None:
+                    amplitude = meta.get("a")
+
+                background = getattr(current_scan, "background", None)
+                if background is None:
+                    background = meta.get("base")
+
                 ground_truth = {
-                    "frequency": current_scan.truth_positions[0] if current_scan.truth_positions else None,
-                    "linewidth": getattr(current_scan, "linewidth", None),
-                    # Add others if available in scan/generator
+                    "frequency": current_scan.truth_positions[0]
+                    if current_scan.truth_positions
+                    else meta.get("f0", meta.get("f_B")),
+                    "linewidth": linewidth,
+                    "amplitude": amplitude,
+                    "background": background,
                 }
                 # Filter None values
                 ground_truth = {k: v for k, v in ground_truth.items() if v is not None}

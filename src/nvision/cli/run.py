@@ -74,6 +74,17 @@ def run(  # noqa: C901
             help="Filter by generator category (e.g., 'NVCenter')",
         ),
     ] = None,
+    filter_strategy: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-strategy",
+            help="Filter by locator strategy (e.g., 'Bayesian')",
+        ),
+    ] = None,
+    all_experiments: Annotated[
+        bool,
+        typer.Option("--all", help="Run all experiments (disables default filtering)"),
+    ] = False,
     parallel: Annotated[
         bool,
         typer.Option("--parallel/--no-parallel", help="Run simulations in parallel"),
@@ -97,6 +108,18 @@ def run(  # noqa: C901
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
+
+    # Default logic: if --all is not specified, default to NVCenter/Bayesian
+    if not all_experiments:
+        if filter_category is None:
+            filter_category = "NVCenter"
+            log.info("Defaulting to category 'NVCenter'. Use --all to run everything.")
+
+        # Only default strategy to Bayesian if we are in the NVCenter category (explicitly or by default)
+        if filter_strategy is None and filter_category == "NVCenter":
+            filter_strategy = "Bayesian"
+            log.info("Defaulting to strategy 'Bayesian' for NVCenter. Use --all or --filter-strategy to change.")
+
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
     suppress_list = [typer]
     try:
@@ -190,6 +213,9 @@ def run(  # noqa: C901
                     continue
 
                 for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
+                    if filter_strategy and filter_strategy not in strat_name:
+                        continue
+
                     for noise_name, noise_obj in noise_map.items():
                         config_key = (gen_name, noise_name, strat_name)
                         if config_key in seen_configs:
@@ -267,7 +293,7 @@ def run(  # noqa: C901
             errors: list[Exception] = []
 
             if parallel:
-                executor = ProcessPoolExecutor()
+                executor = ProcessPoolExecutor(3)
                 try:
                     futures = {executor.submit(_run_combination, locator_task): locator_task for locator_task in tasks}
                     for future in as_completed(futures):
