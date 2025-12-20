@@ -394,10 +394,11 @@
 
             plots.forEach(p => {
                 const gen = p.generator || '';
-                if (gen.startsWith('NVCenter-')) {
-                    p.generator_type = 'NV Center';
+                const strat = p.strategy || '';
+                if (gen.startsWith('NVCenter-') && strat.includes('Bayesian')) {
+                    p.generator_type = 'NV Center (Bayesian)';
                 } else {
-                    p.generator_type = 'Complementary';
+                    p.generator_type = 'Supplemental';
                 }
             });
 
@@ -540,7 +541,7 @@
                 }
             }
 
-            const nvCenterDefault = scanPlots.find(p => p.generator_type === 'NV Center');
+            const nvCenterDefault = scanPlots.find(p => p.generator_type === 'NV Center (Bayesian)');
             const scanDefault = nvCenterDefault || (scanPlots.length > 0 ? scanPlots[0] : null);
 
             const scanGeneratorType = document.getElementById('scan-generator-type');
@@ -609,8 +610,8 @@
                 ]
                     .map((item) => String(item))
                     .sort((a, b) => {
-                        if (a === 'NV Center') return -1;
-                        if (b === 'NV Center') return 1;
+                        if (a === 'NV Center (Bayesian)') return -1;
+                        if (b === 'NV Center (Bayesian)') return 1;
                         return a.localeCompare(b);
                     });
 

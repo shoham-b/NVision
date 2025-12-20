@@ -131,10 +131,16 @@ class BayesianMetrics:
                 else:
                     xs = []
 
-                if xs:
-                    metrics.crb_std_history = calculate_crb(
-                        xs, ground_truth, noise_model=noise_model, noise_params=noise_params
-                    )
+                # CRB requires frequency, linewidth, and amplitude
+                required_keys = {"frequency", "linewidth", "amplitude"}
+                if xs and ground_truth and required_keys.issubset(ground_truth.keys()):
+                    try:
+                        metrics.crb_std_history = calculate_crb(
+                            xs, ground_truth, noise_model=noise_model, noise_params=noise_params
+                        )
+                    except Exception:
+                        # Fallback if CRB calc fails for other reasons
+                        pass
 
         return metrics
 
