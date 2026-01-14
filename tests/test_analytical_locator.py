@@ -113,6 +113,7 @@ def test_omp_estimation_logic():
 
 
 def test_full_run_convergence():
+    np.random.seed(42)
     locator = build_locator(n_warmup=10, max_evals=30)
     scan = build_scan(center=2.88e9)
 

@@ -1,7 +1,8 @@
 import numpy as np
 import polars as pl
-from nvision.sim.locs.nv_center.sequential_bayesian_locator import NVCenterSequentialBayesianLocator
+
 from nvision.sim.locs.base import ScanBatch
+from nvision.sim.locs.nv_center.sequential_bayesian_locator import NVCenterSequentialBayesianLocator
 
 
 def verify_stopping():
@@ -81,7 +82,8 @@ def verify_stopping():
         ratio = uncert / crb if crb > 0 else float("inf")
 
         print(
-            f"Step {i + 1}: Freq={next_freq:.6e}, Est={locator.current_estimates['frequency']:.6e}, Uncert={uncert:.2e}, CRB={crb:.2e}, Ratio={ratio:.2f}"
+            f"Step {i + 1}: Freq={next_freq:.6e}, Est={locator.current_estimates['frequency']:.6e}, "
+            f"Uncert={uncert:.2e}, CRB={crb:.2e}, Ratio={ratio:.2f}"
         )
 
         if should_stop:

@@ -8,8 +8,8 @@ from .sweep_locator import NVCenterSweepLocator
 
 __all__ = [
     "AnalyticalBayesianLocator",
-    "NVCenterSequentialBayesianLocatorBatched",
     "NVCenterSequentialBayesianLocator",
+    "NVCenterSequentialBayesianLocatorBatched",
     "NVCenterSweepLocator",
     "ProjectBayesianLocator",
 ]

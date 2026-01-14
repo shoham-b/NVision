@@ -648,26 +648,30 @@ class NVCenterBayesianLocatorBase(Locator):
         if self.current_estimates["uncertainty"] < self.convergence_threshold:
             return True
 
-        # Check Cramer-Rao Bound condition (Global to all Bayesian Locators)
-        if hist_len > 10:  # Allow some warmup before checking statistics
-            from nvision.sim.locs.nv_center.fisher_information import calculate_crb
-
-            if self.measurement_history:
-                x_vals = [m["x"] for m in self.measurement_history]
-
-                crb_history = calculate_crb(
-                    x_vals, self.current_estimates, noise_model=self.noise_model, noise_params=None
-                )
-
-                if crb_history:
-                    current_crb = crb_history[-1]
-                    # Check 2x CRB condition
-                    if current_crb > 0 and self.current_estimates["uncertainty"] <= 2.0 * current_crb:
-                        return True
+        if self._check_crb_stopping(hist_len):
+            return True
 
         return len(self.utility_history) == self.utility_history_window and all(
             u < self.min_uncertainty_reduction for u in self.utility_history
         )
+
+    def _check_crb_stopping(self, hist_len: int) -> bool:
+        if hist_len <= 10:
+            return False
+
+        from nvision.sim.locs.nv_center.fisher_information import calculate_crb
+
+        if not self.measurement_history:
+            return False
+
+        x_vals = [m["x"] for m in self.measurement_history]
+        crb_history = calculate_crb(x_vals, self.current_estimates, noise_model=self.noise_model, noise_params=None)
+
+        if crb_history:
+            current_crb = crb_history[-1]
+            if current_crb > 0 and self.current_estimates["uncertainty"] <= 2.0 * current_crb:
+                return True
+        return False
 
     def finalize(
         self,

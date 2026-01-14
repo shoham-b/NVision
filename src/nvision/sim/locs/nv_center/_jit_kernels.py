@@ -312,7 +312,7 @@ def _calculate_total_log_likelihood_jit(
     return total_ll
 
 
-@numba.jit(nopython=True, cache=True, parallel=True)
+@numba.jit(nopython=True, cache=True)
 def _expected_info_gain_jit(  # noqa: C901
     test_frequency, freq_grid, freq_posterior, n_samples, current_estimates_array, noise_model_code
 ):
@@ -584,3 +584,211 @@ def _omp_correlation_jit(y_prime, measurements_x, freq_grid, gamma):
     best_idx = np.argmax(correlations)
 
     return freq_grid[best_idx]
+
+
+@numba.jit(nopython=True, cache=True, parallel=True)
+def _calculate_utility_grid_2d_jit(freq_grid, linewidth_grid, posterior_2d, n_samples, current_estimates_array, sigma):
+    """
+    Calculate utility for Project Bayesian Locator with 2D posterior (Freq x Linewidth).
+    Returns 1D utility array over freq_grid.
+    """
+    n_freq = len(freq_grid)
+    n_gamma = len(linewidth_grid)
+
+    # Flatten posterior for sampling
+    flat_posterior = posterior_2d.flatten()
+    cdf = np.cumsum(flat_posterior)
+    if cdf[-1] > 0:
+        cdf = cdf / cdf[-1]
+    else:
+        # Fallback if posterior is zero/invalid
+        return np.ones(n_freq, dtype=np.float64)
+
+    # Sample (f0, gamma) pairs
+    f0_samples = np.empty(n_samples, dtype=np.float64)
+    gamma_samples = np.empty(n_samples, dtype=np.float64)
+
+    for i in range(n_samples):
+        r = np.random.random()
+        idx = np.searchsorted(cdf, r)
+        # Convert flat index to 2D indices
+        # idx = i * n_gamma + j
+        if idx >= n_freq * n_gamma:
+            idx = n_freq * n_gamma - 1
+
+        idx_f = idx // n_gamma
+        idx_g = idx % n_gamma
+
+        f0_samples[i] = freq_grid[idx_f]
+        gamma_samples[i] = linewidth_grid[idx_g]
+
+    # Unpack fixed estimates
+    amplitude = current_estimates_array[1]
+    background = current_estimates_array[2]
+
+    # Calculate signals matrix: (n_samples, n_freq)
+    # We evaluate utility at *each frequency in freq_grid* as a potential measurement point
+    signals = np.empty((n_samples, n_freq), dtype=np.float64)
+
+    # Parallelize signal generation
+    for i in numba.prange(n_samples):
+        f0 = f0_samples[i]
+        gamma = gamma_samples[i]
+
+        hwhm = gamma / 2.0
+        hwhm_sq = hwhm * hwhm
+        amp_hwhm_sq = amplitude * hwhm_sq
+
+        for j in range(n_freq):
+            freq = freq_grid[j]  # Test frequency
+            diff = freq - f0
+            denom = diff * diff + hwhm_sq
+            val = background - amp_hwhm_sq / denom
+            signals[i, j] = val
+
+    # Calculate variance across samples (axis 0)
+    var_params = np.empty(n_freq, dtype=np.float64)
+
+    for j in numba.prange(n_freq):
+        sum_val = 0.0
+        sum_sq = 0.0
+        for i in range(n_samples):
+            val = signals[i, j]
+            sum_val += val
+            sum_sq += val * val
+
+        mean_val = sum_val / n_samples
+        var_val = (sum_sq / n_samples) - (mean_val * mean_val)
+
+        if var_val < 0:
+            var_val = 0.0
+        var_params[j] = var_val
+
+    var_noise = sigma * sigma
+    utility = var_params / var_noise
+    return utility
+
+
+@numba.jit(nopython=True, cache=True, parallel=True)
+def _calculate_log_likelihoods_2d_jit(
+    freq_grid,
+    linewidth_grid,
+    measurement_x,
+    measurement_y,
+    measurement_uncertainty,
+    params_array,
+    distribution_code,
+    noise_model_code,
+):
+    """
+    Calculate log-likelihood on 2D grid (Freq x Linewidth).
+    """
+    n_freq = len(freq_grid)
+    n_gamma = len(linewidth_grid)
+
+    # We return a flat array or 2D? Let's return 2D.
+    # Numba parallel supports multidimensional loops but requires careful indexing or prange on outer.
+    log_likelihoods = np.empty((n_freq, n_gamma), dtype=np.float64)
+
+    amplitude = params_array[1]
+    background = params_array[2]
+    # Extra params
+    gaussian_width = params_array[3]
+    split = params_array[4]
+    k_np = params_array[5]
+
+    log_const = 0.0
+    if noise_model_code == 0:
+        sigma = measurement_uncertainty
+        log_const = -np.log(2 * np.pi * sigma * sigma)
+    else:
+        sigma = 1.0
+
+    obs = measurement_y
+    x_val = measurement_x
+
+    # Flatten loop or nested? Nested is fine if we parallelize outer
+    for i in numba.prange(n_freq):
+        f0 = freq_grid[i]
+        for j in range(n_gamma):
+            gamma = linewidth_grid[j]
+
+            # Prediction
+            pred = 0.0
+            if distribution_code == 0:  # Lorentzian
+                hwhm = gamma / 2.0
+                diff = x_val - f0
+                denom = diff * diff + hwhm * hwhm
+                pred = background - (amplitude * hwhm * hwhm) / denom
+            elif distribution_code == 1:  # Voigt
+                pred = _voigt_model(x_val, f0, gamma, gaussian_width, amplitude, background)
+            elif distribution_code == 2:  # Voigt-Zeeman
+                pred = _voigt_zeeman_model(x_val, f0, gamma, split, k_np, amplitude, background)
+
+            # Likelihood
+            ll = 0.0
+            if noise_model_code == 0:
+                diff_obs = obs - pred
+                term1 = diff_obs / sigma
+                ll = -0.5 * term1 * term1 + 0.5 * log_const
+            else:
+                safe_pred = max(pred, 1e-9)
+                ll = obs * np.log(safe_pred) - safe_pred - math.lgamma(obs + 1)
+
+            log_likelihoods[i, j] = ll
+
+    return log_likelihoods
+
+
+@numba.jit(nopython=True, cache=True)
+def _update_posterior_2d_jit(freq_grid, linewidth_grid, posterior_2d, log_likelihoods_2d):
+    """
+    Update 2D posterior and calculate statistics.
+    """
+    n_freq = len(freq_grid)
+    n_gamma = len(linewidth_grid)
+
+    # Log posterior update
+    log_prior = np.log(posterior_2d + 1e-300)
+    log_posterior = log_prior + log_likelihoods_2d
+
+    # Normalize (LogSumExp over 2D array)
+    # Flatten just for simple lse
+    flat_lp = log_posterior.flatten()
+    lse = _logsumexp_jit(flat_lp)
+
+    log_posterior -= lse
+    new_posterior = np.exp(log_posterior)
+
+    # Estimates
+    # Marginalize for Freq
+    # Sum over gamma (axis 1)
+    marg_freq = np.empty(n_freq, dtype=np.float64)
+    for i in range(n_freq):
+        sum_p = 0.0
+        for j in range(n_gamma):
+            sum_p += new_posterior[i, j]
+        marg_freq[i] = sum_p
+
+    est_freq = np.sum(freq_grid * marg_freq)
+    var_freq = np.sum((freq_grid - est_freq) ** 2 * marg_freq)
+    uncert_freq = np.sqrt(var_freq)
+
+    # Marginalize for Linewidth
+    # Sum over freq (axis 0)
+    marg_gamma = np.empty(n_gamma, dtype=np.float64)
+    for j in range(n_gamma):
+        sum_p = 0.0
+        for i in range(n_freq):
+            sum_p += new_posterior[i, j]
+        marg_gamma[j] = sum_p
+
+    est_gamma = np.sum(linewidth_grid * marg_gamma)
+    var_gamma = np.sum((linewidth_grid - est_gamma) ** 2 * marg_gamma)
+    uncert_gamma = np.sqrt(var_gamma)
+
+    # Entropy
+    entropy = -np.sum(new_posterior * np.log(new_posterior + 1e-300))
+    max_prob = np.max(new_posterior)
+
+    return new_posterior, marg_freq, marg_gamma, est_freq, est_gamma, uncert_freq, uncert_gamma, entropy, max_prob

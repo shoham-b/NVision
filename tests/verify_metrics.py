@@ -1,12 +1,11 @@
 import numpy as np
-import polars as pl
-from nvision.sim.locs.nv_center.fisher_information import (
-    calculate_fisher_information,
-    calculate_crb,
-    _lorentzian_deriv_f0,
-)
+
 from nvision.sim.locs.nv_center.evaluation import BayesianMetrics
-from nvision.core.paths import slugify
+from nvision.sim.locs.nv_center.fisher_information import (
+    _lorentzian_deriv_f0,
+    calculate_crb,
+    calculate_fisher_information,
+)
 
 
 def test_fisher_calculation():
@@ -15,7 +14,6 @@ def test_fisher_calculation():
     true_params = {"frequency": 2.87e9, "linewidth": 10e6, "amplitude": 0.1, "background": 1.0}
 
     # Measurements exactly on peak and far away
-    freqs = np.array([2.87e9, 2.87e9 + 100e6])
 
     # 1. Check derivative at peak
     # Derivative of Lorentzian at peak (f=f0) should be 0 because it's a critical point
