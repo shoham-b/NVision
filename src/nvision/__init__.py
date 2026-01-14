@@ -1,7 +1,8 @@
-from rich.traceback import install
 import concurrent.futures
 import multiprocessing
+
 import typer
+from rich.traceback import install
 
 try:
     import numba

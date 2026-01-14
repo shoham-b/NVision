@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import math
 from collections.abc import Sequence
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-
 from nvision.sim import (
     CompositeNoise,
     NVCenterSequentialBayesianLocator,
@@ -17,10 +15,11 @@ from nvision.sim import (
     OnePeakGoldenLocator,
     OnePeakGridLocator,
     OnePeakSweepLocator,
-    ProjectBayesianLocator,
     TwoPeakGoldenLocator,
     TwoPeakGridLocator,
     TwoPeakSweepLocator,
+)
+from nvision.sim import (
     cases as sim_cases,
 )
 

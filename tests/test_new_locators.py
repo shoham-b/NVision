@@ -8,12 +8,11 @@ import random
 import polars as pl
 import pytest
 
-from nvision.sim import (
-    NVCenterSweepLocator,
-    OnePeakGoldenLocator,
-    OnePeakGridLocator,
-    ScanBatch,
-)
+from nvision.sim.locs.base import ScanBatch
+from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
+from nvision.sim.locs.one_peak import OnePeakGoldenLocator, OnePeakGridLocator
+
+from .locator_compat import LegacyLocatorShim
 
 
 class UniformPrior:

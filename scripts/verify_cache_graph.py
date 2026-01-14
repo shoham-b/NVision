@@ -1,20 +1,18 @@
 import logging
 import shutil
-from pathlib import Path
-import multiprocessing
 import traceback
+from pathlib import Path
 
 from nvision.cli.runner import _run_combination
 from nvision.core.types import LocatorTask
-from nvision.sim import cases as sim_cases
 from nvision.sim import NVCenterSweepLocator
+from nvision.sim import cases as sim_cases
 from nvision.sim.core import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.sim.noises import OverFrequencyGaussianNoise
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
-    log = logging.getLogger("nvision")
 
     out_dir = Path("artifacts_verify_cache")
     if out_dir.exists():
@@ -33,7 +31,7 @@ def main():
     gen_name = "NVCenter-voigt_zeeman"
     # Need to match what _get_generator_category expects (NVCenter)
     # Using a simple generator instance from cases
-    gen_obj = [g[1] for g in sim_cases.generators_basic() if g[0] == gen_name][0]
+    gen_obj = next(g[1] for g in sim_cases.generators_basic() if g[0] == gen_name)
 
     noise_name = "Gauss(0.05)"
     noise_obj = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)]))

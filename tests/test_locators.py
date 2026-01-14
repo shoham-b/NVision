@@ -2,24 +2,26 @@ from __future__ import annotations
 
 import polars as pl
 
-from nvision.sim import (
+from nvision.sim.core import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
+)
+from nvision.sim.gen import (
     GaussianManufacturer,
     NVCenterGenerator,
-    NVCenterSweepLocator,
     OnePeakGenerator,
-    OnePeakGridLocator,
-    OnePeakSweepLocator,
+    TwoPeakGenerator,
+)
+from nvision.sim.loc_runner import LocatorRunner
+from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
+from nvision.sim.locs.one_peak import OnePeakGridLocator, OnePeakSweepLocator
+from nvision.sim.locs.two_peak import TwoPeakGridLocator, TwoPeakSweepLocator
+from nvision.sim.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverProbeDriftNoise,
-    TwoPeakGenerator,
-    TwoPeakGridLocator,
-    TwoPeakSweepLocator,
 )
-from nvision.sim.loc_runner import LocatorRunner
 from tests.locator_compat import LegacyLocatorShim
 
 

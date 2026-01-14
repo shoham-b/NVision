@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import concurrent.futures
+import json
 import logging
 import multiprocessing
 from pathlib import Path
@@ -28,6 +28,70 @@ from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
 console = Console()
+
+
+def _collect_cache_results(
+    bridge,
+    generator_map,
+    noise_map,
+    filter_category,
+    filter_strategy,
+    repeats,
+    seed,
+    loc_max_steps,
+    loc_timeout_s,
+    out_dir,
+    progress,
+    task_id,
+    seen_configs,
+):
+    df_rows = []
+    plot_manifest = []
+
+    for gen_name, _ in generator_map.items():
+        if filter_category and _get_generator_category(gen_name) != filter_category:
+            continue
+
+        for strat_name, _ in _locator_strategies_for_generator(gen_name):
+            if filter_strategy and filter_strategy not in strat_name:
+                continue
+            for noise_name, _ in noise_map.items():
+                config_key = (gen_name, noise_name, strat_name)
+                if config_key in seen_configs:
+                    continue
+                seen_configs.add(config_key)
+
+                combo_cfg = {
+                    "kind": "locator_combination",
+                    "generator": gen_name,
+                    "noise": noise_name,
+                    "strategy": strat_name,
+                    "repeats": repeats,
+                    "seed": seed,
+                    "max_steps": loc_max_steps,
+                    "timeout_s": loc_timeout_s,
+                }
+
+                progress.update(task_id, description=f"Checking {gen_name}/{noise_name}/{strat_name}")
+
+                category = _get_generator_category(gen_name)
+                cache = bridge.get_cache_for_category(category)
+
+                cached_results = cache.get_cached_results(combo_cfg)
+
+                if cached_results:
+                    log.debug(f"Cache hit for {gen_name}/{noise_name}/{strat_name}")
+                    # Restore graphs
+                    _restore_graphs(cached_results, out_dir, log)
+
+                    # Collect results
+                    for entries, main_result_row in cached_results:
+                        plot_manifest.extend(entries)
+                        df_rows.append(main_result_row)
+                else:
+                    log.warning(f"Cache missing for {gen_name}/{noise_name}/{strat_name}")
+
+    return df_rows, plot_manifest
 
 
 @app.command()
@@ -142,48 +206,21 @@ def render(
     ) as progress:
         task_id = progress.add_task("Checking cache...", total=None)
 
-        for gen_name, _ in generator_map.items():
-            if filter_category and _get_generator_category(gen_name) != filter_category:
-                continue
-
-            for strat_name, _ in _locator_strategies_for_generator(gen_name):
-                if filter_strategy and filter_strategy not in strat_name:
-                    continue
-                for noise_name, _ in noise_map.items():
-                    config_key = (gen_name, noise_name, strat_name)
-                    if config_key in seen_configs:
-                        continue
-                    seen_configs.add(config_key)
-
-                    combo_cfg = {
-                        "kind": "locator_combination",
-                        "generator": gen_name,
-                        "noise": noise_name,
-                        "strategy": strat_name,
-                        "repeats": repeats,
-                        "seed": seed,
-                        "max_steps": loc_max_steps,
-                        "timeout_s": loc_timeout_s,
-                    }
-
-                    progress.update(task_id, description=f"Checking {gen_name}/{noise_name}/{strat_name}")
-
-                    category = _get_generator_category(gen_name)
-                    cache = bridge.get_cache_for_category(category)
-
-                    cached_results = cache.get_cached_results(combo_cfg)
-
-                    if cached_results:
-                        log.debug(f"Cache hit for {gen_name}/{noise_name}/{strat_name}")
-                        # Restore graphs
-                        _restore_graphs(cached_results, out_dir, log)
-
-                        # Collect results
-                        for entries, main_result_row in cached_results:
-                            plot_manifest.extend(entries)
-                            df_rows.append(main_result_row)
-                    else:
-                        log.warning(f"Cache missing for {gen_name}/{noise_name}/{strat_name}")
+    df_rows, plot_manifest = _collect_cache_results(
+        bridge,
+        generator_map,
+        noise_map,
+        filter_category,
+        filter_strategy,
+        repeats,
+        seed,
+        loc_max_steps,
+        loc_timeout_s,
+        out_dir,
+        progress,
+        task_id,
+        seen_configs,
+    )
 
     if not df_rows:
         log.warning("No results found in cache. The report will be empty.")

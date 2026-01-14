@@ -8,7 +8,6 @@ for Optically Detected Magnetic Resonance (ODMR) measurements.
 from __future__ import annotations
 
 import logging
-import math
 import warnings
 from dataclasses import dataclass
 
