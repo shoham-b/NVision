@@ -143,7 +143,9 @@ class AnalyticalBayesianLocator(NVCenterSequentialBayesianLocator):
             # Note: We do NOT ingest the history again for the posterior update
             # because we used it for OMP (double counting).
             # Or we assume OMP gives the prior and we *should* ingest?
-            # If we treat OMP as "finding the prior", then utilizing the data again for likelihood update is double counting.
+            # If we treat OMP as "finding the prior", then utilizing the data again for likelihood
+            # update is double counting.
+            # However, standard practice in this specific locator (from context of project/other tests)
             # However, standard practice in this specific locator (from context of project/other tests)
             # often implies using the data to initialize.
             # Let's trust the "Initialize the Bayesian posterior centered on this estimate" description.

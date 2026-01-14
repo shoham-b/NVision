@@ -5,7 +5,7 @@ import random
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from nvision.sim import CompositeOverFrequencyNoise, DataBatch
+from nvision.sim.core import CompositeOverFrequencyNoise, DataBatch
 from nvision.sim.noises import OverFrequencyGaussianNoise, OverFrequencyPoissonNoise
 
 

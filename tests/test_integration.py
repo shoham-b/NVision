@@ -1,15 +1,14 @@
 import os
-import shutil
 import tempfile
+
 import polars as pl
-import pytest
-from nvision.sim import (
-    NVCenterGenerator,
-    NVCenterSequentialBayesianLocatorBatched,
+
+from nvision.sim.gen import (
     GaussianManufacturer,
+    NVCenterGenerator,
 )
 from nvision.sim.loc_runner import LocatorRunner
-from nvision.sim.locs.base import ScanBatch
+from nvision.sim.locs.nv_center import NVCenterSequentialBayesianLocatorBatched
 
 
 def test_basic_run_no_artifacts():
@@ -62,7 +61,13 @@ def test_basic_run_no_artifacts():
             # This confirms that LocatorRunner itself is pure and doesn't write side artifacts
             files = os.listdir(tmpdir)
             # Filter out __pycache__ or similar if they appear
-            files = [f for f in files if not f.startswith("__") and not f.endswith(".db")]
+            files = [
+                f
+                for f in files
+                if not f.startswith("__")
+                and not f.endswith(".db")
+                and f not in ("coverage.xml", ".coverage", "htmlcov", ".pytest_cache")
+            ]
             assert not files, f"Found unexpected artifacts: {files}"
 
         finally:

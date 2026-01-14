@@ -4,6 +4,7 @@ Evaluation metrics for Bayesian Inference locators.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -51,7 +52,7 @@ class BayesianMetrics:
         noise_params: dict[str, float] | None = None,
         param_name: str = "frequency",
         convergence_threshold: float = 1e6,  # Example default: 1 MHz
-    ) -> "BayesianMetrics":
+    ) -> BayesianMetrics:
         """
         Calculate metrics from a history of parameter estimates.
 
@@ -64,10 +65,7 @@ class BayesianMetrics:
             param_name: The main parameter to track error/z-score/CRB for (default: "frequency").
             convergence_threshold: Uncertainty threshold to define convergence step.
         """
-        if isinstance(parameter_history, list):
-            df = pl.DataFrame(parameter_history)
-        else:
-            df = parameter_history
+        df = pl.DataFrame(parameter_history) if isinstance(parameter_history, list) else parameter_history
 
         uncertainty = df["uncertainty"].to_list() if "uncertainty" in df.columns else []
         entropy = df["entropy"].to_list() if "entropy" in df.columns else []
@@ -115,34 +113,34 @@ class BayesianMetrics:
 
             # Calculate CRB if measurement history is provided
             if measurement_history is not None:
-                from nvision.sim.locs.nv_center.fisher_information import calculate_crb
-
-                # Extract x values from measurement history
-                if isinstance(measurement_history, pl.DataFrame):
-                    if "x" in measurement_history.columns:
-                        xs = measurement_history["x"].to_list()
-                    else:
-                        xs = []
-                elif isinstance(measurement_history, list):
-                    if measurement_history and isinstance(measurement_history[0], dict):
-                        xs = [m.get("x", m.get("frequency", 0.0)) for m in measurement_history]  # type: ignore
-                    else:
-                        xs = measurement_history  # type: ignore
-                else:
-                    xs = []
-
-                # CRB requires frequency, linewidth, and amplitude
-                required_keys = {"frequency", "linewidth", "amplitude"}
-                if xs and ground_truth and required_keys.issubset(ground_truth.keys()):
-                    try:
-                        metrics.crb_std_history = calculate_crb(
-                            xs, ground_truth, noise_model=noise_model, noise_params=noise_params
-                        )
-                    except Exception:
-                        # Fallback if CRB calc fails for other reasons
-                        pass
+                cls._calculate_and_set_crb(metrics, measurement_history, ground_truth, noise_model, noise_params)
 
         return metrics
+
+    @staticmethod
+    def _calculate_and_set_crb(metrics, measurement_history, ground_truth, noise_model, noise_params):
+        from nvision.sim.locs.nv_center.fisher_information import calculate_crb
+
+        # Extract x values from measurement history
+        if isinstance(measurement_history, pl.DataFrame):
+            xs = measurement_history["x"].to_list() if "x" in measurement_history.columns else []
+        elif isinstance(measurement_history, list):
+            if measurement_history and isinstance(measurement_history[0], dict):
+                xs = [m.get("x", m.get("frequency", 0.0)) for m in measurement_history]
+            else:
+                xs = measurement_history
+        else:
+            xs = []
+
+        # CRB requires frequency, linewidth, and amplitude
+        required_keys = {"frequency", "linewidth", "amplitude"}
+        # CRB requires frequency, linewidth, and amplitude
+        required_keys = {"frequency", "linewidth", "amplitude"}
+        if xs and ground_truth and required_keys.issubset(ground_truth.keys()):
+            with contextlib.suppress(Exception):
+                metrics.crb_std_history = calculate_crb(
+                    xs, ground_truth, noise_model=noise_model, noise_params=noise_params
+                )
 
     def to_dataframe(self) -> pl.DataFrame:
         """Export scalar metrics history to a DataFrame."""
