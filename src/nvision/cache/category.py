@@ -19,6 +19,9 @@ class CategoryCache:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.backend = SqliteCache(db_path)
 
+    def close(self):
+        self.backend.close()
+
     @staticmethod
     def _json_dumps_canonical(obj: Any) -> str:
         """Dump JSON with sorted keys for stable hashing."""

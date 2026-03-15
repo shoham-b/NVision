@@ -72,11 +72,12 @@ line-ending = "lf"
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -q --cov=nvision --cov-report=xml --cov-report=term-missing --cov-report=html"
+addopts = "-ra -q --cov=nvision --cov-report=xml --cov-report=term-missing --cov-report=html --timeout=60"
 testpaths = ["tests"]
 pythonpath = ["src"]
 filterwarnings = [
     "error::DeprecationWarning",
+    "ignore:.*is_in.*collection.*ambiguous:DeprecationWarning",
 ]
 
 [tool.setuptools]
@@ -96,6 +97,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.5",
+    "pytest-timeout>=2.3.1",
     "ruff==0.14.4",
 ]
 

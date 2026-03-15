@@ -21,13 +21,23 @@ class SqliteCache:
             self._local.conn.execute("PRAGMA synchronous=NORMAL;")
         return self._local.conn
 
+    def close(self):
+        if hasattr(self._local, "conn"):
+            self._local.conn.close()
+            del self._local.conn
+
     def _ensure_table(self):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS cache (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
+                CREATE TABLE IF NOT EXISTS cache
+                (
+                    key
+                    TEXT
+                    PRIMARY
+                    KEY,
+                    value
+                    TEXT
                 )
                 """
             )

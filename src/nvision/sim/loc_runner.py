@@ -229,7 +229,9 @@ class LocatorRunner:
             else:
                 history_df = pl.DataFrame()
 
-        est = strategy.finalize(history_df, scan)
+        repeats_df = pl.DataFrame({"repeat_id": [0], "active": [True]})
+        est_df = strategy.finalize(history_df, repeats_df, scan)
+        est = est_df.drop("repeat_id", strict=False).to_dicts()[0] if not est_df.is_empty() else {}
         duration_ms = (time.perf_counter() - start) * 1000.0
 
         # If we timed out, ensure the estimate includes this information
