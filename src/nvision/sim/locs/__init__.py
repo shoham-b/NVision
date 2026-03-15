@@ -84,7 +84,10 @@ def run_locator(  # noqa: C901
 
             # Check stop condition
             stop_decisions = locator.should_stop(history_df, repeats_df, scan)
-            if not stop_decisions.is_empty() and stop_decisions.get_column("stop")[0]:
+            if isinstance(stop_decisions, bool):
+                if stop_decisions:
+                    break
+            elif not stop_decisions.is_empty() and stop_decisions.get_column("stop")[0]:
                 break
 
             # Propose next measurement
