@@ -76,20 +76,6 @@ class AnalyticalBayesianLocator(NVCenterSequentialBayesianLocator):
         scan: ScanBatch | None = None,
         repeats: pl.DataFrame | None = None,
     ) -> float | pl.DataFrame:
-        # Handle batched/argument swapping logic (copied from base)
-        if isinstance(scan, pl.DataFrame) and repeats is not None and not isinstance(repeats, pl.DataFrame):
-            real_repeats = scan
-            real_scan = repeats
-            scan = real_scan
-            repeats = real_repeats
-        elif isinstance(repeats, ScanBatch) and scan is None:
-            pass
-
-        if repeats is not None:
-            # Batched interface not fully implemented for this custom locator yet
-            # Fallback to super's behavior (which might use adapter or fail)
-            return super().propose_next(history, scan, repeats)
-
         if not isinstance(history, pl.DataFrame):
             history = pl.DataFrame(history) if history else pl.DataFrame()
 

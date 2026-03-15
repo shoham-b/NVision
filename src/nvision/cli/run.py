@@ -4,37 +4,21 @@ import json
 import logging
 import queue
 import shutil
-import threading
 from logging.handlers import QueueListener
 from pathlib import Path
 from typing import Annotated
 
 import polars as pl
 import typer
-from rich.console import Console, Group
-from rich.live import Live
+from rich.console import Console
 from rich.logging import RichHandler
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
 
 from nvision.cli.main import app
+from nvision.cli.monitor import ProgressMonitor
 from nvision.cli.runner import _run_combination
-from nvision.cli.types import DotsColumn
-from nvision.cli.utils import (
-    _get_generator_category,
-    _load_duration_estimates,
-    _locator_strategies_for_generator,
-    _noise_presets,
-)
-from nvision.core.paths import ensure_out_dir, slugify
-from nvision.core.types import LocatorTask
+from nvision.cli.tasks import build_tasks
+from nvision.core.paths import ensure_out_dir
 from nvision.gui.report import compile_html_index
-from nvision.sim import cases as sim_cases
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
@@ -165,122 +149,34 @@ def run(  # noqa: C901
 
     log.debug("Starting simulations...")
 
-    generator_map = dict(sim_cases.generators_basic())
-    noise_map = dict(_noise_presets())
-
-    tasks: list[LocatorTask] = []
-    seen_configs: set[tuple[str, str, str]] = set()
-    used_slugs: set[str] = set()
-
     progress_queue = queue.Queue()
+    monitor = ProgressMonitor(console, progress_queue)
 
-    main_progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeRemainingColumn(),
+    tasks, _ = build_tasks(
+        repeats=repeats,
+        seed=seed,
+        out_dir=out_dir,
+        scans_dir=scans_dir,
+        bayes_dir=bayes_dir,
+        cache_dir=cache_dir,
+        log_queue=log_queue,
+        progress_queue=progress_queue,
+        log_level_value=log_level_value,
+        loc_max_steps=loc_max_steps,
+        loc_timeout_s=loc_timeout_s,
+        no_cache=no_cache,
+        ignore_cache_strategy=ignore_cache_strategy,
+        require_cache=require_cache,
+        filter_category=filter_category,
+        filter_strategy=filter_strategy,
+        monitor=monitor,
     )
 
-    sub_progress = Progress(
-        TextColumn("{task.description}"),
-        DotsColumn(),
-    )
+    plot_manifest: list[dict[str, object]] = []
+    df_rows: list[dict] = []
+    errors: list[Exception] = []
 
-    progress_group = Group(main_progress, sub_progress)
-
-    with Live(progress_group, console=console, refresh_per_second=10):
-        duration_estimates = _load_duration_estimates(out_dir)
-        tid_to_weight = {}
-
-        main_task_id = main_progress.add_task("[cyan]Total Progress", total=0)
-        total_weighted_repeats = 0.0
-
-        for gen_name, gen_obj in generator_map.items():
-            if filter_category and _get_generator_category(gen_name) != filter_category:
-                continue
-
-            for strat_name, strat_obj in _locator_strategies_for_generator(gen_name):
-                if filter_strategy and filter_strategy not in strat_name:
-                    continue
-
-                for noise_name, noise_obj in noise_map.items():
-                    config_key = (gen_name, noise_name, strat_name)
-                    if config_key in seen_configs:
-                        continue
-                    seen_configs.add(config_key)
-
-                    slug_base = "_".join(slugify(part) for part in (gen_name, noise_name, strat_name))
-                    slug_candidate = slug_base
-                    suffix = 1
-                    while slug_candidate in used_slugs:
-                        suffix += 1
-                        slug_candidate = f"{slug_base}-{suffix}"
-                    used_slugs.add(slug_candidate)
-                    used_slugs.add(slug_candidate)
-
-                    desc = f"[cyan]{gen_name}/{noise_name}/{strat_name}[/cyan]"
-                    task_id = sub_progress.add_task(desc, total=repeats)
-
-                    est_duration = duration_estimates.get((gen_name, noise_name, strat_name), 1000.0)
-                    tid_to_weight[task_id] = est_duration
-                    total_weighted_repeats += repeats * est_duration
-
-                    tasks.append(
-                        LocatorTask(
-                            generator_name=gen_name,
-                            generator=gen_obj,
-                            noise_name=noise_name,
-                            noise=noise_obj,
-                            strategy_name=strat_name,
-                            strategy=strat_obj,
-                            repeats=repeats,
-                            seed=seed,
-                            slug=slug_candidate,
-                            out_dir=out_dir,
-                            scans_dir=scans_dir,
-                            bayes_dir=bayes_dir,
-                            loc_max_steps=loc_max_steps,
-                            loc_timeout_s=loc_timeout_s,
-                            use_cache=not no_cache,
-                            cache_dir=cache_dir,
-                            log_queue=log_queue,
-                            log_level=log_level_value,
-                            ignore_cache_strategy=ignore_cache_strategy,
-                            require_cache=require_cache,
-                            progress_queue=progress_queue,
-                            task_id=task_id,
-                        )
-                    )
-
-        main_progress.update(main_task_id, total=total_weighted_repeats)
-
-        plot_manifest: list[dict[str, object]] = []
-        df_rows: list[dict] = []
-
-        def monitor_progress():
-            completed_weighted = 0.0
-            while True:
-                item = progress_queue.get()
-                if item is None:
-                    break
-                tid, advance = item
-                sub_progress.update(tid, advance=advance)
-
-                weight = tid_to_weight.get(tid, 1000.0)
-                completed_weighted += advance * weight
-                main_progress.update(main_task_id, completed=completed_weighted)
-
-                for task in sub_progress.tasks:
-                    if task.id == tid and task.completed >= task.total:
-                        sub_progress.remove_task(tid)
-                        break
-
-        monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
-        monitor_thread.start()
-
-        errors: list[Exception] = []
-
+    with monitor:
         for locator_task in tasks:
             try:
                 results_for_combination = _run_combination(locator_task)
@@ -294,14 +190,11 @@ def run(  # noqa: C901
                     log.error("Too many errors (>5), terminating...")
                     break
 
-        if errors:
-            console.print("\n[bold red]Errors occurred during execution:[/bold red]")
-            for i, err in enumerate(errors, 1):
-                console.print(f"{i}. {err}")
-            raise typer.Exit(code=1)
-
-        progress_queue.put(None)
-        monitor_thread.join()
+    if errors:
+        console.print("\n[bold red]Errors occurred during execution:[/bold red]")
+        for i, err in enumerate(errors, 1):
+            console.print(f"{i}. {err}")
+        raise typer.Exit(code=1)
 
     listener.stop()
 
