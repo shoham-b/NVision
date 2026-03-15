@@ -582,4 +582,5 @@ def _run_combination(task: LocatorTask):  # noqa: C901
 
         cache.save_cached_results(combo_cfg, full_results_with_content)
 
+    bridge.close()
     return all_results_for_combination

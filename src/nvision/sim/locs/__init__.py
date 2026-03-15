@@ -7,7 +7,6 @@ import time
 import polars as pl
 
 from nvision.sim.core import OverFrequencyNoise, OverProbeNoise
-
 from .base import Locator, ScanBatch
 from .nv_center import (
     AnalyticalBayesianLocator,
@@ -122,8 +121,8 @@ def run_locator(  # noqa: C901
     if not history_rows:
         return pl.DataFrame()
 
-    # Return history without repeat_id for backward compatibility
-    result_df = pl.DataFrame(history_rows).drop("repeat_id")
+    # Return history with repeat_id for batched interface compatibility
+    result_df = pl.DataFrame(history_rows)
     return result_df
 
 

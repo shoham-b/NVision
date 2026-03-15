@@ -7,7 +7,6 @@ import numpy as np
 from scipy.special import logsumexp
 
 from nvision.sim.locs.nv_center._jit_classes import Bayesian2DState
-
 from .sequential_bayesian_locator import (
     NVCenterSequentialBayesianLocator,
 )

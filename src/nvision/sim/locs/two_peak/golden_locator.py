@@ -7,6 +7,7 @@ import numpy as np
 import polars as pl
 
 from nvision.sim.locs.base import Locator, ScanBatch
+from .utils import find_two_peaks
 
 
 @dataclass
@@ -87,6 +88,7 @@ class TwoPeakGoldenLocator(Locator):
         return result
 
     def finalize(self, history: pl.DataFrame, repeats: pl.DataFrame, scan: ScanBatch) -> pl.DataFrame:
+        """Finalize and return estimated peak positions for two-peak golden locator."""
         base = repeats.select("repeat_id")
         if history.is_empty():
             return base.with_columns(
@@ -99,63 +101,8 @@ class TwoPeakGoldenLocator(Locator):
                 pl.lit(0).alias("measurements"),
             )
 
-        def _find_two_peaks(repeat_id: int) -> dict:
-            repeat_history = history.filter(pl.col("repeat_id") == repeat_id)
-            if repeat_history.is_empty():
-                return {
-                    "repeat_id": repeat_id,
-                    "x1_hat": math.nan,
-                    "x2_hat": math.nan,
-                    "uncert": math.inf,
-                    "uncert_pos": math.inf,
-                    "uncert_sep": math.inf,
-                    "measurements": 0,
-                }
-
-            sorted_history = repeat_history.sort("signal_values", descending=True)
-            picks: list[float] = []
-            for x in sorted_history["x"]:
-                if not picks or all(abs(x - p) > 1e-9 for p in picks):
-                    picks.append(x)
-                if len(picks) == 2:
-                    break
-
-            picks.sort()
-            if len(picks) == 0:
-                return {
-                    "repeat_id": repeat_id,
-                    "x1_hat": math.nan,
-                    "x2_hat": math.nan,
-                    "uncert": math.inf,
-                    "uncert_pos": math.inf,
-                    "uncert_sep": math.inf,
-                    "measurements": repeat_history.height,
-                }
-            if len(picks) == 1:
-                return {
-                    "repeat_id": repeat_id,
-                    "x1_hat": float(picks[0]),
-                    "x2_hat": float(picks[0]),
-                    "uncert": 0.0,
-                    "uncert_pos": 0.0,
-                    "uncert_sep": 0.0,
-                    "measurements": repeat_history.height,
-                }
-
-            dist = abs(picks[1] - picks[0])
-            return {
-                "repeat_id": repeat_id,
-                "x1_hat": float(picks[0]),
-                "x2_hat": float(picks[1]),
-                "uncert": float(0.5 * dist),
-                "uncert_pos": float(0.5 * dist),
-                "uncert_sep": float(0.5 * dist),
-                "measurements": repeat_history.height,
-            }
-
-        results = [_find_two_peaks(rid) for rid in base.get_column("repeat_id")]
+        results = [find_two_peaks(history, rid, 1e-9) for rid in base.get_column("repeat_id")]
         results_df = pl.DataFrame(results)
-
         final = base.join(results_df, on="repeat_id", how="left").with_columns(pl.lit(2.0).alias("n_peaks"))
         return final.select(
             "repeat_id",
