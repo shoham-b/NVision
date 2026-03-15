@@ -16,10 +16,13 @@ import numpy as np
 import polars as pl
 
 from nvision.sim.locs.base import Locator, ScanBatch
-from nvision.sim.locs.nv_center._adapter_helpers import build_adapter_kwargs
 from nvision.sim.locs.nv_center._bayesian_plotting import (
     plot_bo as _plot_bo,
+)
+from nvision.sim.locs.nv_center._bayesian_plotting import (
     plot_convergence_stats as _plot_convergence_stats,
+)
+from nvision.sim.locs.nv_center._bayesian_plotting import (
     plot_posterior_history as _plot_posterior_history,
 )
 from nvision.sim.locs.nv_center._jit_kernels import _update_posterior_math
@@ -288,14 +291,6 @@ class NVCenterBayesianLocatorBase(Locator):
         elif isinstance(repeats, ScanBatch) and scan is None:
             pass
 
-        if repeats is not None:
-            from nvision.sim.locs.nv_center._bayesian_adapter import (
-                NVCenterSequentialBayesianLocatorBatched,
-            )
-
-            adapter = NVCenterSequentialBayesianLocatorBatched(**build_adapter_kwargs(self))
-            return adapter.propose_next(history, repeats, scan)
-
         # Original single-value interface
         if not isinstance(history, pl.DataFrame):
             history = pl.DataFrame(history)
@@ -333,14 +328,6 @@ class NVCenterBayesianLocatorBase(Locator):
         if isinstance(repeats, ScanBatch) and scan is None:
             scan = repeats
             repeats = None
-
-        if repeats is not None:
-            from nvision.sim.locs.nv_center._bayesian_adapter import (
-                NVCenterSequentialBayesianLocatorBatched,
-            )
-
-            adapter = NVCenterSequentialBayesianLocatorBatched(**build_adapter_kwargs(self))
-            return adapter.should_stop(history, repeats, scan)
 
         if scan is None:
             raise ValueError("scan must be provided")
@@ -387,14 +374,6 @@ class NVCenterBayesianLocatorBase(Locator):
         if isinstance(repeats, ScanBatch) and scan is None:
             scan = repeats
             repeats = None
-
-        if repeats is not None:
-            from nvision.sim.locs.nv_center._bayesian_adapter import (
-                NVCenterSequentialBayesianLocatorBatched,
-            )
-
-            adapter = NVCenterSequentialBayesianLocatorBatched(**build_adapter_kwargs(self))
-            return adapter.finalize(history, repeats, scan)
 
         if scan is None:
             raise ValueError("scan must be provided")
