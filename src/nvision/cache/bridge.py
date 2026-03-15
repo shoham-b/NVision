@@ -20,3 +20,7 @@ class CacheBridge:
 
     def make_key(self, config: dict) -> str:
         return CategoryCache.make_key(config)
+
+    def close(self):
+        self.nv_center.close()
+        self.complementary.close()

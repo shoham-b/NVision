@@ -4,7 +4,6 @@ import tempfile
 import polars as pl
 
 from nvision.sim.gen import (
-    GaussianManufacturer,
     NVCenterGenerator,
 )
 from nvision.sim.loc_runner import LocatorRunner
@@ -26,8 +25,7 @@ def test_basic_run_no_artifacts():
             runner = LocatorRunner(rng_seed=rng_seed)
 
             gen_name = "NVCenter"
-            # Assuming GaussianManufacturer is separate or defaults are fine
-            gen = NVCenterGenerator(manufacturer=GaussianManufacturer(), variant="zeeman")
+            gen = NVCenterGenerator(variant="zeeman")
 
             noise_name = "NoNoise"
             noise = None
@@ -36,7 +34,7 @@ def test_basic_run_no_artifacts():
 
             # Using Batched Locator
             strat = NVCenterSequentialBayesianLocatorBatched(
-                max_evals=10
+                max_evals=20
             )  # Max evals higher than steps to test limiting by step count
 
             # Run sweep

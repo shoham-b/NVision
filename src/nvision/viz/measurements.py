@@ -167,5 +167,5 @@ class MeasurementsMixin:
 
         fig.update_layout(**layout_args)
 
-        fig.write_html(out_path.as_posix(), include_plotlyjs="inline")
+        fig.write_html(out_path.as_posix(), include_plotlyjs="cdn")
         return out_path

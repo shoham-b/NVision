@@ -22,7 +22,6 @@ from nvision.sim.noises import (
     OverFrequencyOutlierSpikes,
     OverProbeDriftNoise,
 )
-from tests.locator_compat import LegacyLocatorShim
 
 
 def test_locator_sweep_dataframe_shape():
@@ -57,19 +56,19 @@ def test_locator_sweep_dataframe_shape():
         ),
     ]
     strategies = [
-        ("OnePeak-Grid", LegacyLocatorShim(OnePeakGridLocator(n_points=21))),
+        ("OnePeak-Grid", OnePeakGridLocator(n_points=21)),
         (
             "OnePeak-Sweep",
-            LegacyLocatorShim(OnePeakSweepLocator(coarse_points=20, refine_points=10)),
+            OnePeakSweepLocator(coarse_points=20, refine_points=10),
         ),
-        ("TwoPeak-Grid", LegacyLocatorShim(TwoPeakGridLocator(coarse_points=25))),
+        ("TwoPeak-Grid", TwoPeakGridLocator(coarse_points=25)),
         (
             "TwoPeak-Sweep",
-            LegacyLocatorShim(TwoPeakSweepLocator(coarse_points=25, refine_points=10)),
+            TwoPeakSweepLocator(coarse_points=25, refine_points=10),
         ),
         (
             "NVCenter-Sweep",
-            LegacyLocatorShim(NVCenterSweepLocator(coarse_points=30, refine_points=10)),
+            NVCenterSweepLocator(coarse_points=30, refine_points=10),
         ),
     ]
 
@@ -90,7 +89,7 @@ def test_gridscan_converges_noiseless_single_peak_reasonable_error():
     gen = OnePeakGenerator(manufacturer=GaussianManufacturer())
     df = runner.sweep(
         generators=[("OnePeak", gen)],
-        strategies=[("OnePeak-Grid", LegacyLocatorShim(OnePeakGridLocator(n_points=21)))],
+        strategies=[("OnePeak-Grid", OnePeakGridLocator(n_points=21))],
         noises=[("NoNoise", None)],
         repeats=3,
         max_steps=100,
