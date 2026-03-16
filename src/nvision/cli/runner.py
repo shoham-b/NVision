@@ -9,7 +9,7 @@ from nvision.cli.metrics_exporter import generate_attempt_metrics
 from nvision.cli.plot_exporter import generate_attempt_plots
 from nvision.cli.sim_runner import run_simulation_batch
 from nvision.cli.utils import _get_generator_category
-from nvision.core.types import LocatorTask
+from nvision.core.structures import LocatorTask
 from nvision.viz import Viz
 
 
