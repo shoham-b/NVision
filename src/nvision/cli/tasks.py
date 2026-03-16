@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import queue
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from nvision.cli.utils import (
     _get_generator_category,

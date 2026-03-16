@@ -17,6 +17,7 @@ from nvision.cli.main import app
 from nvision.cli.monitor import ProgressMonitor
 from nvision.cli.runner import _run_combination
 from nvision.cli.tasks import build_tasks
+from nvision.core.paths import ARTIFACTS_ROOT  # Assuming PROJECT_ROOT is defined in core.paths
 from nvision.core.paths import ensure_out_dir
 from nvision.gui.report import compile_html_index
 from nvision.viz import Viz
@@ -27,7 +28,7 @@ console = Console()
 
 @app.command()
 def run(  # noqa: C901
-    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = ARTIFACTS_ROOT,
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 1,
     seed: Annotated[int, typer.Option("--seed", help="RNG seed (int)")] = 123,
     loc_max_steps: Annotated[
@@ -105,7 +106,7 @@ def run(  # noqa: C901
 
         suppress_list.append(numba)
     except ImportError:
-        pass
+        pass  # Do not append numba if it is not available
 
     suppress_list.extend([])
 

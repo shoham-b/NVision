@@ -24,6 +24,22 @@ from nvision.sim import (
 )
 
 
+def find_project_root() -> Path:
+    """Find the project root by searching upwards for a .git directory or pyproject.toml."""
+    start_path = Path(__file__).parent
+    current = start_path.resolve()
+    while not (current / ".git").exists() and not (current / "pyproject.toml").exists():
+        if current.parent == current:
+            # Reached the filesystem root, fallback to the script's directory parent.
+            # This is a reasonable fallback for when the package is installed.
+            return start_path
+        current = current.parent
+    return current
+
+
+PROJECT_ROOT = find_project_root()
+
+
 def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
     """Return the predefined noise combinations for scenarios."""
     return sim_cases.noises_none() + sim_cases.noises_single_each() + sim_cases.noises_complex()
