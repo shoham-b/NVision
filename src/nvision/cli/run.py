@@ -28,7 +28,7 @@ console = Console()
 @app.command()
 def run(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
-    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
+    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 1,
     seed: Annotated[int, typer.Option("--seed", help="RNG seed (int)")] = 123,
     loc_max_steps: Annotated[
         int,
