@@ -2,6 +2,6 @@ from __future__ import annotations
 
 from nvision.cache.bridge import CacheBridge
 from nvision.cache.category import CategoryCache
-from nvision.cache.sqlite import SqliteCache
+from nvision.cache.sqlite import ShardedSqliteCache, SqliteCache
 
-__all__ = ["CacheBridge", "CategoryCache", "SqliteCache"]
+__all__ = ["CacheBridge", "CategoryCache", "SqliteCache", "ShardedSqliteCache"]

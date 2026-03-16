@@ -8,7 +8,7 @@ from typing import Any
 
 import polars as pl
 
-from nvision.cache.sqlite import SqliteCache
+from nvision.cache.sqlite import ShardedSqliteCache
 
 
 class CategoryCache:
@@ -17,7 +17,7 @@ class CategoryCache:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.backend = SqliteCache(db_path)
+        self.backend = ShardedSqliteCache(db_path)
 
     def close(self):
         self.backend.close()
