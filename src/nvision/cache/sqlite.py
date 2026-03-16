@@ -92,12 +92,18 @@ class ShardedSqliteCache:
     """
 
     _INDEX_SCHEMA = """
-        CREATE TABLE IF NOT EXISTS cache_index
-        (
-            key TEXT PRIMARY KEY,
-            shard_id INTEGER NOT NULL
-        );
-    """
+                    CREATE TABLE IF NOT EXISTS cache_index
+                    (
+                        key
+                        TEXT
+                        PRIMARY
+                        KEY,
+                        shard_id
+                        INTEGER
+                        NOT
+                        NULL
+                    ); \
+                    """
 
     def __init__(
         self,
@@ -149,8 +155,12 @@ class ShardedSqliteCache:
             """
             CREATE TABLE IF NOT EXISTS cache
             (
-                key TEXT PRIMARY KEY,
-                value TEXT
+                key
+                TEXT
+                PRIMARY
+                KEY,
+                value
+                TEXT
             )
             """
         )
