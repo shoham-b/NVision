@@ -14,8 +14,8 @@ from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from nvision.cache import CacheBridge
-from nvision.cli.main import app
 from nvision.cli.cache_helpers import restore_graphs
+from nvision.cli.main import app
 from nvision.cli.utils import (
     _get_generator_category,
     _locator_strategies_for_generator,
