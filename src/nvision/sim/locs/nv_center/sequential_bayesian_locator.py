@@ -82,20 +82,26 @@ class NVCenterSequentialBayesianLocator(NVCenterBayesianLocatorBase):
             rates = np.maximum(expected_signals, 0.1)
             simulated_intensities = np.random.poisson(rates)
 
-        sim_measurement = {"x": test_frequency, "signal_values": simulated_intensities}
+        # `calculate_log_likelihoods_grid` expects scalar `signal_values`, but here we
+        # have a Monte Carlo ensemble. Use the mean intensity to construct a single
+        # representative measurement for the EIG calculation.
+        sim_measurement = {
+            "x": float(test_frequency),
+            "signal_values": float(np.mean(simulated_intensities)),
+        }
 
         base_params = {k: v for k, v in self.current_estimates.items() if k != "frequency"}
-        log_likelihoods = self._calculate_log_likelihoods(
-            sim_measurement, base_params
-        )  # Shape: (n_samples, grid_resolution)
+        log_likelihoods = self._calculate_log_likelihoods(sim_measurement, base_params)
 
-        # Vectorized posterior update and entropy calculation
-        log_posteriors = np.log(self.freq_posterior + 1e-300) + log_likelihoods
-        log_posteriors -= logsumexp(log_posteriors, axis=1, keepdims=True)
-        temp_posteriors = np.exp(log_posteriors)
+        # Posterior update and entropy calculation.
+        # For this fallback path, `_calculate_log_likelihoods` returns a 1D array
+        # over the frequency grid. We treat this as a single Monte Carlo sample.
+        log_post = np.log(self.freq_posterior + 1e-300) + log_likelihoods
+        log_post -= logsumexp(log_post)
+        post = np.exp(log_post)
 
-        entropies = -np.sum(temp_posteriors * np.log(temp_posteriors + 1e-300), axis=1)
-        expected_entropy = np.mean(entropies)
+        entropy = -np.sum(post * np.log(post + 1e-300))
+        expected_entropy = float(entropy)
 
         info_gain = current_entropy - expected_entropy
         return max(info_gain, 0.0)
@@ -104,24 +110,15 @@ class NVCenterSequentialBayesianLocator(NVCenterBayesianLocatorBase):
         domain_low, domain_high = domain
 
         def negative_utility(freq: float) -> float:
-            try:
-                return -self.expected_information_gain(freq)
-            except Exception as e:
-                warnings.warn(f"Error in utility calculation: {e}", stacklevel=2)
-                return 0.0
+            return -self.expected_information_gain(freq)
 
-        try:
-            result = minimize_scalar(
-                negative_utility,
-                bounds=(domain_low, domain_high),
-                method="bounded",
-                options={"maxiter": 100},
-            )
-            optimal_freq = result.x
-            utility = -result.fun
-        except Exception as e:
-            warnings.warn(f"Optimization failed: {e}, using fallback strategy", stacklevel=2)
-            optimal_freq = self.current_estimates["frequency"]
-            utility = 0.0
+        result = minimize_scalar(
+            negative_utility,
+            bounds=(domain_low, domain_high),
+            method="bounded",
+            options={"maxiter": 100},
+        )
+        optimal_freq = result.x
+        utility = -result.fun
 
         return optimal_freq, utility
