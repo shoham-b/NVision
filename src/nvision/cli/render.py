@@ -15,7 +15,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from nvision.cache import CacheBridge
 from nvision.cli.main import app
-from nvision.cli.runner import _restore_graphs
+from nvision.cli.cache_helpers import restore_graphs
 from nvision.cli.utils import (
     _get_generator_category,
     _locator_strategies_for_generator,
@@ -82,7 +82,7 @@ def _collect_cache_results(
                 if cached_results:
                     log.debug(f"Cache hit for {gen_name}/{noise_name}/{strat_name}")
                     # Restore graphs
-                    _restore_graphs(cached_results, out_dir, log)
+                    restore_graphs(cached_results, out_dir, log)
 
                     # Collect results
                     for entries, main_result_row in cached_results:
