@@ -10,8 +10,6 @@ dependencies = [
     "matplotlib>=3.7",
     "diskcache>=5.6",
     "scipy>=1.16.3",
-    "pandas>=2.3.3",
-    "pandas-stubs~=2.3.3",
     "plotly>=6.4.0",
     "pytest-cov>=7.0.0",
     "scipy-stubs==1.16.3.0",
