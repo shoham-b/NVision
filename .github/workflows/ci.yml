@@ -181,48 +181,46 @@ jobs:
             htmlcov
           if-no-files-found: warn
 
-  build-index:
-    name: Build NVision index artifact
+  build-static-site:
+    name: Build static site artifact
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: coverage-aggregate
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Restore cached rendered artifacts
+        uses: actions/cache/restore@v4
         with:
-          python-version: "3.12"
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
-      - name: Cache uv
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/uv
-            ~\AppData\Local\uv\Cache
-          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
-      - name: Install dependencies
+          path: artifacts
+          key: nvision-rendered-artifacts-${{ runner.os }}-${{ github.ref_name }}
+          restore-keys: |
+            nvision-rendered-artifacts-${{ runner.os }}-
+      - name: Verify static site entrypoint
+        shell: bash
         run: |
-          uv sync --group dev
-      - name: Generate NVision artifacts
+          test -f static/index.html
+          test -f static/app.js
+          test -f static/styles.css
+      - name: Assemble deployable site
+        shell: bash
         run: |
-          uv run python -m nvision render --out artifacts --loc-max-steps 80
-      - name: Upload NVision index artifact
+          rm -rf site
+          mkdir -p site/static
+          cp -R static/. site/static/
+          if [ -f artifacts/manifest.js ]; then cp artifacts/manifest.js site/static/manifest.js; fi
+          if [ -f artifacts/settings.js ]; then cp artifacts/settings.js site/static/settings.js; fi
+          if [ -f artifacts/locator_results.csv ]; then cp artifacts/locator_results.csv site/static/locator_results.csv; fi
+          if [ -d artifacts/graphs ]; then cp -R artifacts/graphs site/static/graphs; fi
+      - name: Upload static site artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nvision-index
+          name: nvision-static-site
           path: |
-            artifacts/index.html
-            artifacts/locator_results.csv
-            artifacts/graphs
-            artifacts/plots_manifest.json
+            site/static
           if-no-files-found: error
 
   deploy:
     name: Deploy to GitHub Pages
-    needs: build-index
+    needs: build-static-site
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -230,17 +228,17 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Download NVision index artifact
+      - name: Download static site artifact
         uses: actions/download-artifact@v4
         with:
-          name: nvision-index
+          name: nvision-static-site
           path: site
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'site'
+          path: 'site/static'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
