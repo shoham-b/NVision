@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-import pandas as pd
+import polars as pl
 
 
 @dataclass
@@ -28,29 +28,29 @@ class Locator(ABC):
     """
 
     @abstractmethod
-    def next(self, history: pd.DataFrame) -> float:
+    def next(self, history: pl.DataFrame) -> float:
         """Propose next measurement point.
 
         Parameters
         ----------
-        history : pd.DataFrame
+        history : pl.DataFrame
             DataFrame with columns ['x', 'signal_value'] containing all past
             measurements for this repeat. Empty on first call.
 
         Returns
         -------
         float
-            Next x position to measure
+            Next x position to measure (normalized to [0, 1])
         """
         pass
 
     @abstractmethod
-    def done(self, history: pd.DataFrame) -> bool:
+    def done(self, history: pl.DataFrame) -> bool:
         """Check if this repeat is complete.
 
         Parameters
         ----------
-        history : pd.DataFrame
+        history : pl.DataFrame
             DataFrame with columns ['x', 'signal_value'] containing all past
             measurements for this repeat.
 
@@ -62,18 +62,19 @@ class Locator(ABC):
         pass
 
     @abstractmethod
-    def result(self, history: pd.DataFrame) -> dict[str, float]:
+    def result(self, history: pl.DataFrame) -> dict[str, float]:
         """Extract final results from completed repeat.
 
         Parameters
         ----------
-        history : pd.DataFrame
+        history : pl.DataFrame
             DataFrame with columns ['x', 'signal_value'] containing all
             measurements for this repeat.
 
         Returns
         -------
         dict[str, float]
-            Final estimates (e.g., {'peak_x': 2.87, 'peak_signal': 0.95})
+            Final estimates (e.g., {'peak_x': 0.5, 'peak_signal': 0.95})
+            Note: peak_x should be in normalized [0, 1] space
         """
         pass

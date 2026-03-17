@@ -26,23 +26,15 @@ from .gen import (
     OnePeakGenerator,
     TwoPeakGenerator,
 )
-from .loc_runner import LocatorRunner
+from .runner_v2 import LocatorRunnerV2
 
-# Locators layer
+# Locators layer (v2 only)
 from .locs import (
-    AnalyticalBayesianLocator,
     Locator,
-    NVCenterSequentialBayesianLocator,
-    NVCenterSweepLocator,
-    OnePeakGoldenLocator,
-    OnePeakGridLocator,
-    OnePeakSweepLocator,
-    ProjectBayesianLocator,
+    NVCenterSweepLocatorV2,
+    Observation,
+    Runner,
     ScanBatch,
-    TwoPeakGoldenLocator,
-    TwoPeakGridLocator,
-    TwoPeakSweepLocator,
-    run_locator,
 )
 
 # Noise implementations: export concrete full class names (no short aliases)
@@ -55,7 +47,6 @@ from .noises import (
 )
 
 __all__ = [
-    "AnalyticalBayesianLocator",
     "CompositeNoise",
     "CompositeOverFrequencyNoise",
     "CompositeOverProbeNoise",
@@ -64,16 +55,13 @@ __all__ = [
     "ExponentialDecayManufacturer",
     "GaussianManufacturer",
     "Locator",
-    "LocatorRunner",
+    "LocatorRunnerV2",
     "MeasurementStrategy",
     "MultiPeakGenerator",
     "NVCenterGenerator",
-    "NVCenterSequentialBayesianLocator",
-    "NVCenterSweepLocator",
+    "NVCenterSweepLocatorV2",
+    "Observation",
     "OnePeakGenerator",
-    "OnePeakGoldenLocator",
-    "OnePeakGridLocator",
-    "OnePeakSweepLocator",
     "OverFrequencyGaussianNoise",
     "OverFrequencyNoise",
     "OverFrequencyOutlierSpikes",
@@ -81,11 +69,7 @@ __all__ = [
     "OverProbeDriftNoise",
     "OverProbeNoise",
     "OverProbeRandomWalkNoise",
-    "ProjectBayesianLocator",
+    "Runner",
     "ScanBatch",
     "TwoPeakGenerator",
-    "TwoPeakGoldenLocator",
-    "TwoPeakGridLocator",
-    "TwoPeakSweepLocator",
-    "run_locator",
 ]

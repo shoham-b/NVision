@@ -13,10 +13,9 @@ from nvision.sim.gen import (
     OnePeakGenerator,
     TwoPeakGenerator,
 )
-from nvision.sim.loc_runner import LocatorRunner
-from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
-from nvision.sim.locs.one_peak import OnePeakGridLocator, OnePeakSweepLocator
-from nvision.sim.locs.two_peak import TwoPeakGridLocator, TwoPeakSweepLocator
+from nvision.sim.runner_v2 import LocatorRunnerV2
+from nvision.sim.locs.nv_center.sweep_locator_v2 import NVCenterSweepLocatorV2
+from nvision.sim.locs.v2.simple import GridMaxLocator
 from nvision.sim.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
@@ -26,7 +25,7 @@ from nvision.sim.noises import (
 
 def test_locator_sweep_dataframe_shape():
     rng_seed = 123
-    runner = LocatorRunner(rng_seed=rng_seed)
+    runner = LocatorRunnerV2(rng_seed=rng_seed)
 
     generators = [
         ("OnePeak", OnePeakGenerator(manufacturer=GaussianManufacturer())),
@@ -56,19 +55,10 @@ def test_locator_sweep_dataframe_shape():
         ),
     ]
     strategies = [
-        ("OnePeak-Grid", OnePeakGridLocator(n_points=21)),
+        ("Grid-V2", GridMaxLocator(n_points=21)),
         (
-            "OnePeak-Sweep",
-            OnePeakSweepLocator(coarse_points=20, refine_points=10),
-        ),
-        ("TwoPeak-Grid", TwoPeakGridLocator(coarse_points=25)),
-        (
-            "TwoPeak-Sweep",
-            TwoPeakSweepLocator(coarse_points=25, refine_points=10),
-        ),
-        (
-            "NVCenter-Sweep",
-            NVCenterSweepLocator(coarse_points=30, refine_points=10),
+            "NVCenter-Sweep-V2",
+            NVCenterSweepLocatorV2(coarse_points=30, refine_points=10),
         ),
     ]
 
@@ -85,11 +75,11 @@ def test_locator_sweep_dataframe_shape():
 
 def test_gridscan_converges_noiseless_single_peak_reasonable_error():
     rng_seed = 7
-    runner = LocatorRunner(rng_seed=rng_seed)
+    runner = LocatorRunnerV2(rng_seed=rng_seed)
     gen = OnePeakGenerator(manufacturer=GaussianManufacturer())
     df = runner.sweep(
         generators=[("OnePeak", gen)],
-        strategies=[("OnePeak-Grid", OnePeakGridLocator(n_points=21))],
+        strategies=[("Grid-V2", GridMaxLocator(n_points=21))],
         noises=[("NoNoise", None)],
         repeats=3,
         max_steps=100,

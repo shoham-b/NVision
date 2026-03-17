@@ -2,13 +2,13 @@
 
 This module provides a clean, stateless interface for locators where:
 - Locators are fully stateless and reusable across repeats
-- History is the only state, passed as pandas DataFrame
+- History is the only state, passed as a Polars DataFrame
 - Runner owns the loop with no locator-specific logic
 """
 
-from nvision.sim.locs.v2.adapter import V2LocatorAdapter
 from nvision.sim.locs.v2.base import Locator, Observation
 from nvision.sim.locs.v2.experiment import Experiment
 from nvision.sim.locs.v2.runner import Runner
+from nvision.sim.locs.v2.simple import GridMaxLocator
 
-__all__ = ["Locator", "Observation", "Experiment", "Runner", "V2LocatorAdapter"]
+__all__ = ["Experiment", "GridMaxLocator", "Locator", "Observation", "Runner"]

@@ -9,7 +9,7 @@ import polars as pl
 
 if TYPE_CHECKING:
     from .locs import ScanBatch
-    from .locs.base import Locator
+    from .locs import Locator
 
 
 @dataclass(slots=True, init=False)

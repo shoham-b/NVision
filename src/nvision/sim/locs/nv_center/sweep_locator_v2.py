@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from nvision.sim.locs.v2.base import Locator
 
@@ -27,7 +27,7 @@ class NVCenterSweepLocatorV2(Locator):
     refine_points: int = 10
     min_separation_frac: float = 0.03
 
-    def next(self, history: pd.DataFrame) -> float:
+    def next(self, history: pl.DataFrame) -> float:
         """Propose next measurement point based on history.
 
         Parameters
@@ -40,15 +40,15 @@ class NVCenterSweepLocatorV2(Locator):
         float
             Next position to measure (in range [0, 1])
         """
-        n = len(history)
+        n = history.height
 
         if n < self.coarse_points:
             # Coarse scan phase: uniform grid from 0 to 1
             return float(np.linspace(0, 1, self.coarse_points)[n])
 
         # Refinement phase: focus around detected peaks
-        x_vals = history["x"].to_numpy()
-        y_vals = history["signal_value"].to_numpy()
+        x_vals = history.get_column("x").to_numpy()
+        y_vals = history.get_column("signal_value").to_numpy()
 
         peaks = self._find_peaks(x_vals, y_vals, self.min_separation_frac)
 
@@ -62,7 +62,7 @@ class NVCenterSweepLocatorV2(Locator):
 
         return self._get_refine_point(main_peak, 0.1, 0.0, 1.0, refine_step)
 
-    def done(self, history: pd.DataFrame) -> bool:
+    def done(self, history: pl.DataFrame) -> bool:
         """Check if we've completed both coarse and refinement phases.
 
         Parameters
@@ -75,9 +75,9 @@ class NVCenterSweepLocatorV2(Locator):
         bool
             True if both phases are complete
         """
-        return len(history) >= (self.coarse_points + self.refine_points)
+        return history.height >= (self.coarse_points + self.refine_points)
 
-    def result(self, history: pd.DataFrame) -> dict[str, float]:
+    def result(self, history: pl.DataFrame) -> dict[str, float]:
         """Extract final peak location from history.
 
         Parameters
@@ -90,11 +90,11 @@ class NVCenterSweepLocatorV2(Locator):
         dict[str, float]
             Dictionary with 'peak_x' and 'peak_signal' keys
         """
-        if len(history) == 0:
+        if history.is_empty():
             return {"peak_x": float("nan"), "peak_signal": float("nan")}
 
-        x_vals = history["x"].to_numpy()
-        y_vals = history["signal_value"].to_numpy()
+        x_vals = history.get_column("x").to_numpy()
+        y_vals = history.get_column("signal_value").to_numpy()
 
         peaks = self._find_peaks(x_vals, y_vals, self.min_separation_frac)
 
