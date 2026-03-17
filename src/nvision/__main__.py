@@ -4,7 +4,6 @@ from __future__ import annotations
 # Imported for side-effects only.
 from nvision.cli import cache_cmd as _cache_cmd  # noqa: F401
 from nvision.cli import cases_cmd as _cases_cmd  # noqa: F401
-from nvision.cli import gui as _gui  # noqa: F401
 from nvision.cli import render as _render  # noqa: F401
 from nvision.cli import run as _run  # noqa: F401
 from nvision.cli.main import app
@@ -15,7 +14,7 @@ def main() -> None:
     app()
 
 
-__all__ = ["main", "app"]
+__all__ = ["app", "main"]
 
 if __name__ == "__main__":  # pragma: no cover
     main()
