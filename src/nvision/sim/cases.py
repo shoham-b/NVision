@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 from .core import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
 )
-from .gen import (
-    CauchyLorentzPeakManufacturer,
-    ExponentialDecayManufacturer,
-    GaussianManufacturer,
-    NVCenterGenerator,
-    OnePeakGenerator,
-    TwoPeakGenerator,
+from .gen.core_generators import (
+    NVCenterCoreGenerator,
+    OnePeakCoreGenerator,
+    TwoPeakCoreGenerator,
 )
 from .noises import (
     OverFrequencyGaussianNoise,
@@ -22,59 +22,53 @@ from .noises import (
 
 
 # Generators: three main categories with subcategories
+# Now using core architecture with TrueSignal and explicit SignalModels
 def generators_basic() -> list[tuple[str, object]]:
     return [
-        # One Peak generators - for each distribution manufacturer
+        # One Peak generators - for each signal type
         (
             "OnePeak-gaussian",
-            OnePeakGenerator(manufacturer=GaussianManufacturer()),
+            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="gaussian"),
         ),
         (
-            "OnePeak-cauchy",
-            OnePeakGenerator(manufacturer=CauchyLorentzPeakManufacturer()),
+            "OnePeak-lorentzian",
+            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="lorentzian"),
         ),
-        (
-            "OnePeak-exponential",
-            OnePeakGenerator(manufacturer=ExponentialDecayManufacturer()),
-        ),
-        # Two Peak generators - for each distribution
+        # Two Peak generators - for each signal type
         (
             "TwoPeak-gaussian",
-            TwoPeakGenerator(
-                manufacturer_left=GaussianManufacturer(),
-                manufacturer_right=GaussianManufacturer(),
+            TwoPeakCoreGenerator(
+                x_min=2.6e9,
+                x_max=3.1e9,
+                peak_type_left="gaussian",
+                peak_type_right="gaussian",
             ),
         ),
         (
-            "TwoPeak-cauchy",
-            TwoPeakGenerator(
-                manufacturer_left=CauchyLorentzPeakManufacturer(),
-                manufacturer_right=CauchyLorentzPeakManufacturer(),
-            ),
-        ),
-        (
-            "TwoPeak-exponential",
-            TwoPeakGenerator(
-                manufacturer_left=ExponentialDecayManufacturer(),
-                manufacturer_right=ExponentialDecayManufacturer(),
+            "TwoPeak-lorentzian",
+            TwoPeakCoreGenerator(
+                x_min=2.6e9,
+                x_max=3.1e9,
+                peak_type_left="lorentzian",
+                peak_type_right="lorentzian",
             ),
         ),
         # NV Center generators - different variants
         (
             "NVCenter-one_peak",
-            NVCenterGenerator(variant="one_peak"),
+            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", zero_field=True),
         ),
         (
             "NVCenter-zeeman",
-            NVCenterGenerator(variant="zeeman"),
+            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", zero_field=False),
         ),
         (
             "NVCenter-voigt_one_peak",
-            NVCenterGenerator(variant="voigt_one_peak"),
+            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt", zero_field=True),
         ),
         (
             "NVCenter-voigt_zeeman",
-            NVCenterGenerator(variant="voigt_zeeman"),
+            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt", zero_field=False),
         ),
     ]
 
@@ -115,3 +109,55 @@ def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
             ),
         ),
     ]
+
+
+@dataclass(frozen=True, slots=True)
+class RunCase:
+    """Named run preset for the CLI (no user parameters required)."""
+
+    name: str
+    filter_category: Literal["NVCenter", "OnePeak", "TwoPeak"] | None
+    filter_strategy: str | None
+    repeats: int = 5
+    seed: int = 123
+    loc_max_steps: int = 150
+    loc_timeout_s: int = 1500
+    no_cache: bool = False
+    require_cache: bool = False
+    log_level: str = "INFO"
+    no_progress: bool = False
+
+
+def run_case_nvcenter() -> RunCase:
+    """Default NVCenter run case."""
+    return RunCase(
+        name="nvcenter",
+        filter_category="NVCenter",
+        filter_strategy="SimpleSweep",
+        repeats=5,
+        seed=123,
+        loc_max_steps=150,
+        loc_timeout_s=1500,
+        no_cache=False,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
+def run_cases() -> list[RunCase]:
+    return [
+        run_case_nvcenter(),
+    ]
+
+
+def get_run_case(name: str) -> RunCase:
+    key = name.strip().lower()
+    for case in run_cases():
+        if case.name.lower() == key:
+            return case
+    raise KeyError(f"Unknown run case: {name!r}")
+
+
+def default_run_case() -> RunCase:
+    return run_case_nvcenter()

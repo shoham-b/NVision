@@ -20,9 +20,21 @@ def main(ctx: typer.Context) -> None:
             return
 
         from nvision.cli.run import run
+        from nvision.sim import cases as sim_cases
 
-        # Keep prior behavior: default NVCenter run, no cache.
-        run(filter_category="NVCenter", no_cache=True)
+        default_case = sim_cases.default_run_case()
+        run(
+            repeats=default_case.repeats,
+            seed=default_case.seed,
+            loc_max_steps=default_case.loc_max_steps,
+            loc_timeout_s=default_case.loc_timeout_s,
+            no_cache=default_case.no_cache,
+            filter_category=default_case.filter_category,
+            filter_strategy=default_case.filter_strategy,
+            require_cache=default_case.require_cache,
+            log_level=default_case.log_level,
+            no_progress=default_case.no_progress,
+        )
 
 
 if __name__ == "__main__":

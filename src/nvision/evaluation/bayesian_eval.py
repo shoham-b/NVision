@@ -8,11 +8,11 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
+from nvision.sim.scan_batch import ScanBatch
 from rich.console import Console
 from rich.table import Table
 
 from nvision.sim import NVCenterSequentialBayesianLocator
-from nvision.sim.scan_batch import ScanBatch
 
 log = logging.getLogger(__name__)
 

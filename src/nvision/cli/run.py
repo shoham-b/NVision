@@ -20,6 +20,7 @@ from nvision.cli.tasks import build_tasks
 from nvision.core.paths import ARTIFACTS_ROOT  # Assuming PROJECT_ROOT is defined in core.paths
 from nvision.core.paths import ensure_out_dir
 from nvision.gui.report import compile_html_index
+from nvision.sim import cases as sim_cases
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
@@ -88,16 +89,23 @@ def run(  # noqa: C901
     """Typer-driven command-line interface entry point."""
     console = Console()
 
-    # Default logic: if --all is not specified, default to NVCenter/Bayesian
+    # Default logic: if --all is not specified, use the configured default case.
     if not all_experiments:
+        default_case = sim_cases.default_run_case()
         if filter_category is None:
-            filter_category = "NVCenter"
-            log.info("Defaulting to category 'NVCenter'. Use --all to run everything.")
+            filter_category = default_case.filter_category
+            log.info(
+                "Defaulting to category %r. Use --all to run everything.",
+                filter_category,
+            )
 
-        # Only default strategy to Bayesian if we are in the NVCenter category (explicitly or by default)
-        if filter_strategy is None and filter_category == "NVCenter":
-            filter_strategy = "Bayesian"
-            log.info("Defaulting to strategy 'Bayesian' for NVCenter. Use --all or --filter-strategy to change.")
+        if filter_strategy is None and filter_category == default_case.filter_category:
+            filter_strategy = default_case.filter_strategy
+            log.info(
+                "Defaulting to strategy %r for %s. Use --all or --filter-strategy to change.",
+                filter_strategy,
+                filter_category,
+            )
 
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
     suppress_list = [typer]

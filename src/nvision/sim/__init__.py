@@ -1,12 +1,4 @@
-"""Simulation framework for NV-center measurement experiments.
-
-Provides extensible interfaces and simple reference implementations for:
-- Data generation (ideal signals)
-- Noise models (including compound application)
-- Measurement strategies (estimators)
-- Runner utilities to evaluate strategies under noise
-- Iterative locators to find target positions in 1-D scans
-"""
+"""Simulation framework for NV-center measurement experiments."""
 
 from .core import (
     CompositeNoise,
@@ -19,25 +11,12 @@ from .core import (
     OverProbeNoise,
 )
 from .gen import (
-    ExponentialDecayManufacturer,
-    GaussianManufacturer,
-    MultiPeakGenerator,
-    NVCenterGenerator,
-    OnePeakGenerator,
-    TwoPeakGenerator,
+    MultiPeakCoreGenerator,
+    NVCenterCoreGenerator,
+    OnePeakCoreGenerator,
+    SymmetricTwoPeakCoreGenerator,
+    TwoPeakCoreGenerator,
 )
-from .runner_v2 import LocatorRunnerV2
-
-# Locators layer (v2 only)
-from .locs import (
-    Locator,
-    NVCenterSweepLocatorV2,
-    Observation,
-    Runner,
-    ScanBatch,
-)
-
-# Noise implementations: export concrete full class names (no short aliases)
 from .noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
@@ -52,16 +31,10 @@ __all__ = [
     "CompositeOverProbeNoise",
     "DataBatch",
     "DataGenerator",
-    "ExponentialDecayManufacturer",
-    "GaussianManufacturer",
-    "Locator",
-    "LocatorRunnerV2",
     "MeasurementStrategy",
-    "MultiPeakGenerator",
-    "NVCenterGenerator",
-    "NVCenterSweepLocatorV2",
-    "Observation",
-    "OnePeakGenerator",
+    "MultiPeakCoreGenerator",
+    "NVCenterCoreGenerator",
+    "OnePeakCoreGenerator",
     "OverFrequencyGaussianNoise",
     "OverFrequencyNoise",
     "OverFrequencyOutlierSpikes",
@@ -69,7 +42,6 @@ __all__ = [
     "OverProbeDriftNoise",
     "OverProbeNoise",
     "OverProbeRandomWalkNoise",
-    "Runner",
-    "ScanBatch",
-    "TwoPeakGenerator",
+    "SymmetricTwoPeakCoreGenerator",
+    "TwoPeakCoreGenerator",
 ]
