@@ -7,6 +7,23 @@ from contextlib import suppress
 from pathlib import Path
 
 
+def _init_schema_with_recovery(db_path: Path, schema_sql: str) -> None:
+    """Initialize SQLite schema and recover from invalid DB files."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(schema_sql)
+            conn.commit()
+    except sqlite3.DatabaseError as exc:
+        if "file is not a database" not in str(exc).lower():
+            raise
+        # Corrupted/invalid file at this path; reset it so cache can recover.
+        with suppress(FileNotFoundError):
+            db_path.unlink()
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(schema_sql)
+            conn.commit()
+
+
 class SqliteCache:
     """A thread-safe key-value cache backed by SQLite."""
 
@@ -28,21 +45,20 @@ class SqliteCache:
             del self._local.conn
 
     def _ensure_table(self):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cache
-                (
-                    key
-                    TEXT
-                    PRIMARY
-                    KEY,
-                    value
-                    TEXT
-                )
-                """
+        _init_schema_with_recovery(
+            self.db_path,
+            """
+            CREATE TABLE IF NOT EXISTS cache
+            (
+                key
+                TEXT
+                PRIMARY
+                KEY,
+                value
+                TEXT
             )
-            conn.commit()
+            """,
+        )
 
     def get(self, key: str) -> dict | None:
         try:
@@ -174,9 +190,7 @@ class ShardedSqliteCache:
         return self._local.index_conn
 
     def _ensure_index(self) -> None:
-        with sqlite3.connect(self._index_path) as conn:
-            conn.execute(self._INDEX_SCHEMA)
-            conn.commit()
+        _init_schema_with_recovery(self._index_path, self._INDEX_SCHEMA)
 
     def close(self):
         with suppress(Exception):

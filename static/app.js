@@ -29,7 +29,9 @@ window.NVISION_ASSET_PREFIX = '';
                 }
             );
             if (!manifestCandidate) {
-                throw new Error('Could not load manifest.js from current directory or ../artifacts/');
+                window.NVISION_ASSET_PREFIX = '';
+                window.MANIFEST = [];
+                console.warn('Could not load manifest.js from current directory or ../artifacts/. Using empty manifest.');
             }
 
             const settingsCandidate = await loadScript([
@@ -38,7 +40,8 @@ window.NVISION_ASSET_PREFIX = '';
                 { src: '../artifacts/settings.js' },
             ]);
             if (!settingsCandidate) {
-                throw new Error('Could not load settings.js from current directory or ../artifacts/');
+                window.SETTINGS = { out_dir: '', generated_at: null };
+                console.warn('Could not load settings.js from current directory or ../artifacts/. Using default settings.');
             }
         })();
 
@@ -46,8 +49,8 @@ function main() {
         let plots = [];
         try {
             plots = window.MANIFEST;
-            if (!Array.isArray(plots) || plots.length === 0) {
-                throw new Error('No plots data available');
+            if (!Array.isArray(plots)) {
+                throw new Error('Invalid manifest format');
             }
         } catch (error) {
             console.error('Error reading plots manifest from window.MANIFEST:', error);
