@@ -6,8 +6,8 @@ import polars as pl
 from nvision.sim.gen import (
     NVCenterGenerator,
 )
-from nvision.sim.loc_runner import LocatorRunner
-from nvision.sim.locs.nv_center.sweep_locator import NVCenterSweepLocator
+from nvision.sim.runner_v2 import LocatorRunnerV2
+from nvision.sim.locs.nv_center.sweep_locator_v2 import NVCenterSweepLocatorV2
 
 
 def test_basic_run_no_artifacts():
@@ -18,9 +18,9 @@ def test_basic_run_no_artifacts():
         try:
             os.chdir(tmpdir)
             rng_seed = 42
-            runner = LocatorRunner(rng_seed=rng_seed)
+            runner = LocatorRunnerV2(rng_seed=rng_seed)
             gen = NVCenterGenerator(variant="zeeman")
-            strat = NVCenterSweepLocator(coarse_points=5, refine_points=2)
+            strat = NVCenterSweepLocatorV2(coarse_points=5, refine_points=2)
             df = runner.sweep(
                 generators=[("NVCenter", gen)],
                 strategies=[("Sweep", strat)],

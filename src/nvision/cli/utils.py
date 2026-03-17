@@ -10,14 +10,7 @@ import polars as pl
 
 from nvision.sim import (
     CompositeNoise,
-    NVCenterSequentialBayesianLocator,
-    NVCenterSweepLocator,
-    OnePeakGoldenLocator,
-    OnePeakGridLocator,
-    OnePeakSweepLocator,
-    TwoPeakGoldenLocator,
-    TwoPeakGridLocator,
-    TwoPeakSweepLocator,
+    NVCenterSweepLocatorV2,
 )
 from nvision.sim import (
     cases as sim_cases,
@@ -51,24 +44,14 @@ def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, An
     strategies: list[tuple[str, Any]] = []
 
     if category == "OnePeak":
-        strategies = [
-            ("OnePeak-Grid", OnePeakGridLocator(n_points=21)),
-            ("OnePeak-Golden", OnePeakGoldenLocator(max_evals=25)),
-            ("OnePeak-Sweep", OnePeakSweepLocator(coarse_points=20, refine_points=10)),
-        ]
+        # Legacy v1 locators temporarily disabled during v2 migration
+        strategies = []
     elif category == "TwoPeak":
-        strategies = [
-            ("TwoPeak-Grid", TwoPeakGridLocator(coarse_points=25)),
-            ("TwoPeak-Golden", TwoPeakGoldenLocator(coarse_points=25, refine_points=5)),
-            ("TwoPeak-Sweep", TwoPeakSweepLocator(coarse_points=25, refine_points=10)),
-        ]
+        # Legacy v1 locators temporarily disabled during v2 migration
+        strategies = []
     elif category == "NVCenter":
         strategies = [
-            ("NVCenter-Sweep", NVCenterSweepLocator(coarse_points=30, refine_points=10)),
-            (
-                "NVCenter-SequentialBayesian",
-                NVCenterSequentialBayesianLocator(max_evals=500, grid_resolution=400, distribution="voigt-zeeman"),
-            ),
+            ("NVCenter-Sweep-V2", NVCenterSweepLocatorV2(coarse_points=30, refine_points=10)),
         ]
 
     return strategies

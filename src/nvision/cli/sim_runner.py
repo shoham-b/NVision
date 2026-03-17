@@ -9,6 +9,8 @@ from typing import Any
 import polars as pl
 
 from nvision.core.structures import LocatorTask
+from nvision.sim.locs.v2.experiment import Experiment
+from nvision.sim.locs.v2.runner import Runner
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +18,13 @@ log = logging.getLogger(__name__)
 def run_simulation_batch(  # noqa: C901
     task: LocatorTask,
 ) -> tuple[pl.DataFrame, pl.DataFrame, list[Any], list[float], list[str]]:
-    """Runs a batch of simulations concurrently until completion or timeout."""
+    """Run a batch of simulations using the v2 stateless locator interface.
+
+    The v2 locator interface operates in normalized x-space ([0, 1]). This runner
+    handles scaling between the scan's physical domain and normalized space so that:
+    - locators always see normalized `x`
+    - plots/metrics always receive physical-domain `x`
+    """
     gen_name = task.generator_name
     gen_obj = task.generator
     noise_name = task.noise_name
@@ -41,128 +49,63 @@ def run_simulation_batch(  # noqa: C901
         initial_scans.append(gen_obj.generate(repeat_rngs[-1]))
         repeat_start_times.append(time.perf_counter())
 
-    history_rows = []
-    repeats_df = pl.DataFrame(
-        {
-            "repeat_id": list(range(n_repeats)),
-            "active": [True] * n_repeats,
-        }
-    )
-
-    global_start_time = time.perf_counter()
-    for step_num in range(loc_max_steps):
-        active_repeats = repeats_df.filter(pl.col("active")).get_column("repeat_id").to_list()
-        if not active_repeats:
-            break
-
-        if time.perf_counter() - global_start_time > loc_timeout_s:
-            log.warning(f"Combination timeout ({loc_timeout_s}s) reached. Finalizing.")
-            for rid in active_repeats:
-                if not repeat_stop_reasons[rid]:
-                    repeat_stop_reasons[rid] = "combination_timeout"
-            break
-
-        if history_rows:
-            history_df = pl.DataFrame(history_rows)
-        else:
-            history_df = pl.DataFrame(
-                {
-                    "repeat_id": pl.Series("repeat_id", [], dtype=pl.Int64),
-                    "step": pl.Series("step", [], dtype=pl.Int64),
-                    "x": pl.Series("x", [], dtype=pl.Float64),
-                    "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
-                }
-            )
-
-        stop_decisions = strat_obj.should_stop(history_df, repeats_df, initial_scans[0])
-        if isinstance(stop_decisions, bool):
-            if stop_decisions:
-                for rid in active_repeats:
-                    repeats_df = repeats_df.with_columns(
-                        pl.when(pl.col("repeat_id") == rid)
-                        .then(pl.lit(False))
-                        .otherwise(pl.col("active"))
-                        .alias("active")
-                    )
-                    if not repeat_stop_reasons[rid]:
-                        repeat_stop_reasons[rid] = "locator_stop"
-        else:
-            for row_dict in stop_decisions.to_dicts():
-                rid = row_dict["repeat_id"]
-                if row_dict["stop"] and rid in active_repeats:
-                    repeats_df = repeats_df.with_columns(
-                        pl.when(pl.col("repeat_id") == rid)
-                        .then(pl.lit(False))
-                        .otherwise(pl.col("active"))
-                        .alias("active")
-                    )
-                    if not repeat_stop_reasons[rid]:
-                        repeat_stop_reasons[rid] = "locator_stop"
-
-        active_repeats = repeats_df.filter(pl.col("active")).get_column("repeat_id").to_list()
-        if not active_repeats:
-            break
-
-        proposals = strat_obj.propose_next(history_df, repeats_df, initial_scans[0])
-        # Fix: If proposals is a float, wrap it in a DataFrame
-        if isinstance(proposals, (float, int)):
-            # Only one active repeat is expected in this case
-            if len(active_repeats) == 1:
-                proposals = pl.DataFrame(
-                    {
-                        "repeat_id": [active_repeats[0]],
-                        "x": [float(proposals)],
-                    }
-                )
-            else:
-                raise RuntimeError("Strategy returned a single value but multiple repeats are active.")
-
-        for row_dict in proposals.to_dicts():
-            rid = row_dict["repeat_id"]
-            if rid not in active_repeats:
-                continue
-
-            x_next = row_dict["x"]
-            current_scan = initial_scans[rid]
-            y_ideal = current_scan.signal(x_next)
-
-            y_measured = (
-                noise_obj.over_probe_noise.apply(y_ideal, repeat_rngs[rid], strat_obj)
-                if noise_obj and noise_obj.over_probe_noise
-                else y_ideal
-            )
-
-            row_data = {
-                "repeat_id": rid,
-                "step": step_num,
-                "x": x_next,
-                "signal_values": y_measured,
-            }
-
-            if hasattr(strat_obj, "_get_locator"):
-                try:
-                    locator_instance = strat_obj._get_locator(rid)
-                    if hasattr(locator_instance, "current_estimates"):
-                        est = locator_instance.current_estimates
-                        if "entropy" in est:
-                            row_data["entropy"] = est["entropy"]
-                        if "max_prob" in est:
-                            row_data["max_prob"] = est["max_prob"]
-                        if "uncertainty" in est:
-                            row_data["uncertainty"] = est["uncertainty"]
-                except Exception:
-                    pass
-
-            history_rows.append(row_data)
+    runner = Runner()
+    all_history_rows: list[dict[str, Any]] = []
+    finalize_records: list[dict[str, Any]] = []
 
     for rid in range(n_repeats):
-        if not repeat_stop_reasons[rid]:
-            repeat_stop_reasons[rid] = "max_steps_reached"
+        scan = initial_scans[rid]
+        width = scan.x_max - scan.x_min
+        experiment = Experiment(scan=scan, noise=noise_obj)
 
-    if history_rows:
-        final_history_df = pl.DataFrame(history_rows)
-    else:
-        final_history_df = pl.DataFrame(
+        # Run one repeat in normalized x-space
+        results, histories, stop_reasons = runner.run(
+            locator=strat_obj,
+            experiment=experiment,
+            repeats=1,
+            rng=repeat_rngs[rid],
+            max_steps=loc_max_steps,
+            timeout_s=float(loc_timeout_s),
+            return_history=True,
+        )
+
+        hist_norm = histories[0] if histories else pl.DataFrame(schema={"x": pl.Float64, "signal_value": pl.Float64})
+        stop_reason = stop_reasons[0] if stop_reasons else "locator_stop"
+        repeat_stop_reasons[rid] = stop_reason
+
+        # Convert normalized history to physical-domain history for plots/metrics.
+        if not hist_norm.is_empty():
+            xs_norm = hist_norm.get_column("x").to_list()
+            ys = hist_norm.get_column("signal_value").to_list()
+            for step_num, (xn, y) in enumerate(zip(xs_norm, ys, strict=True)):
+                all_history_rows.append(
+                    {
+                        "repeat_id": int(rid),
+                        "step": int(step_num),
+                        "x": float(scan.x_min + float(xn) * width),
+                        "signal_values": float(y),
+                    }
+                )
+
+        # Scale any x-like outputs back to physical domain.
+        res = results[0] if results else {}
+        res_scaled: dict[str, Any] = {"repeat_id": int(rid)}
+        for k, v in res.items():
+            if isinstance(v, int | float) and ("x" in k.lower()):
+                res_scaled[k] = float(scan.x_min + float(v) * width)
+            else:
+                res_scaled[k] = v
+
+        # Provide a conventional x1_hat for single-peak cases if only peak_x exists.
+        if "peak_x" in res_scaled and "x1_hat" not in res_scaled:
+            res_scaled["x1_hat"] = res_scaled["peak_x"]
+
+        finalize_records.append(res_scaled)
+
+    final_history_df = (
+        pl.DataFrame(all_history_rows)
+        if all_history_rows
+        else pl.DataFrame(
             {
                 "repeat_id": pl.Series("repeat_id", [], dtype=pl.Int64),
                 "step": pl.Series("step", [], dtype=pl.Int64),
@@ -170,12 +113,8 @@ def run_simulation_batch(  # noqa: C901
                 "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
             }
         )
+    )
 
-    finalize_results = strat_obj.finalize(final_history_df, repeats_df, initial_scans[0])
-    if isinstance(finalize_results, dict):
-        repeat_ids = repeats_df.get_column("repeat_id").to_list() if "repeat_id" in repeats_df.columns else [0]
-        finalize_results = pl.DataFrame(
-            [{"repeat_id": int(rid), **finalize_results} for rid in repeat_ids],
-        )
+    finalize_results = pl.DataFrame(finalize_records) if finalize_records else pl.DataFrame({"repeat_id": []})
 
     return final_history_df, finalize_results, initial_scans, repeat_start_times, repeat_stop_reasons

@@ -8,7 +8,7 @@ from typing import Any
 import polars as pl
 
 from nvision.cli.utils import _maybe_finite, _scan_attempt_metrics
-from nvision.sim.locs.base import ScanBatch
+from nvision.sim.scan_batch import ScanBatch
 
 log = logging.getLogger(__name__)
 
@@ -99,53 +99,6 @@ def _try_append_bayesian_metrics(
     current_history_df: pl.DataFrame,
     noise_name: str,
 ):
-    try:
-        from nvision.sim.locs.nv_center.evaluation import BayesianMetrics
-        from nvision.sim.locs.nv_center.sequential_bayesian_locator import NVCenterSequentialBayesianLocator
-
-        locator_for_metrics = None
-        if hasattr(strat_obj, "_get_locator"):
-            locator_for_metrics = strat_obj._get_locator(attempt_idx_in_combo)
-        elif isinstance(strat_obj, NVCenterSequentialBayesianLocator):
-            locator_for_metrics = strat_obj
-
-        if locator_for_metrics and hasattr(locator_for_metrics, "parameter_history"):
-            meta = getattr(current_scan, "meta", {}) or {}
-
-            linewidth = getattr(current_scan, "linewidth", None)
-            if linewidth is None and "omega" in meta:
-                val = meta["omega"]
-                if val is not None:
-                    linewidth = val * 2.0
-
-            amplitude = getattr(current_scan, "amplitude", None)
-            if amplitude is None:
-                amplitude = meta.get("a")
-
-            background = getattr(current_scan, "background", None)
-            if background is None:
-                background = meta.get("base")
-
-            ground_truth = {
-                "frequency": current_scan.truth_positions[0]
-                if current_scan.truth_positions
-                else meta.get("f0", meta.get("f_B")),
-                "linewidth": linewidth,
-                "amplitude": amplitude,
-                "background": background,
-            }
-            ground_truth = {k: v for k, v in ground_truth.items() if v is not None}
-
-            metrics_obj = BayesianMetrics.from_history(
-                parameter_history=locator_for_metrics.parameter_history,
-                ground_truth=ground_truth,
-                measurement_history=current_history_df,
-                noise_model=noise_name if "poisson" in noise_name.lower() else "gaussian",
-                noise_params={"sigma": 0.05} if "gaussian" in noise_name.lower() else None,
-            )
-
-            bayes_summary = metrics_obj.summary()
-            for k, v in bayes_summary.items():
-                metrics_serialized[k] = _maybe_finite(v)
-    except Exception as e:
-        log.warning(f"Failed to calculate Bayesian metrics for repeat {attempt_idx_in_combo + 1}: {e}")
+    # v2-only: Bayesian (legacy) locator diagnostics were removed during migration.
+    _ = (metrics_serialized, strat_obj, attempt_idx_in_combo, current_scan, current_history_df, noise_name)
+    return
