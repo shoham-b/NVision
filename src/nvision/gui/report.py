@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 from typing import Final
 
-_STATIC_INDEX_PATH: Final = Path(__file__).parents[3] / "static" / "index.html"
+_STATIC_DIR: Final = Path(__file__).parents[3] / "static"
+_STATIC_INDEX_PATH: Final = _STATIC_DIR / "index.html"
 
 
 def _read_manifest_json(out_dir: Path) -> str:
@@ -22,12 +23,12 @@ def _write_js_data_file(path: Path, var_name: str, value_json: str) -> None:
 
 
 def compile_html_index(out_dir: Path) -> Path:
-    """Create an interactive ``index.html`` to browse generated plots.
+    """Prepare data files consumed by the static HTML UI.
 
-    The HTML UI is a static file copied into ``out_dir`` unchanged. Plot data is written
-    as adjacent JS files to support ``file://`` browsing without fetch/XHR.
+    The UI source remains immutable at ``static/index.html``. This function writes only
+    data files into ``out_dir`` (for example ``artifacts/``), so the static page can
+    render results via ``window.MANIFEST`` and ``window.SETTINGS``.
     """
-    import shutil
 
     if not _STATIC_INDEX_PATH.exists():
         msg = f"Static UI not found: {_STATIC_INDEX_PATH}"
@@ -45,11 +46,5 @@ def compile_html_index(out_dir: Path) -> Path:
     )
     _write_js_data_file(out_dir / "settings.js", "SETTINGS", settings_json)
 
-    index_path = out_dir / "index.html"
-    shutil.copy(_STATIC_INDEX_PATH, index_path)
-
-    gif_source = _STATIC_INDEX_PATH.parent / "locator_progress.gif"
-    if gif_source.exists():
-        shutil.copy(gif_source, out_dir / "locator_progress.gif")
-
-    return index_path
+    # Return the immutable static UI entrypoint (repo-root static page).
+    return _STATIC_INDEX_PATH
