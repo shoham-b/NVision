@@ -8,13 +8,11 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from nvision.sim import (
-    CompositeNoise,
-    NVCenterSweepLocatorV2,
-)
+from nvision.sim import CompositeNoise
 from nvision.sim import (
     cases as sim_cases,
 )
+from nvision.sim.locs.core import SimpleSweepLocator
 
 
 def find_project_root() -> Path:
@@ -40,21 +38,9 @@ def _noise_presets() -> list[tuple[str, CompositeNoise | None]]:
 
 def _locator_strategies_for_generator(generator_name: str) -> list[tuple[str, Any]]:
     """Get the appropriate locator strategies for a given generator category."""
-    category = _get_generator_category(generator_name)
-    strategies: list[tuple[str, Any]] = []
-
-    if category == "OnePeak":
-        # Legacy v1 locators temporarily disabled during v2 migration
-        strategies = []
-    elif category == "TwoPeak":
-        # Legacy v1 locators temporarily disabled during v2 migration
-        strategies = []
-    elif category == "NVCenter":
-        strategies = [
-            ("NVCenter-Sweep-V2", NVCenterSweepLocatorV2(coarse_points=30, refine_points=10)),
-        ]
-
-    return strategies
+    return [
+        ("SimpleSweep", SimpleSweepLocator),
+    ]
 
 
 def _to_native(obj: Any) -> Any:

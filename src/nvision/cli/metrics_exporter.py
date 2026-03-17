@@ -8,9 +8,14 @@ from typing import Any
 import polars as pl
 
 from nvision.cli.utils import _maybe_finite, _scan_attempt_metrics
-from nvision.sim.scan_batch import ScanBatch
+from nvision.core.experiment import CoreExperiment
 
 log = logging.getLogger(__name__)
+
+
+def _truth_positions(experiment: CoreExperiment) -> list[float]:
+    """Extract ground truth peak positions from a CoreExperiment."""
+    return [p.value for p in experiment.true_signal.parameters if "frequency" in p.name or "position" in p.name]
 
 
 def generate_attempt_metrics(
@@ -21,7 +26,7 @@ def generate_attempt_metrics(
     strat_name: str,
     repeat_stop_reasons: list[str],
     repeat_start_times: list[float],
-    current_scan: ScanBatch,
+    current_scan: CoreExperiment,
     final_history_df: pl.DataFrame,
     finalize_results: pl.DataFrame,
     strat_obj: Any,
@@ -52,17 +57,14 @@ def generate_attempt_metrics(
         measurements = 0
     else:
         estimate_dict = finalize_row.drop("repeat_id").to_dicts()[0]
-        estimate = {k: float(v) for k, v in estimate_dict.items()}
+        estimate = {k: float(v) for k, v in estimate_dict.items() if isinstance(v, (int, float))}
         measurements = current_history_df.height
 
-    attempt_metrics = _scan_attempt_metrics(current_scan.truth_positions, estimate)
+    truth_positions = _truth_positions(current_scan)
+    attempt_metrics = _scan_attempt_metrics(truth_positions, estimate)
     metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
     metrics_serialized["measurements"] = _maybe_finite(measurements)
     metrics_serialized["duration_ms"] = _maybe_finite(duration_ms)
-
-    _try_append_bayesian_metrics(
-        metrics_serialized, strat_obj, attempt_idx_in_combo, current_scan, current_history_df, noise_name
-    )
 
     main_result_row = {
         "generator": gen_name,
@@ -89,16 +91,3 @@ def generate_attempt_metrics(
     }
 
     return entry_base, main_result_row, current_history_df
-
-
-def _try_append_bayesian_metrics(
-    metrics_serialized: dict,
-    strat_obj: Any,
-    attempt_idx_in_combo: int,
-    current_scan: ScanBatch,
-    current_history_df: pl.DataFrame,
-    noise_name: str,
-):
-    # v2-only: Bayesian (legacy) locator diagnostics were removed during migration.
-    _ = (metrics_serialized, strat_obj, attempt_idx_in_combo, current_scan, current_history_df, noise_name)
-    return

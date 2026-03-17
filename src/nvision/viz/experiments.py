@@ -69,7 +69,20 @@ class ExperimentsMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path)
 
-    def plot_locator_summary(self, df: pl.DataFrame) -> None:
+    def plot_locator_summary(self, df: pl.DataFrame) -> list[dict]:
         """Create comparison plots for locator sweeps."""
-        # Implementation of locator specific summaries if needed
-        pass
+        if df.is_empty():
+            return []
+
+        entries = []
+
+        # Per-generator summary: error by noise level
+        experiment_plots = self.plot_experiment_summary(df)
+        for p in experiment_plots:
+            entries.append({"type": "summary", "path": str(p)})
+
+        # Cross-strategy comparison plots
+        comparison_plots = self.plot_model_comparisons(df)
+        entries.extend(comparison_plots)
+
+        return entries

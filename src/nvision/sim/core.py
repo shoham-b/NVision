@@ -3,13 +3,9 @@ from __future__ import annotations
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 import polars as pl
-
-if TYPE_CHECKING:
-    from .locs import ScanBatch
-    from .locs import Locator
 
 
 @dataclass(slots=True, init=False)

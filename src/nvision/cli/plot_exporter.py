@@ -6,7 +6,7 @@ from typing import Any
 
 import polars as pl
 
-from nvision.sim.scan_batch import ScanBatch
+from nvision.core.experiment import CoreExperiment
 from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ def generate_attempt_plots(
     viz: Viz,
     entry_base: dict[str, Any],
     attempt_idx_in_combo: int,
-    current_scan: ScanBatch,
+    current_scan: CoreExperiment,
     current_history_df: pl.DataFrame,
     noise_obj: Any,
     strat_obj: Any,
