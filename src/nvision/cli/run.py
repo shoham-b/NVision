@@ -17,9 +17,11 @@ from nvision.cli.main import app
 from nvision.cli.monitor import ProgressMonitor
 from nvision.cli.runner import _run_combination
 from nvision.cli.tasks import build_tasks
-from nvision.core.paths import ARTIFACTS_ROOT  # Assuming PROJECT_ROOT is defined in core.paths
-from nvision.core.paths import ensure_out_dir
-from nvision.gui.report import compile_html_index
+from nvision.core.paths import (
+    ARTIFACTS_ROOT,  # Assuming PROJECT_ROOT is defined in core.paths
+    ensure_out_dir,
+)
+from nvision.gui.report import prepare_static_ui_data
 from nvision.sim import cases as sim_cases
 from nvision.viz import Viz
 
@@ -246,8 +248,8 @@ def run(  # noqa: C901
     manifest_path.write_text(json.dumps(plot_manifest, indent=2), encoding="utf-8")
 
     try:
-        idx = compile_html_index(out_dir)
-        log.info(f"Generated HTML index at: {idx.absolute().as_uri()}")
+        ui_entrypoint = prepare_static_ui_data(out_dir)
+        log.info(f"Prepared static UI data. Open: {ui_entrypoint.absolute().as_uri()}")
     except Exception as exc:
         log.warning(f"Failed to build HTML index: {exc}")
 

@@ -81,11 +81,11 @@ function main() {
             }
         });
 
-        plots.forEach(p => {
+        plots.forEach((p) => {
             const gen = p.generator || '';
             const strat = p.strategy || '';
-            if (gen.startsWith('NVCenter-') && strat.includes('Bayesian')) {
-                p.generator_type = 'NV Center (Bayesian)';
+            if (gen.startsWith('NVCenter-')) {
+                p.generator_type = strat.includes('Bayesian') ? 'NV Center (Bayesian)' : 'NV Center';
             } else {
                 p.generator_type = 'Supplemental';
             }
@@ -104,6 +104,14 @@ function main() {
         const bayesStatsSection = document.getElementById('bayes-stats-section');
         const posteriorHistoryImage = document.getElementById('posterior-history-image');
         const convergenceStatsImage = document.getElementById('convergence-stats-image');
+        const hasBayesArtifacts =
+            bayesPlots.length > 0 ||
+            bayesInteractivePlots.length > 0 ||
+            bayesStatsPlots.length > 0 ||
+            plots.some((p) => p.type === 'bayesian_parameter_convergence');
+        if (bayesSection) {
+            bayesSection.hidden = !hasBayesArtifacts;
+        }
 
         function updateBayesView(selectedPlot) {
             if (!bayesSection || !bayesImage) {
