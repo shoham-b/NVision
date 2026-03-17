@@ -187,19 +187,18 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Restore cached rendered artifacts
-        uses: actions/cache/restore@v4
-        with:
-          path: artifacts
-          key: nvision-rendered-artifacts-${{ runner.os }}-${{ github.ref_name }}
-          restore-keys: |
-            nvision-rendered-artifacts-${{ runner.os }}-
       - name: Verify static site entrypoint
         shell: bash
         run: |
           test -f static/index.html
           test -f static/app.js
           test -f static/styles.css
+      - name: Verify checked-in artifacts
+        shell: bash
+        run: |
+          test -f artifacts/manifest.js
+          test -f artifacts/settings.js
+          test -f artifacts/locator_results.csv
       - name: Assemble deployable site
         shell: bash
         run: |
