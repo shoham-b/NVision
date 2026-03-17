@@ -22,7 +22,7 @@ def _write_js_data_file(path: Path, var_name: str, value_json: str) -> None:
     path.write_text(f"window.{var_name} = {safe_json};\n", encoding="utf-8")
 
 
-def compile_html_index(out_dir: Path) -> Path:
+def prepare_static_ui_data(out_dir: Path) -> Path:
     """Prepare data files consumed by the static HTML UI.
 
     The UI source remains immutable at ``static/index.html``. This function writes only

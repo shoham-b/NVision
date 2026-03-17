@@ -73,24 +73,47 @@ def _maybe_finite(value: object) -> float | None:
     return None
 
 
+def _first_finite(estimate: dict[str, object], keys: Sequence[str]) -> float | None:
+    for key in keys:
+        value = _maybe_finite(estimate.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _promote_uncert(estimate: dict[str, object], metrics: dict[str, float]) -> None:
+    if "uncert" in metrics:
+        return
+
+    preferred_uncert = _first_finite(
+        estimate,
+        ("uncert_frequency", "uncert_position", "uncert_x1", "uncert_peak_x"),
+    )
+    if preferred_uncert is not None:
+        metrics["uncert"] = preferred_uncert
+        return
+
+    for key, raw in estimate.items():
+        if key.startswith("uncert_"):
+            value = _maybe_finite(raw)
+            if value is not None:
+                metrics["uncert"] = value
+                return
+
+
 def _scan_attempt_metrics(truth_positions: Sequence[float], estimate: dict[str, object]) -> dict[str, float]:
     metrics: dict[str, float] = {}
     truth = [float(pos) for pos in truth_positions]
 
     if len(truth) == 1:
-        x_hat = estimate.get("x1_hat", estimate.get("x_hat"))
-        if isinstance(x_hat, int | float) and math.isfinite(float(x_hat)):
-            metrics["abs_err_x"] = abs(float(x_hat) - truth[0])
+        x_hat = _first_finite(estimate, ("x1_hat", "x_hat", "peak_x", "frequency"))
+        if x_hat is not None:
+            metrics["abs_err_x"] = abs(x_hat - truth[0])
     else:
-        x1_hat = estimate.get("x1_hat")
-        x2_hat = estimate.get("x2_hat")
-        if (
-            isinstance(x1_hat, int | float)
-            and math.isfinite(float(x1_hat))
-            and isinstance(x2_hat, int | float)
-            and math.isfinite(float(x2_hat))
-        ):
-            xs = sorted([float(x1_hat), float(x2_hat)])
+        x1_hat = _maybe_finite(estimate.get("x1_hat"))
+        x2_hat = _maybe_finite(estimate.get("x2_hat"))
+        if x1_hat is not None and x2_hat is not None:
+            xs = sorted([x1_hat, x2_hat])
             truth_sorted = sorted(truth)
             err1 = abs(xs[0] - truth_sorted[0])
             err2 = abs(xs[1] - truth_sorted[1])
@@ -99,9 +122,16 @@ def _scan_attempt_metrics(truth_positions: Sequence[float], estimate: dict[str, 
             metrics["pair_rmse"] = math.sqrt(0.5 * (err1 * err1 + err2 * err2))
 
     for key in ("uncert", "uncert_pos", "uncert_sep", "final_entropy", "final_max_prob"):
-        value = estimate.get(key)
-        if isinstance(value, int | float) and math.isfinite(float(value)):
-            metrics[key] = float(value)
+        value = _maybe_finite(estimate.get(key))
+        if value is not None:
+            metrics[key] = value
+
+    _promote_uncert(estimate, metrics)
+
+    if "final_entropy" not in metrics:
+        entropy_value = _maybe_finite(estimate.get("entropy"))
+        if entropy_value is not None:
+            metrics["final_entropy"] = entropy_value
 
     return metrics
 

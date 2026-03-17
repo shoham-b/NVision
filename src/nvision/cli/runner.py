@@ -12,6 +12,8 @@ from nvision.cli.utils import _get_generator_category
 from nvision.core.structures import LocatorTask
 from nvision.viz import Viz
 
+CACHE_SCHEMA_VERSION = 2
+
 
 def _run_combination(task: LocatorTask) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:
     log = logging.getLogger("nvision")
@@ -37,6 +39,7 @@ def _run_combination(task: LocatorTask) -> list[tuple[list[dict[str, Any]], dict
 
     combo_cfg = {
         "kind": "locator_combination",
+        "schema_version": CACHE_SCHEMA_VERSION,
         "generator": gen_name,
         "noise": noise_name,
         "strategy": strat_name,
@@ -56,7 +59,11 @@ def _run_combination(task: LocatorTask) -> list[tuple[list[dict[str, Any]], dict
             bridge.close()
             return cached_results
         log.warning(
-            f"Cache missing for {gen_name}/{noise_name}/{strat_name} (seed={main_seed}) and --require-cache is set. Skipping."
+            "Cache missing for %s/%s/%s (seed=%s) and --require-cache is set. Skipping.",
+            gen_name,
+            noise_name,
+            strat_name,
+            main_seed,
         )
         bridge.close()
         return []
@@ -113,6 +120,7 @@ def _run_combination(task: LocatorTask) -> list[tuple[list[dict[str, Any]], dict
         if task.use_cache and not skip_cache_for_strategy:
             part_cfg = {
                 "kind": "locator_run",
+                "schema_version": CACHE_SCHEMA_VERSION,
                 "generator": gen_name,
                 "noise": noise_name,
                 "strategy": strat_name,
