@@ -145,9 +145,45 @@ def run_case_nvcenter() -> RunCase:
     )
 
 
+def run_case_nvcenter_bayes_eig() -> RunCase:
+    """NVCenter Bayesian EIG run case."""
+    return RunCase(
+        name="nvcenter_bayes_eig",
+        filter_category="NVCenter",
+        filter_strategy="NVCenter-Bayesian-EIG",
+        repeats=5,
+        seed=123,
+        loc_max_steps=200,
+        loc_timeout_s=2000,
+        no_cache=False,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
+def run_case_nvcenter_bayes_ucb() -> RunCase:
+    """NVCenter Bayesian UCB run case."""
+    return RunCase(
+        name="nvcenter_bayes_ucb",
+        filter_category="NVCenter",
+        filter_strategy="NVCenter-Bayesian-UCB",
+        repeats=5,
+        seed=123,
+        loc_max_steps=200,
+        loc_timeout_s=2000,
+        no_cache=False,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
 def run_cases() -> list[RunCase]:
     return [
         run_case_nvcenter(),
+        run_case_nvcenter_bayes_eig(),
+        run_case_nvcenter_bayes_ucb(),
     ]
 
 
