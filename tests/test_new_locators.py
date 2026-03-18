@@ -5,13 +5,13 @@ from __future__ import annotations
 import math
 import random
 
-from nvision.core import Locator
-from nvision.core.experiment import CoreExperiment
-from nvision.core.observer import Observer, RunResult
-from nvision.core.runner import Runner
-from nvision.core.signal import Parameter, TrueSignal
-from nvision.core.models import GaussianModel
-from nvision.sim.locs.core import SimpleSweepLocator
+from nvision.models.locator import Locator
+from nvision.models.experiment import CoreExperiment
+from nvision.models.observer import Observer, RunResult
+from nvision.runner.loop import run_loop
+from nvision.signal.signal import Parameter, TrueSignal
+from nvision.signal.gaussian import GaussianModel
+from nvision.sim.locs.sweep_locator import SimpleSweepLocator
 
 
 def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperiment:
@@ -38,8 +38,7 @@ def test_simple_sweep_create_returns_instance():
 def test_locator_proposes_valid_positions():
     exp = _gaussian_experiment()
     rng = random.Random(1)
-    runner = Runner()
-    for locator in runner.run(SimpleSweepLocator, exp, rng, max_steps=5):
+    for locator in run_loop(SimpleSweepLocator, exp, rng, max_steps=5):
         assert locator.belief.last_obs is not None
         x = locator.belief.last_obs.x
         assert 0.0 <= x <= 1.0
@@ -48,8 +47,7 @@ def test_locator_proposes_valid_positions():
 def test_runner_yields_exactly_max_steps():
     exp = _gaussian_experiment()
     rng = random.Random(2)
-    runner = Runner()
-    steps = list(runner.run(SimpleSweepLocator, exp, rng, max_steps=10))
+    steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=10))
     assert len(steps) <= 10
     assert len(steps) > 0
 
@@ -57,9 +55,8 @@ def test_runner_yields_exactly_max_steps():
 def test_observer_records_snapshots():
     exp = _gaussian_experiment()
     rng = random.Random(3)
-    runner = Runner()
     observer = Observer(exp.true_signal, exp.x_min, exp.x_max)
-    result = observer.watch(runner.run(SimpleSweepLocator, exp, rng, max_steps=15))
+    result = observer.watch(run_loop(SimpleSweepLocator, exp, rng, max_steps=15))
     assert isinstance(result, RunResult)
     assert len(result.snapshots) > 0
 
@@ -67,9 +64,8 @@ def test_observer_records_snapshots():
 def test_locator_estimates_are_finite():
     exp = _gaussian_experiment(center=0.6)
     rng = random.Random(42)
-    runner = Runner()
     last_locator = None
-    for last_locator in runner.run(SimpleSweepLocator, exp, rng, max_steps=30):
+    for last_locator in run_loop(SimpleSweepLocator, exp, rng, max_steps=30):
         pass
     assert last_locator is not None
     estimates = last_locator.belief.estimates()
@@ -81,10 +77,9 @@ def test_locator_comparison_different_max_steps():
 
     rng_a = random.Random(99)
     rng_b = random.Random(99)
-    runner = Runner()
 
-    steps_a = list(runner.run(SimpleSweepLocator, exp, rng_a, max_steps=5))
-    steps_b = list(runner.run(SimpleSweepLocator, exp, rng_b, max_steps=20))
+    steps_a = list(run_loop(SimpleSweepLocator, exp, rng_a, max_steps=5))
+    steps_b = list(run_loop(SimpleSweepLocator, exp, rng_b, max_steps=20))
 
     # More steps means same or more measurements
     assert len(steps_b) >= len(steps_a)

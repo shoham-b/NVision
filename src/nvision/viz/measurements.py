@@ -7,8 +7,9 @@ import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 
-from nvision.core.paths import ensure_out_dir
-from nvision.sim.core import CompositeOverFrequencyNoise, DataBatch
+from nvision.models.noise import CompositeOverFrequencyNoise
+from nvision.sim.batch import DataBatch
+from nvision.tools.paths import ensure_out_dir
 
 
 class MeasurementsMixin:

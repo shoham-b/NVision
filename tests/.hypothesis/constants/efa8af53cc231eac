@@ -1,0 +1,4 @@
+# file: C:\Users\shoha\git\NVision\src\nvision\signal\voigt_zeeman.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.001, 0.01, 0.03, 0.05, 0.08, 0.1, 0.12, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0, 6.0, 'amplitude', 'background', 'frequency', 'k_np', 'linewidth', 'split']

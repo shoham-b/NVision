@@ -6,11 +6,12 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from ...core import DataBatch
+from nvision.sim.batch import DataBatch
+from nvision.sim import OverFrequencyNoise
 
 
 @dataclass
-class OverFrequencyPoissonNoise:
+class OverFrequencyPoissonNoise(OverFrequencyNoise):
     """Poisson counting noise applied to positive signals interpreted as expected counts.
 
     Scales input by a scale, draws from Poisson, then rescales back.

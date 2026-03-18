@@ -3,8 +3,8 @@ import shutil
 import traceback
 from pathlib import Path
 
-from nvision.cli.runner import _run_combination
-from nvision.core.structures import LocatorTask
+from nvision.runner import run_combination as _run_combination
+from nvision.models.task import LocatorTask
 from nvision.sim import NVCenterSweepLocator
 from nvision.sim import cases as sim_cases
 from nvision.sim.core import CompositeNoise, CompositeOverFrequencyNoise

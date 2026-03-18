@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from nvision.sim.locs import Locator
+from nvision.sim import OverProbeNoise
 
 
 @dataclass
-class OverProbeDriftNoise:
+class OverProbeDriftNoise(OverProbeNoise):
     """Adds a slow linear drift across sequential probes."""
 
     drift_per_unit: float = 0.0001
@@ -20,7 +18,7 @@ class OverProbeDriftNoise:
         """Reset accumulated drift for stateful usage."""
         self._current_drift = None
 
-    def apply(self, signal_value: float, rng: random.Random, locator: Locator) -> float:
+    def apply(self, signal_value: float, rng: random.Random, locator: object = None) -> float:
         estimates = getattr(locator, "current_estimates", {})
         amplitude = estimates.get("amplitude", 1.0)
         drift = self.drift_per_unit * amplitude

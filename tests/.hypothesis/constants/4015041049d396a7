@@ -1,0 +1,4 @@
+# file: C:\Users\shoha\git\NVision\src\nvision\signal\lorentzian.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.001, 0.03, 0.05, 0.1, 0.12, 0.3, 0.5, 0.85, 0.9, 1.0, 1.5, 'amplitude', 'background', 'frequency', 'linewidth']

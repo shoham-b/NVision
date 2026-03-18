@@ -85,7 +85,6 @@ class Locator(ABC):
 
 ### Before (with Factory)
 ```python
-runner = Runner()
 factory = SimpleSweepFactory(max_steps=50)
 for locator in runner.run(factory, experiment, rng):
     ...
@@ -93,15 +92,13 @@ for locator in runner.run(factory, experiment, rng):
 
 ### After (with Classmethod)
 ```python
-runner = Runner()
-for locator in runner.run(SimpleSweepLocator, experiment, rng, max_steps=50):
+for locator in run_loop(SimpleSweepLocator, experiment, rng, max_steps=50):
     ...
 ```
 
-The runner signature changed:
+`run_loop` signature:
 ```python
-def run(
-    self,
+def run_loop(
     locator_class: Type[Locator],  # Pass class, not instance
     experiment: CoreExperiment,
     rng: random.Random,
@@ -141,22 +138,8 @@ task = LocatorTask(
 ### CLI Detection
 
 ```python
-# In src/nvision/cli/sim_runner.py
-def run_simulation_batch(task):
-    is_locator_class = (
-        (isinstance(task.strategy, type) and issubclass(task.strategy, Locator)) or
-        (isinstance(task.strategy, dict) and "class" in task.strategy)
-    )
-    
-    if is_locator_class:
-        # Native or adapted core architecture
-        if isinstance(test_output, TrueSignal):
-            return run_native_simulation_batch(task)
-        else:
-            return run_simulation_batch_with_core(task)
-    else:
-        # Legacy v2 architecture
-        return run_simulation_batch_v2(task)
+# The v2 codepath was removed; use the runner batch entry point:
+from nvision.runner.batch import run_simulation_batch
 ```
 
 ---
@@ -206,7 +189,7 @@ class NVCenterBayesianLocator(Locator):
         NVCenterBayesianLocator
             Fresh locator with uniform priors
         """
-        from nvision.core.nv_models import NVCenterLorentzianModel
+        from nvision.models.nv_center import NVCenterLorentzianModel
         
         model = NVCenterLorentzianModel()
         
@@ -270,9 +253,8 @@ locator = NVCenterBayesianLocator.create(
 )
 
 # Via runner
-runner = Runner()
 result = observer.watch(
-    runner.run(
+    run_loop(
         NVCenterBayesianLocator,
         experiment,
         rng,

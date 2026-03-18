@@ -8,7 +8,7 @@ import polars as pl
 
 
 class ComparisonsMixin:
-    """Mixin for generating comparison plots between models/strategies."""
+    """Mixin for generating comparison plots between signal/strategies."""
 
     out_dir: Path
 

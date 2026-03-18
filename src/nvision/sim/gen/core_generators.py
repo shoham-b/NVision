@@ -9,13 +9,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from nvision.core.models import (
-    CompositePeakModel,
-    ExponentialDecayModel,
-    GaussianModel,
-    LorentzianModel,
-)
-from nvision.core.nv_models import (
+from nvision.signal import (
     A_PARAM,
     MAX_K_NP,
     MAX_NV_CENTER_DELTA,
@@ -23,10 +17,14 @@ from nvision.core.nv_models import (
     MIN_K_NP,
     MIN_NV_CENTER_DELTA,
     MIN_NV_CENTER_OMEGA,
+    CompositePeakModel,
+    ExponentialDecayModel,
+    GaussianModel,
+    LorentzianModel,
     NVCenterLorentzianModel,
     NVCenterVoigtModel,
 )
-from nvision.core.signal import Parameter, TrueSignal
+from nvision.signal.signal import Parameter, TrueSignal
 
 
 @dataclass
@@ -92,7 +90,7 @@ class OnePeakCoreGenerator:
 class NVCenterCoreGenerator:
     """Generates NV center ODMR signals using core architecture.
 
-    Produces TrueSignal with physically accurate NV center models.
+    Produces TrueSignal with physically accurate NV center signal.
     """
 
     x_min: float = 2.6e9  # 2.6 GHz
@@ -206,7 +204,7 @@ class TwoPeakCoreGenerator:
         peak2_amp = rng.uniform(0.5, 1.0)
         background = rng.uniform(0.0, 0.1)
 
-        # Create models for each peak
+        # Create signal for each peak
         if self.peak_type_left == "gaussian":
             model1 = GaussianModel()
             param_names1 = ["frequency", "sigma", "amplitude", "background"]
@@ -324,7 +322,7 @@ class MultiPeakCoreGenerator:
         # Sort positions
         positions.sort()
 
-        # Create models and parameters
+        # Create signal and parameters
         models = []
         parameters = []
         background = rng.uniform(0.0, 0.1)

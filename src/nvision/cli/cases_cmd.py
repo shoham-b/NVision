@@ -3,8 +3,8 @@ from __future__ import annotations
 import typer
 
 from nvision.cli.main import app
-from nvision.core.paths import ARTIFACTS_ROOT
 from nvision.sim import cases as sim_cases
+from nvision.tools.paths import ARTIFACTS_ROOT
 
 cases_app = typer.Typer(
     help="Run specific preset simulation cases (no parameters).",
@@ -72,4 +72,4 @@ def nvcenter_bayes_ucb_case(
 
 
 if __name__ == "__main__":
-    nvcenter_case()
+    nvcenter_case(repeats=2)
