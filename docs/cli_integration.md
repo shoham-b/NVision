@@ -9,15 +9,8 @@ The NVision CLI has been updated to support both the legacy v2 locator architect
 The CLI automatically detects which architecture to use based on the strategy type:
 
 ```python
-# In src/nvision/cli/sim_runner.py
-def run_simulation_batch(task: LocatorTask):
-    if isinstance(task.strategy, LocatorFactory):
-        # New core architecture
-        from nvision.cli.core_sim_runner import run_simulation_batch_with_core
-        return run_simulation_batch_with_core(task)
-    else:
-        # Legacy v2 architecture
-        # ... existing v2 code ...
+# In src/nvision/runner/batch.py
+from nvision.runner.batch import run_simulation_batch
 ```
 
 ## Architecture Components
@@ -30,14 +23,13 @@ Bridges legacy `ScanBatch` objects with the new core architecture:
 - **`scan_batch_to_true_signal()`**: Converts `ScanBatch` to `TrueSignal`
 - **`normalize_x()` / `denormalize_x()`**: Coordinate transformations
 
-### 2. Core Sim Runner (`src/nvision/cli/core_sim_runner.py`)
+### 2. Batch Runner (`src/nvision/runner/batch.py`)
 
 Runs simulations using the new core architecture:
 
-- **`run_simulation_batch_with_core()`**: Main entry point
-  - Converts `ScanBatch` → `TrueSignal`
+- **`run_simulation_batch()`**: Main entry point
   - Runs localization with `Runner` and `Observer`
-  - Converts `RunResult` back to DataFrame format
+  - Converts `RunResult` into history/finalize DataFrames
 
 - **`run_result_to_history_df()`**: Converts trajectory to history DataFrame
 - **`run_result_to_finalize_record()`**: Extracts final estimates
@@ -106,8 +98,7 @@ Columns: ['repeat_id', 'peak_x', 'x1_hat', 'entropy', 'converged', ...]
 ### Using Core Architecture
 
 ```python
-from nvision.sim.locs.core import SimpleSweepFactory
-from nvision.core.structures import LocatorTask
+from nvision.models.task import LocatorTask
 
 # Create factory (triggers new architecture)
 factory = SimpleSweepFactory(max_steps=50)

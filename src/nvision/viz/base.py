@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nvision.core.paths import ensure_out_dir
+from nvision.tools.paths import ensure_out_dir
 
 
 class VizBase:

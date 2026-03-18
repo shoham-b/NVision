@@ -1,12 +1,7 @@
 """Simulation framework for NV-center measurement experiments."""
 
-from .core import (
-    CompositeNoise,
-    CompositeOverFrequencyNoise,
-    CompositeOverProbeNoise,
+from nvision.sim.batch import (
     DataBatch,
-    DataGenerator,
-    MeasurementStrategy,
     OverFrequencyNoise,
     OverProbeNoise,
 )
@@ -26,12 +21,7 @@ from .noises import (
 )
 
 __all__ = [
-    "CompositeNoise",
-    "CompositeOverFrequencyNoise",
-    "CompositeOverProbeNoise",
     "DataBatch",
-    "DataGenerator",
-    "MeasurementStrategy",
     "MultiPeakCoreGenerator",
     "NVCenterCoreGenerator",
     "OnePeakCoreGenerator",

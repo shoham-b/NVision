@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import random
 
-from nvision.sim.core import CompositeOverFrequencyNoise, DataBatch
+from nvision.models.noise import CompositeOverFrequencyNoise
+from nvision.sim.batch import DataBatch
 from nvision.sim.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,

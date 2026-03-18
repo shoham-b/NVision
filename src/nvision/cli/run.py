@@ -15,14 +15,13 @@ from rich.logging import RichHandler
 
 from nvision.cli.main import app
 from nvision.cli.monitor import ProgressMonitor
-from nvision.cli.runner import _run_combination
-from nvision.cli.tasks import build_tasks
-from nvision.core.paths import (
+from nvision.gui.report import prepare_static_ui_data
+from nvision.runner import TaskBuildConfig, build_tasks, run_combination
+from nvision.sim import cases as sim_cases
+from nvision.tools.paths import (
     ARTIFACTS_ROOT,  # Assuming PROJECT_ROOT is defined in core.paths
     ensure_out_dir,
 )
-from nvision.gui.report import prepare_static_ui_data
-from nvision.sim import cases as sim_cases
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
@@ -164,22 +163,24 @@ def run(  # noqa: C901
     monitor = ProgressMonitor(console, progress_queue)
 
     tasks, _ = build_tasks(
-        repeats=repeats,
-        seed=seed,
-        out_dir=out_dir,
-        scans_dir=scans_dir,
-        bayes_dir=bayes_dir,
-        cache_dir=cache_dir,
-        log_queue=log_queue,
-        progress_queue=progress_queue,
-        log_level_value=log_level_value,
-        loc_max_steps=loc_max_steps,
-        loc_timeout_s=loc_timeout_s,
-        no_cache=no_cache,
-        ignore_cache_strategy=ignore_cache_strategy,
-        require_cache=require_cache,
-        filter_category=filter_category,
-        filter_strategy=filter_strategy,
+        TaskBuildConfig(
+            repeats=repeats,
+            seed=seed,
+            out_dir=out_dir,
+            scans_dir=scans_dir,
+            bayes_dir=bayes_dir,
+            cache_dir=cache_dir,
+            log_queue=log_queue,
+            progress_queue=progress_queue,
+            log_level_value=log_level_value,
+            loc_max_steps=loc_max_steps,
+            loc_timeout_s=loc_timeout_s,
+            no_cache=no_cache,
+            ignore_cache_strategy=ignore_cache_strategy,
+            require_cache=require_cache,
+            filter_category=filter_category,
+            filter_strategy=filter_strategy,
+        ),
         monitor=monitor,
     )
 
@@ -190,7 +191,7 @@ def run(  # noqa: C901
     with monitor:
         for locator_task in tasks:
             try:
-                results_for_combination = _run_combination(locator_task)
+                results_for_combination = run_combination(locator_task)
                 for entries, main_result_row in results_for_combination:
                     plot_manifest.extend(entries)
                     df_rows.append(main_result_row)

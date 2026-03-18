@@ -1,0 +1,4 @@
+# file: C:\Users\shoha\git\NVision\src\nvision\viz\measurements.py
+# hypothesis_version: 6.151.9
+
+[0.01, 0.15, 0.3, 0.5, 0.6, 0.7, 0.8, 0.99, 1.02, 800, 1000, 'Convergence Metrics', 'Entropy', 'Scan Measurements', 'Uncertainty', 'Viridis', 'black', 'blue', 'bottom', 'cdn', 'dot', 'entropy', 'frequency', 'green', 'h', 'intensity', 'left', 'lines', 'lines+markers', 'markers', 'max_prob', 'measurements (noisy)', 'metric value', 'orange', 'plotly_white', 'red', 'right', 'signal_values', 'step', 'top', 'true signal', 'uncertainty', 'x', 'y2', 'y3']

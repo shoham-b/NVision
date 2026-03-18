@@ -1,0 +1,4 @@
+# file: C:\Users\shoha\git\NVision\src\nvision\runner\metrics.py
+# hypothesis_version: 6.151.9
+
+[0.5, 1000, 'abs_err_x', 'abs_err_x1', 'abs_err_x2', 'attempt', 'duration_ms', 'entropy', 'final_entropy', 'final_max_prob', 'frequency', 'generator', 'measurements', 'metrics', 'noise', 'pair_rmse', 'peak_x', 'position', 'repeat', 'repeat_id', 'repeat_total', 'repeats', 'signal_values', 'stop_reason', 'strategy', 'uncert', 'uncert_pos', 'uncert_sep', 'x', 'x1_hat', 'x2_hat', 'x_hat']

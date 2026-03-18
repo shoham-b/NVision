@@ -4,11 +4,11 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from ..core import DataBatch, OverFrequencyNoise, OverProbeNoise
+from nvision.sim.batch import DataBatch, OverFrequencyNoise, OverProbeNoise
 
 
 @dataclass
-class OverFrequencyNoises:
+class OverFrequencyNoises(OverFrequencyNoise):
     """Group of per-measurement (intrinsic) noises applied in sequence."""
 
     parts: Sequence[OverFrequencyNoise] | None = None
@@ -29,7 +29,7 @@ class OverFrequencyNoises:
 
 
 @dataclass
-class OverProbeNoises:
+class OverProbeNoises(OverProbeNoise):
     """Group of cumulative/system noises applied in sequence.
 
     Example components: OverProbeRandomWalkNoise, OverProbeDriftNoise.
@@ -52,7 +52,7 @@ class OverProbeNoises:
             if callable(reset):
                 reset()
 
-    def apply(self, signal_value: float, rng: random.Random) -> float:
+    def apply(self, signal_value: float, rng: random.Random, locator: object = None) -> float:
         out = signal_value
         for part in self._parts:
             out = part.apply(out, rng)

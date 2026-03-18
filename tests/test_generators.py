@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import random
 
-from nvision.core import TrueSignal
+from nvision.signal.signal import TrueSignal
 from nvision.sim.gen.core_generators import (
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,

@@ -12,17 +12,17 @@ import random
 
 import numpy as np
 
-from nvision.core import (
+from nvision.models.experiment import CoreExperiment
+from nvision.models.locator import Locator
+from nvision.models.observer import Observer
+from nvision.runner.loop import run_loop
+from nvision.signal.signal import (
     BeliefSignal,
-    CoreExperiment,
-    Locator,
-    Observer,
     Parameter,
     ParameterWithPosterior,
-    Runner,
     TrueSignal,
 )
-from nvision.core.models import LorentzianModel
+from nvision.signal.lorentzian import LorentzianModel
 
 
 class SimpleSweepLocator(Locator):
@@ -117,10 +117,9 @@ def main():
     # 3. Run with observer
     print("\n3. Running localization...")
     rng = random.Random(42)
-    runner = Runner()
     observer = Observer(true_signal, x_min=0.0, x_max=1.0)
 
-    result = observer.watch(runner.run(SimpleSweepLocator, experiment, rng, max_steps=30))
+    result = observer.watch(run_loop(SimpleSweepLocator, experiment, rng, max_steps=30))
 
     print(f"   Steps taken: {result.num_steps()}")
     print(f"   Final estimates: {result.final_estimates()}")

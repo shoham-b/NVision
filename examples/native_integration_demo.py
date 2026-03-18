@@ -7,11 +7,10 @@ This demonstrates the deep integration where:
 4. CLI automatically detects and uses native path
 """
 
-import random
 from pathlib import Path
 
-from nvision.cli.native_runner import run_native_simulation_batch
-from nvision.core.structures import LocatorTask
+from nvision.runner.batch import run_simulation_batch as run_native_simulation_batch
+from nvision.models.task import LocatorTask
 from nvision.sim.gen.core_generators import NVCenterCoreGenerator, OnePeakCoreGenerator
 from nvision.sim.locs.core import SimpleSweepLocator
 

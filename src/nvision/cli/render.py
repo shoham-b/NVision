@@ -14,16 +14,16 @@ from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from nvision.cache import CacheBridge
-from nvision.cli.cache_helpers import restore_graphs
 from nvision.cli.main import app
-from nvision.cli.utils import (
+from nvision.gui.report import prepare_static_ui_data
+from nvision.runner.cache import restore_graphs
+from nvision.sim import cases as sim_cases
+from nvision.tools.paths import ensure_out_dir
+from nvision.tools.utils import (
     _get_generator_category,
     _locator_strategies_for_generator,
     _noise_presets,
 )
-from nvision.core.paths import ensure_out_dir
-from nvision.gui.report import prepare_static_ui_data
-from nvision.sim import cases as sim_cases
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
@@ -82,7 +82,7 @@ def _collect_cache_results(
                 if cached_results:
                     log.debug(f"Cache hit for {gen_name}/{noise_name}/{strat_name}")
                     # Restore graphs
-                    restore_graphs(cached_results, out_dir, log)
+                    restore_graphs(cached_results, out_dir)
 
                     # Collect results
                     for entries, main_result_row in cached_results:
