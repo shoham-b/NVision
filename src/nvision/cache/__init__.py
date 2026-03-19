@@ -4,4 +4,4 @@ from nvision.cache.bridge import CacheBridge
 from nvision.cache.category import CategoryCache
 from nvision.cache.sqlite import ShardedSqliteCache, SqliteCache
 
-__all__ = ["CacheBridge", "CategoryCache", "SqliteCache", "ShardedSqliteCache"]
+__all__ = ["CacheBridge", "CategoryCache", "ShardedSqliteCache", "SqliteCache"]

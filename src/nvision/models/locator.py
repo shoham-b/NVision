@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 
 from nvision.models.observation import Observation
-from nvision.signal.signal import BeliefSignal
+from nvision.signal.abstract_belief import AbstractBeliefDistribution
 
 
 class Locator(ABC):
@@ -16,16 +16,16 @@ class Locator(ABC):
 
     Attributes
     ----------
-    belief : BeliefSignal
+    belief : AbstractBeliefDistribution
         Current belief state about signal parameters
     """
 
-    def __init__(self, belief: BeliefSignal):
-        """Initialize locator with initial belief.
+    def __init__(self, belief: AbstractBeliefDistribution):
+        """Initialize the locator with the initial belief.
 
         Parameters
         ----------
-        belief : BeliefSignal
+        belief : AbstractBeliefDistribution
             Initial belief (usually uniform prior)
         """
         self.belief = belief

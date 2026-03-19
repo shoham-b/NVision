@@ -7,7 +7,8 @@ from dataclasses import dataclass
 
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.signal.signal import BeliefSignal, TrueSignal
+from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.signal.signal import TrueSignal
 
 
 @dataclass
@@ -25,7 +26,7 @@ class StepSnapshot:
     """
 
     obs: Observation
-    belief: BeliefSignal
+    belief: AbstractBeliefDistribution
     true_signal: TrueSignal
 
 

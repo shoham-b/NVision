@@ -327,7 +327,7 @@ class MultiPeakCoreGenerator:
         parameters = []
         background = rng.uniform(0.0, 0.1)
 
-        for i, (pos, peak_type) in enumerate(zip(positions, peak_types)):
+        for i, (pos, peak_type) in enumerate(zip(positions, peak_types, strict=False)):
             prefix = f"peak{i + 1}"
 
             # Random parameters

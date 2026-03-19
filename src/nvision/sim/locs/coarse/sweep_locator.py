@@ -9,7 +9,9 @@ from __future__ import annotations
 import numpy as np
 
 from nvision.models.locator import Locator
-from nvision.signal.signal import BeliefSignal, ParameterWithPosterior, SignalModel
+from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.signal.grid_belief import GridBeliefDistribution, GridParameter
+from nvision.signal.signal import SignalModel
 
 
 class BlackBoxSignalModel(SignalModel):
@@ -36,12 +38,12 @@ class SimpleSweepLocator(Locator):
     belief about peak location based on measured signal values.
     """
 
-    def __init__(self, belief: BeliefSignal, max_steps: int = 50):
+    def __init__(self, belief: AbstractBeliefDistribution, max_steps: int = 50):
         """Initialize sweep locator.
 
         Parameters
         ----------
-        belief : BeliefSignal
+        belief : AbstractBeliefDistribution
             Initial belief (uniform prior over peak location)
         max_steps : int
             Maximum number of sweep points
@@ -76,10 +78,10 @@ class SimpleSweepLocator(Locator):
         model = BlackBoxSignalModel()
 
         # Create uniform prior over [0, 1] for peak location
-        belief = BeliefSignal(
+        belief = GridBeliefDistribution(
             model=model,
             parameters=[
-                ParameterWithPosterior(
+                GridParameter(
                     name="peak_x",
                     bounds=(0.0, 1.0),
                     grid=np.linspace(0.0, 1.0, n_grid),

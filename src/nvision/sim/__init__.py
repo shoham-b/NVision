@@ -5,6 +5,7 @@ from nvision.sim.batch import (
     OverFrequencyNoise,
     OverProbeNoise,
 )
+
 from .gen import (
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
