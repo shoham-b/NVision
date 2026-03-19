@@ -288,6 +288,113 @@ function main() {
             return prefix + cleaned;
         }
 
+        let plotlyLoadPromise = null;
+        function ensurePlotly() {
+            if (window.Plotly) {
+                return Promise.resolve();
+            }
+            if (!plotlyLoadPromise) {
+                plotlyLoadPromise = new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://cdn.plot.ly/plotly-2.27.0.min.js';
+                    s.async = true;
+                    s.onload = () => resolve();
+                    s.onerror = () => reject(new Error('Plotly failed to load'));
+                    document.head.appendChild(s);
+                });
+            }
+            return plotlyLoadPromise;
+        }
+
+        function addHeadToHeadMeasurementTraces(traces, m, label, side) {
+            const cs = side === 'left' ? 'Oranges' : 'Purples';
+            const symbol = side === 'left' ? 'circle' : 'diamond';
+            if (!m || m.mode === 'empty') {
+                return;
+            }
+            if (m.mode === 'phases') {
+                const coarseColor = side === 'left' ? '#fb923c' : '#a78bfa';
+                const fineColor = side === 'left' ? '#c2410c' : '#6d28d9';
+                if (m.coarse_x && m.coarse_x.length) {
+                    traces.push({
+                        type: 'scatter',
+                        x: m.coarse_x,
+                        y: m.coarse_y,
+                        mode: 'markers',
+                        name: `${label} (coarse)`,
+                        marker: {
+                            size: 7,
+                            color: coarseColor,
+                            symbol: symbol,
+                            line: { width: 0.5, color: '#222' },
+                        },
+                    });
+                }
+                if (m.fine_x && m.fine_x.length) {
+                    traces.push({
+                        type: 'scatter',
+                        x: m.fine_x,
+                        y: m.fine_y,
+                        mode: 'markers',
+                        name: `${label} (fine)`,
+                        marker: {
+                            size: 8,
+                            color: fineColor,
+                            symbol: symbol,
+                            line: { width: 0.5, color: '#222' },
+                        },
+                    });
+                }
+                return;
+            }
+            if (m.mode === 'steps') {
+                traces.push({
+                    type: 'scatter',
+                    x: m.x,
+                    y: m.y,
+                    mode: 'markers',
+                    name: `${label} (measurements)`,
+                    marker: {
+                        size: 8,
+                        color: m.step,
+                        colorscale: cs,
+                        symbol: symbol,
+                        line: { width: 0.5, color: '#222' },
+                        showscale: false,
+                    },
+                });
+            }
+        }
+
+        function buildHeadToHeadTraces(pdL, pdR, nameL, nameR) {
+            const traces = [];
+            traces.push({
+                type: 'scatter',
+                x: pdL.x_dense,
+                y: pdL.y_dense,
+                mode: 'lines',
+                name: 'true signal',
+                line: { color: '#2563eb', width: 2 },
+            });
+            if (
+                pdL.y_dense_noisy &&
+                pdL.y_dense_noisy.length &&
+                pdL.y_dense_noisy.length === pdL.x_dense.length
+            ) {
+                traces.push({
+                    type: 'scatter',
+                    x: pdL.x_dense,
+                    y: pdL.y_dense_noisy,
+                    mode: 'lines',
+                    name: 'simulated noisy signal (over-frequency)',
+                    line: { color: '#fb923c', dash: 'dot', width: 1.5 },
+                });
+            }
+            addHeadToHeadMeasurementTraces(traces, pdL.measurements, nameL, 'left');
+            addHeadToHeadMeasurementTraces(traces, pdR.measurements, nameR, 'right');
+            return traces;
+        }
+
         function controlValue(control) {
             if (control instanceof HTMLSelectElement) {
                 return control.value || control.dataset.value || '';
@@ -593,24 +700,24 @@ function main() {
             if (hasScans) {
                 const button = document.createElement('button');
                 button.className = 'tab-button';
-                button.textContent = 'Scan Measurements';
+                button.textContent = 'Scan measurements';
                 button.dataset.tab = 'scan-section';
+                tabBar.appendChild(button);
+            }
+
+            if (hasScans) {
+                const button = document.createElement('button');
+                button.className = 'tab-button';
+                button.textContent = 'Head to head';
+                button.dataset.tab = 'scan-comparison-section';
                 tabBar.appendChild(button);
             }
 
             if (hasModelComp) {
                 const button = document.createElement('button');
                 button.className = 'tab-button';
-                button.textContent = 'Strategy Comparison';
+                button.textContent = 'Strategy metrics';
                 button.dataset.tab = 'strategy-comparison-section';
-                tabBar.appendChild(button);
-            }
-
-            if (hasScans) { // Reuse hasScans for locator comparison as it relies on same data
-                const button = document.createElement('button');
-                button.className = 'tab-button';
-                button.textContent = 'Scan Comparison';
-                button.dataset.tab = 'scan-comparison-section';
                 tabBar.appendChild(button);
             }
 
@@ -648,7 +755,7 @@ function main() {
             });
         }
 
-        // --- Strategy Comparison Logic ---
+        // --- Strategy metrics (model_comparison bar charts) ---
         const compGeneratorType = document.getElementById('comp-generator-type');
         const compGenerator = document.getElementById('comp-generator');
         const compNoise = document.getElementById('comp-noise');
@@ -708,142 +815,258 @@ function main() {
             updateCompPlots();
         });
 
-        // --- Scan Comparison Logic ---
-        function setupSide(prefix) {
-            const genType = document.getElementById(prefix + '-generator-type');
-            const gen = document.getElementById(prefix + '-generator');
-            const noise = document.getElementById(prefix + '-noise');
-            const strat = document.getElementById(prefix + '-strategy');
-            const rep = document.getElementById(prefix + '-repeat');
-            const iframe = document.getElementById(prefix + '-iframe');
-            const metrics = document.getElementById(prefix + '-metrics');
+        // --- Scan Comparison: same signal (target / generator / noise / repeat), two locators ---
+        function setupScanComparison() {
+            const cmpGenType = document.getElementById('cmp-shared-generator-type');
+            const cmpGen = document.getElementById('cmp-shared-generator');
+            const cmpNoise = document.getElementById('cmp-shared-noise');
+            const cmpRepeat = document.getElementById('cmp-shared-repeat');
+            const leftStrat = document.getElementById('left-strategy');
+            const rightStrat = document.getElementById('right-strategy');
+            const headToHeadEl = document.getElementById('head-to-head-plot');
+            const leftMetrics = document.getElementById('left-metrics');
+            const rightMetrics = document.getElementById('right-metrics');
 
-            let currentRepItems = [];
+            if (
+                !cmpGenType ||
+                !cmpGen ||
+                !cmpNoise ||
+                !cmpRepeat ||
+                !leftStrat ||
+                !rightStrat ||
+                !headToHeadEl
+            ) {
+                return;
+            }
 
-            function updateSideSignalControls() {
+            function updateCmpSharedSignalControls() {
                 const selGenType = renderSegmentedControl(
-                    genType,
+                    cmpGenType,
                     [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
-                    controlValue(genType),
+                    controlValue(cmpGenType),
                 );
                 const genItems = scanPlots.filter((p) => p.generator_type === selGenType).map((p) => p.generator);
-                const selGen = renderSegmentedControl(gen, genItems, controlValue(gen));
+                const selGen = renderSegmentedControl(cmpGen, genItems, controlValue(cmpGen));
                 const noiseItems = scanPlots
                     .filter((p) => p.generator_type === selGenType && p.generator === selGen)
                     .map((p) => p.noise);
-                renderSegmentedControl(noise, noiseItems, controlValue(noise));
+                renderSegmentedControl(cmpNoise, noiseItems, controlValue(cmpNoise));
             }
 
-            function updateSideStrategyControl() {
-                const selGenType = controlValue(genType);
+            function updateCmpStrategyControls() {
+                const selGenType = controlValue(cmpGenType);
                 const stratItems = [
                     ...new Set(scanPlots.filter((p) => p.generator_type === selGenType).map((p) => p.strategy)),
                 ];
-                renderSegmentedControl(strat, stratItems, controlValue(strat));
+                renderSegmentedControl(leftStrat, stratItems, controlValue(leftStrat));
+                renderSegmentedControl(rightStrat, stratItems, controlValue(rightStrat));
             }
 
-            function updateSideRepeatControl() {
-                const selGenType = controlValue(genType);
-                const selGen = controlValue(gen);
-                const selNoise = controlValue(noise);
-                const selStrat = controlValue(strat);
-                const repItems = scanPlots
+            function repeatStringsFor(gt, g, n, strat) {
+                return scanPlots
                     .filter(
                         (p) =>
-                            p.generator_type === selGenType &&
-                            p.generator === selGen &&
-                            p.noise === selNoise &&
-                            p.strategy === selStrat,
+                            p.generator_type === gt &&
+                            p.generator === g &&
+                            p.noise === n &&
+                            p.strategy === strat,
                     )
                     .map((p) => String(p.repeat ?? p.attempt ?? 1));
-                const {value: selRep, items} = renderSelectControl(
-                    rep,
-                    repItems,
-                    controlValue(rep) || rep.dataset.value || '',
+            }
+
+            function updateCmpRepeatControl() {
+                const gt = controlValue(cmpGenType);
+                const g = controlValue(cmpGen);
+                const n = controlValue(cmpNoise);
+                const sl = controlValue(leftStrat);
+                const sr = controlValue(rightStrat);
+                const repsL = repeatStringsFor(gt, g, n, sl);
+                const repsR = repeatStringsFor(gt, g, n, sr);
+                const setR = new Set(repsR);
+                let common = [...new Set(repsL)].filter((r) => setR.has(r));
+                common.sort((a, b) => Number(a) - Number(b));
+                if (common.length === 0) {
+                    common = [...new Set([...repsL, ...repsR])].sort((a, b) => Number(a) - Number(b));
+                }
+                const {value: selRep} = renderSelectControl(
+                    cmpRepeat,
+                    common,
+                    controlValue(cmpRepeat) || cmpRepeat.dataset.value || '',
                 );
-                currentRepItems = items;
                 if (selRep) {
-                    rep.dataset.value = selRep;
+                    cmpRepeat.dataset.value = selRep;
                 }
             }
 
-            function updateAllSideControls() {
-                updateSideSignalControls();
-                updateSideStrategyControl();
-                updateSideRepeatControl();
+            function updateAllCmpControls() {
+                updateCmpSharedSignalControls();
+                updateCmpStrategyControls();
+                updateCmpRepeatControl();
             }
 
-            function updateSidePlot() {
-                const vGenType = controlValue(genType);
-                const vGen = controlValue(gen);
-                const vNoise = controlValue(noise);
-                const vStrat = controlValue(strat);
-                const vRep = parseInt(controlValue(rep), 10);
+            function applyMetrics(el, plot) {
+                if (!el) {
+                    return;
+                }
+                if (plot) {
+                    const absErr = formatMetricValue(plot.abs_err_x);
+                    const uncertainty = formatMetricValue(plot.uncert);
+                    const measurements = formatCount(plot.measurements);
+                    const duration = formatDuration(plot.duration_ms);
+                    el.textContent = `Measurements: ${measurements} • Duration: ${duration} • Abs Error: ${absErr} • Uncertainty: ${uncertainty}`;
+                } else {
+                    el.textContent = '';
+                }
+            }
 
-                if (vGenType && vGen && vNoise && vStrat && vRep) {
-                    const plot = scanPlots.find(p =>
+            function clearHeadToHeadPlot(message) {
+                if (window.Plotly) {
+                    try {
+                        window.Plotly.purge(headToHeadEl);
+                    } catch (e) {
+                        /* ignore */
+                    }
+                }
+                headToHeadEl.innerHTML = message
+                    ? `<p class="metrics">${message}</p>`
+                    : '';
+            }
+
+            async function updateCmpPlots() {
+                const vGenType = controlValue(cmpGenType);
+                const vGen = controlValue(cmpGen);
+                const vNoise = controlValue(cmpNoise);
+                const vStratL = controlValue(leftStrat);
+                const vStratR = controlValue(rightStrat);
+                const repStr = controlValue(cmpRepeat);
+                const vRep = repStr ? parseInt(repStr, 10) : NaN;
+
+                if (!vGenType || !vGen || !vNoise || !vStratL || !vStratR || !Number.isFinite(vRep)) {
+                    clearHeadToHeadPlot('');
+                    applyMetrics(leftMetrics, null);
+                    applyMetrics(rightMetrics, null);
+                    return;
+                }
+
+                const plotL = scanPlots.find(
+                    (p) =>
                         p.generator_type === vGenType &&
                         p.generator === vGen &&
                         p.noise === vNoise &&
-                        p.strategy === vStrat &&
-                        p.repeat === vRep
-                    );
+                        p.strategy === vStratL &&
+                        p.repeat === vRep,
+                );
+                const plotR = scanPlots.find(
+                    (p) =>
+                        p.generator_type === vGenType &&
+                        p.generator === vGen &&
+                        p.noise === vNoise &&
+                        p.strategy === vStratR &&
+                        p.repeat === vRep,
+                );
 
-                    iframe.src = plot ? plot.path : '';
-                    if (plot) {
-                        const absErr = formatMetricValue(plot.abs_err_x);
-                        const uncertainty = formatMetricValue(plot.uncert);
-                        const measurements = formatCount(plot.measurements);
-                        const duration = formatDuration(plot.duration_ms);
-                        metrics.textContent = `Measurements: ${measurements} • Duration: ${duration} • Abs Error: ${absErr} • Uncertainty: ${uncertainty}`;
-                    } else {
-                        metrics.textContent = '';
+                applyMetrics(leftMetrics, plotL);
+                applyMetrics(rightMetrics, plotR);
+
+                if (!plotL || !plotR) {
+                    clearHeadToHeadPlot('No scan data for this selection.');
+                    return;
+                }
+
+                const pdL = plotL.plot_data;
+                const pdR = plotR.plot_data;
+                if (!pdL || !pdR || !pdL.x_dense || !pdR.x_dense) {
+                    clearHeadToHeadPlot(
+                        'Re-run the pipeline with the current NVision version to embed combined head-to-head plot data.',
+                    );
+                    return;
+                }
+
+                try {
+                    await ensurePlotly();
+                    if (window.Plotly) {
+                        try {
+                            window.Plotly.purge(headToHeadEl);
+                        } catch (e) {
+                            /* ignore */
+                        }
                     }
-                } else {
-                    iframe.src = '';
-                    metrics.textContent = '';
+                    headToHeadEl.innerHTML = '';
+                    const traces = buildHeadToHeadTraces(pdL, pdR, vStratL, vStratR);
+                    const layout = {
+                        title: 'Head to head: same signal, two strategies',
+                        template: 'plotly_white',
+                        xaxis: { title: 'frequency' },
+                        yaxis: { title: 'intensity (photon count)' },
+                        legend: {
+                            orientation: 'h',
+                            yanchor: 'top',
+                            y: -0.2,
+                            xanchor: 'center',
+                            x: 0.5,
+                        },
+                        margin: { t: 48, b: 120, l: 56, r: 24 },
+                    };
+                    await window.Plotly.react(headToHeadEl, traces, layout, { responsive: true });
+                } catch (err) {
+                    console.error(err);
+                    clearHeadToHeadPlot('Could not render combined plot (Plotly failed to load or draw).');
                 }
             }
 
-            genType.addEventListener('controlchange', () => {
-                updateSideSignalControls();
-                updateSideStrategyControl();
-                updateSideRepeatControl();
-                updateSidePlot();
+            function onSharedChange() {
+                updateCmpSharedSignalControls();
+                updateCmpRepeatControl();
+                updateCmpPlots();
+            }
+
+            cmpGenType.addEventListener('controlchange', () => {
+                updateCmpSharedSignalControls();
+                updateCmpStrategyControls();
+                updateCmpRepeatControl();
+                updateCmpPlots();
             });
-            gen.addEventListener('controlchange', () => {
-                updateSideSignalControls();
-                updateSideRepeatControl();
-                updateSidePlot();
+            cmpGen.addEventListener('controlchange', onSharedChange);
+            cmpNoise.addEventListener('controlchange', onSharedChange);
+            leftStrat.addEventListener('controlchange', () => {
+                updateCmpRepeatControl();
+                updateCmpPlots();
             });
-            noise.addEventListener('controlchange', () => {
-                updateSideRepeatControl();
-                updateSidePlot();
+            rightStrat.addEventListener('controlchange', () => {
+                updateCmpRepeatControl();
+                updateCmpPlots();
             });
-            strat.addEventListener('controlchange', () => {
-                updateSideRepeatControl();
-                updateSidePlot();
-            });
-            rep.addEventListener('change', () => {
-                rep.dataset.value = rep.value || '';
-                updateSidePlot();
+            cmpRepeat.addEventListener('change', () => {
+                cmpRepeat.dataset.value = cmpRepeat.value || '';
+                updateCmpPlots();
             });
 
-            // Init
             if (scanDefault) {
-                genType.dataset.value = scanDefault.generator_type ?? '';
-                gen.dataset.value = scanDefault.generator ?? '';
-                noise.dataset.value = scanDefault.noise ?? '';
-                strat.dataset.value = scanDefault.strategy ?? '';
-                rep.dataset.value = scanDefault.repeat === undefined ? '' : String(scanDefault.repeat);
+                cmpGenType.dataset.value = scanDefault.generator_type ?? '';
+                cmpGen.dataset.value = scanDefault.generator ?? '';
+                cmpNoise.dataset.value = scanDefault.noise ?? '';
+                cmpRepeat.dataset.value =
+                    scanDefault.repeat === undefined ? '' : String(scanDefault.repeat);
+                const types = [...new Set(scanPlots.map((p) => p.generator_type))];
+                const defType = scanDefault.generator_type ?? types[0];
+                const strats = [
+                    ...new Set(scanPlots.filter((p) => p.generator_type === defType).map((p) => p.strategy)),
+                ].sort();
+                if (strats.length >= 2) {
+                    leftStrat.dataset.value = strats[0];
+                    rightStrat.dataset.value = strats[1];
+                } else if (strats.length === 1) {
+                    leftStrat.dataset.value = strats[0];
+                    rightStrat.dataset.value = strats[0];
+                }
             }
-            updateAllSideControls();
-            updateSidePlot();
+
+            updateAllCmpControls();
+            updateCmpPlots();
         }
 
         if (document.getElementById('scan-comparison-section')) {
-            setupSide('left');
-            setupSide('right');
+            setupScanComparison();
         }
 
 

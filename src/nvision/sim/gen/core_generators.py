@@ -10,7 +10,6 @@ import random
 from dataclasses import dataclass
 
 from nvision.signal import (
-    A_PARAM,
     MAX_K_NP,
     MAX_NV_CENTER_DELTA,
     MAX_NV_CENTER_OMEGA,
@@ -25,6 +24,22 @@ from nvision.signal import (
     NVCenterVoigtModel,
 )
 from nvision.signal.signal import Parameter, TrueSignal
+
+
+def _lorentzian_amplitude_bounds(domain_width: float) -> tuple[float, float]:
+    """Upper bound for ``amplitude`` in :class:`~nvision.signal.lorentzian.LorentzianModel`.
+
+    There ``dip_depth = amplitude / linewidth²`` with linewidth up to ~0.2·domain_width
+    in our generators, and ``dip_depth`` ≤ 1.
+    """
+    w_hi = domain_width * 0.2
+    return (0.0, w_hi * w_hi)
+
+
+def _lorentzian_amplitude_from_dip(rng: random.Random, linewidth: float, dip_lo: float, dip_hi: float) -> float:
+    """Sample ``amplitude = dip_depth * linewidth²`` (see LorentzianModel docstring)."""
+    dip = rng.uniform(dip_lo, dip_hi)
+    return dip * linewidth**2
 
 
 @dataclass
@@ -73,13 +88,15 @@ class OnePeakCoreGenerator:
                 Parameter(name="background", bounds=(0.0, 0.5), value=background),
             ]
         else:  # lorentzian
-            # Lorentzian is a dip - high background
+            # Lorentzian dip depth = amplitude / linewidth²; amplitude must scale as O(linewidth²).
             background = rng.uniform(0.9, 1.0)
+            amp_hi = _lorentzian_amplitude_bounds(width)[1]
+            amplitude = _lorentzian_amplitude_from_dip(rng, peak_width, 0.25, min(0.88, background * 0.95))
             model = LorentzianModel()
             parameters = [
                 Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=peak_pos),
                 Parameter(name="linewidth", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                Parameter(name="amplitude", bounds=(0.0, 1.5), value=amplitude),
+                Parameter(name="amplitude", bounds=(0.0, amp_hi), value=amplitude),
                 Parameter(name="background", bounds=(0.5, 1.2), value=background),
             ]
 
@@ -129,8 +146,12 @@ class NVCenterCoreGenerator:
         # Random k_np (non-polarization factor)
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
 
-        # Amplitude scaling
-        amplitude = A_PARAM
+        # Same Lorentzian-style scaling as :class:`~nvision.signal.lorentzian.LorentzianModel`:
+        # dip_depth ≈ amplitude / linewidth² at the main feature.
+        dip_depth = rng.uniform(0.06, 0.22)
+        amplitude = dip_depth * linewidth**2
+        w_max = MAX_NV_CENTER_OMEGA * width
+        amp_hi = 0.3 * w_max**2
 
         # Background (typically 1.0 for normalized ODMR)
         background = 1.0
@@ -142,7 +163,7 @@ class NVCenterCoreGenerator:
                 Parameter(name="linewidth", bounds=(width * 0.001, width * 0.05), value=linewidth),
                 Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
                 Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
-                Parameter(name="amplitude", bounds=(A_PARAM * 0.5, A_PARAM * 2.0), value=amplitude),
+                Parameter(name="amplitude", bounds=(0.0, amp_hi), value=amplitude),
                 Parameter(name="background", bounds=(0.95, 1.05), value=background),
             ]
         else:  # voigt
@@ -157,7 +178,7 @@ class NVCenterCoreGenerator:
                 Parameter(name="fwhm_gauss", bounds=(width * 0.0001, width * 0.05), value=fwhm_gauss),
                 Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
                 Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
-                Parameter(name="amplitude", bounds=(A_PARAM * 0.5, A_PARAM * 2.0), value=amplitude),
+                Parameter(name="amplitude", bounds=(0.0, amp_hi), value=amplitude),
                 Parameter(name="background", bounds=(0.95, 1.05), value=background),
             ]
 
@@ -202,7 +223,12 @@ class TwoPeakCoreGenerator:
         peak2_width = rng.uniform(0.02 * width, 0.08 * width)
         peak1_amp = rng.uniform(0.5, 1.0)
         peak2_amp = rng.uniform(0.5, 1.0)
+        if self.peak_type_left == "lorentzian":
+            peak1_amp = _lorentzian_amplitude_from_dip(rng, peak1_width, 0.12, 0.5)
+        if self.peak_type_right == "lorentzian":
+            peak2_amp = _lorentzian_amplitude_from_dip(rng, peak2_width, 0.12, 0.5)
         background = rng.uniform(0.0, 0.1)
+        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1]
 
         # Create signal for each peak
         if self.peak_type_left == "gaussian":
@@ -252,7 +278,13 @@ class TwoPeakCoreGenerator:
                     value=peak1_width,
                 )
             )
-        parameters.append(Parameter(name="peak1_amplitude", bounds=(0.0, 1.5), value=peak1_amp))
+        parameters.append(
+            Parameter(
+                name="peak1_amplitude",
+                bounds=(0.0, lorentz_amp_hi) if self.peak_type_left == "lorentzian" else (0.0, 1.5),
+                value=peak1_amp,
+            )
+        )
         parameters.append(Parameter(name="peak1_background", bounds=(0.0, 0.5), value=background / 2))
 
         # Peak 2 parameters
@@ -265,7 +297,13 @@ class TwoPeakCoreGenerator:
                     value=peak2_width,
                 )
             )
-        parameters.append(Parameter(name="peak2_amplitude", bounds=(0.0, 1.5), value=peak2_amp))
+        parameters.append(
+            Parameter(
+                name="peak2_amplitude",
+                bounds=(0.0, lorentz_amp_hi) if self.peak_type_right == "lorentzian" else (0.0, 1.5),
+                value=peak2_amp,
+            )
+        )
         parameters.append(Parameter(name="peak2_background", bounds=(0.0, 0.5), value=background / 2))
 
         return TrueSignal(model=composite_model, parameters=parameters)
@@ -326,6 +364,7 @@ class MultiPeakCoreGenerator:
         models = []
         parameters = []
         background = rng.uniform(0.0, 0.1)
+        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1]
 
         for i, (pos, peak_type) in enumerate(zip(positions, peak_types, strict=False)):
             prefix = f"peak{i + 1}"
@@ -333,6 +372,8 @@ class MultiPeakCoreGenerator:
             # Random parameters
             peak_width = rng.uniform(0.02 * width, 0.08 * width)
             amplitude = rng.uniform(0.5, 1.0)
+            if peak_type == "lorentzian":
+                amplitude = _lorentzian_amplitude_from_dip(rng, peak_width, 0.1, 0.45)
 
             # Create model
             if peak_type == "gaussian":
@@ -351,7 +392,7 @@ class MultiPeakCoreGenerator:
                     [
                         Parameter(name=f"{prefix}_frequency", bounds=(self.x_min, self.x_max), value=pos),
                         Parameter(name=f"{prefix}_linewidth", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                        Parameter(name=f"{prefix}_amplitude", bounds=(0.0, 1.5), value=amplitude),
+                        Parameter(name=f"{prefix}_amplitude", bounds=(0.0, lorentz_amp_hi), value=amplitude),
                         Parameter(name=f"{prefix}_background", bounds=(0.0, 0.5), value=1.0 - background / self.count),
                     ]
                 )
@@ -407,6 +448,9 @@ class SymmetricTwoPeakCoreGenerator:
         # Same parameters for both peaks (symmetric)
         peak_width = rng.uniform(0.02 * width, 0.06 * width)
         amplitude = rng.uniform(0.8, 1.2)
+        if self.peak_type == "lorentzian":
+            amplitude = _lorentzian_amplitude_from_dip(rng, peak_width, 0.12, 0.5)
+        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1]
         background = rng.uniform(0.0, 0.1)
 
         # Create model
@@ -434,12 +478,13 @@ class SymmetricTwoPeakCoreGenerator:
         parameters = []
 
         if self.peak_type in ["gaussian", "lorentzian"]:
+            amp_bounds = (0.0, lorentz_amp_hi) if self.peak_type == "lorentzian" else (0.0, 1.5)
             # Peak 1 (left)
             parameters.extend(
                 [
                     Parameter(name="peak1_frequency", bounds=(self.x_min, self.x_max), value=left_pos),
                     Parameter(name=f"peak1_{param_key}", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                    Parameter(name="peak1_amplitude", bounds=(0.0, 1.5), value=amplitude),
+                    Parameter(name="peak1_amplitude", bounds=amp_bounds, value=amplitude),
                     Parameter(name="peak1_background", bounds=(0.0, 0.5), value=background / 2),
                 ]
             )
@@ -449,7 +494,7 @@ class SymmetricTwoPeakCoreGenerator:
                 [
                     Parameter(name="peak2_frequency", bounds=(self.x_min, self.x_max), value=right_pos),
                     Parameter(name=f"peak2_{param_key}", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                    Parameter(name="peak2_amplitude", bounds=(0.0, 1.5), value=amplitude),
+                    Parameter(name="peak2_amplitude", bounds=amp_bounds, value=amplitude),
                     Parameter(name="peak2_background", bounds=(0.0, 0.5), value=background / 2),
                 ]
             )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
@@ -161,6 +162,86 @@ def _add_metric_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool)
                 row=2,
                 col=1,
             )
+
+
+def _json_safe_float(v: Any) -> float | None:
+    """Finite floats only; NaN/inf become None for strict JSON manifests."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(f) or np.isinf(f):
+        return None
+    return f
+
+
+def compute_scan_plot_data(
+    scan: Any,
+    history: pl.DataFrame,
+    over_frequency_noise: CompositeOverFrequencyNoise | None,
+) -> dict[str, Any]:
+    """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``)."""
+    xs = np.linspace(scan.x_min, scan.x_max, 1000)
+    ys = [float(scan.signal(x)) for x in xs]
+    out: dict[str, Any] = {
+        "x_dense": [float(x) for x in xs],
+        "y_dense": ys,
+    }
+    if over_frequency_noise is not None:
+        dense_batch = DataBatch.from_arrays(xs, ys, meta={})
+        noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
+        noisy_vals: list[float] = []
+        for i, v in enumerate(noisy_batch.signal_values):
+            fv = float(v)
+            if np.isnan(fv) or np.isinf(fv):
+                noisy_vals.append(ys[i])
+            else:
+                noisy_vals.append(fv)
+        out["y_dense_noisy"] = noisy_vals
+
+    has_metrics = history.height > 0 and any(col in history.columns for col in ["entropy", "max_prob", "uncertainty"])
+    out["has_metrics"] = has_metrics
+
+    if history.height == 0:
+        out["measurements"] = {"mode": "empty"}
+        return out
+
+    if "phase" in history.columns:
+        phases = history.get_column("phase").to_list()
+        xs_s = history.get_column("x").to_list() if "x" in history.columns else []
+        ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
+        coarse_x: list[float] = []
+        coarse_y: list[float | None] = []
+        fine_x: list[float] = []
+        fine_y: list[float | None] = []
+        for x, y, p in zip(xs_s, ys_s, phases, strict=False):
+            if p == "coarse":
+                coarse_x.append(float(x))
+                coarse_y.append(_json_safe_float(y))
+            elif p == "fine":
+                fine_x.append(float(x))
+                fine_y.append(_json_safe_float(y))
+        out["measurements"] = {
+            "mode": "phases",
+            "coarse_x": coarse_x,
+            "coarse_y": coarse_y,
+            "fine_x": fine_x,
+            "fine_y": fine_y,
+        }
+        return out
+
+    xs_s = history.get_column("x").to_list() if "x" in history.columns else []
+    ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
+    steps = list(range(history.height))
+    out["measurements"] = {
+        "mode": "steps",
+        "x": [float(x) for x in xs_s],
+        "y": [_json_safe_float(y) for y in ys_s],
+        "step": steps,
+    }
+    return out
 
 
 def _scan_layout(fig: go.Figure, has_metrics: bool) -> None:

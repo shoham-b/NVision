@@ -51,6 +51,18 @@ def test_one_peak_lorentzian_produces_true_signal():
     assert 2.6e9 <= freq.value <= 3.1e9
 
 
+def test_lorentzian_and_nv_have_nonflat_contrast_on_ghz_domain():
+    """Lorentzian dip depth is amplitude/linewidth²; O(1) amplitudes look flat at GHz scale."""
+    rng = random.Random(0)
+    lorentz = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="lorentzian").generate(rng)
+    nv = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian").generate(rng)
+    x0, x1 = 2.6e9, 3.1e9
+    grid = [x0 + (x1 - x0) * i / 500 for i in range(501)]
+    for sig in (lorentz, nv):
+        ys = [sig(x) for x in grid]
+        assert max(ys) - min(ys) > 0.02
+
+
 def test_two_peak_composite_model():
     rng = random.Random(7)
     gen = TwoPeakCoreGenerator(x_min=0.0, x_max=1.0)

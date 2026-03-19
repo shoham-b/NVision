@@ -31,6 +31,7 @@ def _collect_cache_results(
     grid: CombinationGrid,
     filter_category,
     filter_strategy,
+    filter_generator,
     repeats,
     seed,
     loc_max_steps,
@@ -42,7 +43,7 @@ def _collect_cache_results(
     df_rows = []
     plot_manifest = []
 
-    for combo in grid.iter(filter_category, filter_strategy):
+    for combo in grid.iter(filter_category, filter_strategy, filter_generator):
         combo_cfg = {
             "kind": "locator_combination",
             "generator": combo.generator_name,
@@ -99,6 +100,13 @@ def render(
         typer.Option(
             "--filter-strategy",
             help="Filter by locator strategy (e.g., 'Bayesian')",
+        ),
+    ] = None,
+    filter_generator: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-generator",
+            help="Restrict to one generator name (optional).",
         ),
     ] = None,
     all_experiments: Annotated[
@@ -187,6 +195,7 @@ def render(
         grid,
         filter_category,
         filter_strategy,
+        filter_generator,
         repeats,
         NVISION_RNG_SEED,
         loc_max_steps,

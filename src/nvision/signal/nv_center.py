@@ -9,7 +9,8 @@ import numpy as np
 
 from nvision.signal.signal import SignalModel
 
-# Physical constants
+# Legacy scale factor (no longer used by :class:`~nvision.sim.gen.core_generators.NVCenterCoreGenerator`;
+# Lorentzian NV uses ``amplitude ≈ dip_depth * linewidth²`` in Hz², matching :class:`LorentzianModel`).
 A_PARAM = 0.0003
 MIN_K_NP = 2.0
 MAX_K_NP = 4.0

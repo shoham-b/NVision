@@ -19,7 +19,7 @@
 </div>
 
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
-    <h2>Scan Measurements</h2>
+    <h2>Scan measurements</h2>
 
     <div class="control-row scan-target-row">
         <span class="control-label">Target:</span>
@@ -94,89 +94,56 @@
 
 <div aria-labelledby="tab-scan-comparison" class="section tab-panel is-hidden" id="scan-comparison-section"
      role="tabpanel">
-    <h2>Scan Comparison</h2>
+    <h2>Head to head</h2>
 
-    <div class="comparison-outer">
-        <div class="comparison-column">
-            <h3>Left run</h3>
-            <div class="control-row scan-target-row">
-                <span class="control-label">Target:</span>
-                <div aria-label="Left comparison generator type" class="segmented-control" id="left-generator-type"
-                     role="radiogroup"></div>
-            </div>
-            <div class="scan-controls-split">
-                <div class="panel panel-signal">
-                    <h4 class="panel-title">Signal</h4>
-                    <div class="control-row">
-                        <span class="control-label">Generator:</span>
-                        <div aria-label="Left comparison generator" class="segmented-control" id="left-generator"
-                             role="radiogroup"></div>
-                    </div>
-                    <div class="control-row">
-                        <span class="control-label">Noise:</span>
-                        <div aria-label="Left comparison noise" class="segmented-control" id="left-noise"
-                             role="radiogroup"></div>
-                    </div>
-                </div>
-                <div class="panel panel-locator">
-                    <h4 class="panel-title">Locator</h4>
-                    <div class="control-row">
-                        <span class="control-label">Strategy:</span>
-                        <div aria-label="Left comparison strategy" class="segmented-control" id="left-strategy"
-                             role="radiogroup"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="repeat-row">
-                <div class="control-row">
-                    <span class="control-label">Repeat:</span>
-                    <select aria-label="Left comparison repeat" class="control-select" id="left-repeat"></select>
-                </div>
-            </div>
-            <p class="metrics" id="left-metrics"></p>
-            <iframe id="left-iframe"></iframe>
+    <div class="comparison-shared-signal">
+        <h3 class="comparison-subheading">Signal</h3>
+        <div class="control-row scan-target-row">
+            <span class="control-label">Target:</span>
+            <div aria-label="Comparison shared target" class="segmented-control" id="cmp-shared-generator-type"
+                 role="radiogroup"></div>
         </div>
-
-        <div class="comparison-column">
-            <h3>Right run</h3>
-            <div class="control-row scan-target-row">
-                <span class="control-label">Target:</span>
-                <div aria-label="Right comparison generator type" class="segmented-control" id="right-generator-type"
-                     role="radiogroup"></div>
+        <div class="control-row">
+            <span class="control-label">Generator:</span>
+            <div aria-label="Comparison shared generator" class="segmented-control" id="cmp-shared-generator"
+                 role="radiogroup"></div>
+        </div>
+        <div class="control-row">
+            <span class="control-label">Noise:</span>
+            <div aria-label="Comparison shared noise" class="segmented-control" id="cmp-shared-noise"
+                 role="radiogroup"></div>
+        </div>
+        <div class="repeat-row">
+            <div class="control-row">
+                <span class="control-label">Repeat:</span>
+                <select aria-label="Comparison shared repeat" class="control-select" id="cmp-shared-repeat"></select>
             </div>
-            <div class="scan-controls-split">
-                <div class="panel panel-signal">
-                    <h4 class="panel-title">Signal</h4>
-                    <div class="control-row">
-                        <span class="control-label">Generator:</span>
-                        <div aria-label="Right comparison generator" class="segmented-control" id="right-generator"
-                             role="radiogroup"></div>
-                    </div>
-                    <div class="control-row">
-                        <span class="control-label">Noise:</span>
-                        <div aria-label="Right comparison noise" class="segmented-control" id="right-noise"
-                             role="radiogroup"></div>
-                    </div>
-                </div>
-                <div class="panel panel-locator">
-                    <h4 class="panel-title">Locator</h4>
-                    <div class="control-row">
-                        <span class="control-label">Strategy:</span>
-                        <div aria-label="Right comparison strategy" class="segmented-control" id="right-strategy"
-                             role="radiogroup"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="repeat-row">
-                <div class="control-row">
-                    <span class="control-label">Repeat:</span>
-                    <select aria-label="Right comparison repeat" class="control-select" id="right-repeat"></select>
-                </div>
-            </div>
-            <p class="metrics" id="right-metrics"></p>
-            <iframe id="right-iframe"></iframe>
         </div>
     </div>
+
+    <h3 class="comparison-subheading">Locators</h3>
+    <div class="scan-controls-split comparison-locators">
+        <div class="panel panel-locator">
+            <h4 class="panel-title">Left</h4>
+            <div class="control-row">
+                <span class="control-label">Strategy:</span>
+                <div aria-label="Left comparison strategy" class="segmented-control" id="left-strategy"
+                     role="radiogroup"></div>
+            </div>
+            <p class="metrics" id="left-metrics"></p>
+        </div>
+        <div class="panel panel-locator">
+            <h4 class="panel-title">Right</h4>
+            <div class="control-row">
+                <span class="control-label">Strategy:</span>
+                <div aria-label="Right comparison strategy" class="segmented-control" id="right-strategy"
+                     role="radiogroup"></div>
+            </div>
+            <p class="metrics" id="right-metrics"></p>
+        </div>
+    </div>
+    <div aria-label="Combined head to head scan plot" class="head-to-head-plot" id="head-to-head-plot"
+         role="img"></div>
 </div>
 
 <div aria-labelledby="tab-model-comparison" class="section tab-panel is-hidden" id="strategy-comparison-section"

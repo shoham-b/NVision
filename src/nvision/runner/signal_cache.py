@@ -1,9 +1,9 @@
-"""Process-local cache so the same :class:`~nvision.models.experiment.CoreExperiment` (and thus the same
-``true_signal`` object) is reused for every locator task that shares the same
-``(seed, generator_name, noise_name, repeat_idx)``.
+"""Process-local cache so the same ``true_signal`` (and domain) is reused for every locator task that
+shares the same ``(seed, generator_name, repeat_idx)``.
 
-This makes cross-strategy comparisons refer to identical ground-truth signal instances, not only
-value-equal draws from the same RNG.
+Each task still gets its own :class:`~nvision.models.experiment.CoreExperiment` with the correct
+``noise`` model; only the ground-truth draw is shared. That aligns cross-noise and cross-strategy
+comparisons on identical underlying signals.
 """
 
 from __future__ import annotations
@@ -15,18 +15,19 @@ from typing import TYPE_CHECKING
 
 from nvision.models.experiment import CoreExperiment
 from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
+from nvision.signal.signal import TrueSignal
 
 if TYPE_CHECKING:
     from nvision.models.task import LocatorTask
 
 _LOCK = threading.Lock()
-_EXPERIMENT_BY_SIGNAL_KEY: dict[str, CoreExperiment] = {}
+_SIGNAL_BUNDLE_BY_KEY: dict[str, tuple[TrueSignal, float, float]] = {}
 
 
 def clear_signal_experiment_cache() -> None:
-    """Drop all cached experiments (e.g. between tests)."""
+    """Drop all cached signal bundles (e.g. between tests)."""
     with _LOCK:
-        _EXPERIMENT_BY_SIGNAL_KEY.clear()
+        _SIGNAL_BUNDLE_BY_KEY.clear()
 
 
 def get_shared_core_experiment(
@@ -34,25 +35,25 @@ def get_shared_core_experiment(
     repeat_idx: int,
     build: Callable[[random.Random], CoreExperiment],
 ) -> CoreExperiment:
-    """Return a cached :class:`CoreExperiment` if this repeat was seen before.
+    """Return a :class:`CoreExperiment` with shared ``true_signal`` for this repeat.
 
-    On a **cache hit**, the stored instance is returned immediately: ``build`` is not
-    called and the true signal is not regenerated.
+    On a **cache hit**, ``build`` is not called; a new experiment is returned with the cached
+    signal/domain and this task's ``noise``.
 
-    On the **first** request for a given key, ``build`` runs once, the result is stored,
-    and the same object is returned for all later retrievals.
+    On the **first** request for a given key, ``build`` runs once; ``true_signal`` and domain
+    are stored and reused for all later tasks (any strategy or noise name).
 
-    The cache key omits ``strategy_name`` so all strategies for the same generator/noise/repeat
-    share one experiment and one ``true_signal`` object identity.
+    The cache key omits ``strategy_name`` and ``noise_name`` so every combination shares one
+    ground-truth draw per repeat.
     """
-    key = signal_repeat_key(task.seed, task.generator_name, task.noise_name, repeat_idx)
+    key = signal_repeat_key(task.seed, task.generator_name, repeat_idx)
     with _LOCK:
-        cached = _EXPERIMENT_BY_SIGNAL_KEY.get(key)
+        cached = _SIGNAL_BUNDLE_BY_KEY.get(key)
         if cached is not None:
-            return cached
+            true_signal, x_min, x_max = cached
+            return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
 
-        # Cache miss only: one-time generation, then reuse for every later lookup.
         rng = random.Random(repeat_seed_int(key))
         exp = build(rng)
-        _EXPERIMENT_BY_SIGNAL_KEY[key] = exp
-        return exp
+        _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.x_min, exp.x_max)
+        return CoreExperiment(true_signal=exp.true_signal, noise=task.noise, x_min=exp.x_min, x_max=exp.x_max)

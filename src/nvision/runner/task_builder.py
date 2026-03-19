@@ -37,6 +37,7 @@ class TaskListBuildConfig:
     require_cache: bool
     filter_category: str | None
     filter_strategy: str | None
+    filter_generator: str | None
 
 
 def build_task_list(
@@ -51,7 +52,7 @@ def build_task_list(
     used_slugs: set[str] = set()
     total_weighted_repeats = 0.0
 
-    for combo in grid.iter(config.filter_category, config.filter_strategy):
+    for combo in grid.iter(config.filter_category, config.filter_strategy, config.filter_generator):
         slug_base = "_".join(slugify(p) for p in (combo.generator_name, combo.noise_name, combo.strategy_name))
         slug = slug_base
         suffix = 1

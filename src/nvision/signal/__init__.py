@@ -15,6 +15,8 @@ from nvision.signal.nv_center import (
     NVCenterLorentzianModel,
     NVCenterVoigtModel,
 )
+from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
+from nvision.signal.unit_cube_model import UnitCubeSignalModel
 from nvision.signal.voigt_zeeman import VoigtZeemanModel
 
 __all__ = [
@@ -31,5 +33,7 @@ __all__ = [
     "LorentzianModel",
     "NVCenterLorentzianModel",
     "NVCenterVoigtModel",
+    "UnitCubeGridBeliefDistribution",
+    "UnitCubeSignalModel",
     "VoigtZeemanModel",
 ]
