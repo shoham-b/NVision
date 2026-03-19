@@ -72,6 +72,6 @@ jobs:
 
       - name: Smoke test container (PRs)
         if: github.event_name != 'push'
-        run: docker run --rm "$IMAGE" --repeats 1 --seed 1 --loc-max-steps 25
+        run: docker run --rm "$IMAGE" --repeats 1 --loc-max-steps 25
         env:
           IMAGE: ${{ steps.pick.outputs.tag }}
