@@ -47,38 +47,16 @@ def run_loop(
         yield locator
 
 
-@dataclass(frozen=True, slots=True)
-class _TaskSpec:
-    """Derived values used throughout task execution."""
-
-    generator_name: str
-    noise_name: str
-    strategy_name: str
-    repeats: int
-    skip_cache: bool
-    combo_cache_key: dict[str, Any]
-
-    @classmethod
-    def from_task(cls, task: LocatorTask) -> "_TaskSpec":
-        """Construct the execution spec directly from a task."""
-        return cls(
-            generator_name=task.generator_name,
-            noise_name=task.noise_name,
-            strategy_name=task.strategy_name,
-            repeats=task.repeats,
-            skip_cache=task.ignore_cache_strategy is not None and task.strategy_name == task.ignore_cache_strategy,
-            combo_cache_key={
-                "kind": "locator_combination",
-                "schema_version": CACHE_SCHEMA_VERSION,
-                "generator": task.generator_name,
-                "noise": task.noise_name,
-                "strategy": task.strategy_name,
-                "repeats": task.repeats,
-                "seed": task.seed,
-                "max_steps": task.loc_max_steps,
-                "timeout_s": task.loc_timeout_s,
-            },
-        )
+def run_task(task: LocatorTask) -> TaskResults:
+    """Run a task (cache -> repeats -> outputs -> cache)."""
+    log.info(
+        "Running task: %s/%s/%s (%s repeats)",
+        task.generator_name,
+        task.noise_name,
+        task.strategy_name,
+        task.repeats,
+    )
+    return _TaskRunner(task).run()
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,8 +81,23 @@ class _TaskRunner:
 
     def __init__(self, task: LocatorTask) -> None:
         self.task = task
-        self.spec = _TaskSpec.from_task(task)
-        category = CombinationGrid.generator_category(self.spec.generator_name)
+        self.generator_name = task.generator_name
+        self.noise_name = task.noise_name
+        self.strategy_name = task.strategy_name
+        self.repeats = task.repeats
+        self.skip_cache = task.ignore_cache_strategy is not None and task.strategy_name == task.ignore_cache_strategy
+        self.combo_cache_key: dict[str, Any] = {
+            "kind": "locator_combination",
+            "schema_version": CACHE_SCHEMA_VERSION,
+            "generator": task.generator_name,
+            "noise": task.noise_name,
+            "strategy": task.strategy_name,
+            "repeats": task.repeats,
+            "seed": task.seed,
+            "max_steps": task.loc_max_steps,
+            "timeout_s": task.loc_timeout_s,
+        }
+        category = CombinationGrid.generator_category(self.generator_name)
         self.bridge = CacheBridge(task.cache_dir)
         self.cache = self.bridge.get_cache_for_category(category)
         self.viz = Viz(task.out_dir / "graphs")
@@ -127,35 +120,35 @@ class _TaskRunner:
 
     def _restore_cached_results(self) -> TaskResults | None:
         if self.task.require_cache:
-            cached = self.cache.get_cached_results(self.spec.combo_cache_key)
+            cached = self.cache.get_cached_results(self.combo_cache_key)
             if cached:
                 restore_graphs(cached, self.task.out_dir)
                 log.debug(
                     "Cache hit for %s/%s/%s (seed=%s); restoring.",
-                    self.spec.generator_name,
-                    self.spec.noise_name,
-                    self.spec.strategy_name,
+                    self.generator_name,
+                    self.noise_name,
+                    self.strategy_name,
                     self.task.seed,
                 )
                 return cached
             log.warning(
                 "Cache miss for %s/%s/%s (seed=%s) with --require-cache. Skipping.",
-                self.spec.generator_name,
-                self.spec.noise_name,
-                self.spec.strategy_name,
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
                 self.task.seed,
             )
             return []
 
-        if self.task.use_cache and not self.spec.skip_cache:
-            cached = self.cache.get_cached_results(self.spec.combo_cache_key)
+        if self.task.use_cache and not self.skip_cache:
+            cached = self.cache.get_cached_results(self.combo_cache_key)
             if cached:
                 restore_graphs(cached, self.task.out_dir)
                 log.debug(
                     "Cache hit for %s/%s/%s (seed=%s); restoring.",
-                    self.spec.generator_name,
-                    self.spec.noise_name,
-                    self.spec.strategy_name,
+                    self.generator_name,
+                    self.noise_name,
+                    self.strategy_name,
                     self.task.seed,
                 )
                 return cached
@@ -166,9 +159,9 @@ class _TaskRunner:
         repeat_rngs: list[random.Random] = []
         experiments: list[CoreExperiment] = []
         repeat_start_times: list[float] = []
-        stop_reasons: list[str] = [""] * self.spec.repeats
+        stop_reasons: list[str] = [""] * self.repeats
 
-        for attempt_idx in range(self.spec.repeats):
+        for attempt_idx in range(self.repeats):
             rng = self._rng_for_repeat(attempt_idx)
             repeat_rngs.append(rng)
             experiments.append(self._build_experiment(rng))
@@ -177,7 +170,7 @@ class _TaskRunner:
         history_dfs: list[pl.DataFrame] = []
         finalize_records: list[dict[str, Any]] = []
 
-        for rid in range(self.spec.repeats):
+        for rid in range(self.repeats):
             hist_df, finalize_record, stop_reason = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
@@ -210,13 +203,13 @@ class _TaskRunner:
         """Generate metrics/plots and optional per-repeat cache entries."""
         all_results: TaskResults = []
 
-        for attempt_idx in range(self.spec.repeats):
+        for attempt_idx in range(self.repeats):
             entry_base, main_result_row, current_history_df = generate_attempt_metrics(
-                n_repeats=self.spec.repeats,
+                n_repeats=self.repeats,
                 attempt_idx_in_combo=attempt_idx,
-                gen_name=self.spec.generator_name,
-                noise_name=self.spec.noise_name,
-                strat_name=self.spec.strategy_name,
+                gen_name=self.generator_name,
+                noise_name=self.noise_name,
+                strat_name=self.strategy_name,
                 repeat_stop_reasons=artifacts.stop_reasons,
                 repeat_start_times=artifacts.repeat_start_times,
                 current_scan=artifacts.experiments[attempt_idx],
@@ -247,22 +240,22 @@ class _TaskRunner:
                 log.debug(
                     "Finished repeat %s for %s/%s/%s",
                     attempt_idx + 1,
-                    self.spec.generator_name,
-                    self.spec.noise_name,
-                    self.spec.strategy_name,
+                    self.generator_name,
+                    self.noise_name,
+                    self.strategy_name,
                 )
 
         return all_results
 
     def _save_repeat_cache(self, repeat_idx: int, entries: list[dict[str, Any]], result_row: dict[str, Any]) -> None:
-        if not self.task.use_cache or self.spec.skip_cache:
+        if not self.task.use_cache or self.skip_cache:
             return
         part_cfg = {
             "kind": "locator_run",
             "schema_version": CACHE_SCHEMA_VERSION,
-            "generator": self.spec.generator_name,
-            "noise": self.spec.noise_name,
-            "strategy": self.spec.strategy_name,
+            "generator": self.generator_name,
+            "noise": self.noise_name,
+            "strategy": self.strategy_name,
             "repeat": repeat_idx,
             "seed": self.task.seed,
             "max_steps": self.task.loc_max_steps,
@@ -271,15 +264,13 @@ class _TaskRunner:
         self.cache.save_cached_repeat(part_cfg, embed_graph_content(entries, self.task.out_dir), result_row)
 
     def _save_full_cache(self, results: TaskResults) -> None:
-        if not self.task.use_cache or self.spec.skip_cache or not results:
+        if not self.task.use_cache or self.skip_cache or not results:
             return
         full_results = [(embed_graph_content(entries, self.task.out_dir), row) for entries, row in results]
-        self.cache.save_cached_results(self.spec.combo_cache_key, full_results)
+        self.cache.save_cached_results(self.combo_cache_key, full_results)
 
     def _rng_for_repeat(self, repeat_idx: int) -> random.Random:
-        seed_str = (
-            f"{self.task.seed}-{self.spec.generator_name}-{self.spec.strategy_name}-{self.spec.noise_name}-{repeat_idx}"
-        )
+        seed_str = f"{self.task.seed}-{self.generator_name}-{self.strategy_name}-{self.noise_name}-{repeat_idx}"
         repeat_seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (10**8)
         return random.Random(repeat_seed)
 
@@ -340,16 +331,3 @@ class _TaskRunner:
                 if hi > lo:
                     bounds[p.name] = (lo, hi)
         return bounds
-
-
-def run_task(task: LocatorTask) -> TaskResults:
-    """Run a task (cache -> repeats -> outputs -> cache)."""
-    spec = _TaskSpec.from_task(task)
-    log.info(
-        "Running task: %s/%s/%s (%s repeats)",
-        spec.generator_name,
-        spec.noise_name,
-        spec.strategy_name,
-        spec.repeats,
-    )
-    return _TaskRunner(task).run()

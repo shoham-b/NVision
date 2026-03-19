@@ -7,7 +7,7 @@ Owns all logic for executing locator experiments end-to-end:
 - ``convert``   — RunResult → DataFrame conversion utilities
 - ``metrics``   — per-repeat metrics extraction
 - ``plots``     — per-repeat plot generation
-- ``tasks``     — LocatorTask list builder (``TaskBuildConfig``, ``build_tasks``)
+- ``task_builder`` — LocatorTask list builder (``TaskListBuildConfig``, ``build_task_list``)
 - ``cache``     — graph content embed/restore helpers
 """
 
@@ -20,11 +20,11 @@ from nvision.runner.convert import (
 from nvision.runner.executor import run_loop, run_task
 from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
-from nvision.runner.tasks import TaskBuildConfig, build_tasks
+from nvision.runner.task_builder import TaskListBuildConfig, build_task_list
 
 __all__ = [
-    "TaskBuildConfig",
-    "build_tasks",
+    "TaskListBuildConfig",
+    "build_task_list",
     "denormalize_x",
     "extract_peak_estimates",
     "generate_attempt_metrics",
