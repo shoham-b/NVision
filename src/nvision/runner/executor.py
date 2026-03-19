@@ -68,6 +68,7 @@ class _RepeatArtifacts:
     experiments: list[CoreExperiment]
     repeat_start_times: list[float]
     stop_reasons: list[str]
+    run_results: list[RunResult]
 
 
 class _TaskRunner:
@@ -169,9 +170,10 @@ class _TaskRunner:
 
         history_dfs: list[pl.DataFrame] = []
         finalize_records: list[dict[str, Any]] = []
+        run_results: list[RunResult] = []
 
         for rid in range(self.repeats):
-            hist_df, finalize_record, stop_reason = self._run_single_repeat(
+            hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
                 locator_config=locator_config,
@@ -179,6 +181,7 @@ class _TaskRunner:
                 experiment=experiments[rid],
             )
             stop_reasons[rid] = stop_reason
+            run_results.append(run_result)
             if not hist_df.is_empty():
                 history_dfs.append(hist_df)
             finalize_records.append(finalize_record)
@@ -197,6 +200,7 @@ class _TaskRunner:
             experiments=experiments,
             repeat_start_times=repeat_start_times,
             stop_reasons=stop_reasons,
+            run_results=run_results,
         )
 
     def _build_repeat_outputs(self, artifacts: _RepeatArtifacts) -> TaskResults:
@@ -276,20 +280,51 @@ class _TaskRunner:
 
     def _build_experiment(self, rng: random.Random) -> CoreExperiment:
         true_signal = self.task.generator.generate(rng)
-
-        x_min = x_max = None
-        for param in true_signal.parameters:
-            if param.name == "x_min":
-                x_min = param.value
-            elif param.name == "x_max":
-                x_max = param.value
-            elif param.name == "frequency" and x_min is None:
-                x_min, x_max = param.bounds
-
+        x_min, x_max = self._domain_from_signal_params(true_signal)
+        if x_min is None or x_max is None:
+            x_min, x_max = self._domain_from_generator(self.task.generator)
         if x_min is None or x_max is None:
             raise ValueError("TrueSignal must expose x_min/x_max parameters or frequency bounds")
 
         return CoreExperiment(true_signal=true_signal, noise=self.task.noise, x_min=x_min, x_max=x_max)
+
+    @staticmethod
+    def _domain_from_signal_params(true_signal: Any) -> tuple[float | None, float | None]:
+        """Infer scan domain from signal parameters."""
+        x_min: float | None = None
+        x_max: float | None = None
+        freq_like_bounds: list[tuple[float, float]] = []
+
+        for param in true_signal.parameters:
+            if param.name == "x_min":
+                x_min = float(param.value)
+                continue
+            if param.name == "x_max":
+                x_max = float(param.value)
+                continue
+            if isinstance(param.bounds, tuple) and len(param.bounds) == 2:
+                lo, hi = float(param.bounds[0]), float(param.bounds[1])
+                if hi > lo and "frequency" in param.name:
+                    freq_like_bounds.append((lo, hi))
+                    if param.name == "frequency" and x_min is None:
+                        x_min, x_max = lo, hi
+
+        if (x_min is None or x_max is None) and freq_like_bounds:
+            x_min = min(lo for lo, _ in freq_like_bounds)
+            x_max = max(hi for _, hi in freq_like_bounds)
+        return x_min, x_max
+
+    @staticmethod
+    def _domain_from_generator(generator: Any) -> tuple[float | None, float | None]:
+        """Fallback domain from generator attributes when present."""
+        if not (hasattr(generator, "x_min") and hasattr(generator, "x_max")):
+            return None, None
+        try:
+            x_min = float(generator.x_min)
+            x_max = float(generator.x_max)
+        except (TypeError, ValueError):
+            return None, None
+        return (x_min, x_max) if x_max > x_min else (None, None)
 
     def _run_single_repeat(
         self,
@@ -299,7 +334,7 @@ class _TaskRunner:
         locator_config: dict[str, Any],
         rng: random.Random,
         experiment: CoreExperiment,
-    ) -> tuple[pl.DataFrame, dict[str, Any], str]:
+    ) -> tuple[pl.DataFrame, dict[str, Any], str, RunResult]:
         cfg = {**locator_config, "parameter_bounds": self._injected_parameter_bounds(experiment)}
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
 
@@ -319,7 +354,7 @@ class _TaskRunner:
         finalize_record = run_result_to_finalize_record(
             result, locator_final_result, rid, experiment.x_min, experiment.x_max
         )
-        return history_df, finalize_record, stop_reason
+        return history_df, finalize_record, stop_reason, result
 
     @staticmethod
     def _injected_parameter_bounds(experiment: CoreExperiment) -> dict[str, tuple[float, float]]:

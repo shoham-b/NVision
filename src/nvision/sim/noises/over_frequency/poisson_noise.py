@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from nvision.sim.batch import DataBatch
 from nvision.sim import OverFrequencyNoise
+from nvision.sim.batch import DataBatch
 
 
 @dataclass

@@ -104,17 +104,37 @@ class NVCenterVoigtModel(SignalModel):
     """
 
     def __init__(self):
+        self._backend = "pseudo_voigt"
         try:
-            from scipy.special import wofz
+            # Prefer JAX implementation when available.
+            from jax.scipy.special import wofz
 
             self.wofz = wofz
+            self._backend = "jax.scipy.special.wofz"
         except ImportError:
-            self.wofz = None
+            try:
+                from scipy.special import wofz
+
+                self.wofz = wofz
+                self._backend = "scipy.special.wofz"
+            except ImportError:
+                self.wofz = None
+        except Exception:
+            # Any runtime issue in JAX path falls back to SciPy/pseudo-Voigt.
+            try:
+                from scipy.special import wofz
+
+                self.wofz = wofz
+                self._backend = "scipy.special.wofz"
+            except ImportError:
+                self.wofz = None
+        if self.wofz is None:
+            self._backend = "pseudo_voigt"
 
     def _voigt_profile(self, x: float, center: float, fwhm_l: float, fwhm_g: float) -> float:
         """Compute Voigt profile at x.
 
-        Uses Faddeeva function for exact computation if scipy available,
+        Uses Faddeeva function for exact computation if JAX/SciPy are available,
         otherwise falls back to pseudo-Voigt approximation.
         """
         if self.wofz is not None:

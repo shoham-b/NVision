@@ -20,7 +20,7 @@ class VoigtZeemanModel(SignalModel):
             (amplitude * k_np) / ((x - (frequency + split))^2 + linewidth^2)
         )
 
-    The worst-case total dip depth is amplitude/linewidth² × (1/k_np + 1 + k_np).
+    The worst-case total dip depth is (amplitude/linewidth^2) * (1/k_np + 1 + k_np).
     Use ``sample_params`` to get parameters that keep the signal in [0, 1].
 
     Parameters

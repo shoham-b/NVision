@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 import math
 import time
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import polars as pl
 
 from nvision.models.experiment import CoreExperiment
-from nvision.tools.math import _maybe_finite, _first_finite, _promote_uncert
+from nvision.tools.math import _first_finite, _maybe_finite, _promote_uncert
 
 log = logging.getLogger(__name__)
 

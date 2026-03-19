@@ -3,12 +3,9 @@ import shutil
 import traceback
 from pathlib import Path
 
-from nvision.runner import run_combination as _run_combination
 from nvision.models.task import LocatorTask
-from nvision.sim import NVCenterSweepLocator
-from nvision.sim import cases as sim_cases
-from nvision.sim.core import CompositeNoise, CompositeOverFrequencyNoise
-from nvision.sim.noises import OverFrequencyGaussianNoise
+from nvision.runner import run_task
+from nvision.sim.combinations import CombinationGrid
 
 
 def main():
@@ -27,26 +24,13 @@ def main():
     (graphs_dir / "scans").mkdir()
     (graphs_dir / "bayes").mkdir()
 
-    # Setup test components
-    gen_name = "NVCenter-voigt_zeeman"
-    # Need to match what _get_generator_category expects (NVCenter)
-    # Using a simple generator instance from cases
-    gen_obj = next(g[1] for g in sim_cases.generators_basic() if g[0] == gen_name)
-
-    noise_name = "Gauss(0.05)"
-    noise_obj = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)]))
-
-    strat_name = "NVCenter-Sweep"
-    strat_obj = NVCenterSweepLocator(coarse_points=10, refine_points=5)  # Fast settings
+    # Pick one deterministic combination from the grid.
+    grid = CombinationGrid()
+    combo = next(grid.iter(filter_category="NVCenter", filter_strategy="SimpleSweep"))
 
     task = LocatorTask(
         task_id="test_task",
-        generator_name=gen_name,
-        generator=gen_obj,
-        noise_name=noise_name,
-        noise=noise_obj,
-        strategy_name=strat_name,
-        strategy=strat_obj,
+        combination=combo,
         repeats=1,
         seed=123,
         slug="test_slug",
@@ -65,7 +49,7 @@ def main():
     )
 
     print("\n--- RUN 1: Populating Cache ---")
-    results1 = _run_combination(task)
+    results1 = run_task(task)
 
     # Verify we got results
     if not results1:
@@ -92,7 +76,7 @@ def main():
 
     print("\n--- RUN 2: Restoring from Cache ---")
     # Run again with same task (use_cache=True)
-    results2 = _run_combination(task)
+    results2 = run_task(task)
 
     if not results2:
         print("Run 2 produced no results (cache miss or empty cache?)")

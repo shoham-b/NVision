@@ -17,13 +17,9 @@ from nvision.cache import CacheBridge
 from nvision.cli.main import app
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner.cache import restore_graphs
-from nvision.sim import cases as sim_cases
+from nvision.sim.combinations import CombinationGrid
 from nvision.tools.paths import ensure_out_dir
-from nvision.tools.utils import (
-    _get_generator_category,
-    _locator_strategies_for_generator,
-    _noise_presets,
-)
+from nvision.tools.utils import NVISION_RNG_SEED
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
@@ -32,8 +28,7 @@ console = Console()
 
 def _collect_cache_results(
     bridge,
-    generator_map,
-    noise_map,
+    grid: CombinationGrid,
     filter_category,
     filter_strategy,
     repeats,
@@ -43,53 +38,39 @@ def _collect_cache_results(
     out_dir,
     progress,
     task_id,
-    seen_configs,
 ):
     df_rows = []
     plot_manifest = []
 
-    for gen_name, _ in generator_map.items():
-        if filter_category and _get_generator_category(gen_name) != filter_category:
-            continue
+    for combo in grid.iter(filter_category, filter_strategy):
+        combo_cfg = {
+            "kind": "locator_combination",
+            "generator": combo.generator_name,
+            "noise": combo.noise_name,
+            "strategy": combo.strategy_name,
+            "repeats": repeats,
+            "seed": seed,
+            "max_steps": loc_max_steps,
+            "timeout_s": loc_timeout_s,
+        }
 
-        for strat_name, _ in _locator_strategies_for_generator(gen_name):
-            if filter_strategy and filter_strategy not in strat_name:
-                continue
-            for noise_name, _ in noise_map.items():
-                config_key = (gen_name, noise_name, strat_name)
-                if config_key in seen_configs:
-                    continue
-                seen_configs.add(config_key)
+        progress.update(
+            task_id,
+            description=f"Checking {combo.generator_name}/{combo.noise_name}/{combo.strategy_name}",
+        )
 
-                combo_cfg = {
-                    "kind": "locator_combination",
-                    "generator": gen_name,
-                    "noise": noise_name,
-                    "strategy": strat_name,
-                    "repeats": repeats,
-                    "seed": seed,
-                    "max_steps": loc_max_steps,
-                    "timeout_s": loc_timeout_s,
-                }
+        category = CombinationGrid.generator_category(combo.generator_name)
+        cache = bridge.get_cache_for_category(category)
+        cached_results = cache.get_cached_results(combo_cfg)
 
-                progress.update(task_id, description=f"Checking {gen_name}/{noise_name}/{strat_name}")
-
-                category = _get_generator_category(gen_name)
-                cache = bridge.get_cache_for_category(category)
-
-                cached_results = cache.get_cached_results(combo_cfg)
-
-                if cached_results:
-                    log.debug(f"Cache hit for {gen_name}/{noise_name}/{strat_name}")
-                    # Restore graphs
-                    restore_graphs(cached_results, out_dir)
-
-                    # Collect results
-                    for entries, main_result_row in cached_results:
-                        plot_manifest.extend(entries)
-                        df_rows.append(main_result_row)
-                else:
-                    log.warning(f"Cache missing for {gen_name}/{noise_name}/{strat_name}")
+        if cached_results:
+            log.debug(f"Cache hit for {combo.generator_name}/{combo.noise_name}/{combo.strategy_name}")
+            restore_graphs(cached_results, out_dir)
+            for entries, main_result_row in cached_results:
+                plot_manifest.extend(entries)
+                df_rows.append(main_result_row)
+        else:
+            log.warning(f"Cache missing for {combo.generator_name}/{combo.noise_name}/{combo.strategy_name}")
 
     return df_rows, plot_manifest
 
@@ -98,7 +79,6 @@ def _collect_cache_results(
 def render(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
-    seed: Annotated[int, typer.Option("--seed", help="RNG seed (int)")] = 123,
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
@@ -190,11 +170,7 @@ def render(
 
     log.info("Starting report generation from cache...")
 
-    generator_map = dict(sim_cases.generators_basic())
-    noise_map = dict(_noise_presets())
-
-    seen_configs: set[tuple[str, str, str]] = set()
-
+    grid = CombinationGrid()
     bridge = CacheBridge(cache_dir)
     plot_manifest: list[dict[str, object]] = []
     df_rows: list[dict] = []
@@ -208,18 +184,16 @@ def render(
 
     df_rows, plot_manifest = _collect_cache_results(
         bridge,
-        generator_map,
-        noise_map,
+        grid,
         filter_category,
         filter_strategy,
         repeats,
-        seed,
+        NVISION_RNG_SEED,
         loc_max_steps,
         loc_timeout_s,
         out_dir,
         progress,
         task_id,
-        seen_configs,
     )
 
     if not df_rows:

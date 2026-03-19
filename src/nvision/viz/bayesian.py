@@ -24,6 +24,8 @@ class BayesianMixin:
         if not posterior_history:
             return
 
+        is_particles = posterior_history[0].ndim == 2
+
         # Prepare frames
         frames = []
         # Downsample frames if too many for performance (e.g., max 100 frames)
@@ -33,22 +35,36 @@ class BayesianMixin:
             step_indices = np.linspace(0, total_steps - 1, 100, dtype=int)
 
         max_prob = 0.0
-        for p in posterior_history:
-            m = np.max(p)
-            if m > max_prob:
-                max_prob = m
+        if not is_particles:
+            for p in posterior_history:
+                m = np.max(p)
+                if m > max_prob:
+                    max_prob = m
 
         for i in step_indices:
             posterior = posterior_history[i]
-            data = [
-                go.Scatter(
-                    x=freq_grid,
-                    y=posterior,
-                    mode="lines",
-                    name="Posterior",
-                    line=dict(color="blue"),
-                )
-            ]
+
+            if is_particles:
+                data = [
+                    go.Histogram(
+                        x=posterior[:, 0],
+                        histnorm="probability density",
+                        name="Posterior Particles",
+                        marker_color="blue",
+                        opacity=0.7,
+                        nbinsx=50,
+                    )
+                ]
+            else:
+                data = [
+                    go.Scatter(
+                        x=freq_grid,
+                        y=posterior,
+                        mode="lines",
+                        name="Posterior",
+                        line=dict(color="blue"),
+                    )
+                ]
 
             if model_history and i < len(model_history):
                 # Normalize model for visualization scale if needed, or plotting separately?
@@ -67,8 +83,20 @@ class BayesianMixin:
 
         # Initial plot
         initial_posterior = posterior_history[0]
-        fig = go.Figure(
-            data=[
+        if is_particles:
+            initial_data = [
+                go.Histogram(
+                    x=initial_posterior[:, 0],
+                    histnorm="probability density",
+                    name="Posterior Particles",
+                    marker_color="blue",
+                    opacity=0.7,
+                    nbinsx=50,
+                )
+            ]
+            yaxis_layout = dict(title="Probability Density")
+        else:
+            initial_data = [
                 go.Scatter(
                     x=freq_grid,
                     y=initial_posterior,
@@ -76,10 +104,14 @@ class BayesianMixin:
                     name="Posterior",
                     line=dict(color="blue"),
                 )
-            ],
+            ]
+            yaxis_layout = dict(title="Probability Density", range=[0, max_prob * 1.1])
+
+        fig = go.Figure(
+            data=initial_data,
             layout=go.Layout(
                 xaxis=dict(title="Frequency / Parameter"),
-                yaxis=dict(title="Probability Density", range=[0, max_prob * 1.1]),
+                yaxis=yaxis_layout,
                 title="Posterior Evolution",
                 updatemenus=[
                     dict(

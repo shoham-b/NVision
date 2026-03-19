@@ -13,7 +13,7 @@ class LorentzianModel(SignalModel):
     Signal form:
         f(x) = background - amplitude / ((x - frequency)^2 + linewidth^2)
 
-    The amplitude parameter has units of [signal × frequency²] so that
+    The amplitude parameter has units of [signal * frequency^2] so that
     dip depth = amplitude / linewidth².  Use ``sample_params`` to get a set
     of parameters that keeps the signal in [0, 1].
 
@@ -24,7 +24,7 @@ class LorentzianModel(SignalModel):
     linewidth : float
         Half-width at half-maximum (HWHM)
     amplitude : float
-        = dip_depth × linewidth² (not dip depth directly)
+        = dip_depth * linewidth^2 (not dip depth directly)
     background : float
         Baseline level (max signal)
     """

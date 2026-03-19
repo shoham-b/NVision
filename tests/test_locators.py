@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import random
 
-from nvision.models.locator import Locator
 from nvision.models.experiment import CoreExperiment
-from nvision.runner.loop import run_loop
+from nvision.models.locator import Locator
 from nvision.models.noise import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
 )
+from nvision.runner import run_loop
 from nvision.sim.gen.core_generators import (
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
-from nvision.sim.locs.sweep_locator import SimpleSweepLocator
+from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
 from nvision.sim.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,

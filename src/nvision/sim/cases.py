@@ -8,6 +8,7 @@ from nvision.models.noise import (
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
 )
+
 from .gen.core_generators import (
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
@@ -113,13 +114,18 @@ def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
 
 @dataclass(frozen=True, slots=True)
 class RunCase:
-    """Named run preset for the CLI (no user parameters required)."""
+    """Named run preset for the CLI (no user parameters required).
+
+    ``filter_strategy`` must be a substring of a strategy name from
+    :class:`nvision.sim.combinations.CombinationGrid` (e.g. ``SimpleSweep``,
+    ``Bayesian-EIG``).  See ``strategies_for`` in ``combinations.py``.
+    """
 
     name: str
     filter_category: Literal["NVCenter", "OnePeak", "TwoPeak"] | None
     filter_strategy: str | None
+    description: str = ""
     repeats: int = 5
-    seed: int = 123
     loc_max_steps: int = 150
     loc_timeout_s: int = 1500
     no_cache: bool = False
@@ -133,9 +139,26 @@ def run_case_nvcenter() -> RunCase:
     return RunCase(
         name="nvcenter",
         filter_category="NVCenter",
-        filter_strategy="SimpleSweep",
+        filter_strategy=None,
+        description="NVCenter generators with all available strategies (SimpleSweep + Bayesian).",
         repeats=5,
-        seed=123,
+        loc_max_steps=150,
+        loc_timeout_s=1500,
+        no_cache=False,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
+def run_case_all() -> RunCase:
+    """Run every generator/noise/strategy combination."""
+    return RunCase(
+        name="all",
+        filter_category=None,
+        filter_strategy=None,
+        description="All generators, noises, and strategies.",
+        repeats=5,
         loc_max_steps=150,
         loc_timeout_s=1500,
         no_cache=False,
@@ -150,9 +173,9 @@ def run_case_nvcenter_bayes_eig() -> RunCase:
     return RunCase(
         name="nvcenter_bayes_eig",
         filter_category="NVCenter",
-        filter_strategy="NVCenter-Bayesian-EIG",
+        filter_strategy="Bayesian-EIG",
+        description="NVCenter generators, EIG acquisition (matches strategy name 'Bayesian-EIG').",
         repeats=5,
-        seed=123,
         loc_max_steps=200,
         loc_timeout_s=2000,
         no_cache=False,
@@ -167,9 +190,43 @@ def run_case_nvcenter_bayes_ucb() -> RunCase:
     return RunCase(
         name="nvcenter_bayes_ucb",
         filter_category="NVCenter",
-        filter_strategy="NVCenter-Bayesian-UCB",
+        filter_strategy="Bayesian-UCB",
+        description="NVCenter generators, UCB acquisition (matches 'Bayesian-UCB').",
         repeats=5,
-        seed=123,
+        loc_max_steps=200,
+        loc_timeout_s=2000,
+        no_cache=False,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
+def run_case_nvcenter_bayes_maxvar() -> RunCase:
+    """NVCenter Bayesian MaxVariance run case."""
+    return RunCase(
+        name="nvcenter_bayes_maxvar",
+        filter_category="NVCenter",
+        filter_strategy="Bayesian-MaxVariance",
+        description="NVCenter generators, max-variance acquisition (matches 'Bayesian-MaxVariance').",
+        repeats=5,
+        loc_max_steps=200,
+        loc_timeout_s=2000,
+        no_cache=False,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
+def run_case_nvcenter_bayes_utility() -> RunCase:
+    """NVCenter Bayesian UtilitySampling run case."""
+    return RunCase(
+        name="nvcenter_bayes_utility",
+        filter_category="NVCenter",
+        filter_strategy="Bayesian-UtilitySampling",
+        description="NVCenter generators, utility sampling (matches 'Bayesian-UtilitySampling').",
+        repeats=5,
         loc_max_steps=200,
         loc_timeout_s=2000,
         no_cache=False,
@@ -181,9 +238,12 @@ def run_case_nvcenter_bayes_ucb() -> RunCase:
 
 def run_cases() -> list[RunCase]:
     return [
+        run_case_all(),
         run_case_nvcenter(),
         run_case_nvcenter_bayes_eig(),
         run_case_nvcenter_bayes_ucb(),
+        run_case_nvcenter_bayes_maxvar(),
+        run_case_nvcenter_bayes_utility(),
     ]
 
 

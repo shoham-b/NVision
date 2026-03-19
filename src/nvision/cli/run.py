@@ -16,12 +16,13 @@ from rich.logging import RichHandler
 from nvision.cli.main import app
 from nvision.cli.monitor import ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
-from nvision.runner import TaskBuildConfig, build_tasks, run_combination
+from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import cases as sim_cases
 from nvision.tools.paths import (
     ARTIFACTS_ROOT,  # Assuming PROJECT_ROOT is defined in core.paths
     ensure_out_dir,
 )
+from nvision.tools.utils import NVISION_RNG_SEED
 from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
@@ -32,7 +33,6 @@ console = Console()
 def run(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = ARTIFACTS_ROOT,
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 1,
-    seed: Annotated[int, typer.Option("--seed", help="RNG seed (int)")] = 123,
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
@@ -162,10 +162,10 @@ def run(  # noqa: C901
     progress_queue = queue.Queue()
     monitor = ProgressMonitor(console, progress_queue)
 
-    tasks, _ = build_tasks(
-        TaskBuildConfig(
+    tasks, _ = build_task_list(
+        TaskListBuildConfig(
             repeats=repeats,
-            seed=seed,
+            seed=NVISION_RNG_SEED,
             out_dir=out_dir,
             scans_dir=scans_dir,
             bayes_dir=bayes_dir,
@@ -191,8 +191,8 @@ def run(  # noqa: C901
     with monitor:
         for locator_task in tasks:
             try:
-                results_for_combination = run_combination(locator_task)
-                for entries, main_result_row in results_for_combination:
+                results_for_task = run_task(locator_task)
+                for entries, main_result_row in results_for_task:
                     plot_manifest.extend(entries)
                     df_rows.append(main_result_row)
             except Exception:

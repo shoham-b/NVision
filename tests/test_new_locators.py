@@ -5,13 +5,13 @@ from __future__ import annotations
 import math
 import random
 
-from nvision.models.locator import Locator
 from nvision.models.experiment import CoreExperiment
+from nvision.models.locator import Locator
 from nvision.models.observer import Observer, RunResult
-from nvision.runner.loop import run_loop
-from nvision.signal.signal import Parameter, TrueSignal
+from nvision.runner import run_loop
 from nvision.signal.gaussian import GaussianModel
-from nvision.sim.locs.sweep_locator import SimpleSweepLocator
+from nvision.signal.signal import Parameter, TrueSignal
+from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
 
 
 def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperiment:
@@ -65,8 +65,8 @@ def test_locator_estimates_are_finite():
     exp = _gaussian_experiment(center=0.6)
     rng = random.Random(42)
     last_locator = None
-    for last_locator in run_loop(SimpleSweepLocator, exp, rng, max_steps=30):
-        pass
+    for loc in run_loop(SimpleSweepLocator, exp, rng, max_steps=30):
+        last_locator = loc
     assert last_locator is not None
     estimates = last_locator.belief.estimates()
     assert all(math.isfinite(v) for v in estimates.values())
