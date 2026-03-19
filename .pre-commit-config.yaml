@@ -14,8 +14,14 @@ exclude: |
     \.coverage.*|
     .*\.pyc
   )$
+fail_fast: true
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.4
-    hooks:
-      - id: ruff-format
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  # Ruff version.
+  rev: v0.15.6
+  hooks:
+    # Run the linter.
+    - id: ruff-check
+      args: [ --fix ]
+    # Run the formatter.
+    - id: ruff-format
