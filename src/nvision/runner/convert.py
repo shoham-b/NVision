@@ -1,6 +1,6 @@
 """Result conversion utilities — RunResult → Polars DataFrames.
 
-Pure functions with no side-effects; used by run_simulation_batch.
+Pure functions with no side-effects; used by the task executor.
 """
 
 from __future__ import annotations
