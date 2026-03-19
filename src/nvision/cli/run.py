@@ -4,7 +4,7 @@ import json
 import logging
 import queue
 import shutil
-from logging.handlers import QueueListener
+from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from typing import Annotated
 
@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from nvision.cli.main import app
-from nvision.cli.monitor import ProgressMonitor
+from nvision.cli.monitor import MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import cases as sim_cases
@@ -27,6 +27,17 @@ from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
 console = Console()
+
+
+def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
+    return RichHandler(
+        console=console,
+        rich_tracebacks=True,
+        show_time=True,
+        log_time_format="%Y-%m-%d %H:%M:%S",
+        tracebacks_show_locals=False,
+        tracebacks_suppress=tuple(suppress),
+    )
 
 
 @app.command()
@@ -90,56 +101,67 @@ def run(  # noqa: C901
     """Typer-driven command-line interface entry point."""
     console = Console()
 
-    # Default logic: if --all is not specified, use the configured default case.
+    defaulted_category = False
+    defaulted_strategy = False
     if not all_experiments:
         default_case = sim_cases.default_run_case()
         if filter_category is None:
             filter_category = default_case.filter_category
-            log.info(
-                "Defaulting to category %r. Use --all to run everything.",
-                filter_category,
-            )
-
+            defaulted_category = True
         if filter_strategy is None and filter_category == default_case.filter_category:
             filter_strategy = default_case.filter_strategy
-            log.info(
-                "Defaulting to strategy %r for %s. Use --all or --filter-strategy to change.",
-                filter_strategy,
-                filter_category,
-            )
+            defaulted_strategy = True
 
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
-    suppress_list = [typer]
+    suppress_list: list[object] = [typer]
     try:
         import numba
 
         suppress_list.append(numba)
     except ImportError:
-        pass  # Do not append numba if it is not available
+        pass
 
-    suppress_list.extend([])
+    progress_queue: queue.Queue = queue.Queue()
+    log_display_queue: queue.Queue = queue.Queue()
+    monitor = ProgressMonitor(
+        console,
+        progress_queue,
+        log_incoming=log_display_queue if not no_progress else None,
+        live_mode=not no_progress,
+    )
 
-    handlers = [
-        RichHandler(
-            console=console,
-            rich_tracebacks=True,
-            show_time=True,
-            log_time_format="%Y-%m-%d %H:%M:%S",
-            tracebacks_show_locals=False,
-            tracebacks_suppress=suppress_list,
-        )
-    ]
+    log_queue: queue.Queue = queue.Queue(-1)
+    if no_progress:
+        stream_handlers: list[logging.Handler] = [_rich_handler(console, suppress_list)]
+    else:
+        stream_handlers = [
+            MonitorLogHandler(
+                log_display_queue,
+                formatter=logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"),
+            )
+        ]
+    listener = QueueListener(log_queue, *stream_handlers)
+    listener.start()
     logging.basicConfig(
         level=log_level_value,
         format="%(message)s",
         datefmt="[%X]",
-        handlers=handlers,
+        handlers=[QueueHandler(log_queue)],
+        force=True,
     )
     logging.getLogger("nvision").setLevel(log_level_value)
 
-    log_queue = queue.Queue(-1)
-    listener = QueueListener(log_queue, *handlers)
-    listener.start()
+    if defaulted_category:
+        log.info(
+            "Defaulting to category %r. Use --all to run everything.",
+            filter_category,
+        )
+    if defaulted_strategy:
+        log.info(
+            "Defaulting to strategy %r for %s. Use --all or --filter-strategy to change.",
+            filter_strategy,
+            filter_category,
+        )
 
     out_dir: Path = out
     ensure_out_dir(out_dir)
@@ -158,9 +180,6 @@ def run(  # noqa: C901
     ensure_out_dir(bayes_dir)
 
     log.debug("Starting simulations...")
-
-    progress_queue = queue.Queue()
-    monitor = ProgressMonitor(console, progress_queue)
 
     tasks, _ = build_task_list(
         TaskListBuildConfig(
@@ -209,6 +228,14 @@ def run(  # noqa: C901
         raise typer.Exit(code=1)
 
     listener.stop()
+    logging.basicConfig(
+        level=log_level_value,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[_rich_handler(console, suppress_list)],
+        force=True,
+    )
+    logging.getLogger("nvision").setLevel(log_level_value)
 
     df_loc = pl.DataFrame(df_rows)
     out_path = out_dir / "locator_results.csv"

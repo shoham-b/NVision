@@ -25,7 +25,7 @@ This document provides essential knowledge for AI coding agents to be productive
 - **Dependency Management**: Always use [uv](https://github.com/astral-sh/uv) for installing and running Python commands (see `.github/copilot-instructions.md`).
   - Example: `uv sync --group dev` to install all dependencies.
 - **Running Experiments**:
-  - `uv run python -m nvision run --repeats 5 --seed 123 --loc-max-steps 150`
+  - `uv run python -m nvision run --repeats 5 --loc-max-steps 150`
   - Results are cached and written to `artifacts/`.
 - **Testing & Linting**:
   - `uv run pytest -q` for tests.
@@ -37,7 +37,7 @@ This document provides essential knowledge for AI coding agents to be productive
 ---
 
 ### 3. Project-Specific Conventions
-- **Reproducibility**: All experiments are controlled by a single seed and scenario grid for deterministic results.
+- **Reproducibility**: All experiments use a fixed RNG seed (`nvision.tools.utils.NVISION_RNG_SEED`) and a scenario grid for deterministic results.
 - **Caching**: Results and intermediate data are cached in `artifacts/cache/` for efficient repeat runs.
 - **Locator Protocol**: New locator strategies must implement the `Locator` interface (`propose_next`, `should_stop`, `finalize`).
 - **DataFrames**: Polars is used for all tabular data (not pandas).

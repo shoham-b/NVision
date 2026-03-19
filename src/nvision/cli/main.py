@@ -25,7 +25,6 @@ def main(ctx: typer.Context) -> None:
         default_case = sim_cases.default_run_case()
         run(
             repeats=default_case.repeats,
-            seed=default_case.seed,
             loc_max_steps=default_case.loc_max_steps,
             loc_timeout_s=default_case.loc_timeout_s,
             no_cache=default_case.no_cache,

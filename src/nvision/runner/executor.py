@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import random
 import time
@@ -21,12 +20,16 @@ from nvision.runner.cache import embed_graph_content, restore_graphs
 from nvision.runner.convert import run_result_to_finalize_record, run_result_to_history_df
 from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
+from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
+from nvision.runner.signal_cache import get_shared_core_experiment
 from nvision.sim.combinations import CombinationGrid
 from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
 
-CACHE_SCHEMA_VERSION = 2
+# Bump when repeat semantics change (e.g. shared true signal across strategies).
+# v3: signal generation uses strategy-independent RNG; prior cache entries are not comparable.
+CACHE_SCHEMA_VERSION = 3
 
 type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]
@@ -49,13 +52,6 @@ def run_loop(
 
 def run_task(task: LocatorTask) -> TaskResults:
     """Run a task (cache -> repeats -> outputs -> cache)."""
-    log.info(
-        "Running task: %s/%s/%s (%s repeats)",
-        task.generator_name,
-        task.noise_name,
-        task.strategy_name,
-        task.repeats,
-    )
     return _TaskRunner(task).run()
 
 
@@ -101,15 +97,44 @@ class _TaskRunner:
         category = CombinationGrid.generator_category(self.generator_name)
         self.bridge = CacheBridge(task.cache_dir)
         self.cache = self.bridge.get_cache_for_category(category)
-        self.viz = Viz(task.out_dir / "graphs")
+        self._viz: Viz | None = None
+
+    @property
+    def viz(self) -> Viz:
+        if self._viz is None:
+            self._viz = Viz(self.task.out_dir / "graphs")
+        return self._viz
+
+    def _flush_task_progress(self) -> None:
+        """Mark this task fully done in the progress UI (cache hit or require-cache skip)."""
+        pq = self.task.progress_queue
+        tid = self.task.task_id
+        if pq is not None and tid is not None:
+            pq.put((tid, self.repeats))
 
     def run(self) -> TaskResults:
         """Main pipeline: cache -> repeats -> outputs -> cache."""
         try:
             cached = self._restore_cached_results()
             if cached is not None:
+                self._flush_task_progress()
+                if cached:
+                    log.info(
+                        "Cache hit — skipped run: %s/%s/%s (%s repeats)",
+                        self.generator_name,
+                        self.noise_name,
+                        self.strategy_name,
+                        self.repeats,
+                    )
                 return cached
 
+            log.debug(
+                "Running task: %s/%s/%s (%s repeats)",
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+                self.repeats,
+            )
             locator_class = self.task.strategy_spec.locator_class
             locator_config = dict(self.task.strategy_spec.locator_config)
             artifacts = self._run_repeats(locator_class, locator_config)
@@ -163,9 +188,9 @@ class _TaskRunner:
         stop_reasons: list[str] = [""] * self.repeats
 
         for attempt_idx in range(self.repeats):
-            rng = self._rng_for_repeat(attempt_idx)
-            repeat_rngs.append(rng)
-            experiments.append(self._build_experiment(rng))
+            measurement_rng = self._rng_for_measurement(attempt_idx)
+            repeat_rngs.append(measurement_rng)
+            experiments.append(get_shared_core_experiment(self.task, attempt_idx, self._build_experiment))
             repeat_start_times.append(time.perf_counter())
 
         history_dfs: list[pl.DataFrame] = []
@@ -273,10 +298,12 @@ class _TaskRunner:
         full_results = [(embed_graph_content(entries, self.task.out_dir), row) for entries, row in results]
         self.cache.save_cached_results(self.combo_cache_key, full_results)
 
-    def _rng_for_repeat(self, repeat_idx: int) -> random.Random:
-        seed_str = f"{self.task.seed}-{self.generator_name}-{self.strategy_name}-{self.noise_name}-{repeat_idx}"
-        repeat_seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (10**8)
-        return random.Random(repeat_seed)
+    def _rng_for_measurement(self, repeat_idx: int) -> random.Random:
+        """RNG for measurement noise — still strategy-specific."""
+        key = measurement_repeat_key(
+            self.task.seed, self.generator_name, self.strategy_name, self.noise_name, repeat_idx
+        )
+        return random.Random(repeat_seed_int(key))
 
     def _build_experiment(self, rng: random.Random) -> CoreExperiment:
         true_signal = self.task.generator.generate(rng)
