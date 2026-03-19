@@ -29,7 +29,9 @@ log = logging.getLogger(__name__)
 
 # Bump when repeat semantics change (e.g. shared true signal across strategies).
 # v3: signal generation uses strategy-independent RNG; prior cache entries are not comparable.
-CACHE_SCHEMA_VERSION = 3
+# v4: same ground-truth draw for all noise models (noise only affects measurement RNG stream).
+# v5: NV Bayesian belief uses unit-cube parameter grids + physical signal wrapper (likelihood x-mapping).
+CACHE_SCHEMA_VERSION = 5
 
 type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]

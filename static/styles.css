@@ -98,6 +98,33 @@ body {
             margin-top: 0;
         }
 
+        .comparison-shared-signal {
+            margin-bottom: 1.25rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .comparison-subheading {
+            margin: 0.75rem 0 0.5rem;
+            font-size: 1.05rem;
+            color: #0056b3;
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .head-to-head-plot {
+            width: 100%;
+            min-height: 480px;
+            margin-top: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: #fff;
+        }
+
+        .comparison-locators .panel-locator {
+            margin-bottom: 0;
+        }
+
         .repeat-row {
             margin-top: 0.5rem;
             padding-top: 1rem;

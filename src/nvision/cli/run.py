@@ -77,6 +77,13 @@ def run(  # noqa: C901
             help="Filter by locator strategy (e.g., 'Bayesian')",
         ),
     ] = None,
+    filter_generator: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-generator",
+            help="Restrict to one generator name (e.g. 'NVCenter-one_peak' for Bayesian UI parity)",
+        ),
+    ] = None,
     all_experiments: Annotated[
         bool,
         typer.Option("--all", help="Run all experiments (disables default filtering)"),
@@ -103,6 +110,7 @@ def run(  # noqa: C901
 
     defaulted_category = False
     defaulted_strategy = False
+    defaulted_generator = False
     if not all_experiments:
         default_case = sim_cases.default_run_case()
         if filter_category is None:
@@ -111,6 +119,14 @@ def run(  # noqa: C901
         if filter_strategy is None and filter_category == default_case.filter_category:
             filter_strategy = default_case.filter_strategy
             defaulted_strategy = True
+        if (
+            filter_generator is None
+            and default_case.filter_generator is not None
+            and filter_category == default_case.filter_category
+            and filter_strategy == default_case.filter_strategy
+        ):
+            filter_generator = default_case.filter_generator
+            defaulted_generator = True
 
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
     suppress_list: list[object] = [typer]
@@ -162,6 +178,11 @@ def run(  # noqa: C901
             filter_strategy,
             filter_category,
         )
+    if defaulted_generator and filter_generator:
+        log.info(
+            "Defaulting to generator %r (matches Bayesian UI scope). Use --all or --filter-generator to change.",
+            filter_generator,
+        )
 
     out_dir: Path = out
     ensure_out_dir(out_dir)
@@ -199,6 +220,7 @@ def run(  # noqa: C901
             require_cache=require_cache,
             filter_category=filter_category,
             filter_strategy=filter_strategy,
+            filter_generator=filter_generator,
         ),
         monitor=monitor,
     )

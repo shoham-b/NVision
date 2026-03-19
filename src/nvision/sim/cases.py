@@ -119,11 +119,14 @@ class RunCase:
     ``filter_strategy`` must be a substring of a strategy name from
     :class:`nvision.sim.combinations.CombinationGrid` (e.g. ``SimpleSweep``,
     ``Bayesian-EIG``).  See ``strategies_for`` in ``combinations.py``.
+
+    ``filter_generator`` optionally restricts to a single generator name.
     """
 
     name: str
     filter_category: Literal["NVCenter", "OnePeak", "TwoPeak"] | None
     filter_strategy: str | None
+    filter_generator: str | None = None
     description: str = ""
     repeats: int = 5
     loc_max_steps: int = 150

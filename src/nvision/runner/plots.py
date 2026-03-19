@@ -12,6 +12,7 @@ import polars as pl
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.viz import Viz
+from nvision.viz.measurements import compute_scan_plot_data
 
 log = logging.getLogger(__name__)
 
@@ -40,8 +41,13 @@ def _posterior_animation_inputs(
 
     from nvision.signal.grid_belief import GridBeliefDistribution
     from nvision.signal.smc_belief import SMCBeliefDistribution
+    from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
 
     b0 = run_result.snapshots[0].belief
+    if isinstance(b0, UnitCubeGridBeliefDistribution):
+        grid = b0.physical_param_grid(scan_param)
+        hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        return hist, grid
     if isinstance(b0, GridBeliefDistribution):
         grid = b0.get_param(scan_param).grid
         hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
@@ -124,6 +130,11 @@ def generate_attempt_plots(
     scan_entry = entry_base.copy()
     scan_entry["type"] = "scan"
     scan_entry["path"] = out_path.relative_to(out_dir).as_posix()
+    scan_entry["plot_data"] = compute_scan_plot_data(
+        current_scan,
+        history_with_phase,
+        noise_obj.over_frequency_noise if noise_obj else None,
+    )
     entries: list[dict[str, Any]] = [scan_entry]
 
     strat_name = str(entry_base.get("strategy", ""))

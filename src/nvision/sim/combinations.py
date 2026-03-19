@@ -18,7 +18,13 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     UCBLocator,
     UtilitySamplingLocator,
 )
-from nvision.sim.locs.bayesian.belief_builders import nv_center_belief
+from nvision.sim.locs.bayesian.belief_builders import (
+    nv_center_belief,
+    one_peak_gaussian_belief,
+    one_peak_lorentzian_belief,
+    two_peak_gaussian_belief,
+    two_peak_lorentzian_belief,
+)
 from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
 from nvision.sim.locs.coarse.two_phase_sweep_locator import TwoPhaseSweepLocator
 
@@ -118,22 +124,89 @@ class CombinationGrid:
                 ),
             ]
 
+        if generator_name == "OnePeak-gaussian":
+            cfg = {"builder": one_peak_gaussian_belief, "max_steps": 200}
+            return [
+                ("SimpleSweep", SimpleSweepLocator),
+                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
+                ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                (
+                    "Bayesian-UtilitySampling",
+                    {
+                        "class": UtilitySamplingLocator,
+                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
+                    },
+                ),
+            ]
+
+        if generator_name == "OnePeak-lorentzian":
+            cfg = {"builder": one_peak_lorentzian_belief, "max_steps": 200}
+            return [
+                ("SimpleSweep", SimpleSweepLocator),
+                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
+                ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                (
+                    "Bayesian-UtilitySampling",
+                    {
+                        "class": UtilitySamplingLocator,
+                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
+                    },
+                ),
+            ]
+
+        if generator_name == "TwoPeak-gaussian":
+            cfg = {"builder": two_peak_gaussian_belief, "max_steps": 240}
+            return [
+                ("SimpleSweep", SimpleSweepLocator),
+                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
+                ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                (
+                    "Bayesian-UtilitySampling",
+                    {
+                        "class": UtilitySamplingLocator,
+                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
+                    },
+                ),
+            ]
+
+        if generator_name == "TwoPeak-lorentzian":
+            cfg = {"builder": two_peak_lorentzian_belief, "max_steps": 240}
+            return [
+                ("SimpleSweep", SimpleSweepLocator),
+                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
+                ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                (
+                    "Bayesian-UtilitySampling",
+                    {
+                        "class": UtilitySamplingLocator,
+                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
+                    },
+                ),
+            ]
+
         return [("SimpleSweep", SimpleSweepLocator)]
 
     def __iter__(self) -> Iterator[Combination]:
         """Iterate all combinations (no filtering, no dedup)."""
-        return self.iter(filter_category=None, filter_strategy=None)
+        return self.iter(filter_category=None, filter_strategy=None, filter_generator=None)
 
     def iter(
         self,
         filter_category: str | None = None,
         filter_strategy: str | None = None,
+        filter_generator: str | None = None,
     ) -> Iterator[Combination]:
         """Yield every matching combination, deduplicating automatically."""
         seen: set[tuple[str, str, str]] = set()
 
         for gen_name, gen_obj in self._generators.items():
             if filter_category and self.generator_category(gen_name) != filter_category:
+                continue
+            if filter_generator is not None and gen_name != filter_generator:
                 continue
 
             for strat_name, strat_obj in self.strategies_for(gen_name):

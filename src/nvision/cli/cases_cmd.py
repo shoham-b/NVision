@@ -37,6 +37,7 @@ def _run_named_case(
         ignore_cache_strategy=None,
         filter_category=case.filter_category,
         filter_strategy=case.filter_strategy,
+        filter_generator=case.filter_generator,
         all_experiments=effective_all_experiments,
         no_progress=case.no_progress,
         require_cache=case.require_cache,

@@ -30,6 +30,7 @@ def main(ctx: typer.Context) -> None:
             no_cache=default_case.no_cache,
             filter_category=default_case.filter_category,
             filter_strategy=default_case.filter_strategy,
+            filter_generator=default_case.filter_generator,
             require_cache=default_case.require_cache,
             log_level=default_case.log_level,
             no_progress=default_case.no_progress,
