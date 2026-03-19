@@ -251,6 +251,15 @@ wheels = [
 ]
 
 [[package]]
+name = "intel-cmplr-lib-rt"
+version = "2025.3.2"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/d7/ffb7e58ac260737b5076e2738ce198468a4efb3ba1885bced038801c387a/intel_cmplr_lib_rt-2025.3.2-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:c413efc1b2ddd8a879e9518bcbc375541b8b633951b2825684571d833aea26ad", size = 48084765, upload-time = "2026-01-22T05:31:35.175Z" },
+    { url = "https://files.pythonhosted.org/packages/de/02/46ec0e8aad41a7d95ba62dc65238c88fc302120c9a143c211990eef9c0b2/intel_cmplr_lib_rt-2025.3.2-py2.py3-none-win_amd64.whl", hash = "sha256:89bba5899d0e057f0ecbc55768558e55bd7a3740950d0e4d0b01d25d8b62b020", size = 17741766, upload-time = "2026-01-22T05:34:31.994Z" },
+]
+
+[[package]]
 name = "jax"
 version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -559,10 +568,8 @@ dependencies = [
     { name = "numba" },
     { name = "plotly" },
     { name = "polars" },
-    { name = "pytest-cov" },
     { name = "rich" },
     { name = "scipy" },
-    { name = "scipy-stubs" },
     { name = "typer" },
 ]
 
@@ -574,11 +581,13 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
     { name = "ruff" },
+    { name = "scipy-stubs" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "hypothesis" },
+    { name = "intel-cmplr-lib-rt" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -598,13 +607,13 @@ requires-dist = [
     { name = "polars", specifier = ">=1.35.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = "==4.3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.5" },
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.14.4" },
     { name = "scipy", specifier = ">=1.16.3" },
-    { name = "scipy-stubs", specifier = "==1.16.3.0" },
+    { name = "scipy-stubs", marker = "extra == 'dev'", specifier = "==1.16.3.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["dev"]
@@ -612,6 +621,7 @@ provides-extras = ["dev"]
 [package.metadata.requires-dev]
 dev = [
     { name = "hypothesis", specifier = ">=6.147.0" },
+    { name = "intel-cmplr-lib-rt", specifier = ">=2025.3.2" },
     { name = "pre-commit", specifier = "==4.3.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=4.1" },

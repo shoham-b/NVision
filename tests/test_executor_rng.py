@@ -1,0 +1,68 @@
+"""Repeat RNG semantics for shared true signal vs strategy-specific measurement noise."""
+
+import random
+
+from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int, signal_repeat_key
+from nvision.runner.signal_cache import clear_signal_experiment_cache, get_shared_core_experiment
+
+
+def test_signal_repeat_key_ignores_strategy():
+    """Same (seed, generator, noise, repeat) must map to one signal key for all strategies."""
+    s = signal_repeat_key(7, "NVCenter", "NoNoise", 3)
+    assert "Bayesian" not in s
+    assert s == "7-NVCenter-NoNoise-3"
+
+
+def test_measurement_repeat_key_includes_strategy():
+    a = measurement_repeat_key(7, "NVCenter", "Bayesian-EIG", "NoNoise", 3)
+    b = measurement_repeat_key(7, "NVCenter", "Bayesian-UCB", "NoNoise", 3)
+    assert a != b
+    assert "Bayesian-EIG" in a
+    assert "Bayesian-UCB" in b
+
+
+def test_signal_seed_matches_across_strategies():
+    """Signal RNG seed does not depend on strategy; measurement seeds do."""
+    k_sig = signal_repeat_key(42, "G", "N", 0)
+    k_a = measurement_repeat_key(42, "G", "StratA", "N", 0)
+    k_b = measurement_repeat_key(42, "G", "StratB", "N", 0)
+    assert repeat_seed_int(k_sig) == repeat_seed_int(signal_repeat_key(42, "G", "N", 0))
+    assert repeat_seed_int(k_a) != repeat_seed_int(k_b)
+
+
+def test_random_streams_differ_for_measurement_keys():
+    """Measurement RNGs for two strategies must not be identical."""
+    k_a = measurement_repeat_key(1, "Gen", "S1", "Noise", 0)
+    k_b = measurement_repeat_key(1, "Gen", "S2", "Noise", 0)
+    ra = random.Random(repeat_seed_int(k_a))
+    rb = random.Random(repeat_seed_int(k_b))
+    assert ra.random() != rb.random()
+
+
+def test_shared_core_experiment_same_true_signal_object():
+    """Second lookup with the same repeat key returns the same CoreExperiment and true_signal instance."""
+    from unittest.mock import MagicMock
+
+    from nvision.models.experiment import CoreExperiment
+
+    clear_signal_experiment_cache()
+    task = MagicMock()
+    task.seed = 1
+    task.generator_name = "G"
+    task.noise_name = "N"
+    task.noise = None
+
+    built: list[CoreExperiment] = []
+
+    def build(rng: random.Random) -> CoreExperiment:
+        exp = CoreExperiment(true_signal=object(), noise=None, x_min=0.0, x_max=1.0)
+        built.append(exp)
+        return exp
+
+    a = get_shared_core_experiment(task, 0, build)
+    b = get_shared_core_experiment(task, 0, build)
+    assert a is b
+    assert a.true_signal is b.true_signal
+    assert len(built) == 1
+
+    clear_signal_experiment_cache()
