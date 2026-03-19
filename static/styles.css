@@ -41,6 +41,69 @@ body {
             font-weight: bold;
         }
 
+        .scan-target-row {
+            margin-bottom: 0.75rem;
+        }
+
+        .scan-controls-split {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            align-items: stretch;
+            margin-bottom: 1rem;
+        }
+
+        .panel {
+            flex: 1 1 280px;
+            min-width: 260px;
+            padding: 1rem 1.25rem;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            background: #fafafa;
+        }
+
+        .panel-signal {
+            border-left: 4px solid #0d6efd;
+        }
+
+        .panel-locator {
+            border-left: 4px solid #198754;
+        }
+
+        .panel-title {
+            margin: 0 0 0.25rem;
+            font-size: 1.1rem;
+            color: #0056b3;
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .panel h4.panel-title {
+            font-size: 1rem;
+        }
+
+        .comparison-outer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            align-items: flex-start;
+        }
+
+        .comparison-column {
+            flex: 1 1 400px;
+            min-width: min(100%, 380px);
+        }
+
+        .comparison-column > h3 {
+            margin-top: 0;
+        }
+
+        .repeat-row {
+            margin-top: 0.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e0e0e0;
+        }
+
         .tab-bar {
             display: flex;
             gap: 0.75em;

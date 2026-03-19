@@ -436,7 +436,8 @@ function main() {
             selectRepeatByIndex(targetIndex);
         }
 
-        function updateControls() {
+        /** Left column: target, generator, noise (signal / experiment path). */
+        function updateScanSignalControls() {
             const selectedScanGeneratorType = renderSegmentedControl(
                 scanGeneratorType,
                 [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
@@ -459,12 +460,16 @@ function main() {
                         p.generator === selectedScanGenerator
                 )
                 .map((p) => p.noise);
-            const selectedScanNoise = renderSegmentedControl(
+            renderSegmentedControl(
                 scanNoise,
                 scanNoiseItems,
                 controlValue(scanNoise),
             );
+        }
 
+        /** Right column: strategies for this target type only — not filtered by generator or noise. */
+        function updateScanStrategyControl() {
+            const selectedScanGeneratorType = controlValue(scanGeneratorType);
             const scanStrategyItems = [
                 ...new Set(
                     scanPlots
@@ -472,12 +477,19 @@ function main() {
                         .map((p) => p.strategy)
                 ),
             ];
-
-            const selectedScanStrategy = renderSegmentedControl(
+            renderSegmentedControl(
                 scanStrategy,
                 scanStrategyItems,
                 controlValue(scanStrategy),
             );
+        }
+
+        /** Repeat options for the full (signal × locator) selection. */
+        function updateScanRepeatControl() {
+            const selectedScanGeneratorType = controlValue(scanGeneratorType);
+            const selectedScanGenerator = controlValue(scanGenerator);
+            const selectedScanNoise = controlValue(scanNoise);
+            const selectedScanStrategy = controlValue(scanStrategy);
 
             const scanRepeatItems = scanPlots
                 .filter(
@@ -498,6 +510,12 @@ function main() {
                 scanRepeat.dataset.value = selectedRepeat;
             }
             updateRepeatNavButtons();
+        }
+
+        function updateAllScanControls() {
+            updateScanSignalControls();
+            updateScanStrategyControl();
+            updateScanRepeatControl();
         }
 
         function findAndDisplayPlot() {
@@ -702,31 +720,57 @@ function main() {
 
             let currentRepItems = [];
 
-            function updateSideControls() {
-                const selGenType = renderSegmentedControl(genType, [...new Set(scanPlots.map(p => p.generator_type))].sort(), controlValue(genType));
-
-                const genItems = scanPlots.filter(p => p.generator_type === selGenType).map(p => p.generator);
+            function updateSideSignalControls() {
+                const selGenType = renderSegmentedControl(
+                    genType,
+                    [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
+                    controlValue(genType),
+                );
+                const genItems = scanPlots.filter((p) => p.generator_type === selGenType).map((p) => p.generator);
                 const selGen = renderSegmentedControl(gen, genItems, controlValue(gen));
+                const noiseItems = scanPlots
+                    .filter((p) => p.generator_type === selGenType && p.generator === selGen)
+                    .map((p) => p.noise);
+                renderSegmentedControl(noise, noiseItems, controlValue(noise));
+            }
 
-                const noiseItems = scanPlots.filter(p => p.generator_type === selGenType && p.generator === selGen).map(p => p.noise);
-                const selNoise = renderSegmentedControl(noise, noiseItems, controlValue(noise));
+            function updateSideStrategyControl() {
+                const selGenType = controlValue(genType);
+                const stratItems = [
+                    ...new Set(scanPlots.filter((p) => p.generator_type === selGenType).map((p) => p.strategy)),
+                ];
+                renderSegmentedControl(strat, stratItems, controlValue(strat));
+            }
 
-                const stratItems = [...new Set(scanPlots.filter(p => p.generator_type === selGenType && p.generator === selGen && p.noise === selNoise).map(p => p.strategy))];
-                const selStrat = renderSegmentedControl(strat, stratItems, controlValue(strat));
-
-                const repItems = scanPlots.filter(p =>
-                    p.generator_type === selGenType &&
-                    p.generator === selGen &&
-                    p.noise === selNoise &&
-                    p.strategy === selStrat
-                ).map(p => String(p.repeat ?? p.attempt ?? 1));
-
-                const {
-                    value: selRep,
-                    items
-                } = renderSelectControl(rep, repItems, controlValue(rep) || rep.dataset.value || '');
+            function updateSideRepeatControl() {
+                const selGenType = controlValue(genType);
+                const selGen = controlValue(gen);
+                const selNoise = controlValue(noise);
+                const selStrat = controlValue(strat);
+                const repItems = scanPlots
+                    .filter(
+                        (p) =>
+                            p.generator_type === selGenType &&
+                            p.generator === selGen &&
+                            p.noise === selNoise &&
+                            p.strategy === selStrat,
+                    )
+                    .map((p) => String(p.repeat ?? p.attempt ?? 1));
+                const {value: selRep, items} = renderSelectControl(
+                    rep,
+                    repItems,
+                    controlValue(rep) || rep.dataset.value || '',
+                );
                 currentRepItems = items;
-                if (selRep) rep.dataset.value = selRep;
+                if (selRep) {
+                    rep.dataset.value = selRep;
+                }
+            }
+
+            function updateAllSideControls() {
+                updateSideSignalControls();
+                updateSideStrategyControl();
+                updateSideRepeatControl();
             }
 
             function updateSidePlot() {
@@ -761,15 +805,25 @@ function main() {
                 }
             }
 
-            function onControlChange() {
-                updateSideControls();
+            genType.addEventListener('controlchange', () => {
+                updateSideSignalControls();
+                updateSideStrategyControl();
+                updateSideRepeatControl();
                 updateSidePlot();
-            }
-
-            genType.addEventListener('controlchange', onControlChange);
-            gen.addEventListener('controlchange', onControlChange);
-            noise.addEventListener('controlchange', onControlChange);
-            strat.addEventListener('controlchange', onControlChange);
+            });
+            gen.addEventListener('controlchange', () => {
+                updateSideSignalControls();
+                updateSideRepeatControl();
+                updateSidePlot();
+            });
+            noise.addEventListener('controlchange', () => {
+                updateSideRepeatControl();
+                updateSidePlot();
+            });
+            strat.addEventListener('controlchange', () => {
+                updateSideRepeatControl();
+                updateSidePlot();
+            });
             rep.addEventListener('change', () => {
                 rep.dataset.value = rep.value || '';
                 updateSidePlot();
@@ -783,7 +837,7 @@ function main() {
                 strat.dataset.value = scanDefault.strategy ?? '';
                 rep.dataset.value = scanDefault.repeat === undefined ? '' : String(scanDefault.repeat);
             }
-            updateSideControls();
+            updateAllSideControls();
             updateSidePlot();
         }
 
@@ -794,19 +848,22 @@ function main() {
 
 
         scanGeneratorType.addEventListener('controlchange', () => {
-            updateControls();
+            updateScanSignalControls();
+            updateScanStrategyControl();
+            updateScanRepeatControl();
             findAndDisplayPlot();
         });
         scanGenerator.addEventListener('controlchange', () => {
-            updateControls();
+            updateScanSignalControls();
+            updateScanRepeatControl();
             findAndDisplayPlot();
         });
         scanNoise.addEventListener('controlchange', () => {
-            updateControls();
+            updateScanRepeatControl();
             findAndDisplayPlot();
         });
         scanStrategy.addEventListener('controlchange', () => {
-            updateControls();
+            updateScanRepeatControl();
             findAndDisplayPlot();
         });
         scanRepeat.addEventListener('change', () => {
@@ -839,7 +896,7 @@ function main() {
 
         try {
             setupTabs();
-            updateControls();
+            updateAllScanControls();
             findAndDisplayPlot();
         } catch (error) {
             console.error('Error initializing UI controls:', error);
