@@ -118,6 +118,21 @@ class _TaskRunner:
         if pq is not None and tid is not None:
             pq.put((tid, self.repeats))
 
+    def _notify_repeat_finished(self, repeat_index: int) -> None:
+        """Advance per-task repeat progress after simulation for one repeat completes."""
+        pq = self.task.progress_queue
+        tid = self.task.task_id
+        if pq is not None and tid is not None:
+            pq.put((tid, 1))
+        else:
+            log.debug(
+                "Finished repeat %s for %s/%s/%s",
+                repeat_index + 1,
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+            )
+
     def run(self) -> TaskResults:
         """Main pipeline: cache -> repeats -> outputs -> cache."""
         try:
@@ -218,6 +233,7 @@ class _TaskRunner:
             if not hist_df.is_empty():
                 history_dfs.append(hist_df)
             finalize_records.append(finalize_record)
+            self._notify_repeat_finished(rid)
 
         empty_history = pl.DataFrame(
             {
@@ -270,17 +286,6 @@ class _TaskRunner:
             )
             all_results.append((entries, main_result_row))
             self._save_repeat_cache(attempt_idx, entries, main_result_row)
-
-            if self.task.progress_queue:
-                self.task.progress_queue.put((self.task.task_id, 1))
-            else:
-                log.debug(
-                    "Finished repeat %s for %s/%s/%s",
-                    attempt_idx + 1,
-                    self.generator_name,
-                    self.noise_name,
-                    self.strategy_name,
-                )
 
         return all_results
 
