@@ -18,12 +18,19 @@ from nvision.cli.main import app
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner.cache import restore_graphs
 from nvision.sim.combinations import CombinationGrid
-from nvision.tools.paths import ensure_out_dir
+from nvision.tools.paths import ARTIFACTS_ROOT, ensure_out_dir
 from nvision.tools.utils import NVISION_RNG_SEED
 from nvision.viz import Viz
+from nvision.viz.measurements import backfill_scan_plot_data_if_missing
 
 log = logging.getLogger("nvision")
 console = Console()
+
+
+def _postprocess_manifest_entries(plot_manifest: list[dict[str, object]], out_dir: Path) -> None:
+    """Backfill ``plot_data`` on scan rows from existing HTML when cache predates it."""
+    for entry in plot_manifest:
+        backfill_scan_plot_data_if_missing(entry, out_dir)
 
 
 def _collect_cache_results(
@@ -42,19 +49,10 @@ def _collect_cache_results(
 ):
     df_rows = []
     plot_manifest = []
+    combo_hits = 0
+    combo_misses = 0
 
     for combo in grid.iter(filter_category, filter_strategy, filter_generator):
-        combo_cfg = {
-            "kind": "locator_combination",
-            "generator": combo.generator_name,
-            "noise": combo.noise_name,
-            "strategy": combo.strategy_name,
-            "repeats": repeats,
-            "seed": seed,
-            "max_steps": loc_max_steps,
-            "timeout_s": loc_timeout_s,
-        }
-
         progress.update(
             task_id,
             description=f"Checking {combo.generator_name}/{combo.noise_name}/{combo.strategy_name}",
@@ -62,23 +60,58 @@ def _collect_cache_results(
 
         category = CombinationGrid.generator_category(combo.generator_name)
         cache = bridge.get_cache_for_category(category)
-        cached_results = cache.get_cached_results(combo_cfg)
+        cached_results = cache.get_cached_combination(
+            generator=combo.generator_name,
+            noise=combo.noise_name,
+            strategy=combo.strategy_name,
+            repeats=repeats,
+            seed=seed,
+            max_steps=loc_max_steps,
+            timeout_s=loc_timeout_s,
+        )
 
         if cached_results:
-            log.debug(f"Cache hit for {combo.generator_name}/{combo.noise_name}/{combo.strategy_name}")
+            combo_hits += 1
+            log.debug(
+                "Cache hit for %s/%s/%s",
+                combo.generator_name,
+                combo.noise_name,
+                combo.strategy_name,
+            )
             restore_graphs(cached_results, out_dir)
             for entries, main_result_row in cached_results:
                 plot_manifest.extend(entries)
                 df_rows.append(main_result_row)
         else:
-            log.warning(f"Cache missing for {combo.generator_name}/{combo.noise_name}/{combo.strategy_name}")
+            combo_misses += 1
+            log.debug(
+                "Cache miss for %s/%s/%s",
+                combo.generator_name,
+                combo.noise_name,
+                combo.strategy_name,
+            )
+
+    if combo_misses:
+        log.info(
+            "Cache: %s combination(s) loaded; %s not in cache. "
+            "Render walks the full grid — misses are normal until every combo has been simulated "
+            "(same --out, --repeats, --loc-max-steps, --loc-timeout as `nvision run`; no --no-cache). "
+            "Use DEBUG log level to list each missing combo.",
+            combo_hits,
+            combo_misses,
+        )
+    elif combo_hits:
+        log.info("Cache: all %s requested combination(s) loaded.", combo_hits)
 
     return df_rows, plot_manifest
 
 
 @app.command()
 def render(
-    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    out: Annotated[
+        Path,
+        typer.Option("--out", help="Output directory (must match the run that wrote cache)"),
+    ] = ARTIFACTS_ROOT,
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
     loc_max_steps: Annotated[
         int,
@@ -222,6 +255,8 @@ def render(
         log.info(f"Saved {len(summary_plots_meta)} summary plots")
     except Exception as exc:
         log.warning(f"Plotting failed: {exc}")
+
+    _postprocess_manifest_entries(plot_manifest, out_dir)
 
     if not plot_manifest:
         log.warning("No plots were generated. Adding a dummy entry to manifest.")

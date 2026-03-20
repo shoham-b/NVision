@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import random
+import re
 from pathlib import Path
 from typing import Any
 
@@ -242,6 +244,146 @@ def compute_scan_plot_data(
         "step": steps,
     }
     return out
+
+
+def _parse_figure_from_scan_html(html: str) -> go.Figure | None:
+    """Rebuild a :class:`plotly.graph_objects.Figure` from ``Plotly.newPlot`` JSON in saved HTML."""
+    m = re.search(r'Plotly\.newPlot\(\s*"[^"]+",\s*', html)
+    if not m:
+        return None
+    pos = m.end()
+    decoder = json.JSONDecoder()
+    try:
+        data, pos = decoder.raw_decode(html, pos)
+    except json.JSONDecodeError:
+        return None
+    while pos < len(html) and html[pos] in " \t\n\r,":
+        pos += 1
+    try:
+        layout, _pos = decoder.raw_decode(html, pos)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, list) or not isinstance(layout, dict):
+        return None
+    return go.Figure(data=data, layout=layout)
+
+
+def _trace_xy_lists(tr: Any) -> tuple[list[float], list[float | None]]:
+    xs: list[float] = []
+    ys: list[float | None] = []
+    tx = getattr(tr, "x", None)
+    ty = getattr(tr, "y", None)
+    if tx is not None:
+        for v in tx:
+            xs.append(float(v))
+    if ty is not None:
+        for v in ty:
+            ys.append(_json_safe_float(v))
+    n = min(len(xs), len(ys))
+    return xs[:n], ys[:n]
+
+
+def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa: C901
+    """Rebuild ``plot_data`` from a scan figure (must match ``plot_scan_measurements``)."""
+    x_dense: list[float] | None = None
+    y_dense: list[float] | None = None
+    y_dense_noisy: list[float] | None = None
+    coarse_x: list[float] = []
+    coarse_y: list[float | None] = []
+    fine_x: list[float] = []
+    fine_y: list[float | None] = []
+    step_x: list[float] = []
+    step_y: list[float | None] = []
+    step_idx: list[float] = []
+
+    has_metrics = any(getattr(t, "name", None) in ("Entropy", "Uncertainty") for t in fig.data)
+
+    for tr in fig.data:
+        name = getattr(tr, "name", None) or ""
+        mode = getattr(tr, "mode", "") or ""
+        if name == "true signal" and "lines" in mode:
+            x_dense, y_dense = _trace_xy_lists(tr)
+            continue
+        if name == "simulated noisy signal (over-frequency)" and "lines" in mode:
+            _, yn = _trace_xy_lists(tr)
+            y_dense_noisy = []
+            for i, v in enumerate(yn):
+                if v is not None:
+                    y_dense_noisy.append(float(v))
+                elif y_dense is not None and i < len(y_dense) and y_dense[i] is not None:
+                    y_dense_noisy.append(float(y_dense[i]))
+                else:
+                    y_dense_noisy.append(0.0)
+            continue
+        if name == "measurements (coarse)":
+            coarse_x, coarse_y = _trace_xy_lists(tr)
+            continue
+        if name == "measurements (inference)":
+            fine_x, fine_y = _trace_xy_lists(tr)
+            continue
+        if name == "measurements (noisy)":
+            step_x, step_y = _trace_xy_lists(tr)
+            mk = getattr(tr, "marker", None)
+            if mk is not None:
+                c = getattr(mk, "color", None)
+                if c is not None and hasattr(c, "__iter__") and not isinstance(c, (str, bytes)):
+                    step_idx = [float(v) for v in c]
+            continue
+
+    if x_dense is None or y_dense is None:
+        return None
+
+    out: dict[str, Any] = {
+        "x_dense": [float(x) for x in x_dense],
+        "y_dense": [float(y) for y in y_dense if y is not None],
+        "has_metrics": has_metrics,
+    }
+    if y_dense_noisy is not None and len(y_dense_noisy) == len(out["x_dense"]):
+        out["y_dense_noisy"] = y_dense_noisy
+
+    if coarse_x or fine_x:
+        out["measurements"] = {
+            "mode": "phases",
+            "coarse_x": coarse_x,
+            "coarse_y": coarse_y,
+            "fine_x": fine_x,
+            "fine_y": fine_y,
+        }
+    elif step_x:
+        if len(step_idx) != len(step_x):
+            step_idx = [float(i) for i in range(len(step_x))]
+        out["measurements"] = {
+            "mode": "steps",
+            "x": step_x,
+            "y": step_y,
+            "step": [int(s) for s in step_idx],
+        }
+    else:
+        out["measurements"] = {"mode": "empty"}
+
+    return out
+
+
+def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> None:
+    """If a scan manifest entry has no ``plot_data``, rebuild it from the saved scan HTML on disk."""
+    if entry.get("type") != "scan" or entry.get("plot_data"):
+        return
+    rel = entry.get("path")
+    if not isinstance(rel, str) or not rel.strip():
+        return
+    path = out_dir / rel
+    if not path.exists():
+        return
+    try:
+        html = path.read_text(encoding="utf-8")
+        fig = _parse_figure_from_scan_html(html)
+        if fig is None:
+            return
+        plot_data = plot_data_from_scan_figure(fig)
+    except Exception:
+        return
+    if plot_data:
+        entry["plot_data"] = plot_data
 
 
 def _scan_layout(fig: go.Figure, has_metrics: bool) -> None:

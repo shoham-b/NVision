@@ -8,7 +8,7 @@ Owns all logic for executing locator experiments end-to-end:
 - ``metrics``   — per-repeat metrics extraction
 - ``plots``     — per-repeat plot generation
 - ``task_builder`` — LocatorTask list builder (``TaskListBuildConfig``, ``build_task_list``)
-- ``cache``     — graph content embed/restore helpers
+- ``cache``     — graph embed/restore; locator key helpers re-export :mod:`nvision.cache.locator_keys`
 """
 
 from nvision.runner.convert import (

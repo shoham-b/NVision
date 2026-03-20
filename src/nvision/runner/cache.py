@@ -1,4 +1,4 @@
-"""Cache helpers — embed graph file content into entries and restore from cache."""
+"""Graph file embed/restore helpers for locator runs."""
 
 from __future__ import annotations
 
@@ -7,6 +7,11 @@ import logging
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+__all__ = [
+    "embed_graph_content",
+    "restore_graphs",
+]
 
 
 def restore_graphs(cached_results: list, out_dir: Path) -> None:

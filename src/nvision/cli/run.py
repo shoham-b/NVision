@@ -13,6 +13,7 @@ import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
+from nvision.cache import CacheBridge
 from nvision.cli.main import app
 from nvision.cli.monitor import MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
@@ -229,19 +230,25 @@ def run(  # noqa: C901
     df_rows: list[dict] = []
     errors: list[Exception] = []
 
-    with monitor:
-        for locator_task in tasks:
-            try:
-                results_for_task = run_task(locator_task)
-                for entries, main_result_row in results_for_task:
-                    plot_manifest.extend(entries)
-                    df_rows.append(main_result_row)
-            except Exception:
-                log.exception("Task failed with error")
-                errors.append(RuntimeError("Check logs for details"))
-                if len(errors) > 5:
-                    log.error("Too many errors (>5), terminating...")
-                    break
+    # One bridge for the whole run avoids opening/closing SQLite per task (200+ tasks on `cases run all`).
+    cache_bridge: CacheBridge | None = None if no_cache else CacheBridge(cache_dir)
+    try:
+        with monitor:
+            for locator_task in tasks:
+                try:
+                    results_for_task = run_task(locator_task, cache_bridge=cache_bridge)
+                    for entries, main_result_row in results_for_task:
+                        plot_manifest.extend(entries)
+                        df_rows.append(main_result_row)
+                except Exception:
+                    log.exception("Task failed with error")
+                    errors.append(RuntimeError("Check logs for details"))
+                    if len(errors) > 5:
+                        log.error("Too many errors (>5), terminating...")
+                        break
+    finally:
+        if cache_bridge is not None:
+            cache_bridge.close()
 
     if errors:
         console.print("\n[bold red]Errors occurred during execution:[/bold red]")
