@@ -26,7 +26,6 @@ from nvision.sim.locs.bayesian.belief_builders import (
     two_peak_lorentzian_belief,
 )
 from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
-from nvision.sim.locs.coarse.two_phase_sweep_locator import TwoPhaseSweepLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,24 +81,6 @@ class CombinationGrid:
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
-        lower = generator_name.lower()
-
-        if "nvcenter-voigt" in lower or "nvcenter-zeeman" in lower or "exponential" in lower:
-            return [
-                (
-                    "TwoPhase-Sobol-Sweep",
-                    {
-                        "class": TwoPhaseSweepLocator,
-                        "config": {
-                            "phase1_max_steps": 32,
-                            "phase1_n_grid": 128,
-                            "phase2_max_steps": 96,
-                            "phase2_n_grid": 256,
-                        },
-                    },
-                ),
-            ]
-
         if generator_name.startswith("NVCenter-"):
             nv = {"builder": nv_center_belief, **_NV_GRID}
             return [

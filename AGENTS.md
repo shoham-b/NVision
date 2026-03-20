@@ -27,6 +27,7 @@ This document provides essential knowledge for AI coding agents to be productive
 - **Running Experiments**:
   - `uv run python -m nvision run --repeats 5 --loc-max-steps 150`
   - Results are cached and written to `artifacts/`.
+- **Re-render reports (no re-run)**: `uv run python -m nvision render` (default `--out` is the repo `artifacts/` directory, same as `nvision run`) rebuilds `plots_manifest.json` and the static UI from cache; scan rows get `plot_data` **backfilled** from existing scan HTML when older cache entries omit it. Default render filters to NVCenter + Bayesian and iterates the **full** combination grid — you will see INFO counts for combinations not in cache until every grid cell has been run once with matching `--repeats`, `--loc-max-steps`, and `--loc-timeout` (and without `--no-cache` on the run). `schema_version` is included in cache keys automatically.
 - **Testing & Linting**:
   - `uv run pytest -q` for tests.
   - `uv run ruff check` and `uv run ruff format --check` for linting/formatting.

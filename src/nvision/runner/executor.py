@@ -27,12 +27,6 @@ from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
 
-# Bump when repeat semantics change (e.g. shared true signal across strategies).
-# v3: signal generation uses strategy-independent RNG; prior cache entries are not comparable.
-# v4: same ground-truth draw for all noise models (noise only affects measurement RNG stream).
-# v5: NV Bayesian belief uses unit-cube parameter grids + physical signal wrapper (likelihood x-mapping).
-CACHE_SCHEMA_VERSION = 5
-
 type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]
 
@@ -52,9 +46,13 @@ def run_loop(
         yield locator
 
 
-def run_task(task: LocatorTask) -> TaskResults:
-    """Run a task (cache -> repeats -> outputs -> cache)."""
-    return _TaskRunner(task).run()
+def run_task(task: LocatorTask, *, cache_bridge: CacheBridge | None = None) -> TaskResults:
+    """Run a task (cache -> repeats -> outputs -> cache).
+
+    Pass a shared :class:`~nvision.cache.bridge.CacheBridge` from the CLI when running
+    many tasks so SQLite is not opened and closed per task (large speedup on cache hits).
+    """
+    return _TaskRunner(task, cache_bridge=cache_bridge).run()
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,26 +76,20 @@ class _TaskRunner:
     4) persist cache artifacts
     """
 
-    def __init__(self, task: LocatorTask) -> None:
+    def __init__(self, task: LocatorTask, *, cache_bridge: CacheBridge | None = None) -> None:
         self.task = task
         self.generator_name = task.generator_name
         self.noise_name = task.noise_name
         self.strategy_name = task.strategy_name
         self.repeats = task.repeats
         self.skip_cache = task.ignore_cache_strategy is not None and task.strategy_name == task.ignore_cache_strategy
-        self.combo_cache_key: dict[str, Any] = {
-            "kind": "locator_combination",
-            "schema_version": CACHE_SCHEMA_VERSION,
-            "generator": task.generator_name,
-            "noise": task.noise_name,
-            "strategy": task.strategy_name,
-            "repeats": task.repeats,
-            "seed": task.seed,
-            "max_steps": task.loc_max_steps,
-            "timeout_s": task.loc_timeout_s,
-        }
         category = CombinationGrid.generator_category(self.generator_name)
-        self.bridge = CacheBridge(task.cache_dir)
+        if cache_bridge is not None:
+            self.bridge = cache_bridge
+            self._owns_bridge = False
+        else:
+            self.bridge = CacheBridge(task.cache_dir)
+            self._owns_bridge = True
         self.cache = self.bridge.get_cache_for_category(category)
         self._viz: Viz | None = None
 
@@ -106,6 +98,18 @@ class _TaskRunner:
         if self._viz is None:
             self._viz = Viz(self.task.out_dir / "graphs")
         return self._viz
+
+    def _combination_cache_kwargs(self) -> dict[str, Any]:
+        """Arguments for :meth:`LocatorResultsRepository.get_cached_combination` / save methods."""
+        return {
+            "generator": self.generator_name,
+            "noise": self.noise_name,
+            "strategy": self.strategy_name,
+            "repeats": self.repeats,
+            "seed": self.task.seed,
+            "max_steps": self.task.loc_max_steps,
+            "timeout_s": self.task.loc_timeout_s,
+        }
 
     def _flush_task_progress(self) -> None:
         """Mark this task fully done in the progress UI (cache hit or require-cache skip)."""
@@ -144,11 +148,13 @@ class _TaskRunner:
             self._save_full_cache(results)
             return results
         finally:
-            self.bridge.close()
+            if self._owns_bridge:
+                self.bridge.close()
 
     def _restore_cached_results(self) -> TaskResults | None:
+        combo_kw = self._combination_cache_kwargs()
         if self.task.require_cache:
-            cached = self.cache.get_cached_results(self.combo_cache_key)
+            cached = self.cache.get_cached_combination(**combo_kw)
             if cached:
                 restore_graphs(cached, self.task.out_dir)
                 log.debug(
@@ -169,7 +175,7 @@ class _TaskRunner:
             return []
 
         if self.task.use_cache and not self.skip_cache:
-            cached = self.cache.get_cached_results(self.combo_cache_key)
+            cached = self.cache.get_cached_combination(**combo_kw)
             if cached:
                 restore_graphs(cached, self.task.out_dir)
                 log.debug(
@@ -281,24 +287,23 @@ class _TaskRunner:
     def _save_repeat_cache(self, repeat_idx: int, entries: list[dict[str, Any]], result_row: dict[str, Any]) -> None:
         if not self.task.use_cache or self.skip_cache:
             return
-        part_cfg = {
-            "kind": "locator_run",
-            "schema_version": CACHE_SCHEMA_VERSION,
-            "generator": self.generator_name,
-            "noise": self.noise_name,
-            "strategy": self.strategy_name,
-            "repeat": repeat_idx,
-            "seed": self.task.seed,
-            "max_steps": self.task.loc_max_steps,
-            "timeout_s": self.task.loc_timeout_s,
-        }
-        self.cache.save_cached_repeat(part_cfg, embed_graph_content(entries, self.task.out_dir), result_row)
+        self.cache.save_cached_repeat_slice(
+            generator=self.generator_name,
+            noise=self.noise_name,
+            strategy=self.strategy_name,
+            repeat=repeat_idx,
+            seed=self.task.seed,
+            max_steps=self.task.loc_max_steps,
+            timeout_s=self.task.loc_timeout_s,
+            entries=embed_graph_content(entries, self.task.out_dir),
+            result_row=result_row,
+        )
 
     def _save_full_cache(self, results: TaskResults) -> None:
         if not self.task.use_cache or self.skip_cache or not results:
             return
         full_results = [(embed_graph_content(entries, self.task.out_dir), row) for entries, row in results]
-        self.cache.save_cached_results(self.combo_cache_key, full_results)
+        self.cache.save_cached_combination(**self._combination_cache_kwargs(), results=full_results)
 
     def _rng_for_measurement(self, repeat_idx: int) -> random.Random:
         """RNG for measurement noise — still strategy-specific."""

@@ -8,7 +8,8 @@ from rich.console import Console
 from rich.prompt import Confirm
 from rich.table import Table
 
-from nvision.cache import CacheBridge, CategoryCache
+from nvision.cache import CacheBridge
+from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.main import app
 
 console = Console()
@@ -18,7 +19,7 @@ cache_app = typer.Typer(help="Manage simulation cache.", pretty_exceptions_show_
 app.add_typer(cache_app, name="cache")
 
 
-def _get_caches(root: Path) -> list[tuple[str, CategoryCache]]:
+def _get_caches(root: Path) -> list[tuple[str, CategoryDataStore]]:
     bridge = CacheBridge(root)
     return [("NVCenter", bridge.nv_center), ("Complementary", bridge.complementary)]
 
