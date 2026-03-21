@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -28,18 +29,12 @@ def _get_caches(root: Path) -> list[tuple[str, CategoryDataStore]]:
 def list_cache(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
 ) -> None:
-    """List all cached simulations."""
+    """List cached simulations grouped for readability."""
     cache_root = out / "cache"
 
-    table = Table(title="Cached Simulations")
-    table.add_column("Category", style="cyan")
-    table.add_column("Generator", style="green")
-    table.add_column("Noise", style="magenta")
-    table.add_column("Strategy", style="blue")
-    table.add_column("Seed", justify="right")
-    table.add_column("Repeats", justify="right")
-
     found_any = False
+    grouped: dict[tuple[str, str, str, str, str, str, str], set[str]] = defaultdict(set)
+    row_counts: dict[tuple[str, str, str, str, str, str, str], int] = defaultdict(int)
     for cat_name, cat_cache in _get_caches(cache_root):
         backend = cat_cache.backend
         for key in backend:
@@ -49,17 +44,47 @@ def list_cache(
                 kind = config.get("kind")
                 if kind == "locator_combination":
                     found_any = True
-                    table.add_row(
+                    group_key = (
                         cat_name,
                         str(config.get("generator", "-")),
-                        str(config.get("noise", "-")),
                         str(config.get("strategy", "-")),
-                        str(config.get("seed", "-")),
                         str(config.get("repeats", "-")),
+                        str(config.get("max_steps", "-")),
+                        str(config.get("timeout_s", "-")),
+                        str(config.get("schema_version", "-")),
                     )
+                    grouped[group_key].add(str(config.get("noise", "-")))
+                    row_counts[group_key] += 1
 
     if found_any:
-        console.print(table)
+        grouped_by_category: dict[str, list[tuple[str, str, str, str, str, str]]] = defaultdict(list)
+        for cat_name, generator, strategy, repeats, max_steps, timeout_s, schema in sorted(grouped):
+            grouped_by_category[cat_name].append((generator, strategy, repeats, max_steps, timeout_s, schema))
+
+        for cat_name in sorted(grouped_by_category):
+            table = Table(title=f"{cat_name} Cache (Grouped)")
+            table.add_column("Generator", style="green")
+            table.add_column("Strategy", style="blue")
+            table.add_column("Repeats", justify="right")
+            table.add_column("Max", justify="right")
+            table.add_column("Timeout", justify="right")
+            table.add_column("Schema", justify="right")
+            table.add_column("Noises", justify="right")
+            table.add_column("Rows", justify="right")
+
+            for generator, strategy, repeats, max_steps, timeout_s, schema in grouped_by_category[cat_name]:
+                group_key = (cat_name, generator, strategy, repeats, max_steps, timeout_s, schema)
+                table.add_row(
+                    generator,
+                    strategy,
+                    repeats,
+                    max_steps,
+                    timeout_s,
+                    schema,
+                    str(len(grouped[group_key])),
+                    str(row_counts[group_key]),
+                )
+            console.print(table)
     else:
         console.print("[yellow]No cached combinations found (or no metadata available).[/yellow]")
 

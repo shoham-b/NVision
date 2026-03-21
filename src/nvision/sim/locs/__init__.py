@@ -1,7 +1,7 @@
 from nvision.sim.locs.bayesian import (
-    BayesianLocator,
     EIGLocator,
     MaxVarianceLocator,
+    SequentialBayesianLocator,
     UCBLocator,
     UtilitySamplingLocator,
     nv_center_belief,
@@ -9,9 +9,9 @@ from nvision.sim.locs.bayesian import (
 from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
 
 __all__ = [
-    "BayesianLocator",
     "EIGLocator",
     "MaxVarianceLocator",
+    "SequentialBayesianLocator",
     "SimpleSweepLocator",
     "UCBLocator",
     "UtilitySamplingLocator",

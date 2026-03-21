@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from nvision.sim.locs.bayesian.bayesian_locator import BayesianLocator
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
-class EIGLocator(BayesianLocator):
+class EIGLocator(SequentialBayesianLocator):
     """Expected Information Gain acquisition.
 
     Samples around posterior mass quantiles where learning a measurement

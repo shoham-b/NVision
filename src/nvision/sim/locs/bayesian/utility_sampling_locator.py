@@ -8,10 +8,10 @@ import numpy as np
 
 from nvision.signal.abstract_belief import AbstractBeliefDistribution
 from nvision.signal.signal import Parameter
-from nvision.sim.locs.bayesian.bayesian_locator import BayesianLocator
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
-class UtilitySamplingLocator(BayesianLocator):
+class UtilitySamplingLocator(SequentialBayesianLocator):
     """Utility sampling with pickiness.
 
     ``Utility(x) = Var_params(x) / sigma_noise^2 / cost``

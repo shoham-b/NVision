@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from nvision.sim.locs.bayesian.bayesian_locator import BayesianLocator
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
-class MaxVarianceLocator(BayesianLocator):
+class MaxVarianceLocator(SequentialBayesianLocator):
     """Maximum posterior-variance acquisition.
 
     Measures where Bernoulli-style variance ``p(1-p)`` is largest.
