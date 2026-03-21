@@ -12,7 +12,7 @@ from nvision.signal.abstract_belief import AbstractBeliefDistribution
 from nvision.signal.signal import Parameter
 
 
-class BayesianLocator(Locator):
+class SequentialBayesianLocator(Locator):
     """Shared Bayesian loop infrastructure for all acquisition strategies.
 
     Handles the mechanics common to every Bayesian locator:
@@ -64,7 +64,7 @@ class BayesianLocator(Locator):
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         **grid_config: object,
-    ) -> BayesianLocator:
+    ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
 
         Subclasses for specific models (like NVCenterBayesianLocator) should

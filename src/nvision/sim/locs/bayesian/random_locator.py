@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from nvision.sim.locs.bayesian.bayesian_locator import BayesianLocator
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
-class RandomLocator(BayesianLocator):
+class RandomLocator(SequentialBayesianLocator):
     """Uniform-random acquisition baseline."""
 
     def _acquire(self) -> float:

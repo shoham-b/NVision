@@ -74,10 +74,10 @@ def _is_bayesian_run(strat_name: str, strat_obj: Any) -> bool:
     if isinstance(strat_obj, dict):
         cls = strat_obj.get("class")
         if isinstance(cls, type):
-            from nvision.sim.locs.bayesian.bayesian_locator import BayesianLocator
+            from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
             try:
-                return issubclass(cls, BayesianLocator)
+                return issubclass(cls, SequentialBayesianLocator)
             except TypeError:
                 return False
     return False
