@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import typer
 
 from nvision.cli.main import app
@@ -16,11 +18,11 @@ app.add_typer(cases_app, name="cases")
 
 
 def _run_named_case(
-    case_name: str,
+    case_name: sim_cases.RunCaseName,
     *,
     all_experiments: bool = False,
     repeats_override: int | None = None,
-    no_cache_override: bool | None = None,
+    no_cache: bool = False,
 ) -> None:
     """Execute a named :class:`~nvision.sim.cases.RunCase` via :func:`nvision.cli.run.run`."""
     from nvision.cli.run import run
@@ -33,7 +35,7 @@ def _run_named_case(
         repeats=repeats_override if repeats_override is not None else case.repeats,
         loc_max_steps=case.loc_max_steps,
         loc_timeout_s=case.loc_timeout_s,
-        no_cache=case.no_cache if no_cache_override is None else no_cache_override,
+        no_cache=no_cache,
         ignore_cache_strategy=None,
         filter_category=case.filter_category,
         filter_strategy=case.filter_strategy,
@@ -59,28 +61,32 @@ def list_cases(
 
 @cases_app.command("run")
 def run_preset(
-    case_name: str = typer.Argument(
-        ...,
-        help="Case name (including `all`): same as first column from `nvision cases list`",
-    ),
+    case_name: Annotated[
+        sim_cases.RunCaseName,
+        typer.Argument(
+            ...,
+            help="Preset case (same values as `nvision cases list`, e.g. all, nvcenter).",
+        ),
+    ],
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     all_experiments: bool = typer.Option(
         False,
         "--all",
         help="Run full combination grid (disables category/strategy filtering)",
     ),
-    no_cache: bool = typer.Option(
-        False,
-        "--no-cache",
-        help="Disable cache for this run (overrides case default).",
+    no_cache: bool | None = typer.Option(
+        None,
+        "--no-cache/--cache",
+        help="Cache mode override (default: no-cache for specific cases, cache for 'all').",
     ),
 ) -> None:
     """Run any registered preset by name (single entry point for all cases)."""
+    effective_no_cache = (case_name != sim_cases.RunCaseName.ALL) if no_cache is None else no_cache
     _run_named_case(
         case_name,
         all_experiments=all_experiments,
         repeats_override=repeats,
-        no_cache_override=True if no_cache else None,
+        no_cache=effective_no_cache,
     )
 
 
@@ -91,29 +97,29 @@ def run_preset(
 def nvcenter_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
 ) -> None:
     """Alias for ``cases run nvcenter``."""
     _run_named_case(
-        "nvcenter",
+        sim_cases.RunCaseName.NVCENTER,
         all_experiments=all_experiments,
         repeats_override=repeats,
-        no_cache_override=True if no_cache else None,
+        no_cache=no_cache,
     )
 
 
-@cases_app.command("nvcenter-bayes-eig")
-def nvcenter_bayes_eig_case(
+@cases_app.command("nvcenter-bayes-sbed")
+def nvcenter_bayes_sbed_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
 ) -> None:
-    """Alias for ``cases run nvcenter_bayes_eig``."""
+    """Alias for ``cases run nvcenter_bayes_sbed``."""
     _run_named_case(
-        "nvcenter_bayes_eig",
+        sim_cases.RunCaseName.NVCENTER_BAYES_SBED,
         all_experiments=all_experiments,
         repeats_override=repeats,
-        no_cache_override=True if no_cache else None,
+        no_cache=no_cache,
     )
 
 
@@ -121,14 +127,14 @@ def nvcenter_bayes_eig_case(
 def nvcenter_bayes_ucb_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
 ) -> None:
     """Alias for ``cases run nvcenter_bayes_ucb``."""
     _run_named_case(
-        "nvcenter_bayes_ucb",
+        sim_cases.RunCaseName.NVCENTER_BAYES_UCB,
         all_experiments=all_experiments,
         repeats_override=repeats,
-        no_cache_override=True if no_cache else None,
+        no_cache=no_cache,
     )
 
 
@@ -136,14 +142,14 @@ def nvcenter_bayes_ucb_case(
 def nvcenter_bayes_maxvar_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
 ) -> None:
     """Alias for ``cases run nvcenter_bayes_maxvar``."""
     _run_named_case(
-        "nvcenter_bayes_maxvar",
+        sim_cases.RunCaseName.NVCENTER_BAYES_MAXVAR,
         all_experiments=all_experiments,
         repeats_override=repeats,
-        no_cache_override=True if no_cache else None,
+        no_cache=no_cache,
     )
 
 
@@ -151,12 +157,21 @@ def nvcenter_bayes_maxvar_case(
 def nvcenter_bayes_utility_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
 ) -> None:
     """Alias for ``cases run nvcenter_bayes_utility``."""
     _run_named_case(
-        "nvcenter_bayes_utility",
+        sim_cases.RunCaseName.NVCENTER_BAYES_UTILITY,
         all_experiments=all_experiments,
         repeats_override=repeats,
-        no_cache_override=True if no_cache else None,
+        no_cache=no_cache,
+    )
+
+
+if __name__ == "__main__":
+    run_preset(
+        case_name=sim_cases.RunCaseName.NVCENTER_BAYES_SBED,
+        repeats=5,
+        all_experiments=True,
+        no_cache=True,
     )

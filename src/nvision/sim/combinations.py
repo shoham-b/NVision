@@ -13,8 +13,8 @@ from typing import Any
 from nvision.models.noise import CompositeNoise
 from nvision.sim import cases as sim_cases
 from nvision.sim.locs.bayesian.acquisition_locators import (
-    EIGLocator,
     MaxVarianceLocator,
+    SequentialBayesianExperimentDesignLocator,
     UCBLocator,
     UtilitySamplingLocator,
 )
@@ -85,7 +85,10 @@ class CombinationGrid:
             nv = {"builder": nv_center_belief, **_NV_GRID}
             return [
                 ("SimpleSweep", SimpleSweepLocator),
-                ("Bayesian-EIG", {"class": EIGLocator, "config": {"max_steps": 200, **nv}}),
+                (
+                    "Bayesian-SBED",
+                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **nv}},
+                ),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": {"max_steps": 200, **nv}}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": {"max_steps": 200, **nv}}),
                 (
@@ -109,7 +112,7 @@ class CombinationGrid:
             cfg = {"builder": one_peak_gaussian_belief, "max_steps": 200}
             return [
                 ("SimpleSweep", SimpleSweepLocator),
-                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
                 (
@@ -125,7 +128,7 @@ class CombinationGrid:
             cfg = {"builder": one_peak_lorentzian_belief, "max_steps": 200}
             return [
                 ("SimpleSweep", SimpleSweepLocator),
-                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
                 (
@@ -141,7 +144,7 @@ class CombinationGrid:
             cfg = {"builder": two_peak_gaussian_belief, "max_steps": 240}
             return [
                 ("SimpleSweep", SimpleSweepLocator),
-                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
                 (
@@ -157,7 +160,7 @@ class CombinationGrid:
             cfg = {"builder": two_peak_lorentzian_belief, "max_steps": 240}
             return [
                 ("SimpleSweep", SimpleSweepLocator),
-                ("Bayesian-EIG", {"class": EIGLocator, "config": dict(cfg)}),
+                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
                 (

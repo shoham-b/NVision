@@ -27,7 +27,6 @@ def main(ctx: typer.Context) -> None:
             repeats=default_case.repeats,
             loc_max_steps=default_case.loc_max_steps,
             loc_timeout_s=default_case.loc_timeout_s,
-            no_cache=default_case.no_cache,
             filter_category=default_case.filter_category,
             filter_strategy=default_case.filter_strategy,
             filter_generator=default_case.filter_generator,
