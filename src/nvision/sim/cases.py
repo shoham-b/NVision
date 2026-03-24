@@ -29,6 +29,7 @@ class RunCaseName(StrEnum):
     NVCENTER_BAYES_SBED = "nvcenter_bayes_sbed"
     NVCENTER_BAYES_UCB = "nvcenter_bayes_ucb"
     NVCENTER_BAYES_MAXVAR = "nvcenter_bayes_maxvar"
+    NVCENTER_BAYES_MAXLIKELIHOOD = "nvcenter_bayes_maxlikelihood"
     NVCENTER_BAYES_UTILITY = "nvcenter_bayes_utility"
 
 
@@ -226,6 +227,22 @@ def run_case_nvcenter_bayes_maxvar() -> RunCase:
     )
 
 
+def run_case_nvcenter_bayes_maxlikelihood() -> RunCase:
+    """NVCenter Bayesian MaximumLikelihood run case."""
+    return RunCase(
+        name=RunCaseName.NVCENTER_BAYES_MAXLIKELIHOOD.value,
+        filter_category="NVCenter",
+        filter_strategy="Bayesian-MaximumLikelihood",
+        description="NVCenter generators, maximum likelihood acquisition (matches 'Bayesian-MaximumLikelihood').",
+        repeats=5,
+        loc_max_steps=200,
+        loc_timeout_s=2000,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
 def run_case_nvcenter_bayes_utility() -> RunCase:
     """NVCenter Bayesian UtilitySampling run case."""
     return RunCase(
@@ -249,6 +266,7 @@ def run_cases() -> list[RunCase]:
         run_case_nvcenter_bayes_sbed(),
         run_case_nvcenter_bayes_ucb(),
         run_case_nvcenter_bayes_maxvar(),
+        run_case_nvcenter_bayes_maxlikelihood(),
         run_case_nvcenter_bayes_utility(),
     ]
 
