@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal
 
 from nvision.models.noise import (
@@ -20,6 +21,15 @@ from .noises import (
     OverFrequencyPoissonNoise,
     OverProbeDriftNoise,
 )
+
+
+class RunCaseName(StrEnum):
+    ALL = "all"
+    NVCENTER = "nvcenter"
+    NVCENTER_BAYES_SBED = "nvcenter_bayes_sbed"
+    NVCENTER_BAYES_UCB = "nvcenter_bayes_ucb"
+    NVCENTER_BAYES_MAXVAR = "nvcenter_bayes_maxvar"
+    NVCENTER_BAYES_UTILITY = "nvcenter_bayes_utility"
 
 
 # Generators: three main categories with subcategories
@@ -118,7 +128,7 @@ class RunCase:
 
     ``filter_strategy`` must be a substring of a strategy name from
     :class:`nvision.sim.combinations.CombinationGrid` (e.g. ``SimpleSweep``,
-    ``Bayesian-EIG``).  See ``strategies_for`` in ``combinations.py``.
+    ``Bayesian-SBED``).  See ``strategies_for`` in ``combinations.py``.
 
     ``filter_generator`` optionally restricts to a single generator name.
     """
@@ -131,7 +141,6 @@ class RunCase:
     repeats: int = 5
     loc_max_steps: int = 150
     loc_timeout_s: int = 1500
-    no_cache: bool = False
     require_cache: bool = False
     log_level: str = "INFO"
     no_progress: bool = False
@@ -140,14 +149,13 @@ class RunCase:
 def run_case_nvcenter() -> RunCase:
     """Default NVCenter run case."""
     return RunCase(
-        name="nvcenter",
+        name=RunCaseName.NVCENTER.value,
         filter_category="NVCenter",
         filter_strategy=None,
         description="NVCenter generators with all available strategies (SimpleSweep + Bayesian).",
         repeats=5,
         loc_max_steps=150,
         loc_timeout_s=1500,
-        no_cache=False,
         require_cache=False,
         log_level="INFO",
         no_progress=False,
@@ -157,31 +165,29 @@ def run_case_nvcenter() -> RunCase:
 def run_case_all() -> RunCase:
     """Run every generator/noise/strategy combination."""
     return RunCase(
-        name="all",
+        name=RunCaseName.ALL.value,
         filter_category=None,
         filter_strategy=None,
         description="All generators, noises, and strategies.",
         repeats=5,
         loc_max_steps=150,
         loc_timeout_s=1500,
-        no_cache=False,
         require_cache=False,
         log_level="INFO",
         no_progress=False,
     )
 
 
-def run_case_nvcenter_bayes_eig() -> RunCase:
-    """NVCenter Bayesian EIG run case."""
+def run_case_nvcenter_bayes_sbed() -> RunCase:
+    """NVCenter Bayesian SBED run case."""
     return RunCase(
-        name="nvcenter_bayes_eig",
+        name=RunCaseName.NVCENTER_BAYES_SBED.value,
         filter_category="NVCenter",
-        filter_strategy="Bayesian-EIG",
-        description="NVCenter generators, EIG acquisition (matches strategy name 'Bayesian-EIG').",
+        filter_strategy="Bayesian-SBED",
+        description="NVCenter generators, SBED acquisition (matches strategy name 'Bayesian-SBED').",
         repeats=5,
         loc_max_steps=200,
         loc_timeout_s=2000,
-        no_cache=False,
         require_cache=False,
         log_level="INFO",
         no_progress=False,
@@ -191,14 +197,13 @@ def run_case_nvcenter_bayes_eig() -> RunCase:
 def run_case_nvcenter_bayes_ucb() -> RunCase:
     """NVCenter Bayesian UCB run case."""
     return RunCase(
-        name="nvcenter_bayes_ucb",
+        name=RunCaseName.NVCENTER_BAYES_UCB.value,
         filter_category="NVCenter",
         filter_strategy="Bayesian-UCB",
         description="NVCenter generators, UCB acquisition (matches 'Bayesian-UCB').",
         repeats=5,
         loc_max_steps=200,
         loc_timeout_s=2000,
-        no_cache=False,
         require_cache=False,
         log_level="INFO",
         no_progress=False,
@@ -208,14 +213,13 @@ def run_case_nvcenter_bayes_ucb() -> RunCase:
 def run_case_nvcenter_bayes_maxvar() -> RunCase:
     """NVCenter Bayesian MaxVariance run case."""
     return RunCase(
-        name="nvcenter_bayes_maxvar",
+        name=RunCaseName.NVCENTER_BAYES_MAXVAR.value,
         filter_category="NVCenter",
         filter_strategy="Bayesian-MaxVariance",
         description="NVCenter generators, max-variance acquisition (matches 'Bayesian-MaxVariance').",
         repeats=5,
         loc_max_steps=200,
         loc_timeout_s=2000,
-        no_cache=False,
         require_cache=False,
         log_level="INFO",
         no_progress=False,
@@ -225,14 +229,13 @@ def run_case_nvcenter_bayes_maxvar() -> RunCase:
 def run_case_nvcenter_bayes_utility() -> RunCase:
     """NVCenter Bayesian UtilitySampling run case."""
     return RunCase(
-        name="nvcenter_bayes_utility",
+        name=RunCaseName.NVCENTER_BAYES_UTILITY.value,
         filter_category="NVCenter",
         filter_strategy="Bayesian-UtilitySampling",
         description="NVCenter generators, utility sampling (matches 'Bayesian-UtilitySampling').",
         repeats=5,
         loc_max_steps=200,
         loc_timeout_s=2000,
-        no_cache=False,
         require_cache=False,
         log_level="INFO",
         no_progress=False,
@@ -243,15 +246,15 @@ def run_cases() -> list[RunCase]:
     return [
         run_case_all(),
         run_case_nvcenter(),
-        run_case_nvcenter_bayes_eig(),
+        run_case_nvcenter_bayes_sbed(),
         run_case_nvcenter_bayes_ucb(),
         run_case_nvcenter_bayes_maxvar(),
         run_case_nvcenter_bayes_utility(),
     ]
 
 
-def get_run_case(name: str) -> RunCase:
-    key = name.strip().lower()
+def get_run_case(name: RunCaseName | str) -> RunCase:
+    key = name.value if isinstance(name, RunCaseName) else name.strip().lower()
     for case in run_cases():
         if case.name.lower() == key:
             return case

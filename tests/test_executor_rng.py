@@ -15,10 +15,10 @@ def test_signal_repeat_key_ignores_strategy_and_noise():
 
 
 def test_measurement_repeat_key_includes_strategy():
-    a = measurement_repeat_key(7, "NVCenter", "Bayesian-EIG", "NoNoise", 3)
+    a = measurement_repeat_key(7, "NVCenter", "Bayesian-SBED", "NoNoise", 3)
     b = measurement_repeat_key(7, "NVCenter", "Bayesian-UCB", "NoNoise", 3)
     assert a != b
-    assert "Bayesian-EIG" in a
+    assert "Bayesian-SBED" in a
     assert "Bayesian-UCB" in b
 
 

@@ -13,7 +13,7 @@ from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
 from nvision.signal.unit_cube_model import UnitCubeSignalModel
 from nvision.sim.gen.core_generators import NVCenterCoreGenerator
 from nvision.sim.locs.bayesian.belief_builders import nv_center_belief
-from nvision.sim.locs.bayesian.eig_locator import EIGLocator
+from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
 
 def test_nv_center_belief_is_unit_cube_with_wrapped_model():
@@ -38,7 +38,7 @@ def test_unit_cube_estimates_are_physical_hz():
     assert est["k_np"] > 2.0
 
 
-def test_bayesian_eig_nv_updates_with_normalized_probe_and_physical_signal():
+def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
@@ -62,7 +62,9 @@ def test_bayesian_eig_nv_updates_with_normalized_probe_and_physical_signal():
         "n_grid_amplitude": 16,
         "n_grid_background": 16,
     }
-    final = Observer(true_signal, exp.x_min, exp.x_max).watch(run_loop(EIGLocator, exp, rng, **cfg))
+    final = Observer(true_signal, exp.x_min, exp.x_max).watch(
+        run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
+    )
     assert final.snapshots
     freq_est = final.snapshots[-1].belief.estimates()["frequency"]
     freq_true = true_signal.get_param("frequency").value
