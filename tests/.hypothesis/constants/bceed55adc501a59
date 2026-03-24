@@ -1,4 +1,0 @@
-# file: C:\Users\shoha\git\NVision\src\nvision\runner\batch.py
-# hypothesis_version: 6.151.9
-
-['class', 'config', 'frequency', 'locator_stop', 'repeat_id', 'repeat_timeout', 'signal_values', 'step', 'x', 'x_max', 'x_min']

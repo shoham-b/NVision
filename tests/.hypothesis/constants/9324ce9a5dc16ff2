@@ -1,4 +1,0 @@
-# file: C:\Users\shoha\git\NVision\src\nvision\sim\cases.py
-# hypothesis_version: 6.151.9
-
-[0.001, 0.02, 0.05, 0.1, 0.5, 50.0, 2600000000.0, 3100000000.0, 123, 150, 200, 1500, 2000, 'Gauss(0.05)', 'Heavy', 'INFO', 'NVCenter', 'NVCenter-one_peak', 'NVCenter-zeeman', 'NoNoise', 'OnePeak', 'OnePeak-gaussian', 'OnePeak-lorentzian', 'Poisson(50)', 'SimpleSweep', 'TwoPeak', 'TwoPeak-gaussian', 'TwoPeak-lorentzian', 'gaussian', 'lorentzian', 'nvcenter', 'nvcenter_bayes_eig', 'nvcenter_bayes_ucb', 'voigt']

@@ -25,6 +25,7 @@ from nvision.signal import CompositePeakModel, GaussianModel, LorentzianModel
 from nvision.signal.grid_belief import GridParameter
 from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
 from nvision.signal.unit_cube_model import UnitCubeSignalModel
+from nvision.signal.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
 
 
 def _merge_phys_specs(
@@ -202,4 +203,45 @@ def nv_center_belief(
         parameter_bounds=parameter_bounds,
         specs=base_specs,
         x_param_name="frequency",
+    )
+
+
+def nv_center_smc_belief(
+    parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
+    *,
+    num_particles: int = 1000,
+    jitter_scale: float = 0.05,
+    ess_threshold: float = 0.5,
+    **_extra: object,
+) -> UnitCubeSMCBeliefDistribution:
+    """NV-center Lorentzian belief: **unit** parameter particles, **physical** signal model."""
+    from nvision.signal.nv_center import MAX_K_NP, MIN_K_NP, NVCenterLorentzianModel
+
+    _amp_lo = 0.05 * (1e6) ** 2
+    _amp_hi = 0.35 * (50e6) ** 2
+    merged_bounds = {
+        "frequency": (2.6e9, 3.1e9),
+        "linewidth": (1e6, 50e6),
+        "split": (1e6, 200e6),
+        "k_np": (MIN_K_NP, MAX_K_NP),
+        "amplitude": (_amp_lo, _amp_hi),
+        "background": (0.95, 1.05),
+    }
+
+    if parameter_bounds:
+        for name in merged_bounds:
+            if name in parameter_bounds and parameter_bounds[name][1] > parameter_bounds[name][0]:
+                merged_bounds[name] = parameter_bounds[name]
+
+    x_phys = merged_bounds["frequency"]
+    wrapped = UnitCubeSignalModel(NVCenterLorentzianModel(), merged_bounds, x_phys)
+
+    return UnitCubeSMCBeliefDistribution(
+        model=wrapped,
+        parameter_bounds={name: (0.0, 1.0) for name in merged_bounds},
+        num_particles=num_particles,
+        jitter_scale=jitter_scale,
+        ess_threshold=ess_threshold,
+        physical_param_bounds=merged_bounds,
+        physical_x_bounds=x_phys,
     )

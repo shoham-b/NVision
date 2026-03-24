@@ -1,4 +1,0 @@
-# file: C:\Users\shoha\git\NVision\src\nvision\viz\comparisons.py
-# hypothesis_version: 6.151.9
-
-[-1.8, 0.3, '-', '/', ':', 'Count', 'Duration', 'Error (Hz)', 'Measurements Count', 'Time (ms)', '_', 'abs_err_x', 'all', 'duration_ms', 'generator', 'measurements', 'metric', 'model_comparison', 'noise', 'path', 'plotly_white', 'strategy', 'title', 'type']
