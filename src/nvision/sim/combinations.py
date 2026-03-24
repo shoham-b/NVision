@@ -13,6 +13,7 @@ from typing import Any
 from nvision.models.noise import CompositeNoise
 from nvision.sim import cases as sim_cases
 from nvision.sim.locs.bayesian.acquisition_locators import (
+    MaximumLikelihoodLocator,
     MaxVarianceLocator,
     SequentialBayesianExperimentDesignLocator,
     UCBLocator,
@@ -91,6 +92,7 @@ class CombinationGrid:
                 ),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": {"max_steps": 200, **nv}}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": {"max_steps": 200, **nv}}),
+                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, **nv}}),
                 (
                     "Bayesian-UtilitySampling",
                     {
@@ -115,6 +117,7 @@ class CombinationGrid:
                 ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
                 (
                     "Bayesian-UtilitySampling",
                     {
@@ -131,6 +134,7 @@ class CombinationGrid:
                 ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
                 (
                     "Bayesian-UtilitySampling",
                     {
@@ -147,6 +151,7 @@ class CombinationGrid:
                 ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
                 (
                     "Bayesian-UtilitySampling",
                     {
@@ -163,6 +168,7 @@ class CombinationGrid:
                 ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-UCB", {"class": UCBLocator, "config": dict(cfg)}),
                 ("Bayesian-MaxVariance", {"class": MaxVarianceLocator, "config": dict(cfg)}),
+                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
                 (
                     "Bayesian-UtilitySampling",
                     {
