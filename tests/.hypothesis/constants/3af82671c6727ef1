@@ -1,4 +1,0 @@
-# file: C:\Users\shoha\git\NVision\src\nvision\runner\combination.py
-# hypothesis_version: 6.151.9
-
-['generator', 'graphs', 'kind', 'locator_combination', 'locator_run', 'max_steps', 'noise', 'repeat', 'repeats', 'schema_version', 'seed', 'strategy', 'timeout_s']

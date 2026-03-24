@@ -32,10 +32,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             for i in range(num_samples)
         ]
 
-        # Calculate expected noise level based on belief
-        # (similar to how SMCBeliefDistribution evaluates likelihoods)
+        # Calculate expected noise level based on belief using normalized parameters
+        # to ensure signal scaling correctly compares with [0,1] range parameters
         uncertainties = list(self.belief.uncertainty().values())
-        noise_std = max(0.01, uncertainties[0] * 0.1) if uncertainties else 0.01
+        norm_unc = uncertainties[0]
+        if hasattr(self.belief, "physical_param_bounds"):
+            p_name = param_names[0]
+            lo, hi = self.belief.physical_param_bounds[p_name]
+            norm_unc = norm_unc / (hi - lo) if hi > lo else 0.0
+
+        noise_std = max(0.01, norm_unc * 0.1) if uncertainties else 0.01
 
         utilities = np.zeros(len(candidates))
         for j, x in enumerate(candidates):

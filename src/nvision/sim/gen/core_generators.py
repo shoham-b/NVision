@@ -74,12 +74,11 @@ class OnePeakCoreGenerator:
         # Random peak width (5-10% of domain)
         peak_width = rng.uniform(0.05 * width, 0.10 * width)
 
-        # Random amplitude
-        amplitude = rng.uniform(0.5, 1.0)
-
+        # To normalize the signal, we fix amplitudes to exactly 1.0 depth and background appropriately
         if self.peak_type == "gaussian":
-            # Gaussian is a bump - low background
-            background = rng.uniform(0.0, 0.1)
+            # Gaussian is a bump from 0 to 1
+            background = 0.0
+            amplitude = 1.0
             model = GaussianModel()
             parameters = [
                 Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=peak_pos),
@@ -88,10 +87,10 @@ class OnePeakCoreGenerator:
                 Parameter(name="background", bounds=(0.0, 0.5), value=background),
             ]
         else:  # lorentzian
-            # Lorentzian dip depth = amplitude / linewidth²; amplitude must scale as O(linewidth²).
-            background = rng.uniform(0.9, 1.0)
+            # Lorentzian is a dip from 1 to 0; dip depth = amplitude / linewidth²
+            background = 1.0
             amp_hi = _lorentzian_amplitude_bounds(width)[1]
-            amplitude = _lorentzian_amplitude_from_dip(rng, peak_width, 0.25, min(0.88, background * 0.95))
+            amplitude = peak_width**2  # This enforces exactly a dip depth of 1.0
             model = LorentzianModel()
             parameters = [
                 Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=peak_pos),
@@ -146,18 +145,29 @@ class NVCenterCoreGenerator:
         # Random k_np (non-polarization factor)
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
 
-        # Same Lorentzian-style scaling as :class:`~nvision.signal.lorentzian.LorentzianModel`:
-        # dip_depth ≈ amplitude / linewidth² at the main feature.
-        dip_depth = rng.uniform(0.06, 0.22)
-        amplitude = dip_depth * linewidth**2
-        w_max = MAX_NV_CENTER_OMEGA * width
-        amp_hi = 0.3 * w_max**2
-
-        # Background (typically 1.0 for normalized ODMR)
+        # Normalize NV Center ODMR directly to [0, 1] bounds using exactly 1.0 maximum dip
+        # We calculate exact depth per unit amplitude by checking the three specific peak locations.
         background = 1.0
 
         if self.variant == "lorentzian":
             model = NVCenterLorentzianModel()
+            base_amp = linewidth**2
+            temp_params = [
+                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
+                Parameter(name="linewidth", bounds=(width * 0.001, width * 0.05), value=linewidth),
+                Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
+                Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
+                Parameter(name="amplitude", bounds=(0.0, max(1.0, base_amp * 2.0)), value=base_amp),
+                Parameter(name="background", bounds=(0.0, 1.0), value=0.0),
+            ]
+            min_val = min(
+                model.compute(center_freq - split, temp_params),
+                model.compute(center_freq, temp_params),
+                model.compute(center_freq + split, temp_params),
+            )
+            amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
+            amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, amplitude * 2.0)
+
             parameters = [
                 Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
                 Parameter(name="linewidth", bounds=(width * 0.001, width * 0.05), value=linewidth),
@@ -167,18 +177,35 @@ class NVCenterCoreGenerator:
                 Parameter(name="background", bounds=(0.95, 1.05), value=background),
             ]
         else:  # voigt
-            # Gaussian FWHM for convolution (typically ~10% of Lorentzian)
-            fwhm_lorentz = 2 * linewidth  # Convert HWHM to FWHM
+            fwhm_lorentz = 2 * linewidth
             fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)
 
             model = NVCenterVoigtModel()
+            base_amp = linewidth**2
+            temp_params = [
+                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
+                Parameter(name="fwhm_lorentz", bounds=(width * 0.001, width * 0.1), value=fwhm_lorentz),
+                Parameter(name="fwhm_gauss", bounds=(width * 0.0001, width * 0.05), value=fwhm_gauss),
+                Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
+                Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
+                Parameter(name="amplitude", bounds=(0.0, max(1.0, base_amp * 2.0)), value=base_amp),
+                Parameter(name="background", bounds=(0.0, 1.0), value=0.0),
+            ]
+            min_val = min(
+                model.compute(center_freq - split, temp_params),
+                model.compute(center_freq, temp_params),
+                model.compute(center_freq + split, temp_params),
+            )
+            voigt_amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
+            voigt_amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, voigt_amplitude * 2.0)
+
             parameters = [
                 Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
                 Parameter(name="fwhm_lorentz", bounds=(width * 0.001, width * 0.1), value=fwhm_lorentz),
                 Parameter(name="fwhm_gauss", bounds=(width * 0.0001, width * 0.05), value=fwhm_gauss),
                 Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
                 Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
-                Parameter(name="amplitude", bounds=(0.0, amp_hi), value=amplitude),
+                Parameter(name="amplitude", bounds=(0.0, voigt_amp_hi), value=voigt_amplitude),
                 Parameter(name="background", bounds=(0.95, 1.05), value=background),
             ]
 
@@ -221,14 +248,10 @@ class TwoPeakCoreGenerator:
         # Random peak parameters
         peak1_width = rng.uniform(0.02 * width, 0.08 * width)
         peak2_width = rng.uniform(0.02 * width, 0.08 * width)
-        peak1_amp = rng.uniform(0.5, 1.0)
-        peak2_amp = rng.uniform(0.5, 1.0)
-        if self.peak_type_left == "lorentzian":
-            peak1_amp = _lorentzian_amplitude_from_dip(rng, peak1_width, 0.12, 0.5)
-        if self.peak_type_right == "lorentzian":
-            peak2_amp = _lorentzian_amplitude_from_dip(rng, peak2_width, 0.12, 0.5)
-        background = rng.uniform(0.0, 0.1)
-        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1]
+        peak1_amp = peak1_width**2 if self.peak_type_left == "lorentzian" else 1.0
+        peak2_amp = peak2_width**2 if self.peak_type_right == "lorentzian" else 1.0
+        background = 1.0 if self.peak_type_left == "lorentzian" or self.peak_type_right == "lorentzian" else 0.0
+        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1] * 2.0
 
         # Create signal for each peak
         if self.peak_type_left == "gaussian":
@@ -363,17 +386,15 @@ class MultiPeakCoreGenerator:
         # Create signal and parameters
         models = []
         parameters = []
-        background = rng.uniform(0.0, 0.1)
-        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1]
+        background = 1.0 if any(pt == "lorentzian" for pt in peak_types) else 0.0
+        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1] * float(self.count)
 
         for i, (pos, peak_type) in enumerate(zip(positions, peak_types, strict=False)):
             prefix = f"peak{i + 1}"
 
             # Random parameters
             peak_width = rng.uniform(0.02 * width, 0.08 * width)
-            amplitude = rng.uniform(0.5, 1.0)
-            if peak_type == "lorentzian":
-                amplitude = _lorentzian_amplitude_from_dip(rng, peak_width, 0.1, 0.45)
+            amplitude = peak_width**2 if peak_type == "lorentzian" else 1.0
 
             # Create model
             if peak_type == "gaussian":
@@ -447,11 +468,9 @@ class SymmetricTwoPeakCoreGenerator:
 
         # Same parameters for both peaks (symmetric)
         peak_width = rng.uniform(0.02 * width, 0.06 * width)
-        amplitude = rng.uniform(0.8, 1.2)
-        if self.peak_type == "lorentzian":
-            amplitude = _lorentzian_amplitude_from_dip(rng, peak_width, 0.12, 0.5)
-        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1]
-        background = rng.uniform(0.0, 0.1)
+        amplitude = peak_width**2 if self.peak_type == "lorentzian" else 1.0
+        background = 1.0 if self.peak_type == "lorentzian" else 0.0
+        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1] * 2.0
 
         # Create model
         if self.peak_type == "gaussian":
