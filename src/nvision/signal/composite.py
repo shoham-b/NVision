@@ -8,6 +8,9 @@ from nvision.signal.signal import Parameter, SignalModel
 class CompositePeakModel(SignalModel):
     """Multiple independent peaks summed together.
 
+    There is no single ``eval_*`` for the full prefixed parameter vector; use
+    :meth:`compute` or evaluate each inner peak model's ``eval_*`` separately.
+
     Combines multiple peak signal into a composite signal.
     Parameters are organized as: [peak1_params..., peak2_params..., ...]
     with prefixes like "peak1_", "peak2_" to distinguish them.

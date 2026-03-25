@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
+from functools import lru_cache
 
 from nvision.models.noise import (
     CompositeNoise,
@@ -15,6 +15,7 @@ from .gen.core_generators import (
     OnePeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
+from .grid_enums import GeneratorCategory, GeneratorName, StrategyFilter
 from .noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
@@ -127,17 +128,16 @@ def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
 class RunCase:
     """Named run preset for the CLI (no user parameters required).
 
-    ``filter_strategy`` must be a substring of a strategy name from
-    :class:`nvision.sim.combinations.CombinationGrid` (e.g. ``SimpleSweep``,
-    ``Bayesian-SBED``).  See ``strategies_for`` in ``combinations.py``.
+    ``filter_strategy`` uses :class:`nvision.sim.grid_enums.StrategyFilter` values
+    (substring match in :meth:`nvision.sim.combinations.CombinationGrid.iter`).
 
-    ``filter_generator`` optionally restricts to a single generator name.
+    ``filter_generator`` optionally restricts to a :class:`~nvision.sim.grid_enums.GeneratorName`.
     """
 
     name: str
-    filter_category: Literal["NVCenter", "OnePeak", "TwoPeak"] | None
-    filter_strategy: str | None
-    filter_generator: str | None = None
+    filter_category: GeneratorCategory | None
+    filter_strategy: StrategyFilter | None
+    filter_generator: GeneratorName | None = None
     description: str = ""
     repeats: int = 5
     loc_max_steps: int = 150
@@ -151,7 +151,7 @@ def run_case_nvcenter() -> RunCase:
     """Default NVCenter run case."""
     return RunCase(
         name=RunCaseName.NVCENTER.value,
-        filter_category="NVCenter",
+        filter_category=GeneratorCategory.NVCENTER,
         filter_strategy=None,
         description="NVCenter generators with all available strategies (SimpleSweep + Bayesian).",
         repeats=5,
@@ -183,8 +183,8 @@ def run_case_nvcenter_bayes_sbed() -> RunCase:
     """NVCenter Bayesian SBED run case."""
     return RunCase(
         name=RunCaseName.NVCENTER_BAYES_SBED.value,
-        filter_category="NVCenter",
-        filter_strategy="Bayesian-SBED",
+        filter_category=GeneratorCategory.NVCENTER,
+        filter_strategy=StrategyFilter.BAYESIAN_SBED,
         description="NVCenter generators, SBED acquisition (matches strategy name 'Bayesian-SBED').",
         repeats=5,
         loc_max_steps=200,
@@ -199,8 +199,8 @@ def run_case_nvcenter_bayes_ucb() -> RunCase:
     """NVCenter Bayesian UCB run case."""
     return RunCase(
         name=RunCaseName.NVCENTER_BAYES_UCB.value,
-        filter_category="NVCenter",
-        filter_strategy="Bayesian-UCB",
+        filter_category=GeneratorCategory.NVCENTER,
+        filter_strategy=StrategyFilter.BAYESIAN_UCB,
         description="NVCenter generators, UCB acquisition (matches 'Bayesian-UCB').",
         repeats=5,
         loc_max_steps=200,
@@ -215,8 +215,8 @@ def run_case_nvcenter_bayes_maxvar() -> RunCase:
     """NVCenter Bayesian MaxVariance run case."""
     return RunCase(
         name=RunCaseName.NVCENTER_BAYES_MAXVAR.value,
-        filter_category="NVCenter",
-        filter_strategy="Bayesian-MaxVariance",
+        filter_category=GeneratorCategory.NVCENTER,
+        filter_strategy=StrategyFilter.BAYESIAN_MAX_VARIANCE,
         description="NVCenter generators, max-variance acquisition (matches 'Bayesian-MaxVariance').",
         repeats=5,
         loc_max_steps=200,
@@ -231,8 +231,8 @@ def run_case_nvcenter_bayes_maxlikelihood() -> RunCase:
     """NVCenter Bayesian MaximumLikelihood run case."""
     return RunCase(
         name=RunCaseName.NVCENTER_BAYES_MAXLIKELIHOOD.value,
-        filter_category="NVCenter",
-        filter_strategy="Bayesian-MaximumLikelihood",
+        filter_category=GeneratorCategory.NVCENTER,
+        filter_strategy=StrategyFilter.BAYESIAN_MAXIMUM_LIKELIHOOD,
         description="NVCenter generators, maximum likelihood acquisition (matches 'Bayesian-MaximumLikelihood').",
         repeats=5,
         loc_max_steps=200,
@@ -247,8 +247,8 @@ def run_case_nvcenter_bayes_utility() -> RunCase:
     """NVCenter Bayesian UtilitySampling run case."""
     return RunCase(
         name=RunCaseName.NVCENTER_BAYES_UTILITY.value,
-        filter_category="NVCenter",
-        filter_strategy="Bayesian-UtilitySampling",
+        filter_category=GeneratorCategory.NVCENTER,
+        filter_strategy=StrategyFilter.BAYESIAN_UTILITY_SAMPLING,
         description="NVCenter generators, utility sampling (matches 'Bayesian-UtilitySampling').",
         repeats=5,
         loc_max_steps=200,
@@ -259,8 +259,9 @@ def run_case_nvcenter_bayes_utility() -> RunCase:
     )
 
 
-def run_cases() -> list[RunCase]:
-    return [
+@lru_cache(maxsize=1)
+def _run_cases_tuple() -> tuple[RunCase, ...]:
+    return (
         run_case_all(),
         run_case_nvcenter(),
         run_case_nvcenter_bayes_sbed(),
@@ -268,15 +269,30 @@ def run_cases() -> list[RunCase]:
         run_case_nvcenter_bayes_maxvar(),
         run_case_nvcenter_bayes_maxlikelihood(),
         run_case_nvcenter_bayes_utility(),
-    ]
+    )
+
+
+def run_cases() -> list[RunCase]:
+    return list(_run_cases_tuple())
+
+
+@lru_cache(maxsize=1)
+def _run_case_by_normalized_name() -> dict[str, RunCase]:
+    return {c.name.lower(): c for c in _run_cases_tuple()}
 
 
 def get_run_case(name: RunCaseName | str) -> RunCase:
     key = name.value if isinstance(name, RunCaseName) else name.strip().lower()
-    for case in run_cases():
-        if case.name.lower() == key:
-            return case
-    raise KeyError(f"Unknown run case: {name!r}")
+    try:
+        return _run_case_by_normalized_name()[key]
+    except KeyError:
+        raise KeyError(f"Unknown run case: {name!r}") from None
+
+
+def clear_run_case_cache() -> None:
+    """Drop :func:`_run_cases_tuple` / lookup caches (e.g. if presets are monkeypatched in tests)."""
+    _run_cases_tuple.cache_clear()
+    _run_case_by_normalized_name.cache_clear()
 
 
 def default_run_case() -> RunCase:

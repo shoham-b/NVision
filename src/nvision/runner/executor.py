@@ -23,6 +23,7 @@ from nvision.runner.plots import generate_attempt_plots
 from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
 from nvision.runner.signal_cache import get_shared_core_experiment
 from nvision.sim.combinations import CombinationGrid
+from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
@@ -52,7 +53,11 @@ def run_task(task: LocatorTask, *, cache_bridge: CacheBridge | None = None) -> T
     Pass a shared :class:`~nvision.cache.bridge.CacheBridge` from the CLI when running
     many tasks so SQLite is not opened and closed per task (large speedup on cache hits).
     """
-    return _TaskRunner(task, cache_bridge=cache_bridge).run()
+    token = set_combination_log_initials(task.generator_name, task.noise_name, task.strategy_name)
+    try:
+        return _TaskRunner(task, cache_bridge=cache_bridge).run()
+    finally:
+        reset_combination_log_initials(token)
 
 
 @dataclass(frozen=True, slots=True)

@@ -39,25 +39,31 @@ class VoigtZeemanModel(SignalModel):
         Background level
     """
 
-    def compute(self, x: float, params: list) -> float:
-        p = self._params_to_dict(params)
-        freq = p["frequency"]
-        linewidth = p["linewidth"]
-        split = p["split"]
-        k_np = p["k_np"]
-        amplitude = p["amplitude"]
-        background = p["background"]
-
-        left_denom = (x - (freq - split)) ** 2 + linewidth**2
+    @staticmethod
+    def eval_voigt_zeeman_model(
+        x: float,
+        frequency: float,
+        linewidth: float,
+        split: float,
+        k_np: float,
+        amplitude: float,
+        background: float,
+    ) -> float:
+        """Simplified Zeeman Lorentzian triple; parameter order matches :meth:`parameter_names`."""
+        left_denom = (x - (frequency - split)) ** 2 + linewidth**2
         left_peak = (amplitude / k_np) / left_denom
 
-        center_denom = (x - freq) ** 2 + linewidth**2
+        center_denom = (x - frequency) ** 2 + linewidth**2
         center_peak = amplitude / center_denom
 
-        right_denom = (x - (freq + split)) ** 2 + linewidth**2
+        right_denom = (x - (frequency + split)) ** 2 + linewidth**2
         right_peak = (amplitude * k_np) / right_denom
 
         return background - (left_peak + center_peak + right_peak)
+
+    def compute(self, x: float, params: list) -> float:
+        v = self._param_floats_canonical(params)
+        return self.eval_voigt_zeeman_model(float(x), *v)
 
     def parameter_names(self) -> list[str]:
         return ["frequency", "linewidth", "split", "k_np", "amplitude", "background"]
@@ -84,10 +90,11 @@ class VoigtZeemanModel(SignalModel):
         ]
 
         # The maximum dip will occur at one of the three peaks
+        tv = tuple(p.value for p in temp_params)
         min_val = min(
-            self.compute(frequency - split, temp_params),
-            self.compute(frequency, temp_params),
-            self.compute(frequency + split, temp_params),
+            VoigtZeemanModel.eval_voigt_zeeman_model(frequency - split, *tv),
+            VoigtZeemanModel.eval_voigt_zeeman_model(frequency, *tv),
+            VoigtZeemanModel.eval_voigt_zeeman_model(frequency + split, *tv),
         )
 
         # Min_val is effectively the negative depth per unit amplitude

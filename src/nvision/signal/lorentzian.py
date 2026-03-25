@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import random
 
+from nvision.signal.numba_kernels import lorentzian_peak_value
 from nvision.signal.signal import Parameter, SignalModel
 
 
 class LorentzianModel(SignalModel):
     """Single Lorentzian peak model.
+
+    Prefer :meth:`eval_lorentzian_model` when arguments are already floats;
+    :meth:`compute` adapts from ``list[Parameter]``.
 
     Signal form:
         f(x) = background - amplitude / ((x - frequency)^2 + linewidth^2)
@@ -29,14 +33,20 @@ class LorentzianModel(SignalModel):
         Baseline level (max signal)
     """
 
+    @staticmethod
+    def eval_lorentzian_model(
+        x: float,
+        frequency: float,
+        linewidth: float,
+        amplitude: float,
+        background: float,
+    ) -> float:
+        """Evaluate Lorentzian peak; parameter order matches :meth:`parameter_names`."""
+        return lorentzian_peak_value(float(x), frequency, linewidth, amplitude, background)
+
     def compute(self, x: float, params: list) -> float:
-        p = self._params_to_dict(params)
-        freq = p["frequency"]
-        linewidth = p["linewidth"]
-        amplitude = p["amplitude"]
-        background = p["background"]
-        denominator = (x - freq) ** 2 + linewidth**2
-        return background - amplitude / denominator
+        v = self._param_floats_canonical(params)
+        return self.eval_lorentzian_model(float(x), *v)
 
     def parameter_names(self) -> list[str]:
         return ["frequency", "linewidth", "amplitude", "background"]

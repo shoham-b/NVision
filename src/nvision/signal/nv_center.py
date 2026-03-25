@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from nvision.signal.numba_kernels import nv_center_lorentzian_eval
 from nvision.signal.signal import SignalModel
 
 # Legacy scale factor (no longer used by :class:`~nvision.sim.gen.core_generators.NVCenterCoreGenerator`;
@@ -22,6 +23,9 @@ MAX_NV_CENTER_OMEGA = 0.01
 
 class NVCenterLorentzianModel(SignalModel):
     """NV center ODMR signal model with three Lorentzian dips.
+
+    Prefer :meth:`eval_nvcenter_lorentzian_model` when you already have floats;
+    :meth:`compute` adapts from ``list[Parameter]``.
 
     Models the optically detected magnetic resonance (ODMR) spectrum of an
     NV center in diamond. The signal has three Lorentzian dips from a baseline
@@ -50,30 +54,22 @@ class NVCenterLorentzianModel(SignalModel):
         Background level (typically 1.0 for normalized signal)
     """
 
+    @staticmethod
+    def eval_nvcenter_lorentzian_model(
+        x: float,
+        frequency: float,
+        linewidth: float,
+        split: float,
+        k_np: float,
+        amplitude: float,
+        background: float,
+    ) -> float:
+        """Triple Lorentzian NV ODMR; parameter order matches :meth:`parameter_names`."""
+        return nv_center_lorentzian_eval(float(x), frequency, linewidth, split, k_np, amplitude, background)
+
     def compute(self, x: float, params: list) -> float:
-        p = self._params_to_dict(params)
-        freq = p["frequency"]
-        linewidth = p["linewidth"]
-        split = p["split"]
-        k_np = p["k_np"]
-        amplitude = p["amplitude"]
-        background = p["background"]
-
-        if split < 1e-10:
-            combined_amplitude = amplitude * (k_np + 1 + 1 / k_np)
-            denom = (x - freq) ** 2 + linewidth**2
-            return background - combined_amplitude / denom
-
-        left_denom = (x - (freq - split)) ** 2 + linewidth**2
-        left_dip = (amplitude / k_np) / left_denom
-
-        center_denom = (x - freq) ** 2 + linewidth**2
-        center_dip = amplitude / center_denom
-
-        right_denom = (x - (freq + split)) ** 2 + linewidth**2
-        right_dip = (amplitude * k_np) / right_denom
-
-        return background - (left_dip + center_dip + right_dip)
+        v = self._param_floats_canonical(params)
+        return self.eval_nvcenter_lorentzian_model(float(x), *v)
 
     def parameter_names(self) -> list[str]:
         return ["frequency", "linewidth", "split", "k_np", "amplitude", "background"]
@@ -81,6 +77,8 @@ class NVCenterLorentzianModel(SignalModel):
 
 class NVCenterVoigtModel(SignalModel):
     """NV center with Gaussian broadening (Voigt profile).
+
+    Not njit-accelerated: evaluation uses SciPy/JAX ``wofz`` or a pseudo-Voigt fallback.
 
     Models an NV center where each Lorentzian dip is convolved with a Gaussian,
     resulting in a Voigt profile. This accounts for inhomogeneous broadening
@@ -156,25 +154,31 @@ class NVCenterVoigtModel(SignalModel):
             gauss = np.exp(-0.5 * ((x - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
             return eta * lorentz + (1 - eta) * gauss
 
-    def compute(self, x: float, params: list) -> float:
-        p = self._params_to_dict(params)
-        freq = p["frequency"]
-        fwhm_l = p["fwhm_lorentz"]
-        fwhm_g = p["fwhm_gauss"]
-        split = p["split"]
-        k_np = p["k_np"]
-        amplitude = p["amplitude"]
-        background = p["background"]
-
+    def eval_nvcenter_voigt_model(
+        self,
+        x: float,
+        frequency: float,
+        fwhm_lorentz: float,
+        fwhm_gauss: float,
+        split: float,
+        k_np: float,
+        amplitude: float,
+        background: float,
+    ) -> float:
+        """Triple Voigt NV ODMR; parameter order matches :meth:`parameter_names`."""
         if split < 1e-10:
             combined_amplitude = amplitude * (k_np + 1 + 1 / k_np)
-            return background - combined_amplitude * self._voigt_profile(x, freq, fwhm_l, fwhm_g)
+            return background - combined_amplitude * self._voigt_profile(x, frequency, fwhm_lorentz, fwhm_gauss)
 
-        left_dip = (amplitude / k_np) * self._voigt_profile(x, freq - split, fwhm_l, fwhm_g)
-        center_dip = amplitude * self._voigt_profile(x, freq, fwhm_l, fwhm_g)
-        right_dip = (amplitude * k_np) * self._voigt_profile(x, freq + split, fwhm_l, fwhm_g)
+        left_dip = (amplitude / k_np) * self._voigt_profile(x, frequency - split, fwhm_lorentz, fwhm_gauss)
+        center_dip = amplitude * self._voigt_profile(x, frequency, fwhm_lorentz, fwhm_gauss)
+        right_dip = (amplitude * k_np) * self._voigt_profile(x, frequency + split, fwhm_lorentz, fwhm_gauss)
 
         return background - (left_dip + center_dip + right_dip)
+
+    def compute(self, x: float, params: list) -> float:
+        v = self._param_floats_canonical(params)
+        return self.eval_nvcenter_voigt_model(float(x), *v)
 
     def parameter_names(self) -> list[str]:
         return ["frequency", "fwhm_lorentz", "fwhm_gauss", "split", "k_np", "amplitude", "background"]
