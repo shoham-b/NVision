@@ -5,9 +5,35 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 import numpy as np
+from numba import njit
 
 from nvision.signal.abstract_belief import AbstractBeliefDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
+
+@njit(cache=True)
+def _utility_from_mu_preds(mu_preds: np.ndarray, inv_noise_var: float, inv_cost: float) -> np.ndarray:
+    """Compute per-candidate utility from row-wise predictive variance."""
+    n_candidates, n_samples = mu_preds.shape
+    out = np.empty(n_candidates, dtype=np.float64)
+
+    for i in range(n_candidates):
+        # Two-pass variance for numerical stability.
+        mean = 0.0
+        for j in range(n_samples):
+            mean += mu_preds[i, j]
+        mean /= n_samples
+
+        var = 0.0
+        for j in range(n_samples):
+            d = mu_preds[i, j] - mean
+            var += d * d
+        var /= n_samples
+
+        u = var * inv_noise_var * inv_cost
+        out[i] = u if u > 0.0 else 0.0
+
+    return out
 
 
 class UtilitySamplingLocator(SequentialBayesianLocator):
@@ -71,12 +97,22 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         candidates = np.linspace(*self.belief.get_param(self._scan_param).bounds, self.n_candidates)
         sampled = self.belief.sample(self.n_mc_samples)
 
-        utilities = np.zeros(len(candidates))
         noise_var = self.noise_std**2
+        model = self.belief.model
 
-        for i, x_setting in enumerate(candidates):
-            y_samples = self.belief.model.compute_vectorized(float(x_setting), sampled)
-            utilities[i] = max(float(np.var(y_samples)) / noise_var / self.cost, 0.0)
+        try:
+            mu_preds = model.compute_vectorized_many(candidates, sampled)
+        except AttributeError:
+            # Compatibility path for models exposing only scalar-vectorized prediction.
+            mu_preds = np.empty((len(candidates), self.n_mc_samples), dtype=float)
+            for i, x_setting in enumerate(candidates):
+                mu_preds[i, :] = model.compute_vectorized(float(x_setting), sampled)
+
+        utilities = _utility_from_mu_preds(
+            mu_preds=np.asarray(mu_preds, dtype=np.float64),
+            inv_noise_var=1.0 / noise_var,
+            inv_cost=1.0 / self.cost,
+        )
 
         utilities += 1e-12
         probs = utilities**self.pickiness

@@ -40,6 +40,8 @@ def _add_true_and_noisy_traces(
     ys: list[float],
     has_metrics: bool,
     over_frequency_noise: CompositeOverFrequencyNoise | None,
+    measurement_xs: list[float] | None = None,
+    measurement_ys: list[float] | None = None,
 ) -> None:
     row, col = _row_col(has_metrics)
     fig.add_trace(
@@ -52,6 +54,20 @@ def _add_true_and_noisy_traces(
     dense_batch = DataBatch.from_arrays(xs, ys, meta={})
     noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
     noisy_values = [float(v) for v in noisy_batch.signal_values]
+    # UI expectation: noisy curve should visually pass through the sampled measurement points.
+    # We "splice" the noisy curve values at the measurement x locations.
+    if measurement_xs and measurement_ys and len(measurement_xs) == len(measurement_ys):
+        for x_m, y_m in zip(measurement_xs, measurement_ys, strict=False):
+            try:
+                xm = float(x_m)
+                ym = float(y_m)
+            except (TypeError, ValueError):
+                continue
+            if not np.isfinite(ym):
+                continue
+            idxs = np.nonzero(np.isclose(xs, xm, rtol=0.0, atol=1e-12))[0]
+            if idxs.size:
+                noisy_values[int(idxs[0])] = ym
     fig.add_trace(
         go.Scatter(
             x=xs,
@@ -178,36 +194,62 @@ def _json_safe_float(v: Any) -> float | None:
     return f
 
 
-def compute_scan_plot_data(
-    scan: Any,
-    history: pl.DataFrame,
-    over_frequency_noise: CompositeOverFrequencyNoise | None,
-) -> dict[str, Any]:
-    """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``)."""
-    xs = np.linspace(scan.x_min, scan.x_max, 1000)
-    ys = [float(scan.signal(x)) for x in xs]
-    out: dict[str, Any] = {
-        "x_dense": [float(x) for x in xs],
-        "y_dense": ys,
-    }
-    if over_frequency_noise is not None:
-        dense_batch = DataBatch.from_arrays(xs, ys, meta={})
-        noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
-        noisy_vals: list[float] = []
-        for i, v in enumerate(noisy_batch.signal_values):
-            fv = float(v)
-            if np.isnan(fv) or np.isinf(fv):
-                noisy_vals.append(ys[i])
-            else:
-                noisy_vals.append(fv)
-        out["y_dense_noisy"] = noisy_vals
+def _extract_history_xy(history: pl.DataFrame) -> tuple[list[Any], list[Any]]:
+    xs_s = history.get_column("x").to_list() if "x" in history.columns else []
+    ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
+    return xs_s, ys_s
 
-    has_metrics = history.height > 0 and any(col in history.columns for col in ["entropy", "max_prob", "uncertainty"])
-    out["has_metrics"] = has_metrics
 
+def _dense_xs_with_measurements(scan: Any, history_xs: list[Any], *, n_dense: int = 1000) -> np.ndarray:
+    xs_base = np.linspace(scan.x_min, scan.x_max, n_dense)
+    if not history_xs:
+        return xs_base
+    history_xs_arr = np.asarray([float(x) for x in history_xs if x is not None], dtype=float)
+    if history_xs_arr.size == 0:
+        return xs_base
+    return np.unique(np.concatenate([xs_base, history_xs_arr]))
+
+
+def _compute_noisy_dense_values(
+    xs: np.ndarray,
+    ys: list[float],
+    over_frequency_noise: CompositeOverFrequencyNoise,
+) -> list[float]:
+    dense_batch = DataBatch.from_arrays(xs, ys, meta={})
+    noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
+    noisy_vals: list[float] = []
+    for i, v in enumerate(noisy_batch.signal_values):
+        fv = float(v)
+        if np.isnan(fv) or np.isinf(fv):
+            noisy_vals.append(ys[i])
+        else:
+            noisy_vals.append(fv)
+    return noisy_vals
+
+
+def _splice_noisy_dense_at_measurements(
+    xs: np.ndarray,
+    noisy_vals: list[float],
+    history_xs: list[Any],
+    history_ys: list[Any],
+) -> None:
+    """In-place splice noisy dense curve so it passes through measurement points."""
+    for x_m, y_m in zip(history_xs, history_ys, strict=False):
+        try:
+            xm = float(x_m)
+            ym = float(y_m)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(ym):
+            continue
+        idxs = np.nonzero(np.isclose(xs, xm, rtol=0.0, atol=1e-12))[0]
+        if idxs.size:
+            noisy_vals[int(idxs[0])] = ym
+
+
+def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
     if history.height == 0:
-        out["measurements"] = {"mode": "empty"}
-        return out
+        return {"mode": "empty"}
 
     if "phase" in history.columns:
         phases = history.get_column("phase").to_list()
@@ -224,24 +266,46 @@ def compute_scan_plot_data(
             elif p == "fine":
                 fine_x.append(float(x))
                 fine_y.append(_json_safe_float(y))
-        out["measurements"] = {
+        return {
             "mode": "phases",
             "coarse_x": coarse_x,
             "coarse_y": coarse_y,
             "fine_x": fine_x,
             "fine_y": fine_y,
         }
-        return out
 
     xs_s = history.get_column("x").to_list() if "x" in history.columns else []
     ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
     steps = list(range(history.height))
-    out["measurements"] = {
+    return {
         "mode": "steps",
         "x": [float(x) for x in xs_s],
         "y": [_json_safe_float(y) for y in ys_s],
         "step": steps,
     }
+
+
+def compute_scan_plot_data(
+    scan: Any,
+    history: pl.DataFrame,
+    over_frequency_noise: CompositeOverFrequencyNoise | None,
+) -> dict[str, Any]:
+    """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``)."""
+    history_xs_s, history_ys_s = _extract_history_xy(history)
+    xs = _dense_xs_with_measurements(scan, history_xs_s)
+    ys = [float(scan.signal(x)) for x in xs]
+    out: dict[str, Any] = {
+        "x_dense": [float(x) for x in xs],
+        "y_dense": ys,
+    }
+    if over_frequency_noise is not None:
+        noisy_vals = _compute_noisy_dense_values(xs, ys, over_frequency_noise)
+        _splice_noisy_dense_at_measurements(xs, noisy_vals, history_xs_s, history_ys_s)
+        out["y_dense_noisy"] = noisy_vals
+
+    has_metrics = history.height > 0 and any(col in history.columns for col in ["entropy", "max_prob", "uncertainty"])
+    out["has_metrics"] = has_metrics
+    out["measurements"] = _measurements_from_history(history)
     return out
 
 
@@ -434,8 +498,30 @@ class MeasurementsMixin:
         """
         ensure_out_dir(out_path.parent)
 
-        xs = np.linspace(scan.x_min, scan.x_max, 1000)
+        history_xs_raw = history.get_column("x").to_list() if "x" in history.columns else []
+        history_ys_raw = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
+        history_xs_arr: np.ndarray | None = None
+        if history_xs_raw:
+            history_xs_arr = np.asarray([float(x) for x in history_xs_raw if x is not None], dtype=float)
+            if history_xs_arr.size == 0:
+                history_xs_arr = None
+
+        xs_base = np.linspace(scan.x_min, scan.x_max, 1000)
+        xs = np.unique(np.concatenate([xs_base, history_xs_arr])) if history_xs_arr is not None else xs_base
         ys = [float(scan.signal(x)) for x in xs]
+
+        measurement_xs: list[float] = []
+        measurement_ys: list[float] = []
+        for x_m, y_m in zip(history_xs_raw, history_ys_raw, strict=False):
+            try:
+                xm = float(x_m)
+                ym = float(y_m)
+            except (TypeError, ValueError):
+                continue
+            if not np.isfinite(ym):
+                continue
+            measurement_xs.append(xm)
+            measurement_ys.append(ym)
 
         has_metrics = history.height > 0 and any(
             col in history.columns for col in ["entropy", "max_prob", "uncertainty"]
@@ -448,6 +534,8 @@ class MeasurementsMixin:
             ys=ys,
             has_metrics=has_metrics,
             over_frequency_noise=over_frequency_noise,
+            measurement_xs=measurement_xs if measurement_xs else None,
+            measurement_ys=measurement_ys if measurement_ys else None,
         )
         _add_history_traces(fig, history, has_metrics)
         _add_metric_traces(fig, history, has_metrics)
