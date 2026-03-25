@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -124,6 +125,21 @@ class LorentzianModel(SignalModel[LorentzianParams, LorentzianSampleParams, Lore
         bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
         denom = (x_f - freq) * (x_f - freq) + lw * lw
         return (bg - amp / denom).astype(FLOAT_DTYPE, copy=False)
+
+    def compute_vectorized_many(self, x_array: Sequence[float], samples: LorentzianSampleParams) -> np.ndarray:
+        if not hasattr(samples, "frequency"):
+            # Accept raw arrays / sample containers via the generic base fallback.
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
+        amp = np.asarray(samples.amplitude, dtype=FLOAT_DTYPE)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
+        denom = (xs[:, None] - freq[None, :]) ** 2 + lw[None, :] ** 2
+        return (bg[None, :] - amp[None, :] / denom).astype(FLOAT_DTYPE, copy=False)
 
     def sample_params(self, rng: random.Random) -> LorentzianParams:
         """Sample parameters that keep the signal within [0, 1]."""

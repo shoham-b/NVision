@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -119,3 +120,18 @@ class GaussianModel(SignalModel[GaussianParams, GaussianSampleParams, GaussianUn
         bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
         z = (x_f - freq) / sig
         return (bg + amp * np.exp(-0.5 * z * z)).astype(FLOAT_DTYPE, copy=False)
+
+    def compute_vectorized_many(self, x_array: Sequence[float], samples: GaussianSampleParams) -> np.ndarray:
+        if not hasattr(samples, "frequency"):
+            # Accept raw arrays / sample containers via the generic base fallback.
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        sig = np.asarray(samples.sigma, dtype=FLOAT_DTYPE)
+        amp = np.asarray(samples.amplitude, dtype=FLOAT_DTYPE)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
+        z = (xs[:, None] - freq[None, :]) / sig[None, :]
+        return (bg[None, :] + amp[None, :] * np.exp(-0.5 * z * z)).astype(FLOAT_DTYPE, copy=False)

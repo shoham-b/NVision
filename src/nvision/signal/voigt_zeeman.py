@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -190,6 +191,34 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanParams, VoigtZeemanSampleParams, V
         right_peak = (amp * k_np) / right_denom
 
         return (bg - (left_peak + center_peak + right_peak)).astype(FLOAT_DTYPE, copy=False)
+
+    def compute_vectorized_many(self, x_array: Sequence[float], samples: VoigtZeemanSampleParams) -> np.ndarray:
+        if not hasattr(samples, "frequency"):
+            # Accept raw arrays / sample containers via the generic base fallback.
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
+        split = np.asarray(samples.split, dtype=FLOAT_DTYPE)
+        k_np = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
+        amp = np.asarray(samples.amplitude, dtype=FLOAT_DTYPE)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
+
+        x2d = xs[:, None]
+        left_denom = (x2d - (freq[None, :] - split[None, :])) ** 2 + lw[None, :] ** 2
+        left_peak = (amp[None, :] / k_np[None, :]) / left_denom
+
+        center_denom = (x2d - freq[None, :]) ** 2 + lw[None, :] ** 2
+        center_peak = amp[None, :] / center_denom
+
+        right_denom = (x2d - (freq[None, :] + split[None, :])) ** 2 + lw[None, :] ** 2
+        right_peak = (amp[None, :] * k_np[None, :]) / right_denom
+
+        return (bg[None, :] - (left_peak + center_peak + right_peak)).astype(FLOAT_DTYPE, copy=False)
 
     def sample_params(self, rng: random.Random) -> list[Parameter]:
         """Sample parameters that keep the signal within [0, 1].

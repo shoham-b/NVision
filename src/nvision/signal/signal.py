@@ -59,6 +59,16 @@ class ParamSpec(Protocol[ParamsT, SampleParamsT, UncertaintyT]):
     def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]: ...
 
 
+@runtime_checkable
+class ArraysInOrder(Protocol):
+    """Container exposing parameter arrays in model order."""
+
+    def arrays_in_order(self) -> Sequence[np.ndarray]: ...
+
+
+type VectorizedManySamplesInput[T] = T | Sequence[np.ndarray] | ArraysInOrder
+
+
 class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
     """Abstract signal model with typed parameter bundles.
 
@@ -84,6 +94,30 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
     @abstractmethod
     def compute_vectorized_samples(self, x: float, samples: SampleParamsT) -> np.ndarray:
         """Vectorized prediction at one probe x over many parameter samples."""
+
+    def compute_vectorized_many(
+        self,
+        x_array: Sequence[float],
+        samples: VectorizedManySamplesInput[SampleParamsT],
+    ) -> np.ndarray:
+        """Vectorized prediction at many probe positions over shared samples.
+
+        Default implementation stacks repeated :meth:`compute_vectorized_samples`
+        calls along axis 0, returning shape ``(len(x_array), n_samples)``.
+        Concrete models may override with a fused implementation.
+        """
+        xs = np.asarray(x_array, dtype=float)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        if xs.size == 0:
+            return np.empty((0, 0), dtype=float)
+
+        # Allow either typed sample bundles or raw parameter-array sequences.
+        if isinstance(samples, ArraysInOrder | tuple | list):
+            param_arrays = samples.arrays_in_order() if hasattr(samples, "arrays_in_order") else samples
+            return np.stack([self.compute_vectorized(float(x), *param_arrays) for x in xs], axis=0)
+
+        return np.stack([self.compute_vectorized_samples(float(x), samples) for x in xs], axis=0)
 
     # --------------------------
     # Compatibility / legacy API

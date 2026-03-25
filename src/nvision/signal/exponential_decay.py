@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -105,3 +106,17 @@ class ExponentialDecayModel(
         a = np.asarray(samples.amplitude, dtype=FLOAT_DTYPE)
         b = np.asarray(samples.background, dtype=FLOAT_DTYPE)
         return (b + a * np.exp(-float(x) / np.maximum(r, 1e-12))).astype(FLOAT_DTYPE, copy=False)
+
+    def compute_vectorized_many(self, x_array: Sequence[float], samples: ExponentialDecaySampleParams) -> np.ndarray:
+        if not hasattr(samples, "decay_rate"):
+            # Accept raw arrays / sample containers via the generic base fallback.
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        r = np.asarray(samples.decay_rate, dtype=FLOAT_DTYPE)
+        a = np.asarray(samples.amplitude, dtype=FLOAT_DTYPE)
+        b = np.asarray(samples.background, dtype=FLOAT_DTYPE)
+        decay = np.maximum(r, 1e-12)
+        return (b[None, :] + a[None, :] * np.exp(-xs[:, None] / decay[None, :])).astype(FLOAT_DTYPE, copy=False)

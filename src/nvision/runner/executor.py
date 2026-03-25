@@ -212,26 +212,29 @@ class _TaskRunner:
         """Execute all repeats and return raw repeat artifacts."""
         repeat_rngs: list[random.Random] = []
         experiments: list[CoreExperiment] = []
-        repeat_start_times: list[float] = []
+        # Start times used for the `duration_ms` metadata stored in `locator_results.csv`.
+        # These should align with when progress "advances" (i.e., right before each repeat begins).
+        repeat_start_times: list[float] = [0.0] * self.repeats
         stop_reasons: list[str] = [""] * self.repeats
 
         for attempt_idx in range(self.repeats):
             measurement_rng = self._rng_for_measurement(attempt_idx)
             repeat_rngs.append(measurement_rng)
             experiments.append(get_shared_core_experiment(self.task, attempt_idx, self._build_experiment))
-            repeat_start_times.append(time.perf_counter())
 
         history_dfs: list[pl.DataFrame] = []
         finalize_records: list[dict[str, Any]] = []
         run_results: list[RunResult] = []
 
         for rid in range(self.repeats):
+            repeat_start_times[rid] = time.perf_counter()
             hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
                 locator_config=locator_config,
                 rng=repeat_rngs[rid],
                 experiment=experiments[rid],
+                repeat_start_time=repeat_start_times[rid],
             )
             stop_reasons[rid] = stop_reason
             run_results.append(run_result)
@@ -378,6 +381,7 @@ class _TaskRunner:
         locator_config: dict[str, Any],
         rng: random.Random,
         experiment: CoreExperiment,
+        repeat_start_time: float,
     ) -> tuple[pl.DataFrame, dict[str, Any], str, RunResult]:
         cfg = {**locator_config, "parameter_bounds": self._injected_parameter_bounds(experiment)}
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
@@ -398,6 +402,8 @@ class _TaskRunner:
         finalize_record = run_result_to_finalize_record(
             result, locator_final_result, rid, experiment.x_min, experiment.x_max
         )
+        # Used by the progress ETA estimator via cached `locator_results.csv` metadata.
+        finalize_record["duration_ms"] = (time.perf_counter() - repeat_start_time) * 1000
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

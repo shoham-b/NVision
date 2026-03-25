@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -110,3 +111,19 @@ class CompositePeakModel(SignalModel[CompositeParams, CompositeSampleParams, Com
             pred = model.compute_vectorized(float(x), s)
             out = pred if out is None else (out + pred)
         return out if out is not None else np.empty(0, dtype=FLOAT_DTYPE)
+
+    def compute_vectorized_many(self, x_array: Sequence[float], samples: CompositeSampleParams) -> np.ndarray:
+        if not hasattr(samples, "peaks"):
+            # Accept raw arrays / sample containers via the generic base fallback.
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        out = None
+        for (_, model), s in zip(self.peak_models, samples.peaks, strict=True):
+            pred = model.compute_vectorized_many(xs, s)
+            out = pred if out is None else (out + pred)
+        if out is None:
+            return np.empty((len(xs), 0), dtype=FLOAT_DTYPE)
+        return np.asarray(out, dtype=FLOAT_DTYPE)
