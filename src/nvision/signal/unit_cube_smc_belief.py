@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from nvision.signal.abstract_belief import ParameterValues
 from nvision.signal.signal import Parameter
 from nvision.signal.smc_belief import SMCBeliefDistribution
 from nvision.signal.unit_cube_model import UnitCubeSignalModel
@@ -40,14 +41,15 @@ class UnitCubeSMCBeliefDistribution(SMCBeliefDistribution):
         lo, hi = self.physical_param_bounds[name]
         return lo + float(u) * (hi - lo)
 
-    def _empirical_uncertainty(self) -> dict[str, float]:
+    def _empirical_uncertainty(self) -> ParameterValues[float]:
         raw = super()._empirical_uncertainty()
-        return {
+        data = {
             name: u * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
             for name, u in raw.items()
         }
+        return ParameterValues.from_mapping(list(raw.keys()), data)
 
-    def uncertainty(self) -> dict[str, float]:
+    def uncertainty(self) -> ParameterValues[float]:
         return self._empirical_uncertainty()
 
     def converged(self, threshold: float) -> bool:
@@ -60,13 +62,7 @@ class UnitCubeSMCBeliefDistribution(SMCBeliefDistribution):
         lo, hi = self.physical_param_bounds[name]
         return Parameter(name=name, bounds=(lo, hi), value=lo + float(p.value) * (hi - lo))
 
-    def sample(self, n: int) -> dict[str, np.ndarray]:
-        # Return physical samples because that's what SBED locator expects?
-        # GridBeliefDistribution returns physical samples? Wait!
-        # Let's check what UnitCubeGridBeliefDistribution returns for sample()
-        # It just calls super().sample() which returns the grid values!
-        # But for UnitCubeGridBeliefDistribution, grid values are [0, 1]!
-        # So sample() returns [0, 1] values.
+    def sample(self, n: int) -> ParameterValues[np.ndarray]:
         return super().sample(n)
 
     def copy(self) -> UnitCubeSMCBeliefDistribution:

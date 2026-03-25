@@ -5,10 +5,13 @@ These signal implement the actual ODMR signal equations for NV centers in diamon
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
+from nvision.signal.dtypes import FLOAT_DTYPE
 from nvision.signal.numba_kernels import nv_center_lorentzian_eval
-from nvision.signal.signal import SignalModel
+from nvision.signal.signal import ParamSpec, SignalModel
 
 # Legacy scale factor (no longer used by :class:`~nvision.sim.gen.core_generators.NVCenterCoreGenerator`;
 # Lorentzian NV uses ``amplitude ≈ dip_depth * linewidth²`` in Hz², matching :class:`LorentzianModel`).
@@ -21,11 +24,105 @@ MIN_NV_CENTER_OMEGA = 0.008
 MAX_NV_CENTER_OMEGA = 0.01
 
 
+@dataclass(frozen=True)
+class NVCenterLorentzianParams:
+    frequency: float
+    linewidth: float
+    split: float
+    k_np: float
+    amplitude: float
+    background: float
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianSampleParams:
+    frequency: np.ndarray
+    linewidth: np.ndarray
+    split: np.ndarray
+    k_np: np.ndarray
+    amplitude: np.ndarray
+    background: np.ndarray
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianUncertaintyParams:
+    frequency: float
+    linewidth: float
+    split: float
+    k_np: float
+    amplitude: float
+    background: float
+
+
+class _NVCenterLorentzianSpec(
+    ParamSpec[
+        NVCenterLorentzianParams,
+        NVCenterLorentzianSampleParams,
+        NVCenterLorentzianUncertaintyParams,
+    ]
+):
+    @property
+    def names(self) -> tuple[str, ...]:
+        return ("frequency", "linewidth", "split", "k_np", "amplitude", "background")
+
+    @property
+    def dim(self) -> int:
+        return 6
+
+    def unpack_params(self, values) -> NVCenterLorentzianParams:
+        f, w, s, k, a, b = values
+        return NVCenterLorentzianParams(float(f), float(w), float(s), float(k), float(a), float(b))
+
+    def pack_params(self, params: NVCenterLorentzianParams) -> tuple[float, ...]:
+        return (
+            float(params.frequency),
+            float(params.linewidth),
+            float(params.split),
+            float(params.k_np),
+            float(params.amplitude),
+            float(params.background),
+        )
+
+    def unpack_uncertainty(self, values) -> NVCenterLorentzianUncertaintyParams:
+        f, w, s, k, a, b = values
+        return NVCenterLorentzianUncertaintyParams(float(f), float(w), float(s), float(k), float(a), float(b))
+
+    def pack_uncertainty(self, u: NVCenterLorentzianUncertaintyParams) -> tuple[float, ...]:
+        return (
+            float(u.frequency),
+            float(u.linewidth),
+            float(u.split),
+            float(u.k_np),
+            float(u.amplitude),
+            float(u.background),
+        )
+
+    def unpack_samples(self, arrays_in_order) -> NVCenterLorentzianSampleParams:
+        f, w, s, k, a, b = arrays_in_order
+        return NVCenterLorentzianSampleParams(
+            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
+            linewidth=np.asarray(w, dtype=FLOAT_DTYPE),
+            split=np.asarray(s, dtype=FLOAT_DTYPE),
+            k_np=np.asarray(k, dtype=FLOAT_DTYPE),
+            amplitude=np.asarray(a, dtype=FLOAT_DTYPE),
+            background=np.asarray(b, dtype=FLOAT_DTYPE),
+        )
+
+    def pack_samples(self, samples: NVCenterLorentzianSampleParams) -> tuple[np.ndarray, ...]:
+        return (
+            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
+            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples.amplitude, dtype=FLOAT_DTYPE),
+            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+        )
+
+
 class NVCenterLorentzianModel(SignalModel):
     """NV center ODMR signal model with three Lorentzian dips.
 
-    Prefer :meth:`eval_nvcenter_lorentzian_model` when you already have floats;
-    :meth:`compute` adapts from ``list[Parameter]``.
+    Prefer :meth:`compute_nvcenter_lorentzian_model` when you already have floats.
 
     Models the optically detected magnetic resonance (ODMR) spectrum of an
     NV center in diamond. The signal has three Lorentzian dips from a baseline
@@ -55,7 +152,7 @@ class NVCenterLorentzianModel(SignalModel):
     """
 
     @staticmethod
-    def eval_nvcenter_lorentzian_model(
+    def compute_nvcenter_lorentzian_model(
         x: float,
         frequency: float,
         linewidth: float,
@@ -67,15 +164,163 @@ class NVCenterLorentzianModel(SignalModel):
         """Triple Lorentzian NV ODMR; parameter order matches :meth:`parameter_names`."""
         return nv_center_lorentzian_eval(float(x), frequency, linewidth, split, k_np, amplitude, background)
 
-    def compute(self, x: float, params: list) -> float:
-        v = self._param_floats_canonical(params)
-        return self.eval_nvcenter_lorentzian_model(float(x), *v)
+    def compute_nvcenter_lorentzian_model_vectorized(
+        self,
+        x: float,
+        frequency: np.ndarray,
+        linewidth: np.ndarray,
+        split: np.ndarray,
+        k_np: np.ndarray,
+        amplitude: np.ndarray,
+        background: np.ndarray,
+    ) -> np.ndarray:
+        """Vectorized triple-Lorentzian NV evaluation for one probe location."""
+        x_f = float(x)
+        freq = np.asarray(frequency, dtype=np.float64)
+        linewidth_arr = np.asarray(linewidth, dtype=np.float64)
+        split_arr = np.asarray(split, dtype=np.float64)
+        k_np_arr = np.asarray(k_np, dtype=np.float64)
+        amp = np.asarray(amplitude, dtype=np.float64)
+        bg = np.asarray(background, dtype=np.float64)
 
-    def parameter_names(self) -> list[str]:
-        return ["frequency", "linewidth", "split", "k_np", "amplitude", "background"]
+        denom_l = (x_f - (freq - split_arr)) * (x_f - (freq - split_arr)) + linewidth_arr * linewidth_arr
+        denom_c = (x_f - freq) * (x_f - freq) + linewidth_arr * linewidth_arr
+        denom_r = (x_f - (freq + split_arr)) * (x_f - (freq + split_arr)) + linewidth_arr * linewidth_arr
+        return bg - ((amp / k_np_arr) / denom_l + amp / denom_c + (amp * k_np_arr) / denom_r)
+
+    _SPEC = _NVCenterLorentzianSpec()
+
+    @property
+    def spec(self) -> _NVCenterLorentzianSpec:
+        return self._SPEC
+
+    def compute(self, x: float, params: NVCenterLorentzianParams) -> float:
+        return nv_center_lorentzian_eval(
+            float(x),
+            params.frequency,
+            params.linewidth,
+            params.split,
+            params.k_np,
+            params.amplitude,
+            params.background,
+        )
+
+    def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSampleParams) -> np.ndarray:
+        out = self.compute_nvcenter_lorentzian_model_vectorized(
+            x,
+            samples.frequency,
+            samples.linewidth,
+            samples.split,
+            samples.k_np,
+            samples.amplitude,
+            samples.background,
+        )
+        return np.asarray(out, dtype=FLOAT_DTYPE)
 
 
-class NVCenterVoigtModel(SignalModel):
+@dataclass(frozen=True)
+class NVCenterVoigtParams:
+    frequency: float
+    fwhm_lorentz: float
+    fwhm_gauss: float
+    split: float
+    k_np: float
+    amplitude: float
+    background: float
+
+
+@dataclass(frozen=True)
+class NVCenterVoigtSampleParams:
+    frequency: np.ndarray
+    fwhm_lorentz: np.ndarray
+    fwhm_gauss: np.ndarray
+    split: np.ndarray
+    k_np: np.ndarray
+    amplitude: np.ndarray
+    background: np.ndarray
+
+
+@dataclass(frozen=True)
+class NVCenterVoigtUncertaintyParams:
+    frequency: float
+    fwhm_lorentz: float
+    fwhm_gauss: float
+    split: float
+    k_np: float
+    amplitude: float
+    background: float
+
+
+class _NVCenterVoigtSpec(
+    ParamSpec[
+        NVCenterVoigtParams,
+        NVCenterVoigtSampleParams,
+        NVCenterVoigtUncertaintyParams,
+    ]
+):
+    @property
+    def names(self) -> tuple[str, ...]:
+        return ("frequency", "fwhm_lorentz", "fwhm_gauss", "split", "k_np", "amplitude", "background")
+
+    @property
+    def dim(self) -> int:
+        return 7
+
+    def unpack_params(self, values) -> NVCenterVoigtParams:
+        f, fl, fg, s, k, a, b = values
+        return NVCenterVoigtParams(float(f), float(fl), float(fg), float(s), float(k), float(a), float(b))
+
+    def pack_params(self, params: NVCenterVoigtParams) -> tuple[float, ...]:
+        return (
+            float(params.frequency),
+            float(params.fwhm_lorentz),
+            float(params.fwhm_gauss),
+            float(params.split),
+            float(params.k_np),
+            float(params.amplitude),
+            float(params.background),
+        )
+
+    def unpack_uncertainty(self, values) -> NVCenterVoigtUncertaintyParams:
+        f, fl, fg, s, k, a, b = values
+        return NVCenterVoigtUncertaintyParams(float(f), float(fl), float(fg), float(s), float(k), float(a), float(b))
+
+    def pack_uncertainty(self, u: NVCenterVoigtUncertaintyParams) -> tuple[float, ...]:
+        return (
+            float(u.frequency),
+            float(u.fwhm_lorentz),
+            float(u.fwhm_gauss),
+            float(u.split),
+            float(u.k_np),
+            float(u.amplitude),
+            float(u.background),
+        )
+
+    def unpack_samples(self, arrays_in_order) -> NVCenterVoigtSampleParams:
+        f, fl, fg, s, k, a, b = arrays_in_order
+        return NVCenterVoigtSampleParams(
+            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
+            fwhm_lorentz=np.asarray(fl, dtype=FLOAT_DTYPE),
+            fwhm_gauss=np.asarray(fg, dtype=FLOAT_DTYPE),
+            split=np.asarray(s, dtype=FLOAT_DTYPE),
+            k_np=np.asarray(k, dtype=FLOAT_DTYPE),
+            amplitude=np.asarray(a, dtype=FLOAT_DTYPE),
+            background=np.asarray(b, dtype=FLOAT_DTYPE),
+        )
+
+    def pack_samples(self, samples: NVCenterVoigtSampleParams) -> tuple[np.ndarray, ...]:
+        return (
+            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
+            np.asarray(samples.fwhm_lorentz, dtype=FLOAT_DTYPE),
+            np.asarray(samples.fwhm_gauss, dtype=FLOAT_DTYPE),
+            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples.amplitude, dtype=FLOAT_DTYPE),
+            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+        )
+
+
+class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSampleParams, NVCenterVoigtUncertaintyParams]):
     """NV center with Gaussian broadening (Voigt profile).
 
     Not njit-accelerated: evaluation uses SciPy/JAX ``wofz`` or a pseudo-Voigt fallback.
@@ -154,7 +399,7 @@ class NVCenterVoigtModel(SignalModel):
             gauss = np.exp(-0.5 * ((x - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
             return eta * lorentz + (1 - eta) * gauss
 
-    def eval_nvcenter_voigt_model(
+    def compute_nvcenter_voigt_model(
         self,
         x: float,
         frequency: float,
@@ -176,9 +421,65 @@ class NVCenterVoigtModel(SignalModel):
 
         return background - (left_dip + center_dip + right_dip)
 
-    def compute(self, x: float, params: list) -> float:
-        v = self._param_floats_canonical(params)
-        return self.eval_nvcenter_voigt_model(float(x), *v)
+    _SPEC = _NVCenterVoigtSpec()
 
-    def parameter_names(self) -> list[str]:
-        return ["frequency", "fwhm_lorentz", "fwhm_gauss", "split", "k_np", "amplitude", "background"]
+    @property
+    def spec(self) -> _NVCenterVoigtSpec:
+        return self._SPEC
+
+    def compute(self, x: float, params: NVCenterVoigtParams) -> float:
+        return self.compute_nvcenter_voigt_model(
+            float(x),
+            params.frequency,
+            params.fwhm_lorentz,
+            params.fwhm_gauss,
+            params.split,
+            params.k_np,
+            params.amplitude,
+            params.background,
+        )
+
+    def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSampleParams) -> np.ndarray:
+        x_f = float(x)
+        freq = np.asarray(samples.frequency, dtype=np.float64)
+        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=np.float64)
+        fwhm_g = np.asarray(samples.fwhm_gauss, dtype=np.float64)
+        split = np.asarray(samples.split, dtype=np.float64)
+        k_np = np.asarray(samples.k_np, dtype=np.float64)
+        amp = np.asarray(samples.amplitude, dtype=np.float64)
+        bg = np.asarray(samples.background, dtype=np.float64)
+
+        sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
+        gamma = fwhm_l / 2
+
+        # Profile at center(s)
+        def profile_at(center: np.ndarray) -> np.ndarray:
+            if self.wofz is not None:
+                z = ((x_f - center) + 1j * gamma) / (sigma * np.sqrt(2))
+                w = self.wofz(z)
+                return w.real / (sigma * np.sqrt(2 * np.pi))
+            eta = (
+                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
+                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
+                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
+            )
+            lorentz = gamma / ((x_f - center) ** 2 + gamma**2)
+            gauss = np.exp(-0.5 * ((x_f - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+            return eta * lorentz + (1 - eta) * gauss
+
+        profile_c = profile_at(freq)
+        split_mask = split < 1e-10
+
+        # Split case: left/right/center dips
+        profile_l = profile_at(freq - split)
+        profile_r = profile_at(freq + split)
+        center_dip = amp * profile_c
+        left_dip = (amp / k_np) * profile_l
+        right_dip = (amp * k_np) * profile_r
+        pred_split = bg - (left_dip + center_dip + right_dip)
+
+        # No-split case: combined dip at center
+        combined_amp = amp * (k_np + 1.0 + 1.0 / k_np)
+        pred_nosplit = bg - combined_amp * profile_c
+
+        return np.where(split_mask, pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)

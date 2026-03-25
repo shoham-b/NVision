@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from nvision.signal.signal import Parameter
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -22,32 +21,23 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         candidates = np.linspace(*self.belief.get_param(self._scan_param).bounds, 200)
         num_samples = 100
 
-        samples_dict = self.belief.sample(num_samples)
+        sampled = self.belief.sample(num_samples)
         param_names = self.belief.model.parameter_names()
-        bounds = {name: self.belief.get_param(name).bounds for name in param_names}
-
-        # Pre-build parameter objects for each sample to avoid loop overhead
-        samples_params = [
-            [Parameter(name=name, bounds=bounds[name], value=samples_dict[name][i]) for name in param_names]
-            for i in range(num_samples)
-        ]
 
         # Calculate expected noise level based on belief using normalized parameters
         # to ensure signal scaling correctly compares with [0,1] range parameters
-        uncertainties = list(self.belief.uncertainty().values())
-        norm_unc = uncertainties[0]
+        uncertainties = self.belief.uncertainty()
+        norm_unc = uncertainties.values_ordered[0]
         if hasattr(self.belief, "physical_param_bounds"):
             p_name = param_names[0]
             lo, hi = self.belief.physical_param_bounds[p_name]
             norm_unc = norm_unc / (hi - lo) if hi > lo else 0.0
 
-        noise_std = max(0.01, norm_unc * 0.1) if uncertainties else 0.01
+        noise_std = max(0.01, norm_unc * 0.1) if len(uncertainties) > 0 else 0.01
 
         utilities = np.zeros(len(candidates))
         for j, x in enumerate(candidates):
-            mu_pred = np.zeros(num_samples)
-            for k, params in enumerate(samples_params):
-                mu_pred[k] = self.belief.model.compute(x, params)
+            mu_pred = self.belief.model.compute_vectorized(float(x), sampled)
 
             # Simulate num_samples hypothetical measurement outcomes
             y_sim = mu_pred + np.random.normal(0, noise_std, num_samples)

@@ -3,12 +3,51 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from typing import TypeVar
 
 import numpy as np
 
 from nvision.models.observation import Observation
 from nvision.signal.signal import Parameter, SignalModel
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class ParameterValues[T](Mapping[str, T]):
+    """Parameter values with fixed model order plus mapping-style access."""
+
+    names: tuple[str, ...]
+    values_ordered: tuple[T, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.names) != len(self.values_ordered):
+            raise ValueError("names and values_ordered lengths must match")
+
+    @classmethod
+    def from_mapping(cls, names: list[str], data: Mapping[str, T]) -> ParameterValues[T]:
+        return cls(tuple(names), tuple(data[name] for name in names))
+
+    def __getitem__(self, key: str) -> T:
+        try:
+            idx = self.names.index(key)
+        except ValueError as e:
+            raise KeyError(key) from e
+        return self.values_ordered[idx]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.names)
+
+    def __len__(self) -> int:
+        return len(self.names)
+
+    def arrays_in_order(self) -> tuple[T, ...]:
+        return self.values_ordered
+
+    def as_dict(self) -> dict[str, T]:
+        return {name: self.values_ordered[i] for i, name in enumerate(self.names)}
 
 
 @dataclass
@@ -38,7 +77,7 @@ class AbstractBeliefDistribution(ABC):
     def estimates(self) -> dict[str, float]:
         """Get current parameter estimates (e.g., posterior means)."""
 
-    def uncertainty(self) -> dict[str, float]:
+    def uncertainty(self) -> ParameterValues[float]:
         """Get uncertainty (std dev) for each parameter.
 
         If the underlying SignalModel provides analytical gradients, this will
@@ -55,14 +94,15 @@ class AbstractBeliefDistribution(ABC):
                     # Add small ridge for numerical stability
                     cov = np.linalg.inv(fim + np.eye(len(fim)) * 1e-6)
                     param_names = self.model.parameter_names()
-                    return {name: float(np.sqrt(max(0.0, cov[i, i]))) for i, name in enumerate(param_names)}
+                    data = {name: float(np.sqrt(max(0.0, cov[i, i]))) for i, name in enumerate(param_names)}
+                    return ParameterValues.from_mapping(param_names, data)
                 except np.linalg.LinAlgError:
                     pass  # Fall back to empirical if singular
 
         return self._empirical_uncertainty()
 
     @abstractmethod
-    def _empirical_uncertainty(self) -> dict[str, float]:
+    def _empirical_uncertainty(self) -> ParameterValues[float]:
         """Compute empirical uncertainty from the underlying grid/particles."""
 
     @abstractmethod
@@ -92,13 +132,13 @@ class AbstractBeliefDistribution(ABC):
         raise NotImplementedError("Analytical EIG not implemented for this belief type.")
 
     @abstractmethod
-    def sample(self, n: int) -> dict[str, np.ndarray]:
+    def sample(self, n: int) -> ParameterValues[np.ndarray]:
         """Draw n joint samples from the posterior distribution.
 
         Returns
         -------
-        dict[str, np.ndarray]
-            Dictionary mapping parameter names to arrays of length n.
+        ParameterValues[np.ndarray]
+            Ordered parameter arrays (and mapping-style lookup) of length n.
         """
 
     @abstractmethod
@@ -121,7 +161,7 @@ class AbstractBeliefDistribution(ABC):
     def __call__(self, x: float) -> float:
         """Evaluate belief signal at position x using posterior means."""
         params = [self.get_param(p) for p in self.model.parameter_names()]
-        return self.model.compute(x, params)
+        return self.model.compute_from_params(x, params)
 
     def fisher_information(self, x: float) -> np.ndarray | None:
         """Compute the Fisher Information Matrix at position x.

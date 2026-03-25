@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
 from nvision.signal.grid_belief import GridBeliefDistribution, GridParameter
 from nvision.signal.unit_cube_model import UnitCubeSignalModel
 
@@ -40,11 +40,15 @@ class UnitCubeGridBeliefDistribution(GridBeliefDistribution):
         lo, hi = self.physical_param_bounds[name]
         return lo + float(u) * (hi - lo)
 
-    def uncertainty(self) -> dict[str, float]:
-        return {
+    def uncertainty(self) -> ParameterValues[float]:
+        data = {
             p.name: p.uncertainty() * (self.physical_param_bounds[p.name][1] - self.physical_param_bounds[p.name][0])
             for p in self.parameters
         }
+        return ParameterValues.from_mapping(self.model.parameter_names(), data)
+
+    def sample(self, n: int) -> ParameterValues[np.ndarray]:
+        return super().sample(n)
 
     def converged(self, threshold: float) -> bool:
         return all(p.uncertainty() < threshold for p in self.parameters)

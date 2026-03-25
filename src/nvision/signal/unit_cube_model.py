@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from sys import float_info
 
+import numpy as np
+
+from nvision.signal.dtypes import FLOAT_DTYPE
 from nvision.signal.signal import Parameter, SignalModel
 
 
@@ -23,7 +26,7 @@ class UnitCubeSignalModel:
     values, keep a **stateful** list of physical :class:`Parameter` instances
     (created once, updated in place) to avoid per-call allocation, then delegate to
     ``inner.compute``.     Inner :class:`~nvision.signal.signal.SignalModel` subclasses may expose
-    ``eval_<class_snake>`` for direct float evaluation; this wrapper still uses
+    ``evaluate_<class_snake>`` for direct float evaluation; this wrapper still uses
     :meth:`~nvision.signal.signal.SignalModel.compute` with physical
     ``list[Parameter]``. Heavy arithmetic lives in :mod:`nvision.signal.numba_kernels`
     (and similar). ``UnitCubeSignalModel``
@@ -48,7 +51,7 @@ class UnitCubeSignalModel:
             mid = 0.5 * (lo + hi)
             self._phys_params.append(Parameter(name=name, bounds=(lo, hi), value=mid))
 
-    def compute(self, x_unit: float, params: list[Parameter]) -> float:
+    def compute_from_params(self, x_unit: float, params: list[Parameter]) -> float:
         x_lo, x_hi = self.x_bounds_phys
         x_phys = x_lo + float(x_unit) * (x_hi - x_lo)
         u_by_name = {p.name: float(p.value) for p in params}
@@ -61,7 +64,34 @@ class UnitCubeSignalModel:
             # Guard against tiny floating-point endpoint overshoot (e.g. 0.5000000000000001).
             v = min(max(v, lo), hi)
             p.value = v
-        return self.inner.compute(x_phys, self._phys_params)
+        return self.inner.compute_from_params(x_phys, self._phys_params)
+
+    def compute_vectorized(self, x_unit: float, *param_arrays: object) -> np.ndarray:
+        """Vectorized one-x evaluation over many unit-cube parameter samples.
+
+        ``param_arrays`` are passed in :meth:`parameter_names` order (same names as the
+        wrapped physical inner model), but the values are in the unit-cube ``[0, 1]`` interval.
+        """
+        x_lo, x_hi = self.x_bounds_phys
+        x_phys = x_lo + float(x_unit) * (x_hi - x_lo)
+
+        names = self.parameter_names()
+        if len(param_arrays) == 1 and hasattr(param_arrays[0], "arrays_in_order"):
+            bundle = param_arrays[0]
+            param_arrays = bundle.arrays_in_order()
+        if len(param_arrays) != len(names):
+            raise ValueError(f"{type(self).__name__}: expected {len(names)} param arrays but got {len(param_arrays)}")
+
+        phys_arrays: list[np.ndarray] = []
+        for name, u_arr in zip(names, param_arrays, strict=True):
+            lo, hi = self.param_bounds_phys[name]
+            u = np.asarray(u_arr, dtype=FLOAT_DTYPE)
+            v = lo + u * (hi - lo)
+            if np.any(v < lo - self._BOUND_TOL) or np.any(v > hi + self._BOUND_TOL):
+                raise ValueError(f"Parameter {name} has values outside bounds {(lo, hi)}")
+            phys_arrays.append(np.clip(v, lo, hi).astype(FLOAT_DTYPE, copy=False))
+
+        return self.inner.compute_vectorized(x_phys, *phys_arrays)
 
     def parameter_names(self) -> list[str]:
         return self.inner.parameter_names()

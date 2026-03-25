@@ -6,33 +6,81 @@ with BeliefSignal and incremental Bayesian updates.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from nvision.models.locator import Locator
 from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.signal.dtypes import FLOAT_DTYPE
 from nvision.signal.grid_belief import GridBeliefDistribution, GridParameter
-from nvision.signal.signal import SignalModel
+from nvision.signal.signal import ParamSpec, SignalModel
 
 
-class BlackBoxSignalModel(SignalModel):
+@dataclass(frozen=True)
+class _BlackBoxParams:
+    peak_x: float
+
+
+@dataclass(frozen=True)
+class _BlackBoxSampleParams:
+    peak_x: np.ndarray
+
+
+@dataclass(frozen=True)
+class _BlackBoxUncertaintyParams:
+    peak_x: float
+
+
+class _BlackBoxSpec(ParamSpec[_BlackBoxParams, _BlackBoxSampleParams, _BlackBoxUncertaintyParams]):
+    @property
+    def names(self) -> tuple[str, ...]:
+        return ("peak_x",)
+
+    @property
+    def dim(self) -> int:
+        return 1
+
+    def unpack_params(self, values) -> _BlackBoxParams:
+        (v,) = values
+        return _BlackBoxParams(float(v))
+
+    def pack_params(self, params: _BlackBoxParams) -> tuple[float, ...]:
+        return (float(params.peak_x),)
+
+    def unpack_uncertainty(self, values) -> _BlackBoxUncertaintyParams:
+        (v,) = values
+        return _BlackBoxUncertaintyParams(float(v))
+
+    def pack_uncertainty(self, u: _BlackBoxUncertaintyParams) -> tuple[float, ...]:
+        return (float(u.peak_x),)
+
+    def unpack_samples(self, arrays_in_order) -> _BlackBoxSampleParams:
+        (px,) = arrays_in_order
+        return _BlackBoxSampleParams(peak_x=np.asarray(px, dtype=FLOAT_DTYPE))
+
+    def pack_samples(self, samples: _BlackBoxSampleParams) -> tuple[np.ndarray, ...]:
+        return (np.asarray(samples.peak_x, dtype=FLOAT_DTYPE),)
+
+
+class BlackBoxSignalModel(SignalModel[_BlackBoxParams, _BlackBoxSampleParams, _BlackBoxUncertaintyParams]):
     """Signal model that treats parameters as a single peak position.
 
     Used for simple sweep locators that only estimate peak location.
     """
 
-    @staticmethod
-    def eval_black_box_signal_model(x: float, peak_x: float) -> float:
-        """Placeholder (sweep measures hardware); order matches :meth:`parameter_names`."""
+    _SPEC = _BlackBoxSpec()
+
+    @property
+    def spec(self) -> _BlackBoxSpec:
+        return self._SPEC
+
+    def compute(self, x: float, params: _BlackBoxParams) -> float:
         return 0.0
 
-    def compute(self, x: float, params: list) -> float:
-        """Not used for black-box sweep — signal is measured, not computed."""
-        v = self._param_floats_canonical(params)
-        return self.eval_black_box_signal_model(x, v[0])
-
-    def parameter_names(self) -> list[str]:
-        """Return single parameter: peak position."""
-        return ["peak_x"]
+    def compute_vectorized_samples(self, x: float, samples: _BlackBoxSampleParams) -> np.ndarray:
+        # Not used by observe() path; exists for compatibility.
+        return np.zeros_like(samples.peak_x, dtype=FLOAT_DTYPE)
 
 
 class SimpleSweepLocator(Locator):

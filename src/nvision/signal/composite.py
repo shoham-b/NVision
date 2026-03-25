@@ -1,58 +1,112 @@
-"""Composite peak model combining multiple independent signal signal."""
+"""Composite peak model combining multiple independent signals (typed params)."""
 
 from __future__ import annotations
 
-from nvision.signal.signal import Parameter, SignalModel
+from dataclasses import dataclass
+
+import numpy as np
+
+from nvision.signal.dtypes import FLOAT_DTYPE
+from nvision.signal.signal import ParamSpec, SignalModel
 
 
-class CompositePeakModel(SignalModel):
-    """Multiple independent peaks summed together.
+@dataclass(frozen=True)
+class CompositeParams:
+    peaks: tuple[object, ...]
 
-    There is no single ``eval_*`` for the full prefixed parameter vector; use
-    :meth:`compute` or evaluate each inner peak model's ``eval_*`` separately.
 
-    Combines multiple peak signal into a composite signal.
-    Parameters are organized as: [peak1_params..., peak2_params..., ...]
-    with prefixes like "peak1_", "peak2_" to distinguish them.
-    """
+@dataclass(frozen=True)
+class CompositeSampleParams:
+    peaks: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class CompositeUncertaintyParams:
+    peaks: tuple[object, ...]
+
+
+class _CompositeSpec(ParamSpec[CompositeParams, CompositeSampleParams, CompositeUncertaintyParams]):
+    def __init__(self, peak_models: tuple[tuple[str, SignalModel], ...]) -> None:
+        self._peak_models = peak_models
+        self._models = tuple(m for _, m in peak_models)
+        self._prefixes = tuple(prefix for prefix, _ in peak_models)
+        self._dims = tuple(int(m.spec.dim) for m in self._models)
+        self._names = tuple(
+            f"{prefix}_{name}" for prefix, m in zip(self._prefixes, self._models, strict=True) for name in m.spec.names
+        )
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return self._names
+
+    @property
+    def dim(self) -> int:
+        return int(sum(self._dims))
+
+    def unpack_params(self, values) -> CompositeParams:
+        peaks: list[object] = []
+        off = 0
+        for m, d in zip(self._models, self._dims, strict=True):
+            peaks.append(m.spec.unpack_params(values[off : off + d]))
+            off += d
+        return CompositeParams(peaks=tuple(peaks))
+
+    def pack_params(self, params: CompositeParams) -> tuple[float, ...]:
+        out: list[float] = []
+        for m, p in zip(self._models, params.peaks, strict=True):
+            out.extend(m.spec.pack_params(p))
+        return tuple(out)
+
+    def unpack_uncertainty(self, values) -> CompositeUncertaintyParams:
+        peaks: list[object] = []
+        off = 0
+        for m, d in zip(self._models, self._dims, strict=True):
+            peaks.append(m.spec.unpack_uncertainty(values[off : off + d]))
+            off += d
+        return CompositeUncertaintyParams(peaks=tuple(peaks))
+
+    def pack_uncertainty(self, u: CompositeUncertaintyParams) -> tuple[float, ...]:
+        out: list[float] = []
+        for m, pu in zip(self._models, u.peaks, strict=True):
+            out.extend(m.spec.pack_uncertainty(pu))
+        return tuple(out)
+
+    def unpack_samples(self, arrays_in_order) -> CompositeSampleParams:
+        peaks: list[object] = []
+        off = 0
+        for m, d in zip(self._models, self._dims, strict=True):
+            peaks.append(m.spec.unpack_samples(arrays_in_order[off : off + d]))
+            off += d
+        return CompositeSampleParams(peaks=tuple(peaks))
+
+    def pack_samples(self, samples: CompositeSampleParams) -> tuple[np.ndarray, ...]:
+        out: list[np.ndarray] = []
+        for m, s in zip(self._models, samples.peaks, strict=True):
+            out.extend(m.spec.pack_samples(s))
+        return tuple(out)
+
+
+class CompositePeakModel(SignalModel[CompositeParams, CompositeSampleParams, CompositeUncertaintyParams]):
+    """Sum of multiple independent peak models with nested parameter bundles."""
 
     def __init__(self, peak_models: list[tuple[str, SignalModel]]):
-        """Initialize composite model.
+        self.peak_models = tuple(peak_models)
+        self._spec = _CompositeSpec(self.peak_models)
 
-        Parameters
-        ----------
-        peak_models : list[tuple[str, SignalModel]]
-            List of (prefix, model) pairs. Prefix is used to namespace parameters.
-            Example: [("peak1", LorentzianModel()), ("peak2", GaussianModel())]
-        """
-        self.peak_models = peak_models
+    @property
+    def spec(self) -> _CompositeSpec:
+        return self._spec
 
-    def compute(self, x: float, params: list[Parameter]) -> float:
+    def compute(self, x: float, params: CompositeParams) -> float:
         total = 0.0
-        for prefix, model in self.peak_models:
-            peak_params = [p for p in params if p.name.startswith(f"{prefix}_")]
-            unprefixed_params = [
-                Parameter(
-                    name=p.name[len(prefix) + 1 :],
-                    bounds=p.bounds,
-                    value=p.value,
-                )
-                for p in peak_params
-            ]
-            total += model.compute(x, unprefixed_params)
-        return total
+        for (_, model), p in zip(self.peak_models, params.peaks, strict=True):
+            total += float(model.compute(float(x), p))
+        return float(total)
 
-    def parameter_names(self) -> list[str]:
-        """Return flattened parameter names with prefixes.
-
-        Returns
-        -------
-        list[str]
-            ["peak1_frequency", "peak1_amplitude", ...,
-             "peak2_frequency", "peak2_amplitude", ...]
-        """
-        names = []
-        for prefix, model in self.peak_models:
-            for param_name in model.parameter_names():
-                names.append(f"{prefix}_{param_name}")
-        return names
+    def compute_vectorized_samples(self, x: float, samples: CompositeSampleParams) -> np.ndarray:
+        out = None
+        for m, s in zip(self.peak_models, samples.peaks, strict=True):
+            _, model = m
+            pred = model.compute_vectorized(float(x), s)
+            out = pred if out is None else (out + pred)
+        return out if out is not None else np.empty(0, dtype=FLOAT_DTYPE)

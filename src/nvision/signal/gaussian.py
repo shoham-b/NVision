@@ -2,14 +2,82 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+import numpy as np
+
+from nvision.signal.dtypes import FLOAT_DTYPE
 from nvision.signal.numba_kernels import gaussian_peak_value
-from nvision.signal.signal import SignalModel
+from nvision.signal.signal import ParamSpec, SignalModel
 
 
-class GaussianModel(SignalModel):
+@dataclass(frozen=True)
+class GaussianParams:
+    frequency: float
+    sigma: float
+    amplitude: float
+    background: float
+
+
+@dataclass(frozen=True)
+class GaussianSampleParams:
+    frequency: np.ndarray
+    sigma: np.ndarray
+    amplitude: np.ndarray
+    background: np.ndarray
+
+
+@dataclass(frozen=True)
+class GaussianUncertaintyParams:
+    frequency: float
+    sigma: float
+    amplitude: float
+    background: float
+
+
+class _GaussianSpec(ParamSpec[GaussianParams, GaussianSampleParams, GaussianUncertaintyParams]):
+    @property
+    def names(self) -> tuple[str, ...]:
+        return ("frequency", "sigma", "amplitude", "background")
+
+    @property
+    def dim(self) -> int:
+        return 4
+
+    def unpack_params(self, values) -> GaussianParams:
+        f, s, a, b = values
+        return GaussianParams(float(f), float(s), float(a), float(b))
+
+    def pack_params(self, params: GaussianParams) -> tuple[float, ...]:
+        return (float(params.frequency), float(params.sigma), float(params.amplitude), float(params.background))
+
+    def unpack_uncertainty(self, values) -> GaussianUncertaintyParams:
+        f, s, a, b = values
+        return GaussianUncertaintyParams(float(f), float(s), float(a), float(b))
+
+    def pack_uncertainty(self, u: GaussianUncertaintyParams) -> tuple[float, ...]:
+        return (float(u.frequency), float(u.sigma), float(u.amplitude), float(u.background))
+
+    def unpack_samples(self, arrays_in_order) -> GaussianSampleParams:
+        f, s, a, b = arrays_in_order
+        return GaussianSampleParams(
+            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
+            sigma=np.asarray(s, dtype=FLOAT_DTYPE),
+            amplitude=np.asarray(a, dtype=FLOAT_DTYPE),
+            background=np.asarray(b, dtype=FLOAT_DTYPE),
+        )
+
+    def pack_samples(self, samples: GaussianSampleParams) -> tuple[np.ndarray, ...]:
+        return (
+            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
+            np.asarray(samples.sigma, dtype=FLOAT_DTYPE),
+            np.asarray(samples.amplitude, dtype=FLOAT_DTYPE),
+            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+        )
+
+
+class GaussianModel(SignalModel[GaussianParams, GaussianSampleParams, GaussianUncertaintyParams]):
     """Single Gaussian peak model.
-
-    Prefer :meth:`eval_gaussian_model` when arguments are already floats.
 
     Signal form:
         f(x) = background + amplitude * exp(-0.5 * ((x - frequency) / sigma)^2)
@@ -26,20 +94,28 @@ class GaussianModel(SignalModel):
         Background level
     """
 
-    @staticmethod
-    def eval_gaussian_model(
-        x: float,
-        frequency: float,
-        sigma: float,
-        amplitude: float,
-        background: float,
-    ) -> float:
-        """Evaluate Gaussian peak; parameter order matches :meth:`parameter_names`."""
-        return gaussian_peak_value(float(x), frequency, sigma, amplitude, background)
+    _SPEC = _GaussianSpec()
 
-    def compute(self, x: float, params: list) -> float:
-        v = self._param_floats_canonical(params)
-        return self.eval_gaussian_model(float(x), *v)
+    @property
+    def spec(self) -> _GaussianSpec:
+        return self._SPEC
 
-    def parameter_names(self) -> list[str]:
-        return ["frequency", "sigma", "amplitude", "background"]
+    def compute(self, x: float, params: GaussianParams) -> float:
+        return float(
+            gaussian_peak_value(
+                x,
+                params.frequency,
+                params.sigma,
+                params.amplitude,
+                params.background,
+            )
+        )
+
+    def compute_vectorized_samples(self, x: float, samples: GaussianSampleParams) -> np.ndarray:
+        x_f = float(x)
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        sig = np.asarray(samples.sigma, dtype=FLOAT_DTYPE)
+        amp = np.asarray(samples.amplitude, dtype=FLOAT_DTYPE)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
+        z = (x_f - freq) / sig
+        return (bg + amp * np.exp(-0.5 * z * z)).astype(FLOAT_DTYPE, copy=False)
