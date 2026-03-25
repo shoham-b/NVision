@@ -83,4 +83,5 @@ class UnitCubeSMCBeliefDistribution(SMCBeliefDistribution):
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
+        dist._init_param_scratch()
         return dist

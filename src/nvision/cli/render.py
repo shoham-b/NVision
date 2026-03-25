@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import logging
 import multiprocessing
 from pathlib import Path
@@ -18,7 +17,14 @@ from nvision.cli.main import app
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner.cache import restore_graphs
 from nvision.sim.combinations import CombinationGrid
-from nvision.tools.paths import ARTIFACTS_ROOT, ensure_out_dir
+from nvision.tools.artifacts import (
+    ensure_plot_manifest_non_empty,
+    prepare_artifact_tree,
+    relativize_summary_plot_paths,
+    write_locator_results_csv,
+    write_plots_manifest,
+)
+from nvision.tools.paths import ARTIFACTS_ROOT
 from nvision.tools.utils import NVISION_RNG_SEED
 from nvision.viz import Viz
 from nvision.viz.measurements import backfill_scan_plot_data_if_missing
@@ -197,22 +203,12 @@ def render(
     logging.getLogger("nvision").setLevel(log_level_value)
 
     out_dir: Path = out
-    ensure_out_dir(out_dir)
-
-    cache_dir = out_dir / "cache"
-    ensure_out_dir(cache_dir)
-
-    graphs_dir = out_dir / "graphs"
-    ensure_out_dir(graphs_dir)
-    scans_dir = graphs_dir / "scans"
-    ensure_out_dir(scans_dir)
-    bayes_dir = graphs_dir / "bayes"
-    ensure_out_dir(bayes_dir)
+    tree = prepare_artifact_tree(out_dir)
 
     log.info("Starting report generation from cache...")
 
     grid = CombinationGrid()
-    bridge = CacheBridge(cache_dir)
+    bridge = CacheBridge(tree.cache_dir)
     plot_manifest: list[dict[str, object]] = []
     df_rows: list[dict] = []
 
@@ -242,15 +238,13 @@ def render(
         log.warning("No results found in cache. The report will be empty.")
 
     df_loc = pl.DataFrame(df_rows)
-    out_path = out_dir / "locator_results.csv"
-    df_loc.write_csv(out_path.as_posix())
+    out_path = write_locator_results_csv(df_loc, out_dir)
     log.info(f"Wrote locator results to: {out_path}")
 
-    viz = Viz(graphs_dir)
+    viz = Viz(tree.graphs_dir)
     try:
         summary_plots_meta = viz.plot_locator_summary(df_loc) or []
-        for meta in summary_plots_meta:
-            meta["path"] = Path(meta["path"]).relative_to(out_dir).as_posix()
+        relativize_summary_plot_paths(summary_plots_meta, out_dir)
         plot_manifest.extend(summary_plots_meta)
         log.info(f"Saved {len(summary_plots_meta)} summary plots")
     except Exception as exc:
@@ -258,28 +252,8 @@ def render(
 
     _postprocess_manifest_entries(plot_manifest, out_dir)
 
-    if not plot_manifest:
-        log.warning("No plots were generated. Adding a dummy entry to manifest.")
-        plot_manifest.append(
-            {
-                "type": "scan",
-                "generator": "Dummy-Generator",
-                "noise": "None",
-                "strategy": "Dummy-Strategy",
-                "repeat": 1,
-                "repeat_total": 1,
-                "stop_reason": "no_data",
-                "abs_err_x": None,
-                "uncert": None,
-                "measurements": 0,
-                "duration_ms": 0,
-                "metrics": {},
-                "path": "",  # Empty path, so iframe will be empty
-            }
-        )
-
-    manifest_path = out_dir / "plots_manifest.json"
-    manifest_path.write_text(json.dumps(plot_manifest, indent=2), encoding="utf-8")
+    ensure_plot_manifest_non_empty(plot_manifest, log)
+    write_plots_manifest(plot_manifest, out_dir)
 
     try:
         ui_entrypoint = prepare_static_ui_data(out_dir)

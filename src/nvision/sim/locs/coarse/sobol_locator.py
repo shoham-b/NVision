@@ -18,8 +18,13 @@ from nvision.signal.signal import SignalModel
 class BlackBoxSignalModel(SignalModel):
     """Signal model placeholder for Sobol search (we only measure)."""
 
-    def compute(self, x: float, params: list) -> float:  # pragma: no cover - not used
+    @staticmethod
+    def eval_black_box_signal_model(x: float, peak_x: float) -> float:
         return 0.0
+
+    def compute(self, x: float, params: list) -> float:  # pragma: no cover - not used
+        v = self._param_floats_canonical(params)
+        return self.eval_black_box_signal_model(x, v[0])
 
     def parameter_names(self) -> list[str]:
         return ["peak_x"]

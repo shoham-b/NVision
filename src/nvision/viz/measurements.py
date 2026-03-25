@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 import polars as pl
+from plotly.subplots import make_subplots
 
 from nvision.models.noise import CompositeOverFrequencyNoise
 from nvision.sim.batch import DataBatch
@@ -17,8 +18,6 @@ from nvision.tools.paths import ensure_out_dir
 
 def _make_scan_figure(has_metrics: bool) -> go.Figure:
     if has_metrics:
-        from plotly.subplots import make_subplots
-
         return make_subplots(
             rows=2,
             cols=1,

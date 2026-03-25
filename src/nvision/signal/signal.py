@@ -52,13 +52,37 @@ class Parameter:
 class SignalModel(ABC):
     """Abstract signal model defining the shape of the signal.
 
-    Stateless. Knows how to compute the signal given any parameter values.
-    Shared between TrueSignal and BeliefSignal.
+    Stateless. Knows how to compute the signal given parameter values that match
+    **this** concrete type. Shared between :class:`TrueSignal` and beliefs.
+
+    **Substitutability:** Subclasses share the same method *names* and broad types,
+    but each expects a **different** parameter set (:meth:`parameter_names`). You
+    cannot drop in another ``SignalModel`` subclass in place of a specific one and
+    keep the same ``params`` list—callers must always pair a model instance with a
+    matching bundle of parameters. That coupling is not expressed in the type
+    system (a single ``list[Parameter]`` erases the per-model schema); it is a
+    deliberate tradeoff, not a claim of full Liskov substitutability on ``params``.
+
+    **Explicit evaluation:** Each concrete model should expose ``eval_<snake_case_class_name>``
+    (e.g. :meth:`~nvision.signal.gaussian.GaussianModel.eval_gaussian_model`) taking
+    probe ``x`` and **physical parameters as separate floats** in a documented order
+    matching :meth:`parameter_names`. Callers that know the model type should call
+    that method directly. :meth:`compute` stays the polymorphic entry for beliefs,
+    :class:`TrueSignal`, and :class:`~nvision.signal.composite.CompositePeakModel`.
     """
 
     @abstractmethod
     def compute(self, x: float, params: list[Parameter]) -> float:
         """Compute signal value at position x given parameters.
+
+        ``params`` must include exactly the names returned by :meth:`parameter_names`
+        for **this** instance. Pass them in that same order to avoid a dict lookup in
+        :meth:`_param_floats_canonical` (used by hot ``compute`` implementations).
+
+        **Contract:** Use ``params`` only while this method runs—read ``value`` /
+        ``name`` / ``bounds``, do not retain ``params`` or elements and assume
+        their values stay fixed. Callers (e.g. SMC, unit-cube wrappers) may reuse
+        the same ``Parameter`` instances and assign ``.value`` between calls.
 
         Parameters
         ----------
@@ -103,6 +127,31 @@ class SignalModel(ABC):
     def _params_to_dict(self, params: list[Parameter]) -> dict[str, float]:
         """Convert parameter list to dict for easier access."""
         return {p.name: p.value for p in params}
+
+    def _param_floats_canonical(self, params: list[Parameter]) -> tuple[float, ...]:
+        """Parameter values in :meth:`parameter_names` order.
+
+        If ``params`` is already in that order (typical for unit-cube wrappers, SMC
+        scratch, and SBED sample lists), no dict is allocated. Otherwise falls back
+        to a name lookup dict once per call.
+        """
+        names = self.parameter_names()
+        n = len(names)
+        if len(params) != n:
+            msg = f"{type(self).__name__}: expected {n} parameters, got {len(params)}"
+            raise ValueError(msg)
+        if n == 0:
+            return ()
+        if all(params[i].name == names[i] for i in range(n)):
+            return tuple(float(params[i].value) for i in range(n))
+        by_name = {p.name: float(p.value) for p in params}
+        vals: list[float] = []
+        for ni in names:
+            if ni not in by_name:
+                have = set(by_name)
+                raise ValueError(f"{type(self).__name__}: missing parameter {ni!r}; have {have}, need {set(names)}")
+            vals.append(by_name[ni])
+        return tuple(vals)
 
 
 @dataclass

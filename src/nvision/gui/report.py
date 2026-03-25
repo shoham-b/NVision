@@ -5,12 +5,14 @@ import json
 from pathlib import Path
 from typing import Final
 
+from nvision.tools.artifacts import plots_manifest_path
+
 _STATIC_DIR: Final = Path(__file__).parents[3] / "static"
 _STATIC_INDEX_PATH: Final = _STATIC_DIR / "index.html"
 
 
 def _read_manifest_json(out_dir: Path) -> str:
-    manifest_path = out_dir / "plots_manifest.json"
+    manifest_path = plots_manifest_path(out_dir)
     if not manifest_path.exists():
         return "[]"
     return manifest_path.read_text(encoding="utf-8") or "[]"

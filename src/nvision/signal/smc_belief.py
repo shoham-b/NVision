@@ -99,6 +99,18 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
     _param_names: list[str] = field(init=False, repr=False)
+    _param_scratch: list[Parameter] = field(init=False, repr=False)
+
+    def _init_param_scratch(self) -> None:
+        """One Parameter per dimension, reused across particles (same model, update .value only)."""
+        self._param_scratch = [
+            Parameter(
+                name=name,
+                bounds=self.parameter_bounds[name],
+                value=0.5 * (self.parameter_bounds[name][0] + self.parameter_bounds[name][1]),
+            )
+            for name in self._param_names
+        ]
 
     def __post_init__(self) -> None:
         self._param_names = self.model.parameter_names()
@@ -114,6 +126,7 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
             self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
         self._weights = np.ones(self.num_particles) / self.num_particles
+        self._init_param_scratch()
 
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
@@ -121,13 +134,11 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
         # 1. Compute likelihood for all particles
         likelihoods = np.zeros(self.num_particles)
 
-        # TODO: Vectorize this if the SignalModel supports it in the future
+        scratch = self._param_scratch
         for i in range(self.num_particles):
-            params = [
-                Parameter(name=name, bounds=self.parameter_bounds[name], value=self._particles[i, j])
-                for j, name in enumerate(self._param_names)
-            ]
-            predicted = self.model.compute(obs.x, params)
+            for j in range(len(self._param_names)):
+                scratch[j].value = self._particles[i, j]
+            predicted = self.model.compute(obs.x, scratch)
 
             # Adaptive noise based on current uncertainty (similar to grid)
             # In a rigorous SMC, this should ideally be a fixed measurement noise
@@ -208,6 +219,7 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
+        dist._init_param_scratch()
         return dist
 
     def get_param(self, name: str) -> Parameter:

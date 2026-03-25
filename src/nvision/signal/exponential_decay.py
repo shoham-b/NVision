@@ -23,12 +23,14 @@ class ExponentialDecayModel(SignalModel):
         Background level
     """
 
-    def compute(self, x: float, params: list) -> float:
-        p = self._params_to_dict(params)
-        decay_rate = p["decay_rate"]
-        amplitude = p["amplitude"]
-        background = p["background"]
+    @staticmethod
+    def eval_exponential_decay_model(x: float, decay_rate: float, amplitude: float, background: float) -> float:
+        """Evaluate decay; parameter order matches :meth:`parameter_names`."""
         return background + amplitude * np.exp(-x / max(decay_rate, 1e-12))
+
+    def compute(self, x: float, params: list) -> float:
+        v = self._param_floats_canonical(params)
+        return self.eval_exponential_decay_model(float(x), *v)
 
     def parameter_names(self) -> list[str]:
         return ["decay_rate", "amplitude", "background"]

@@ -20,11 +20,15 @@ class BlackBoxSignalModel(SignalModel):
     Used for simple sweep locators that only estimate peak location.
     """
 
+    @staticmethod
+    def eval_black_box_signal_model(x: float, peak_x: float) -> float:
+        """Placeholder (sweep measures hardware); order matches :meth:`parameter_names`."""
+        return 0.0
+
     def compute(self, x: float, params: list) -> float:
         """Not used for black-box sweep — signal is measured, not computed."""
-        # For sweep locators, we don't need to compute the signal
-        # We just measure it at each point
-        return 0.0
+        v = self._param_floats_canonical(params)
+        return self.eval_black_box_signal_model(x, v[0])
 
     def parameter_names(self) -> list[str]:
         """Return single parameter: peak position."""

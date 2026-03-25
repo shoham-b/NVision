@@ -160,10 +160,11 @@ class NVCenterCoreGenerator:
                 Parameter(name="amplitude", bounds=(0.0, max(1.0, base_amp * 2.0)), value=base_amp),
                 Parameter(name="background", bounds=(0.0, 1.0), value=0.0),
             ]
+            tv = tuple(p.value for p in temp_params)
             min_val = min(
-                model.compute(center_freq - split, temp_params),
-                model.compute(center_freq, temp_params),
-                model.compute(center_freq + split, temp_params),
+                NVCenterLorentzianModel.eval_nvcenter_lorentzian_model(center_freq - split, *tv),
+                NVCenterLorentzianModel.eval_nvcenter_lorentzian_model(center_freq, *tv),
+                NVCenterLorentzianModel.eval_nvcenter_lorentzian_model(center_freq + split, *tv),
             )
             amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
             amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, amplitude * 2.0)
@@ -191,10 +192,11 @@ class NVCenterCoreGenerator:
                 Parameter(name="amplitude", bounds=(0.0, max(1.0, base_amp * 2.0)), value=base_amp),
                 Parameter(name="background", bounds=(0.0, 1.0), value=0.0),
             ]
+            tv = tuple(p.value for p in temp_params)
             min_val = min(
-                model.compute(center_freq - split, temp_params),
-                model.compute(center_freq, temp_params),
-                model.compute(center_freq + split, temp_params),
+                model.eval_nvcenter_voigt_model(center_freq - split, *tv),
+                model.eval_nvcenter_voigt_model(center_freq, *tv),
+                model.eval_nvcenter_voigt_model(center_freq + split, *tv),
             )
             voigt_amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
             voigt_amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, voigt_amplitude * 2.0)
