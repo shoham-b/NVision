@@ -5,6 +5,7 @@ These signal implement the actual ODMR signal equations for NV centers in diamon
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -214,6 +215,32 @@ class NVCenterLorentzianModel(SignalModel):
             samples.k_np,
             samples.amplitude,
             samples.background,
+        )
+        return np.asarray(out, dtype=FLOAT_DTYPE)
+
+    def compute_vectorized_many(self, x_array: Sequence[float], samples: NVCenterLorentzianSampleParams) -> np.ndarray:
+        if not hasattr(samples, "frequency"):
+            # Accept raw arrays / sample containers via the generic base fallback.
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=np.float64)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        freq = np.asarray(samples.frequency, dtype=np.float64)
+        linewidth_arr = np.asarray(samples.linewidth, dtype=np.float64)
+        split_arr = np.asarray(samples.split, dtype=np.float64)
+        k_np_arr = np.asarray(samples.k_np, dtype=np.float64)
+        amp = np.asarray(samples.amplitude, dtype=np.float64)
+        bg = np.asarray(samples.background, dtype=np.float64)
+
+        x2d = xs[:, None]
+        denom_l = (x2d - (freq[None, :] - split_arr[None, :])) ** 2 + linewidth_arr[None, :] ** 2
+        denom_c = (x2d - freq[None, :]) ** 2 + linewidth_arr[None, :] ** 2
+        denom_r = (x2d - (freq[None, :] + split_arr[None, :])) ** 2 + linewidth_arr[None, :] ** 2
+        out = bg[None, :] - (
+            (amp[None, :] / k_np_arr[None, :]) / denom_l
+            + amp[None, :] / denom_c
+            + (amp[None, :] * k_np_arr[None, :]) / denom_r
         )
         return np.asarray(out, dtype=FLOAT_DTYPE)
 
@@ -483,3 +510,52 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         pred_nosplit = bg - combined_amp * profile_c
 
         return np.where(split_mask, pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)
+
+    def compute_vectorized_many(self, x_array: Sequence[float], samples: NVCenterVoigtSampleParams) -> np.ndarray:
+        if not hasattr(samples, "frequency"):
+            # Accept raw arrays / sample containers via the generic base fallback.
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=np.float64)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        freq = np.asarray(samples.frequency, dtype=np.float64)
+        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=np.float64)
+        fwhm_g = np.asarray(samples.fwhm_gauss, dtype=np.float64)
+        split = np.asarray(samples.split, dtype=np.float64)
+        k_np = np.asarray(samples.k_np, dtype=np.float64)
+        amp = np.asarray(samples.amplitude, dtype=np.float64)
+        bg = np.asarray(samples.background, dtype=np.float64)
+
+        sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
+        gamma = fwhm_l / 2
+        x2d = xs[:, None]
+
+        def profile_at(center: np.ndarray) -> np.ndarray:
+            center2d = center[None, :]
+            if self.wofz is not None:
+                z = ((x2d - center2d) + 1j * gamma[None, :]) / (sigma[None, :] * np.sqrt(2))
+                w = self.wofz(z)
+                return w.real / (sigma[None, :] * np.sqrt(2 * np.pi))
+            eta = (
+                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
+                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
+                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
+            )
+            lorentz = gamma[None, :] / ((x2d - center2d) ** 2 + gamma[None, :] ** 2)
+            gauss = np.exp(-0.5 * ((x2d - center2d) / sigma[None, :]) ** 2) / (sigma[None, :] * np.sqrt(2 * np.pi))
+            return eta[None, :] * lorentz + (1 - eta)[None, :] * gauss
+
+        profile_c = profile_at(freq)
+        split_mask = split < 1e-10
+        profile_l = profile_at(freq - split)
+        profile_r = profile_at(freq + split)
+
+        center_dip = amp[None, :] * profile_c
+        left_dip = (amp[None, :] / k_np[None, :]) * profile_l
+        right_dip = (amp[None, :] * k_np[None, :]) * profile_r
+        pred_split = bg[None, :] - (left_dip + center_dip + right_dip)
+
+        combined_amp = amp * (k_np + 1.0 + 1.0 / k_np)
+        pred_nosplit = bg[None, :] - combined_amp[None, :] * profile_c
+        return np.where(split_mask[None, :], pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)

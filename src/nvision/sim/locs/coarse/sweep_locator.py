@@ -15,6 +15,7 @@ from nvision.signal.abstract_belief import AbstractBeliefDistribution
 from nvision.signal.dtypes import FLOAT_DTYPE
 from nvision.signal.grid_belief import GridBeliefDistribution, GridParameter
 from nvision.signal.signal import ParamSpec, SignalModel
+from nvision.sim.locs.coarse.numba_kernels import gaussian_peak_posterior_update
 
 
 @dataclass(frozen=True)
@@ -200,17 +201,14 @@ class SimpleSweepLocator(Locator):
         # Use signal value as likelihood: higher signal = more likely peak location
         peak_param = self.belief.get_param("peak_x")
 
-        # Compute likelihood based on distance from observation point
-        # and signal strength
-        likelihoods = np.exp(-0.5 * ((peak_param.grid - obs.x) / 0.1) ** 2) * (
-            obs.signal_value + 1.0
-        )  # Shift to ensure positive
-
-        # Bayesian update
-        unnormalized = peak_param.posterior * (likelihoods + 1e-10)
-        total = unnormalized.sum()
+        updated_posterior, total = gaussian_peak_posterior_update(
+            peak_param.grid,
+            peak_param.posterior,
+            float(obs.x),
+            float(obs.signal_value),
+        )
         if total > 1e-10:
-            peak_param.posterior = unnormalized / total
+            peak_param.posterior = updated_posterior
             peak_param.value = peak_param.mean()
 
         # Store observation

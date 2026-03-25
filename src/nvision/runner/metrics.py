@@ -58,9 +58,12 @@ def generate_attempt_metrics(
             repeat_stop_reasons[attempt_idx_in_combo],
         )
 
-    duration_ms = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
-
     finalize_row = finalize_results.filter(pl.col("repeat_id") == attempt_idx_in_combo)
+    # Prefer per-repeat duration stored in `locator_results.csv` metadata (written by the executor).
+    # Fall back to the legacy `repeat_start_times` timing for backward compatibility.
+    duration_ms_value: float | None = None
+    if not finalize_row.is_empty() and "duration_ms" in finalize_row.columns:
+        duration_ms_value = float(finalize_row.get_column("duration_ms")[0])
     if finalize_row.is_empty() or current_history_df.is_empty():
         estimate: dict[str, float] = {"x_hat": math.nan, "uncert": math.inf}
         measurements = 0
@@ -72,7 +75,9 @@ def generate_attempt_metrics(
     attempt_metrics = _scan_attempt_metrics(_truth_positions(current_scan), estimate)
     metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
     metrics_serialized["measurements"] = _maybe_finite(measurements)
-    metrics_serialized["duration_ms"] = _maybe_finite(duration_ms)
+    if duration_ms_value is None:
+        duration_ms_value = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
+    metrics_serialized["duration_ms"] = _maybe_finite(duration_ms_value)
 
     main_result_row: dict[str, Any] = {
         "generator": gen_name,

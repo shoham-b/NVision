@@ -15,11 +15,10 @@ from rich.progress import (
     Progress,
     SpinnerColumn,
     TextColumn,
-    TimeRemainingColumn,
 )
 from rich.text import Text
 
-from nvision.cli.progress_columns import DotsColumn
+from nvision.cli.progress_columns import DotsColumn, EstimatedTimeRemainingColumn
 
 
 class MonitorLogHandler(logging.Handler):
@@ -70,7 +69,7 @@ class ProgressMonitor:
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
+            EstimatedTimeRemainingColumn(),
         )
 
         self.sub_progress = Progress(
