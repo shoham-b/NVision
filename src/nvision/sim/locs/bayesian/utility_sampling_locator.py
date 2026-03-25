@@ -7,7 +7,6 @@ from collections.abc import Callable, Mapping
 import numpy as np
 
 from nvision.signal.abstract_belief import AbstractBeliefDistribution
-from nvision.signal.signal import Parameter
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -76,22 +75,7 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         noise_var = self.noise_std**2
 
         for i, x_setting in enumerate(candidates):
-            y_samples = np.array(
-                [
-                    self.belief.model.compute(
-                        float(x_setting),
-                        [
-                            Parameter(
-                                name=p_name,
-                                bounds=self.belief.get_param(p_name).bounds,
-                                value=float(sampled[p_name][s]),
-                            )
-                            for p_name in sampled
-                        ],
-                    )
-                    for s in range(self.n_mc_samples)
-                ]
-            )
+            y_samples = self.belief.model.compute_vectorized(float(x_setting), sampled)
             utilities[i] = max(float(np.var(y_samples)) / noise_var / self.cost, 0.0)
 
         utilities += 1e-12

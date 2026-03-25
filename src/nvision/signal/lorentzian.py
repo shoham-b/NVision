@@ -3,16 +3,82 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 
+import numpy as np
+
+from nvision.signal.dtypes import FLOAT_DTYPE
 from nvision.signal.numba_kernels import lorentzian_peak_value
-from nvision.signal.signal import Parameter, SignalModel
+from nvision.signal.signal import ParamSpec, SignalModel
 
 
-class LorentzianModel(SignalModel):
+@dataclass(frozen=True)
+class LorentzianParams:
+    frequency: float
+    linewidth: float
+    amplitude: float
+    background: float
+
+
+@dataclass(frozen=True)
+class LorentzianSampleParams:
+    frequency: np.ndarray
+    linewidth: np.ndarray
+    amplitude: np.ndarray
+    background: np.ndarray
+
+
+@dataclass(frozen=True)
+class LorentzianUncertaintyParams:
+    frequency: float
+    linewidth: float
+    amplitude: float
+    background: float
+
+
+class _LorentzianSpec(ParamSpec[LorentzianParams, LorentzianSampleParams, LorentzianUncertaintyParams]):
+    @property
+    def names(self) -> tuple[str, ...]:
+        return ("frequency", "linewidth", "amplitude", "background")
+
+    @property
+    def dim(self) -> int:
+        return 4
+
+    def unpack_params(self, values) -> LorentzianParams:
+        f, w, a, b = values
+        return LorentzianParams(float(f), float(w), float(a), float(b))
+
+    def pack_params(self, params: LorentzianParams) -> tuple[float, ...]:
+        return (float(params.frequency), float(params.linewidth), float(params.amplitude), float(params.background))
+
+    def unpack_uncertainty(self, values) -> LorentzianUncertaintyParams:
+        f, w, a, b = values
+        return LorentzianUncertaintyParams(float(f), float(w), float(a), float(b))
+
+    def pack_uncertainty(self, u: LorentzianUncertaintyParams) -> tuple[float, ...]:
+        return (float(u.frequency), float(u.linewidth), float(u.amplitude), float(u.background))
+
+    def unpack_samples(self, arrays_in_order) -> LorentzianSampleParams:
+        f, w, a, b = arrays_in_order
+        return LorentzianSampleParams(
+            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
+            linewidth=np.asarray(w, dtype=FLOAT_DTYPE),
+            amplitude=np.asarray(a, dtype=FLOAT_DTYPE),
+            background=np.asarray(b, dtype=FLOAT_DTYPE),
+        )
+
+    def pack_samples(self, samples: LorentzianSampleParams) -> tuple[np.ndarray, ...]:
+        return (
+            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
+            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(samples.amplitude, dtype=FLOAT_DTYPE),
+            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+        )
+
+
+class LorentzianModel(SignalModel[LorentzianParams, LorentzianSampleParams, LorentzianUncertaintyParams]):
     """Single Lorentzian peak model.
-
-    Prefer :meth:`eval_lorentzian_model` when arguments are already floats;
-    :meth:`compute` adapts from ``list[Parameter]``.
 
     Signal form:
         f(x) = background - amplitude / ((x - frequency)^2 + linewidth^2)
@@ -33,34 +99,37 @@ class LorentzianModel(SignalModel):
         Baseline level (max signal)
     """
 
-    @staticmethod
-    def eval_lorentzian_model(
-        x: float,
-        frequency: float,
-        linewidth: float,
-        amplitude: float,
-        background: float,
-    ) -> float:
-        """Evaluate Lorentzian peak; parameter order matches :meth:`parameter_names`."""
-        return lorentzian_peak_value(float(x), frequency, linewidth, amplitude, background)
+    _SPEC = _LorentzianSpec()
 
-    def compute(self, x: float, params: list) -> float:
-        v = self._param_floats_canonical(params)
-        return self.eval_lorentzian_model(float(x), *v)
+    @property
+    def spec(self) -> _LorentzianSpec:
+        return self._SPEC
 
-    def parameter_names(self) -> list[str]:
-        return ["frequency", "linewidth", "amplitude", "background"]
+    def compute(self, x: float, params: LorentzianParams) -> float:
+        return float(
+            lorentzian_peak_value(
+                x,
+                params.frequency,
+                params.linewidth,
+                params.amplitude,
+                params.background,
+            )
+        )
 
-    def sample_params(self, rng: random.Random) -> list[Parameter]:
+    def compute_vectorized_samples(self, x: float, samples: LorentzianSampleParams) -> np.ndarray:
+        x_f = float(x)
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
+        amp = np.asarray(samples.amplitude, dtype=FLOAT_DTYPE)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
+        denom = (x_f - freq) * (x_f - freq) + lw * lw
+        return (bg - amp / denom).astype(FLOAT_DTYPE, copy=False)
+
+    def sample_params(self, rng: random.Random) -> LorentzianParams:
         """Sample parameters that keep the signal within [0, 1]."""
         frequency = rng.uniform(0.1, 0.9)
         linewidth = rng.uniform(0.03, 0.12)
         depth = rng.uniform(0.3, 0.85)
         amplitude = depth * linewidth**2
         background = 1.0
-        return [
-            Parameter(name="frequency", bounds=(0.0, 1.0), value=frequency),
-            Parameter(name="linewidth", bounds=(0.001, 0.5), value=linewidth),
-            Parameter(name="amplitude", bounds=(0.0, 0.05), value=amplitude),
-            Parameter(name="background", bounds=(0.5, 1.5), value=background),
-        ]
+        return LorentzianParams(frequency=frequency, linewidth=linewidth, amplitude=amplitude, background=background)

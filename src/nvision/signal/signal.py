@@ -1,202 +1,167 @@
-"""Signal model and parameter abstractions for Bayesian localization."""
+"""Signal model abstractions for Bayesian localization.
+
+This module supports the *new generic signal* interface (typed parameter bundles)
+while remaining compatible with the existing core simulation/belief machinery,
+which still passes around legacy :class:`~nvision.signal.signal.Parameter` objects.
+"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any, Protocol, TypeVar, runtime_checkable
+
+import numpy as np
+
+ParamsT = TypeVar("ParamsT")
+SampleParamsT = TypeVar("SampleParamsT")
+UncertaintyT = TypeVar("UncertaintyT")
 
 
-@dataclass
+@dataclass(slots=True)
 class Parameter:
-    """A parameter with a known value (ground truth or point estimate).
-
-    Base class for parameters. Represents a parameter with a single value
-    and no uncertainty. Used in TrueSignal for ground truth parameters.
-
-    Attributes
-    ----------
-    name : str
-        Parameter name (e.g., 'frequency', 'linewidth')
-    bounds : tuple[float, float]
-        (min, max) bounds for this parameter
-    value : float
-        Parameter value
-    """
+    """Legacy numeric parameter with bounds and current value."""
 
     name: str
     bounds: tuple[float, float]
     value: float
 
     def __post_init__(self) -> None:
-        """Validate parameter is within bounds."""
-        if not (self.bounds[0] <= self.value <= self.bounds[1]):
-            raise ValueError(f"Parameter {self.name} value {self.value} outside bounds {self.bounds}")
-
-    def mean(self) -> float:
-        """Get parameter value (for consistency with ParameterWithPosterior)."""
-        return self.value
-
-    def uncertainty(self) -> float:
-        """Get uncertainty (zero for known parameters)."""
-        return 0.0
-
-    def entropy(self) -> float:
-        """Get entropy (zero for known parameters)."""
-        return 0.0
-
-    def converged(self, threshold: float) -> bool:
-        """Check convergence (always True for known parameters)."""
-        return True
+        lo, hi = float(self.bounds[0]), float(self.bounds[1])
+        if hi <= lo:
+            raise ValueError(f"Invalid bounds for {self.name}: {(lo, hi)}")
+        self.bounds = (lo, hi)
+        self.value = float(self.value)
 
 
-class SignalModel(ABC):
-    """Abstract signal model defining the shape of the signal.
+@runtime_checkable
+class ParamSpec(Protocol[ParamsT, SampleParamsT, UncertaintyT]):
+    """Adapter that lets generic beliefs work with typed parameter bundles.
 
-    Stateless. Knows how to compute the signal given parameter values that match
-    **this** concrete type. Shared between :class:`TrueSignal` and beliefs.
-
-    **Substitutability:** Subclasses share the same method *names* and broad types,
-    but each expects a **different** parameter set (:meth:`parameter_names`). You
-    cannot drop in another ``SignalModel`` subclass in place of a specific one and
-    keep the same ``params`` list—callers must always pair a model instance with a
-    matching bundle of parameters. That coupling is not expressed in the type
-    system (a single ``list[Parameter]`` erases the per-model schema); it is a
-    deliberate tradeoff, not a claim of full Liskov substitutability on ``params``.
-
-    **Explicit evaluation:** Each concrete model should expose ``eval_<snake_case_class_name>``
-    (e.g. :meth:`~nvision.signal.gaussian.GaussianModel.eval_gaussian_model`) taking
-    probe ``x`` and **physical parameters as separate floats** in a documented order
-    matching :meth:`parameter_names`. Callers that know the model type should call
-    that method directly. :meth:`compute` stays the polymorphic entry for beliefs,
-    :class:`TrueSignal`, and :class:`~nvision.signal.composite.CompositePeakModel`.
+    Beliefs operate on numeric vectors / arrays; models operate on typed bundles.
+    This spec defines the mapping between those representations.
     """
 
+    @property
+    def names(self) -> tuple[str, ...]: ...
+
+    @property
+    def dim(self) -> int: ...
+
+    def unpack_params(self, values: Sequence[float]) -> ParamsT: ...
+    def pack_params(self, params: ParamsT) -> tuple[float, ...]: ...
+
+    def unpack_uncertainty(self, values: Sequence[float]) -> UncertaintyT: ...
+    def pack_uncertainty(self, u: UncertaintyT) -> tuple[float, ...]: ...
+
+    def unpack_samples(self, arrays_in_order: Sequence[np.ndarray]) -> SampleParamsT: ...
+    def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]: ...
+
+
+class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
+    """Abstract signal model with typed parameter bundles.
+
+    Concrete subclasses must implement:
+    - :meth:`compute` for scalar evaluation
+    - :meth:`compute_vectorized_samples` for vectorized evaluation over samples
+
+    This base class then provides compatibility wrappers:
+    - :meth:`parameter_names`
+    - :meth:`compute_from_params` (accepts either legacy ``list[Parameter]`` or a typed params bundle)
+    - :meth:`compute_vectorized` (accepts either belief samples or raw parameter arrays)
+    """
+
+    @property
     @abstractmethod
-    def compute(self, x: float, params: list[Parameter]) -> float:
-        """Compute signal value at position x given parameters.
+    def spec(self) -> ParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
+        """Mapping between numeric vectors and typed parameter bundles."""
 
-        ``params`` must include exactly the names returned by :meth:`parameter_names`
-        for **this** instance. Pass them in that same order to avoid a dict lookup in
-        :meth:`_param_floats_canonical` (used by hot ``compute`` implementations).
+    @abstractmethod
+    def compute(self, x: float, params: ParamsT) -> float:
+        """Scalar prediction at probe x."""
 
-        **Contract:** Use ``params`` only while this method runs—read ``value`` /
-        ``name`` / ``bounds``, do not retain ``params`` or elements and assume
-        their values stay fixed. Callers (e.g. SMC, unit-cube wrappers) may reuse
-        the same ``Parameter`` instances and assign ``.value`` between calls.
+    @abstractmethod
+    def compute_vectorized_samples(self, x: float, samples: SampleParamsT) -> np.ndarray:
+        """Vectorized prediction at one probe x over many parameter samples."""
 
-        Parameters
-        ----------
-        x : float
-            Position to evaluate signal
-        params : list[Parameter]
-            List of parameters
+    # --------------------------
+    # Compatibility / legacy API
+    # --------------------------
 
-        Returns
-        -------
-        float
-            Signal value at x
-        """
-        pass
+    def parameter_names(self) -> list[str]:
+        """Return parameter names in the order expected by beliefs/core generators."""
+
+        return list(self.spec.names)
 
     def gradient(self, x: float, params: list[Parameter]) -> dict[str, float] | None:
-        """Compute analytical gradient of the signal with respect to parameters.
+        """Optional analytical gradient support (defaults to None)."""
 
-        Optional. If implemented, allows locators to use mathematical derivations
-        like Fisher Information for variance and entropy.
-
-        Parameters
-        ----------
-        x : float
-            Position to evaluate signal
-        params : list[Parameter]
-            List of parameters
-
-        Returns
-        -------
-        dict[str, float] | None
-            Dictionary of partial derivatives {param_name: d_signal/d_param},
-            or None if gradients are not analytically available.
-        """
         return None
 
-    @abstractmethod
-    def parameter_names(self) -> list[str]:
-        """Return ordered list of parameter names this model expects."""
-        pass
+    def compute_from_params(self, x: float, params: ParamsT | list[Parameter]) -> float:
+        """Evaluate using either typed params or legacy ``list[Parameter]``."""
 
-    def _params_to_dict(self, params: list[Parameter]) -> dict[str, float]:
-        """Convert parameter list to dict for easier access."""
-        return {p.name: p.value for p in params}
+        x_f = float(x)
+        if isinstance(params, list):
+            if params and not isinstance(params[0], Parameter):
+                raise TypeError("params list must contain nvision.signal.signal.Parameter objects")
+            by_name: Mapping[str, float] = {p.name: float(p.value) for p in params}
+            values = [by_name[name] for name in self.parameter_names()]
+            typed = self.spec.unpack_params(values)
+            return float(self.compute(x_f, typed))
 
-    def _param_floats_canonical(self, params: list[Parameter]) -> tuple[float, ...]:
-        """Parameter values in :meth:`parameter_names` order.
+        # Assume typed bundle
+        return float(self.compute(x_f, params))
 
-        If ``params`` is already in that order (typical for unit-cube wrappers, SMC
-        scratch, and SBED sample lists), no dict is allocated. Otherwise falls back
-        to a name lookup dict once per call.
+    def compute_vectorized(self, x: float, *args: object) -> np.ndarray:
+        """Vectorized evaluation used by beliefs and acquisition locators.
+
+        Supported call shapes:
+        - ``model.compute_vectorized(x, *param_arrays)`` where each array corresponds
+          to a parameter in :meth:`parameter_names`.
+        - ``model.compute_vectorized(x, samples)`` where ``samples`` is a belief-sample
+          container providing ``arrays_in_order()`` (e.g. ``ParameterValues``).
+        - ``model.compute_vectorized(x, typed_samples)`` where ``typed_samples`` is the
+          model's native ``SampleParamsT`` bundle.
         """
-        names = self.parameter_names()
-        n = len(names)
-        if len(params) != n:
-            msg = f"{type(self).__name__}: expected {n} parameters, got {len(params)}"
-            raise ValueError(msg)
-        if n == 0:
-            return ()
-        if all(params[i].name == names[i] for i in range(n)):
-            return tuple(float(params[i].value) for i in range(n))
-        by_name = {p.name: float(p.value) for p in params}
-        vals: list[float] = []
-        for ni in names:
-            if ni not in by_name:
-                have = set(by_name)
-                raise ValueError(f"{type(self).__name__}: missing parameter {ni!r}; have {have}, need {set(names)}")
-            vals.append(by_name[ni])
-        return tuple(vals)
+
+        x_f = float(x)
+        if len(args) == 1:
+            s = args[0]
+            if hasattr(s, "arrays_in_order"):
+                arrays = s.arrays_in_order()
+                samples = self.spec.unpack_samples(arrays)
+                return self.compute_vectorized_samples(x_f, samples)
+            # Assume native typed sample bundle
+            return self.compute_vectorized_samples(x_f, s)  # type: ignore[arg-type]
+
+        # Treat args as raw parameter arrays in parameter_names order.
+        samples = self.spec.unpack_samples(args)  # type: ignore[arg-type]
+        return self.compute_vectorized_samples(x_f, samples)
 
 
 @dataclass
 class TrueSignal:
-    """Ground truth signal with fixed parameters.
+    """Ground truth signal used by the core simulation.
 
-    Only exists in simulation — in real hardware this is unknown.
-    Produces measurements via __call__.
-
-    Attributes
-    ----------
-    model : SignalModel
-        The signal model defining the shape
-    parameters : list[Parameter]
-        Exact parameter values, no uncertainty
+    The core architecture stores parameters as legacy :class:`Parameter` objects.
     """
 
-    model: SignalModel
+    model: SignalModel[Any, Any, Any]
     parameters: list[Parameter]
 
-    def __post_init__(self) -> None:
-        """Validate parameters match model."""
-        expected = set(self.model.parameter_names())
-        actual = {p.name for p in self.parameters}
-        if expected != actual:
-            raise ValueError(f"Parameters don't match model. Expected {expected}, got {actual}")
-
     def __call__(self, x: float) -> float:
-        """Evaluate true signal at position x.
+        return float(self.model.compute_from_params(float(x), self.parameters))
 
-        Parameters
-        ----------
-        x : float
-            Position to evaluate
+    @property
+    def params(self) -> list[Parameter]:
+        """Alias for backwards compatibility (new code uses ``parameters``)."""
 
-        Returns
-        -------
-        float
-            True signal value
-        """
-        return self.model.compute(x, self.parameters)
+        return self.parameters
 
     def get_param(self, name: str) -> Parameter:
-        """Get parameter by name."""
         for p in self.parameters:
             if p.name == name:
                 return p
-        raise KeyError(f"Parameter {name} not found")
+        raise KeyError(name)

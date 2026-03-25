@@ -9,7 +9,7 @@ from numba import float64
 from numba.experimental.jitclass import jitclass
 
 from nvision.models.observation import Observation
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
 from nvision.signal.signal import Parameter
 
 # --- Closed numeric core: 1D discrete PMF on a fixed grid (Numba jitclass) -----
@@ -141,26 +141,32 @@ class GridBeliefDistribution(AbstractBeliefDistribution):
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
 
-        for param_idx, param in enumerate(self.parameters):
-            other_params = [p if i != param_idx else None for i, p in enumerate(self.parameters)]
-            likelihoods = np.zeros_like(param.grid, dtype=np.float64)
+        param_names = self.model.parameter_names()
+        param_by_name = {p.name: p for p in self.parameters}
 
-            for i, val in enumerate(param.grid):
-                temp_params = [
-                    p if p is not None else Parameter(name=param.name, bounds=param.bounds, value=val)
-                    for p in other_params
-                ]
-                predicted = self.model.compute(obs.x, temp_params)
-                noise_std = max(0.01, param.uncertainty() * 0.1)
-                likelihoods[i] = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
+        for _param_idx, param in enumerate(self.parameters):
+            grid = np.asarray(param.grid, dtype=np.float64)
+            arrays_in_order: list[np.ndarray] = []
+            for name in param_names:
+                if name == param.name:
+                    arrays_in_order.append(grid)
+                else:
+                    other = param_by_name[name]
+                    arrays_in_order.append(np.full(grid.shape, float(other.value), dtype=np.float64))
+
+            predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
+            noise_std = max(0.01, param.uncertainty() * 0.1)
+            likelihoods = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
 
             param.apply_likelihood(likelihoods)
 
     def estimates(self) -> dict[str, float]:
         return {p.name: p.mean() for p in self.parameters}
 
-    def _empirical_uncertainty(self) -> dict[str, float]:
-        return {p.name: p.uncertainty() for p in self.parameters}
+    def _empirical_uncertainty(self) -> ParameterValues[float]:
+        param_names = self.model.parameter_names()
+        data = {p.name: p.uncertainty() for p in self.parameters}
+        return ParameterValues.from_mapping(param_names, data)
 
     def entropy(self) -> float:
         return sum(p.entropy() for p in self.parameters)
@@ -189,9 +195,11 @@ class GridBeliefDistribution(AbstractBeliefDistribution):
                 return p
         raise KeyError(f"Parameter {name} not found")
 
-    def sample(self, n: int) -> dict[str, np.ndarray]:
+    def sample(self, n: int) -> ParameterValues[np.ndarray]:
         """Sample independently from each marginal grid."""
-        return {p.name: p.grid[np.random.choice(len(p.grid), size=n, p=p.posterior)] for p in self.parameters}
+        param_names = self.model.parameter_names()
+        data = {p.name: p.grid[np.random.choice(len(p.grid), size=n, p=p.posterior)] for p in self.parameters}
+        return ParameterValues.from_mapping(param_names, data)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         """Interpolate the discrete posterior grid."""

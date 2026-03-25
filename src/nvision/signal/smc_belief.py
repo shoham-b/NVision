@@ -8,7 +8,7 @@ import numpy as np
 from numba import njit
 
 from nvision.models.observation import Observation
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
 from nvision.signal.signal import Parameter
 
 # --- Numba helpers (particle weights / resampling) ----------------------------
@@ -131,19 +131,14 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
 
-        # 1. Compute likelihood for all particles
-        likelihoods = np.zeros(self.num_particles)
+        # 1. Compute likelihood for all particles (vectorized model evaluation)
+        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
+        predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
-        scratch = self._param_scratch
-        for i in range(self.num_particles):
-            for j in range(len(self._param_names)):
-                scratch[j].value = self._particles[i, j]
-            predicted = self.model.compute(obs.x, scratch)
-
-            # Adaptive noise based on current uncertainty (similar to grid)
-            # In a rigorous SMC, this should ideally be a fixed measurement noise
-            noise_std = max(0.01, self._marginal_std(0) * 0.1)
-            likelihoods[i] = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
+        # Adaptive noise based on current uncertainty (similar to grid)
+        # In a rigorous SMC, this should ideally be a fixed measurement noise
+        noise_std = max(0.01, self._marginal_std(0) * 0.1)
+        likelihoods = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
 
         # 2. Update weights
         self._weights *= likelihoods
@@ -186,11 +181,11 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
         means = _weighted_mean_axis0(self._particles, self._weights)
         return {name: float(means[i]) for i, name in enumerate(self._param_names)}
 
-    def _empirical_uncertainty(self) -> dict[str, float]:
-        uncertainties = {}
+    def _empirical_uncertainty(self) -> ParameterValues[float]:
+        uncertainties: dict[str, float] = {}
         for i, name in enumerate(self._param_names):
             uncertainties[name] = self._marginal_std(i)
-        return uncertainties
+        return ParameterValues.from_mapping(self._param_names, uncertainties)
 
     def entropy(self) -> float:
         # Simple Kozachenko-Leonenko nearest-neighbor entropy estimator could go here.
@@ -230,10 +225,11 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
         mean_val, _ = _weighted_mean_variance_1d(self._particles[:, idx], self._weights)
         return Parameter(name=name, bounds=self.parameter_bounds[name], value=float(mean_val))
 
-    def sample(self, n: int) -> dict[str, np.ndarray]:
+    def sample(self, n: int) -> ParameterValues[np.ndarray]:
         indices = np.random.choice(self.num_particles, size=n, p=self._weights)
         samples = self._particles[indices]
-        return {name: samples[:, i] for i, name in enumerate(self._param_names)}
+        data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
+        return ParameterValues.from_mapping(self._param_names, data)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import gaussian_kde
