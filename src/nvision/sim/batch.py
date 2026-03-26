@@ -89,6 +89,14 @@ class OverFrequencyNoise(ABC):
     @abstractmethod
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch: ...
 
+    def noise_std(self) -> float:
+        """Return the known standard deviation of this noise model.
+
+        Subclasses should override to return a meaningful value.
+        Defaults to 0.0 so that composite models can sum contributions.
+        """
+        return 0.0
+
 
 class OverProbeNoise(ABC):
     """Base class for noise applied per-probe to a single signal value."""

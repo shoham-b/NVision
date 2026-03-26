@@ -91,8 +91,8 @@ class RunResult:
         list[float]
             Absolute error at each step
         """
-        true_param = self.true_signal.get_param(param)
-        return [abs(s.belief.estimates()[param] - true_param.value) for s in self.snapshots]
+        true_value = self.true_signal.get_param_value(param)
+        return [abs(s.belief.estimates()[param] - true_value) for s in self.snapshots]
 
     def entropy_trajectory(self) -> list[float]:
         """Get total entropy trajectory across all parameters.

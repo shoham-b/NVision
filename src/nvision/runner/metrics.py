@@ -18,7 +18,8 @@ log = logging.getLogger(__name__)
 
 def _truth_positions(experiment: CoreExperiment) -> list[float]:
     """Extract ground truth peak positions from a CoreExperiment."""
-    return [p.value for p in experiment.true_signal.parameters if "frequency" in p.name or "position" in p.name]
+    values = experiment.true_signal.parameter_values()
+    return [value for name, value in values.items() if "frequency" in name or "position" in name]
 
 
 def generate_attempt_metrics(

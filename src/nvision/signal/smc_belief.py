@@ -137,7 +137,7 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
 
         # Adaptive noise based on current uncertainty (similar to grid)
         # In a rigorous SMC, this should ideally be a fixed measurement noise
-        noise_std = max(0.01, self._marginal_std(0) * 0.1)
+        noise_std = obs.noise_std
         likelihoods = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
 
         # 2. Update weights

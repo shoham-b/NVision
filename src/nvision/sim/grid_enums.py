@@ -36,3 +36,13 @@ class GeneratorName(StrEnum):
     NVCENTER_ZEEMAN = "NVCenter-zeeman"
     NVCENTER_VOIGT_ONE_PEAK = "NVCenter-voigt_one_peak"
     NVCENTER_VOIGT_ZEEMAN = "NVCenter-voigt_zeeman"
+
+
+class NoiseName(StrEnum):
+    """Noise family names matched as prefixes against registered noise keys."""
+
+    NO_NOISE = "NoNoise"
+    GAUSS = "Gauss"
+    POISSON = "Poisson"
+    OVER_PROBE_DRIFT = "OverProbeDrift"
+    HEAVY = "Heavy"

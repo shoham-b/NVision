@@ -155,7 +155,7 @@ class GridBeliefDistribution(AbstractBeliefDistribution):
                     arrays_in_order.append(np.full(grid.shape, float(other.value), dtype=np.float64))
 
             predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
-            noise_std = max(0.01, param.uncertainty() * 0.1)
+            noise_std = obs.noise_std
             likelihoods = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
 
             param.apply_likelihood(likelihoods)

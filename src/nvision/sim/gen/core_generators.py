@@ -1,8 +1,4 @@
-"""Signal generators that produce TrueSignal directly.
-
-These generators create TrueSignal objects with proper SignalModel implementations
-and Parameter objects, integrating deeply with the core architecture.
-"""
+"""Signal generators that produce typed TrueSignal objects directly."""
 
 from __future__ import annotations
 
@@ -23,7 +19,12 @@ from nvision.signal import (
     NVCenterLorentzianModel,
     NVCenterVoigtModel,
 )
-from nvision.signal.signal import Parameter, TrueSignal
+from nvision.signal.composite import CompositeParams
+from nvision.signal.exponential_decay import ExponentialDecayParams
+from nvision.signal.gaussian import GaussianParams
+from nvision.signal.lorentzian import LorentzianParams
+from nvision.signal.nv_center import NVCenterLorentzianParams, NVCenterVoigtParams
+from nvision.signal.signal import TrueSignal
 
 
 def _lorentzian_amplitude_bounds(domain_width: float) -> tuple[float, float]:
@@ -40,6 +41,11 @@ def _lorentzian_amplitude_from_dip(rng: random.Random, linewidth: float, dip_lo:
     """Sample ``amplitude = dip_depth * linewidth²`` (see LorentzianModel docstring)."""
     dip = rng.uniform(dip_lo, dip_hi)
     return dip * linewidth**2
+
+
+def _true_signal_from_typed(model, typed_params, bounds: dict[str, tuple[float, float]]) -> TrueSignal:
+    """Create a backward-compatible TrueSignal from typed model params."""
+    return TrueSignal.from_typed(model=model, params=typed_params, bounds=bounds)
 
 
 @dataclass
@@ -80,26 +86,38 @@ class OnePeakCoreGenerator:
             background = 0.0
             amplitude = 1.0
             model = GaussianModel()
-            parameters = [
-                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=peak_pos),
-                Parameter(name="sigma", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                Parameter(name="amplitude", bounds=(0.0, 1.5), value=amplitude),
-                Parameter(name="background", bounds=(0.0, 0.5), value=background),
-            ]
+            typed_params = GaussianParams(
+                frequency=peak_pos,
+                sigma=peak_width,
+                amplitude=amplitude,
+                background=background,
+            )
+            bounds = {
+                "frequency": (self.x_min, self.x_max),
+                "sigma": (width * 0.01, width * 0.2),
+                "amplitude": (0.0, 1.5),
+                "background": (0.0, 0.5),
+            }
         else:  # lorentzian
             # Lorentzian is a dip from 1 to 0; dip depth = amplitude / linewidth²
             background = 1.0
             amp_hi = _lorentzian_amplitude_bounds(width)[1]
             amplitude = peak_width**2  # This enforces exactly a dip depth of 1.0
             model = LorentzianModel()
-            parameters = [
-                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=peak_pos),
-                Parameter(name="linewidth", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                Parameter(name="amplitude", bounds=(0.0, amp_hi), value=amplitude),
-                Parameter(name="background", bounds=(0.5, 1.2), value=background),
-            ]
+            typed_params = LorentzianParams(
+                frequency=peak_pos,
+                linewidth=peak_width,
+                amplitude=amplitude,
+                background=background,
+            )
+            bounds = {
+                "frequency": (self.x_min, self.x_max),
+                "linewidth": (width * 0.01, width * 0.2),
+                "amplitude": (0.0, amp_hi),
+                "background": (0.5, 1.2),
+            }
 
-        return TrueSignal(model=model, parameters=parameters)
+        return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 
 
 @dataclass
@@ -152,15 +170,15 @@ class NVCenterCoreGenerator:
         if self.variant == "lorentzian":
             model = NVCenterLorentzianModel()
             base_amp = linewidth**2
-            temp_params = [
-                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
-                Parameter(name="linewidth", bounds=(width * 0.001, width * 0.05), value=linewidth),
-                Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
-                Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
-                Parameter(name="amplitude", bounds=(0.0, max(1.0, base_amp * 2.0)), value=base_amp),
-                Parameter(name="background", bounds=(0.0, 1.0), value=0.0),
-            ]
-            tv = tuple(p.value for p in temp_params)
+            temp_params = NVCenterLorentzianParams(
+                frequency=center_freq,
+                linewidth=linewidth,
+                split=split,
+                k_np=k_np,
+                amplitude=base_amp,
+                background=0.0,
+            )
+            tv = model.spec.pack_params(temp_params)
             min_val = min(
                 NVCenterLorentzianModel.compute_nvcenter_lorentzian_model(center_freq - split, *tv),
                 NVCenterLorentzianModel.compute_nvcenter_lorentzian_model(center_freq, *tv),
@@ -169,30 +187,38 @@ class NVCenterCoreGenerator:
             amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
             amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, amplitude * 2.0)
 
-            parameters = [
-                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
-                Parameter(name="linewidth", bounds=(width * 0.001, width * 0.05), value=linewidth),
-                Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
-                Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
-                Parameter(name="amplitude", bounds=(0.0, amp_hi), value=amplitude),
-                Parameter(name="background", bounds=(0.95, 1.05), value=background),
-            ]
+            typed_params = NVCenterLorentzianParams(
+                frequency=center_freq,
+                linewidth=linewidth,
+                split=split,
+                k_np=k_np,
+                amplitude=amplitude,
+                background=background,
+            )
+            bounds = {
+                "frequency": (self.x_min, self.x_max),
+                "linewidth": (width * 0.001, width * 0.05),
+                "split": (0.0, width * 0.5),
+                "k_np": (MIN_K_NP, MAX_K_NP),
+                "amplitude": (0.0, amp_hi),
+                "background": (0.95, 1.05),
+            }
         else:  # voigt
             fwhm_lorentz = 2 * linewidth
             fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)
 
             model = NVCenterVoigtModel()
             base_amp = linewidth**2
-            temp_params = [
-                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
-                Parameter(name="fwhm_lorentz", bounds=(width * 0.001, width * 0.1), value=fwhm_lorentz),
-                Parameter(name="fwhm_gauss", bounds=(width * 0.0001, width * 0.05), value=fwhm_gauss),
-                Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
-                Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
-                Parameter(name="amplitude", bounds=(0.0, max(1.0, base_amp * 2.0)), value=base_amp),
-                Parameter(name="background", bounds=(0.0, 1.0), value=0.0),
-            ]
-            tv = tuple(p.value for p in temp_params)
+            temp_params = NVCenterVoigtParams(
+                frequency=center_freq,
+                fwhm_lorentz=fwhm_lorentz,
+                fwhm_gauss=fwhm_gauss,
+                split=split,
+                k_np=k_np,
+                amplitude=base_amp,
+                background=0.0,
+            )
+            tv = model.spec.pack_params(temp_params)
             min_val = min(
                 model.compute_nvcenter_voigt_model(center_freq - split, *tv),
                 model.compute_nvcenter_voigt_model(center_freq, *tv),
@@ -201,17 +227,26 @@ class NVCenterCoreGenerator:
             voigt_amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
             voigt_amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, voigt_amplitude * 2.0)
 
-            parameters = [
-                Parameter(name="frequency", bounds=(self.x_min, self.x_max), value=center_freq),
-                Parameter(name="fwhm_lorentz", bounds=(width * 0.001, width * 0.1), value=fwhm_lorentz),
-                Parameter(name="fwhm_gauss", bounds=(width * 0.0001, width * 0.05), value=fwhm_gauss),
-                Parameter(name="split", bounds=(0.0, width * 0.5), value=split),
-                Parameter(name="k_np", bounds=(MIN_K_NP, MAX_K_NP), value=k_np),
-                Parameter(name="amplitude", bounds=(0.0, voigt_amp_hi), value=voigt_amplitude),
-                Parameter(name="background", bounds=(0.95, 1.05), value=background),
-            ]
+            typed_params = NVCenterVoigtParams(
+                frequency=center_freq,
+                fwhm_lorentz=fwhm_lorentz,
+                fwhm_gauss=fwhm_gauss,
+                split=split,
+                k_np=k_np,
+                amplitude=voigt_amplitude,
+                background=background,
+            )
+            bounds = {
+                "frequency": (self.x_min, self.x_max),
+                "fwhm_lorentz": (width * 0.001, width * 0.1),
+                "fwhm_gauss": (width * 0.0001, width * 0.05),
+                "split": (0.0, width * 0.5),
+                "k_np": (MIN_K_NP, MAX_K_NP),
+                "amplitude": (0.0, voigt_amp_hi),
+                "background": (0.95, 1.05),
+            }
 
-        return TrueSignal(model=model, parameters=parameters)
+        return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 
 
 @dataclass
@@ -258,29 +293,17 @@ class TwoPeakCoreGenerator:
         # Create signal for each peak
         if self.peak_type_left == "gaussian":
             model1 = GaussianModel()
-            param_names1 = ["frequency", "sigma", "amplitude", "background"]
-            widths1 = [peak1_width]
         elif self.peak_type_left == "lorentzian":
             model1 = LorentzianModel()
-            param_names1 = ["frequency", "linewidth", "amplitude", "background"]
-            widths1 = [peak1_width]
         else:  # exponential
             model1 = ExponentialDecayModel()
-            param_names1 = ["decay_rate", "amplitude", "background"]
-            widths1 = []
 
         if self.peak_type_right == "gaussian":
             model2 = GaussianModel()
-            param_names2 = ["frequency", "sigma", "amplitude", "background"]
-            widths2 = [peak2_width]
         elif self.peak_type_right == "lorentzian":
             model2 = LorentzianModel()
-            param_names2 = ["frequency", "linewidth", "amplitude", "background"]
-            widths2 = [peak2_width]
         else:  # exponential
             model2 = ExponentialDecayModel()
-            param_names2 = ["decay_rate", "amplitude", "background"]
-            widths2 = []
 
         # Create composite model
         composite_model = CompositePeakModel(
@@ -290,48 +313,45 @@ class TwoPeakCoreGenerator:
             ]
         )
 
-        # Build parameters for both peaks
-        parameters = []
+        if self.peak_type_left == "gaussian":
+            peak1_typed = GaussianParams(peak1_pos, peak1_width, peak1_amp, background / 2)
+            left_width_key = "peak1_sigma"
+        elif self.peak_type_left == "lorentzian":
+            peak1_typed = LorentzianParams(peak1_pos, peak1_width, peak1_amp, background / 2)
+            left_width_key = "peak1_linewidth"
+        else:
+            peak1_typed = ExponentialDecayParams(peak1_width * 5, peak1_amp, background / 2)
+            left_width_key = "peak1_decay_rate"
 
-        # Peak 1 parameters
-        parameters.append(Parameter(name="peak1_frequency", bounds=(self.x_min, self.x_max), value=peak1_pos))
-        if widths1:
-            parameters.append(
-                Parameter(
-                    name="peak1_sigma" if "sigma" in param_names1 else "peak1_linewidth",
-                    bounds=(width * 0.01, width * 0.2),
-                    value=peak1_width,
-                )
-            )
-        parameters.append(
-            Parameter(
-                name="peak1_amplitude",
-                bounds=(0.0, lorentz_amp_hi) if self.peak_type_left == "lorentzian" else (0.0, 1.5),
-                value=peak1_amp,
-            )
+        if self.peak_type_right == "gaussian":
+            peak2_typed = GaussianParams(peak2_pos, peak2_width, peak2_amp, background / 2)
+            right_width_key = "peak2_sigma"
+        elif self.peak_type_right == "lorentzian":
+            peak2_typed = LorentzianParams(peak2_pos, peak2_width, peak2_amp, background / 2)
+            right_width_key = "peak2_linewidth"
+        else:
+            peak2_typed = ExponentialDecayParams(peak2_width * 5, peak2_amp, background / 2)
+            right_width_key = "peak2_decay_rate"
+
+        left_width_bounds = (
+            (width * 0.1, width * 2.0) if left_width_key.endswith("decay_rate") else (width * 0.01, width * 0.2)
         )
-        parameters.append(Parameter(name="peak1_background", bounds=(0.0, 0.5), value=background / 2))
-
-        # Peak 2 parameters
-        parameters.append(Parameter(name="peak2_frequency", bounds=(self.x_min, self.x_max), value=peak2_pos))
-        if widths2:
-            parameters.append(
-                Parameter(
-                    name="peak2_sigma" if "sigma" in param_names2 else "peak2_linewidth",
-                    bounds=(width * 0.01, width * 0.2),
-                    value=peak2_width,
-                )
-            )
-        parameters.append(
-            Parameter(
-                name="peak2_amplitude",
-                bounds=(0.0, lorentz_amp_hi) if self.peak_type_right == "lorentzian" else (0.0, 1.5),
-                value=peak2_amp,
-            )
+        right_width_bounds = (
+            (width * 0.1, width * 2.0) if right_width_key.endswith("decay_rate") else (width * 0.01, width * 0.2)
         )
-        parameters.append(Parameter(name="peak2_background", bounds=(0.0, 0.5), value=background / 2))
+        bounds = {
+            "peak1_frequency": (self.x_min, self.x_max),
+            left_width_key: left_width_bounds,
+            "peak1_amplitude": (0.0, lorentz_amp_hi) if self.peak_type_left == "lorentzian" else (0.0, 1.5),
+            "peak1_background": (0.0, 0.5),
+            "peak2_frequency": (self.x_min, self.x_max),
+            right_width_key: right_width_bounds,
+            "peak2_amplitude": (0.0, lorentz_amp_hi) if self.peak_type_right == "lorentzian" else (0.0, 1.5),
+            "peak2_background": (0.0, 0.5),
+        }
 
-        return TrueSignal(model=composite_model, parameters=parameters)
+        typed_params = CompositeParams(peaks=(peak1_typed, peak2_typed))
+        return _true_signal_from_typed(model=composite_model, typed_params=typed_params, bounds=bounds)
 
 
 @dataclass
@@ -385,9 +405,10 @@ class MultiPeakCoreGenerator:
         # Sort positions
         positions.sort()
 
-        # Create signal and parameters
+        # Create signal and typed parameters
         models = []
-        parameters = []
+        typed_peak_params: list[object] = []
+        bounds: dict[str, tuple[float, float]] = {}
         background = 1.0 if any(pt == "lorentzian" for pt in peak_types) else 0.0
         lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1] * float(self.count)
 
@@ -401,38 +422,50 @@ class MultiPeakCoreGenerator:
             # Create model
             if peak_type == "gaussian":
                 model = GaussianModel()
-                parameters.extend(
-                    [
-                        Parameter(name=f"{prefix}_frequency", bounds=(self.x_min, self.x_max), value=pos),
-                        Parameter(name=f"{prefix}_sigma", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                        Parameter(name=f"{prefix}_amplitude", bounds=(0.0, 1.5), value=amplitude),
-                        Parameter(name=f"{prefix}_background", bounds=(0.0, 0.5), value=background / self.count),
-                    ]
+                typed_peak_params.append(
+                    GaussianParams(
+                        frequency=pos,
+                        sigma=peak_width,
+                        amplitude=amplitude,
+                        background=background / self.count,
+                    )
                 )
+                bounds[f"{prefix}_frequency"] = (self.x_min, self.x_max)
+                bounds[f"{prefix}_sigma"] = (width * 0.01, width * 0.2)
+                bounds[f"{prefix}_amplitude"] = (0.0, 1.5)
+                bounds[f"{prefix}_background"] = (0.0, 0.5)
             elif peak_type == "lorentzian":
                 model = LorentzianModel()
-                parameters.extend(
-                    [
-                        Parameter(name=f"{prefix}_frequency", bounds=(self.x_min, self.x_max), value=pos),
-                        Parameter(name=f"{prefix}_linewidth", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                        Parameter(name=f"{prefix}_amplitude", bounds=(0.0, lorentz_amp_hi), value=amplitude),
-                        Parameter(name=f"{prefix}_background", bounds=(0.0, 0.5), value=1.0 - background / self.count),
-                    ]
+                typed_peak_params.append(
+                    LorentzianParams(
+                        frequency=pos,
+                        linewidth=peak_width,
+                        amplitude=amplitude,
+                        background=1.0 - background / self.count,
+                    )
                 )
+                bounds[f"{prefix}_frequency"] = (self.x_min, self.x_max)
+                bounds[f"{prefix}_linewidth"] = (width * 0.01, width * 0.2)
+                bounds[f"{prefix}_amplitude"] = (0.0, lorentz_amp_hi)
+                bounds[f"{prefix}_background"] = (0.0, 0.5)
             else:  # exponential
                 model = ExponentialDecayModel()
-                parameters.extend(
-                    [
-                        Parameter(name=f"{prefix}_decay_rate", bounds=(width * 0.1, width * 2.0), value=peak_width * 5),
-                        Parameter(name=f"{prefix}_amplitude", bounds=(0.0, 1.5), value=amplitude),
-                        Parameter(name=f"{prefix}_background", bounds=(0.0, 0.5), value=background / self.count),
-                    ]
+                typed_peak_params.append(
+                    ExponentialDecayParams(
+                        decay_rate=peak_width * 5,
+                        amplitude=amplitude,
+                        background=background / self.count,
+                    )
                 )
+                bounds[f"{prefix}_decay_rate"] = (width * 0.1, width * 2.0)
+                bounds[f"{prefix}_amplitude"] = (0.0, 1.5)
+                bounds[f"{prefix}_background"] = (0.0, 0.5)
 
             models.append((prefix, model))
 
         composite_model = CompositePeakModel(models)
-        return TrueSignal(model=composite_model, parameters=parameters)
+        typed_params = CompositeParams(peaks=tuple(typed_peak_params))
+        return _true_signal_from_typed(model=composite_model, typed_params=typed_params, bounds=bounds)
 
 
 @dataclass
@@ -495,40 +528,37 @@ class SymmetricTwoPeakCoreGenerator:
             ]
         )
 
-        # Build parameters
-        parameters = []
+        # Build typed parameters
 
         if self.peak_type in ["gaussian", "lorentzian"]:
             amp_bounds = (0.0, lorentz_amp_hi) if self.peak_type == "lorentzian" else (0.0, 1.5)
-            # Peak 1 (left)
-            parameters.extend(
-                [
-                    Parameter(name="peak1_frequency", bounds=(self.x_min, self.x_max), value=left_pos),
-                    Parameter(name=f"peak1_{param_key}", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                    Parameter(name="peak1_amplitude", bounds=amp_bounds, value=amplitude),
-                    Parameter(name="peak1_background", bounds=(0.0, 0.5), value=background / 2),
-                ]
-            )
-
-            # Peak 2 (right)
-            parameters.extend(
-                [
-                    Parameter(name="peak2_frequency", bounds=(self.x_min, self.x_max), value=right_pos),
-                    Parameter(name=f"peak2_{param_key}", bounds=(width * 0.01, width * 0.2), value=peak_width),
-                    Parameter(name="peak2_amplitude", bounds=amp_bounds, value=amplitude),
-                    Parameter(name="peak2_background", bounds=(0.0, 0.5), value=background / 2),
-                ]
-            )
+            if self.peak_type == "gaussian":
+                peak1_typed = GaussianParams(left_pos, peak_width, amplitude, background / 2)
+                peak2_typed = GaussianParams(right_pos, peak_width, amplitude, background / 2)
+            else:
+                peak1_typed = LorentzianParams(left_pos, peak_width, amplitude, background / 2)
+                peak2_typed = LorentzianParams(right_pos, peak_width, amplitude, background / 2)
+            bounds = {
+                "peak1_frequency": (self.x_min, self.x_max),
+                f"peak1_{param_key}": (width * 0.01, width * 0.2),
+                "peak1_amplitude": amp_bounds,
+                "peak1_background": (0.0, 0.5),
+                "peak2_frequency": (self.x_min, self.x_max),
+                f"peak2_{param_key}": (width * 0.01, width * 0.2),
+                "peak2_amplitude": amp_bounds,
+                "peak2_background": (0.0, 0.5),
+            }
         else:  # exponential
-            parameters.extend(
-                [
-                    Parameter(name="peak1_decay_rate", bounds=(width * 0.1, width * 2.0), value=peak_width * 5),
-                    Parameter(name="peak1_amplitude", bounds=(0.0, 1.5), value=amplitude),
-                    Parameter(name="peak1_background", bounds=(0.0, 0.5), value=background / 2),
-                    Parameter(name="peak2_decay_rate", bounds=(width * 0.1, width * 2.0), value=peak_width * 5),
-                    Parameter(name="peak2_amplitude", bounds=(0.0, 1.5), value=amplitude),
-                    Parameter(name="peak2_background", bounds=(0.0, 0.5), value=background / 2),
-                ]
-            )
+            peak1_typed = ExponentialDecayParams(peak_width * 5, amplitude, background / 2)
+            peak2_typed = ExponentialDecayParams(peak_width * 5, amplitude, background / 2)
+            bounds = {
+                "peak1_decay_rate": (width * 0.1, width * 2.0),
+                "peak1_amplitude": (0.0, 1.5),
+                "peak1_background": (0.0, 0.5),
+                "peak2_decay_rate": (width * 0.1, width * 2.0),
+                "peak2_amplitude": (0.0, 1.5),
+                "peak2_background": (0.0, 0.5),
+            }
 
-        return TrueSignal(model=composite_model, parameters=parameters)
+        typed_params = CompositeParams(peaks=(peak1_typed, peak2_typed))
+        return _true_signal_from_typed(model=composite_model, typed_params=typed_params, bounds=bounds)

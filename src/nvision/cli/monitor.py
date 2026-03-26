@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import queue
 import threading
@@ -158,6 +159,11 @@ class ProgressMonitor:
                 transient=False,
             )
             self._live.start()
+            # Ensure `task.elapsed` for the ETA column starts immediately.
+            # This matters more with multiprocessing, where the first completed update
+            # can happen significantly after the run begins.
+            with contextlib.suppress(Exception):
+                self.main_progress.start_task(self.main_task_id)
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
 

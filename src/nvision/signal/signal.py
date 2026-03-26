@@ -176,26 +176,53 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
 
 
 @dataclass
-class TrueSignal:
-    """Ground truth signal used by the core simulation.
+class TrueSignal[ParamsT]:
+    """Ground-truth signal with typed model parameters."""
 
-    The core architecture stores parameters as legacy :class:`Parameter` objects.
-    """
-
-    model: SignalModel[Any, Any, Any]
-    parameters: list[Parameter]
+    model: SignalModel[ParamsT, Any, Any]
+    typed_parameters: ParamsT
+    bounds: Mapping[str, tuple[float, float]]
 
     def __call__(self, x: float) -> float:
-        return float(self.model.compute_from_params(float(x), self.parameters))
+        return float(self.model.compute(float(x), self.typed_parameters))
 
     @property
-    def params(self) -> list[Parameter]:
-        """Alias for backwards compatibility (new code uses ``parameters``)."""
+    def parameter_names(self) -> tuple[str, ...]:
+        return tuple(self.model.spec.names)
 
-        return self.parameters
+    def parameter_values(self) -> dict[str, float]:
+        values = self.model.spec.pack_params(self.typed_parameters)
+        return {name: float(value) for name, value in zip(self.parameter_names, values, strict=True)}
 
-    def get_param(self, name: str) -> Parameter:
-        for p in self.parameters:
-            if p.name == name:
-                return p
-        raise KeyError(name)
+    def get_param_value(self, name: str) -> float:
+        values = self.parameter_values()
+        if name not in values:
+            raise KeyError(name)
+        return float(values[name])
+
+    def get_param_bounds(self, name: str) -> tuple[float, float]:
+        if name not in self.bounds:
+            raise KeyError(name)
+        lo, hi = self.bounds[name]
+        return float(lo), float(hi)
+
+    def all_param_bounds(self) -> dict[str, tuple[float, float]]:
+        return {name: self.get_param_bounds(name) for name in self.parameter_names}
+
+    @classmethod
+    def from_typed(
+        cls,
+        model: SignalModel[ParamsT, Any, Any],
+        params: ParamsT,
+        *,
+        bounds: Mapping[str, tuple[float, float]],
+    ) -> TrueSignal[ParamsT]:
+        """Build a TrueSignal from typed params plus explicit legacy bounds."""
+
+        names = tuple(model.spec.names)
+        values = tuple(float(v) for v in model.spec.pack_params(params))
+        missing = [name for name in names if name not in bounds]
+        if missing:
+            raise KeyError(f"Missing bounds for typed TrueSignal parameters: {missing}")
+        _ = values  # Keep pack validation coupled to names order.
+        return cls(model=model, typed_parameters=params, bounds=dict(bounds))

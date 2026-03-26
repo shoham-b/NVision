@@ -182,13 +182,14 @@ class CombinationGrid:
 
     def __iter__(self) -> Iterator[Combination]:
         """Iterate all combinations (no filtering, no dedup)."""
-        return self.iter(filter_category=None, filter_strategy=None, filter_generator=None)
+        return self.iter(filter_category=None, filter_strategy=None, filter_generator=None, filter_noise=None)
 
     def iter(
         self,
         filter_category: str | None = None,
         filter_strategy: str | None = None,
         filter_generator: str | None = None,
+        filter_noise: str | None = None,
     ) -> Iterator[Combination]:
         """Yield every matching combination, deduplicating automatically."""
         seen: set[tuple[str, str, str]] = set()
@@ -204,6 +205,8 @@ class CombinationGrid:
                     continue
 
                 for noise_name, noise_obj in self._noises.items():
+                    if filter_noise is not None and not noise_name.startswith(filter_noise):
+                        continue
                     key = (gen_name, noise_name, strat_name)
                     if key in seen:
                         continue

@@ -30,3 +30,6 @@ class OverFrequencyGaussianNoise(OverFrequencyNoise):
             noisy = noisy.clip(self.clip_min, self.clip_max)
         df = data.df.with_columns(noisy.alias("signal_values"))
         return DataBatch.from_frame(df, meta=dict(data.meta))
+
+    def noise_std(self) -> float:
+        return self.sigma

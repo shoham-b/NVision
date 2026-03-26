@@ -313,8 +313,7 @@ function main() {
                 return;
             }
             if (m.mode === 'phases') {
-                const coarseColor = side === 'left' ? '#fb923c' : '#a78bfa';
-                const fineColor = side === 'left' ? '#c2410c' : '#6d28d9';
+                const coarseColor = side === 'left' ? 'rgba(251,146,60,0.45)' : 'rgba(167,139,250,0.45)';
                 if (m.coarse_x && m.coarse_x.length) {
                     traces.push({
                         type: 'scatter',
@@ -328,9 +327,16 @@ function main() {
                             symbol: symbol,
                             line: { width: 0.5, color: '#222' },
                         },
+                        hovertemplate: 'x=%{x}<br>y=%{y:.4f}<br>phase=initial sweep<extra></extra>',
                     });
                 }
                 if (m.fine_x && m.fine_x.length) {
+                    const fineSteps =
+                        Array.isArray(m.fine_step) && m.fine_step.length === m.fine_x.length
+                            ? m.fine_step
+                            : m.fine_x.map((_, i) => i);
+                    const maxStep = Math.max(1, fineSteps.length - 1);
+                    const finePct = fineSteps.map((s) => (s / maxStep) * 100.0);
                     traces.push({
                         type: 'scatter',
                         x: m.fine_x,
@@ -339,10 +345,15 @@ function main() {
                         name: `${label} (fine)`,
                         marker: {
                             size: 8,
-                            color: fineColor,
+                            color: fineSteps,
+                            colorscale: cs,
+                            showscale: false,
                             symbol: symbol,
                             line: { width: 0.5, color: '#222' },
                         },
+                        customdata: finePct,
+                        hovertemplate:
+                            'x=%{x}<br>y=%{y:.4f}<br>inference step=%{marker.color}<br>inference progress=%{customdata:.1f}%<extra></extra>',
                     });
                 }
                 return;

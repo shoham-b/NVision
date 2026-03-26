@@ -24,6 +24,12 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
             out = part.apply(out, rng)
         return out
 
+    def noise_std(self) -> float:
+        """Return the combined RMS noise standard deviation for all over-frequency components."""
+        rss = sum(p.noise_std() ** 2 for p in self._parts)
+        std = rss**0.5
+        return std
+
 
 class CompositeOverProbeNoise(OverProbeNoise):
     """Applies multiple over-probe noise models in sequence."""
@@ -53,3 +59,19 @@ class CompositeNoise:
         if self.over_frequency_noise is not None:
             return self.over_frequency_noise.apply(data, rng)
         return data
+
+    def estimated_noise_std(self) -> float:
+        """Return the combined RMS noise standard deviation for all over-frequency components.
+
+        Returns
+        -------
+        float
+            Square-root of summed squared stds from each noise component.
+            Falls back to 0.05 if no noise components or all return 0.
+        """
+        if self.over_frequency_noise is None:
+            return 0.05
+        parts = getattr(self.over_frequency_noise, "_parts", [])
+        rss = sum(p.noise_std() ** 2 for p in parts)
+        std = rss**0.5
+        return std if std > 1e-12 else 0.05

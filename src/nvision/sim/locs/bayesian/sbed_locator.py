@@ -92,18 +92,12 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         num_samples = 100
 
         sampled = self.belief.sample(num_samples)
-        param_names = self.belief.model.parameter_names()
 
-        # Calculate expected noise level based on belief using normalized parameters
-        # to ensure signal scaling correctly compares with [0,1] range parameters
-        uncertainties = self.belief.uncertainty()
-        norm_unc = uncertainties.values_ordered[0]
-        if hasattr(self.belief, "physical_param_bounds"):
-            p_name = param_names[0]
-            lo, hi = self.belief.physical_param_bounds[p_name]
-            norm_unc = norm_unc / (hi - lo) if hi > lo else 0.0
-
-        noise_std = max(0.01, norm_unc * 0.1) if len(uncertainties) > 0 else 0.01
+        # Use the known measurement noise from the last observation.
+        # This is the actual physical noise standard deviation, which is fixed
+        # for a given noise model and should NOT vary with parameter uncertainty.
+        last_obs = self.belief.last_obs
+        noise_std = last_obs.noise_std if last_obs is not None else 0.05
 
         # Pre-sample hypothetical measurement noise once so results remain
         # deterministic for a given RNG state.

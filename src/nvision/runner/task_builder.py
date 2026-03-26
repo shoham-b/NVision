@@ -39,6 +39,7 @@ class TaskListBuildConfig:
     filter_category: str | None
     filter_strategy: str | None
     filter_generator: str | None
+    filter_noise: str | None
 
 
 def build_task_list(
@@ -47,13 +48,18 @@ def build_task_list(
 ) -> tuple[list[LocatorTask], float]:
     """Build all matching tasks and register them with the progress monitor."""
     grid = CombinationGrid()
-    duration_estimates = _load_duration_estimates(config.out_dir)
+    duration_estimates, global_avg_duration_ms = _load_duration_estimates(config.out_dir)
 
     task_list: list[LocatorTask] = []
     used_slugs: set[str] = set()
     total_weighted_repeats = 0.0
 
-    for combo in grid.iter(config.filter_category, config.filter_strategy, config.filter_generator):
+    for combo in grid.iter(
+        config.filter_category,
+        config.filter_strategy,
+        config.filter_generator,
+        config.filter_noise,
+    ):
         slug_base = "_".join(slugify(p) for p in (combo.generator_name, combo.noise_name, combo.strategy_name))
         slug = slug_base
         suffix = 1
@@ -65,7 +71,7 @@ def build_task_list(
         desc = f"[cyan]{combo.generator_name}/{combo.noise_name}/{combo.strategy_name}[/cyan]"
         est_duration = duration_estimates.get(
             (combo.generator_name, combo.noise_name, combo.strategy_name),
-            1000.0,
+            global_avg_duration_ms,
         )
         task_id = monitor.register_task(desc, total=config.repeats, weight=est_duration)
         total_weighted_repeats += config.repeats * est_duration
@@ -96,19 +102,22 @@ def build_task_list(
     return task_list, total_weighted_repeats
 
 
-def _load_duration_estimates(out_dir: Path) -> dict[tuple[str, str, str], float]:
+def _load_duration_estimates(out_dir: Path) -> tuple[dict[tuple[str, str, str], float], float]:
     """Load duration estimates from previous run metadata if available."""
+    fallback_default_ms = 1000.0
     csv_path = locator_results_path(out_dir)
     if not csv_path.exists():
-        return {}
+        return {}, fallback_default_ms
     try:
         df = pl.read_csv(csv_path)
         if "duration_ms" not in df.columns:
-            return {}
+            return {}, fallback_default_ms
         if not all(c in df.columns for c in ["generator", "noise", "strategy"]):
-            return {}
+            return {}, fallback_default_ms
 
         stats = df.group_by(["generator", "noise", "strategy"]).agg(pl.col("duration_ms").mean())
-        return {(row["generator"], row["noise"], row["strategy"]): row["duration_ms"] for row in stats.to_dicts()}
+        per_combo = {(row["generator"], row["noise"], row["strategy"]): row["duration_ms"] for row in stats.to_dicts()}
+        global_avg_duration_ms = float(df.get_column("duration_ms").mean() or fallback_default_ms)
+        return per_combo, global_avg_duration_ms
     except Exception:
-        return {}
+        return {}, fallback_default_ms
