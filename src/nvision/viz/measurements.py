@@ -87,6 +87,13 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
     row, col = _row_col(has_metrics)
     xs_s = history.get_column("x").to_list() if "x" in history.columns else []
     ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
+    finite_ys = [float(y) for y in ys_s if y is not None and np.isfinite(float(y))]
+    baseline = max(finite_ys) if finite_ys else 1.0
+    baseline = baseline if baseline > 1e-12 else 1.0
+
+    def depth_percent(value: float) -> float:
+        """Percent drop from baseline at this measurement."""
+        return max(0.0, (baseline - float(value)) / baseline * 100.0)
 
     if "phase" in history.columns:
         phases = history.get_column("phase").to_list()
@@ -94,6 +101,8 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
         coarse_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "coarse"]
         fine_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "fine"]
         fine_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "fine"]
+        coarse_depth = [depth_percent(y) for y in coarse_y]
+        fine_depth = [depth_percent(y) for y in fine_y]
 
         if coarse_x:
             fig.add_trace(
@@ -102,20 +111,34 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
                     y=coarse_y,
                     mode="markers",
                     name="measurements (coarse)",
-                    marker=dict(size=7, color="rgba(150,150,150,0.8)", line=dict(width=0.5, color="black")),
+                    marker=dict(size=7, color="rgba(117,117,117,0.9)", line=dict(width=0.5, color="black")),
+                    customdata=coarse_depth,
+                    hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
                 ),
                 row=row,
                 col=col,
             )
 
         if fine_x:
+            fine_steps = list(range(len(fine_x)))
             fig.add_trace(
                 go.Scatter(
                     x=fine_x,
                     y=fine_y,
                     mode="markers",
                     name="measurements (inference)",
-                    marker=dict(size=8, color="rgba(214,39,40,0.9)", line=dict(width=0.5, color="black")),
+                    marker=dict(
+                        size=8,
+                        color=fine_steps,
+                        colorscale="Viridis",
+                        showscale=True,
+                        colorbar=dict(title="inference step", len=0.6, y=0.8)
+                        if has_metrics
+                        else dict(title="inference step"),
+                        line=dict(width=0.5, color="black"),
+                    ),
+                    customdata=fine_depth,
+                    hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
                 ),
                 row=row,
                 col=col,
@@ -137,6 +160,8 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
                 colorbar=dict(title="step", len=0.6, y=0.8) if has_metrics else dict(title="step"),
                 line=dict(width=0.5, color="black"),
             ),
+            customdata=[depth_percent(y) for y in ys_s],
+            hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<br>step=%{marker.color}<extra></extra>",
         ),
         row=row,
         col=col,
@@ -179,6 +204,66 @@ def _add_metric_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool)
                 row=2,
                 col=1,
             )
+
+
+def _add_measurement_distribution_trace(
+    fig: go.Figure,
+    *,
+    history: pl.DataFrame,
+    xs_dense: np.ndarray,
+    ys_dense: list[float],
+    has_metrics: bool,
+) -> None:
+    """Add a hidden-by-default measurement-density overlay.
+
+    The curve is normalized so higher values mean more measurements in that x-region.
+    """
+    if history.height == 0 or "x" not in history.columns:
+        return
+
+    x_vals = history.get_column("x").to_list()
+    x_meas = np.asarray([float(x) for x in x_vals if x is not None], dtype=float)
+    if x_meas.size < 2:
+        return
+
+    # Histogram-based density in the physical x-domain.
+    n_bins = max(24, min(80, int(np.sqrt(x_meas.size) * 8)))
+    counts, edges = np.histogram(x_meas, bins=n_bins, range=(float(xs_dense.min()), float(xs_dense.max())))
+    if counts.sum() <= 0:
+        return
+
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    density = counts.astype(float) / max(1.0, float(counts.max()))
+
+    # Light smoothing for readability.
+    kernel = np.array([0.2, 0.6, 0.2], dtype=float)
+    density_smooth = np.convolve(density, kernel, mode="same")
+
+    # Map normalized density to a small vertical band near the lower part of the scan.
+    y_min = float(min(ys_dense))
+    y_max = float(max(ys_dense))
+    y_span = max(1e-9, y_max - y_min)
+    y_band_base = y_min + 0.02 * y_span
+    y_band_height = 0.18 * y_span
+    y_curve = y_band_base + density_smooth * y_band_height
+
+    row, col = _row_col(has_metrics)
+    fig.add_trace(
+        go.Scatter(
+            x=centers,
+            y=y_curve,
+            mode="lines",
+            name="measurement distribution",
+            visible="legendonly",
+            line=dict(color="rgba(111,66,193,0.95)", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(111,66,193,0.12)",
+            customdata=(density_smooth * 100.0),
+            hovertemplate="x=%{x}<br>relative density=%{customdata:.1f}%<extra></extra>",
+        ),
+        row=row,
+        col=col,
+    )
 
 
 def _json_safe_float(v: Any) -> float | None:
@@ -259,6 +344,7 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
         coarse_y: list[float | None] = []
         fine_x: list[float] = []
         fine_y: list[float | None] = []
+        fine_step: list[int] = []
         for x, y, p in zip(xs_s, ys_s, phases, strict=False):
             if p == "coarse":
                 coarse_x.append(float(x))
@@ -266,12 +352,14 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
             elif p == "fine":
                 fine_x.append(float(x))
                 fine_y.append(_json_safe_float(y))
+                fine_step.append(len(fine_step))
         return {
             "mode": "phases",
             "coarse_x": coarse_x,
             "coarse_y": coarse_y,
             "fine_x": fine_x,
             "fine_y": fine_y,
+            "fine_step": fine_step,
         }
 
     xs_s = history.get_column("x").to_list() if "x" in history.columns else []
@@ -355,6 +443,7 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
     coarse_y: list[float | None] = []
     fine_x: list[float] = []
     fine_y: list[float | None] = []
+    fine_step: list[float] = []
     step_x: list[float] = []
     step_y: list[float | None] = []
     step_idx: list[float] = []
@@ -383,6 +472,11 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
             continue
         if name == "measurements (inference)":
             fine_x, fine_y = _trace_xy_lists(tr)
+            mk = getattr(tr, "marker", None)
+            if mk is not None:
+                c = getattr(mk, "color", None)
+                if c is not None and hasattr(c, "__iter__") and not isinstance(c, (str, bytes)):
+                    fine_step = [float(v) for v in c]
             continue
         if name == "measurements (noisy)":
             step_x, step_y = _trace_xy_lists(tr)
@@ -405,12 +499,15 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
         out["y_dense_noisy"] = y_dense_noisy
 
     if coarse_x or fine_x:
+        if len(fine_step) != len(fine_x):
+            fine_step = [float(i) for i in range(len(fine_x))]
         out["measurements"] = {
             "mode": "phases",
             "coarse_x": coarse_x,
             "coarse_y": coarse_y,
             "fine_x": fine_x,
             "fine_y": fine_y,
+            "fine_step": [int(s) for s in fine_step],
         }
     elif step_x:
         if len(step_idx) != len(step_x):
@@ -470,7 +567,14 @@ def _scan_layout(fig: go.Figure, has_metrics: bool) -> None:
             dict(
                 xaxis_title="frequency",
                 yaxis_title="intensity (photon count)",
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="left",
+                    x=0.0,
+                ),
+                margin=dict(t=110),
             )
         )
     fig.update_layout(**layout_args)
@@ -537,6 +641,7 @@ class MeasurementsMixin:
             measurement_xs=measurement_xs if measurement_xs else None,
             measurement_ys=measurement_ys if measurement_ys else None,
         )
+        _add_measurement_distribution_trace(fig, history=history, xs_dense=xs, ys_dense=ys, has_metrics=has_metrics)
         _add_history_traces(fig, history, has_metrics)
         _add_metric_traces(fig, history, has_metrics)
         _scan_layout(fig, has_metrics)

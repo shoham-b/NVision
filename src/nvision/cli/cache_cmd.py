@@ -12,6 +12,7 @@ from rich.table import Table
 from nvision.cache import CacheBridge
 from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.main import app
+from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
 
 console = Console()
 
@@ -92,16 +93,16 @@ def list_cache(
 def _matches_filter(
     config: dict[str, Any],
     category: str | None,
-    strategy: str | None,
-    generator: str | None,
-    noise: str | None,
+    strategy: StrategyFilter | None,
+    generator: GeneratorName | None,
+    noise: NoiseName | None,
 ) -> bool:
     """Check if a config matches all the given filters."""
     if strategy and config.get("strategy") != strategy:
         return False
     if generator and config.get("generator") != generator:
         return False
-    return not (noise and config.get("noise") != noise)
+    return not (noise and not str(config.get("noise", "")).startswith(noise))
 
 
 @cache_app.command(name="clean")
@@ -112,14 +113,17 @@ def cache_clean(
         typer.Option("--category", help="Category filter (e.g. 'NVCenter')"),
     ] = None,
     strategy: Annotated[
-        str | None,
-        typer.Option("--strategy", help="Strategy filter"),
+        StrategyFilter | None,
+        typer.Option("--strategy", help="Strategy filter (see StrategyFilter)."),
     ] = None,
     generator: Annotated[
-        str | None,
-        typer.Option("--generator", help="Generator filter"),
+        GeneratorName | None,
+        typer.Option("--generator", help="Generator filter (see GeneratorName)."),
     ] = None,
-    noise: Annotated[str | None, typer.Option("--noise", help="Noise preset filter")] = None,
+    noise: Annotated[
+        NoiseName | None,
+        typer.Option("--noise", help="Noise preset filter (see NoiseName)."),
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
     force: Annotated[bool, typer.Option("--force", help="Skip confirmation")] = False,
 ) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import queue
 from datetime import UTC, datetime
@@ -18,7 +19,7 @@ from nvision.cli.monitor import MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import cases as sim_cases
-from nvision.sim.grid_enums import GeneratorCategory, GeneratorName, StrategyFilter
+from nvision.sim.grid_enums import GeneratorCategory, GeneratorName, NoiseName, StrategyFilter
 from nvision.tools.artifacts import (
     ensure_plot_manifest_non_empty,
     merge_locator_results_with_existing,
@@ -35,6 +36,55 @@ from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
 console = Console()
+
+
+def _run_tasks_process_pool(
+    tasks: list[object],
+    *,
+    runners: int,
+    cache_bridge: CacheBridge | None,
+    progress_queue: queue.Queue,
+    log: logging.Logger,
+) -> tuple[list[dict[str, object]], list[dict], list[Exception]]:
+    """Run tasks in a process pool and aggregate results in the parent process.
+
+    Workers should have `log_queue=None` and `progress_queue=None` so they don't attempt
+    to share Rich/UI queues.
+    """
+    plot_manifest: list[dict[str, object]] = []
+    df_rows: list[dict] = []
+    errors: list[Exception] = []
+
+    executor = concurrent.futures.ProcessPoolExecutor(max_workers=runners)
+    try:
+        future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in tasks}
+        for future in concurrent.futures.as_completed(future_to_task):
+            locator_task = future_to_task[future]
+            try:
+                results_for_task = future.result()
+                # Mark this task complete in the Rich UI once per task.
+                if getattr(locator_task, "task_id", None) is not None:
+                    progress_queue.put((locator_task.task_id, locator_task.repeats))
+                for entries, main_result_row in results_for_task:
+                    plot_manifest.extend(entries)
+                    df_rows.append(main_result_row)
+            except Exception:
+                # Still advance progress to keep the UI consistent.
+                if getattr(locator_task, "task_id", None) is not None:
+                    progress_queue.put((locator_task.task_id, locator_task.repeats))
+                log.exception("Task failed with error (combination=%s)", locator_task.slug)
+                errors.append(RuntimeError("Check logs for details"))
+                if len(errors) > 5:
+                    log.error("Too many errors (>5), terminating...")
+                    for pending_future in future_to_task:
+                        pending_future.cancel()
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+    finally:
+        # If we didn't terminate early, wait for workers to finish.
+        executor.shutdown(wait=True)
+
+    return plot_manifest, df_rows, errors
 
 
 def _prune_run_logs(logs_dir: Path, *, max_runs: int = 2) -> None:
@@ -104,6 +154,13 @@ def run(  # noqa: C901
             help="Restrict to one registered generator name (see GeneratorName).",
         ),
     ] = None,
+    filter_noise: Annotated[
+        NoiseName | None,
+        typer.Option(
+            "--filter-noise",
+            help="Restrict to one registered noise name (see NoiseName).",
+        ),
+    ] = None,
     all_experiments: Annotated[
         bool,
         typer.Option("--all", help="Run all experiments (disables default filtering)"),
@@ -124,6 +181,14 @@ def run(  # noqa: C901
         bool,
         typer.Option("--require-cache", help="Skip simulation if cache is missing"),
     ] = False,
+    runners: Annotated[
+        int,
+        typer.Option(
+            "--runners",
+            min=1,
+            help="Number of runner processes (use 1 for sequential execution).",
+        ),
+    ] = 4,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -237,6 +302,10 @@ def run(  # noqa: C901
         filter_category_str = filter_category.value if filter_category is not None else None
         filter_strategy_str = filter_strategy.value if filter_strategy is not None else None
         filter_generator_str = filter_generator.value if filter_generator is not None else None
+        filter_noise_str = filter_noise.value if filter_noise is not None else None
+
+        worker_log_queue = None if runners > 1 else log_queue
+        worker_progress_queue = None if runners > 1 else progress_queue
 
         tasks, _ = build_task_list(
             TaskListBuildConfig(
@@ -246,8 +315,8 @@ def run(  # noqa: C901
                 scans_dir=tree.scans_dir,
                 bayes_dir=tree.bayes_dir,
                 cache_dir=tree.cache_dir,
-                log_queue=log_queue,
-                progress_queue=progress_queue,
+                log_queue=worker_log_queue,
+                progress_queue=worker_progress_queue,
                 log_level_value=log_level_value,
                 loc_max_steps=loc_max_steps,
                 loc_timeout_s=loc_timeout_s,
@@ -257,6 +326,7 @@ def run(  # noqa: C901
                 filter_category=filter_category_str,
                 filter_strategy=filter_strategy_str,
                 filter_generator=filter_generator_str,
+                filter_noise=filter_noise_str,
             ),
             monitor=monitor,
         )
@@ -266,21 +336,34 @@ def run(  # noqa: C901
         errors: list[Exception] = []
 
         # One bridge for the whole run avoids opening/closing SQLite per task (200+ tasks on `cases run all`).
-        cache_bridge: CacheBridge | None = None if no_cache else CacheBridge(tree.cache_dir)
+        # For process-based parallelism we intentionally do not construct it in the parent.
+        cache_bridge: CacheBridge | None = None
+        if not no_cache and runners == 1:
+            cache_bridge = CacheBridge(tree.cache_dir)
         try:
             with monitor:
-                for locator_task in tasks:
-                    try:
-                        results_for_task = run_task(locator_task, cache_bridge=cache_bridge)
-                        for entries, main_result_row in results_for_task:
-                            plot_manifest.extend(entries)
-                            df_rows.append(main_result_row)
-                    except Exception:
-                        log.exception("Task failed with error (combination=%s)", locator_task.slug)
-                        errors.append(RuntimeError("Check logs for details"))
-                        if len(errors) > 5:
-                            log.error("Too many errors (>5), terminating...")
-                            break
+                if runners > 1:
+                    log.info("Parallel execution enabled with %s runner(s).", runners)
+                    plot_manifest, df_rows, errors = _run_tasks_process_pool(
+                        tasks,
+                        runners=runners,
+                        cache_bridge=cache_bridge,
+                        progress_queue=progress_queue,
+                        log=log,
+                    )
+                else:
+                    for locator_task in tasks:
+                        try:
+                            results_for_task = run_task(locator_task, cache_bridge=cache_bridge)
+                            for entries, main_result_row in results_for_task:
+                                plot_manifest.extend(entries)
+                                df_rows.append(main_result_row)
+                        except Exception:
+                            log.exception("Task failed with error (combination=%s)", locator_task.slug)
+                            errors.append(RuntimeError("Check logs for details"))
+                            if len(errors) > 5:
+                                log.error("Too many errors (>5), terminating...")
+                                break
         finally:
             if cache_bridge is not None:
                 cache_bridge.close()

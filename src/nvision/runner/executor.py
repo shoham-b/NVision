@@ -342,19 +342,22 @@ class _TaskRunner:
         x_max: float | None = None
         freq_like_bounds: list[tuple[float, float]] = []
 
-        for param in true_signal.parameters:
-            if param.name == "x_min":
-                x_min = float(param.value)
+        values = true_signal.parameter_values()
+        for name, value in values.items():
+            if name == "x_min":
+                x_min = float(value)
                 continue
-            if param.name == "x_max":
-                x_max = float(param.value)
+            if name == "x_max":
+                x_max = float(value)
                 continue
-            if isinstance(param.bounds, tuple) and len(param.bounds) == 2:
-                lo, hi = float(param.bounds[0]), float(param.bounds[1])
-                if hi > lo and "frequency" in param.name:
-                    freq_like_bounds.append((lo, hi))
-                    if param.name == "frequency" and x_min is None:
-                        x_min, x_max = lo, hi
+            try:
+                lo, hi = true_signal.get_param_bounds(name)
+            except KeyError:
+                continue
+            if hi > lo and "frequency" in name:
+                freq_like_bounds.append((lo, hi))
+                if name == "frequency" and x_min is None:
+                    x_min, x_max = lo, hi
 
         if (x_min is None or x_max is None) and freq_like_bounds:
             x_min = min(lo for lo, _ in freq_like_bounds)
@@ -410,9 +413,8 @@ class _TaskRunner:
     def _injected_parameter_bounds(experiment: CoreExperiment) -> dict[str, tuple[float, float]]:
         """Extract valid `(lo, hi)` bounds from the true-signal parameters."""
         bounds: dict[str, tuple[float, float]] = {}
-        for p in experiment.true_signal.parameters:
-            if isinstance(p.bounds, tuple) and len(p.bounds) == 2:
-                lo, hi = float(p.bounds[0]), float(p.bounds[1])
-                if hi > lo:
-                    bounds[p.name] = (lo, hi)
+        for name, (lo_raw, hi_raw) in experiment.true_signal.bounds.items():
+            lo, hi = float(lo_raw), float(hi_raw)
+            if hi > lo:
+                bounds[name] = (lo, hi)
         return bounds

@@ -8,6 +8,7 @@ import numpy as np
 
 from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
 from nvision.signal.grid_belief import GridBeliefDistribution, GridParameter
+from nvision.signal.signal import Parameter
 from nvision.signal.unit_cube_model import UnitCubeSignalModel
 
 
@@ -59,15 +60,28 @@ class UnitCubeGridBeliefDistribution(GridBeliefDistribution):
         lo, hi = self.physical_param_bounds[name]
         return lo + p.grid * (hi - lo)
 
+    def get_param(self, name: str) -> Parameter:
+        """Return parameter metadata in physical units for acquisition callers."""
+        p = super().get_param(name)
+        lo, hi = self.physical_param_bounds[name]
+        return Parameter(name=name, bounds=(lo, hi), value=self._to_physical(name, p.mean()))
+
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         lo, hi = self.physical_param_bounds[param_name]
         u = (np.asarray(x, dtype=np.float64) - lo) / (hi - lo)
-        return super().marginal_pdf(param_name, u)
+        # Use the underlying unit-cube GridParameter directly.
+        p = GridBeliefDistribution.get_param(self, param_name)
+        spacing = p.grid[1] - p.grid[0] if len(p.grid) > 1 else 1.0
+        density = p.posterior / spacing
+        return np.interp(u, p.grid, density, left=0.0, right=0.0)
 
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         lo, hi = self.physical_param_bounds[param_name]
         u = (np.asarray(x, dtype=np.float64) - lo) / (hi - lo)
-        return super().marginal_cdf(param_name, u)
+        # Use the underlying unit-cube GridParameter directly.
+        p = GridBeliefDistribution.get_param(self, param_name)
+        cdf = np.cumsum(p.posterior)
+        return np.interp(u, p.grid, cdf, left=0.0, right=1.0)
 
     def copy(self) -> AbstractBeliefDistribution:
         return UnitCubeGridBeliefDistribution(

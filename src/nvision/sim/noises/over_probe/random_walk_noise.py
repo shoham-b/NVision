@@ -24,11 +24,16 @@ class OverProbeRandomWalkNoise(OverProbeNoise):
         self._offset = offset if offset is not None else self.initial_offset
 
     def apply(self, signal_value: float, rng: random.Random, locator: object = None) -> float:
+        # Interpret "drive drift" as a multiplicative change to the dip depth
+        # (i.e., scale the deviation from the baseline), not as an additive
+        # vertical offset. This avoids awkward constant shifts of the plot.
+        baseline = 1.0
+
         if self.stateful:
             if self._offset is None:
                 self._offset = self.initial_offset
             self._offset += rng.gauss(0.0, self.step_sigma)
-            return signal_value + self._offset
+            return signal_value + self._offset * (signal_value - baseline)
 
         offset = self.initial_offset + rng.gauss(0.0, self.step_sigma)
-        return signal_value + offset
+        return signal_value + offset * (signal_value - baseline)

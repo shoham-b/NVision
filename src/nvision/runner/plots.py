@@ -83,6 +83,31 @@ def _is_bayesian_run(strat_name: str, strat_obj: Any) -> bool:
     return False
 
 
+def _initial_sweep_steps_from_strategy(strat_obj: Any) -> int:
+    """Infer how many initial coarse steps a strategy uses."""
+    if not isinstance(strat_obj, dict):
+        return 0
+
+    config = strat_obj.get("config", {}) or {}
+    # New generic key (preferred).
+    steps = int(config.get("initial_sweep_steps", 0) or 0)
+    # Backward-compatible key.
+    if steps <= 0:
+        steps = int(config.get("sobol_prefix_steps", 0) or 0)
+
+    try:
+        from nvision.sim.locs.coarse.two_phase_sweep_locator import TwoPhaseSweepLocator
+
+        if strat_obj.get("class") is TwoPhaseSweepLocator:
+            phase1_max_steps = int(config.get("phase1_max_steps", 0) or 0)
+            if phase1_max_steps > steps:
+                steps = phase1_max_steps
+    except Exception:
+        pass
+
+    return max(0, steps)
+
+
 def generate_attempt_plots(
     viz: Viz,
     entry_base: dict[str, Any],
@@ -103,22 +128,15 @@ def generate_attempt_plots(
 
     history_with_phase = current_history_df
 
-    # Annotate coarse vs fine phase if this is a two-phase sweep strategy.
-    try:
-        from nvision.sim.locs.coarse.two_phase_sweep_locator import TwoPhaseSweepLocator
-
-        if isinstance(strat_obj, dict) and strat_obj.get("class") is TwoPhaseSweepLocator:
-            config = strat_obj.get("config", {}) or {}
-            phase1_max_steps = int(config.get("phase1_max_steps", 0))
-            if "step" in current_history_df.columns and phase1_max_steps > 0:
-                history_with_phase = current_history_df.with_columns(
-                    pl.when(pl.col("step") < phase1_max_steps)
-                    .then(pl.lit("coarse"))
-                    .otherwise(pl.lit("fine"))
-                    .alias("phase")
-                )
-    except Exception:
-        history_with_phase = current_history_df
+    # Annotate coarse vs fine phase for strategies with an explicit initial sweep.
+    initial_sweep_steps = _initial_sweep_steps_from_strategy(strat_obj)
+    if "step" in current_history_df.columns and initial_sweep_steps > 0:
+        history_with_phase = current_history_df.with_columns(
+            pl.when(pl.col("step") < initial_sweep_steps)
+            .then(pl.lit("coarse"))
+            .otherwise(pl.lit("fine"))
+            .alias("phase")
+        )
 
     viz.plot_scan_measurements(
         current_scan,

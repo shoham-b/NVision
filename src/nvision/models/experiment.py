@@ -59,7 +59,9 @@ class CoreExperiment:
         signal_value = self.true_signal(x_physical)
 
         # Apply noise components if configured
+        noise_std = 0.05  # default for no-noise case (keep sensible for belief likelihood)
         if self.noise is not None:
+            noise_std = self.noise.estimated_noise_std()
             if self.noise.over_frequency_noise is not None:
                 from nvision.sim.batch import DataBatch
 
@@ -70,7 +72,7 @@ class CoreExperiment:
                 signal_value = self.noise.over_probe_noise.apply(signal_value, rng, None)
 
         # Return observation in normalized space
-        return Observation(x=x_normalized, signal_value=signal_value)
+        return Observation(x=x_normalized, signal_value=signal_value, noise_std=noise_std)
 
     @property
     def signal(self):
@@ -80,7 +82,8 @@ class CoreExperiment:
     @property
     def truth_positions(self) -> list[float]:
         """Ground truth peak positions extracted from TrueSignal parameters."""
-        return [p.value for p in self.true_signal.parameters if "frequency" in p.name or "position" in p.name]
+        values = self.true_signal.parameter_values()
+        return [value for name, value in values.items() if "frequency" in name or "position" in name]
 
     def normalize_x(self, x_physical: float) -> float:
         """Convert physical x to normalized [0, 1]."""

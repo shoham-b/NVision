@@ -33,13 +33,19 @@ class SequentialBayesianLocator(Locator):
     belief : AbstractBeliefDistribution
         Initial belief (usually a flat / uniform prior over all parameters).
     max_steps : int
-        Hard upper bound on measurement steps.
+        Hard upper bound on Bayesian-inference steps (excludes initial sweep).
     convergence_threshold : float
         Posterior-uncertainty threshold below which we consider all parameters
         converged and stop early.
     scan_param : str | None
         The parameter we are proposing measurements along. Defaults to the
         first parameter in the belief.
+    initial_sweep_steps : int | None
+        Number of initial coarse sweep measurements to take before Bayesian
+        acquisition starts. If ``None``, a heuristic based on ``max_steps`` is used.
+    initial_sweep_builder : Callable[[int], np.ndarray] | None
+        Builder for initial sweep points in normalized ``[0, 1]`` coordinates.
+        Defaults to a Sobol-like low-discrepancy 1D sequence.
     """
 
     def __init__(
@@ -48,12 +54,32 @@ class SequentialBayesianLocator(Locator):
         max_steps: int = 150,
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
+        initial_sweep_steps: int | None = None,
+        initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
     ) -> None:
         super().__init__(belief)
-        self.max_steps = max_steps
+        self.max_steps = int(max_steps)
+        if self.max_steps <= 0:
+            raise ValueError("max_steps must be positive")
         self.convergence_threshold = convergence_threshold
+        # Total measurement count (includes initial sweep + Bayesian steps).
         self.step_count: int = 0
+        # Bayesian acquisition count only (excludes initial sweep).
+        self.inference_step_count: int = 0
         self._scan_param = scan_param or belief.parameters[0].name
+
+        if initial_sweep_steps is None:
+            initial_sweep_steps = 128
+
+        self.initial_sweep_steps = min(int(initial_sweep_steps), self.max_steps)
+        self.initial_sweep_steps = max(0, self.initial_sweep_steps)
+        self._initial_sweep_builder = initial_sweep_builder or self._sobol_1d
+        if self.initial_sweep_steps > 0:
+            self._initial_sweep_points = self._initial_sweep_builder(self.initial_sweep_steps)
+        else:
+            self._initial_sweep_points = np.empty(0, dtype=float)
+
+        self._scan_lo, self._scan_hi = self.belief.get_param(self._scan_param).bounds
 
     @classmethod
     def create(
@@ -63,6 +89,8 @@ class SequentialBayesianLocator(Locator):
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
+        initial_sweep_steps: int | None = None,
+        initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -78,7 +106,24 @@ class SequentialBayesianLocator(Locator):
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
+            initial_sweep_steps=initial_sweep_steps,
+            initial_sweep_builder=initial_sweep_builder,
         )
+
+    @staticmethod
+    def _sobol_1d(n: int) -> np.ndarray:
+        """Deterministic low-discrepancy 1D sequence on [0, 1]."""
+
+        def vdc(k: int, base: int = 2) -> float:
+            v = 0.0
+            denom = 1.0
+            while k:
+                k, remainder = divmod(k, base)
+                denom *= base
+                v += remainder / denom
+            return v
+
+        return np.array([vdc(i + 1) for i in range(n)], dtype=float)
 
     @property
     def scan_posterior(self) -> Parameter:
@@ -109,14 +154,25 @@ class SequentialBayesianLocator(Locator):
     # ------------------------------------------------------------------
 
     def next(self) -> float:
-        """Increment step counter and delegate to acquisition strategy."""
+        """Propose next measurement with initial-sweep warm-start."""
         self.step_count += 1
+
+        if self.step_count <= self.initial_sweep_steps:
+            u = float(self._initial_sweep_points[self.step_count - 1])
+            physical_value = self._scan_lo + u * (self._scan_hi - self._scan_lo)
+            return self._normalize(self._scan_param, physical_value)
+
+        self.inference_step_count += 1
         physical_value = self._acquire()
         return self._normalize(self._scan_param, physical_value)
 
     def done(self) -> bool:
-        """Stop when converged or the step budget is exhausted."""
-        return self.step_count >= self.max_steps or self.belief.converged(self.convergence_threshold)
+        """Stop when converged (after warm-up) or step budget is exhausted."""
+        if self.step_count < self.initial_sweep_steps:
+            return False
+        if self.inference_step_count >= self.max_steps:
+            return True
+        return self.belief.converged(self.convergence_threshold)
 
     def result(self) -> dict[str, float]:
         """Return posterior-mean estimates for all parameters."""
