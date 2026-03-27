@@ -103,10 +103,14 @@ def one_peak_lorentzian_belief(
     n_grid_background: int = 60,
     **_extra: object,
 ) -> UnitCubeGridBeliefDistribution:
+    amp_hi = (0.2 * (3.1e9 - 2.6e9)) ** 2
+    # Keep a non-zero minimum contrast so inference does not collapse to
+    # "flat signal" and overfit measurement noise.
+    amp_lo = 0.01 * amp_hi
     specs = [
         ("frequency", (2.6e9, 3.1e9), n_grid_freq),
         ("linewidth", (5e6, 100e6), n_grid_width),
-        ("amplitude", (0.0, (0.2 * (3.1e9 - 2.6e9)) ** 2), n_grid_amplitude),
+        ("amplitude", (amp_lo, amp_hi), n_grid_amplitude),
         ("background", (0.5, 1.2), n_grid_background),
     ]
     return _unit_cube_belief_from_specs(
@@ -156,14 +160,17 @@ def two_peak_lorentzian_belief(
 ) -> UnitCubeGridBeliefDistribution:
     model = CompositePeakModel([("peak1", LorentzianModel()), ("peak2", LorentzianModel())])
     amp_hi = (0.2 * (3.1e9 - 2.6e9)) ** 2
+    # Keep non-zero peak contrast so Bayesian updates cannot explain data with
+    # two effectively flat peaks plus noise.
+    amp_lo = 0.01 * amp_hi
     specs = [
         ("peak1_frequency", (2.6e9, 3.1e9), n_grid_freq),
         ("peak1_linewidth", (5e6, 100e6), n_grid_width),
-        ("peak1_amplitude", (0.0, amp_hi), n_grid_amplitude),
+        ("peak1_amplitude", (amp_lo, amp_hi), n_grid_amplitude),
         ("peak1_background", (0.0, 0.5), n_grid_background),
         ("peak2_frequency", (2.6e9, 3.1e9), n_grid_freq),
         ("peak2_linewidth", (5e6, 100e6), n_grid_width),
-        ("peak2_amplitude", (0.0, amp_hi), n_grid_amplitude),
+        ("peak2_amplitude", (amp_lo, amp_hi), n_grid_amplitude),
         ("peak2_background", (0.0, 0.5), n_grid_background),
     ]
     return _unit_cube_belief_from_specs(
@@ -188,8 +195,9 @@ def nv_center_belief(
     """NV-center Lorentzian belief: **unit** parameter grids, **physical** signal model."""
     from nvision.signal.nv_center import MAX_K_NP, MIN_K_NP, NVCenterLorentzianModel
 
-    _amp_lo = 0.05 * (1e6) ** 2
     _amp_hi = 0.35 * (50e6) ** 2
+    # Keep non-zero NV contrast so the posterior cannot collapse to "flat signal".
+    _amp_lo = 0.01 * _amp_hi
     base_specs: list[tuple[str, tuple[float, float], int]] = [
         ("frequency", (2.6e9, 3.1e9), n_grid_freq),
         ("linewidth", (1e6, 50e6), n_grid_linewidth),
@@ -217,8 +225,9 @@ def nv_center_smc_belief(
     """NV-center Lorentzian belief: **unit** parameter particles, **physical** signal model."""
     from nvision.signal.nv_center import MAX_K_NP, MIN_K_NP, NVCenterLorentzianModel
 
-    _amp_lo = 0.05 * (1e6) ** 2
     _amp_hi = 0.35 * (50e6) ** 2
+    # Keep non-zero NV contrast so particles cannot collapse to "flat signal".
+    _amp_lo = 0.01 * _amp_hi
     merged_bounds = {
         "frequency": (2.6e9, 3.1e9),
         "linewidth": (1e6, 50e6),
@@ -232,6 +241,11 @@ def nv_center_smc_belief(
         for name in merged_bounds:
             if name in parameter_bounds and parameter_bounds[name][1] > parameter_bounds[name][0]:
                 merged_bounds[name] = parameter_bounds[name]
+
+    # Enforce amplitude floor even when caller injects parameter bounds.
+    amp_lo, amp_hi = merged_bounds["amplitude"]
+    amp_floor = 0.01 * amp_hi
+    merged_bounds["amplitude"] = (max(float(amp_lo), float(amp_floor)), float(amp_hi))
 
     x_phys = merged_bounds["frequency"]
     wrapped = UnitCubeSignalModel(NVCenterLorentzianModel(), merged_bounds, x_phys)

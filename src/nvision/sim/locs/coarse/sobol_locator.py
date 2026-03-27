@@ -19,6 +19,22 @@ from nvision.signal.signal import ParamSpec, SignalModel
 from nvision.sim.locs.coarse.numba_kernels import gaussian_peak_posterior_update
 
 
+def sobol_1d_sequence(n: int) -> NDArray[np.float64]:
+    """Minimal deterministic 1D low-discrepancy sequence over [0, 1]."""
+
+    # Use a simple van der Corput base-2 sequence as a stand-in.
+    def vdc(k: int, base: int = 2) -> float:
+        v = 0.0
+        denom = 1.0
+        while k:
+            k, remainder = divmod(k, base)
+            denom *= base
+            v += remainder / denom
+        return v
+
+    return np.array([vdc(i + 1) for i in range(n)], dtype=float)
+
+
 @dataclass(frozen=True)
 class _BlackBoxParams:
     peak_x: float
@@ -111,18 +127,7 @@ class SobolLocator(Locator):
 
     def _sobol_1d(self, n: int) -> NDArray[np.float64]:
         """Minimal 1D Sobol sequence generator over [0, 1]."""
-
-        # Use a simple van der Corput base-2 sequence as a stand-in.
-        def vdc(k: int, base: int = 2) -> float:
-            v = 0.0
-            denom = 1.0
-            while k:
-                k, remainder = divmod(k, base)
-                denom *= base
-                v += remainder / denom
-            return v
-
-        return np.array([vdc(i + 1) for i in range(n)], dtype=float)
+        return sobol_1d_sequence(n)
 
     def next(self) -> float:
         x = self._points[self.step_count]

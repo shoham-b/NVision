@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from nvision.sim.batch import DataBatch, OverFrequencyNoise, OverProbeNoise
 
@@ -29,6 +30,31 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
         rss = sum(p.noise_std() ** 2 for p in self._parts)
         std = rss**0.5
         return std
+
+    def likelihood_spec(self) -> tuple[dict[str, Any], ...]:
+        """Return a structured description of frequency-noise components.
+
+        This metadata is attached to observations so Bayesian updaters can use
+        component-specific likelihoods where supported.
+        """
+        specs: list[dict[str, Any]] = []
+        for part in self._parts:
+            name = part.__class__.__name__
+            if name == "OverFrequencyGaussianNoise":
+                specs.append({"type": "gaussian", "sigma": float(getattr(part, "sigma", 0.0))})
+            elif name == "OverFrequencyPoissonNoise":
+                specs.append({"type": "poisson", "scale": float(getattr(part, "scale", 0.0))})
+            elif name == "OverFrequencyOutlierSpikes":
+                specs.append(
+                    {
+                        "type": "outlier_spikes",
+                        "probability": float(getattr(part, "probability", 0.0)),
+                        "magnitude": float(getattr(part, "magnitude", 0.0)),
+                    }
+                )
+            else:
+                specs.append({"type": "unknown", "name": name})
+        return tuple(specs)
 
 
 class CompositeOverProbeNoise(OverProbeNoise):

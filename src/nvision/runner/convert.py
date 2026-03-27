@@ -7,9 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 from nvision.models.observer import RunResult
+from nvision.signal.grid_belief import GridBeliefDistribution
+from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
 
 
 def denormalize_x(x_norm: float, x_min: float, x_max: float) -> float:
@@ -83,6 +86,35 @@ def extract_peak_estimates(
         estimates["split"] = belief_estimates["split"]
 
     return estimates
+
+
+def belief_mode_estimates(belief: object) -> dict[str, float]:
+    """Best-effort per-parameter posterior modes in physical units when possible."""
+    # Unit-cube grid belief: map argmax on unit grid back to physical bounds.
+    if isinstance(belief, UnitCubeGridBeliefDistribution):
+        modes: dict[str, float] = {}
+        for p in belief.parameters:
+            name = p.name
+            base_param = GridBeliefDistribution.get_param(belief, name)
+            idx = int(np.argmax(base_param.posterior))
+            u_mode = float(base_param.grid[idx])
+            lo, hi = belief.physical_param_bounds[name]
+            modes[name] = lo + u_mode * (hi - lo)
+        return modes
+
+    # Plain grid belief: argmax directly on each parameter grid.
+    if isinstance(belief, GridBeliefDistribution):
+        modes = {}
+        for p in belief.parameters:
+            idx = int(np.argmax(p.posterior))
+            modes[p.name] = float(p.grid[idx])
+        return modes
+
+    # Fallback for non-grid beliefs (e.g., SMC): use current estimates.
+    if hasattr(belief, "estimates") and callable(belief.estimates):
+        out = belief.estimates()
+        return {k: float(v) for k, v in out.items() if isinstance(v, (int, float))}
+    return {}
 
 
 def run_result_to_finalize_record(

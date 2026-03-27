@@ -189,8 +189,5 @@ def nvcenter_bayes_utility_case(
 
 if __name__ == "__main__":
     run_preset(
-        case_name=sim_cases.RunCaseName.NVCENTER_BAYES_SBED,
-        repeats=5,
-        all_experiments=True,
-        no_cache=True,
+        case_name=sim_cases.RunCaseName.NVCENTER_BAYES_SBED, repeats=5, all_experiments=True, no_cache=True, runners=1
     )

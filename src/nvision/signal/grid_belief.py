@@ -10,6 +10,7 @@ from numba.experimental.jitclass import jitclass
 
 from nvision.models.observation import Observation
 from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
+from nvision.signal.likelihood import likelihood_from_observation_model
 from nvision.signal.signal import Parameter
 
 # --- Closed numeric core: 1D discrete PMF on a fixed grid (Numba jitclass) -----
@@ -156,7 +157,12 @@ class GridBeliefDistribution(AbstractBeliefDistribution):
 
             predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
             noise_std = obs.noise_std
-            likelihoods = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
+            likelihoods = likelihood_from_observation_model(
+                obs_y=obs.signal_value,
+                predicted=predicted,
+                noise_std=noise_std,
+                frequency_noise_model=obs.frequency_noise_model,
+            )
 
             param.apply_likelihood(likelihoods)
 

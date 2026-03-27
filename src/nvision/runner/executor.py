@@ -291,6 +291,7 @@ class _TaskRunner:
                 out_dir=self.task.out_dir,
                 scans_dir=self.task.scans_dir,
                 bayes_dir=self.task.bayes_dir,
+                run_result=artifacts.run_results[attempt_idx] if attempt_idx < len(artifacts.run_results) else None,
             )
             all_results.append((entries, main_result_row))
             self._save_repeat_cache(attempt_idx, entries, main_result_row)
@@ -411,10 +412,21 @@ class _TaskRunner:
 
     @staticmethod
     def _injected_parameter_bounds(experiment: CoreExperiment) -> dict[str, tuple[float, float]]:
-        """Extract valid `(lo, hi)` bounds from the true-signal parameters."""
+        """Extract valid `(lo, hi)` bounds with noise-aware amplitude floor.
+
+        Any amplitude-like parameter is clamped so its lower bound is at least
+        the estimated measurement-noise standard deviation (when feasible).
+        """
         bounds: dict[str, tuple[float, float]] = {}
+        noise_std = 0.05
+        if experiment.noise is not None:
+            noise_std = float(experiment.noise.estimated_noise_std())
         for name, (lo_raw, hi_raw) in experiment.true_signal.bounds.items():
             lo, hi = float(lo_raw), float(hi_raw)
             if hi > lo:
+                if "amplitude" in name.lower() and hi > noise_std:
+                    lo = max(lo, noise_std)
+                    if lo >= hi:
+                        lo = hi * 0.999
                 bounds[name] = (lo, hi)
         return bounds

@@ -62,8 +62,14 @@ def prepare_artifact_tree(out_dir: Path, *, clear_cache: bool = False) -> Artifa
 def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger) -> pl.DataFrame:
     """Concatenate with on-disk CSV when present, keeping the newest row per scenario key."""
     out_path = locator_results_path(out_dir)
-    if not out_path.exists() or len(df_loc) == 0:
+    if not out_path.exists():
         return df_loc
+    if len(df_loc) == 0:
+        try:
+            return pl.read_csv(out_path)
+        except Exception as e:
+            log.warning("Could not load existing locator_results.csv: %s", e)
+            return df_loc
     try:
         old_df = pl.read_csv(out_path)
         key = ("generator", "noise", "strategy", "repeat")

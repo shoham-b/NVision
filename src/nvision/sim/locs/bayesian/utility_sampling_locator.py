@@ -94,7 +94,7 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         )
 
     def _acquire(self) -> float:
-        candidates = np.linspace(*self.belief.get_param(self._scan_param).bounds, self.n_candidates)
+        candidates = np.linspace(*self._acquisition_bounds(), self.n_candidates)
         sampled = self.belief.sample(self.n_mc_samples)
 
         noise_var = self.noise_std**2

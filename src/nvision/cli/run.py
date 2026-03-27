@@ -90,13 +90,22 @@ def _run_tasks_process_pool(
 def _prune_run_logs(logs_dir: Path, *, max_runs: int = 2) -> None:
     """Drop legacy single-file logs; keep at most ``max_runs - 1`` prior session files (this run adds one)."""
     for legacy in logs_dir.glob("nvision-run.log*"):
-        legacy.unlink(missing_ok=True)
+        try:
+            legacy.unlink(missing_ok=True)
+        except OSError:
+            # On Windows another process may temporarily hold the file.
+            continue
     session_logs = sorted(
         logs_dir.glob("nvision-run-*.log"),
         key=lambda p: p.stat().st_mtime,
     )
     while len(session_logs) >= max_runs:
-        session_logs.pop(0).unlink(missing_ok=True)
+        old = session_logs.pop(0)
+        try:
+            old.unlink(missing_ok=True)
+        except OSError:
+            # Best-effort cleanup; keep running if a stale log is locked.
+            continue
 
 
 def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
