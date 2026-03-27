@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import shutil
 from pathlib import Path
 from typing import Final
 
@@ -48,5 +49,23 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     )
     _write_js_data_file(out_dir / "settings.js", "SETTINGS", settings_json)
 
-    # Return the immutable static UI entrypoint (repo-root static page).
-    return _STATIC_INDEX_PATH
+    # Keep a synced copy of the static UI assets in out_dir so opening
+    # `artifacts/index.html` always uses the same JS/CSS as the latest code.
+    for name in ("index.html", "app.js", "styles.css"):
+        src = _STATIC_DIR / name
+        if src.exists():
+            shutil.copy2(src, out_dir / name)
+
+    # Cache-bust the app bundle reference so browsers don't keep an old app.js.
+    index_path = out_dir / "index.html"
+    if index_path.exists():
+        index_html = index_path.read_text(encoding="utf-8")
+        stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
+        index_html = index_html.replace(
+            '<script src="app.js"></script>',
+            f'<script src="app.js?v={stamp}"></script>',
+        )
+        index_path.write_text(index_html, encoding="utf-8")
+
+    # Return the generated out-dir entrypoint users typically open.
+    return out_dir / "index.html"

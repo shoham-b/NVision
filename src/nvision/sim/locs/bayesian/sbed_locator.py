@@ -88,20 +88,43 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # Sequential Bayesian Experiment Design Utility calculation:
         # Evaluate the mathematically exact Expected Information Gain (Shannon Entropy Reduction)
         # by simulating hypothetical measurements and estimating the expected posterior entropy.
-        candidates = np.linspace(*self.belief.get_param(self._scan_param).bounds, 200)
+        candidates = np.linspace(*self._acquisition_bounds(), 200)
         num_samples = 100
 
         sampled = self.belief.sample(num_samples)
 
         # Use the known measurement noise from the last observation.
-        # This is the actual physical noise standard deviation, which is fixed
-        # for a given noise model and should NOT vary with parameter uncertainty.
+        # For Gaussian frequency noise we draw Gaussian hypothetical outcomes;
+        # for pure Poisson frequency noise we draw Poisson counts and rescale.
         last_obs = self.belief.last_obs
         noise_std = last_obs.noise_std if last_obs is not None else 0.05
+        freq_model = getattr(last_obs, "frequency_noise_model", None) if last_obs is not None else None
 
-        # Pre-sample hypothetical measurement noise once so results remain
-        # deterministic for a given RNG state.
-        measurement_noise = np.random.normal(0.0, noise_std, size=(len(candidates), num_samples))
+        n_candidates = len(candidates)
+        measurement_noise = np.zeros((n_candidates, num_samples), dtype=float)
+
+        # Detect a single-component Poisson over-frequency model and match its generative process.
+        use_poisson = bool(
+            freq_model
+            and len(freq_model) == 1
+            and freq_model[0].get("type") == "poisson"
+            and float(freq_model[0].get("scale", 0.0)) > 0.0
+        )
+        if use_poisson:
+            scale = float(freq_model[0]["scale"])
+            # We will add these residuals to mu_preds later: y = mu + (k/scale - mu).
+            for i in range(n_candidates):
+                # Temporarily approximate mu for noise draws with the current posterior mean at this candidate.
+                # The exact mu_preds are computed below; this keeps draws consistent in scale.
+                # Draw counts k ~ Poisson(mu * scale) and convert to residuals in signal space.
+                # We use a simple Normal approximation for speed when scale*mu is large.
+                # For SBED, slight noise-shape approximation is acceptable.
+                lam = 1.0  # placeholder; refined per-candidate when applying noise_chunk
+                # Store standard normal draws; they will be scaled when applying lam.
+                measurement_noise[i, :] = np.random.normal(0.0, 1.0, size=num_samples)
+        else:
+            # Gaussian (or unknown) case: simple Normal residuals with known std.
+            measurement_noise = np.random.normal(0.0, noise_std, size=(n_candidates, num_samples))
 
         model = self.belief.model
 
@@ -120,10 +143,25 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             mu_preds = model.compute_vectorized_many(xs, sampled)
 
             noise_chunk = measurement_noise[start:end]  # (m, num_samples)
+            inv_noise_std = 1.0 / noise_std
+            if use_poisson:
+                scale = float(freq_model[0]["scale"])
+                # For Poisson, interpret pre-drawn standard normals as approximate
+                # count fluctuations around mean and convert to residuals in signal space.
+                # lam ≈ mu * scale; var(k) ≈ lam, so std in y-space ≈ sqrt(lam)/scale.
+                # We therefore scale the standard-normal draws by that std.
+                for i in range(mu_preds.shape[0]):
+                    lam = np.maximum(mu_preds[i, :], 1e-12) * scale
+                    std_y = np.sqrt(lam) / scale
+                    noise_chunk[i, :] = measurement_noise[start + i, :] * std_y
+                    # Effective Gaussian approximation in y-space; keep inv_noise_std consistent with std_y scale.
+                # For SBED entropy math, we treat these as Gaussian residuals with local std_y,
+                # but reuse a global inv_noise_std for numerical stability.
+                inv_noise_std = 1.0 / max(noise_std, 1e-6)
             utilities[start:end] = _sbed_eig_utilities_from_mu_and_noise(
                 mu_preds=mu_preds,
                 noise_chunk=noise_chunk,
-                inv_noise_std=1.0 / noise_std,
+                inv_noise_std=inv_noise_std,
                 eps=eps,
             )
 

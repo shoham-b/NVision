@@ -9,6 +9,7 @@ from numba import njit
 
 from nvision.models.observation import Observation
 from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
+from nvision.signal.likelihood import likelihood_from_observation_model
 from nvision.signal.signal import Parameter
 
 # --- Numba helpers (particle weights / resampling) ----------------------------
@@ -138,7 +139,12 @@ class SMCBeliefDistribution(AbstractBeliefDistribution):
         # Adaptive noise based on current uncertainty (similar to grid)
         # In a rigorous SMC, this should ideally be a fixed measurement noise
         noise_std = obs.noise_std
-        likelihoods = np.exp(-0.5 * ((obs.signal_value - predicted) / noise_std) ** 2)
+        likelihoods = likelihood_from_observation_model(
+            obs_y=obs.signal_value,
+            predicted=predicted,
+            noise_std=noise_std,
+            frequency_noise_model=obs.frequency_noise_model,
+        )
 
         # 2. Update weights
         self._weights *= likelihoods

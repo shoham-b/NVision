@@ -11,5 +11,4 @@ class RandomLocator(SequentialBayesianLocator):
     """Uniform-random acquisition baseline."""
 
     def _acquire(self) -> float:
-        p = self.scan_posterior
-        return float(np.random.uniform(*p.bounds))
+        return float(np.random.uniform(*self._acquisition_bounds()))

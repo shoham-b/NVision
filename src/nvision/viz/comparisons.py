@@ -50,10 +50,15 @@ class ComparisonsMixin:
             # Generate stats/plots for this combo
             # We want to compare strategies side-by-side
 
-            # Metric 1: Absolute Error
-            if "abs_err_x" in sub_df.columns:
+            # Metric 1: Absolute Error (with fallbacks for multi-peak runs).
+            # Keep manifest metric key as `abs_err_x` because the static UI expects it.
+            error_source_col = self._resolve_error_metric_column(sub_df)
+            if error_source_col is not None:
+                metric_df = sub_df
+                if error_source_col != "abs_err_x":
+                    metric_df = sub_df.with_columns(pl.col(error_source_col).alias("abs_err_x"))
                 self._create_comparison_plot(
-                    sub_df,
+                    metric_df,
                     gen,
                     noise,
                     metric="abs_err_x",
@@ -87,6 +92,14 @@ class ComparisonsMixin:
                 )
 
         return manifest_entries
+
+    @staticmethod
+    def _resolve_error_metric_column(df: pl.DataFrame) -> str | None:
+        """Pick the best available error column for strategy comparisons."""
+        for col in ("abs_err_x", "pair_rmse", "abs_err_x1", "abs_err_x2"):
+            if col in df.columns:
+                return col
+        return None
 
     def _create_comparison_plot(
         self,

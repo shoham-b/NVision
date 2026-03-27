@@ -1,10 +1,12 @@
 window.NVISION_ASSET_PREFIX = '';
         window.NVISION_BOOTSTRAP = (async () => {
             async function loadScript(candidates, onLoaded) {
+                const cacheBust = `v=${Date.now()}`;
                 for (const candidate of candidates) {
                     const loaded = await new Promise((resolve) => {
                         const script = document.createElement('script');
-                        script.src = candidate.src;
+                        const sep = candidate.src.includes('?') ? '&' : '?';
+                        script.src = `${candidate.src}${sep}${cacheBust}`;
                         script.async = false;
                         script.onload = () => resolve(true);
                         script.onerror = () => resolve(false);
@@ -254,6 +256,91 @@ function main() {
         const scanIframe = document.getElementById('scan-iframe');
         const scanMetrics = document.getElementById('scan-metrics');
         let currentRepeatItems = [];
+        let measurementDistributionVisible = null;
+
+        function isMeasurementDistributionTrace(trace) {
+            const name = (trace && trace.name) ? String(trace.name).trim().toLowerCase() : '';
+            return name === 'measurement distribution';
+        }
+
+        function resolveTraceVisibleState(value) {
+            if (Array.isArray(value)) {
+                if (value.length === 0) {
+                    return null;
+                }
+                return resolveTraceVisibleState(value[0]);
+            }
+            if (value === true) {
+                return true;
+            }
+            if (value === false || value === 'legendonly') {
+                return false;
+            }
+            return null;
+        }
+
+        function applyMeasurementDistributionPreferenceInScanIframe() {
+            if (!scanIframe || measurementDistributionVisible === null) {
+                return;
+            }
+            const frameWindow = scanIframe.contentWindow;
+            const frameDocument = scanIframe.contentDocument;
+            if (!frameWindow || !frameDocument || !frameWindow.Plotly) {
+                return;
+            }
+            const graphDiv = frameDocument.querySelector('.plotly-graph-div');
+            if (!graphDiv || !Array.isArray(graphDiv.data)) {
+                return;
+            }
+            const targetIndices = [];
+            graphDiv.data.forEach((trace, idx) => {
+                if (isMeasurementDistributionTrace(trace)) {
+                    targetIndices.push(idx);
+                }
+            });
+            if (targetIndices.length === 0) {
+                return;
+            }
+            const visibleValue = measurementDistributionVisible ? true : 'legendonly';
+            frameWindow.Plotly.restyle(graphDiv, { visible: visibleValue }, targetIndices);
+        }
+
+        function bindScanIframeLegendPreferenceSync() {
+            if (!scanIframe) {
+                return;
+            }
+            const frameDocument = scanIframe.contentDocument;
+            if (!frameDocument) {
+                return;
+            }
+            const graphDiv = frameDocument.querySelector('.plotly-graph-div');
+            if (!graphDiv || graphDiv.dataset.measureDistListenerAttached === '1') {
+                return;
+            }
+            graphDiv.dataset.measureDistListenerAttached = '1';
+            graphDiv.on('plotly_restyle', (restyleData) => {
+                if (!Array.isArray(restyleData) || restyleData.length < 2) {
+                    return;
+                }
+                const updates = restyleData[0] || {};
+                const traceIndices = Array.isArray(restyleData[1]) ? restyleData[1] : [];
+                if (!('visible' in updates) || traceIndices.length === 0 || !Array.isArray(graphDiv.data)) {
+                    return;
+                }
+                const visibleUpdate = updates.visible;
+                for (const traceIdx of traceIndices) {
+                    const trace = graphDiv.data[traceIdx];
+                    if (!isMeasurementDistributionTrace(trace)) {
+                        continue;
+                    }
+                    const nextState = resolveTraceVisibleState(visibleUpdate);
+                    if (nextState !== null) {
+                        measurementDistributionVisible = nextState;
+                    }
+                    break;
+                }
+            });
+        }
 
         function formatMetricValue(value) {
             if (typeof value === 'number' && Number.isFinite(value)) {
@@ -313,7 +400,7 @@ function main() {
                 return;
             }
             if (m.mode === 'phases') {
-                const coarseColor = side === 'left' ? 'rgba(251,146,60,0.45)' : 'rgba(167,139,250,0.45)';
+                const coarseColor = 'rgba(176,176,176,0.9)';
                 if (m.coarse_x && m.coarse_x.length) {
                     traces.push({
                         type: 'scatter',
@@ -325,7 +412,7 @@ function main() {
                             size: 7,
                             color: coarseColor,
                             symbol: symbol,
-                            line: { width: 0.5, color: '#222' },
+                            line: { width: 0.6, color: '#4a4a4a' },
                         },
                         hovertemplate: 'x=%{x}<br>y=%{y:.4f}<br>phase=initial sweep<extra></extra>',
                     });
@@ -697,6 +784,14 @@ function main() {
             }
         }
 
+        if (scanIframe) {
+            scanIframe.addEventListener('load', () => {
+                // Keep legend preference when switching locator strategy/repeat (new iframe src).
+                applyMeasurementDistributionPreferenceInScanIframe();
+                bindScanIframeLegendPreferenceSync();
+            });
+        }
+
         function setupTabs() {
             const tabBar = document.querySelector('.tab-bar');
             const tabPanels = document.querySelectorAll('.tab-panel');
@@ -705,8 +800,6 @@ function main() {
             tabBar.innerHTML = ''; // Clear existing
 
             const hasScans = scanPlots.length > 0;
-            // Check for generic comparison plots
-            const hasModelComp = plots.some(p => p.type === 'model_comparison');
 
             if (hasScans) {
                 const button = document.createElement('button');
@@ -724,13 +817,11 @@ function main() {
                 tabBar.appendChild(button);
             }
 
-            if (hasModelComp) {
-                const button = document.createElement('button');
-                button.className = 'tab-button';
-                button.textContent = 'Strategy metrics';
-                button.dataset.tab = 'strategy-comparison-section';
-                tabBar.appendChild(button);
-            }
+            const strategyButton = document.createElement('button');
+            strategyButton.className = 'tab-button';
+            strategyButton.textContent = 'Strategy metrics';
+            strategyButton.dataset.tab = 'strategy-comparison-section';
+            tabBar.appendChild(strategyButton);
 
             const tabButtons = tabBar.querySelectorAll('.tab-button');
             if (tabButtons.length > 0) {
@@ -777,6 +868,7 @@ function main() {
         const modelCompPlots = plots.filter(p => p.type === 'model_comparison');
 
         function updateCompControls() {
+            if (!compGeneratorType || !compGenerator || !compNoise) return;
             const uniqueGenTypes = [...new Set(modelCompPlots.map(p => p.generator_type || (p.generator.startsWith('NVCenter-') ? 'NV Center' : 'Complementary')))].sort();
             const selectedGenType = renderSegmentedControl(compGeneratorType, uniqueGenTypes, controlValue(compGeneratorType));
 
@@ -797,10 +889,16 @@ function main() {
         }
 
         function updateCompPlots() {
+            if (!compIframeAbsErr || !compIframeMeasurements || !compIframeDuration) return;
             const gen = controlValue(compGenerator);
             const noise = controlValue(compNoise);
 
-            if (!gen || !noise) return;
+            if (!gen || !noise) {
+                compIframeAbsErr.src = '';
+                compIframeMeasurements.src = '';
+                compIframeDuration.src = '';
+                return;
+            }
 
             const absErrPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'abs_err_x');
             const measurementsPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'measurements');
@@ -811,20 +909,21 @@ function main() {
             compIframeDuration.src = durationPlot ? durationPlot.path : '';
         }
 
-        compGeneratorType.addEventListener('controlchange', () => {
-            updateCompControls();
-            updateCompPlots();
-        });
+        if (compGeneratorType && compGenerator && compNoise) {
+            compGeneratorType.addEventListener('controlchange', () => {
+                updateCompControls();
+                updateCompPlots();
+            });
 
-        compGenerator.addEventListener('controlchange', () => {
-            updateCompControls();
-            updateCompPlots();
-        });
+            compGenerator.addEventListener('controlchange', () => {
+                updateCompControls();
+                updateCompPlots();
+            });
 
-
-        compNoise.addEventListener('controlchange', () => {
-            updateCompPlots();
-        });
+            compNoise.addEventListener('controlchange', () => {
+                updateCompPlots();
+            });
+        }
 
         // --- Scan Comparison: same signal (target / generator / noise / repeat), two locators ---
         function setupScanComparison() {

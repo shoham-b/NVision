@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import polars as pl
 from plotly.subplots import make_subplots
 
 from nvision.models.noise import CompositeOverFrequencyNoise
+from nvision.signal.signal import Parameter
 from nvision.sim.batch import DataBatch
 from nvision.tools.paths import ensure_out_dir
 
@@ -81,6 +83,40 @@ def _add_true_and_noisy_traces(
     )
 
 
+def _add_mode_belief_trace(
+    fig: go.Figure,
+    *,
+    scan: Any,
+    xs: np.ndarray,
+    mode_estimates: Mapping[str, float] | None,
+    has_metrics: bool,
+) -> None:
+    """Overlay signal generated from per-parameter posterior modes."""
+    if not mode_estimates:
+        return
+    model = getattr(scan.true_signal, "model", None)
+    bounds = getattr(scan.true_signal, "bounds", None)
+    if model is None or bounds is None:
+        return
+    names = list(model.parameter_names())
+    if not names or not all(name in mode_estimates for name in names):
+        return
+    params = [Parameter(name=name, bounds=bounds[name], value=float(mode_estimates[name])) for name in names]
+    y_mode = [float(model.compute_from_params(float(x), params)) for x in xs]
+    row, col = _row_col(has_metrics)
+    fig.add_trace(
+        go.Scatter(
+            x=xs,
+            y=y_mode,
+            mode="lines",
+            name="locator mode belief signal",
+            line=dict(color="#d62728", width=2, dash="dash"),
+        ),
+        row=row,
+        col=col,
+    )
+
+
 def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool) -> None:
     if history.height == 0:
         return
@@ -111,7 +147,7 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
                     y=coarse_y,
                     mode="markers",
                     name="measurements (coarse)",
-                    marker=dict(size=7, color="rgba(117,117,117,0.9)", line=dict(width=0.5, color="black")),
+                    marker=dict(size=7, color="rgba(176,176,176,0.95)", line=dict(width=0.6, color="#4a4a4a")),
                     customdata=coarse_depth,
                     hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
                 ),
@@ -163,6 +199,33 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
             customdata=[depth_percent(y) for y in ys_s],
             hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<br>step=%{marker.color}<extra></extra>",
         ),
+        row=row,
+        col=col,
+    )
+
+
+def _add_focus_window_overlay(
+    fig: go.Figure,
+    *,
+    focus_window: tuple[float, float] | None,
+    has_metrics: bool,
+) -> None:
+    """Overlay focused Bayesian acquisition region as a shaded vertical band."""
+    if focus_window is None:
+        return
+    x0, x1 = float(focus_window[0]), float(focus_window[1])
+    if not np.isfinite(x0) or not np.isfinite(x1) or x1 <= x0:
+        return
+    row, col = _row_col(has_metrics)
+    fig.add_vrect(
+        x0=x0,
+        x1=x1,
+        fillcolor="rgba(46, 204, 113, 0.16)",
+        line_width=1,
+        line_color="rgba(46, 204, 113, 0.7)",
+        layer="below",
+        annotation_text="Bayesian focus area",
+        annotation_position="top left",
         row=row,
         col=col,
     )
@@ -377,6 +440,7 @@ def compute_scan_plot_data(
     scan: Any,
     history: pl.DataFrame,
     over_frequency_noise: CompositeOverFrequencyNoise | None,
+    focus_window: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``)."""
     history_xs_s, history_ys_s = _extract_history_xy(history)
@@ -394,6 +458,10 @@ def compute_scan_plot_data(
     has_metrics = history.height > 0 and any(col in history.columns for col in ["entropy", "max_prob", "uncertainty"])
     out["has_metrics"] = has_metrics
     out["measurements"] = _measurements_from_history(history)
+    if focus_window is not None:
+        lo, hi = float(focus_window[0]), float(focus_window[1])
+        if np.isfinite(lo) and np.isfinite(hi) and hi > lo:
+            out["focus_window"] = [lo, hi]
     return out
 
 
@@ -592,6 +660,8 @@ class MeasurementsMixin:
         history: pl.DataFrame,
         out_path: Path,
         over_frequency_noise: CompositeOverFrequencyNoise | None = None,
+        mode_estimates: Mapping[str, float] | None = None,
+        focus_window: tuple[float, float] | None = None,
     ) -> Path:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
@@ -643,6 +713,9 @@ class MeasurementsMixin:
         )
         _add_measurement_distribution_trace(fig, history=history, xs_dense=xs, ys_dense=ys, has_metrics=has_metrics)
         _add_history_traces(fig, history, has_metrics)
+        _add_focus_window_overlay(fig, focus_window=focus_window, has_metrics=has_metrics)
+        # Draw last so the curve sits on top of true/noisy/measurements/distribution.
+        _add_mode_belief_trace(fig, scan=scan, xs=xs, mode_estimates=mode_estimates, has_metrics=has_metrics)
         _add_metric_traces(fig, history, has_metrics)
         _scan_layout(fig, has_metrics)
 

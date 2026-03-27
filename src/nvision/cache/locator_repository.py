@@ -80,6 +80,10 @@ class LocatorResultsRepository:
         )
         return self._get_cached_results_for_config(config)
 
+    def get_cached_combination_by_config(self, config: dict[str, Any]) -> CachedComboResults | None:
+        """Retrieve cached simulation results from a full combination config payload."""
+        return self._get_cached_results_for_config(config)
+
     def _get_cached_results_for_config(self, config: dict[str, Any]) -> CachedComboResults | None:
         """Retrieve cached simulation results for a combination config dict (internal wire format)."""
         key = stable_config_hash(config)

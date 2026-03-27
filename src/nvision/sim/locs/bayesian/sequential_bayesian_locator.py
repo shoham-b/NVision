@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 
 from nvision.models.locator import Locator
+from nvision.models.observation import Observation
 from nvision.signal.abstract_belief import AbstractBeliefDistribution
 from nvision.signal.signal import Parameter
+from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
 
 
 class SequentialBayesianLocator(Locator):
@@ -33,7 +35,7 @@ class SequentialBayesianLocator(Locator):
     belief : AbstractBeliefDistribution
         Initial belief (usually a flat / uniform prior over all parameters).
     max_steps : int
-        Hard upper bound on Bayesian-inference steps (excludes initial sweep).
+        Hard upper bound on Bayesian inference steps (excludes initial sweep).
     convergence_threshold : float
         Posterior-uncertainty threshold below which we consider all parameters
         converged and stop early.
@@ -48,6 +50,8 @@ class SequentialBayesianLocator(Locator):
         Defaults to a Sobol-like low-discrepancy 1D sequence.
     """
 
+    DEFAULT_INITIAL_SWEEP_STEPS = 64
+
     def __init__(
         self,
         belief: AbstractBeliefDistribution,
@@ -56,6 +60,12 @@ class SequentialBayesianLocator(Locator):
         scan_param: str | None = None,
         initial_sweep_steps: int | None = None,
         initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
+        convergence_params: Sequence[str] | None = None,
+        convergence_patience_steps: int = 8,
+        focus_after_sweep: bool = True,
+        focus_info_quantile: float = 0.6,
+        focus_padding_fraction: float = 0.1,
+        focus_min_width_fraction: float = 0.15,
     ) -> None:
         super().__init__(belief)
         self.max_steps = int(max_steps)
@@ -67,19 +77,30 @@ class SequentialBayesianLocator(Locator):
         # Bayesian acquisition count only (excludes initial sweep).
         self.inference_step_count: int = 0
         self._scan_param = scan_param or belief.parameters[0].name
+        # Default convergence target is all model parameters.
+        self._convergence_params: tuple[str, ...] = (
+            tuple(convergence_params) if convergence_params is not None else tuple(self.belief.model.parameter_names())
+        )
+        self._convergence_patience_steps = max(1, int(convergence_patience_steps))
+        self._convergence_streak = 0
+        self._focus_after_sweep = bool(focus_after_sweep)
+        self._focus_info_quantile = float(np.clip(focus_info_quantile, 0.0, 0.95))
+        self._focus_padding_fraction = float(max(0.0, focus_padding_fraction))
+        self._focus_min_width_fraction = float(np.clip(focus_min_width_fraction, 0.0, 1.0))
 
         if initial_sweep_steps is None:
-            initial_sweep_steps = 128
+            initial_sweep_steps = self.DEFAULT_INITIAL_SWEEP_STEPS
 
-        self.initial_sweep_steps = min(int(initial_sweep_steps), self.max_steps)
-        self.initial_sweep_steps = max(0, self.initial_sweep_steps)
-        self._initial_sweep_builder = initial_sweep_builder or self._sobol_1d
+        self.initial_sweep_steps = max(0, int(initial_sweep_steps))
+        self._initial_sweep_builder = initial_sweep_builder or sobol_1d_sequence
         if self.initial_sweep_steps > 0:
             self._initial_sweep_points = self._initial_sweep_builder(self.initial_sweep_steps)
         else:
             self._initial_sweep_points = np.empty(0, dtype=float)
 
         self._scan_lo, self._scan_hi = self.belief.get_param(self._scan_param).bounds
+        self._focus_lo, self._focus_hi = self._scan_lo, self._scan_hi
+        self._sweep_observations: list[Observation] = []
 
     @classmethod
     def create(
@@ -91,6 +112,12 @@ class SequentialBayesianLocator(Locator):
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         initial_sweep_steps: int | None = None,
         initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
+        convergence_params: Sequence[str] | None = None,
+        convergence_patience_steps: int = 8,
+        focus_after_sweep: bool = True,
+        focus_info_quantile: float = 0.6,
+        focus_padding_fraction: float = 0.1,
+        focus_min_width_fraction: float = 0.15,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -108,22 +135,13 @@ class SequentialBayesianLocator(Locator):
             scan_param=scan_param,
             initial_sweep_steps=initial_sweep_steps,
             initial_sweep_builder=initial_sweep_builder,
+            convergence_params=convergence_params,
+            convergence_patience_steps=convergence_patience_steps,
+            focus_after_sweep=focus_after_sweep,
+            focus_info_quantile=focus_info_quantile,
+            focus_padding_fraction=focus_padding_fraction,
+            focus_min_width_fraction=focus_min_width_fraction,
         )
-
-    @staticmethod
-    def _sobol_1d(n: int) -> np.ndarray:
-        """Deterministic low-discrepancy 1D sequence on [0, 1]."""
-
-        def vdc(k: int, base: int = 2) -> float:
-            v = 0.0
-            denom = 1.0
-            while k:
-                k, remainder = divmod(k, base)
-                denom *= base
-                v += remainder / denom
-            return v
-
-        return np.array([vdc(i + 1) for i in range(n)], dtype=float)
 
     @property
     def scan_posterior(self) -> Parameter:
@@ -157,6 +175,9 @@ class SequentialBayesianLocator(Locator):
         """Propose next measurement with initial-sweep warm-start."""
         self.step_count += 1
 
+        if self.step_count == self.initial_sweep_steps + 1:
+            self._update_focus_bounds_from_sweep()
+
         if self.step_count <= self.initial_sweep_steps:
             u = float(self._initial_sweep_points[self.step_count - 1])
             physical_value = self._scan_lo + u * (self._scan_hi - self._scan_lo)
@@ -166,17 +187,102 @@ class SequentialBayesianLocator(Locator):
         physical_value = self._acquire()
         return self._normalize(self._scan_param, physical_value)
 
+    def observe(self, obs: Observation) -> None:
+        """Update belief and cache Sobol-sweep observations for focus detection."""
+        super().observe(obs)
+        if self.step_count <= self.initial_sweep_steps:
+            self._sweep_observations.append(obs)
+
     def done(self) -> bool:
         """Stop when converged (after warm-up) or step budget is exhausted."""
         if self.step_count < self.initial_sweep_steps:
             return False
         if self.inference_step_count >= self.max_steps:
             return True
+        if self._target_params_converged():
+            self._convergence_streak += 1
+        else:
+            self._convergence_streak = 0
+        return self._convergence_streak >= self._convergence_patience_steps
+
+    def _target_params_converged(self) -> bool:
+        """Check convergence on configured target parameters.
+
+        We use normalized uncertainties when available to keep thresholds like
+        `0.01` meaningful across differently-scaled physical parameters.
+        """
+        if not self._convergence_params:
+            return self.belief.converged(self.convergence_threshold)
+
+        # Grid-style beliefs expose internal normalized marginals via `parameters`.
+        if hasattr(self.belief, "parameters"):
+            params = self.belief.parameters
+            by_name = {getattr(p, "name", ""): p for p in params}
+            if all(name in by_name for name in self._convergence_params):
+                return all(
+                    float(by_name[name].uncertainty()) < self.convergence_threshold for name in self._convergence_params
+                )
+
+        # SMC-style beliefs expose normalized per-dimension std via `_marginal_std`.
+        if hasattr(self.belief, "_param_names") and hasattr(self.belief, "_marginal_std"):
+            names = list(self.belief._param_names)
+            if all(name in names for name in self._convergence_params):
+                return all(
+                    float(self.belief._marginal_std(names.index(name))) < self.convergence_threshold
+                    for name in self._convergence_params
+                )
+
         return self.belief.converged(self.convergence_threshold)
 
     def result(self) -> dict[str, float]:
         """Return posterior-mean estimates for all parameters."""
         return self.belief.estimates()
+
+    def _acquisition_bounds(self) -> tuple[float, float]:
+        """Current physical scan bounds for Bayesian acquisition."""
+        return self._focus_lo, self._focus_hi
+
+    def _update_focus_bounds_from_sweep(self) -> None:
+        """Restrict Bayesian search to informative Sobol sweep region."""
+        if not self._focus_after_sweep or len(self._sweep_observations) < 3:
+            self._focus_lo, self._focus_hi = self._scan_lo, self._scan_hi
+            return
+
+        xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
+        ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
+        if xs.size == 0:
+            return
+
+        center = float(np.median(ys))
+        info = np.abs(ys - center)
+        thr = float(np.quantile(info, self._focus_info_quantile))
+        keep = info >= thr
+        if not np.any(keep):
+            self._focus_lo, self._focus_hi = self._scan_lo, self._scan_hi
+            return
+
+        x_inf_norm = np.sort(xs[keep])
+        lo_norm = float(x_inf_norm[0])
+        hi_norm = float(x_inf_norm[-1])
+
+        # Pad and enforce a minimum width so Bayesian phase still has room to explore.
+        span_norm = hi_norm - lo_norm
+        lo_norm -= self._focus_padding_fraction * max(span_norm, 1e-9)
+        hi_norm += self._focus_padding_fraction * max(span_norm, 1e-9)
+        lo_norm = float(np.clip(lo_norm, 0.0, 1.0))
+        hi_norm = float(np.clip(hi_norm, 0.0, 1.0))
+        min_width = self._focus_min_width_fraction
+        if hi_norm - lo_norm < min_width:
+            mid = 0.5 * (lo_norm + hi_norm)
+            half = 0.5 * min_width
+            lo_norm = float(np.clip(mid - half, 0.0, 1.0))
+            hi_norm = float(np.clip(mid + half, 0.0, 1.0))
+            if hi_norm - lo_norm < min_width:
+                lo_norm = max(0.0, hi_norm - min_width)
+                hi_norm = min(1.0, lo_norm + min_width)
+
+        self._focus_lo = self._denormalize(self._scan_param, lo_norm)
+        self._focus_hi = self._denormalize(self._scan_param, hi_norm)
 
     # ------------------------------------------------------------------
     # Utility helpers available to all acquisition implementations

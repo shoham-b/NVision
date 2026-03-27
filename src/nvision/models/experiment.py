@@ -36,6 +36,19 @@ class CoreExperiment:
     x_min: float
     x_max: float
 
+    def frequency_noise_model(self) -> tuple[dict[str, object], ...] | None:
+        """Structured description of over-frequency noise for this experiment.
+
+        Locators can use this to choose likelihood families (Gaussian vs Poisson
+        vs mixtures) without needing to introspect concrete noise classes.
+        """
+        if self.noise is None or self.noise.over_frequency_noise is None:
+            return None
+        spec_getter = getattr(self.noise.over_frequency_noise, "likelihood_spec", None)
+        if callable(spec_getter):
+            return spec_getter()
+        return None
+
     def measure(self, x_normalized: float, rng: random.Random) -> Observation:
         """Take a measurement at normalized position.
 
@@ -60,9 +73,11 @@ class CoreExperiment:
 
         # Apply noise components if configured
         noise_std = 0.05  # default for no-noise case (keep sensible for belief likelihood)
+        frequency_noise_model = None
         if self.noise is not None:
             noise_std = self.noise.estimated_noise_std()
             if self.noise.over_frequency_noise is not None:
+                frequency_noise_model = self.frequency_noise_model()
                 from nvision.sim.batch import DataBatch
 
                 batch = DataBatch(x=[x_physical], signal_values=[signal_value])
@@ -72,7 +87,12 @@ class CoreExperiment:
                 signal_value = self.noise.over_probe_noise.apply(signal_value, rng, None)
 
         # Return observation in normalized space
-        return Observation(x=x_normalized, signal_value=signal_value, noise_std=noise_std)
+        return Observation(
+            x=x_normalized,
+            signal_value=signal_value,
+            noise_std=noise_std,
+            frequency_noise_model=frequency_noise_model,
+        )
 
     @property
     def signal(self):

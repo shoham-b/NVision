@@ -95,7 +95,7 @@ def noises_none() -> list[tuple[str, CompositeNoise | None]]:
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     gauss_noise = 0.01
-    poisson_noise = 1000.0
+    poisson_noise = 2000.0
     over_probe_noise = 0.001
     return [
         (
@@ -103,13 +103,13 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
             CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(gauss_noise)])),
         ),
         (
-            f"Poisson({gauss_noise})",
+            f"Poisson({poisson_noise})",
             CompositeNoise(
                 over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyPoissonNoise(scale=poisson_noise)])
             ),
         ),
         (
-            f"OverProbeDrift({poisson_noise})",
+            f"OverProbeDrift({over_probe_noise})",
             CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(over_probe_noise)])),
         ),
     ]
