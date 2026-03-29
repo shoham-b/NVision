@@ -394,7 +394,11 @@ class _TaskRunner:
             result = observer.watch(run_loop(locator_class, experiment, rng, **cfg))
             stop_reason = "locator_stop"
         except TimeoutError:
-            result = RunResult(snapshots=observer.snapshots, true_signal=experiment.true_signal)
+            result = RunResult(
+                snapshots=observer.snapshots,
+                true_signal=experiment.true_signal,
+                focus_window=None,
+            )
             stop_reason = "repeat_timeout"
 
         locator_instance = locator_class.create(**cfg)

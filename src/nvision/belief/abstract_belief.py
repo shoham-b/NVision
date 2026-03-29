@@ -9,8 +9,13 @@ from typing import TypeVar
 
 import numpy as np
 
+from nvision.models.fisher_information import (
+    fisher_information_matrix,
+    single_shot_marginal_stds_from_fim,
+)
 from nvision.models.observation import Observation
-from nvision.signal.signal import Parameter, SignalModel
+from nvision.parameter import Parameter
+from nvision.signal.signal import SignalModel
 
 T = TypeVar("T")
 
@@ -78,28 +83,32 @@ class AbstractBeliefDistribution(ABC):
         """Get current parameter estimates (e.g., posterior means)."""
 
     def uncertainty(self) -> ParameterValues[float]:
-        """Get uncertainty (std dev) for each parameter.
+        """Marginal standard deviation for each parameter from the belief itself.
 
-        If the underlying SignalModel provides analytical gradients, this will
-        attempt to use the Fisher Information Matrix (Cramer-Rao bound) to compute
-        theoretical variance. Otherwise, it falls back to the empirical variance
-        of the particles/grid.
+        Uses :meth:`_empirical_uncertainty` (grid PMFs, weighted particles, etc.)
+        so reported values match the represented posterior. For a separate local
+        Fisher diagnostic at the last probe only, see :meth:`single_shot_information_std`.
         """
-        # Try mathematical variance first if we have a recent observation
-        if self.last_obs is not None:
-            fim = self.fisher_information(self.last_obs.x)
-            if fim is not None:
-                try:
-                    # Cramer-Rao bound: Covariance >= Inverse Fisher Information
-                    # Add small ridge for numerical stability
-                    cov = np.linalg.inv(fim + np.eye(len(fim)) * 1e-6)
-                    param_names = self.model.parameter_names()
-                    data = {name: float(np.sqrt(max(0.0, cov[i, i]))) for i, name in enumerate(param_names)}
-                    return ParameterValues.from_mapping(param_names, data)
-                except np.linalg.LinAlgError:
-                    pass  # Fall back to empirical if singular
-
         return self._empirical_uncertainty()
+
+    def single_shot_information_std(self) -> ParameterValues[float]:
+        """Local Fisher diagonal scale at :attr:`last_obs` — **not** posterior uncertainty.
+
+        Uses :func:`~nvision.models.observation.single_shot_marginal_stds_from_fim` with
+        :meth:`fisher_information` at the
+        most recent probe (Moore-Penrose inverse, no separate singular branch). That
+        is a single-shot sensitivity snapshot; it does **not** equal marginal
+        posterior std after many updates (use :meth:`uncertainty` for that).
+
+        If there is no last observation, no gradients, or the Fisher matrix shape
+        does not match the model parameters, every entry is ``nan``.
+        """
+        obs = self.last_obs
+        names = tuple(self.model.parameter_names())
+        fim = self.fisher_information(obs.x) if obs is not None else None
+        stds = single_shot_marginal_stds_from_fim(fim, len(names))
+        data = {names[i]: float(stds[i]) for i in range(len(names))}
+        return ParameterValues.from_mapping(list(names), data)
 
     @abstractmethod
     def _empirical_uncertainty(self) -> ParameterValues[float]:
@@ -109,9 +118,8 @@ class AbstractBeliefDistribution(ABC):
     def entropy(self) -> float:
         """Compute total entropy across all parameters.
 
-        Like uncertainty(), this could be overridden by future subclasses to
-        compute analytical entropy (e.g., 0.5 * log(|2*pi*e*Sigma|) using the
-        Fisher Information Matrix) instead of empirical entropy.
+        This could be overridden by future subclasses to compute analytical
+        entropy instead of empirical entropy.
         """
 
     @abstractmethod
@@ -164,27 +172,19 @@ class AbstractBeliefDistribution(ABC):
         return self.model.compute_from_params(x, params)
 
     def fisher_information(self, x: float) -> np.ndarray | None:
-        """Compute the Fisher Information Matrix at position x.
+        """Delegate to :func:`~nvision.models.fisher_information.fisher_information_matrix`.
+
+        Gaussian sigma comes from :attr:`last_obs` via :func:`~nvision.models.observation.gaussian_likelihood_std`.
 
         Returns None if the underlying SignalModel does not support analytical gradients.
         """
         params = [self.get_param(p) for p in self.model.parameter_names()]
-        grads = self.model.gradient(x, params)
-        if grads is None:
-            return None
-
-        d_dim = len(params)
-        fim = np.zeros((d_dim, d_dim))
-
-        # Assume Gaussian noise model for the likelihood
-        # I(theta) = (1 / sigma^2) * (grad_f * grad_f^T)
-        # We use a heuristic noise_std similar to the update step
-        noise_std = 0.01  # baseline noise
-
-        grad_vec = np.array([grads[p.name] for p in params])
-        fim = np.outer(grad_vec, grad_vec) / (noise_std**2)
-
-        return fim
+        return fisher_information_matrix(
+            x=x,
+            model=self.model,
+            parameters=params,
+            last_obs=self.last_obs,
+        )
 
     @abstractmethod
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:

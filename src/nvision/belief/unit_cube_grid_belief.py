@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
-from nvision.signal.grid_belief import GridBeliefDistribution, GridParameter
-from nvision.signal.signal import Parameter
-from nvision.signal.unit_cube_model import UnitCubeSignalModel
+from nvision.belief.abstract_belief import AbstractBeliefDistribution, ParameterValues
+from nvision.belief.grid_belief import GridBeliefDistribution, GridParameter
+from nvision.parameter import Parameter
+from nvision.signal.unit_cube import UnitCubeSignalModel
 
 
 @dataclass
@@ -82,6 +82,72 @@ class UnitCubeGridBeliefDistribution(GridBeliefDistribution):
         p = GridBeliefDistribution.get_param(self, param_name)
         cdf = np.cumsum(p.posterior)
         return np.interp(u, p.grid, cdf, left=0.0, right=1.0)
+
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        """After a coarse sweep, shrink the physical interval for ``param_name`` and remap its unit marginal.
+
+        If ``physical_x_bounds`` matches this parameter's prior interval, the probe axis
+        is narrowed the same way (single-peak and multi-peak builders where the scan
+        axis equals ``param_name``). Otherwise only the parameter's physical bounds are
+        updated (e.g. a secondary peak frequency while the experiment probes another axis).
+        """
+        if param_name not in self.physical_param_bounds:
+            raise KeyError(param_name)
+        old_lo, old_hi = self.physical_param_bounds[param_name]
+        w_old = old_hi - old_lo
+        if w_old <= 0:
+            return
+
+        nl = float(max(min(new_lo, new_hi), old_lo))
+        nh = float(min(max(new_lo, new_hi), old_hi))
+        if nh <= nl:
+            return
+
+        sync_x = self.physical_x_bounds == (old_lo, old_hi)
+
+        u_a = (nl - old_lo) / w_old
+        u_b = (nh - old_lo) / w_old
+        u_a = float(np.clip(u_a, 0.0, 1.0))
+        u_b = float(np.clip(u_b, 0.0, 1.0))
+        if u_b - u_a < 1e-15:
+            return
+
+        new_params: list[GridParameter] = []
+        for p in self.parameters:
+            if p.name != param_name:
+                new_params.append(
+                    GridParameter(
+                        name=p.name,
+                        bounds=p.bounds,
+                        grid=p.grid.copy(),
+                        posterior=p.posterior.copy(),
+                    )
+                )
+                continue
+
+            n = len(p.grid)
+            new_grid = np.linspace(0.0, 1.0, n, dtype=np.float64)
+            u_old = u_a + new_grid * (u_b - u_a)
+            new_post = np.interp(u_old, p.grid, p.posterior, left=0.0, right=0.0)
+            s = float(np.sum(new_post))
+            if s > 1e-15:
+                new_post /= s
+            else:
+                new_post = np.ones(n, dtype=np.float64) / n
+            new_params.append(
+                GridParameter(
+                    name=param_name,
+                    bounds=(0.0, 1.0),
+                    grid=new_grid,
+                    posterior=new_post,
+                )
+            )
+
+        self.model.narrow_physical_interval_for_param(param_name, nl, nh, update_x_axis=sync_x)
+        self.physical_param_bounds[param_name] = (nl, nh)
+        if sync_x:
+            self.physical_x_bounds = (nl, nh)
+        self.parameters = new_params
 
     def copy(self) -> AbstractBeliefDistribution:
         return UnitCubeGridBeliefDistribution(

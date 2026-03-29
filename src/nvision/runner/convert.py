@@ -10,9 +10,11 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from nvision.belief.grid_belief import GridBeliefDistribution
+from nvision.belief.smc_belief import SMCBeliefDistribution
+from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
+from nvision.belief.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
 from nvision.models.observer import RunResult
-from nvision.signal.grid_belief import GridBeliefDistribution
-from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
 
 
 def denormalize_x(x_norm: float, x_min: float, x_max: float) -> float:
@@ -89,7 +91,11 @@ def extract_peak_estimates(
 
 
 def belief_mode_estimates(belief: object) -> dict[str, float]:
-    """Best-effort per-parameter posterior modes in physical units when possible."""
+    """Approximate most likely parameters in physical units (for plotting the locator's best guess).
+
+    Grid beliefs: independent marginal argmax on each 1D PMF (product approximation).
+    SMC: particle with maximum weight (MAP under discrete particle approximation).
+    """
     # Unit-cube grid belief: map argmax on unit grid back to physical bounds.
     if isinstance(belief, UnitCubeGridBeliefDistribution):
         modes: dict[str, float] = {}
@@ -101,6 +107,19 @@ def belief_mode_estimates(belief: object) -> dict[str, float]:
             lo, hi = belief.physical_param_bounds[name]
             modes[name] = lo + u_mode * (hi - lo)
         return modes
+
+    if isinstance(belief, UnitCubeSMCBeliefDistribution):
+        idx = int(np.argmax(belief._weights))
+        out: dict[str, float] = {}
+        for j, name in enumerate(belief._param_names):
+            u = float(belief._particles[idx, j])
+            lo, hi = belief.physical_param_bounds[name]
+            out[name] = lo + u * (hi - lo)
+        return out
+
+    if isinstance(belief, SMCBeliefDistribution):
+        idx = int(np.argmax(belief._weights))
+        return {name: float(belief._particles[idx, j]) for j, name in enumerate(belief._param_names)}
 
     # Plain grid belief: argmax directly on each parameter grid.
     if isinstance(belief, GridBeliefDistribution):
@@ -139,10 +158,11 @@ def run_result_to_finalize_record(
 
     if result.snapshots:
         last_belief = result.snapshots[-1].belief
-        width = x_max - x_min
+        # Same marginal stds as :meth:`AbstractBeliefDistribution.uncertainty` (and as the
+        # parameter convergence plot): physical units for unit-cube beliefs, grid/particle
+        # empirical std otherwise — no extra domain scaling.
         for param_name, uncert in last_belief.uncertainty().items():
-            scale = width if ("pos" in param_name or "freq" in param_name or "x" in param_name) else 1.0
-            record[f"uncert_{param_name}"] = uncert * scale
+            record[f"uncert_{param_name}"] = uncert
 
         record["entropy"] = last_belief.entropy()
         record["converged"] = last_belief.converged(threshold=0.01)

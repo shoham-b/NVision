@@ -2,8 +2,8 @@
 
 from abc import ABC, abstractmethod
 
+from nvision.belief.abstract_belief import AbstractBeliefDistribution
 from nvision.models.observation import Observation
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
 
 
 class Locator(ABC):

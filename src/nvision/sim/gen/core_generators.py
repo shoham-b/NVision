@@ -120,6 +120,44 @@ class OnePeakCoreGenerator:
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 
 
+DEFAULT_NV_CENTER_FREQ_X_MIN = 2.6e9
+DEFAULT_NV_CENTER_FREQ_X_MAX = 3.1e9
+
+
+def nv_center_lorentzian_bounds_for_domain(
+    x_min: float,
+    x_max: float,
+    *,
+    amplitude_hi: float | None = None,
+) -> dict[str, tuple[float, float]]:
+    """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``.
+
+    Uses the same formulas as the ``bounds`` dict in :meth:`NVCenterCoreGenerator.generate`
+    (lorentzian variant): frequency span, width-scaled linewidth and split, etc.
+
+    When ``amplitude_hi`` is omitted, uses a conservative upper bound for priors on the
+    default GHz-scale domain (covers typical generator draws and matches Bayesian defaults).
+    """
+    width = float(x_max - x_min)
+    if width <= 0:
+        raise ValueError("x_max must exceed x_min")
+
+    if amplitude_hi is None:
+        amplitude_hi = max(
+            0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2,
+            0.35 * (50e6) ** 2,
+        )
+
+    return {
+        "frequency": (float(x_min), float(x_max)),
+        "linewidth": (width * 0.001, width * 0.05),
+        "split": (0.0, width * 0.5),
+        "k_np": (MIN_K_NP, MAX_K_NP),
+        "amplitude": (0.0, float(amplitude_hi)),
+        "background": (0.95, 1.05),
+    }
+
+
 @dataclass
 class NVCenterCoreGenerator:
     """Generates NV center ODMR signals using core architecture.
@@ -127,8 +165,8 @@ class NVCenterCoreGenerator:
     Produces TrueSignal with physically accurate NV center signal.
     """
 
-    x_min: float = 2.6e9  # 2.6 GHz
-    x_max: float = 3.1e9  # 3.1 GHz
+    x_min: float = DEFAULT_NV_CENTER_FREQ_X_MIN  # 2.6 GHz
+    x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
     zero_field: bool = False  # If True, generate with delta_f_hf = 0 (single peak)
 
@@ -195,14 +233,7 @@ class NVCenterCoreGenerator:
                 amplitude=amplitude,
                 background=background,
             )
-            bounds = {
-                "frequency": (self.x_min, self.x_max),
-                "linewidth": (width * 0.001, width * 0.05),
-                "split": (0.0, width * 0.5),
-                "k_np": (MIN_K_NP, MAX_K_NP),
-                "amplitude": (0.0, amp_hi),
-                "background": (0.95, 1.05),
-            }
+            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, amplitude_hi=amp_hi)
         else:  # voigt
             fwhm_lorentz = 2 * linewidth
             fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)

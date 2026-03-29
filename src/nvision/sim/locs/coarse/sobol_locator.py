@@ -11,10 +11,10 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from nvision.belief.abstract_belief import AbstractBeliefDistribution
+from nvision.belief.grid_belief import GridBeliefDistribution, GridParameter
 from nvision.models.locator import Locator
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
 from nvision.signal.dtypes import FLOAT_DTYPE
-from nvision.signal.grid_belief import GridBeliefDistribution, GridParameter
 from nvision.signal.signal import ParamSpec, SignalModel
 from nvision.sim.locs.coarse.numba_kernels import gaussian_peak_posterior_update
 

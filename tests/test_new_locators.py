@@ -8,9 +8,10 @@ import random
 from nvision.models.experiment import CoreExperiment
 from nvision.models.locator import Locator
 from nvision.models.observer import Observer, RunResult
+from nvision.parameter import Parameter
 from nvision.runner import run_loop
 from nvision.signal.gaussian import GaussianModel
-from nvision.signal.signal import Parameter, TrueSignal
+from nvision.signal.signal import TrueSignal
 from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
 
 

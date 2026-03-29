@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.belief.abstract_belief import AbstractBeliefDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -26,7 +26,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
-        exploration_rate: float = 24.0,
+        exploration_rate: float = 100.0,
     ) -> None:
         super().__init__(
             belief=belief,

@@ -15,11 +15,11 @@ import numpy as np
 from nvision.models.experiment import CoreExperiment
 from nvision.models.locator import Locator
 from nvision.models.observer import Observer
+from nvision.parameter import Parameter
 from nvision.runner import run_loop
 from nvision.signal.lorentzian import LorentzianModel
 from nvision.signal.signal import (
     BeliefSignal,
-    Parameter,
     ParameterWithPosterior,
     TrueSignal,
 )

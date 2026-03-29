@@ -101,6 +101,26 @@ class ComparisonsMixin:
                 return col
         return None
 
+    @staticmethod
+    def _strategy_display_name(strategy: str) -> str:
+        """Compact strategy names for readable x-axis labels."""
+        short = strategy
+        short = short.replace("Bayesian-", "Bayes-")
+        short = short.replace("MaximumLikelihood", "MaxLike")
+        short = short.replace("UtilitySampling", "Utility")
+        short = short.replace("SimpleSweep", "Sweep")
+        short = short.replace("MaxVariance", "MaxVar")
+        return short
+
+    @staticmethod
+    def _strategy_tick_label(display_name: str) -> str:
+        """Wrap strategy labels to multiple lines for crowded x-axes."""
+        if "-" not in display_name:
+            return display_name
+        parts = [p for p in display_name.split("-") if p]
+        # Plotly supports <br> in tick/category labels.
+        return "<br>".join(parts)
+
     def _create_comparison_plot(
         self,
         df: pl.DataFrame,
@@ -121,11 +141,13 @@ class ComparisonsMixin:
         for strat in strategies:
             strat_data = df.filter(pl.col("strategy") == strat)
             vals = strat_data.get_column(metric).to_list()
+            display_name = self._strategy_display_name(strat)
+            tick_label = self._strategy_tick_label(display_name)
 
             fig.add_trace(
                 go.Box(
                     y=vals,
-                    name=strat,
+                    name=tick_label,
                     boxpoints="all",  # Show all points
                     jitter=0.3,  # Spread them out
                     pointpos=-1.8,  # Move points to the side
@@ -136,9 +158,13 @@ class ComparisonsMixin:
         fig.update_layout(
             title=title,
             yaxis_title=y_axis_title,
+            xaxis=dict(
+                tickangle=-25,
+                automargin=True,
+            ),
             template="plotly_white",
             showlegend=False,  # Box names are on X axis
-            margin=dict(t=80, b=50, l=50, r=50),
+            margin=dict(t=80, b=120, l=50, r=50),
         )
 
         filename = f"comparison_{gen}_{noise}_{metric}.html"

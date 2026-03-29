@@ -1,7 +1,17 @@
-"""Observation dataclass for measurement data."""
+"""Observation dataclass for a single measurement."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from nvision.models.measurement_noise import DEFAULT_MEASUREMENT_NOISE_STD
+
+__all__ = [
+    "DEFAULT_MEASUREMENT_NOISE_STD",
+    "Observation",
+    "gaussian_likelihood_std",
+]
 
 
 @dataclass
@@ -27,5 +37,12 @@ class Observation:
 
     x: float
     signal_value: float
-    noise_std: float = field(default=0.05)
+    noise_std: float = field(default=DEFAULT_MEASUREMENT_NOISE_STD)
     frequency_noise_model: tuple[dict[str, Any], ...] | None = field(default=None)
+
+
+def gaussian_likelihood_std(obs: Observation | None) -> float:
+    """Sigma for the Gaussian likelihood and Fisher terms: ``obs.noise_std`` or the global default."""
+    if obs is not None and obs.noise_std > 0:
+        return float(obs.noise_std)
+    return DEFAULT_MEASUREMENT_NOISE_STD

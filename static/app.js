@@ -464,6 +464,47 @@ function main() {
             }
         }
 
+        function buildHeadToHeadFocusShapes(pdL, pdR) {
+            const shapes = [];
+            if (pdL.focus_window && pdL.focus_window.length === 2) {
+                const x0 = pdL.focus_window[0];
+                const x1 = pdL.focus_window[1];
+                if (Number.isFinite(x0) && Number.isFinite(x1) && x1 > x0) {
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x',
+                        yref: 'paper',
+                        x0,
+                        x1,
+                        y0: 0,
+                        y1: 1,
+                        fillcolor: 'rgba(46, 204, 113, 0.12)',
+                        line: { color: 'rgba(46, 204, 113, 0.45)', width: 1 },
+                        layer: 'below',
+                    });
+                }
+            }
+            if (pdR.focus_window && pdR.focus_window.length === 2) {
+                const x0 = pdR.focus_window[0];
+                const x1 = pdR.focus_window[1];
+                if (Number.isFinite(x0) && Number.isFinite(x1) && x1 > x0) {
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x',
+                        yref: 'paper',
+                        x0,
+                        x1,
+                        y0: 0,
+                        y1: 1,
+                        fillcolor: 'rgba(59, 130, 246, 0.1)',
+                        line: { color: 'rgba(59, 130, 246, 0.45)', width: 1, dash: 'dot' },
+                        layer: 'below',
+                    });
+                }
+            }
+            return shapes;
+        }
+
         function buildHeadToHeadTraces(pdL, pdR, nameL, nameR) {
             const traces = [];
             traces.push({
@@ -486,6 +527,34 @@ function main() {
                     mode: 'lines',
                     name: 'simulated noisy signal (over-frequency)',
                     line: { color: '#fb923c', dash: 'dot', width: 1.5 },
+                });
+            }
+            if (
+                pdL.y_dense_mode &&
+                pdL.y_dense_mode.length &&
+                pdL.y_dense_mode.length === pdL.x_dense.length
+            ) {
+                traces.push({
+                    type: 'scatter',
+                    x: pdL.x_dense,
+                    y: pdL.y_dense_mode,
+                    mode: 'lines',
+                    name: nameL + ' (most likely)',
+                    line: { color: '#dc2626', dash: 'dash', width: 2 },
+                });
+            }
+            if (
+                pdR.y_dense_mode &&
+                pdR.y_dense_mode.length &&
+                pdR.y_dense_mode.length === pdR.x_dense.length
+            ) {
+                traces.push({
+                    type: 'scatter',
+                    x: pdR.x_dense,
+                    y: pdR.y_dense_mode,
+                    mode: 'lines',
+                    name: nameR + ' (most likely)',
+                    line: { color: '#9333ea', dash: 'dash', width: 2 },
                 });
             }
             addHeadToHeadMeasurementTraces(traces, pdL.measurements, nameL, 'left');
@@ -1103,6 +1172,7 @@ function main() {
                     }
                     headToHeadEl.innerHTML = '';
                     const traces = buildHeadToHeadTraces(pdL, pdR, vStratL, vStratR);
+                    const focusShapes = buildHeadToHeadFocusShapes(pdL, pdR);
                     const layout = {
                         title: 'Head to head: same signal, two strategies',
                         template: 'plotly_white',
@@ -1116,6 +1186,7 @@ function main() {
                             x: 0.5,
                         },
                         margin: { t: 48, b: 120, l: 56, r: 24 },
+                        shapes: focusShapes,
                     };
                     await window.Plotly.react(headToHeadEl, traces, layout, { responsive: true });
                 } catch (err) {
@@ -1229,6 +1300,8 @@ function main() {
 
         try {
             setupTabs();
+            updateCompControls();
+            updateCompPlots();
             updateAllScanControls();
             findAndDisplayPlot();
         } catch (error) {

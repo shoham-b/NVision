@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 import numpy as np
 from numba import njit
 
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
+from nvision.belief.abstract_belief import AbstractBeliefDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 

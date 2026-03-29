@@ -145,7 +145,7 @@ class RunCase:
     filter_generator: GeneratorName | None = None
     description: str = ""
     repeats: int = 5
-    loc_max_steps: int = 150
+    loc_max_steps: int = 350
     loc_timeout_s: int = 1500
     require_cache: bool = False
     log_level: str = "INFO"
