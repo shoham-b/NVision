@@ -437,7 +437,7 @@ def render(
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
-    ] = 150,
+    ] = sim_cases.DEFAULT_LOC_MAX_STEPS,
     loc_timeout_s: Annotated[
         int,
         typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),

@@ -34,6 +34,10 @@ class RunCaseName(StrEnum):
     NVCENTER_BAYES_UTILITY = "nvcenter_bayes_utility"
 
 
+# Single source for ``nvision run`` / ``nvision render`` defaults and :func:`default_run_case`.
+DEFAULT_LOC_MAX_STEPS = 350
+
+
 # Generators: three main categories with subcategories
 # Now using core architecture with TrueSignal and explicit SignalModels
 def generators_basic() -> list[tuple[str, object]]:
@@ -145,7 +149,7 @@ class RunCase:
     filter_generator: GeneratorName | None = None
     description: str = ""
     repeats: int = 5
-    loc_max_steps: int = 350
+    loc_max_steps: int = DEFAULT_LOC_MAX_STEPS
     loc_timeout_s: int = 1500
     require_cache: bool = False
     log_level: str = "INFO"
@@ -160,7 +164,7 @@ def run_case_nvcenter() -> RunCase:
         filter_strategy=None,
         description="NVCenter generators with all available strategies (SimpleSweep + Bayesian).",
         repeats=5,
-        loc_max_steps=150,
+        loc_max_steps=DEFAULT_LOC_MAX_STEPS,
         loc_timeout_s=1500,
         require_cache=False,
         log_level="INFO",
@@ -176,7 +180,7 @@ def run_case_all() -> RunCase:
         filter_strategy=None,
         description="All generators, noises, and strategies.",
         repeats=5,
-        loc_max_steps=150,
+        loc_max_steps=DEFAULT_LOC_MAX_STEPS,
         loc_timeout_s=1500,
         require_cache=False,
         log_level="INFO",
@@ -192,7 +196,7 @@ def run_case_nvcenter_bayes_sbed() -> RunCase:
         filter_strategy=StrategyFilter.BAYESIAN_SBED,
         description="NVCenter generators, SBED acquisition (matches strategy name 'Bayesian-SBED').",
         repeats=5,
-        loc_max_steps=200,
+        loc_max_steps=400,
         loc_timeout_s=2000,
         require_cache=False,
         log_level="INFO",
@@ -208,7 +212,7 @@ def run_case_nvcenter_bayes_ucb() -> RunCase:
         filter_strategy=StrategyFilter.BAYESIAN_UCB,
         description="NVCenter generators, UCB acquisition (matches 'Bayesian-UCB').",
         repeats=5,
-        loc_max_steps=200,
+        loc_max_steps=400,
         loc_timeout_s=2000,
         require_cache=False,
         log_level="INFO",
@@ -224,7 +228,7 @@ def run_case_nvcenter_bayes_maxvar() -> RunCase:
         filter_strategy=StrategyFilter.BAYESIAN_MAX_VARIANCE,
         description="NVCenter generators, max-variance acquisition (matches 'Bayesian-MaxVariance').",
         repeats=5,
-        loc_max_steps=200,
+        loc_max_steps=400,
         loc_timeout_s=2000,
         require_cache=False,
         log_level="INFO",
@@ -240,7 +244,7 @@ def run_case_nvcenter_bayes_maxlikelihood() -> RunCase:
         filter_strategy=StrategyFilter.BAYESIAN_MAXIMUM_LIKELIHOOD,
         description="NVCenter generators, maximum likelihood acquisition (matches 'Bayesian-MaximumLikelihood').",
         repeats=5,
-        loc_max_steps=200,
+        loc_max_steps=400,
         loc_timeout_s=2000,
         require_cache=False,
         log_level="INFO",
@@ -256,7 +260,7 @@ def run_case_nvcenter_bayes_utility() -> RunCase:
         filter_strategy=StrategyFilter.BAYESIAN_UTILITY_SAMPLING,
         description="NVCenter generators, utility sampling (matches 'Bayesian-UtilitySampling').",
         repeats=5,
-        loc_max_steps=200,
+        loc_max_steps=400,
         loc_timeout_s=2000,
         require_cache=False,
         log_level="INFO",

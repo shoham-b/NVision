@@ -181,15 +181,22 @@ def _bayesian_auxiliary_entries(
     """Posterior animation (all parameters when supported), parameter convergence plot."""
     extra: list[dict[str, Any]] = []
     scan_param = _resolve_scan_param(strat_obj, run_result)
+    true_params = run_result.true_signal.parameter_values()
     interactive_path = bayes_dir / f"{attempt_slug}_posterior.html"
     anim_all = _posterior_animation_inputs_all_params(run_result)
     if anim_all is not None:
-        viz.plot_posterior_animation_all_params(anim_all, interactive_path)
+        viz.plot_posterior_animation_all_params(anim_all, interactive_path, true_params=true_params)
     else:
         anim_inputs = _posterior_animation_inputs(run_result, scan_param)
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
-            viz.plot_posterior_animation(posterior_history, freq_grid, interactive_path)
+            true_one = true_params.get(scan_param)
+            viz.plot_posterior_animation(
+                posterior_history,
+                freq_grid,
+                interactive_path,
+                true_value=float(true_one) if true_one is not None else None,
+            )
     if interactive_path.exists():
         ie = entry_base.copy()
         ie["type"] = "bayesian_interactive"
