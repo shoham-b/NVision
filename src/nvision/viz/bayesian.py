@@ -1,11 +1,52 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+
+def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> None:
+    if true_value is None or not math.isfinite(float(true_value)):
+        return
+    tv = float(true_value)
+    fig.add_vline(
+        x=tv,
+        line_width=2,
+        line_dash="dash",
+        line_color="green",
+        annotation_text=f"true: {tv:.6g}",
+        annotation_position="top",
+    )
+
+
+def _add_true_vline_subplots(
+    fig: go.Figure,
+    param_names: list[str],
+    true_params: Mapping[str, float] | None,
+) -> None:
+    if not true_params:
+        return
+    for i, name in enumerate(param_names, start=1):
+        raw = true_params.get(name)
+        if raw is None:
+            continue
+        tv = float(raw)
+        if not math.isfinite(tv):
+            continue
+        fig.add_vline(
+            x=tv,
+            line_width=2,
+            line_dash="dash",
+            line_color="green",
+            annotation_text=f"true: {tv:.6g}",
+            annotation_position="top right",
+            row=i,
+            col=1,
+        )
 
 
 def _trace_one_marginal_posterior(
@@ -44,8 +85,13 @@ class BayesianMixin:
         freq_grid: np.ndarray,
         out_path: Path,
         model_history: list[np.ndarray] | None = None,
+        *,
+        true_value: float | None = None,
     ) -> None:
-        """Create an interactive Plotly animation of the posterior distribution evolution."""
+        """Create an interactive Plotly animation of the posterior distribution evolution.
+
+        If ``true_value`` is set, draws a vertical line at the ground-truth parameter value.
+        """
         if not posterior_history:
             return
 
@@ -204,6 +250,8 @@ class BayesianMixin:
             frames=frames,
         )
 
+        _add_true_vline_single_axis(fig, true_value)
+
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path)
 
@@ -211,8 +259,14 @@ class BayesianMixin:
         self,
         posterior_inputs_by_param: dict[str, tuple[list[np.ndarray], np.ndarray]],
         out_path: Path,
+        *,
+        true_params: Mapping[str, float] | None = None,
     ) -> None:
-        """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis)."""
+        """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
+
+        ``true_params`` maps parameter names to :class:`~nvision.signal.signal.TrueSignal` values
+        (physical units); a dashed vertical line is drawn on each subplot when a value is given.
+        """
         if not posterior_inputs_by_param:
             return
 
@@ -275,6 +329,8 @@ class BayesianMixin:
             }
             for si, frame in enumerate(frames)
         ]
+
+        _add_true_vline_subplots(fig, param_names, true_params)
 
         fig.update_layout(
             title_text=f"Posterior evolution (all parameters) — step {step_indices[0] + 1}/{total_steps}",
