@@ -13,7 +13,8 @@ import polars as pl
 from plotly.subplots import make_subplots
 
 from nvision.models.noise import CompositeOverFrequencyNoise
-from nvision.signal.signal import Parameter
+from nvision.parameter import Parameter
+from nvision.signal.unit_cube import UnitCubeSignalModel
 from nvision.sim.batch import DataBatch
 from nvision.tools.paths import ensure_out_dir
 
@@ -83,6 +84,66 @@ def _add_true_and_noisy_traces(
     )
 
 
+def _mode_dense_y_unit_cube(
+    model: UnitCubeSignalModel,
+    xs: np.ndarray,
+    mode_estimates: Mapping[str, float],
+) -> list[float] | None:
+    """MAP curve using a unit-cube forward model (physical ``xs`` and physical marginal modes)."""
+    names = list(model.parameter_names())
+    if not names or not all(name in mode_estimates for name in names):
+        return None
+    x_lo, x_hi = model.x_bounds_phys
+    w = float(x_hi - x_lo)
+    if w <= 0:
+        return None
+    xs_u = (np.asarray(xs, dtype=float) - x_lo) / w
+    params: list[Parameter] = []
+    for name in names:
+        lo, hi = model.param_bounds_phys[name]
+        hw = float(hi - lo)
+        v = float(mode_estimates[name])
+        u = (v - lo) / hw if hw > 0 else 0.5
+        u = min(max(u, 0.0), 1.0)
+        params.append(Parameter(name=name, bounds=(0.0, 1.0), value=u))
+    return [float(model.compute_from_params(float(xu), params)) for xu in xs_u]
+
+
+def _mode_belief_dense_y(
+    scan: Any,
+    xs: np.ndarray,
+    mode_estimates: Mapping[str, float],
+    *,
+    belief_unit_cube: UnitCubeSignalModel | None = None,
+) -> list[float] | None:
+    """Evaluate the forward model at ``mode_estimates`` along ``xs`` (physical domain).
+
+    For :class:`~nvision.signal.unit_cube.UnitCubeSignalModel`, ``mode_estimates`` are
+    physical parameters and ``xs`` are physical probe positions (same as the true-signal
+    plot); internally normalized coordinates are applied for evaluation.
+
+    When ``belief_unit_cube`` is set (Bayesian runs), it is used instead of
+    ``scan.true_signal.model`` so the dashed curve matches the inference model — e.g. NV
+    Voigt ground truth with Lorentzian belief still gets a consistent MAP overlay.
+    """
+    if belief_unit_cube is not None:
+        return _mode_dense_y_unit_cube(belief_unit_cube, xs, mode_estimates)
+
+    model = getattr(scan.true_signal, "model", None)
+    bounds = getattr(scan.true_signal, "bounds", None)
+    if model is None or bounds is None:
+        return None
+    names = list(model.parameter_names())
+    if not names or not all(name in mode_estimates for name in names):
+        return None
+
+    if isinstance(model, UnitCubeSignalModel):
+        return _mode_dense_y_unit_cube(model, xs, mode_estimates)
+
+    params = [Parameter(name=name, bounds=bounds[name], value=float(mode_estimates[name])) for name in names]
+    return [float(model.compute_from_params(float(x), params)) for x in xs]
+
+
 def _add_mode_belief_trace(
     fig: go.Figure,
     *,
@@ -90,26 +151,21 @@ def _add_mode_belief_trace(
     xs: np.ndarray,
     mode_estimates: Mapping[str, float] | None,
     has_metrics: bool,
+    belief_unit_cube: UnitCubeSignalModel | None = None,
 ) -> None:
-    """Overlay signal generated from per-parameter posterior modes."""
+    """Overlay signal from the locator's approximate MAP / marginal-mode parameters."""
     if not mode_estimates:
         return
-    model = getattr(scan.true_signal, "model", None)
-    bounds = getattr(scan.true_signal, "bounds", None)
-    if model is None or bounds is None:
+    y_mode = _mode_belief_dense_y(scan, xs, mode_estimates, belief_unit_cube=belief_unit_cube)
+    if not y_mode:
         return
-    names = list(model.parameter_names())
-    if not names or not all(name in mode_estimates for name in names):
-        return
-    params = [Parameter(name=name, bounds=bounds[name], value=float(mode_estimates[name])) for name in names]
-    y_mode = [float(model.compute_from_params(float(x), params)) for x in xs]
     row, col = _row_col(has_metrics)
     fig.add_trace(
         go.Scatter(
             x=xs,
             y=y_mode,
             mode="lines",
-            name="locator mode belief signal",
+            name="locator most likely signal",
             line=dict(color="#d62728", width=2, dash="dash"),
         ),
         row=row,
@@ -441,6 +497,8 @@ def compute_scan_plot_data(
     history: pl.DataFrame,
     over_frequency_noise: CompositeOverFrequencyNoise | None,
     focus_window: tuple[float, float] | None = None,
+    mode_estimates: Mapping[str, float] | None = None,
+    belief_unit_cube: UnitCubeSignalModel | None = None,
 ) -> dict[str, Any]:
     """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``)."""
     history_xs_s, history_ys_s = _extract_history_xy(history)
@@ -450,6 +508,10 @@ def compute_scan_plot_data(
         "x_dense": [float(x) for x in xs],
         "y_dense": ys,
     }
+    if mode_estimates:
+        y_mode = _mode_belief_dense_y(scan, xs, mode_estimates, belief_unit_cube=belief_unit_cube)
+        if y_mode is not None and len(y_mode) == len(xs):
+            out["y_dense_mode"] = y_mode
     if over_frequency_noise is not None:
         noisy_vals = _compute_noisy_dense_values(xs, ys, over_frequency_noise)
         _splice_noisy_dense_at_measurements(xs, noisy_vals, history_xs_s, history_ys_s)
@@ -518,9 +580,15 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
 
     has_metrics = any(getattr(t, "name", None) in ("Entropy", "Uncertainty") for t in fig.data)
 
+    y_dense_mode: list[float] | None = None
     for tr in fig.data:
         name = getattr(tr, "name", None) or ""
         mode = getattr(tr, "mode", "") or ""
+        if name in ("locator most likely signal", "locator mode belief signal") and "lines" in mode:
+            _, ym = _trace_xy_lists(tr)
+            if ym and all(v is not None for v in ym):
+                y_dense_mode = [float(v) for v in ym if v is not None]
+            continue
         if name == "true signal" and "lines" in mode:
             x_dense, y_dense = _trace_xy_lists(tr)
             continue
@@ -563,6 +631,8 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
         "y_dense": [float(y) for y in y_dense if y is not None],
         "has_metrics": has_metrics,
     }
+    if y_dense_mode is not None and len(y_dense_mode) == len(out["x_dense"]):
+        out["y_dense_mode"] = y_dense_mode
     if y_dense_noisy is not None and len(y_dense_noisy) == len(out["x_dense"]):
         out["y_dense_noisy"] = y_dense_noisy
 
@@ -662,12 +732,16 @@ class MeasurementsMixin:
         over_frequency_noise: CompositeOverFrequencyNoise | None = None,
         mode_estimates: Mapping[str, float] | None = None,
         focus_window: tuple[float, float] | None = None,
+        belief_unit_cube: UnitCubeSignalModel | None = None,
     ) -> Path:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
         - True signal: computed densely across [x_min, x_max].
+        - Optional ``mode_estimates``: forward model at the locator's approximate MAP
+          (particle max-weight for SMC; marginal grid argmax for discrete beliefs), dashed.
+        - Optional ``belief_unit_cube``: when set, MAP curve uses this inference model
+          (matches ``mode_estimates``) instead of ``scan.true_signal.model``.
         - Measurements (noisy): points from `history` colored by step order (gradient).
-        - Measurements (ideal): corresponding points on the true signal curve.
         - Noisy curve: simulated by applying the provided CompositeNoise to the dense grid.
         """
         ensure_out_dir(out_path.parent)
@@ -715,7 +789,14 @@ class MeasurementsMixin:
         _add_history_traces(fig, history, has_metrics)
         _add_focus_window_overlay(fig, focus_window=focus_window, has_metrics=has_metrics)
         # Draw last so the curve sits on top of true/noisy/measurements/distribution.
-        _add_mode_belief_trace(fig, scan=scan, xs=xs, mode_estimates=mode_estimates, has_metrics=has_metrics)
+        _add_mode_belief_trace(
+            fig,
+            scan=scan,
+            xs=xs,
+            mode_estimates=mode_estimates,
+            has_metrics=has_metrics,
+            belief_unit_cube=belief_unit_cube,
+        )
         _add_metric_traces(fig, history, has_metrics)
         _scan_layout(fig, has_metrics)
 

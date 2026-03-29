@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 import numpy as np
 from numba import njit
 
+from nvision.belief.abstract_belief import AbstractBeliefDistribution, ParameterValues
 from nvision.models.observation import Observation
-from nvision.signal.abstract_belief import AbstractBeliefDistribution, ParameterValues
+from nvision.parameter import Parameter
 from nvision.signal.likelihood import likelihood_from_observation_model
-from nvision.signal.signal import Parameter
 
 # --- Numba helpers (particle weights / resampling) ----------------------------
 

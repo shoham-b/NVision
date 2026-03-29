@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from nvision.signal.abstract_belief import ParameterValues
-from nvision.signal.signal import Parameter
-from nvision.signal.smc_belief import SMCBeliefDistribution
-from nvision.signal.unit_cube_model import UnitCubeSignalModel
+from nvision.belief.abstract_belief import ParameterValues
+from nvision.belief.smc_belief import SMCBeliefDistribution
+from nvision.parameter import Parameter
+from nvision.signal.unit_cube import UnitCubeSignalModel
 
 
 @dataclass
@@ -64,6 +64,35 @@ class UnitCubeSMCBeliefDistribution(SMCBeliefDistribution):
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         return super().sample(n)
+
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        """Shrink physical bounds for ``param_name`` and remap unit particles (see grid variant)."""
+        if param_name not in self.physical_param_bounds:
+            raise KeyError(param_name)
+        old_lo, old_hi = self.physical_param_bounds[param_name]
+        w_old = old_hi - old_lo
+        if w_old <= 0:
+            return
+
+        nl = float(max(min(new_lo, new_hi), old_lo))
+        nh = float(min(max(new_lo, new_hi), old_hi))
+        if nh <= nl:
+            return
+
+        sync_x = self.physical_x_bounds == (old_lo, old_hi)
+        w_new = nh - nl
+
+        j = self._param_names.index(param_name)
+        u_col = self._particles[:, j]
+        f = old_lo + u_col * w_old
+        u_new = (f - nl) / w_new
+        self._particles[:, j] = np.clip(u_new, 0.0, 1.0)
+
+        self.model.narrow_physical_interval_for_param(param_name, nl, nh, update_x_axis=sync_x)
+        self.physical_param_bounds[param_name] = (nl, nh)
+        if sync_x:
+            self.physical_x_bounds = (nl, nh)
+        self._init_param_scratch()
 
     def copy(self) -> UnitCubeSMCBeliefDistribution:
         dist = UnitCubeSMCBeliefDistribution(

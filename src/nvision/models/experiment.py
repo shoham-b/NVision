@@ -9,7 +9,7 @@ import random
 from dataclasses import dataclass
 
 from nvision.models.noise import CompositeNoise
-from nvision.models.observation import Observation
+from nvision.models.observation import DEFAULT_MEASUREMENT_NOISE_STD, Observation
 from nvision.signal.signal import TrueSignal
 
 
@@ -72,7 +72,7 @@ class CoreExperiment:
         signal_value = self.true_signal(x_physical)
 
         # Apply noise components if configured
-        noise_std = 0.05  # default for no-noise case (keep sensible for belief likelihood)
+        noise_std = DEFAULT_MEASUREMENT_NOISE_STD  # default for no-noise case (aligned with Observation)
         frequency_noise_model = None
         if self.noise is not None:
             noise_std = self.noise.estimated_noise_std()

@@ -8,6 +8,7 @@ This document provides essential knowledge for AI coding agents to be productive
 
 ### 1. Project Architecture
 - **Modular Python src/ layout**: All core logic is under `src/nvision/` with submodules for CLI, simulation, core utilities, and visualization.
+- **Beliefs** (`belief/`): Posterior representations (`AbstractBeliefDistribution`, grid and SMC implementations, unit-cube variants). Import from `nvision.belief` or `nvision.belief.<module>`.
 - **Simulation Core**:
   - `sim/` contains experiment generators (`gen/`), noise models, and locator strategies (`locs/`).
   - Locators (peak-finding strategies) follow the `Locator` protocol (see `sim/locs/base.py`).
@@ -51,6 +52,7 @@ This document provides essential knowledge for AI coding agents to be productive
 ### 4. Key Files & Directories
 - `src/nvision/cli/run.py`: Main experiment runner and CLI logic.
 - `src/nvision/sim/locs/base.py`: Locator protocol and base class.
+- `src/nvision/belief/`: Belief distributions and `ParameterValues` (see `belief/__init__.py` exports).
 - `src/nvision/sim/gen/generators/nv_center_generator.py`: NV center signal generator.
 - `src/nvision/viz/`: Visualization facade and mixins.
 - `artifacts/`: Output directory for all experiment results and plots.

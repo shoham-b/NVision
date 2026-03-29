@@ -21,11 +21,16 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from nvision.belief.grid_belief import GridParameter
+from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
+from nvision.belief.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
 from nvision.signal import CompositePeakModel, GaussianModel, LorentzianModel
-from nvision.signal.grid_belief import GridParameter
-from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
-from nvision.signal.unit_cube_model import UnitCubeSignalModel
-from nvision.signal.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
+from nvision.signal.unit_cube import UnitCubeSignalModel
+from nvision.sim.gen.core_generators import (
+    DEFAULT_NV_CENTER_FREQ_X_MAX,
+    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    nv_center_lorentzian_bounds_for_domain,
+)
 
 
 def _merge_phys_specs(
@@ -192,19 +197,26 @@ def nv_center_belief(
     n_grid_background: int = 40,
     **_extra: object,
 ) -> UnitCubeGridBeliefDistribution:
-    """NV-center Lorentzian belief: **unit** parameter grids, **physical** signal model."""
-    from nvision.signal.nv_center import MAX_K_NP, MIN_K_NP, NVCenterLorentzianModel
+    """NV-center Lorentzian belief: **unit** parameter grids, **physical** signal model.
 
-    _amp_hi = 0.35 * (50e6) ** 2
+    Default physical ranges match :func:`~nvision.sim.gen.core_generators.nv_center_lorentzian_bounds_for_domain`
+    (same domain as :class:`~nvision.sim.gen.core_generators.NVCenterCoreGenerator`). Runs from the experiment
+    runner merge in ``parameter_bounds`` from each generated :class:`~nvision.signal.signal.TrueSignal``.
+    """
+    from nvision.signal.nv_center import NVCenterLorentzianModel
+
+    phys = nv_center_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
     # Keep non-zero NV contrast so the posterior cannot collapse to "flat signal".
-    _amp_lo = 0.01 * _amp_hi
+    amp_lo, amp_hi = phys["amplitude"]
+    amp_floor = 0.01 * amp_hi
+    phys = {**phys, "amplitude": (max(amp_lo, amp_floor), amp_hi)}
     base_specs: list[tuple[str, tuple[float, float], int]] = [
-        ("frequency", (2.6e9, 3.1e9), n_grid_freq),
-        ("linewidth", (1e6, 50e6), n_grid_linewidth),
-        ("split", (1e6, 200e6), n_grid_split),
-        ("k_np", (MIN_K_NP, MAX_K_NP), n_grid_k_np),
-        ("amplitude", (_amp_lo, _amp_hi), n_grid_amplitude),
-        ("background", (0.95, 1.05), n_grid_background),
+        ("frequency", phys["frequency"], n_grid_freq),
+        ("linewidth", phys["linewidth"], n_grid_linewidth),
+        ("split", phys["split"], n_grid_split),
+        ("k_np", phys["k_np"], n_grid_k_np),
+        ("amplitude", phys["amplitude"], n_grid_amplitude),
+        ("background", phys["background"], n_grid_background),
     ]
     return _unit_cube_belief_from_specs(
         model=NVCenterLorentzianModel(),
@@ -223,19 +235,9 @@ def nv_center_smc_belief(
     **_extra: object,
 ) -> UnitCubeSMCBeliefDistribution:
     """NV-center Lorentzian belief: **unit** parameter particles, **physical** signal model."""
-    from nvision.signal.nv_center import MAX_K_NP, MIN_K_NP, NVCenterLorentzianModel
+    from nvision.signal.nv_center import NVCenterLorentzianModel
 
-    _amp_hi = 0.35 * (50e6) ** 2
-    # Keep non-zero NV contrast so particles cannot collapse to "flat signal".
-    _amp_lo = 0.01 * _amp_hi
-    merged_bounds = {
-        "frequency": (2.6e9, 3.1e9),
-        "linewidth": (1e6, 50e6),
-        "split": (1e6, 200e6),
-        "k_np": (MIN_K_NP, MAX_K_NP),
-        "amplitude": (_amp_lo, _amp_hi),
-        "background": (0.95, 1.05),
-    }
+    merged_bounds = nv_center_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
 
     if parameter_bounds:
         for name in merged_bounds:

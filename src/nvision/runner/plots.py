@@ -12,6 +12,7 @@ import polars as pl
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
+from nvision.signal.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 from nvision.viz.measurements import compute_scan_plot_data
 
@@ -32,73 +33,6 @@ def _resolve_scan_param(strat_obj: Any, run_result: RunResult) -> str:
     return "frequency"
 
 
-def _extract_unit_cube_posterior_inputs(
-    run_result: RunResult,
-    scan_param: str,
-) -> tuple[list[np.ndarray], np.ndarray] | None:
-    from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
-
-    b0 = run_result.snapshots[0].belief
-    if not isinstance(b0, UnitCubeGridBeliefDistribution):
-        return None
-
-    grid = b0.physical_param_grid(scan_param)
-    hist: list[np.ndarray] = []
-    for s in run_result.snapshots:
-        b = s.belief
-        assert isinstance(b, UnitCubeGridBeliefDistribution)
-        p = next((pp for pp in b.parameters if pp.name == scan_param), None)
-        if p is None or not hasattr(p, "posterior"):
-            return None
-        hist.append(p.posterior.copy())
-    return hist, grid
-
-
-def _extract_grid_posterior_inputs(
-    run_result: RunResult,
-    scan_param: str,
-) -> tuple[list[np.ndarray], np.ndarray] | None:
-    from nvision.signal.grid_belief import GridBeliefDistribution
-
-    b0 = run_result.snapshots[0].belief
-    if not isinstance(b0, GridBeliefDistribution):
-        return None
-
-    p0 = b0.get_param(scan_param)
-    if not hasattr(p0, "grid"):
-        return None
-
-    grid = p0.grid
-    hist: list[np.ndarray] = []
-    for s in run_result.snapshots:
-        p = s.belief.get_param(scan_param)
-        if not hasattr(p, "posterior"):
-            return None
-        hist.append(p.posterior.copy())
-    return hist, grid
-
-
-def _extract_smc_posterior_inputs(
-    run_result: RunResult,
-    scan_param: str,
-) -> tuple[list[np.ndarray], np.ndarray] | None:
-    from nvision.signal.smc_belief import SMCBeliefDistribution
-
-    b0 = run_result.snapshots[0].belief
-    if not isinstance(b0, SMCBeliefDistribution):
-        return None
-
-    idx = b0._param_names.index(scan_param)
-    hist: list[np.ndarray] = []
-    for s in run_result.snapshots:
-        b = s.belief
-        assert isinstance(b, SMCBeliefDistribution)
-        col = b._particles[:, idx]
-        hist.append(col.reshape(-1, 1))
-    # Unused for particle / histogram mode; required by API
-    return hist, np.linspace(0.0, 1.0, 2)
-
-
 def _posterior_animation_inputs(
     run_result: RunResult,
     scan_param: str,
@@ -107,16 +41,84 @@ def _posterior_animation_inputs(
     if not run_result.snapshots:
         return None
 
-    for extractor in (
-        _extract_unit_cube_posterior_inputs,
-        _extract_grid_posterior_inputs,
-        _extract_smc_posterior_inputs,
-    ):
-        result = extractor(run_result, scan_param)
-        if result is not None:
-            return result
+    from nvision.belief.grid_belief import GridBeliefDistribution
+    from nvision.belief.smc_belief import SMCBeliefDistribution
+    from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
 
-    log.debug("No posterior animation extraction for belief type %s", type(run_result.snapshots[0].belief).__name__)
+    b0 = run_result.snapshots[0].belief
+    if isinstance(b0, UnitCubeGridBeliefDistribution):
+        grid = b0.physical_param_grid(scan_param)
+        # UnitCube overrides get_param() to physical Parameter metadata; use grid PMF via base.
+        hist = [GridBeliefDistribution.get_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
+        return hist, grid
+    if isinstance(b0, GridBeliefDistribution):
+        grid = b0.get_param(scan_param).grid
+        hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        return hist, grid
+
+    if isinstance(b0, SMCBeliefDistribution):
+        idx = b0._param_names.index(scan_param)
+        hist: list[np.ndarray] = []
+        for s in run_result.snapshots:
+            b = s.belief
+            assert isinstance(b, SMCBeliefDistribution)
+            col = b._particles[:, idx]
+            hist.append(col.reshape(-1, 1))
+        # Unused for particle / histogram mode; required by API
+        return hist, np.linspace(0.0, 1.0, 2)
+
+    log.debug("No posterior animation extraction for belief type %s", type(b0).__name__)
+    return None
+
+
+def _posterior_animation_inputs_all_params(
+    run_result: RunResult,
+) -> dict[str, tuple[list[np.ndarray], np.ndarray]] | None:
+    """Marginal posterior history + axis grid for every model parameter (for faceted animation)."""
+    if not run_result.snapshots:
+        return None
+
+    from nvision.belief.grid_belief import GridBeliefDistribution
+    from nvision.belief.smc_belief import SMCBeliefDistribution
+    from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
+
+    b0 = run_result.snapshots[0].belief
+    names = list(b0.model.parameter_names())
+    if not names:
+        return None
+
+    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
+
+    if isinstance(b0, UnitCubeGridBeliefDistribution):
+        for scan_param in names:
+            grid = b0.physical_param_grid(scan_param)
+            hist = [
+                GridBeliefDistribution.get_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots
+            ]
+            out[scan_param] = (hist, grid)
+        return out
+
+    if isinstance(b0, GridBeliefDistribution):
+        for scan_param in names:
+            grid = b0.get_param(scan_param).grid
+            hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
+            out[scan_param] = (hist, grid)
+        return out
+
+    if isinstance(b0, SMCBeliefDistribution):
+        stub_grid = np.linspace(0.0, 1.0, 2)
+        for scan_param in names:
+            idx = b0._param_names.index(scan_param)
+            hist: list[np.ndarray] = []
+            for s in run_result.snapshots:
+                b = s.belief
+                assert isinstance(b, SMCBeliefDistribution)
+                col = b._particles[:, idx]
+                hist.append(col.reshape(-1, 1))
+            out[scan_param] = (hist, stub_grid)
+        return out
+
+    log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
     return None
 
 
@@ -167,72 +169,43 @@ def _initial_sweep_steps_from_strategy(strat_obj: Any) -> int:
     return 0
 
 
-def _focus_window_from_history(
-    history: pl.DataFrame,
-    scan: CoreExperiment,
+def _bayesian_auxiliary_entries(
+    viz: Viz,
+    entry_base: dict[str, Any],
+    run_result: RunResult,
     strat_obj: Any,
-) -> tuple[float, float] | None:
-    """Infer Bayesian focus window from coarse-phase measurements.
+    attempt_slug: str,
+    bayes_dir: Path,
+    out_dir: Path,
+) -> list[dict[str, Any]]:
+    """Posterior animation (all parameters when supported), parameter convergence plot."""
+    extra: list[dict[str, Any]] = []
+    scan_param = _resolve_scan_param(strat_obj, run_result)
+    interactive_path = bayes_dir / f"{attempt_slug}_posterior.html"
+    anim_all = _posterior_animation_inputs_all_params(run_result)
+    if anim_all is not None:
+        viz.plot_posterior_animation_all_params(anim_all, interactive_path)
+    else:
+        anim_inputs = _posterior_animation_inputs(run_result, scan_param)
+        if anim_inputs is not None:
+            posterior_history, freq_grid = anim_inputs
+            viz.plot_posterior_animation(posterior_history, freq_grid, interactive_path)
+    if interactive_path.exists():
+        ie = entry_base.copy()
+        ie["type"] = "bayesian_interactive"
+        ie["path"] = interactive_path.relative_to(out_dir).as_posix()
+        extra.append(ie)
 
-    Mirrors the locator-side Sobol focus heuristic so the UI can show the region
-    used by Bayesian acquisition after the initial sweep.
-    """
-    if (
-        history.is_empty()
-        or "phase" not in history.columns
-        or "x" not in history.columns
-        or "signal_values" not in history.columns
-    ):
-        return None
-
-    coarse = history.filter(pl.col("phase") == "coarse")
-    if coarse.height < 3:
-        return None
-
-    focus_info_quantile = 0.6
-    focus_padding_fraction = 0.1
-    focus_min_width_fraction = 0.15
-    if isinstance(strat_obj, dict):
-        cfg = strat_obj.get("config", {}) or {}
-        focus_info_quantile = float(cfg.get("focus_info_quantile", focus_info_quantile))
-        focus_padding_fraction = float(cfg.get("focus_padding_fraction", focus_padding_fraction))
-        focus_min_width_fraction = float(cfg.get("focus_min_width_fraction", focus_min_width_fraction))
-        if not bool(cfg.get("focus_after_sweep", True)):
-            return None
-
-    xs = np.asarray(coarse.get_column("x").to_list(), dtype=float)
-    ys = np.asarray(coarse.get_column("signal_values").to_list(), dtype=float)
-    if xs.size < 3 or ys.size < 3:
-        return None
-
-    center = float(np.median(ys))
-    info = np.abs(ys - center)
-    q = float(np.clip(focus_info_quantile, 0.0, 0.95))
-    thr = float(np.quantile(info, q))
-    keep = info >= thr
-    if not np.any(keep):
-        return None
-
-    x_inf = np.sort(xs[keep])
-    lo = float(x_inf[0])
-    hi = float(x_inf[-1])
-    span = max(hi - lo, 1e-12)
-    lo -= max(0.0, focus_padding_fraction) * span
-    hi += max(0.0, focus_padding_fraction) * span
-    lo = float(np.clip(lo, scan.x_min, scan.x_max))
-    hi = float(np.clip(hi, scan.x_min, scan.x_max))
-
-    min_width = float(np.clip(focus_min_width_fraction, 0.0, 1.0)) * float(scan.x_max - scan.x_min)
-    if hi - lo < min_width:
-        mid = 0.5 * (lo + hi)
-        half = 0.5 * min_width
-        lo = float(np.clip(mid - half, scan.x_min, scan.x_max))
-        hi = float(np.clip(mid + half, scan.x_min, scan.x_max))
-        if hi - lo < min_width:
-            lo = max(float(scan.x_min), hi - min_width)
-            hi = min(float(scan.x_max), lo + min_width)
-
-    return (lo, hi) if hi > lo else None
+    param_hist = [s.belief.uncertainty().as_dict() for s in run_result.snapshots]
+    if param_hist:
+        conv_path = bayes_dir / f"{attempt_slug}_param_convergence.html"
+        viz.plot_parameter_convergence(param_hist, conv_path)
+        if conv_path.exists():
+            ce = entry_base.copy()
+            ce["type"] = "bayesian_parameter_convergence"
+            ce["path"] = conv_path.relative_to(out_dir).as_posix()
+            extra.append(ce)
+    return extra
 
 
 def generate_attempt_plots(
@@ -265,15 +238,28 @@ def generate_attempt_plots(
             .alias("phase")
         )
 
+    focus_window = run_result.focus_window if run_result is not None else None
+
+    strat_name = str(entry_base.get("strategy", ""))
+    mode_estimates: dict[str, float] | None = None
+    belief_unit_cube: UnitCubeSignalModel | None = None
+    if run_result is not None and _is_bayesian_run(strat_name, strat_obj) and run_result.snapshots:
+        last_belief = run_result.snapshots[-1].belief
+        me = belief_mode_estimates(last_belief)
+        if me:
+            mode_estimates = me
+        m = getattr(last_belief, "model", None)
+        if isinstance(m, UnitCubeSignalModel):
+            belief_unit_cube = m
+
     viz.plot_scan_measurements(
         current_scan,
         history_with_phase,
         out_path,
         over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
-        mode_estimates=belief_mode_estimates(run_result.snapshots[-1].belief)
-        if run_result and run_result.snapshots
-        else None,
-        focus_window=_focus_window_from_history(history_with_phase, current_scan, strat_obj),
+        mode_estimates=mode_estimates,
+        focus_window=focus_window,
+        belief_unit_cube=belief_unit_cube,
     )
 
     scan_entry = entry_base.copy()
@@ -283,34 +269,25 @@ def generate_attempt_plots(
         current_scan,
         history_with_phase,
         noise_obj.over_frequency_noise if noise_obj else None,
-        focus_window=_focus_window_from_history(history_with_phase, current_scan, strat_obj),
+        focus_window=focus_window,
+        mode_estimates=mode_estimates,
+        belief_unit_cube=belief_unit_cube,
     )
     entries: list[dict[str, Any]] = [scan_entry]
 
-    strat_name = str(entry_base.get("strategy", ""))
     if run_result is not None and _is_bayesian_run(strat_name, strat_obj):
-        scan_param = _resolve_scan_param(strat_obj, run_result)
         try:
-            anim_inputs = _posterior_animation_inputs(run_result, scan_param)
-            if anim_inputs is not None:
-                posterior_history, freq_grid = anim_inputs
-                interactive_path = bayes_dir / f"{attempt_slug}_posterior.html"
-                viz.plot_posterior_animation(posterior_history, freq_grid, interactive_path)
-                if interactive_path.exists():
-                    ie = entry_base.copy()
-                    ie["type"] = "bayesian_interactive"
-                    ie["path"] = interactive_path.relative_to(out_dir).as_posix()
-                    entries.append(ie)
-
-            param_hist = [s.belief.estimates() for s in run_result.snapshots]
-            if param_hist:
-                conv_path = bayes_dir / f"{attempt_slug}_param_convergence.html"
-                viz.plot_parameter_convergence(param_hist, conv_path)
-                if conv_path.exists():
-                    ce = entry_base.copy()
-                    ce["type"] = "bayesian_parameter_convergence"
-                    ce["path"] = conv_path.relative_to(out_dir).as_posix()
-                    entries.append(ce)
+            entries.extend(
+                _bayesian_auxiliary_entries(
+                    viz,
+                    entry_base,
+                    run_result,
+                    strat_obj,
+                    attempt_slug,
+                    bayes_dir,
+                    out_dir,
+                )
+            )
         except Exception:
             log.exception(
                 "Bayesian auxiliary plots failed for %s repeat %s",

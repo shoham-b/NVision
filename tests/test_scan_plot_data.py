@@ -7,8 +7,10 @@ import json
 import polars as pl
 
 from nvision.models.experiment import CoreExperiment
-from nvision.signal.gaussian import GaussianModel
-from nvision.signal.signal import Parameter, TrueSignal
+from nvision.signal.gaussian import GaussianModel, GaussianParams
+from nvision.signal.lorentzian import LorentzianModel, LorentzianParams
+from nvision.signal.signal import TrueSignal
+from nvision.signal.unit_cube import UnitCubeSignalModel
 from nvision.viz.measurements import (
     backfill_scan_plot_data_if_missing,
     compute_scan_plot_data,
@@ -17,14 +19,14 @@ from nvision.viz.measurements import (
 
 
 def _minimal_scan() -> CoreExperiment:
-    model = GaussianModel()
-    parameters = [
-        Parameter(name="frequency", bounds=(0.0, 1.0), value=0.5),
-        Parameter(name="sigma", bounds=(0.01, 0.3), value=0.1),
-        Parameter(name="amplitude", bounds=(0.0, 1.5), value=1.0),
-        Parameter(name="background", bounds=(0.0, 0.5), value=0.0),
-    ]
-    true_signal = TrueSignal(model=model, parameters=parameters)
+    bounds = {
+        "frequency": (0.0, 1.0),
+        "sigma": (0.01, 0.3),
+        "amplitude": (0.0, 1.5),
+        "background": (0.0, 0.5),
+    }
+    typed = GaussianParams(frequency=0.5, sigma=0.1, amplitude=1.0, background=0.0)
+    true_signal = TrueSignal.from_typed(model=GaussianModel(), params=typed, bounds=bounds)
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=0.0, x_max=1.0)
 
 
@@ -47,6 +49,50 @@ def test_compute_scan_plot_data_phases() -> None:
     data = compute_scan_plot_data(scan, hist, None)
     assert data["measurements"]["mode"] == "phases"
     json.dumps(data)
+
+
+def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
+    """MAP overlay uses the inference model when ground-truth parameter names differ."""
+    x_min, x_max = 2.6e9, 3.1e9
+    lorentz_bounds = {
+        "frequency": (x_min, x_max),
+        "linewidth": (5e6, 100e6),
+        "amplitude": (1e-6, 1.0),
+        "background": (0.5, 1.2),
+    }
+    typed = LorentzianParams(
+        frequency=2.85e9,
+        linewidth=30e6,
+        amplitude=0.01,
+        background=1.0,
+    )
+    true_signal = TrueSignal.from_typed(
+        model=LorentzianModel(),
+        params=typed,
+        bounds=lorentz_bounds,
+    )
+    scan = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+
+    phys = {
+        "frequency": (x_min, x_max),
+        "sigma": (5e6, 100e6),
+        "amplitude": (0.1, 1.4),
+        "background": (0.0, 0.5),
+    }
+    belief_uc = UnitCubeSignalModel(GaussianModel(), phys, (x_min, x_max))
+    mode_estimates = {
+        "frequency": 2.85e9,
+        "sigma": 30e6,
+        "amplitude": 1.0,
+        "background": 0.0,
+    }
+    hist = pl.DataFrame({"x": [2.8e9], "signal_values": [0.5]})
+    without = compute_scan_plot_data(scan, hist, None, mode_estimates=mode_estimates)
+    assert "y_dense_mode" not in without
+    with_belief = compute_scan_plot_data(scan, hist, None, mode_estimates=mode_estimates, belief_unit_cube=belief_uc)
+    assert "y_dense_mode" in with_belief
+    assert len(with_belief["y_dense_mode"]) == len(with_belief["x_dense"])
+    json.dumps(with_belief)
 
 
 def test_plot_data_from_scan_figure_minimal() -> None:

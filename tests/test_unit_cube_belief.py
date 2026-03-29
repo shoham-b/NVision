@@ -6,14 +6,32 @@ import random
 
 import numpy as np
 
+from nvision.belief.grid_belief import GridBeliefDistribution
+from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
+from nvision.belief.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import Observer
 from nvision.runner import run_loop
-from nvision.signal.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
-from nvision.signal.unit_cube_model import UnitCubeSignalModel
-from nvision.sim.gen.core_generators import NVCenterCoreGenerator
-from nvision.sim.locs.bayesian.belief_builders import nv_center_belief
+from nvision.signal.unit_cube import UnitCubeSignalModel
+from nvision.sim.gen.core_generators import (
+    DEFAULT_NV_CENTER_FREQ_X_MAX,
+    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    NVCenterCoreGenerator,
+    nv_center_lorentzian_bounds_for_domain,
+)
+from nvision.sim.locs.bayesian.belief_builders import nv_center_belief, nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+
+
+def test_nv_center_default_bounds_align_with_generation_formulas():
+    gen = nv_center_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
+    b = nv_center_belief()
+    for key in ("frequency", "linewidth", "split", "k_np", "background"):
+        assert b.physical_param_bounds[key] == gen[key]
+    glo, ghi = gen["amplitude"]
+    blo, bhi = b.physical_param_bounds["amplitude"]
+    assert bhi == ghi
+    assert glo <= blo < bhi
 
 
 def test_nv_center_belief_is_unit_cube_with_wrapped_model():
@@ -76,3 +94,34 @@ def test_physical_param_grid_for_plots():
     g = b.physical_param_grid("frequency")
     assert np.isfinite(g).all()
     assert float(g[0]) < float(g[-1])
+
+
+def test_narrow_scan_parameter_physical_bounds_grid():
+    b = nv_center_belief(n_grid_freq=40)
+    old_lo, old_hi = b.physical_param_bounds["frequency"]
+    mid = 0.5 * (old_lo + old_hi)
+    quarter = 0.25 * (old_hi - old_lo)
+    nl, nh = mid - quarter, mid + quarter
+    b.narrow_scan_parameter_physical_bounds("frequency", nl, nh)
+    flo, fhi = b.physical_param_bounds["frequency"]
+    assert abs(flo - nl) < 1e-6 * (old_hi - old_lo)
+    assert abs(fhi - nh) < 1e-6 * (old_hi - old_lo)
+    assert b.physical_x_bounds == (flo, fhi)
+    assert b.model.param_bounds_phys["frequency"] == (flo, fhi)
+    assert b.model.x_bounds_phys == (flo, fhi)
+    g = GridBeliefDistribution.get_param(b, "frequency")
+    assert abs(float(np.sum(g.posterior)) - 1.0) < 1e-9
+
+
+def test_narrow_scan_parameter_physical_bounds_smc():
+    b = nv_center_smc_belief(num_particles=200)
+    assert isinstance(b, UnitCubeSMCBeliefDistribution)
+    old_lo, old_hi = b.physical_param_bounds["frequency"]
+    mid = 0.5 * (old_lo + old_hi)
+    quarter = 0.25 * (old_hi - old_lo)
+    nl, nh = mid - quarter, mid + quarter
+    b.narrow_scan_parameter_physical_bounds("frequency", nl, nh)
+    assert b.physical_param_bounds["frequency"] == (nl, nh)
+    assert b.physical_x_bounds == (nl, nh)
+    j = b._param_names.index("frequency")
+    assert np.all((b._particles[:, j] >= 0.0) & (b._particles[:, j] <= 1.0))

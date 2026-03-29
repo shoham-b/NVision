@@ -7,11 +7,82 @@ from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 
+from nvision.belief.abstract_belief import AbstractBeliefDistribution
+from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
+from nvision.belief.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
-from nvision.signal.signal import Parameter
+from nvision.parameter import Parameter
 from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
+
+
+def _normalized_acquisition_interval_from_sweep(xs: np.ndarray, ys: np.ndarray) -> tuple[float, float] | None:
+    """Return ``(lo, hi)`` in normalized [0, 1] scan coordinates, or ``None`` to use the full domain."""
+    if xs.size < 3 or ys.size < 3:
+        return None
+
+    info_quantile = 0.6
+    padding_fraction = 0.1
+    min_width_fraction = 0.15
+    segment_peak_ratio = 0.6
+    merge_gap_factor = 2.0
+
+    center = float(np.median(ys))
+    info = np.abs(ys - center)
+    thr = float(np.quantile(info, info_quantile))
+    keep = info >= thr
+    if not np.any(keep):
+        return None
+
+    order = np.argsort(xs)
+    xs_sorted = xs[order]
+    info_sorted = info[order]
+    keep_sorted = keep[order]
+    x_keep = xs_sorted[keep_sorted]
+    info_keep = info_sorted[keep_sorted]
+    if x_keep.size == 0:
+        return None
+
+    diffs_all = np.diff(xs_sorted)
+    positive_diffs = diffs_all[diffs_all > 0]
+    median_dx = float(np.median(positive_diffs)) if positive_diffs.size else 0.0
+    split_gap = max(3.0 * median_dx, 1e-6)
+    seg_breaks = np.where(np.diff(x_keep) > split_gap)[0] + 1
+    seg_xs = np.split(x_keep, seg_breaks)
+    seg_infos = np.split(info_keep, seg_breaks)
+    seg_peaks = np.array([float(np.max(s)) for s in seg_infos], dtype=float)
+    if seg_peaks.size == 0:
+        return None
+    peak_thr = segment_peak_ratio * float(np.max(seg_peaks))
+    selected = [i for i, peak in enumerate(seg_peaks) if peak >= peak_thr]
+    if not selected:
+        selected = [int(np.argmax(seg_peaks))]
+    selected_intervals = sorted((float(seg_xs[i][0]), float(seg_xs[i][-1])) for i in selected)
+    merge_gap = merge_gap_factor * median_dx
+    merged: list[list[float]] = []
+    for start, end in selected_intervals:
+        if not merged or start - merged[-1][1] > merge_gap:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    lo_norm = float(merged[0][0])
+    hi_norm = float(merged[-1][1])
+
+    span_norm = hi_norm - lo_norm
+    lo_norm -= padding_fraction * max(span_norm, 1e-9)
+    hi_norm += padding_fraction * max(span_norm, 1e-9)
+    lo_norm = float(np.clip(lo_norm, 0.0, 1.0))
+    hi_norm = float(np.clip(hi_norm, 0.0, 1.0))
+    if hi_norm - lo_norm < min_width_fraction:
+        mid = 0.5 * (lo_norm + hi_norm)
+        half = 0.5 * min_width_fraction
+        lo_norm = float(np.clip(mid - half, 0.0, 1.0))
+        hi_norm = float(np.clip(mid + half, 0.0, 1.0))
+        if hi_norm - lo_norm < min_width_fraction:
+            lo_norm = max(0.0, hi_norm - min_width_fraction)
+            hi_norm = min(1.0, lo_norm + min_width_fraction)
+
+    return (lo_norm, hi_norm)
 
 
 class SequentialBayesianLocator(Locator):
@@ -21,6 +92,12 @@ class SequentialBayesianLocator(Locator):
     - incrementing the step counter
     - convergence-based stopping
     - extracting results from the belief posterior
+
+    After an initial Sobol sweep, a **single** physical interval is derived from the
+    sweep data; all Bayesian :meth:`_acquire` calls search only inside that interval
+    (same interval shown in the scan UI as the focus band). For unit-cube beliefs,
+    the scan parameter's physical bounds (and probe-axis mapping when it matches the
+    sweep axis) are updated accordingly so normalization and posteriors stay consistent.
 
     Subclasses must implement:
     - ``create(**config)`` — build the model-specific ``BeliefSignal`` with priors.
@@ -50,22 +127,18 @@ class SequentialBayesianLocator(Locator):
         Defaults to a Sobol-like low-discrepancy 1D sequence.
     """
 
-    DEFAULT_INITIAL_SWEEP_STEPS = 64
+    DEFAULT_INITIAL_SWEEP_STEPS = 32
 
     def __init__(
         self,
         belief: AbstractBeliefDistribution,
-        max_steps: int = 150,
+        max_steps: int = 450,
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         initial_sweep_steps: int | None = None,
         initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
-        focus_after_sweep: bool = True,
-        focus_info_quantile: float = 0.6,
-        focus_padding_fraction: float = 0.1,
-        focus_min_width_fraction: float = 0.15,
     ) -> None:
         super().__init__(belief)
         self.max_steps = int(max_steps)
@@ -83,10 +156,6 @@ class SequentialBayesianLocator(Locator):
         )
         self._convergence_patience_steps = max(1, int(convergence_patience_steps))
         self._convergence_streak = 0
-        self._focus_after_sweep = bool(focus_after_sweep)
-        self._focus_info_quantile = float(np.clip(focus_info_quantile, 0.0, 0.95))
-        self._focus_padding_fraction = float(max(0.0, focus_padding_fraction))
-        self._focus_min_width_fraction = float(np.clip(focus_min_width_fraction, 0.0, 1.0))
 
         if initial_sweep_steps is None:
             initial_sweep_steps = self.DEFAULT_INITIAL_SWEEP_STEPS
@@ -99,7 +168,12 @@ class SequentialBayesianLocator(Locator):
             self._initial_sweep_points = np.empty(0, dtype=float)
 
         self._scan_lo, self._scan_hi = self.belief.get_param(self._scan_param).bounds
-        self._focus_lo, self._focus_hi = self._scan_lo, self._scan_hi
+        # Full scan axis for :class:`~nvision.models.experiment.CoreExperiment` (never narrowed).
+        # Belief / :meth:`_normalize` may use a tighter domain after the sweep; returned ``x`` must
+        # stay normalized to this full range so ``measure()`` probes the intended frequency.
+        self._full_domain_lo, self._full_domain_hi = float(self._scan_lo), float(self._scan_hi)
+        # Post-sweep interval in physical units where _acquire may search; starts at full scan.
+        self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
         self._sweep_observations: list[Observation] = []
 
     @classmethod
@@ -114,10 +188,6 @@ class SequentialBayesianLocator(Locator):
         initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
-        focus_after_sweep: bool = True,
-        focus_info_quantile: float = 0.6,
-        focus_padding_fraction: float = 0.1,
-        focus_min_width_fraction: float = 0.15,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -137,10 +207,6 @@ class SequentialBayesianLocator(Locator):
             initial_sweep_builder=initial_sweep_builder,
             convergence_params=convergence_params,
             convergence_patience_steps=convergence_patience_steps,
-            focus_after_sweep=focus_after_sweep,
-            focus_info_quantile=focus_info_quantile,
-            focus_padding_fraction=focus_padding_fraction,
-            focus_min_width_fraction=focus_min_width_fraction,
         )
 
     @property
@@ -176,19 +242,19 @@ class SequentialBayesianLocator(Locator):
         self.step_count += 1
 
         if self.step_count == self.initial_sweep_steps + 1:
-            self._update_focus_bounds_from_sweep()
+            self._set_acquisition_window_after_sweep()
 
         if self.step_count <= self.initial_sweep_steps:
             u = float(self._initial_sweep_points[self.step_count - 1])
-            physical_value = self._scan_lo + u * (self._scan_hi - self._scan_lo)
-            return self._normalize(self._scan_param, physical_value)
+            physical_value = self._full_domain_lo + u * (self._full_domain_hi - self._full_domain_lo)
+            return self._to_experiment_normalized(physical_value)
 
         self.inference_step_count += 1
         physical_value = self._acquire()
-        return self._normalize(self._scan_param, physical_value)
+        return self._to_experiment_normalized(physical_value)
 
     def observe(self, obs: Observation) -> None:
-        """Update belief and cache Sobol-sweep observations for focus detection."""
+        """Update belief and record sweep observations for the post-sweep window."""
         super().observe(obs)
         if self.step_count <= self.initial_sweep_steps:
             self._sweep_observations.append(obs)
@@ -239,54 +305,57 @@ class SequentialBayesianLocator(Locator):
         return self.belief.estimates()
 
     def _acquisition_bounds(self) -> tuple[float, float]:
-        """Current physical scan bounds for Bayesian acquisition."""
-        return self._focus_lo, self._focus_hi
+        """Physical bounds where :meth:`_acquire` searches (post-sweep window)."""
+        lo, hi = float(self._acquisition_lo), float(self._acquisition_hi)
+        return (min(lo, hi), max(lo, hi))
 
-    def _update_focus_bounds_from_sweep(self) -> None:
-        """Restrict Bayesian search to informative Sobol sweep region."""
-        if not self._focus_after_sweep or len(self._sweep_observations) < 3:
-            self._focus_lo, self._focus_hi = self._scan_lo, self._scan_hi
-            return
-
+    def _set_acquisition_window_after_sweep(self) -> None:
+        """Set the single acquisition interval from informative sweep samples (fixed heuristic)."""
         xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
         ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
-        if xs.size == 0:
+        span = _normalized_acquisition_interval_from_sweep(xs, ys)
+        if span is None:
+            self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
             return
+        lo_norm, hi_norm = span
+        self._acquisition_lo = self._denormalize(self._scan_param, lo_norm)
+        self._acquisition_hi = self._denormalize(self._scan_param, hi_norm)
 
-        center = float(np.median(ys))
-        info = np.abs(ys - center)
-        thr = float(np.quantile(info, self._focus_info_quantile))
-        keep = info >= thr
-        if not np.any(keep):
-            self._focus_lo, self._focus_hi = self._scan_lo, self._scan_hi
-            return
+        if isinstance(self.belief, (UnitCubeGridBeliefDistribution, UnitCubeSMCBeliefDistribution)):
+            self.belief.narrow_scan_parameter_physical_bounds(
+                self._scan_param,
+                self._acquisition_lo,
+                self._acquisition_hi,
+            )
+            slo, shi = self.belief.get_param(self._scan_param).bounds
+            self._acquisition_lo = min(slo, shi)
+            self._acquisition_hi = max(slo, shi)
 
-        x_inf_norm = np.sort(xs[keep])
-        lo_norm = float(x_inf_norm[0])
-        hi_norm = float(x_inf_norm[-1])
-
-        # Pad and enforce a minimum width so Bayesian phase still has room to explore.
-        span_norm = hi_norm - lo_norm
-        lo_norm -= self._focus_padding_fraction * max(span_norm, 1e-9)
-        hi_norm += self._focus_padding_fraction * max(span_norm, 1e-9)
-        lo_norm = float(np.clip(lo_norm, 0.0, 1.0))
-        hi_norm = float(np.clip(hi_norm, 0.0, 1.0))
-        min_width = self._focus_min_width_fraction
-        if hi_norm - lo_norm < min_width:
-            mid = 0.5 * (lo_norm + hi_norm)
-            half = 0.5 * min_width
-            lo_norm = float(np.clip(mid - half, 0.0, 1.0))
-            hi_norm = float(np.clip(mid + half, 0.0, 1.0))
-            if hi_norm - lo_norm < min_width:
-                lo_norm = max(0.0, hi_norm - min_width)
-                hi_norm = min(1.0, lo_norm + min_width)
-
-        self._focus_lo = self._denormalize(self._scan_param, lo_norm)
-        self._focus_hi = self._denormalize(self._scan_param, hi_norm)
+    def bayesian_focus_window(self) -> tuple[float, float] | None:
+        """Same physical interval as :meth:`_acquisition_bounds` for scan / manifest UI."""
+        if self.initial_sweep_steps <= 0:
+            return None
+        lo, hi = self._acquisition_bounds()
+        slo, shi = self._full_domain_lo, self._full_domain_hi
+        if not (np.isfinite(lo) and np.isfinite(hi) and np.isfinite(slo) and np.isfinite(shi)):
+            return None
+        if hi <= lo or shi <= slo:
+            return None
+        span = shi - slo
+        if span <= 0:
+            return None
+        if (hi - lo) >= span * (1.0 - 1e-9):
+            return None
+        return (lo, hi)
 
     # ------------------------------------------------------------------
     # Utility helpers available to all acquisition implementations
     # ------------------------------------------------------------------
+
+    def _to_experiment_normalized(self, physical_value: float) -> float:
+        """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""
+        lo, hi = self._full_domain_lo, self._full_domain_hi
+        return float(np.clip((physical_value - lo) / (hi - lo), 0.0, 1.0))
 
     def _normalize(self, param_name: str, physical_value: float) -> float:
         """Convert a physical parameter value to the normalised [0, 1] range.

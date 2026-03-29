@@ -8,8 +8,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from nvision.parameter import Parameter
 from nvision.signal.dtypes import FLOAT_DTYPE
-from nvision.signal.signal import Parameter, ParamSpec, SignalModel
+from nvision.signal.signal import ParamSpec, SignalModel
 
 
 @dataclass(frozen=True)

@@ -3,10 +3,11 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import queue
-from datetime import UTC, datetime
+from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 import polars as pl
 import typer
@@ -15,7 +16,7 @@ from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
 from nvision.cli.main import app
-from nvision.cli.monitor import MonitorLogHandler, ProgressMonitor
+from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import cases as sim_cases
@@ -236,10 +237,12 @@ def run(  # noqa: C901
 
     progress_queue: queue.Queue = queue.Queue()
     log_display_queue: queue.Queue = queue.Queue()
+    error_display_queue: queue.Queue = queue.Queue()
     monitor = ProgressMonitor(
         console,
         progress_queue,
         log_incoming=log_display_queue if not no_progress else None,
+        error_incoming=error_display_queue if not no_progress else None,
         live_mode=not no_progress,
     )
 
@@ -251,12 +254,21 @@ def run(  # noqa: C901
             MonitorLogHandler(
                 log_display_queue,
                 formatter=logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"),
-            )
+            ),
+            MonitorErrorHandler(
+                error_display_queue,
+                formatter=logging.Formatter(
+                    "%(asctime)s %(levelname)s %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                ),
+            ),
         ]
 
     ensure_out_dir(LOGS_ROOT)
     _prune_run_logs(LOGS_ROOT, max_runs=2)
-    run_log_path = LOGS_ROOT / f"nvision-run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}Z.log"
+    run_log_path = (
+        LOGS_ROOT / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y%m%dT%H%M%S%f')}.log"
+    )
     file_handler = logging.FileHandler(run_log_path, encoding="utf-8")
     file_handler.setLevel(log_level_value)
     _combo_filter = CombinationLogFilter()

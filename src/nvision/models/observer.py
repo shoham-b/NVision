@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from nvision.belief.abstract_belief import AbstractBeliefDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.signal.abstract_belief import AbstractBeliefDistribution
 from nvision.signal.signal import TrueSignal
 
 
@@ -43,10 +43,15 @@ class RunResult:
         Snapshot at each step of the run
     true_signal : TrueSignal
         Ground truth signal
+    focus_window : tuple[float, float] | None
+        Physical ``(lo, hi)`` interval where Bayesian acquisition searches after the
+        initial sweep — same as the locator's acquisition bounds when the locator
+        implements ``bayesian_focus_window()`` (see ``SequentialBayesianLocator``).
     """
 
     snapshots: list[StepSnapshot]
     true_signal: TrueSignal
+    focus_window: tuple[float, float] | None = None
 
     def uncertainty_trajectory(self, param: str) -> list[float]:
         """Get uncertainty (std) trajectory for parameter.
@@ -212,7 +217,9 @@ class Observer:
         """
         self.snapshots = []
 
+        last_locator: Locator | None = None
         for locator in runner:
+            last_locator = locator
             # Snapshot the current state
             # Make deep copy of belief to preserve state at this step
             if locator.belief.last_obs is not None:
@@ -223,7 +230,14 @@ class Observer:
                 )
                 self.snapshots.append(snapshot)
 
+        focus_window: tuple[float, float] | None = None
+        if last_locator is not None:
+            getter = getattr(last_locator, "bayesian_focus_window", None)
+            if callable(getter):
+                focus_window = getter()
+
         return RunResult(
             snapshots=self.snapshots,
             true_signal=self.true_signal,
+            focus_window=focus_window,
         )
