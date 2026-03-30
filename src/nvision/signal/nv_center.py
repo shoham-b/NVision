@@ -251,7 +251,7 @@ class NVCenterLorentzianModel(SignalModel):
 @dataclass(frozen=True)
 class NVCenterVoigtParams:
     frequency: float
-    fwhm_lorentz: float
+    linewidth: float
     fwhm_gauss: float
     split: float
     k_np: float
@@ -262,7 +262,7 @@ class NVCenterVoigtParams:
 @dataclass(frozen=True)
 class NVCenterVoigtSampleParams:
     frequency: np.ndarray
-    fwhm_lorentz: np.ndarray
+    linewidth: np.ndarray
     fwhm_gauss: np.ndarray
     split: np.ndarray
     k_np: np.ndarray
@@ -273,7 +273,7 @@ class NVCenterVoigtSampleParams:
 @dataclass(frozen=True)
 class NVCenterVoigtUncertaintyParams:
     frequency: float
-    fwhm_lorentz: float
+    linewidth: float
     fwhm_gauss: float
     split: float
     k_np: float
@@ -290,20 +290,20 @@ class _NVCenterVoigtSpec(
 ):
     @property
     def names(self) -> tuple[str, ...]:
-        return ("frequency", "fwhm_lorentz", "fwhm_gauss", "split", "k_np", "amplitude", "background")
+        return ("frequency", "linewidth", "fwhm_gauss", "split", "k_np", "amplitude", "background")
 
     @property
     def dim(self) -> int:
         return 7
 
     def unpack_params(self, values) -> NVCenterVoigtParams:
-        f, fl, fg, s, k, a, b = values
-        return NVCenterVoigtParams(float(f), float(fl), float(fg), float(s), float(k), float(a), float(b))
+        f, lw, fg, s, k, a, b = values
+        return NVCenterVoigtParams(float(f), float(lw), float(fg), float(s), float(k), float(a), float(b))
 
     def pack_params(self, params: NVCenterVoigtParams) -> tuple[float, ...]:
         return (
             float(params.frequency),
-            float(params.fwhm_lorentz),
+            float(params.linewidth),
             float(params.fwhm_gauss),
             float(params.split),
             float(params.k_np),
@@ -312,13 +312,13 @@ class _NVCenterVoigtSpec(
         )
 
     def unpack_uncertainty(self, values) -> NVCenterVoigtUncertaintyParams:
-        f, fl, fg, s, k, a, b = values
-        return NVCenterVoigtUncertaintyParams(float(f), float(fl), float(fg), float(s), float(k), float(a), float(b))
+        f, lw, fg, s, k, a, b = values
+        return NVCenterVoigtUncertaintyParams(float(f), float(lw), float(fg), float(s), float(k), float(a), float(b))
 
     def pack_uncertainty(self, u: NVCenterVoigtUncertaintyParams) -> tuple[float, ...]:
         return (
             float(u.frequency),
-            float(u.fwhm_lorentz),
+            float(u.linewidth),
             float(u.fwhm_gauss),
             float(u.split),
             float(u.k_np),
@@ -327,10 +327,10 @@ class _NVCenterVoigtSpec(
         )
 
     def unpack_samples(self, arrays_in_order) -> NVCenterVoigtSampleParams:
-        f, fl, fg, s, k, a, b = arrays_in_order
+        f, lw, fg, s, k, a, b = arrays_in_order
         return NVCenterVoigtSampleParams(
             frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            fwhm_lorentz=np.asarray(fl, dtype=FLOAT_DTYPE),
+            linewidth=np.asarray(lw, dtype=FLOAT_DTYPE),
             fwhm_gauss=np.asarray(fg, dtype=FLOAT_DTYPE),
             split=np.asarray(s, dtype=FLOAT_DTYPE),
             k_np=np.asarray(k, dtype=FLOAT_DTYPE),
@@ -341,7 +341,7 @@ class _NVCenterVoigtSpec(
     def pack_samples(self, samples: NVCenterVoigtSampleParams) -> tuple[np.ndarray, ...]:
         return (
             np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.fwhm_lorentz, dtype=FLOAT_DTYPE),
+            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
             np.asarray(samples.fwhm_gauss, dtype=FLOAT_DTYPE),
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
@@ -362,9 +362,9 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
     Parameters
     ----------
     frequency : float
-        Central frequency f_B in Hz
-    fwhm_lorentz : float
-        Lorentzian FWHM (full width at half maximum) in Hz
+    float
+    linewidth : float
+        Lorentzian linewidth (HWHM or FWHM based on use case) in Hz
     fwhm_gauss : float
         Gaussian FWHM in Hz
     split : float
@@ -418,11 +418,8 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
             w = self.wofz(z)
             return w.real / (sigma * np.sqrt(2 * np.pi))
         else:
-            eta = (
-                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-            )
+            phi = fwhm_l / (fwhm_l + fwhm_g)
+            eta = 1.36603 * phi - 0.47719 * phi**2 + 0.11116 * phi**3
             gamma = fwhm_l / 2
             lorentz = gamma / ((x - center) ** 2 + gamma**2)
             sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
@@ -433,7 +430,7 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         self,
         x: float,
         frequency: float,
-        fwhm_lorentz: float,
+        linewidth: float,
         fwhm_gauss: float,
         split: float,
         k_np: float,
@@ -443,11 +440,11 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         """Triple Voigt NV ODMR; parameter order matches :meth:`parameter_names`."""
         if split < 1e-10:
             combined_amplitude = amplitude * (k_np + 1 + 1 / k_np)
-            return background - combined_amplitude * self._voigt_profile(x, frequency, fwhm_lorentz, fwhm_gauss)
+            return background - combined_amplitude * self._voigt_profile(x, frequency, linewidth, fwhm_gauss)
 
-        left_dip = (amplitude / k_np) * self._voigt_profile(x, frequency - split, fwhm_lorentz, fwhm_gauss)
-        center_dip = amplitude * self._voigt_profile(x, frequency, fwhm_lorentz, fwhm_gauss)
-        right_dip = (amplitude * k_np) * self._voigt_profile(x, frequency + split, fwhm_lorentz, fwhm_gauss)
+        left_dip = (amplitude / k_np) * self._voigt_profile(x, frequency - split, linewidth, fwhm_gauss)
+        center_dip = amplitude * self._voigt_profile(x, frequency, linewidth, fwhm_gauss)
+        right_dip = (amplitude * k_np) * self._voigt_profile(x, frequency + split, linewidth, fwhm_gauss)
 
         return background - (left_dip + center_dip + right_dip)
 
@@ -458,13 +455,13 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         return self._SPEC
 
     def is_scale_parameter(self, name: str) -> bool:
-        return name in ("fwhm_lorentz", "fwhm_gauss", "amplitude")
+        return name in ("linewidth", "fwhm_gauss", "amplitude")
 
     def compute(self, x: float, params: NVCenterVoigtParams) -> float:
         return self.compute_nvcenter_voigt_model(
             float(x),
             params.frequency,
-            params.fwhm_lorentz,
+            params.linewidth,
             params.fwhm_gauss,
             params.split,
             params.k_np,
@@ -475,7 +472,7 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSampleParams) -> np.ndarray:
         x_f = float(x)
         freq = np.asarray(samples.frequency, dtype=np.float64)
-        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=np.float64)
+        lw = np.asarray(samples.linewidth, dtype=np.float64)
         fwhm_g = np.asarray(samples.fwhm_gauss, dtype=np.float64)
         split = np.asarray(samples.split, dtype=np.float64)
         k_np = np.asarray(samples.k_np, dtype=np.float64)
@@ -483,7 +480,7 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         bg = np.asarray(samples.background, dtype=np.float64)
 
         sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
-        gamma = fwhm_l / 2
+        gamma = lw / 2
 
         # Profile at center(s)
         def profile_at(center: np.ndarray) -> np.ndarray:
@@ -491,11 +488,8 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
                 z = ((x_f - center) + 1j * gamma) / (sigma * np.sqrt(2))
                 w = self.wofz(z)
                 return w.real / (sigma * np.sqrt(2 * np.pi))
-            eta = (
-                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-            )
+            phi = lw / (lw + fwhm_g)
+            eta = 1.36603 * phi - 0.47719 * phi**2 + 0.11116 * phi**3
             lorentz = gamma / ((x_f - center) ** 2 + gamma**2)
             gauss = np.exp(-0.5 * ((x_f - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
             return eta * lorentz + (1 - eta) * gauss
@@ -526,7 +520,7 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
         freq = np.asarray(samples.frequency, dtype=np.float64)
-        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=np.float64)
+        lw = np.asarray(samples.linewidth, dtype=np.float64)
         fwhm_g = np.asarray(samples.fwhm_gauss, dtype=np.float64)
         split = np.asarray(samples.split, dtype=np.float64)
         k_np = np.asarray(samples.k_np, dtype=np.float64)
@@ -534,7 +528,7 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         bg = np.asarray(samples.background, dtype=np.float64)
 
         sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
-        gamma = fwhm_l / 2
+        gamma = lw / 2
         x2d = xs[:, None]
 
         def profile_at(center: np.ndarray) -> np.ndarray:
@@ -543,11 +537,8 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
                 z = ((x2d - center2d) + 1j * gamma[None, :]) / (sigma[None, :] * np.sqrt(2))
                 w = self.wofz(z)
                 return w.real / (sigma[None, :] * np.sqrt(2 * np.pi))
-            eta = (
-                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-            )
+            phi = lw / (lw + fwhm_g)
+            eta = 1.36603 * phi - 0.47719 * phi**2 + 0.11116 * phi**3
             lorentz = gamma[None, :] / ((x2d - center2d) ** 2 + gamma[None, :] ** 2)
             gauss = np.exp(-0.5 * ((x2d - center2d) / sigma[None, :]) ** 2) / (sigma[None, :] * np.sqrt(2 * np.pi))
             return eta[None, :] * lorentz + (1 - eta)[None, :] * gauss

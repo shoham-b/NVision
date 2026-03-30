@@ -33,6 +33,22 @@ from nvision.sim.gen.core_generators import (
 )
 
 
+def nv_center_voigt_bounds_for_domain(
+    x_min: float,
+    x_max: float,
+    *,
+    amplitude_hi: float | None = None,
+) -> dict[str, tuple[float, float]]:
+    """Physical parameter bounds for NV Voigt signals."""
+    # Reuse Lorentzian logic for shared parameters
+    lorentz = nv_center_lorentzian_bounds_for_domain(x_min, x_max, amplitude_hi=amplitude_hi)
+    width = float(x_max - x_min)
+    return {
+        **lorentz,
+        "fwhm_gauss": (width * 0.0001, width * 0.1),
+    }
+
+
 def _merge_phys_specs(
     specs: list[tuple[str, tuple[float, float], int]],
     overrides: Mapping[str, tuple[float, float]] | None,
@@ -85,14 +101,22 @@ def one_peak_gaussian_belief(
     n_grid_background: int = 60,
     **_extra: object,
 ) -> UnitCubeGridBeliefDistribution:
-    specs = [
-        ("frequency", (2.6e9, 3.1e9), n_grid_freq),
-        ("sigma", (5e6, 100e6), n_grid_width),
-        ("amplitude", (0.1, 1.4), n_grid_amplitude),
-        ("background", (0.0, 0.5), n_grid_background),
-    ]
+    model = GaussianModel()
+    phys = {
+        "frequency": (2.6e9, 3.1e9),
+        "sigma": (5e6, 100e6),
+        "amplitude": (0.1, 1.4),
+        "background": (0.0, 0.5),
+    }
+    grids = {
+        "frequency": n_grid_freq,
+        "sigma": n_grid_width,
+        "amplitude": n_grid_amplitude,
+        "background": n_grid_background,
+    }
+    specs = [(name, phys[name], grids[name]) for name in model.spec.names]
     return _unit_cube_belief_from_specs(
-        model=GaussianModel(),
+        model=model,
         parameter_bounds=parameter_bounds,
         specs=specs,
         x_param_name="frequency",
@@ -108,18 +132,26 @@ def one_peak_lorentzian_belief(
     n_grid_background: int = 60,
     **_extra: object,
 ) -> UnitCubeGridBeliefDistribution:
+    model = LorentzianModel()
     amp_hi = (0.2 * (3.1e9 - 2.6e9)) ** 2
     # Keep a non-zero minimum contrast so inference does not collapse to
     # "flat signal" and overfit measurement noise.
     amp_lo = 0.01 * amp_hi
-    specs = [
-        ("frequency", (2.6e9, 3.1e9), n_grid_freq),
-        ("linewidth", (5e6, 100e6), n_grid_width),
-        ("amplitude", (amp_lo, amp_hi), n_grid_amplitude),
-        ("background", (0.5, 1.2), n_grid_background),
-    ]
+    phys = {
+        "frequency": (2.6e9, 3.1e9),
+        "linewidth": (5e6, 100e6),
+        "amplitude": (amp_lo, amp_hi),
+        "background": (0.5, 1.2),
+    }
+    grids = {
+        "frequency": n_grid_freq,
+        "linewidth": n_grid_width,
+        "amplitude": n_grid_amplitude,
+        "background": n_grid_background,
+    }
+    specs = [(name, phys[name], grids[name]) for name in model.spec.names]
     return _unit_cube_belief_from_specs(
-        model=LorentzianModel(),
+        model=model,
         parameter_bounds=parameter_bounds,
         specs=specs,
         x_param_name="frequency",
@@ -136,16 +168,27 @@ def two_peak_gaussian_belief(
     **_extra: object,
 ) -> UnitCubeGridBeliefDistribution:
     model = CompositePeakModel([("peak1", GaussianModel()), ("peak2", GaussianModel())])
-    specs = [
-        ("peak1_frequency", (2.6e9, 3.1e9), n_grid_freq),
-        ("peak1_sigma", (5e6, 100e6), n_grid_width),
-        ("peak1_amplitude", (0.1, 1.4), n_grid_amplitude),
-        ("peak1_background", (0.0, 0.5), n_grid_background),
-        ("peak2_frequency", (2.6e9, 3.1e9), n_grid_freq),
-        ("peak2_sigma", (5e6, 100e6), n_grid_width),
-        ("peak2_amplitude", (0.1, 1.4), n_grid_amplitude),
-        ("peak2_background", (0.0, 0.5), n_grid_background),
-    ]
+    phys = {
+        "peak1_frequency": (2.6e9, 3.1e9),
+        "peak1_sigma": (5e6, 100e6),
+        "peak1_amplitude": (0.1, 1.4),
+        "peak1_background": (0.0, 0.5),
+        "peak2_frequency": (2.6e9, 3.1e9),
+        "peak2_sigma": (5e6, 100e6),
+        "peak2_amplitude": (0.1, 1.4),
+        "peak2_background": (0.0, 0.5),
+    }
+    grids = {
+        "peak1_frequency": n_grid_freq,
+        "peak1_sigma": n_grid_width,
+        "peak1_amplitude": n_grid_amplitude,
+        "peak1_background": n_grid_background,
+        "peak2_frequency": n_grid_freq,
+        "peak2_sigma": n_grid_width,
+        "peak2_amplitude": n_grid_amplitude,
+        "peak2_background": n_grid_background,
+    }
+    specs = [(name, phys[name], grids[name]) for name in model.spec.names]
     return _unit_cube_belief_from_specs(
         model=model,
         parameter_bounds=parameter_bounds,
@@ -168,21 +211,74 @@ def two_peak_lorentzian_belief(
     # Keep non-zero peak contrast so Bayesian updates cannot explain data with
     # two effectively flat peaks plus noise.
     amp_lo = 0.01 * amp_hi
-    specs = [
-        ("peak1_frequency", (2.6e9, 3.1e9), n_grid_freq),
-        ("peak1_linewidth", (5e6, 100e6), n_grid_width),
-        ("peak1_amplitude", (amp_lo, amp_hi), n_grid_amplitude),
-        ("peak1_background", (0.0, 0.5), n_grid_background),
-        ("peak2_frequency", (2.6e9, 3.1e9), n_grid_freq),
-        ("peak2_linewidth", (5e6, 100e6), n_grid_width),
-        ("peak2_amplitude", (amp_lo, amp_hi), n_grid_amplitude),
-        ("peak2_background", (0.0, 0.5), n_grid_background),
-    ]
+    phys = {
+        "peak1_frequency": (2.6e9, 3.1e9),
+        "peak1_linewidth": (5e6, 100e6),
+        "peak1_amplitude": (amp_lo, amp_hi),
+        "peak1_background": (0.0, 0.5),
+        "peak2_frequency": (2.6e9, 3.1e9),
+        "peak2_linewidth": (5e6, 100e6),
+        "peak2_amplitude": (amp_lo, amp_hi),
+        "peak2_background": (0.0, 0.5),
+    }
+    grids = {
+        "peak1_frequency": n_grid_freq,
+        "peak1_linewidth": n_grid_width,
+        "peak1_amplitude": n_grid_amplitude,
+        "peak1_background": n_grid_background,
+        "peak2_frequency": n_grid_freq,
+        "peak2_linewidth": n_grid_width,
+        "peak2_amplitude": n_grid_amplitude,
+        "peak2_background": n_grid_background,
+    }
+    specs = [(name, phys[name], grids[name]) for name in model.spec.names]
     return _unit_cube_belief_from_specs(
         model=model,
         parameter_bounds=parameter_bounds,
         specs=specs,
         x_param_name="peak1_frequency",
+    )
+
+
+def nv_center_voigt_belief(
+    parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
+    *,
+    n_grid_freq: int = 120,
+    n_grid_linewidth: int = 80,
+    n_grid_gauss: int = 40,
+    n_grid_split: int = 60,
+    n_grid_k_np: int = 40,
+    n_grid_amplitude: int = 40,
+    n_grid_background: int = 40,
+    **_extra: object,
+) -> UnitCubeGridBeliefDistribution:
+    """NV-center Voigt belief."""
+    from nvision.signal.nv_center import NVCenterVoigtModel
+
+    model = NVCenterVoigtModel()
+    phys = nv_center_voigt_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
+    amp_lo, amp_hi = phys["amplitude"]
+    amp_floor = 0.01 * amp_hi
+    phys = {**phys, "amplitude": (max(amp_lo, amp_floor), amp_hi)}
+
+    # Ensure names match the model spec exactly
+    grids = {
+        "frequency": n_grid_freq,
+        "linewidth": n_grid_linewidth,
+        "fwhm_gauss": n_grid_gauss,
+        "split": n_grid_split,
+        "k_np": n_grid_k_np,
+        "amplitude": n_grid_amplitude,
+        "background": n_grid_background,
+    }
+    base_specs: list[tuple[str, tuple[float, float], int]] = [
+        (name, phys[name], grids[name]) for name in model.spec.names
+    ]
+    return _unit_cube_belief_from_specs(
+        model=model,
+        parameter_bounds=parameter_bounds,
+        specs=base_specs,
+        x_param_name="frequency",
     )
 
 
@@ -197,29 +293,29 @@ def nv_center_belief(
     n_grid_background: int = 40,
     **_extra: object,
 ) -> UnitCubeGridBeliefDistribution:
-    """NV-center Lorentzian belief: **unit** parameter grids, **physical** signal model.
-
-    Default physical ranges match :func:`~nvision.sim.gen.core_generators.nv_center_lorentzian_bounds_for_domain`
-    (same domain as :class:`~nvision.sim.gen.core_generators.NVCenterCoreGenerator`). Runs from the experiment
-    runner merge in ``parameter_bounds`` from each generated :class:`~nvision.signal.signal.TrueSignal``.
-    """
+    """NV-center Lorentzian belief: **unit** parameter grids, **physical** signal model."""
     from nvision.signal.nv_center import NVCenterLorentzianModel
 
+    model = NVCenterLorentzianModel()
     phys = nv_center_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
-    # Keep non-zero NV contrast so the posterior cannot collapse to "flat signal".
     amp_lo, amp_hi = phys["amplitude"]
     amp_floor = 0.01 * amp_hi
     phys = {**phys, "amplitude": (max(amp_lo, amp_floor), amp_hi)}
+
+    grids = {
+        "frequency": n_grid_freq,
+        "linewidth": n_grid_linewidth,
+        "split": n_grid_split,
+        "k_np": n_grid_k_np,
+        "amplitude": n_grid_amplitude,
+        "background": n_grid_background,
+    }
+    # Pull names directly from model spec
     base_specs: list[tuple[str, tuple[float, float], int]] = [
-        ("frequency", phys["frequency"], n_grid_freq),
-        ("linewidth", phys["linewidth"], n_grid_linewidth),
-        ("split", phys["split"], n_grid_split),
-        ("k_np", phys["k_np"], n_grid_k_np),
-        ("amplitude", phys["amplitude"], n_grid_amplitude),
-        ("background", phys["background"], n_grid_background),
+        (name, phys[name], grids[name]) for name in model.spec.names
     ]
     return _unit_cube_belief_from_specs(
-        model=NVCenterLorentzianModel(),
+        model=model,
         parameter_bounds=parameter_bounds,
         specs=base_specs,
         x_param_name="frequency",

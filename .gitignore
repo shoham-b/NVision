@@ -104,7 +104,7 @@ logs/
 
 # Local data
 *.sqlite3
-!artifacts/cache/cache.db
+*.db
 
 # Temporary files
 *.tmp

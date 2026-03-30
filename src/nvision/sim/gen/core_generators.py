@@ -235,14 +235,14 @@ class NVCenterCoreGenerator:
             )
             bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, amplitude_hi=amp_hi)
         else:  # voigt
-            fwhm_lorentz = 2 * linewidth
-            fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)
+            # Use linewidth directly (HWHM) to match Lorentzian model naming
+            fwhm_gauss = linewidth * rng.uniform(0.1, 0.3)
 
             model = NVCenterVoigtModel()
             base_amp = linewidth**2
             temp_params = NVCenterVoigtParams(
                 frequency=center_freq,
-                fwhm_lorentz=fwhm_lorentz,
+                linewidth=linewidth,
                 fwhm_gauss=fwhm_gauss,
                 split=split,
                 k_np=k_np,
@@ -260,7 +260,7 @@ class NVCenterCoreGenerator:
 
             typed_params = NVCenterVoigtParams(
                 frequency=center_freq,
-                fwhm_lorentz=fwhm_lorentz,
+                linewidth=linewidth,
                 fwhm_gauss=fwhm_gauss,
                 split=split,
                 k_np=k_np,
@@ -269,7 +269,7 @@ class NVCenterCoreGenerator:
             )
             bounds = {
                 "frequency": (self.x_min, self.x_max),
-                "fwhm_lorentz": (width * 0.001, width * 0.1),
+                "linewidth": (width * 0.001, width * 0.1),
                 "fwhm_gauss": (width * 0.0001, width * 0.05),
                 "split": (0.0, width * 0.5),
                 "k_np": (MIN_K_NP, MAX_K_NP),
