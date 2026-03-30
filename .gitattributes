@@ -14,7 +14,3 @@
 *.gif binary
 *.ico binary
 *.pdf binary
-# Git LFS
-artifacts/**/*.png filter=lfs diff=lfs merge=lfs -text
-artifacts/**/*.html filter=lfs diff=lfs merge=lfs -text
-artifacts/** filter=lfs diff=lfs merge=lfs -text
