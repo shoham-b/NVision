@@ -162,6 +162,9 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanParams, VoigtZeemanSampleParams, V
     def spec(self) -> _VoigtZeemanSpec:
         return self._SPEC
 
+    def is_scale_parameter(self, name: str) -> bool:
+        return name in ("linewidth", "amplitude")
+
     def compute(self, x: float, params: VoigtZeemanParams) -> float:
         return self.compute_voigt_zeeman_model(
             float(x),

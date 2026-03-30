@@ -246,7 +246,12 @@ class SequentialBayesianLocator(Locator):
 
         if self.step_count <= self.initial_sweep_steps:
             u = float(self._initial_sweep_points[self.step_count - 1])
-            physical_value = self._full_domain_lo + u * (self._full_domain_hi - self._full_domain_lo)
+            is_scale = getattr(self.belief.model, "is_scale_parameter", lambda name: False)(self._scan_param)
+            lo, hi = self._full_domain_lo, self._full_domain_hi
+            if is_scale and lo > 0 and hi > lo:
+                physical_value = float(np.exp(np.log(lo) + u * (np.log(hi) - np.log(lo))))
+            else:
+                physical_value = lo + u * (hi - lo)
             return self._to_experiment_normalized(physical_value)
 
         self.inference_step_count += 1
@@ -351,6 +356,14 @@ class SequentialBayesianLocator(Locator):
     # ------------------------------------------------------------------
     # Utility helpers available to all acquisition implementations
     # ------------------------------------------------------------------
+
+    def _generate_candidates(self, num_candidates: int = 200) -> np.ndarray:
+        """Generate grid from acquisition bounds (log-uniform for scale params)."""
+        lo, hi = self._acquisition_bounds()
+        is_scale = getattr(self.belief.model, "is_scale_parameter", lambda name: False)(self._scan_param)
+        if is_scale and lo > 0 and hi > lo:
+            return np.exp(np.linspace(np.log(lo), np.log(hi), num_candidates))
+        return np.linspace(lo, hi, num_candidates)
 
     def _to_experiment_normalized(self, physical_value: float) -> float:
         """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""

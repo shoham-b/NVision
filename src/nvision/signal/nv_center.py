@@ -195,6 +195,9 @@ class NVCenterLorentzianModel(SignalModel):
     def spec(self) -> _NVCenterLorentzianSpec:
         return self._SPEC
 
+    def is_scale_parameter(self, name: str) -> bool:
+        return name in ("linewidth", "amplitude")
+
     def compute(self, x: float, params: NVCenterLorentzianParams) -> float:
         return nv_center_lorentzian_eval(
             float(x),
@@ -453,6 +456,9 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
     @property
     def spec(self) -> _NVCenterVoigtSpec:
         return self._SPEC
+
+    def is_scale_parameter(self, name: str) -> bool:
+        return name in ("fwhm_lorentz", "fwhm_gauss", "amplitude")
 
     def compute(self, x: float, params: NVCenterVoigtParams) -> float:
         return self.compute_nvcenter_voigt_model(

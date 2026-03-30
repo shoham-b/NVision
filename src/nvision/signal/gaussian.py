@@ -101,6 +101,9 @@ class GaussianModel(SignalModel[GaussianParams, GaussianSampleParams, GaussianUn
     def spec(self) -> _GaussianSpec:
         return self._SPEC
 
+    def is_scale_parameter(self, name: str) -> bool:
+        return name in ("sigma", "amplitude")
+
     def compute(self, x: float, params: GaussianParams) -> float:
         return float(
             gaussian_peak_value(

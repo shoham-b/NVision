@@ -387,7 +387,11 @@ class _TaskRunner:
         experiment: CoreExperiment,
         repeat_start_time: float,
     ) -> tuple[pl.DataFrame, dict[str, Any], str, RunResult]:
-        cfg = {**locator_config, "parameter_bounds": self._injected_parameter_bounds(experiment)}
+        cfg = {
+            **locator_config,
+            "max_steps": self.task.loc_max_steps,
+            "parameter_bounds": self._injected_parameter_bounds(experiment),
+        }
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
 
         try:

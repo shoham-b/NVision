@@ -78,7 +78,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         approaches `max_steps`, the temperature sharpens and the policy becomes
         close to greedy argmax over the marginal.
         """
-        candidates = np.linspace(*self._acquisition_bounds(), 200)
+        candidates = self._generate_candidates(200)
         pdf = self.belief.marginal_pdf(self._scan_param, candidates)
 
         # Guard against numerical issues / empty mass.
@@ -91,13 +91,17 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         # Normalized discrete marginal.
         base_prob = pdf / total
 
-        # Annealed softmax exponent: tau starts near 1.0 (exploratory) and
-        # increases towards (1 + alpha) over the budget, concentrating mass.
+        # Add a baseline uniform floor before scaling to ensure regions erased by
+        # coarse-sweep noise can be resurrected and explored (prevents getting stuck).
+        base_prob = base_prob * 0.9 + 0.1 / len(candidates)
+
+        # Annealed softmax exponent: tau starts near 0.1 (highly exploratory/flat)
+        # and increases towards alpha over the budget, concentrating mass.
         frac = 0.0
         if self.max_steps > 0:
             frac = min(1.0, max(0.0, self.inference_step_count / float(self.max_steps)))
         alpha = self.exploration_rate  # controls how sharp we get by the end
-        tau = 1.0 + alpha * frac
+        tau = 0.1 + alpha * frac
 
         logits = np.power(base_prob, tau)
         logits_sum = float(np.sum(logits))

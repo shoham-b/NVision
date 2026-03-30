@@ -98,6 +98,13 @@ class CompositePeakModel(SignalModel[CompositeParams, CompositeSampleParams, Com
     def spec(self) -> _CompositeSpec:
         return self._spec
 
+    def is_scale_parameter(self, name: str) -> bool:
+        for prefix, model in self.peak_models:
+            if name.startswith(prefix + "_"):
+                sub_name = name[len(prefix) + 1 :]
+                return model.is_scale_parameter(sub_name)
+        return False
+
     def compute(self, x: float, params: CompositeParams) -> float:
         total = 0.0
         for (_, model), p in zip(self.peak_models, params.peaks, strict=True):

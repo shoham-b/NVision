@@ -23,6 +23,64 @@ def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> Non
     )
 
 
+def _add_acquisition_window_subplot(
+    fig: go.Figure,
+    *,
+    row: int,
+    col: int,
+    window: tuple[float, float],
+    full_domain: tuple[float, float] | None,
+) -> None:
+    """Shade the post-sweep acquisition interval on one marginal (matches scan ``focus_window``)."""
+    x0, x1 = float(window[0]), float(window[1])
+    if not math.isfinite(x0) or not math.isfinite(x1) or x1 <= x0:
+        return
+    fig.add_vrect(
+        x0=x0,
+        x1=x1,
+        fillcolor="rgba(46, 204, 113, 0.18)",
+        line_width=1,
+        line_color="rgba(46, 204, 113, 0.75)",
+        layer="below",
+        annotation_text="post-sweep acquisition",
+        annotation_position="top left",
+        row=row,
+        col=col,
+    )
+    if full_domain is not None:
+        flo, fhi = float(full_domain[0]), float(full_domain[1])
+        if math.isfinite(flo) and math.isfinite(fhi) and fhi > flo:
+            lo = min(flo, x0)
+            hi = max(fhi, x1)
+            fig.update_xaxes(range=[lo, hi], row=row, col=col)
+
+
+def _add_acquisition_window_single(
+    fig: go.Figure,
+    window: tuple[float, float],
+    full_domain: tuple[float, float] | None,
+) -> None:
+    x0, x1 = float(window[0]), float(window[1])
+    if not math.isfinite(x0) or not math.isfinite(x1) or x1 <= x0:
+        return
+    fig.add_vrect(
+        x0=x0,
+        x1=x1,
+        fillcolor="rgba(46, 204, 113, 0.18)",
+        line_width=1,
+        line_color="rgba(46, 204, 113, 0.75)",
+        layer="below",
+        annotation_text="post-sweep acquisition",
+        annotation_position="top left",
+    )
+    if full_domain is not None:
+        flo, fhi = float(full_domain[0]), float(full_domain[1])
+        if math.isfinite(flo) and math.isfinite(fhi) and fhi > flo:
+            lo = min(flo, x0)
+            hi = max(fhi, x1)
+            fig.update_xaxes(range=[lo, hi])
+
+
 def _add_true_vline_subplots(
     fig: go.Figure,
     param_names: list[str],
@@ -79,7 +137,7 @@ class BayesianMixin:
     # Typing for mixin dependency
     out_dir: Path
 
-    def plot_posterior_animation(
+    def plot_posterior_animation(  # noqa: C901
         self,
         posterior_history: list[np.ndarray],
         freq_grid: np.ndarray,
@@ -87,10 +145,14 @@ class BayesianMixin:
         model_history: list[np.ndarray] | None = None,
         *,
         true_value: float | None = None,
+        acquisition_window: tuple[float, float] | None = None,
+        experiment_domain: tuple[float, float] | None = None,
     ) -> None:
         """Create an interactive Plotly animation of the posterior distribution evolution.
 
         If ``true_value`` is set, draws a vertical line at the ground-truth parameter value.
+        If ``acquisition_window`` is set, shades the post-sweep search interval (optionally
+        with ``experiment_domain`` widening the x-axis to the full sweep range).
         """
         if not posterior_history:
             return
@@ -250,6 +312,9 @@ class BayesianMixin:
             frames=frames,
         )
 
+        if acquisition_window is not None:
+            _add_acquisition_window_single(fig, acquisition_window, experiment_domain)
+
         _add_true_vline_single_axis(fig, true_value)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -261,11 +326,19 @@ class BayesianMixin:
         out_path: Path,
         *,
         true_params: Mapping[str, float] | None = None,
+        acquisition_window: tuple[float, float] | None = None,
+        acquisition_param: str | None = None,
+        experiment_domain: tuple[float, float] | None = None,
     ) -> None:
         """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
 
         ``true_params`` maps parameter names to :class:`~nvision.signal.signal.TrueSignal` values
         (physical units); a dashed vertical line is drawn on each subplot when a value is given.
+
+        When ``acquisition_window`` and ``acquisition_param`` are set (post-sweep focus from the
+        Bayesian locator), a green band marks that interval on the corresponding marginal; if
+        ``experiment_domain`` is the full sweep ``(x_min, x_max)``, the x-axis is expanded so the
+        band appears in context of the original domain.
         """
         if not posterior_inputs_by_param:
             return
@@ -329,6 +402,16 @@ class BayesianMixin:
             }
             for si, frame in enumerate(frames)
         ]
+
+        if acquisition_window is not None and acquisition_param and acquisition_param in posterior_inputs_by_param:
+            row_ap = param_names.index(acquisition_param) + 1
+            _add_acquisition_window_subplot(
+                fig,
+                row=row_ap,
+                col=1,
+                window=acquisition_window,
+                full_domain=experiment_domain,
+            )
 
         _add_true_vline_subplots(fig, param_names, true_params)
 

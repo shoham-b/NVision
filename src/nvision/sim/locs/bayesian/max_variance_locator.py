@@ -81,7 +81,7 @@ class MaxVarianceLocator(SequentialBayesianLocator):
         )
 
     def _acquire(self) -> float:
-        candidates = np.linspace(*self._acquisition_bounds(), 100)
+        candidates = self._generate_candidates(100)
         pdf = self.belief.marginal_pdf(self._scan_param, candidates)
         prob = pdf / (np.sum(pdf) + 1e-12)
         best_idx = int(_argmax_bernoulli_variance(prob))

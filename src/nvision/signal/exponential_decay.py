@@ -97,6 +97,9 @@ class ExponentialDecayModel(
     def spec(self) -> _ExponentialDecaySpec:
         return self._SPEC
 
+    def is_scale_parameter(self, name: str) -> bool:
+        return name in ("decay_rate", "amplitude")
+
     def compute(self, x: float, params: ExponentialDecayParams) -> float:
         decay = max(float(params.decay_rate), 1e-12)
         return float(params.background + params.amplitude * np.exp(-float(x) / decay))

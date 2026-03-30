@@ -11,9 +11,7 @@ import numpy as np
 import polars as pl
 
 from nvision.belief.grid_belief import GridBeliefDistribution
-from nvision.belief.smc_belief import SMCBeliefDistribution
 from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
-from nvision.belief.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
 from nvision.models.observer import RunResult
 
 
@@ -94,7 +92,7 @@ def belief_mode_estimates(belief: object) -> dict[str, float]:
     """Approximate most likely parameters in physical units (for plotting the locator's best guess).
 
     Grid beliefs: independent marginal argmax on each 1D PMF (product approximation).
-    SMC: particle with maximum weight (MAP under discrete particle approximation).
+    SMC: posterior mean (expected value) via estimates().
     """
     # Unit-cube grid belief: map argmax on unit grid back to physical bounds.
     if isinstance(belief, UnitCubeGridBeliefDistribution):
@@ -108,19 +106,6 @@ def belief_mode_estimates(belief: object) -> dict[str, float]:
             modes[name] = lo + u_mode * (hi - lo)
         return modes
 
-    if isinstance(belief, UnitCubeSMCBeliefDistribution):
-        idx = int(np.argmax(belief._weights))
-        out: dict[str, float] = {}
-        for j, name in enumerate(belief._param_names):
-            u = float(belief._particles[idx, j])
-            lo, hi = belief.physical_param_bounds[name]
-            out[name] = lo + u * (hi - lo)
-        return out
-
-    if isinstance(belief, SMCBeliefDistribution):
-        idx = int(np.argmax(belief._weights))
-        return {name: float(belief._particles[idx, j]) for j, name in enumerate(belief._param_names)}
-
     # Plain grid belief: argmax directly on each parameter grid.
     if isinstance(belief, GridBeliefDistribution):
         modes = {}
@@ -129,7 +114,7 @@ def belief_mode_estimates(belief: object) -> dict[str, float]:
             modes[p.name] = float(p.grid[idx])
         return modes
 
-    # Fallback for non-grid beliefs (e.g., SMC): use current estimates.
+    # Fallback for non-grid beliefs (e.g., SMC): use posterior mean estimates.
     if hasattr(belief, "estimates") and callable(belief.estimates):
         out = belief.estimates()
         return {k: float(v) for k, v in out.items() if isinstance(v, (int, float))}

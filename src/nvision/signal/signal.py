@@ -109,6 +109,12 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
     # Compatibility / legacy API
     # --------------------------
 
+    def is_scale_parameter(self, name: str) -> bool:
+        """Return True if the parameter represents a strictly-positive scale
+        (e.g., width, amplitude) that should employ logarithmic spacing.
+        """
+        return False
+
     def parameter_names(self) -> list[str]:
         """Return parameter names in the order expected by beliefs/core generators."""
 
@@ -185,6 +191,10 @@ class TrueSignal[ParamsT]:
         if name not in values:
             raise KeyError(name)
         return float(values[name])
+
+    def is_scale_parameter(self, name: str) -> bool:
+        """Forward checks to the inner model."""
+        return self.model.is_scale_parameter(name)
 
     def get_param_bounds(self, name: str) -> tuple[float, float]:
         if name not in self.bounds:

@@ -106,6 +106,9 @@ class LorentzianModel(SignalModel[LorentzianParams, LorentzianSampleParams, Lore
     def spec(self) -> _LorentzianSpec:
         return self._SPEC
 
+    def is_scale_parameter(self, name: str) -> bool:
+        return name in ("linewidth", "amplitude")
+
     def compute(self, x: float, params: LorentzianParams) -> float:
         return float(
             lorentzian_peak_value(

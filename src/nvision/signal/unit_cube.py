@@ -170,6 +170,9 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
 
         return np.stack([self.inner.compute_vectorized(float(xp), *phys_arrays) for xp in x_phys], axis=0)
 
+    def is_scale_parameter(self, name: str) -> bool:
+        return self.inner.is_scale_parameter(name)
+
     def parameter_names(self) -> list[str]:
         return self.inner.parameter_names()
 

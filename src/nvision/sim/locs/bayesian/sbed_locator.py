@@ -88,7 +88,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # Sequential Bayesian Experiment Design Utility calculation:
         # Evaluate the mathematically exact Expected Information Gain (Shannon Entropy Reduction)
         # by simulating hypothetical measurements and estimating the expected posterior entropy.
-        candidates = np.linspace(*self._acquisition_bounds(), 200)
+        candidates = self._generate_candidates(200)
         num_samples = 100
 
         sampled = self.belief.sample(num_samples)

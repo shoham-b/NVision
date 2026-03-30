@@ -35,7 +35,7 @@ class UCBLocator(SequentialBayesianLocator):
     """
 
     def _acquire(self) -> float:
-        candidates = np.linspace(*self._acquisition_bounds(), 100)
+        candidates = self._generate_candidates(100)
         pdf = self.belief.marginal_pdf(self._scan_param, candidates)
         # Normalize PDF to act like discrete probabilities for the heuristic
         prob = pdf / (np.sum(pdf) + 1e-12)
