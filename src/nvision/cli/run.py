@@ -15,12 +15,12 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
-from nvision.cli.main import app
+from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import cases as sim_cases
-from nvision.sim.grid_enums import GeneratorCategory, GeneratorName, NoiseName, StrategyFilter
+from nvision.sim.grid_enums import GeneratorName, NoiseName
 from nvision.tools.artifacts import (
     ensure_plot_manifest_non_empty,
     merge_locator_results_with_existing,
@@ -122,7 +122,7 @@ def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
 
 @app.command()
 def run(  # noqa: C901
-    out: Annotated[Path, typer.Option("--out", help="Output directory")] = ARTIFACTS_ROOT,
+    out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = None,
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
     loc_max_steps: Annotated[
         int,
@@ -144,17 +144,17 @@ def run(  # noqa: C901
         ),
     ] = None,
     filter_category: Annotated[
-        GeneratorCategory | None,
+        str | None,
         typer.Option(
             "--filter-category",
             help="Filter by generator category (NVCenter, OnePeak, TwoPeak).",
         ),
     ] = None,
     filter_strategy: Annotated[
-        StrategyFilter | None,
+        str | None,
         typer.Option(
             "--filter-strategy",
-            help="Strategy substring (e.g. Bayesian matches all Bayesian-*; or Bayesian-SBED, SimpleSweep, …).",
+            help="Filter by locator strategy (or substring match).",
         ),
     ] = None,
     filter_generator: Annotated[
@@ -264,7 +264,9 @@ def run(  # noqa: C901
             ),
         ]
 
-    ensure_out_dir(LOGS_ROOT)
+    if out is None:
+        out = ARTIFACTS_ROOT
+    ensure_out_dir(out)
     _prune_run_logs(LOGS_ROOT, max_runs=2)
     run_log_path = (
         LOGS_ROOT / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y%m%dT%H%M%S%f')}.log"

@@ -74,7 +74,7 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
         old_df = pl.read_csv(out_path)
         key = ("generator", "noise", "strategy", "repeat")
         if set(key).issubset(old_df.columns):
-            return pl.concat([old_df, df_loc]).unique(
+            return pl.concat([old_df, df_loc], how="diagonal").unique(
                 subset=list(key),
                 keep="last",
                 maintain_order=True,

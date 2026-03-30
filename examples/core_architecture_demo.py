@@ -17,8 +17,8 @@ from nvision.models.locator import Locator
 from nvision.models.observer import Observer
 from nvision.parameter import Parameter
 from nvision.runner import run_loop
-from nvision.signal.lorentzian import LorentzianModel
-from nvision.signal.signal import (
+from nvision.spectra.lorentzian import LorentzianModel
+from nvision.spectra.signal import (
     BeliefSignal,
     ParameterWithPosterior,
     TrueSignal,

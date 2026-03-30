@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from nvision.signal.likelihood import likelihood_from_observation_model
+from nvision.spectra.likelihood import likelihood_from_observation_model
 
 
 def test_poisson_likelihood_prefers_matching_rate() -> None:

@@ -6,9 +6,9 @@ import polars as pl
 
 from nvision.models.experiment import CoreExperiment
 from nvision.runner import run_loop
-from nvision.signal.signal import TrueSignal
 from nvision.sim.gen.core_generators import NVCenterCoreGenerator, OnePeakCoreGenerator
 from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
+from nvision.spectra.signal import TrueSignal
 
 
 def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame:

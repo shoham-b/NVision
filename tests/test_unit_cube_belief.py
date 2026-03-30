@@ -12,7 +12,6 @@ from nvision.belief.unit_cube_smc_belief import UnitCubeSMCBeliefDistribution
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import Observer
 from nvision.runner import run_loop
-from nvision.signal.unit_cube import UnitCubeSignalModel
 from nvision.sim.gen.core_generators import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
@@ -21,6 +20,7 @@ from nvision.sim.gen.core_generators import (
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_belief, nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
 def test_nv_center_default_bounds_align_with_generation_formulas():

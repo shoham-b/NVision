@@ -8,7 +8,7 @@ import numpy as np
 
 from nvision.models.observation import Observation, gaussian_likelihood_std
 from nvision.parameter import Parameter
-from nvision.signal.signal import SignalModel
+from nvision.spectra.signal import SignalModel
 
 
 def _is_poisson_frequency_model(frequency_noise_model: tuple[dict[str, Any], ...] | None) -> bool:
@@ -22,7 +22,7 @@ def poisson_expected_fisher_matrix(grad_vec: np.ndarray, f_pred: float, scale: f
     """Expected Fisher for Poisson counts with mean ``lambda = max(f_pred * scale, eps)``.
 
     Matches the single-component Poisson branch in
-    :func:`nvision.signal.likelihood.likelihood_from_observation_model`: rate
+    :func:`nvision.spectra.likelihood.likelihood_from_observation_model`: rate
     ``lambda = f_pred * scale`` and ``grad(lambda) = scale * grad(f)``.
 
     Uses ``I = (1/lambda) grad(lambda) grad(lambda)^T`` (standard Poisson rate Fisher).
@@ -45,14 +45,14 @@ def fisher_information_matrix(
     """Single-observation Fisher information at ``x`` (Gaussian or Poisson).
 
     Uses :attr:`Observation.frequency_noise_model` the same way as
-    :func:`nvision.signal.likelihood.likelihood_from_observation_model`:
+    :func:`nvision.spectra.likelihood.likelihood_from_observation_model`:
 
     - **Poisson** (one component, ``type=="poisson"``, ``scale > 0``): expected Fisher
       for Poisson rate with ``lambda = f(theta|x) * scale``.
     - **Otherwise**: additive Gaussian noise with ``sigma`` from
       :func:`~nvision.models.observation.gaussian_likelihood_std`.
 
-    Returns ``None`` if :meth:`~nvision.signal.signal.SignalModel.gradient` is unavailable.
+    Returns ``None`` if :meth:`~nvision.spectra.signal.SignalModel.gradient` is unavailable.
     """
     grads = model.gradient(x, parameters)
     if grads is None:

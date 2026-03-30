@@ -357,7 +357,7 @@ class SequentialBayesianLocator(Locator):
     # Utility helpers available to all acquisition implementations
     # ------------------------------------------------------------------
 
-    def _generate_candidates(self, num_candidates: int = 200) -> np.ndarray:
+    def _generate_candidates(self, num_candidates: int = 300) -> np.ndarray:
         """Generate grid from acquisition bounds (log-uniform for scale params)."""
         lo, hi = self._acquisition_bounds()
         is_scale = getattr(self.belief.model, "is_scale_parameter", lambda name: False)(self._scan_param)

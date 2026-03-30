@@ -12,7 +12,7 @@ import polars as pl
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
-from nvision.signal.unit_cube import UnitCubeSignalModel
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 from nvision.viz.measurements import compute_scan_plot_data
 
@@ -80,49 +80,70 @@ def _posterior_animation_inputs(
     return None
 
 
-def _extract_grid_belief_all(
+def _posterior_animation_inputs_all_params(
     run_result: RunResult,
-    names: list[str],
-) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
-    """Extract all parameters from Grid-based belief histories."""
+) -> dict[str, tuple[list[np.ndarray], np.ndarray]] | None:
+    """Marginal posterior history + axis grid for every model parameter (for faceted animation)."""
+    if not run_result.snapshots:
+        return None
+
+    b0 = run_result.snapshots[0].belief
+    names = list(b0.model.parameter_names())
+    if not names:
+        return None
+
     from nvision.belief.grid_belief import GridBeliefDistribution
+    from nvision.belief.smc_belief import SMCBeliefDistribution
     from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
+
+    if isinstance(b0, UnitCubeGridBeliefDistribution):
+        return _extract_unit_cube_grid_posterior(run_result, names)
+
+    if isinstance(b0, GridBeliefDistribution):
+        return _extract_grid_posterior(run_result, names)
+
+    if isinstance(b0, SMCBeliefDistribution):
+        return _extract_smc_posterior(run_result, names)
+
+    log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
+    return None
+
+
+def _extract_unit_cube_grid_posterior(
+    run_result: RunResult, names: list[str]
+) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+    from nvision.belief.grid_belief import GridBeliefDistribution
 
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
     b0 = run_result.snapshots[0].belief
-
     for scan_param in names:
-        if isinstance(b0, UnitCubeGridBeliefDistribution):
-            grid = b0.physical_param_grid(scan_param)
-            hist = [
-                GridBeliefDistribution.get_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots
-            ]
-        else:
-            assert isinstance(b0, GridBeliefDistribution)
-            grid = b0.get_param(scan_param).grid
-            hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        grid = b0.physical_param_grid(scan_param)
+        hist = [GridBeliefDistribution.get_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
         out[scan_param] = (hist, grid)
     return out
 
 
-def _extract_smc_belief_all(
-    run_result: RunResult,
-    names: list[str],
-) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
-    """Extract all parameters from SMC-based belief histories."""
+def _extract_grid_posterior(run_result: RunResult, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
+    b0 = run_result.snapshots[0].belief
+    for scan_param in names:
+        grid = b0.get_param(scan_param).grid
+        hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        out[scan_param] = (hist, grid)
+    return out
+
+
+def _extract_smc_posterior(run_result: RunResult, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     from nvision.belief.smc_belief import SMCBeliefDistribution
 
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
     b0 = run_result.snapshots[0].belief
-    assert isinstance(b0, SMCBeliefDistribution)
-
     stub_grid = np.linspace(0.0, 1.0, 2)
     is_unit_cube = hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel)
 
     for scan_param in names:
         idx = b0._param_names.index(scan_param)
         hist: list[np.ndarray] = []
-
         lo, hi = 0.0, 1.0
         if is_unit_cube:
             lo, hi = b0.model.param_bounds_phys[scan_param]
@@ -136,32 +157,6 @@ def _extract_smc_belief_all(
             hist.append(col.reshape(-1, 1))
         out[scan_param] = (hist, stub_grid)
     return out
-
-
-def _posterior_animation_inputs_all_params(
-    run_result: RunResult,
-) -> dict[str, tuple[list[np.ndarray], np.ndarray]] | None:
-    """Marginal posterior history + axis grid for every model parameter (for faceted animation)."""
-    if not run_result.snapshots:
-        return None
-
-    from nvision.belief.grid_belief import GridBeliefDistribution
-    from nvision.belief.smc_belief import SMCBeliefDistribution
-    from nvision.belief.unit_cube_grid_belief import UnitCubeGridBeliefDistribution
-
-    b0 = run_result.snapshots[0].belief
-    names = list(b0.model.parameter_names())
-    if not names:
-        return None
-
-    if isinstance(b0, (GridBeliefDistribution, UnitCubeGridBeliefDistribution)):
-        return _extract_grid_belief_all(run_result, names)
-
-    if isinstance(b0, SMCBeliefDistribution):
-        return _extract_smc_belief_all(run_result, names)
-
-    log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
-    return None
 
 
 def _is_bayesian_run(strat_name: str, strat_obj: Any) -> bool:

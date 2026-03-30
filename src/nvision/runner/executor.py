@@ -432,7 +432,8 @@ class _TaskRunner:
         for name, (lo_raw, hi_raw) in experiment.true_signal.bounds.items():
             lo, hi = float(lo_raw), float(hi_raw)
             if hi > lo:
-                if "amplitude" in name.lower() and hi > noise_std:
+                name_lc = name.lower()
+                if ("amplitude" in name_lc or "depth" in name_lc) and hi > noise_std:
                     lo = max(lo, noise_std)
                     if lo >= hi:
                         lo = hi * 0.999

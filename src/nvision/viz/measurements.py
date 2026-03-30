@@ -14,8 +14,8 @@ from plotly.subplots import make_subplots
 
 from nvision.models.noise import CompositeOverFrequencyNoise
 from nvision.parameter import Parameter
-from nvision.signal.unit_cube import UnitCubeSignalModel
 from nvision.sim.batch import DataBatch
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.tools.paths import ensure_out_dir
 
 
@@ -118,7 +118,7 @@ def _mode_belief_dense_y(
 ) -> list[float] | None:
     """Evaluate the forward model at ``mode_estimates`` along ``xs`` (physical domain).
 
-    For :class:`~nvision.signal.unit_cube.UnitCubeSignalModel`, ``mode_estimates`` are
+    For :class:`~nvision.spectra.unit_cube.UnitCubeSignalModel`, ``mode_estimates`` are
     physical parameters and ``xs`` are physical probe positions (same as the true-signal
     plot); internally normalized coordinates are applied for evaluation.
 

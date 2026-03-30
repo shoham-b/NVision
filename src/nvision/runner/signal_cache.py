@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from nvision.models.experiment import CoreExperiment
 from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
-from nvision.signal.signal import TrueSignal
+from nvision.spectra.signal import TrueSignal
 
 if TYPE_CHECKING:
     from nvision.models.task import LocatorTask

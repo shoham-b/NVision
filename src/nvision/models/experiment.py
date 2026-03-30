@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from nvision.models.noise import CompositeNoise
 from nvision.models.observation import DEFAULT_MEASUREMENT_NOISE_STD, Observation
-from nvision.signal.signal import TrueSignal
+from nvision.spectra.signal import TrueSignal
 
 
 @dataclass

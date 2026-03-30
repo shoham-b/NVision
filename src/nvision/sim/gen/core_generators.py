@@ -5,13 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from nvision.signal import (
-    MAX_K_NP,
-    MAX_NV_CENTER_DELTA,
-    MAX_NV_CENTER_OMEGA,
-    MIN_K_NP,
-    MIN_NV_CENTER_DELTA,
-    MIN_NV_CENTER_OMEGA,
+from nvision.spectra import (
     CompositePeakModel,
     ExponentialDecayModel,
     GaussianModel,
@@ -19,28 +13,35 @@ from nvision.signal import (
     NVCenterLorentzianModel,
     NVCenterVoigtModel,
 )
-from nvision.signal.composite import CompositeParams
-from nvision.signal.exponential_decay import ExponentialDecayParams
-from nvision.signal.gaussian import GaussianParams
-from nvision.signal.lorentzian import LorentzianParams
-from nvision.signal.nv_center import NVCenterLorentzianParams, NVCenterVoigtParams
-from nvision.signal.signal import TrueSignal
+from nvision.spectra.composite import CompositeParams
+from nvision.spectra.exponential_decay import ExponentialDecayParams
+from nvision.spectra.gaussian import GaussianParams
+from nvision.spectra.lorentzian import LorentzianParams
+from nvision.spectra.nv_center import (
+    DEFAULT_NV_CENTER_FREQ_X_MAX,
+    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    MAX_K_NP,
+    MAX_NV_CENTER_DELTA,
+    MAX_NV_CENTER_OMEGA,
+    MIN_K_NP,
+    MIN_NV_CENTER_DELTA,
+    MIN_NV_CENTER_OMEGA,
+    NVCenterLorentzianParams,
+    NVCenterVoigtParams,
+    nv_center_lorentzian_bounds_for_domain,
+    nv_center_voigt_bounds_for_domain,
+)
+from nvision.spectra.signal import TrueSignal
 
 
-def _lorentzian_amplitude_bounds(domain_width: float) -> tuple[float, float]:
-    """Upper bound for ``amplitude`` in :class:`~nvision.signal.lorentzian.LorentzianModel`.
-
-    There ``dip_depth = amplitude / linewidth²`` with linewidth up to ~0.2·domain_width
-    in our generators, and ``dip_depth`` ≤ 1.
-    """
-    w_hi = domain_width * 0.2
-    return (0.0, w_hi * w_hi)
+def _lorentzian_depth_bounds() -> tuple[float, float]:
+    """Upper bound for ``dip_depth`` in :class:`~nvision.spectra.lorentzian.LorentzianModel`."""
+    return (0.0, 1.5)
 
 
-def _lorentzian_amplitude_from_dip(rng: random.Random, linewidth: float, dip_lo: float, dip_hi: float) -> float:
-    """Sample ``amplitude = dip_depth * linewidth²`` (see LorentzianModel docstring)."""
-    dip = rng.uniform(dip_lo, dip_hi)
-    return dip * linewidth**2
+def _lorentzian_depth_draw(rng: random.Random, dip_lo: float, dip_hi: float) -> float:
+    """Sample ``dip_depth`` directly."""
+    return rng.uniform(dip_lo, dip_hi)
 
 
 def _true_signal_from_typed(model, typed_params, bounds: dict[str, tuple[float, float]]) -> TrueSignal:
@@ -84,78 +85,39 @@ class OnePeakCoreGenerator:
         if self.peak_type == "gaussian":
             # Gaussian is a bump from 0 to 1
             background = 0.0
-            amplitude = 1.0
+            dip_depth = 1.0
             model = GaussianModel()
             typed_params = GaussianParams(
                 frequency=peak_pos,
                 sigma=peak_width,
-                amplitude=amplitude,
+                dip_depth=dip_depth,
                 background=background,
             )
             bounds = {
                 "frequency": (self.x_min, self.x_max),
                 "sigma": (width * 0.01, width * 0.2),
-                "amplitude": (0.0, 1.5),
+                "dip_depth": (0.0, 1.5),
                 "background": (0.0, 0.5),
             }
         else:  # lorentzian
-            # Lorentzian is a dip from 1 to 0; dip depth = amplitude / linewidth²
+            # Lorentzian is a dip from 1 to 0; peak height = dip_depth
             background = 1.0
-            amp_hi = _lorentzian_amplitude_bounds(width)[1]
-            amplitude = peak_width**2  # This enforces exactly a dip depth of 1.0
+            dip_depth = 1.0  # This enforces exactly a dip depth of 1.0
             model = LorentzianModel()
             typed_params = LorentzianParams(
                 frequency=peak_pos,
                 linewidth=peak_width,
-                amplitude=amplitude,
+                dip_depth=dip_depth,
                 background=background,
             )
             bounds = {
                 "frequency": (self.x_min, self.x_max),
                 "linewidth": (width * 0.01, width * 0.2),
-                "amplitude": (0.0, amp_hi),
+                "dip_depth": (0.0, 1.5),
                 "background": (0.5, 1.2),
             }
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
-
-
-DEFAULT_NV_CENTER_FREQ_X_MIN = 2.6e9
-DEFAULT_NV_CENTER_FREQ_X_MAX = 3.1e9
-
-
-def nv_center_lorentzian_bounds_for_domain(
-    x_min: float,
-    x_max: float,
-    *,
-    amplitude_hi: float | None = None,
-) -> dict[str, tuple[float, float]]:
-    """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``.
-
-    Uses the same formulas as the ``bounds`` dict in :meth:`NVCenterCoreGenerator.generate`
-    (lorentzian variant): frequency span, width-scaled linewidth and split, etc.
-
-    When ``amplitude_hi`` is omitted, uses a conservative upper bound for priors on the
-    default GHz-scale domain (covers typical generator draws and matches Bayesian defaults).
-    """
-    width = float(x_max - x_min)
-    if width <= 0:
-        raise ValueError("x_max must exceed x_min")
-
-    if amplitude_hi is None:
-        amplitude_hi = max(
-            0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2,
-            0.35 * (50e6) ** 2,
-        )
-
-    return {
-        "frequency": (float(x_min), float(x_max)),
-        "linewidth": (width * 0.001, width * 0.05),
-        "split": (0.0, width * 0.5),
-        "k_np": (MIN_K_NP, MAX_K_NP),
-        "amplitude": (0.0, float(amplitude_hi)),
-        "background": (0.95, 1.05),
-    }
 
 
 @dataclass
@@ -202,80 +164,39 @@ class NVCenterCoreGenerator:
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
 
         # Normalize NV Center ODMR directly to [0, 1] bounds using exactly 1.0 maximum dip
-        # We calculate exact depth per unit amplitude by checking the three specific peak locations.
         background = 1.0
 
         if self.variant == "lorentzian":
             model = NVCenterLorentzianModel()
-            base_amp = linewidth**2
-            temp_params = NVCenterLorentzianParams(
-                frequency=center_freq,
-                linewidth=linewidth,
-                split=split,
-                k_np=k_np,
-                amplitude=base_amp,
-                background=0.0,
-            )
-            tv = model.spec.pack_params(temp_params)
-            min_val = min(
-                NVCenterLorentzianModel.compute_nvcenter_lorentzian_model(center_freq - split, *tv),
-                NVCenterLorentzianModel.compute_nvcenter_lorentzian_model(center_freq, *tv),
-                NVCenterLorentzianModel.compute_nvcenter_lorentzian_model(center_freq + split, *tv),
-            )
-            amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
-            amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, amplitude * 2.0)
+            # Draw normalized dip depth directly
+            dip_depth = rng.uniform(0.3, 0.95)
 
             typed_params = NVCenterLorentzianParams(
                 frequency=center_freq,
                 linewidth=linewidth,
                 split=split,
                 k_np=k_np,
-                amplitude=amplitude,
+                dip_depth=dip_depth,
                 background=background,
             )
-            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, amplitude_hi=amp_hi)
+            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
         else:  # voigt
-            # Use linewidth directly (HWHM) to match Lorentzian model naming
-            fwhm_gauss = linewidth * rng.uniform(0.1, 0.3)
+            fwhm_lorentz = 2 * linewidth
+            fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)
 
             model = NVCenterVoigtModel()
-            base_amp = linewidth**2
-            temp_params = NVCenterVoigtParams(
-                frequency=center_freq,
-                linewidth=linewidth,
-                fwhm_gauss=fwhm_gauss,
-                split=split,
-                k_np=k_np,
-                amplitude=base_amp,
-                background=0.0,
-            )
-            tv = model.spec.pack_params(temp_params)
-            min_val = min(
-                model.compute_nvcenter_voigt_model(center_freq - split, *tv),
-                model.compute_nvcenter_voigt_model(center_freq, *tv),
-                model.compute_nvcenter_voigt_model(center_freq + split, *tv),
-            )
-            voigt_amplitude = base_amp / abs(min_val) if abs(min_val) > 1e-30 else base_amp
-            voigt_amp_hi = max(0.6 * (MAX_NV_CENTER_OMEGA * width) ** 2, voigt_amplitude * 2.0)
+            dip_depth = rng.uniform(0.3, 0.95)
 
             typed_params = NVCenterVoigtParams(
                 frequency=center_freq,
-                linewidth=linewidth,
+                fwhm_lorentz=fwhm_lorentz,
                 fwhm_gauss=fwhm_gauss,
                 split=split,
                 k_np=k_np,
-                amplitude=voigt_amplitude,
+                dip_depth=dip_depth,
                 background=background,
             )
-            bounds = {
-                "frequency": (self.x_min, self.x_max),
-                "linewidth": (width * 0.001, width * 0.1),
-                "fwhm_gauss": (width * 0.0001, width * 0.05),
-                "split": (0.0, width * 0.5),
-                "k_np": (MIN_K_NP, MAX_K_NP),
-                "amplitude": (0.0, voigt_amp_hi),
-                "background": (0.95, 1.05),
-            }
+            bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 
@@ -316,10 +237,9 @@ class TwoPeakCoreGenerator:
         # Random peak parameters
         peak1_width = rng.uniform(0.02 * width, 0.08 * width)
         peak2_width = rng.uniform(0.02 * width, 0.08 * width)
-        peak1_amp = peak1_width**2 if self.peak_type_left == "lorentzian" else 1.0
-        peak2_amp = peak2_width**2 if self.peak_type_right == "lorentzian" else 1.0
+        peak1_depth = 1.0
+        peak2_depth = 1.0
         background = 1.0 if self.peak_type_left == "lorentzian" or self.peak_type_right == "lorentzian" else 0.0
-        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1] * 2.0
 
         # Create signal for each peak
         if self.peak_type_left == "gaussian":
@@ -345,23 +265,23 @@ class TwoPeakCoreGenerator:
         )
 
         if self.peak_type_left == "gaussian":
-            peak1_typed = GaussianParams(peak1_pos, peak1_width, peak1_amp, background / 2)
+            peak1_typed = GaussianParams(peak1_pos, peak1_width, peak1_depth, background / 2)
             left_width_key = "peak1_sigma"
         elif self.peak_type_left == "lorentzian":
-            peak1_typed = LorentzianParams(peak1_pos, peak1_width, peak1_amp, background / 2)
+            peak1_typed = LorentzianParams(peak1_pos, peak1_width, peak1_depth, background / 2)
             left_width_key = "peak1_linewidth"
         else:
-            peak1_typed = ExponentialDecayParams(peak1_width * 5, peak1_amp, background / 2)
+            peak1_typed = ExponentialDecayParams(peak1_width * 5, peak1_depth, background / 2)
             left_width_key = "peak1_decay_rate"
 
         if self.peak_type_right == "gaussian":
-            peak2_typed = GaussianParams(peak2_pos, peak2_width, peak2_amp, background / 2)
+            peak2_typed = GaussianParams(peak2_pos, peak2_width, peak2_depth, background / 2)
             right_width_key = "peak2_sigma"
         elif self.peak_type_right == "lorentzian":
-            peak2_typed = LorentzianParams(peak2_pos, peak2_width, peak2_amp, background / 2)
+            peak2_typed = LorentzianParams(peak2_pos, peak2_width, peak2_depth, background / 2)
             right_width_key = "peak2_linewidth"
         else:
-            peak2_typed = ExponentialDecayParams(peak2_width * 5, peak2_amp, background / 2)
+            peak2_typed = ExponentialDecayParams(peak2_width * 5, peak2_depth, background / 2)
             right_width_key = "peak2_decay_rate"
 
         left_width_bounds = (
@@ -373,11 +293,11 @@ class TwoPeakCoreGenerator:
         bounds = {
             "peak1_frequency": (self.x_min, self.x_max),
             left_width_key: left_width_bounds,
-            "peak1_amplitude": (0.0, lorentz_amp_hi) if self.peak_type_left == "lorentzian" else (0.0, 1.5),
+            "peak1_dip_depth": (0.0, 1.5),
             "peak1_background": (0.0, 0.5),
             "peak2_frequency": (self.x_min, self.x_max),
             right_width_key: right_width_bounds,
-            "peak2_amplitude": (0.0, lorentz_amp_hi) if self.peak_type_right == "lorentzian" else (0.0, 1.5),
+            "peak2_dip_depth": (0.0, 1.5),
             "peak2_background": (0.0, 0.5),
         }
 
@@ -441,14 +361,13 @@ class MultiPeakCoreGenerator:
         typed_peak_params: list[object] = []
         bounds: dict[str, tuple[float, float]] = {}
         background = 1.0 if any(pt == "lorentzian" for pt in peak_types) else 0.0
-        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1] * float(self.count)
 
         for i, (pos, peak_type) in enumerate(zip(positions, peak_types, strict=False)):
             prefix = f"peak{i + 1}"
 
             # Random parameters
             peak_width = rng.uniform(0.02 * width, 0.08 * width)
-            amplitude = peak_width**2 if peak_type == "lorentzian" else 1.0
+            dip_depth = 1.0  # Normalized depth
 
             # Create model
             if peak_type == "gaussian":
@@ -457,13 +376,13 @@ class MultiPeakCoreGenerator:
                     GaussianParams(
                         frequency=pos,
                         sigma=peak_width,
-                        amplitude=amplitude,
+                        dip_depth=dip_depth,
                         background=background / self.count,
                     )
                 )
                 bounds[f"{prefix}_frequency"] = (self.x_min, self.x_max)
                 bounds[f"{prefix}_sigma"] = (width * 0.01, width * 0.2)
-                bounds[f"{prefix}_amplitude"] = (0.0, 1.5)
+                bounds[f"{prefix}_dip_depth"] = (0.0, 1.5)
                 bounds[f"{prefix}_background"] = (0.0, 0.5)
             elif peak_type == "lorentzian":
                 model = LorentzianModel()
@@ -471,25 +390,25 @@ class MultiPeakCoreGenerator:
                     LorentzianParams(
                         frequency=pos,
                         linewidth=peak_width,
-                        amplitude=amplitude,
+                        dip_depth=dip_depth,
                         background=1.0 - background / self.count,
                     )
                 )
                 bounds[f"{prefix}_frequency"] = (self.x_min, self.x_max)
                 bounds[f"{prefix}_linewidth"] = (width * 0.01, width * 0.2)
-                bounds[f"{prefix}_amplitude"] = (0.0, lorentz_amp_hi)
+                bounds[f"{prefix}_dip_depth"] = (0.0, 1.5)
                 bounds[f"{prefix}_background"] = (0.0, 0.5)
             else:  # exponential
                 model = ExponentialDecayModel()
                 typed_peak_params.append(
                     ExponentialDecayParams(
                         decay_rate=peak_width * 5,
-                        amplitude=amplitude,
+                        dip_depth=dip_depth,
                         background=background / self.count,
                     )
                 )
                 bounds[f"{prefix}_decay_rate"] = (width * 0.1, width * 2.0)
-                bounds[f"{prefix}_amplitude"] = (0.0, 1.5)
+                bounds[f"{prefix}_dip_depth"] = (0.0, 1.5)
                 bounds[f"{prefix}_background"] = (0.0, 0.5)
 
             models.append((prefix, model))
@@ -534,9 +453,8 @@ class SymmetricTwoPeakCoreGenerator:
 
         # Same parameters for both peaks (symmetric)
         peak_width = rng.uniform(0.02 * width, 0.06 * width)
-        amplitude = peak_width**2 if self.peak_type == "lorentzian" else 1.0
+        dip_depth = 1.0
         background = 1.0 if self.peak_type == "lorentzian" else 0.0
-        lorentz_amp_hi = _lorentzian_amplitude_bounds(width)[1] * 2.0
 
         # Create model
         if self.peak_type == "gaussian":
@@ -562,32 +480,31 @@ class SymmetricTwoPeakCoreGenerator:
         # Build typed parameters
 
         if self.peak_type in ["gaussian", "lorentzian"]:
-            amp_bounds = (0.0, lorentz_amp_hi) if self.peak_type == "lorentzian" else (0.0, 1.5)
             if self.peak_type == "gaussian":
-                peak1_typed = GaussianParams(left_pos, peak_width, amplitude, background / 2)
-                peak2_typed = GaussianParams(right_pos, peak_width, amplitude, background / 2)
+                peak1_typed = GaussianParams(left_pos, peak_width, dip_depth, background / 2)
+                peak2_typed = GaussianParams(right_pos, peak_width, dip_depth, background / 2)
             else:
-                peak1_typed = LorentzianParams(left_pos, peak_width, amplitude, background / 2)
-                peak2_typed = LorentzianParams(right_pos, peak_width, amplitude, background / 2)
+                peak1_typed = LorentzianParams(left_pos, peak_width, dip_depth, background / 2)
+                peak2_typed = LorentzianParams(right_pos, peak_width, dip_depth, background / 2)
             bounds = {
                 "peak1_frequency": (self.x_min, self.x_max),
                 f"peak1_{param_key}": (width * 0.01, width * 0.2),
-                "peak1_amplitude": amp_bounds,
+                "peak1_dip_depth": (0.0, 1.5),
                 "peak1_background": (0.0, 0.5),
                 "peak2_frequency": (self.x_min, self.x_max),
                 f"peak2_{param_key}": (width * 0.01, width * 0.2),
-                "peak2_amplitude": amp_bounds,
+                "peak2_dip_depth": (0.0, 1.5),
                 "peak2_background": (0.0, 0.5),
             }
         else:  # exponential
-            peak1_typed = ExponentialDecayParams(peak_width * 5, amplitude, background / 2)
-            peak2_typed = ExponentialDecayParams(peak_width * 5, amplitude, background / 2)
+            peak1_typed = ExponentialDecayParams(peak_width * 5, dip_depth, background / 2)
+            peak2_typed = ExponentialDecayParams(peak_width * 5, dip_depth, background / 2)
             bounds = {
                 "peak1_decay_rate": (width * 0.1, width * 2.0),
-                "peak1_amplitude": (0.0, 1.5),
+                "peak1_dip_depth": (0.0, 1.5),
                 "peak1_background": (0.0, 0.5),
                 "peak2_decay_rate": (width * 0.1, width * 2.0),
-                "peak2_amplitude": (0.0, 1.5),
+                "peak2_dip_depth": (0.0, 1.5),
                 "peak2_background": (0.0, 0.5),
             }
 

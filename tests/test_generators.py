@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import random
 
-from nvision.signal.signal import TrueSignal
 from nvision.sim.gen.core_generators import (
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
@@ -11,6 +10,7 @@ from nvision.sim.gen.core_generators import (
     SymmetricTwoPeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
+from nvision.spectra.signal import TrueSignal
 
 
 def _peak_value(signal: TrueSignal, n: int = 2001) -> float:

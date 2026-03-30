@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from nvision.belief.abstract_belief import AbstractBeliefDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.signal.signal import TrueSignal
+from nvision.spectra.signal import TrueSignal
 
 
 @dataclass

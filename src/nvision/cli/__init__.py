@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from nvision.cli.main import app
+from nvision.cli.app_instance import app
 
 __all__ = ["app"]

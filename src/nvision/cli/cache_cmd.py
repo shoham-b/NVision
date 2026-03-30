@@ -11,7 +11,7 @@ from rich.table import Table
 
 from nvision.cache import CacheBridge
 from nvision.cache.data_store import CategoryDataStore
-from nvision.cli.main import app
+from nvision.cli.app_instance import app
 from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
 
 console = Console()

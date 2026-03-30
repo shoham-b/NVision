@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from nvision.cli.main import app
+from nvision.cli.app_instance import app
 from nvision.sim import cases as sim_cases
 from nvision.tools.paths import ARTIFACTS_ROOT
 

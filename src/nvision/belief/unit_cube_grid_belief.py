@@ -9,7 +9,7 @@ import numpy as np
 from nvision.belief.abstract_belief import AbstractBeliefDistribution, ParameterValues
 from nvision.belief.grid_belief import GridBeliefDistribution, GridParameter
 from nvision.parameter import Parameter
-from nvision.signal.unit_cube import UnitCubeSignalModel
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
 @dataclass
@@ -22,7 +22,7 @@ class UnitCubeGridBeliefDistribution(GridBeliefDistribution):
     parameters (e.g. ``0.01`` ≈ 1% of each parameter's range).
 
     :meth:`estimates` and :meth:`uncertainty` are returned in **physical** units for
-    metrics, plotting, and comparison to :class:`~nvision.signal.signal.TrueSignal`.
+    metrics, plotting, and comparison to :class:`~nvision.spectra.signal.TrueSignal`.
     """
 
     physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)

@@ -21,7 +21,6 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
 )
 from nvision.sim.locs.bayesian.belief_builders import (
     nv_center_belief,
-    nv_center_voigt_belief,
     one_peak_gaussian_belief,
     one_peak_lorentzian_belief,
     two_peak_gaussian_belief,
@@ -46,13 +45,6 @@ _NV_GRID: dict[str, int] = {
     "n_grid_freq": 160,
     "n_grid_linewidth": 80,
     "n_grid_split": 80,
-}
-
-_NV_VOIGT_GRID: dict[str, int] = {
-    "n_grid_freq": 160,
-    "n_grid_linewidth": 80,
-    "n_grid_gauss": 40,
-    "n_grid_split": 60,
 }
 
 
@@ -91,10 +83,7 @@ class CombinationGrid:
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
         if generator_name.startswith("NVCenter-"):
-            if "voigt" in generator_name:
-                nv = {"builder": nv_center_voigt_belief, **_NV_VOIGT_GRID}
-            else:
-                nv = {"builder": nv_center_belief, **_NV_GRID}
+            nv = {"builder": nv_center_belief, **_NV_GRID}
             return [
                 ("SimpleSweep", SimpleSweepLocator),
                 (

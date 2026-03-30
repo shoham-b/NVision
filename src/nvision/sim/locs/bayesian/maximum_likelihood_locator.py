@@ -71,14 +71,15 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         )
 
     def _acquire(self) -> float:
-        """Sample from a softmax over the marginal with decreasing exploration.
+        """Sample from a softmax over the marginal with guaranteed exploration.
 
         Early in the run, we use a flatter temperature so the locator explores
         multiple plausible modes of the marginal. As `inference_step_count`
-        approaches `max_steps`, the temperature sharpens and the policy becomes
-        close to greedy argmax over the marginal.
+        approaches `max_steps`, the temperature sharpens. To prevent getting
+        permanently stuck in false noise-induced modes, we maintain a baseline
+        epsilon-exploration floor at all times.
         """
-        candidates = self._generate_candidates(200)
+        candidates = self._generate_candidates()
         pdf = self.belief.marginal_pdf(self._scan_param, candidates)
 
         # Guard against numerical issues / empty mass.
@@ -91,9 +92,8 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         # Normalized discrete marginal.
         base_prob = pdf / total
 
-        # Add a baseline uniform floor before scaling to ensure regions erased by
-        # coarse-sweep noise can be resurrected and explored (prevents getting stuck).
-        base_prob = base_prob * 0.9 + 0.1 / len(candidates)
+        # Soften extreme zeroes prior to temperature scaling
+        base_prob = base_prob * 0.99 + 0.01 / len(candidates)
 
         # Annealed softmax exponent: tau starts near 0.1 (highly exploratory/flat)
         # and increases towards alpha over the budget, concentrating mass.
@@ -105,8 +105,23 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
 
         logits = np.power(base_prob, tau)
         logits_sum = float(np.sum(logits))
+
         # If annealing produced degenerate weights, fall back to base_prob.
         probs = base_prob if (not np.isfinite(logits_sum) or logits_sum <= 0.0) else logits / logits_sum
+
+        # Add a baseline uniform floor AFTER scaling (epsilon-greedy-like).
+        # Ensures that even when the locator sharply focuses on a false mode,
+        # it periodically checks other areas to escape and find the true signal.
+        # Higher noise defaults to a higher exploration rate (bounded 5% to 50%).
+        epsilon = 0.15
+        if self._sweep_observations:
+            epsilon = float(np.clip(self._sweep_observations[-1].noise_std, 0.05, 0.50))
+
+        # Decay exploration as we approach max budget (ends at 20% of starting value)
+        # Allows robust early exploration but tight exploitation later.
+        epsilon = epsilon * (1.0 - 0.8 * frac)
+
+        probs = probs * (1.0 - epsilon) + epsilon / len(candidates)
 
         idx = int(np.random.choice(len(candidates), p=probs))
         return float(candidates[idx])

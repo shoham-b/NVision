@@ -4,7 +4,7 @@ import sys
 
 import typer
 
-app = typer.Typer(help="NVision simulation runner", pretty_exceptions_show_locals=False)
+from nvision.cli.app_instance import app
 
 
 @app.callback(invoke_without_command=True)
@@ -13,27 +13,14 @@ def main(ctx: typer.Context) -> None:
     if ctx.resilient_parsing:
         return
 
-    # If no subcommand is provided, run the "main use" default workflow.
+    # If no subcommand is provided, show help.
     if ctx.invoked_subcommand is None:
-        # Avoid accidentally running when user asks for help.
+        # Avoid accidents during help requests.
         if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
             return
 
-        from nvision.cli.run import run
-        from nvision.sim import cases as sim_cases
-
-        default_case = sim_cases.default_run_case()
-        run(
-            repeats=default_case.repeats,
-            loc_max_steps=default_case.loc_max_steps,
-            loc_timeout_s=default_case.loc_timeout_s,
-            filter_category=default_case.filter_category,
-            filter_strategy=default_case.filter_strategy,
-            filter_generator=default_case.filter_generator,
-            require_cache=default_case.require_cache,
-            log_level=default_case.log_level,
-            no_progress=default_case.no_progress,
-        )
+        print("No command provided. Try 'nvision --help'.")
+        raise typer.Exit()
 
 
 if __name__ == "__main__":

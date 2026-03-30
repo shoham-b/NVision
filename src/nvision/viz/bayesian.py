@@ -332,7 +332,7 @@ class BayesianMixin:
     ) -> None:
         """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
 
-        ``true_params`` maps parameter names to :class:`~nvision.signal.signal.TrueSignal` values
+        ``true_params`` maps parameter names to :class:`~nvision.spectra.signal.TrueSignal` values
         (physical units); a dashed vertical line is drawn on each subplot when a value is given.
 
         When ``acquisition_window`` and ``acquisition_param`` are set (post-sweep focus from the
@@ -343,7 +343,7 @@ class BayesianMixin:
         if not posterior_inputs_by_param:
             return
 
-        param_names = sorted(posterior_inputs_by_param.keys())
+        param_names = list(posterior_inputs_by_param.keys())
         first_param = param_names[0]
         total_steps = len(posterior_inputs_by_param[first_param][0])
         if total_steps == 0:
@@ -481,7 +481,11 @@ class BayesianMixin:
             return
 
         # Use all uncertainty keys provided by the belief implementation.
-        keys = sorted({k for step in parameter_history for k in step})
+        keys = []
+        for step in parameter_history:
+            for k in step:
+                if k not in keys:
+                    keys.append(k)
         if not keys:
             return
 

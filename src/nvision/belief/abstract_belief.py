@@ -15,7 +15,7 @@ from nvision.models.fisher_information import (
 )
 from nvision.models.observation import Observation
 from nvision.parameter import Parameter
-from nvision.signal.signal import SignalModel
+from nvision.spectra.signal import SignalModel
 
 T = TypeVar("T")
 

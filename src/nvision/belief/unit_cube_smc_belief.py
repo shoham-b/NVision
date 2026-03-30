@@ -9,7 +9,7 @@ import numpy as np
 from nvision.belief.abstract_belief import ParameterValues
 from nvision.belief.smc_belief import SMCBeliefDistribution
 from nvision.parameter import Parameter
-from nvision.signal.unit_cube import UnitCubeSignalModel
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
 @dataclass

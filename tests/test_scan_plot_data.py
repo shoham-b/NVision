@@ -7,10 +7,10 @@ import json
 import polars as pl
 
 from nvision.models.experiment import CoreExperiment
-from nvision.signal.gaussian import GaussianModel, GaussianParams
-from nvision.signal.lorentzian import LorentzianModel, LorentzianParams
-from nvision.signal.signal import TrueSignal
-from nvision.signal.unit_cube import UnitCubeSignalModel
+from nvision.spectra.gaussian import GaussianModel, GaussianParams
+from nvision.spectra.lorentzian import LorentzianModel, LorentzianParams
+from nvision.spectra.signal import TrueSignal
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz.measurements import (
     backfill_scan_plot_data_if_missing,
     compute_scan_plot_data,

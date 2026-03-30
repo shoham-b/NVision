@@ -11,7 +11,7 @@ from numba.experimental.jitclass import jitclass
 from nvision.belief.abstract_belief import AbstractBeliefDistribution, ParameterValues
 from nvision.models.observation import Observation
 from nvision.parameter import Parameter
-from nvision.signal.likelihood import likelihood_from_observation_model
+from nvision.spectra.likelihood import likelihood_from_observation_model
 
 # --- Closed numeric core: 1D discrete PMF on a fixed grid (Numba jitclass) -----
 

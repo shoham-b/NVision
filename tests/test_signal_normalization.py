@@ -4,8 +4,8 @@ import random
 
 import numpy as np
 
-from nvision.signal.lorentzian import LorentzianModel
-from nvision.signal.voigt_zeeman import VoigtZeemanModel
+from nvision.spectra.lorentzian import LorentzianModel
+from nvision.spectra.voigt_zeeman import VoigtZeemanModel
 
 
 def test_signal_normalization() -> None:

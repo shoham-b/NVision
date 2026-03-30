@@ -10,9 +10,9 @@ from nvision.models.locator import Locator
 from nvision.models.observer import Observer, RunResult
 from nvision.parameter import Parameter
 from nvision.runner import run_loop
-from nvision.signal.gaussian import GaussianModel
-from nvision.signal.signal import TrueSignal
 from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
+from nvision.spectra.gaussian import GaussianModel
+from nvision.spectra.signal import TrueSignal
 
 
 def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperiment:

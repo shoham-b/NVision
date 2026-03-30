@@ -14,7 +14,7 @@ from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from nvision.cache import CacheBridge
-from nvision.cli.main import app
+from nvision.cli.app_instance import app
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner.cache import restore_graphs
 from nvision.sim import cases as sim_cases
