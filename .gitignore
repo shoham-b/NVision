@@ -124,5 +124,4 @@ graphs/
 gha-creds-*.json
 .\junit-result.xml
 artifacts/cache/
-.\artifacts\
 artifacts/
