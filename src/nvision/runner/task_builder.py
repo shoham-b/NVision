@@ -40,6 +40,7 @@ class TaskListBuildConfig:
     filter_strategy: str | None
     filter_generator: str | None
     filter_noise: str | None
+    filter_signal: str | None
 
 
 def build_task_list(
@@ -59,6 +60,7 @@ def build_task_list(
         config.filter_strategy,
         config.filter_generator,
         config.filter_noise,
+        config.filter_signal,
     ):
         slug_base = "_".join(slugify(p) for p in (combo.generator_name, combo.noise_name, combo.strategy_name))
         slug = slug_base

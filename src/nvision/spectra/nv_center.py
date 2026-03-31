@@ -455,6 +455,22 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
             gauss = np.exp(-0.5 * ((x - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
             return eta * lorentz + (1 - eta) * gauss
 
+    def _voigt_center_height(self, fwhm_l: float, fwhm_g: float) -> float:
+        """Return Voigt profile value at its own center."""
+        return self._voigt_profile(0.0, 0.0, fwhm_l, fwhm_g)
+
+    def _voigt_profile_unit_peak(self, x: float, center: float, fwhm_l: float, fwhm_g: float) -> float:
+        """Voigt profile normalized so value at center is 1.
+
+        ``_voigt_profile`` returns an area-normalized PDF-like profile, whose peak
+        height changes with width parameters. Normalizing by the center value keeps
+        dip_depth semantics stable across linewidth/fwhm settings.
+        """
+        center_val = self._voigt_center_height(fwhm_l, fwhm_g)
+        if abs(center_val) < 1e-12:
+            return 0.0
+        return self._voigt_profile(x, center, fwhm_l, fwhm_g) / center_val
+
     def compute_nvcenter_voigt_model(
         self,
         x: float,
@@ -469,11 +485,11 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         """Triple Voigt NV ODMR; parameter order matches :meth:`parameter_names`."""
         if split < 1e-10:
             combined_amplitude = dip_depth * (k_np + 1 + 1 / k_np)
-            return background - combined_amplitude * self._voigt_profile(x, frequency, fwhm_lorentz, fwhm_gauss)
+            return background - combined_amplitude * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
 
-        left_dip = (dip_depth / k_np) * self._voigt_profile(x, frequency - split, fwhm_lorentz, fwhm_gauss)
-        center_dip = dip_depth * self._voigt_profile(x, frequency, fwhm_lorentz, fwhm_gauss)
-        right_dip = (dip_depth * k_np) * self._voigt_profile(x, frequency + split, fwhm_lorentz, fwhm_gauss)
+        left_dip = (dip_depth / k_np) * self._voigt_profile_unit_peak(x, frequency - split, fwhm_lorentz, fwhm_gauss)
+        center_dip = dip_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
+        right_dip = (dip_depth * k_np) * self._voigt_profile_unit_peak(x, frequency + split, fwhm_lorentz, fwhm_gauss)
 
         return background - (left_dip + center_dip + right_dip)
 
@@ -511,20 +527,37 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
         gamma = fwhm_l / 2
 
-        # Profile at center(s)
-        def profile_at(center: np.ndarray) -> np.ndarray:
-            if self.wofz is not None:
-                z = ((x_f - center) + 1j * gamma) / (sigma * np.sqrt(2))
-                w = self.wofz(z)
-                return w.real / (sigma * np.sqrt(2 * np.pi))
+        # Compute center height (peak value) for normalization to unit peak
+        if self.wofz is not None:
+            z_center = (0.0 + 1j * gamma) / (sigma * np.sqrt(2))
+            w_center = self.wofz(z_center)
+            center_height = w_center.real / (sigma * np.sqrt(2 * np.pi))
+        else:
             eta = (
                 1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
                 - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
                 + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
             )
-            lorentz = gamma / ((x_f - center) ** 2 + gamma**2)
-            gauss = np.exp(-0.5 * ((x_f - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
-            return eta * lorentz + (1 - eta) * gauss
+            lorentz_center = 1.0 / gamma
+            gauss_center = 1.0 / (sigma * np.sqrt(2 * np.pi))
+            center_height = eta * lorentz_center + (1 - eta) * gauss_center
+
+        # Profile at center(s) - normalized to unit peak
+        def profile_at(center: np.ndarray) -> np.ndarray:
+            if self.wofz is not None:
+                z = ((x_f - center) + 1j * gamma) / (sigma * np.sqrt(2))
+                w = self.wofz(z)
+                profile = w.real / (sigma * np.sqrt(2 * np.pi))
+            else:
+                eta = (
+                    1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
+                    - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
+                    + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
+                )
+                lorentz = gamma / ((x_f - center) ** 2 + gamma**2)
+                gauss = np.exp(-0.5 * ((x_f - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+                profile = eta * lorentz + (1 - eta) * gauss
+            return profile / center_height
 
         profile_c = profile_at(freq)
         split_mask = split < 1e-10
@@ -563,20 +596,38 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         gamma = fwhm_l / 2
         x2d = xs[:, None]
 
-        def profile_at(center: np.ndarray) -> np.ndarray:
-            center2d = center[None, :]
-            if self.wofz is not None:
-                z = ((x2d - center2d) + 1j * gamma[None, :]) / (sigma[None, :] * np.sqrt(2))
-                w = self.wofz(z)
-                return w.real / (sigma[None, :] * np.sqrt(2 * np.pi))
+        # Compute center height (peak value) for normalization to unit peak
+        if self.wofz is not None:
+            z_center = (0.0 + 1j * gamma) / (sigma * np.sqrt(2))
+            w_center = self.wofz(z_center)
+            center_height = w_center.real / (sigma * np.sqrt(2 * np.pi))
+        else:
             eta = (
                 1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
                 - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
                 + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
             )
-            lorentz = gamma[None, :] / ((x2d - center2d) ** 2 + gamma[None, :] ** 2)
-            gauss = np.exp(-0.5 * ((x2d - center2d) / sigma[None, :]) ** 2) / (sigma[None, :] * np.sqrt(2 * np.pi))
-            return eta[None, :] * lorentz + (1 - eta)[None, :] * gauss
+            lorentz_center = 1.0 / gamma
+            gauss_center = 1.0 / (sigma * np.sqrt(2 * np.pi))
+            center_height = eta * lorentz_center + (1 - eta) * gauss_center
+
+        # Profile at center(s) - normalized to unit peak
+        def profile_at(center: np.ndarray) -> np.ndarray:
+            center2d = center[None, :]
+            if self.wofz is not None:
+                z = ((x2d - center2d) + 1j * gamma[None, :]) / (sigma[None, :] * np.sqrt(2))
+                w = self.wofz(z)
+                profile = w.real / (sigma[None, :] * np.sqrt(2 * np.pi))
+            else:
+                eta = (
+                    1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
+                    - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
+                    + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
+                )
+                lorentz = gamma[None, :] / ((x2d - center2d) ** 2 + gamma[None, :] ** 2)
+                gauss = np.exp(-0.5 * ((x2d - center2d) / sigma[None, :]) ** 2) / (sigma[None, :] * np.sqrt(2 * np.pi))
+                profile = eta[None, :] * lorentz + (1 - eta)[None, :] * gauss
+            return profile / center_height[None, :]
 
         profile_c = profile_at(freq)
         split_mask = split < 1e-10

@@ -1,51 +1,83 @@
 window.NVISION_ASSET_PREFIX = '';
-        window.NVISION_BOOTSTRAP = (async () => {
-            async function loadScript(candidates, onLoaded) {
-                const cacheBust = `v=${Date.now()}`;
-                for (const candidate of candidates) {
-                    const loaded = await new Promise((resolve) => {
-                        const script = document.createElement('script');
-                        const sep = candidate.src.includes('?') ? '&' : '?';
-                        script.src = `${candidate.src}${sep}${cacheBust}`;
-                        script.async = false;
-                        script.onload = () => resolve(true);
-                        script.onerror = () => resolve(false);
-                        document.head.appendChild(script);
-                    });
-                    if (loaded) {
-                        if (onLoaded) onLoaded(candidate);
-                        return candidate;
+window.NVISION_BOOTSTRAP = (async () => {
+    async function loadScript(candidates, onLoaded) {
+        const cacheBust = `v=${Date.now()}`;
+        for (const candidate of candidates) {
+            const loaded = await new Promise((resolve) => {
+                const script = document.createElement('script');
+                const sep = candidate.src.includes('?') ? '&' : '?';
+                script.src = `${candidate.src}${sep}${cacheBust}`;
+                script.async = false;
+                script.onload = () => resolve(true);
+                script.onerror = () => resolve(false);
+                document.head.appendChild(script);
+            });
+            if (loaded) {
+                if (onLoaded) onLoaded(candidate);
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    async function fetchManifest(prefix) {
+        const candidates = [
+            `${prefix}plots_manifest.json`,
+            `${prefix}./plots_manifest.json`,
+            '../artifacts/plots_manifest.json',
+        ];
+        for (const url of candidates) {
+            try {
+                const response = await fetch(url, { cache: 'no-store' });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        return data;
                     }
                 }
-                return null;
+            } catch (e) {
+                console.warn(`Failed to fetch manifest from ${url}:`, e);
             }
+        }
+        return null;
+    }
 
-            const manifestCandidate = await loadScript(
-                [
-                    { src: 'manifest.js', prefix: '' },
-                    { src: './manifest.js', prefix: '' },
-                    { src: '../artifacts/manifest.js', prefix: '../artifacts/' },
-                ],
-                (candidate) => {
-                    window.NVISION_ASSET_PREFIX = candidate.prefix;
-                }
-            );
-            if (!manifestCandidate) {
-                window.NVISION_ASSET_PREFIX = '';
-                window.MANIFEST = [];
-                console.warn('Could not load manifest.js from current directory or ../artifacts/. Using empty manifest.');
-            }
+    const manifestCandidate = await loadScript(
+        [
+            { src: 'manifest.js', prefix: '' },
+            { src: './manifest.js', prefix: '' },
+            { src: '../artifacts/manifest.js', prefix: '../artifacts/' },
+        ],
+        (candidate) => {
+            window.NVISION_ASSET_PREFIX = candidate.prefix;
+        }
+    );
+    if (!manifestCandidate) {
+        window.NVISION_ASSET_PREFIX = '';
+        window.MANIFEST = [];
+        console.warn('Could not load manifest.js from current directory or ../artifacts/. Using empty manifest.');
+    } else if (window.MANIFEST === null) {
+        // Manifest is too large - fetch it as JSON instead
+        console.log('Large manifest detected, fetching via JSON...');
+        const fetched = await fetchManifest(window.NVISION_ASSET_PREFIX);
+        if (fetched) {
+            window.MANIFEST = fetched;
+        } else {
+            window.MANIFEST = [];
+            console.warn('Could not fetch plots_manifest.json. Using empty manifest.');
+        }
+    }
 
-            const settingsCandidate = await loadScript([
-                { src: 'settings.js' },
-                { src: './settings.js' },
-                { src: '../artifacts/settings.js' },
-            ]);
-            if (!settingsCandidate) {
-                window.SETTINGS = { out_dir: '', generated_at: null };
-                console.warn('Could not load settings.js from current directory or ../artifacts/. Using default settings.');
-            }
-        })();
+    const settingsCandidate = await loadScript([
+        { src: 'settings.js' },
+        { src: './settings.js' },
+        { src: '../artifacts/settings.js' },
+    ]);
+    if (!settingsCandidate) {
+        window.SETTINGS = { out_dir: '', generated_at: null };
+        console.warn('Could not load settings.js from current directory or ../artifacts/. Using default settings.');
+    }
+})();
 
 function main() {
         let plots = [];
@@ -373,6 +405,109 @@ function main() {
             const cleaned = String(relativePath).replace(/^\.?\//, '');
             const prefix = window.NVISION_ASSET_PREFIX || '';
             return prefix + cleaned;
+        }
+
+        // Parse plot data from scan HTML file on-demand (avoids bloating manifest)
+        async function loadPlotDataFromScanHtml(plot) {
+            if (!plot || !plot.path) return null;
+            try {
+                const url = resolveAssetPath(plot.path);
+                const response = await fetch(url, { cache: 'no-store' });
+                if (!response.ok) return null;
+                const html = await response.text();
+                return parsePlotDataFromHtml(html);
+            } catch (e) {
+                console.warn('Failed to load plot data from', plot.path, e);
+                return null;
+            }
+        }
+
+        function parsePlotDataFromHtml(html) {
+            // Extract Plotly.newPlot data arrays from HTML
+            const m = html.match(/Plotly\.newPlot\(\s*"[^"]+",\s*/);
+            if (!m) return null;
+            const pos = m.index + m[0].length;
+            try {
+                const dataStr = html.slice(pos);
+                // Find the end of the data array (first top-level array close)
+                let depth = 0;
+                let end = 0;
+                for (let i = 0; i < dataStr.length; i++) {
+                    if (dataStr[i] === '[') depth++;
+                    else if (dataStr[i] === ']') {
+                        depth--;
+                        if (depth === 0) { end = i + 1; break; }
+                    } else if (dataStr[i] === '{' && depth === 0) {
+                        // Started object before array - malformed
+                        break;
+                    }
+                }
+                const data = JSON.parse(dataStr.slice(0, end));
+                if (!Array.isArray(data)) return null;
+                return extractPlotDataFromTraces(data);
+            } catch (e) {
+                console.warn('Failed to parse plot data from HTML:', e);
+                return null;
+            }
+        }
+
+        function extractPlotDataFromTraces(traces) {
+            let x_dense = null, y_dense = null, y_dense_noisy = null, y_dense_mode = null;
+            let coarse_x = [], coarse_y = [], fine_x = [], fine_y = [], fine_step = [];
+            let step_x = [], step_y = [], step_idx = [];
+            let has_metrics = false, focus_window = null;
+
+            for (const tr of traces) {
+                const name = tr.name || '';
+                const mode = tr.mode || '';
+                if ((name === 'locator most likely signal' || name === 'locator mode belief signal') && mode.includes('lines')) {
+                    y_dense_mode = tr.y;
+                } else if (name === 'true signal' && mode.includes('lines')) {
+                    x_dense = tr.x;
+                    y_dense = tr.y;
+                } else if (name === 'simulated noisy signal (over-frequency)' && mode.includes('lines')) {
+                    y_dense_noisy = tr.y?.map((v, i) => v != null ? v : (y_dense?.[i] || 0));
+                } else if (name === 'measurements (coarse)') {
+                    coarse_x = tr.x || [];
+                    coarse_y = tr.y || [];
+                } else if (name === 'measurements (inference)') {
+                    fine_x = tr.x || [];
+                    fine_y = tr.y || [];
+                    fine_step = tr.marker?.color || fine_x.map((_, i) => i);
+                } else if (name === 'measurements (noisy)') {
+                    step_x = tr.x || [];
+                    step_y = tr.y || [];
+                    step_idx = tr.marker?.color || step_x.map((_, i) => i);
+                } else if (name === 'Entropy' || name === 'Uncertainty') {
+                    has_metrics = true;
+                }
+            }
+
+            if (!x_dense || !y_dense) return null;
+
+            const out = { x_dense, y_dense, has_metrics };
+            if (y_dense_mode && y_dense_mode.length === x_dense.length) out.y_dense_mode = y_dense_mode;
+            if (y_dense_noisy && y_dense_noisy.length === x_dense.length) out.y_dense_noisy = y_dense_noisy;
+
+            if (coarse_x.length || fine_x.length) {
+                out.measurements = {
+                    mode: 'phases',
+                    coarse_x, coarse_y: coarse_y.map(y => y == null ? null : Number(y)),
+                    fine_x, fine_y: fine_y.map(y => y == null ? null : Number(y)),
+                    fine_step: fine_step.map(s => Number(s))
+                };
+            } else if (step_x.length) {
+                out.measurements = {
+                    mode: 'steps',
+                    x: step_x,
+                    y: step_y.map(y => y == null ? null : Number(y)),
+                    step: step_idx.map(s => Number(s))
+                };
+            } else {
+                out.measurements = { mode: 'empty' };
+            }
+
+            return out;
         }
 
         let plotlyLoadPromise = null;
@@ -1152,11 +1287,15 @@ function main() {
                     return;
                 }
 
-                const pdL = plotL.plot_data;
-                const pdR = plotR.plot_data;
+                // Load plot data on-demand from scan HTML files
+                const [pdL, pdR] = await Promise.all([
+                    plotL.plot_data ? Promise.resolve(plotL.plot_data) : loadPlotDataFromScanHtml(plotL),
+                    plotR.plot_data ? Promise.resolve(plotR.plot_data) : loadPlotDataFromScanHtml(plotR)
+                ]);
+
                 if (!pdL || !pdR || !pdL.x_dense || !pdR.x_dense) {
                     clearHeadToHeadPlot(
-                        'Re-run the pipeline with the current NVision version to embed combined head-to-head plot data.',
+                        'Could not load plot data from scan files.',
                     );
                     return;
                 }

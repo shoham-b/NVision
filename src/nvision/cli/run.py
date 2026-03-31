@@ -171,6 +171,13 @@ def run(  # noqa: C901
             help="Restrict to one registered noise name (see NoiseName).",
         ),
     ] = None,
+    filter_signal: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-signal",
+            help="Filter by signal type/variant substring in generator name (e.g., 'voigt', 'lorentzian').",
+        ),
+    ] = None,
     all_experiments: Annotated[
         bool,
         typer.Option("--all", help="Run all experiments (disables default filtering)"),
@@ -322,10 +329,11 @@ def run(  # noqa: C901
 
         log.debug("Starting simulations...")
 
-        filter_category_str = filter_category.value if filter_category is not None else None
-        filter_strategy_str = filter_strategy.value if filter_strategy is not None else None
+        filter_category_str = filter_category if filter_category is not None else None
+        filter_strategy_str = filter_strategy if filter_strategy is not None else None
         filter_generator_str = filter_generator.value if filter_generator is not None else None
         filter_noise_str = filter_noise.value if filter_noise is not None else None
+        filter_signal_str = filter_signal if filter_signal is not None else None
 
         worker_log_queue = None if runners > 1 else log_queue
         worker_progress_queue = None if runners > 1 else progress_queue
@@ -350,6 +358,7 @@ def run(  # noqa: C901
                 filter_strategy=filter_strategy_str,
                 filter_generator=filter_generator_str,
                 filter_noise=filter_noise_str,
+                filter_signal=filter_signal_str,
             ),
             monitor=monitor,
         )

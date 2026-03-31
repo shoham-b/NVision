@@ -25,6 +25,9 @@ def _write_js_data_file(path: Path, var_name: str, value_json: str) -> None:
     path.write_text(f"window.{var_name} = {safe_json};\n", encoding="utf-8")
 
 
+_MAX_INLINE_MANIFEST_BYTES: int = 50 * 1024 * 1024  # 50 MB threshold
+
+
 def prepare_static_ui_data(out_dir: Path) -> Path:
     """Prepare data files consumed by the static HTML UI.
 
@@ -38,7 +41,15 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
         raise FileNotFoundError(msg)
 
     manifest_json = _read_manifest_json(out_dir)
-    _write_js_data_file(out_dir / "manifest.js", "MANIFEST", manifest_json)
+    manifest_bytes = len(manifest_json.encode("utf-8"))
+
+    # If manifest is too large, don't inline it as JS - the UI will fetch it as JSON
+    if manifest_bytes > _MAX_INLINE_MANIFEST_BYTES:
+        # Write a minimal manifest.js that signals the UI to fetch the JSON
+        _write_js_data_file(out_dir / "manifest.js", "MANIFEST", "null")
+        # Keep the JSON file for fetch()-based loading
+    else:
+        _write_js_data_file(out_dir / "manifest.js", "MANIFEST", manifest_json)
 
     settings_json = json.dumps(
         {

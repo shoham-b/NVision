@@ -14,7 +14,6 @@ from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
-from nvision.viz.measurements import compute_scan_plot_data
 
 log = logging.getLogger(__name__)
 
@@ -320,14 +319,7 @@ def generate_attempt_plots(
     scan_entry = entry_base.copy()
     scan_entry["type"] = "scan"
     scan_entry["path"] = out_path.relative_to(out_dir).as_posix()
-    scan_entry["plot_data"] = compute_scan_plot_data(
-        current_scan,
-        history_with_phase,
-        noise_obj.over_frequency_noise if noise_obj else None,
-        focus_window=focus_window,
-        mode_estimates=mode_estimates,
-        belief_unit_cube=belief_unit_cube,
-    )
+    # plot_data is loaded on-demand by UI from scan HTML to keep manifest small
     entries: list[dict[str, Any]] = [scan_entry]
 
     if run_result is not None and _is_bayesian_run(strat_name, strat_obj):

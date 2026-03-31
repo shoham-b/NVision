@@ -190,6 +190,7 @@ class CombinationGrid:
         filter_strategy: str | None = None,
         filter_generator: str | None = None,
         filter_noise: str | None = None,
+        filter_signal: str | None = None,
     ) -> Iterator[Combination]:
         """Yield every matching combination, deduplicating automatically."""
         seen: set[tuple[str, str, str]] = set()
@@ -198,6 +199,8 @@ class CombinationGrid:
             if filter_category and self.generator_category(gen_name) != filter_category:
                 continue
             if filter_generator is not None and gen_name != filter_generator:
+                continue
+            if filter_signal is not None and filter_signal not in gen_name:
                 continue
 
             for strat_name, strat_obj in self.strategies_for(gen_name):
