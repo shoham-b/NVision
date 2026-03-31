@@ -484,8 +484,8 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
     ) -> float:
         """Triple Voigt NV ODMR; parameter order matches :meth:`parameter_names`."""
         if split < 1e-10:
-            combined_amplitude = dip_depth * (k_np + 1 + 1 / k_np)
-            return background - combined_amplitude * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
+            # Zero-field: single combined dip with amplitude = dip_depth
+            return background - dip_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
 
         left_dip = (dip_depth / k_np) * self._voigt_profile_unit_peak(x, frequency - split, fwhm_lorentz, fwhm_gauss)
         center_dip = dip_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
@@ -571,8 +571,7 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         pred_split = bg - (left_dip + center_dip + right_dip)
 
         # No-split case: combined dip at center
-        combined_amp = depth * (k_np + 1.0 + 1.0 / k_np)
-        pred_nosplit = bg - combined_amp * profile_c
+        pred_nosplit = bg - depth * profile_c
 
         return np.where(split_mask, pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)
 
@@ -639,8 +638,7 @@ class NVCenterVoigtModel(SignalModel[NVCenterVoigtParams, NVCenterVoigtSamplePar
         right_dip = (depth[None, :] * k_np[None, :]) * profile_r
         pred_split = bg[None, :] - (left_dip + center_dip + right_dip)
 
-        combined_amp = depth * (k_np + 1.0 + 1.0 / k_np)
-        pred_nosplit = bg[None, :] - combined_amp[None, :] * profile_c
+        pred_nosplit = bg[None, :] - depth[None, :] * profile_c
         return np.where(split_mask[None, :], pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)
 
 
@@ -658,7 +656,7 @@ def nv_center_lorentzian_bounds_for_domain(
         "linewidth": (width * 0.001, width * 0.05),
         "split": (0.0, width * 0.5),
         "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.05, 1.5),
+        "dip_depth": (0.05, 0.29),
         "background": (0.95, 1.05),
     }
 
@@ -678,6 +676,6 @@ def nv_center_voigt_bounds_for_domain(
         "fwhm_gauss": (width * 0.0001, width * 0.05),
         "split": (0.0, width * 0.5),
         "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.05, 1.5),
+        "dip_depth": (0.05, 0.29),
         "background": (0.95, 1.05),
     }
