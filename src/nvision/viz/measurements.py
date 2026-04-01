@@ -18,6 +18,38 @@ from nvision.sim.batch import DataBatch
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.tools.paths import ensure_out_dir
 
+# Match ``nvision.spectra.numba_kernels.nv_center_lorentzian_eval`` / Voigt no-split branch.
+_NV_SPLIT_ZERO_TOL = 1e-10
+
+
+def _align_mode_split_with_ground_truth(
+    scan: Any,
+    mode_estimates: Mapping[str, float],
+) -> Mapping[str, float]:
+    """If the true spectrum is zero-field NV (split≈0), evaluate the overlay at split=0.
+
+    ``belief_mode_estimates`` uses a **marginal** argmax per grid parameter. The marginal
+    mode for ``split`` can sit above zero even when the generated signal is a single
+    combined dip, which would draw three dips in the dashed \"locator most likely\" curve.
+    """
+    if "split" not in mode_estimates:
+        return mode_estimates
+    ts = getattr(scan, "true_signal", None)
+    if ts is None:
+        return mode_estimates
+    getv = getattr(ts, "get_param_value", None)
+    if not callable(getv):
+        return mode_estimates
+    try:
+        truth_split = float(getv("split"))
+    except (KeyError, TypeError, ValueError):
+        return mode_estimates
+    if abs(truth_split) >= _NV_SPLIT_ZERO_TOL:
+        return mode_estimates
+    out = dict(mode_estimates)
+    out["split"] = 0.0
+    return out
+
 
 def _make_scan_figure(has_metrics: bool) -> go.Figure:
     if has_metrics:
@@ -103,6 +135,9 @@ def _mode_dense_y_unit_cube(
         lo, hi = model.param_bounds_phys[name]
         hw = float(hi - lo)
         v = float(mode_estimates[name])
+        # Treat small split values as zero to show correct number of dips
+        if name == "split" and v < _NV_SPLIT_ZERO_TOL:
+            v = 0.0
         u = (v - lo) / hw if hw > 0 else 0.5
         u = min(max(u, 0.0), 1.0)
         params.append(Parameter(name=name, bounds=(0.0, 1.0), value=u))
@@ -126,6 +161,7 @@ def _mode_belief_dense_y(
     ``scan.true_signal.model`` so the dashed curve matches the inference model — e.g. NV
     Voigt ground truth with Lorentzian belief still gets a consistent MAP overlay.
     """
+    mode_estimates = _align_mode_split_with_ground_truth(scan, mode_estimates)
     if belief_unit_cube is not None:
         return _mode_dense_y_unit_cube(belief_unit_cube, xs, mode_estimates)
 
@@ -141,6 +177,11 @@ def _mode_belief_dense_y(
         return _mode_dense_y_unit_cube(model, xs, mode_estimates)
 
     params = [Parameter(name=name, bounds=bounds[name], value=float(mode_estimates[name])) for name in names]
+    # Treat small split values as zero to show correct number of dips
+    if "split" in mode_estimates and float(mode_estimates["split"]) < _NV_SPLIT_ZERO_TOL:
+        for p in params:
+            if p.name == "split":
+                params[params.index(p)] = Parameter(name="split", bounds=p.bounds, value=0.0)
     return [float(model.compute_from_params(float(x), params)) for x in xs]
 
 

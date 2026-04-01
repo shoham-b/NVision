@@ -55,6 +55,16 @@ class _MarginalGrid1D:
                 s -= p * np.log(p)
         return s
 
+    def mode(self) -> float:
+        """Return the grid point with maximum posterior probability."""
+        max_idx = 0
+        max_p = self.posterior[0]
+        for i in range(1, self.posterior.shape[0]):
+            if self.posterior[i] > max_p:
+                max_p = self.posterior[i]
+                max_idx = i
+        return self.grid[max_idx]
+
     def multiply_by_likelihood_normalize(self, likelihoods: np.ndarray) -> bool:
         """``posterior *= likelihood``, renormalize; return False if mass vanishes."""
         n = self.posterior.shape[0]
@@ -107,6 +117,10 @@ class GridParameter(Parameter):
 
     def mean(self) -> float:
         return float(self._marginal.mean())
+
+    def mode(self) -> float:
+        """Return the grid point with maximum posterior probability (MAP)."""
+        return float(self._marginal.mode())
 
     def uncertainty(self) -> float:
         _, var = self._marginal.mean_variance()
@@ -168,6 +182,10 @@ class GridBeliefDistribution(AbstractBeliefDistribution):
 
     def estimates(self) -> dict[str, float]:
         return {p.name: p.mean() for p in self.parameters}
+
+    def mode_estimates(self) -> dict[str, float]:
+        """Return marginal MAP (mode) estimates for all parameters."""
+        return {p.name: p.mode() for p in self.parameters}
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         param_names = self.model.parameter_names()

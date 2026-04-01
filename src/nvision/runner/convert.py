@@ -114,7 +114,10 @@ def belief_mode_estimates(belief: object) -> dict[str, float]:
             modes[p.name] = float(p.grid[idx])
         return modes
 
-    # Fallback for non-grid beliefs (e.g., SMC): use posterior mean estimates.
+    # Fallback for non-grid beliefs (e.g., SMC): use mode estimates if available, else posterior mean.
+    if hasattr(belief, "mode_estimates") and callable(belief.mode_estimates):
+        out = belief.mode_estimates()
+        return {k: float(v) for k, v in out.items() if isinstance(v, (int, float))}
     if hasattr(belief, "estimates") and callable(belief.estimates):
         out = belief.estimates()
         return {k: float(v) for k, v in out.items() if isinstance(v, (int, float))}
