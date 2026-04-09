@@ -3,24 +3,26 @@ from __future__ import annotations
 import math
 import random
 
-from nvision.sim.gen.core_generators import (
+from nvision import (
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
     SymmetricTwoPeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
-from nvision.spectra.signal import TrueSignal
+from nvision import TrueSignal
 
 
 def _peak_value(signal: TrueSignal, n: int = 2001) -> float:
     """Find the x-value of the maximum of the signal over its domain."""
-    freq_param = next((p for p in signal.parameters if "frequency" in p.name and "peak1" not in p.name), None)
-    if freq_param is None:
-        freq_param = next((p for p in signal.parameters if "frequency" in p.name), None)
-    if freq_param is None:
+    # Find frequency parameter name (prefer non-peak1 frequency for multi-peak)
+    freq_names = [name for name in signal.parameter_names if "frequency" in name]
+    freq_name = next((name for name in freq_names if "peak1" not in name), None)
+    if freq_name is None and freq_names:
+        freq_name = freq_names[0]
+    if freq_name is None:
         return float("nan")
-    x_min, x_max = freq_param.bounds
+    x_min, x_max = signal.get_param_bounds(freq_name)
     step = (x_max - x_min) / (n - 1)
     best_x, best_y = x_min, -float("inf")
     for i in range(n):
@@ -36,10 +38,10 @@ def test_one_peak_gaussian_produces_true_signal():
     gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_type="gaussian")
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    assert len(sig.parameters) == 4
-    freq = next(p for p in sig.parameters if p.name == "frequency")
-    assert math.isfinite(freq.value)
-    assert 0.0 <= freq.value <= 1.0
+    assert len(sig.parameter_names) == 4
+    freq_value = sig.get_param_value("frequency")
+    assert math.isfinite(freq_value)
+    assert 0.0 <= freq_value <= 1.0
 
 
 def test_one_peak_lorentzian_produces_true_signal():
@@ -47,8 +49,8 @@ def test_one_peak_lorentzian_produces_true_signal():
     gen = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="lorentzian")
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    freq = next(p for p in sig.parameters if p.name == "frequency")
-    assert 2.6e9 <= freq.value <= 3.1e9
+    freq_value = sig.get_param_value("frequency")
+    assert 2.6e9 <= freq_value <= 3.1e9
 
 
 def test_lorentzian_and_nv_have_nonflat_contrast_on_ghz_domain():
@@ -68,10 +70,11 @@ def test_two_peak_composite_model():
     gen = TwoPeakCoreGenerator(x_min=0.0, x_max=1.0)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    freq_params = [p for p in sig.parameters if "frequency" in p.name]
-    assert len(freq_params) == 2
+    freq_names = [name for name in sig.parameter_names if "frequency" in name]
+    assert len(freq_names) == 2
     # Two peaks should be separated
-    assert abs(freq_params[0].value - freq_params[1].value) > 0.01
+    freq_values = [sig.get_param_value(name) for name in freq_names]
+    assert abs(freq_values[0] - freq_values[1]) > 0.01
 
 
 def test_nv_center_lorentzian_has_six_parameters():
@@ -79,8 +82,8 @@ def test_nv_center_lorentzian_has_six_parameters():
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    names = {p.name for p in sig.parameters}
-    assert names == {"frequency", "linewidth", "split", "k_np", "amplitude", "background"}
+    names = set(sig.parameter_names)
+    assert names == {"frequency", "linewidth", "split", "k_np", "dip_depth", "background"}
 
 
 def test_nv_center_voigt_has_different_params_than_lorentzian():
@@ -91,8 +94,8 @@ def test_nv_center_voigt_has_different_params_than_lorentzian():
     sig_l = gen_l.generate(rng_l)
     sig_v = gen_v.generate(rng_v)
     assert isinstance(sig_v, TrueSignal)
-    names_l = {p.name for p in sig_l.parameters}
-    names_v = {p.name for p in sig_v.parameters}
+    names_l = set(sig_l.parameter_names)
+    names_v = set(sig_v.parameter_names)
     # Voigt model should have additional broadening parameters not in Lorentzian
     assert names_v != names_l, "Voigt and Lorentzian should have different parameter sets"
 
@@ -102,8 +105,8 @@ def test_multi_peak_generator():
     gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=3)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    freq_params = [p for p in sig.parameters if "frequency" in p.name]
-    assert len(freq_params) == 3
+    freq_names = [name for name in sig.parameter_names if "frequency" in name]
+    assert len(freq_names) == 3
 
 
 def test_symmetric_two_peak_generator():
@@ -111,10 +114,10 @@ def test_symmetric_two_peak_generator():
     gen = SymmetricTwoPeakCoreGenerator(x_min=0.0, x_max=1.0, center=0.5, sep_frac=0.3)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    freq_params = [p for p in sig.parameters if "frequency" in p.name]
-    assert len(freq_params) == 2
+    freq_names = [name for name in sig.parameter_names if "frequency" in name]
+    assert len(freq_names) == 2
     # Should be roughly symmetric around center
-    positions = sorted(p.value for p in freq_params)
+    positions = sorted(sig.get_param_value(name) for name in freq_names)
     mid = (positions[0] + positions[1]) / 2
     assert abs(mid - 0.5) < 0.05
 

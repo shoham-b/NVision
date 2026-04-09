@@ -6,12 +6,12 @@ import json
 
 import polars as pl
 
-from nvision.models.experiment import CoreExperiment
-from nvision.spectra.gaussian import GaussianModel, GaussianParams
-from nvision.spectra.lorentzian import LorentzianModel, LorentzianParams
-from nvision.spectra.signal import TrueSignal
-from nvision.spectra.unit_cube import UnitCubeSignalModel
-from nvision.viz.measurements import (
+from nvision import CoreExperiment
+from nvision import GaussianModel, GaussianSpectrum
+from nvision import LorentzianModel, LorentzianSpectrum
+from nvision import TrueSignal
+from nvision import UnitCubeSignalModel
+from nvision import (
     backfill_scan_plot_data_if_missing,
     compute_scan_plot_data,
     plot_data_from_scan_figure,
@@ -22,10 +22,10 @@ def _minimal_scan() -> CoreExperiment:
     bounds = {
         "frequency": (0.0, 1.0),
         "sigma": (0.01, 0.3),
-        "amplitude": (0.0, 1.5),
+        "dip_depth": (0.0, 1.5),
         "background": (0.0, 0.5),
     }
-    typed = GaussianParams(frequency=0.5, sigma=0.1, amplitude=1.0, background=0.0)
+    typed = GaussianSpectrum(frequency=0.5, sigma=0.1, dip_depth=1.0, background=0.0)
     true_signal = TrueSignal.from_typed(model=GaussianModel(), params=typed, bounds=bounds)
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=0.0, x_max=1.0)
 
@@ -57,13 +57,13 @@ def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
     lorentz_bounds = {
         "frequency": (x_min, x_max),
         "linewidth": (5e6, 100e6),
-        "amplitude": (1e-6, 1.0),
+        "dip_depth": (1e-6, 1.0),
         "background": (0.5, 1.2),
     }
-    typed = LorentzianParams(
+    typed = LorentzianSpectrum(
         frequency=2.85e9,
         linewidth=30e6,
-        amplitude=0.01,
+        dip_depth=0.01,
         background=1.0,
     )
     true_signal = TrueSignal.from_typed(
@@ -76,14 +76,14 @@ def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
     phys = {
         "frequency": (x_min, x_max),
         "sigma": (5e6, 100e6),
-        "amplitude": (0.1, 1.4),
+        "dip_depth": (0.1, 1.4),
         "background": (0.0, 0.5),
     }
     belief_uc = UnitCubeSignalModel(GaussianModel(), phys, (x_min, x_max))
     mode_estimates = {
         "frequency": 2.85e9,
         "sigma": 30e6,
-        "amplitude": 1.0,
+        "dip_depth": 1.0,
         "background": 0.0,
     }
     hist = pl.DataFrame({"x": [2.8e9], "signal_values": [0.5]})

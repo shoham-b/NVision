@@ -12,13 +12,13 @@ import random
 
 import numpy as np
 
-from nvision.models.experiment import CoreExperiment
-from nvision.models.locator import Locator
-from nvision.models.observer import Observer
-from nvision.parameter import Parameter
-from nvision.runner import run_loop
-from nvision.spectra.lorentzian import LorentzianModel
-from nvision.spectra.signal import (
+from nvision import CoreExperiment
+from nvision import Locator
+from nvision import Observer
+from nvision import Parameter
+from nvision import run_loop
+from nvision import LorentzianModel
+from nvision import (
     BeliefSignal,
     ParameterWithPosterior,
     TrueSignal,

@@ -1,11 +1,11 @@
 import random
 
-from nvision.sim.gen.core_generators import (
+from nvision import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
     NVCenterCoreGenerator,
 )
-from nvision.sim.locs.bayesian.belief_builders import nv_center_belief
+from nvision import nv_center_belief
 
 # Reproduce the amplitude bounds mismatch
 x_min = DEFAULT_NV_CENTER_FREQ_X_MIN

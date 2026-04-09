@@ -4,7 +4,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from nvision.cli import app
+from nvision import app
 
 runner = CliRunner()
 

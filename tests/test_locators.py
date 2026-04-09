@@ -2,33 +2,33 @@ from __future__ import annotations
 
 import random
 
-from nvision.models.experiment import CoreExperiment
-from nvision.models.locator import Locator
-from nvision.models.noise import (
+from nvision import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
 )
-from nvision.runner import run_loop
-from nvision.sim.gen.core_generators import (
+from nvision import CoreExperiment
+from nvision import Locator
+from nvision import (
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
-from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
-from nvision.sim.noises import (
+from nvision import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverProbeDriftNoise,
 )
+from nvision import SimpleSweepLocator
+from nvision import run_loop
 
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)
     x_min, x_max = None, None
-    for p in true_signal.parameters:
-        if "frequency" in p.name:
-            x_min, x_max = p.bounds
+    for name in true_signal.parameter_names:
+        if "frequency" in name:
+            x_min, x_max = true_signal.get_param_bounds(name)
             break
     assert x_min is not None
     return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)

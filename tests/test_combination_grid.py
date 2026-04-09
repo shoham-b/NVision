@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nvision.sim.combinations import CombinationGrid
+from nvision import CombinationGrid
 
 
 def test_bayesian_strategies_include_other_true_signals():

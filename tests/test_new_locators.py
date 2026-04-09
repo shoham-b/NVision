@@ -5,25 +5,31 @@ from __future__ import annotations
 import math
 import random
 
-from nvision.models.experiment import CoreExperiment
-from nvision.models.locator import Locator
-from nvision.models.observer import Observer, RunResult
-from nvision.parameter import Parameter
-from nvision.runner import run_loop
-from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
-from nvision.spectra.gaussian import GaussianModel
-from nvision.spectra.signal import TrueSignal
+from nvision import CoreExperiment
+from nvision import GaussianModel
+from nvision import Locator
+from nvision import Observer, RunResult
+from nvision import SimpleSweepLocator
+from nvision import TrueSignal
+from nvision import run_loop
 
 
 def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperiment:
+    from nvision.spectra.gaussian import GaussianSpectrum
     model = GaussianModel()
-    parameters = [
-        Parameter(name="frequency", bounds=(0.0, 1.0), value=center),
-        Parameter(name="sigma", bounds=(0.01, 0.3), value=sigma),
-        Parameter(name="amplitude", bounds=(0.0, 1.5), value=1.0),
-        Parameter(name="background", bounds=(0.0, 0.5), value=0.0),
-    ]
-    true_signal = TrueSignal(model=model, parameters=parameters)
+    typed_params = GaussianSpectrum(
+        frequency=center,
+        sigma=sigma,
+        dip_depth=1.0,
+        background=0.0,
+    )
+    bounds = {
+        "frequency": (0.0, 1.0),
+        "sigma": (0.01, 0.3),
+        "dip_depth": (0.0, 1.5),
+        "background": (0.0, 0.5),
+    }
+    true_signal = TrueSignal(model=model, typed_parameters=typed_params, bounds=bounds)
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=0.0, x_max=1.0)
 
 

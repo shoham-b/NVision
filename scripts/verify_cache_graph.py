@@ -3,9 +3,9 @@ import shutil
 import traceback
 from pathlib import Path
 
-from nvision.models.task import LocatorTask
-from nvision.runner import run_task
-from nvision.sim.combinations import CombinationGrid
+from nvision import LocatorTask
+from nvision import run_task
+from nvision import CombinationGrid
 
 
 def main():

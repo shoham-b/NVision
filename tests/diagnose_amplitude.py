@@ -2,10 +2,10 @@
 
 import random
 
-from nvision.models.experiment import CoreExperiment
-from nvision.sim.gen.core_generators import OnePeakCoreGenerator
-from nvision.sim.locs.bayesian.acquisition_locators import SequentialBayesianExperimentDesignLocator
-from nvision.sim.locs.bayesian.belief_builders import one_peak_lorentzian_belief
+from nvision import CoreExperiment
+from nvision import OnePeakCoreGenerator
+from nvision import SequentialBayesianExperimentDesignLocator
+from nvision import one_peak_lorentzian_belief
 
 
 def main() -> None:

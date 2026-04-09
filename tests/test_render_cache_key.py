@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from nvision.cache import stable_config_hash
-from nvision.cache.locator_keys import locator_combination_cache_config
-from nvision.cache.locator_repository import LocatorResultsRepository
+from nvision import LocatorResultsRepository
+from nvision import locator_combination_cache_config
+from nvision import stable_config_hash
 
 
 def test_render_combo_cache_hash_matches_executor() -> None:

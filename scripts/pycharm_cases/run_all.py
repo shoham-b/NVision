@@ -1,6 +1,6 @@
 """PyCharm launcher: run all NVision preset combinations (cache enabled by default)."""
 
-from nvision.cli.cases_cmd import run_preset
+from nvision import run_preset
 from nvision.sim.cases import RunCaseName
 
 

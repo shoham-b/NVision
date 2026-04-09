@@ -33,7 +33,7 @@ nvision = "nvision.__main__:main"
 
 [tool.ruff]
 line-length = 120
-src = ["src", "tests"]
+src = [".", "tests"]
 exclude = [
     ".git",
     ".venv",
@@ -71,17 +71,17 @@ line-ending = "lf"
 minversion = "8.0"
 addopts = "-ra -q --cov=nvision --cov-report=xml --cov-report=term-missing --cov-report=html --timeout=60"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["."]
 filterwarnings = [
     "error::DeprecationWarning",
     "ignore:.*is_in.*collection.*ambiguous:DeprecationWarning",
 ]
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 
 [build-system]
 requires = ["setuptools>=61.0"]

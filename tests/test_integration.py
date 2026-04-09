@@ -4,11 +4,11 @@ import random
 
 import polars as pl
 
-from nvision.models.experiment import CoreExperiment
-from nvision.runner import run_loop
-from nvision.sim.gen.core_generators import NVCenterCoreGenerator, OnePeakCoreGenerator
-from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
-from nvision.spectra.signal import TrueSignal
+from nvision import CoreExperiment
+from nvision import NVCenterCoreGenerator, OnePeakCoreGenerator
+from nvision import SimpleSweepLocator
+from nvision import TrueSignal
+from nvision import run_loop
 
 
 def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame:
@@ -18,10 +18,11 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
     for i in range(repeats):
         rng = random.Random(rng_seed + i)
         true_signal = generator.generate(rng)
-        x_min, x_max = true_signal.parameters[0].bounds  # Use frequency bounds
-        for p in true_signal.parameters:
-            if "frequency" in p.name:
-                x_min, x_max = p.bounds
+        # Find frequency parameter bounds for x_min/x_max
+        x_min, x_max = true_signal.all_param_bounds()[true_signal.parameter_names[0]]
+        for name in true_signal.parameter_names:
+            if "frequency" in name:
+                x_min, x_max = true_signal.get_param_bounds(name)
                 break
         experiment = CoreExperiment(
             true_signal=true_signal,

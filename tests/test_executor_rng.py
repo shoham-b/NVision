@@ -2,8 +2,8 @@
 
 import random
 
-from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int, signal_repeat_key
-from nvision.runner.signal_cache import clear_signal_experiment_cache, get_shared_core_experiment
+from nvision import clear_signal_experiment_cache, get_shared_core_experiment
+from nvision import measurement_repeat_key, repeat_seed_int, signal_repeat_key
 
 
 def test_signal_repeat_key_ignores_strategy_and_noise():
@@ -44,7 +44,7 @@ def test_shared_core_experiment_same_true_signal_object():
     """Second lookup with the same repeat key returns the same true_signal; noise is wired per task."""
     from unittest.mock import MagicMock
 
-    from nvision.models.experiment import CoreExperiment
+    from nvision import CoreExperiment
 
     clear_signal_experiment_cache()
     task = MagicMock()
@@ -73,7 +73,7 @@ def test_shared_core_experiment_same_true_signal_across_noise_names():
     """Different noise tasks for the same repeat must reuse one true_signal; noise differs per task."""
     from unittest.mock import MagicMock
 
-    from nvision.models.experiment import CoreExperiment
+    from nvision import CoreExperiment
 
     clear_signal_experiment_cache()
     task_a = MagicMock()

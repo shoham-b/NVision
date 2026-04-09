@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 
-from nvision.sim.noises import OverProbeDriftNoise, OverProbeRandomWalkNoise
+from nvision import OverProbeDriftNoise, OverProbeRandomWalkNoise
 
 
 def test_over_probe_drift_noise_does_not_shift_baseline() -> None:
