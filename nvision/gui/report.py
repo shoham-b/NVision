@@ -60,15 +60,23 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     _write_js_data_file(out_dir / "settings.js", "SETTINGS", settings_json)
 
     # Cache-bust the app bundle reference so browsers don't keep an old app.js.
-    index_path = out_dir / "index.html"
-    if index_path.exists():
-        index_html = index_path.read_text(encoding="utf-8")
-        stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
-        index_html = index_html.replace(
-            '<script src="app.js"></script>',
-            f'<script src="app.js?v={stamp}"></script>',
-        )
-        index_path.write_text(index_html, encoding="utf-8")
+    # Write a loader HTML file (referenced by index.html via iframe) that injects
+    # the cache-busted script into the parent document. This avoids modifying index.html.
+    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
+    loader_html = f'''<!doctype html>
+<html>
+<head>
+<script>
+(function() {{
+    var script = document.createElement('script');
+    script.src = 'app.js?v={stamp}';
+    parent.document.head.appendChild(script);
+}})();
+</script>
+</head>
+<body></body>
+</html>'''
+    (out_dir / "loader.html").write_text(loader_html, encoding="utf-8")
 
     # Return the generated out-dir entrypoint users typically open.
     return out_dir / "index.html"
