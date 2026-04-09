@@ -10,7 +10,7 @@ import polars as pl
 
 from nvision.cache.data_store import CategoryDataStore
 from nvision.cache.hashing import stable_config_hash
-from nvision.cache.locator_keys import locator_combination_cache_config, locator_repeat_cache_config
+from nvision.cache.locator_keys import locator_combination_cache_config
 
 CachedComboResults = list[tuple[list[dict[str, Any]], dict[str, Any]]]
 
@@ -137,35 +137,3 @@ class LocatorResultsRepository:
         ]
         combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
         return self._store.save_df(combo_df, key, metadata={"config": config})
-
-    def save_cached_repeat_slice(
-        self,
-        *,
-        generator: str,
-        noise: str,
-        strategy: str,
-        repeat: int,
-        seed: int,
-        max_steps: int,
-        timeout_s: int,
-        entries: list[dict[str, Any]],
-        result_row: dict[str, Any],
-    ) -> Path:
-        """Persist a single repeat slice."""
-        config = locator_repeat_cache_config(
-            generator=generator,
-            noise=noise,
-            strategy=strategy,
-            repeat=repeat,
-            seed=seed,
-            max_steps=max_steps,
-            timeout_s=timeout_s,
-        )
-        key = stable_config_hash(config)
-        cache_df = pl.DataFrame(
-            {
-                "plot_manifest": [json.dumps(entries)],
-                "result_row": [json.dumps(result_row)],
-            }
-        )
-        return self._store.save_df(cache_df, key, metadata={"config": config})

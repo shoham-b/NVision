@@ -33,27 +33,3 @@ def locator_combination_cache_config(
         "max_steps": max_steps,
         "timeout_s": timeout_s,
     }
-
-
-def locator_repeat_cache_config(
-    *,
-    generator: str,
-    noise: str,
-    strategy: str,
-    repeat: int,
-    seed: int,
-    max_steps: int,
-    timeout_s: int,
-) -> dict[str, Any]:
-    """Config dict for a single repeat slice (per-repeat cache rows)."""
-    return {
-        "kind": "locator_run",
-        "schema_version": CACHE_SCHEMA_VERSION,
-        "generator": generator,
-        "noise": noise,
-        "strategy": strategy,
-        "repeat": repeat,
-        "seed": seed,
-        "max_steps": max_steps,
-        "timeout_s": timeout_s,
-    }

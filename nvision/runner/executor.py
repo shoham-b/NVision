@@ -294,24 +294,8 @@ class _TaskRunner:
                 run_result=artifacts.run_results[attempt_idx] if attempt_idx < len(artifacts.run_results) else None,
             )
             all_results.append((entries, main_result_row))
-            self._save_repeat_cache(attempt_idx, entries, main_result_row)
 
         return all_results
-
-    def _save_repeat_cache(self, repeat_idx: int, entries: list[dict[str, Any]], result_row: dict[str, Any]) -> None:
-        if not self.task.use_cache or self.skip_cache:
-            return
-        self.cache.save_cached_repeat_slice(
-            generator=self.generator_name,
-            noise=self.noise_name,
-            strategy=self.strategy_name,
-            repeat=repeat_idx,
-            seed=self.task.seed,
-            max_steps=self.task.loc_max_steps,
-            timeout_s=self.task.loc_timeout_s,
-            entries=embed_graph_content(entries, self.task.out_dir),
-            result_row=result_row,
-        )
 
     def _save_full_cache(self, results: TaskResults) -> None:
         if not self.task.use_cache or self.skip_cache or not results:

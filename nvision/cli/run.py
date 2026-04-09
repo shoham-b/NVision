@@ -46,6 +46,7 @@ def _run_tasks_process_pool(
     cache_bridge: CacheBridge | None,
     progress_queue: queue.Queue,
     log: logging.Logger,
+    run_log_path: Path,
 ) -> tuple[list[dict[str, object]], list[dict], list[Exception]]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
@@ -74,7 +75,7 @@ def _run_tasks_process_pool(
                 if getattr(locator_task, "task_id", None) is not None:
                     progress_queue.put((locator_task.task_id, locator_task.repeats))
                 log.exception("Task failed with error (combination=%s)", locator_task.slug)
-                errors.append(RuntimeError("Check logs for details"))
+                errors.append(RuntimeError(f"Check logs for details: {run_log_path.as_uri()}"))
                 if len(errors) > 5:
                     log.error("Too many errors (>5), terminating...")
                     for pending_future in future_to_task:
@@ -382,6 +383,7 @@ def run(  # noqa: C901
                         cache_bridge=cache_bridge,
                         progress_queue=progress_queue,
                         log=log,
+                        run_log_path=run_log_path,
                     )
                 else:
                     for locator_task in tasks:
@@ -392,7 +394,7 @@ def run(  # noqa: C901
                                 df_rows.append(main_result_row)
                         except Exception:
                             log.exception("Task failed with error (combination=%s)", locator_task.slug)
-                            errors.append(RuntimeError("Check logs for details"))
+                            errors.append(RuntimeError(f"Check logs for details: {run_log_path.as_uri()}"))
                             if len(errors) > 5:
                                 log.error("Too many errors (>5), terminating...")
                                 break
