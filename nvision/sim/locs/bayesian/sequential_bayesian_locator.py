@@ -10,9 +10,9 @@ import numpy as np
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.grid_marginal import GridParameter
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.parameter import Parameter
 from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
 
 
@@ -167,7 +167,7 @@ class SequentialBayesianLocator(Locator):
         else:
             self._initial_sweep_points = np.empty(0, dtype=float)
 
-        self._scan_lo, self._scan_hi = self.belief.get_param(self._scan_param).bounds
+        self._scan_lo, self._scan_hi = self.belief.parameter_bounds[self._scan_param]
         # Full scan axis for :class:`~nvision.models.experiment.CoreExperiment` (never narrowed).
         # Belief / :meth:`_normalize` may use a tighter domain after the sweep; returned ``x`` must
         # stay normalized to this full range so ``measure()`` probes the intended frequency.
@@ -210,9 +210,9 @@ class SequentialBayesianLocator(Locator):
         )
 
     @property
-    def scan_posterior(self) -> Parameter:
-        """Get the parameter bounds for the scan parameter."""
-        return self.belief.get_param(self._scan_param)
+    def scan_posterior(self) -> GridParameter:
+        """Get the grid posterior for the scan parameter."""
+        return self.belief.get_grid_param(self._scan_param)
 
     # ------------------------------------------------------------------
     # Extension point — the ONLY thing concrete subclasses must add
@@ -332,7 +332,7 @@ class SequentialBayesianLocator(Locator):
                 self._acquisition_lo,
                 self._acquisition_hi,
             )
-            slo, shi = self.belief.get_param(self._scan_param).bounds
+            slo, shi = self.belief.parameter_bounds[self._scan_param]
             self._acquisition_lo = min(slo, shi)
             self._acquisition_hi = max(slo, shi)
 
@@ -389,8 +389,7 @@ class SequentialBayesianLocator(Locator):
         float
             Clipped normalised value in [0, 1].
         """
-        param = self.belief.get_param(param_name)
-        lo, hi = param.bounds
+        lo, hi = self.belief.parameter_bounds[param_name]
         return float(np.clip((physical_value - lo) / (hi - lo), 0.0, 1.0))
 
     def _denormalize(self, param_name: str, normalized_value: float) -> float:
@@ -408,6 +407,5 @@ class SequentialBayesianLocator(Locator):
         float
             Value in physical units.
         """
-        param = self.belief.get_param(param_name)
-        lo, hi = param.bounds
+        lo, hi = self.belief.parameter_bounds[param_name]
         return float(lo + normalized_value * (hi - lo))

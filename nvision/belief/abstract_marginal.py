@@ -14,7 +14,6 @@ from nvision.models.fisher_information import (
     single_shot_marginal_stds_from_fim,
 )
 from nvision.models.observation import Observation
-from nvision.parameter import Parameter
 from nvision.spectra.signal import SignalModel
 
 T = TypeVar("T")
@@ -168,8 +167,10 @@ class AbstractMarginalDistribution(ABC):
 
     def __call__(self, x: float) -> float:
         """Evaluate belief signal at position x using posterior means."""
-        params = [self.get_param(p) for p in self.model.parameter_names()]
-        return self.model.compute_from_params(x, params)
+        names = self.model.parameter_names()
+        est = self.estimates()
+        typed = self.model.spec.unpack_params([est[n] for n in names])
+        return self.model.compute_from_params(x, typed)
 
     def fisher_information(self, x: float) -> np.ndarray | None:
         """Delegate to :func:`~nvision.models.fisher_information.fisher_information_matrix`.
@@ -178,11 +179,13 @@ class AbstractMarginalDistribution(ABC):
 
         Returns None if the underlying SignalModel does not support analytical gradients.
         """
-        params = [self.get_param(p) for p in self.model.parameter_names()]
+        names = self.model.parameter_names()
+        est = self.estimates()
+        typed = self.model.spec.unpack_params([est[n] for n in names])
         return fisher_information_matrix(
             x=x,
             model=self.model,
-            parameters=params,
+            parameters=typed,
             last_obs=self.last_obs,
         )
 
@@ -203,7 +206,3 @@ class AbstractMarginalDistribution(ABC):
             CDF values corresponding to x.
         """
 
-    @abstractmethod
-    def get_param(self, name: str) -> Parameter:
-        """Get parameter bounds by name."""
-        pass

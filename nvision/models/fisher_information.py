@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 
 from nvision.models.observation import Observation, gaussian_likelihood_std
-from nvision.parameter import Parameter
 from nvision.spectra.signal import SignalModel
 
 
@@ -39,7 +38,7 @@ def fisher_information_matrix(
     *,
     x: float,
     model: SignalModel,
-    parameters: list[Parameter],
+    parameters: Any,
     last_obs: Observation | None,
 ) -> np.ndarray | None:
     """Single-observation Fisher information at ``x`` (Gaussian or Poisson).
@@ -57,7 +56,7 @@ def fisher_information_matrix(
     grads = model.gradient(x, parameters)
     if grads is None:
         return None
-    grad_vec = np.array([grads[p.name] for p in parameters], dtype=np.float64)
+    grad_vec = np.array([grads[name] for name in model.parameter_names()], dtype=np.float64)
 
     freq = last_obs.frequency_noise_model if last_obs is not None else None
     if _is_poisson_frequency_model(freq):
@@ -73,14 +72,14 @@ def gaussian_fisher_information_matrix(
     *,
     x: float,
     model: SignalModel,
-    parameters: list[Parameter],
+    parameters: Any,
     last_obs: Observation | None,
 ) -> np.ndarray | None:
     """Gaussian FIM only (ignores Poisson metadata). Prefer :func:`fisher_information_matrix`."""
     grads = model.gradient(x, parameters)
     if grads is None:
         return None
-    grad_vec = np.array([grads[p.name] for p in parameters], dtype=np.float64)
+    grad_vec = np.array([grads[name] for name in model.parameter_names()], dtype=np.float64)
     sigma = gaussian_likelihood_std(last_obs)
     return gaussian_fisher_matrix(grad_vec, sigma)
 

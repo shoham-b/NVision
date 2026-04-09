@@ -10,7 +10,6 @@ from numba.experimental.jitclass import jitclass
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
-from nvision.parameter import Parameter
 from nvision.spectra.likelihood import likelihood_from_observation_model
 
 # --- Closed numeric core: 1D discrete PMF on a fixed grid (Numba jitclass) -----
@@ -82,10 +81,10 @@ class _MarginalGrid1D:
         return _MarginalGrid1D(self.grid.copy(), self.posterior.copy())
 
 
-class GridParameter(Parameter):
+class GridParameter:
     """A parameter with uncertainty represented as a discrete 1D grid."""
 
-    __slots__ = ("_marginal",)
+    __slots__ = ("_marginal", "name", "bounds", "value")
 
     def __init__(self, name: str, bounds: tuple[float, float], grid: np.ndarray, posterior: np.ndarray) -> None:
         g = np.ascontiguousarray(np.asarray(grid, dtype=np.float64))
@@ -94,8 +93,13 @@ class GridParameter(Parameter):
             raise ValueError(f"Grid and posterior must have same length: {len(g)} != {len(p)}")
         if not np.isclose(float(np.sum(p)), 1.0):
             raise ValueError(f"Posterior must sum to 1.0, got {float(np.sum(p))}")
+        lo, hi = float(bounds[0]), float(bounds[1])
+        if hi <= lo:
+            raise ValueError(f"Invalid bounds for {name}: {(lo, hi)}")
+        self.name = name
+        self.bounds: tuple[float, float] = (lo, hi)
         self._marginal = _MarginalGrid1D(g, p)
-        super().__init__(name=name, bounds=bounds, value=float(self._marginal.mean()))
+        self.value: float = float(self._marginal.mean())
 
     @property
     def grid(self) -> np.ndarray:
@@ -113,7 +117,7 @@ class GridParameter(Parameter):
         if arr.shape[0] != n:
             raise ValueError("posterior length must match grid length")
         self._marginal.posterior[:] = arr
-        object.__setattr__(self, "value", float(self._marginal.mean()))
+        self.value = float(self._marginal.mean())
 
     def mean(self) -> float:
         return float(self._marginal.mean())
@@ -137,7 +141,7 @@ class GridParameter(Parameter):
         lik = np.ascontiguousarray(np.asarray(likelihoods, dtype=np.float64))
         ok = self._marginal.multiply_by_likelihood_normalize(lik)
         if ok:
-            object.__setattr__(self, "value", float(self._marginal.mean()))
+            self.value = float(self._marginal.mean())
         return ok
 
 
@@ -213,7 +217,11 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
             last_obs=self.last_obs,
         )
 
-    def get_param(self, name: str) -> GridParameter:
+    @property
+    def parameter_bounds(self) -> dict[str, tuple[float, float]]:
+        return {p.name: p.bounds for p in self.parameters}
+
+    def get_grid_param(self, name: str) -> GridParameter:
         for p in self.parameters:
             if p.name == name:
                 return p
@@ -227,7 +235,7 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         """Interpolate the discrete posterior grid."""
-        p = self.get_param(param_name)
+        p = self.get_grid_param(param_name)
         # Normalize by grid spacing to make it a true density
         spacing = p.grid[1] - p.grid[0] if len(p.grid) > 1 else 1.0
         density = p.posterior / spacing
@@ -235,6 +243,6 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
 
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         """Interpolate the discrete CDF grid."""
-        p = self.get_param(param_name)
+        p = self.get_grid_param(param_name)
         cdf = np.cumsum(p.posterior)
         return np.interp(x, p.grid, cdf, left=0.0, right=1.0)

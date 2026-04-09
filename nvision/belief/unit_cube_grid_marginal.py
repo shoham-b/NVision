@@ -8,7 +8,6 @@ import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
-from nvision.parameter import Parameter
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
@@ -54,23 +53,28 @@ class UnitCubeGridMarginalDistribution(GridMarginalDistribution):
     def converged(self, threshold: float) -> bool:
         return all(p.uncertainty() < threshold for p in self.parameters)
 
+    @property
+    def parameter_bounds(self) -> dict[str, tuple[float, float]]:
+        return dict(self.physical_param_bounds)
+
     def physical_param_grid(self, name: str) -> np.ndarray:
         """Posterior support grid for ``name`` in physical units (for plotting)."""
-        p = super().get_param(name)
+        p = super().get_grid_param(name)
         lo, hi = self.physical_param_bounds[name]
         return lo + p.grid * (hi - lo)
 
-    def get_param(self, name: str) -> Parameter:
-        """Return parameter metadata in physical units for acquisition callers."""
-        p = super().get_param(name)
+    def get_grid_param(self, name: str) -> GridParameter:
+        """Return grid parameter in physical units."""
+        p = super().get_grid_param(name)
         lo, hi = self.physical_param_bounds[name]
-        return Parameter(name=name, bounds=(lo, hi), value=self._to_physical(name, p.mean()))
+        phys_grid = lo + p.grid * (hi - lo)
+        return GridParameter(name=name, bounds=(lo, hi), grid=phys_grid, posterior=p.posterior.copy())
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         lo, hi = self.physical_param_bounds[param_name]
         u = (np.asarray(x, dtype=np.float64) - lo) / (hi - lo)
         # Use the underlying unit-cube GridParameter directly.
-        p = GridMarginalDistribution.get_param(self, param_name)
+        p = GridMarginalDistribution.get_grid_param(self, param_name)
         spacing = p.grid[1] - p.grid[0] if len(p.grid) > 1 else 1.0
         density = p.posterior / spacing
         return np.interp(u, p.grid, density, left=0.0, right=0.0)
@@ -79,7 +83,7 @@ class UnitCubeGridMarginalDistribution(GridMarginalDistribution):
         lo, hi = self.physical_param_bounds[param_name]
         u = (np.asarray(x, dtype=np.float64) - lo) / (hi - lo)
         # Use the underlying unit-cube GridParameter directly.
-        p = GridMarginalDistribution.get_param(self, param_name)
+        p = GridMarginalDistribution.get_grid_param(self, param_name)
         cdf = np.cumsum(p.posterior)
         return np.interp(u, p.grid, cdf, left=0.0, right=1.0)
 

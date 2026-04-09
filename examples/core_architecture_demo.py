@@ -15,7 +15,6 @@ import numpy as np
 from nvision import CoreExperiment
 from nvision import Locator
 from nvision import Observer
-from nvision import Parameter
 from nvision import run_loop
 from nvision import LorentzianModel
 from nvision import (

@@ -8,7 +8,6 @@ import numpy as np
 
 from nvision.belief.abstract_marginal import ParameterValues
 from nvision.belief.smc_marginal import SMCMarginalDistribution
-from nvision.parameter import Parameter
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
@@ -57,11 +56,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         raw_uncertainties = super()._empirical_uncertainty()
         return all(u < threshold for u in raw_uncertainties.values())
 
-    def get_param(self, name: str) -> Parameter:
-        p = super().get_param(name)
-        lo, hi = self.physical_param_bounds[name]
-        return Parameter(name=name, bounds=(lo, hi), value=lo + float(p.value) * (hi - lo))
-
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         return super().sample(n)
 
@@ -92,7 +86,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         self.physical_param_bounds[param_name] = (nl, nh)
         if sync_x:
             self.physical_x_bounds = (nl, nh)
-        self._init_param_scratch()
 
     def copy(self) -> UnitCubeSMCMarginalDistribution:
         dist = UnitCubeSMCMarginalDistribution(
@@ -108,5 +101,4 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
-        dist._init_param_scratch()
         return dist

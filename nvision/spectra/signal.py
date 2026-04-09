@@ -1,9 +1,4 @@
-"""Signal model abstractions for Bayesian localization.
-
-This module supports the *new generic signal* interface (typed parameter bundles)
-while remaining compatible with the existing core simulation/belief machinery,
-which still passes around legacy :class:`~nvision.spectra.signal.Parameter` objects.
-"""
+"""Signal model abstractions for Bayesian localization."""
 
 from __future__ import annotations
 
@@ -13,8 +8,6 @@ from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
-
-from nvision.parameter import Parameter
 
 ParamsT = TypeVar("ParamsT")
 SampleParamsT = TypeVar("SampleParamsT")
@@ -105,10 +98,6 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
 
         return np.stack([self.compute_vectorized_samples(float(x), samples) for x in xs], axis=0)
 
-    # --------------------------
-    # Compatibility / legacy API
-    # --------------------------
-
     def is_scale_parameter(self, name: str) -> bool:
         """Return True if the parameter represents a strictly-positive scale
         (e.g., width, amplitude) that should employ logarithmic spacing.
@@ -120,25 +109,15 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
 
         return list(self.spec.names)
 
-    def gradient(self, x: float, params: list[Parameter]) -> dict[str, float] | None:
+    def gradient(self, x: float, params: ParamsT) -> dict[str, float] | None:
         """Optional analytical gradient support (defaults to None)."""
 
         return None
 
-    def compute_from_params(self, x: float, params: ParamsT | list[Parameter]) -> float:
-        """Evaluate using either typed params or legacy ``list[Parameter]``."""
+    def compute_from_params(self, x: float, params: ParamsT) -> float:
+        """Evaluate the model at ``x`` using a typed parameter bundle."""
 
-        x_f = float(x)
-        if isinstance(params, list):
-            if params and not isinstance(params[0], Parameter):
-                raise TypeError("params list must contain nvision.spectra.signal.Parameter objects")
-            by_name: Mapping[str, float] = {p.name: float(p.value) for p in params}
-            values = [by_name[name] for name in self.parameter_names()]
-            typed = self.spec.unpack_params(values)
-            return float(self.compute(x_f, typed))
-
-        # Assume typed bundle
-        return float(self.compute(x_f, params))
+        return float(self.compute(float(x), params))
 
     def compute_vectorized(self, x: float, *args: object) -> np.ndarray:
         """Vectorized evaluation used by beliefs and acquisition locators.

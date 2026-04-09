@@ -36,7 +36,6 @@ from nvision.sim.noises import (
 )
 from nvision.sim.noises.groups import OverProbeNoises as CompositeOverProbeNoise
 from nvision.models.observer import Observer, RunResult
-from nvision.parameter import Parameter
 from nvision.runner.executor import run_loop
 from nvision.runner.signal_cache import clear_signal_experiment_cache, get_shared_core_experiment
 from nvision.runner.repeat_keys import (

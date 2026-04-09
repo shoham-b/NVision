@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from nvision.parameter import Parameter
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.signal import ParamSpec, SignalModel
 
@@ -224,7 +223,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         out = bg[None, :] - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
         return out.astype(FLOAT_DTYPE, copy=False)
 
-    def sample_params(self, rng: random.Random) -> list[Parameter]:
+    def sample_params(self, rng: random.Random) -> VoigtZeemanSpectrum:
         """Sample parameters that keep the signal within [0, 1].
 
         Evaluates the exact minimum of the generated parameters and
@@ -236,31 +235,21 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         frequency = rng.uniform(split + 0.1, 1.0 - split - 0.1)
         background = 1.0
 
-        temp_params = [
-            Parameter(name="frequency", bounds=(0.0, 1.0), value=frequency),
-            Parameter(name="linewidth", bounds=(0.001, 0.3), value=linewidth),
-            Parameter(name="split", bounds=(0.0, 0.3), value=split),
-            Parameter(name="k_np", bounds=(1.0, 6.0), value=k_np),
-            Parameter(name="dip_depth", bounds=(0.0, 1.5), value=1.0),
-            Parameter(name="background", bounds=(0.0, 1.0), value=0.0),
-        ]
-
         # The maximum dip will occur at one of the three peaks
-        tv = tuple(p.value for p in temp_params)
         min_val = min(
-            VoigtZeemanModel.compute_voigt_zeeman_model(frequency - split, *tv),
-            VoigtZeemanModel.compute_voigt_zeeman_model(frequency, *tv),
-            VoigtZeemanModel.compute_voigt_zeeman_model(frequency + split, *tv),
+            VoigtZeemanModel.compute_voigt_zeeman_model(frequency - split, frequency, linewidth, split, k_np, 1.0, 0.0),
+            VoigtZeemanModel.compute_voigt_zeeman_model(frequency, frequency, linewidth, split, k_np, 1.0, 0.0),
+            VoigtZeemanModel.compute_voigt_zeeman_model(frequency + split, frequency, linewidth, split, k_np, 1.0, 0.0),
         )
 
         # Min_val is effectively the negative depth per unit dip_depth
         dip_depth = 1.0 / abs(min_val) if abs(min_val) > 1e-12 else 1.0
 
-        return [
-            Parameter(name="frequency", bounds=(0.0, 1.0), value=frequency),
-            Parameter(name="linewidth", bounds=(0.001, 0.3), value=linewidth),
-            Parameter(name="split", bounds=(0.0, 0.3), value=split),
-            Parameter(name="k_np", bounds=(1.0, 6.0), value=k_np),
-            Parameter(name="dip_depth", bounds=(0.0, 2.0), value=dip_depth),
-            Parameter(name="background", bounds=(0.5, 1.5), value=background),
-        ]
+        return VoigtZeemanSpectrum(
+            frequency=frequency,
+            linewidth=linewidth,
+            split=split,
+            k_np=k_np,
+            dip_depth=dip_depth,
+            background=background,
+        )

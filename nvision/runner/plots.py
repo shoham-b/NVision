@@ -47,12 +47,12 @@ def _posterior_animation_inputs(
     b0 = run_result.snapshots[0].belief
     if isinstance(b0, UnitCubeGridMarginalDistribution):
         grid = b0.physical_param_grid(scan_param)
-        # UnitCube overrides get_param() to physical Parameter metadata; use grid PMF via base.
-        hist = [GridMarginalDistribution.get_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
+        # Use base get_grid_param to access unit-cube PMF directly.
+        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
         return hist, grid
     if isinstance(b0, GridMarginalDistribution):
-        grid = b0.get_param(scan_param).grid
-        hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        grid = b0.get_grid_param(scan_param).grid
+        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in run_result.snapshots]
         return hist, grid
 
     if isinstance(b0, SMCMarginalDistribution):
@@ -117,7 +117,7 @@ def _extract_unit_cube_grid_posterior(
     b0 = run_result.snapshots[0].belief
     for scan_param in names:
         grid = b0.physical_param_grid(scan_param)
-        hist = [GridMarginalDistribution.get_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
+        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
         out[scan_param] = (hist, grid)
     return out
 
@@ -126,8 +126,8 @@ def _extract_grid_posterior(run_result: RunResult, names: list[str]) -> dict[str
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
     b0 = run_result.snapshots[0].belief
     for scan_param in names:
-        grid = b0.get_param(scan_param).grid
-        hist = [s.belief.get_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        grid = b0.get_grid_param(scan_param).grid
+        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in run_result.snapshots]
         out[scan_param] = (hist, grid)
     return out
 

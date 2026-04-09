@@ -147,7 +147,7 @@ class SobolLocator(Locator):
         if obs.signal_value > self.best_signal:
             self.best_signal = obs.signal_value
             self.best_x = obs.x
-        peak_param = self.belief.get_param("peak_x")
+        peak_param = self.belief.get_grid_param("peak_x")
         updated_posterior, total = gaussian_peak_posterior_update(
             peak_param.grid,
             peak_param.posterior,

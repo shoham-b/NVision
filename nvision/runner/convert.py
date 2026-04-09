@@ -99,7 +99,7 @@ def belief_mode_estimates(belief: object) -> dict[str, float]:
         modes: dict[str, float] = {}
         for p in belief.parameters:
             name = p.name
-            base_param = GridMarginalDistribution.get_param(belief, name)
+            base_param = GridMarginalDistribution.get_grid_param(belief, name)
             idx = int(np.argmax(base_param.posterior))
             u_mode = float(base_param.grid[idx])
             lo, hi = belief.physical_param_bounds[name]

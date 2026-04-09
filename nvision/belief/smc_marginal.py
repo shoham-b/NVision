@@ -9,7 +9,6 @@ from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
-from nvision.parameter import Parameter
 from nvision.spectra.likelihood import likelihood_from_observation_model
 
 # --- Numba helpers (particle weights / resampling) ----------------------------
@@ -100,18 +99,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
     _param_names: list[str] = field(init=False, repr=False)
-    _param_scratch: list[Parameter] = field(init=False, repr=False)
-
-    def _init_param_scratch(self) -> None:
-        """One Parameter per dimension, reused across particles (same model, update .value only)."""
-        self._param_scratch = [
-            Parameter(
-                name=name,
-                bounds=self.parameter_bounds[name],
-                value=0.5 * (self.parameter_bounds[name][0] + self.parameter_bounds[name][1]),
-            )
-            for name in self._param_names
-        ]
 
     def __post_init__(self) -> None:
         self._param_names = self.model.parameter_names()
@@ -127,7 +114,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
         self._weights = np.ones(self.num_particles) / self.num_particles
-        self._init_param_scratch()
 
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
@@ -220,16 +206,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
-        dist._init_param_scratch()
         return dist
 
-    def get_param(self, name: str) -> Parameter:
+    def _weighted_mean(self, name: str) -> float:
         if name not in self.parameter_bounds:
             raise KeyError(f"Parameter {name} not found")
-
         idx = self._param_names.index(name)
         mean_val, _ = _weighted_mean_variance_1d(self._particles[:, idx], self._weights)
-        return Parameter(name=name, bounds=self.parameter_bounds[name], value=float(mean_val))
+        return float(mean_val)
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         indices = np.random.choice(self.num_particles, size=n, p=self._weights)

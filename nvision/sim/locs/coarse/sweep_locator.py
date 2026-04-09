@@ -199,7 +199,7 @@ class SimpleSweepLocator(Locator):
 
         # Update belief about peak location
         # Use signal value as likelihood: higher signal = more likely peak location
-        peak_param = self.belief.get_param("peak_x")
+        peak_param = self.belief.get_grid_param("peak_x")
 
         updated_posterior, total = gaussian_peak_posterior_update(
             peak_param.grid,

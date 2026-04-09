@@ -13,7 +13,6 @@ import polars as pl
 from plotly.subplots import make_subplots
 
 from nvision.models.noise import CompositeOverFrequencyNoise
-from nvision.parameter import Parameter
 from nvision.sim.batch import DataBatch
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.tools.paths import ensure_out_dir
@@ -130,7 +129,7 @@ def _mode_dense_y_unit_cube(
     if w <= 0:
         return None
     xs_u = (np.asarray(xs, dtype=float) - x_lo) / w
-    params: list[Parameter] = []
+    u_values: list[float] = []
     for name in names:
         lo, hi = model.param_bounds_phys[name]
         hw = float(hi - lo)
@@ -139,9 +138,9 @@ def _mode_dense_y_unit_cube(
         if name == "split" and v < _NV_SPLIT_ZERO_TOL:
             v = 0.0
         u = (v - lo) / hw if hw > 0 else 0.5
-        u = min(max(u, 0.0), 1.0)
-        params.append(Parameter(name=name, bounds=(0.0, 1.0), value=u))
-    return [float(model.compute_from_params(float(xu), params)) for xu in xs_u]
+        u_values.append(min(max(u, 0.0), 1.0))
+    typed = model.spec.unpack_params(u_values)
+    return [float(model.compute_from_params(float(xu), typed)) for xu in xs_u]
 
 
 def _mode_belief_dense_y(
@@ -176,13 +175,13 @@ def _mode_belief_dense_y(
     if isinstance(model, UnitCubeSignalModel):
         return _mode_dense_y_unit_cube(model, xs, mode_estimates)
 
-    params = [Parameter(name=name, bounds=bounds[name], value=float(mode_estimates[name])) for name in names]
+    values = [float(mode_estimates[name]) for name in names]
     # Treat small split values as zero to show correct number of dips
     if "split" in mode_estimates and float(mode_estimates["split"]) < _NV_SPLIT_ZERO_TOL:
-        for p in params:
-            if p.name == "split":
-                params[params.index(p)] = Parameter(name="split", bounds=p.bounds, value=0.0)
-    return [float(model.compute_from_params(float(x), params)) for x in xs]
+        split_idx = names.index("split")
+        values[split_idx] = 0.0
+    typed = model.spec.unpack_params(values)
+    return [float(model.compute_from_params(float(x), typed)) for x in xs]
 
 
 def _add_mode_belief_trace(

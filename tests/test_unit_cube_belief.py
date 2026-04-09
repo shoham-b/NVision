@@ -105,7 +105,7 @@ def test_narrow_scan_parameter_physical_bounds_grid():
     assert b.physical_x_bounds == (flo, fhi)
     assert b.model.param_bounds_phys["frequency"] == (flo, fhi)
     assert b.model.x_bounds_phys == (flo, fhi)
-    g = GridMarginalDistribution.get_param(b, "frequency")
+    g = GridMarginalDistribution.get_grid_param(b, "frequency")
     assert abs(float(np.sum(g.posterior)) - 1.0) < 1e-9
 
 

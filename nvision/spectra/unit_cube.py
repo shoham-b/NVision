@@ -6,7 +6,6 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from nvision.parameter import Parameter
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.signal import (
     ParamSpec,
@@ -49,18 +48,13 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
     predicted values stay on the same scale as the ground-truth signal and noisy
     measurements (e.g. ODMR contrast near 1.0).
 
-    **Layout:** :meth:`compute` stays a thin Python shim: map unit inputs to physical
-    values, keep a **stateful** list of physical :class:`Parameter` instances
-    (created once, updated in place) to avoid per-call allocation, then delegate to
-    ``inner.compute``.     Inner :class:`~nvision.spectra.signal.SignalModel` subclasses may expose
-    ``evaluate_<class_snake>`` for direct float evaluation; this wrapper still uses
-    :meth:`~nvision.spectra.signal.SignalModel.compute` with physical
-    ``list[Parameter]``. Heavy arithmetic lives in :mod:`nvision.spectra.numba_kernels`
-    (and similar). ``UnitCubeSignalModel``
-    itself is not a Numba ``jitclass`` because of dict bounds and polymorphic ``inner``.
+    **Layout:** :meth:`compute` maps unit inputs to physical values and delegates to
+    ``inner.compute``. Heavy arithmetic lives in :mod:`nvision.spectra.numba_kernels`
+    (and similar). ``UnitCubeSignalModel`` itself is not a Numba ``jitclass`` because
+    of dict bounds and polymorphic ``inner``.
     """
 
-    __slots__ = ("_phys_params", "inner", "param_bounds_phys", "x_bounds_phys")
+    __slots__ = ("inner", "param_bounds_phys", "x_bounds_phys")
     _BOUND_TOL = float(_FI.eps)
 
     def __init__(
@@ -72,41 +66,31 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         self.inner = inner
         self.param_bounds_phys = param_bounds_phys
         self.x_bounds_phys = x_bounds_phys
-        self._phys_params: list[Parameter] = []
-        for name in inner.parameter_names():
-            lo, hi = param_bounds_phys[name]
-            mid = 0.5 * (lo + hi)
-            self._phys_params.append(Parameter(name=name, bounds=(lo, hi), value=mid))
 
     @property
     def spec(self) -> ParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
         return self.inner.spec
 
     def compute(self, x: float, params: ParamsT) -> float:
-        values = self.spec.pack_params(params)
-        unit_params = [
-            Parameter(name=n, bounds=(0.0, 1.0), value=float(v))
-            for n, v in zip(self.parameter_names(), values, strict=True)
-        ]
-        return self.compute_from_params(x, unit_params)
+        u_values = self.spec.pack_params(params)
+        names = self.parameter_names()
+        x_lo, x_hi = self.x_bounds_phys
+        x_phys = x_lo + float(x) * (x_hi - x_lo)
+        phys_values: list[float] = []
+        for name, u in zip(names, u_values, strict=True):
+            lo, hi = self.param_bounds_phys[name]
+            v = lo + float(u) * (hi - lo)
+            if v < lo - self._BOUND_TOL or v > hi + self._BOUND_TOL:
+                raise ValueError(f"Parameter {name} value {v} outside bounds {(lo, hi)}")
+            phys_values.append(min(max(v, lo), hi))
+        phys_typed = self.inner.spec.unpack_params(phys_values)
+        return float(self.inner.compute(x_phys, phys_typed))
 
     def compute_vectorized_samples(self, x: float, samples: SampleParamsT) -> np.ndarray:
         return self.compute_vectorized(x, *self.spec.pack_samples(samples))
 
-    def compute_from_params(self, x_unit: float, params: list[Parameter]) -> float:
-        x_lo, x_hi = self.x_bounds_phys
-        x_phys = x_lo + float(x_unit) * (x_hi - x_lo)
-        u_by_name = {p.name: float(p.value) for p in params}
-        for p in self._phys_params:
-            lo, hi = self.param_bounds_phys[p.name]
-            u = u_by_name[p.name]
-            v = lo + u * (hi - lo)
-            if v < lo - self._BOUND_TOL or v > hi + self._BOUND_TOL:
-                raise ValueError(f"Parameter {p.name} value {v} outside bounds {(lo, hi)}")
-            # Guard against tiny floating-point endpoint overshoot (e.g. 0.5000000000000001).
-            v = min(max(v, lo), hi)
-            p.value = v
-        return self.inner.compute_from_params(x_phys, self._phys_params)
+    def compute_from_params(self, x: float, params: ParamsT) -> float:
+        return self.compute(x, params)
 
     def compute_vectorized(self, x_unit: float, *param_arrays: object) -> np.ndarray:
         """Vectorized one-x evaluation over many unit-cube parameter samples.
@@ -199,11 +183,4 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         self.param_bounds_phys[param_name] = (nl, nh)
         if update_x_axis:
             self.x_bounds_phys = (nl, nh)
-        for p in self._phys_params:
-            if p.name == param_name:
-                p.bounds = (nl, nh)
-                p.value = float(np.clip(p.value, nl, nh))
         return (nl, nh)
-
-    def gradient(self, x: float, params: list[Parameter]) -> dict[str, float] | None:
-        return None
