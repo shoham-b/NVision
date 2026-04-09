@@ -235,14 +235,16 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         frequency = rng.uniform(split + 0.1, 1.0 - split - 0.1)
         background = 1.0
 
-        # The maximum dip will occur at one of the three peaks
-        min_val = min(
-            VoigtZeemanModel.compute_voigt_zeeman_model(frequency - split, frequency, linewidth, split, k_np, 1.0, 0.0),
-            VoigtZeemanModel.compute_voigt_zeeman_model(frequency, frequency, linewidth, split, k_np, 1.0, 0.0),
-            VoigtZeemanModel.compute_voigt_zeeman_model(frequency + split, frequency, linewidth, split, k_np, 1.0, 0.0),
-        )
+        # Find the actual minimum by sampling densely across the peak region
+        # (the minimum may be shifted from peak centers due to asymmetric peak heights)
+        xs = np.linspace(frequency - split, frequency + split, 200)
+        values = np.array([
+            VoigtZeemanModel.compute_voigt_zeeman_model(x, frequency, linewidth, split, k_np, 1.0, 0.0)
+            for x in xs
+        ])
+        min_val = float(np.min(values))
 
-        # Min_val is effectively the negative depth per unit dip_depth
+        # Min_val is the negative of the total peak height per unit dip_depth
         dip_depth = 1.0 / abs(min_val) if abs(min_val) > 1e-12 else 1.0
 
         return VoigtZeemanSpectrum(
