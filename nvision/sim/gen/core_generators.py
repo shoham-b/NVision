@@ -23,11 +23,7 @@ from nvision.spectra.nv_center import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
     MAX_K_NP,
-    MAX_NV_CENTER_DELTA,
-    MAX_NV_CENTER_OMEGA,
     MIN_K_NP,
-    MIN_NV_CENTER_DELTA,
-    MIN_NV_CENTER_OMEGA,
     NVCenterLorentzianSpectrum,
     NVCenterVoigtSpectrum,
     NVCenterVoigtSpectrumSamples,
@@ -157,11 +153,14 @@ class NVCenterCoreGenerator:
             split = 0.0
         else:
             # For hyperfine-split case, need room for side peaks
-            split = rng.uniform(MIN_NV_CENTER_DELTA * width, MAX_NV_CENTER_DELTA * width)
+            # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
+            split = rng.uniform(2.0e6, 3.5e6)
             center_freq = rng.uniform(self.x_min + split + 0.05 * width, self.x_max - split - 0.05 * width)
 
         # Random linewidth (HWHM for Lorentzian)
-        linewidth = rng.uniform(MIN_NV_CENTER_OMEGA * width, MAX_NV_CENTER_OMEGA * width)
+        # Physically realistic NV center linewidths are typically 0.3 to 1.5 MHz
+        # This ensures the 2-3 MHz hyperfine splitting remains visually resolvable
+        linewidth = rng.uniform(0.3e6, 1.5e6)
 
         # Random k_np (non-polarization factor)
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
@@ -176,9 +175,9 @@ class NVCenterCoreGenerator:
             lw2 = linewidth**2
             xs = np.linspace(center_freq - split, center_freq + split, 200)
             g = (
-                (lw2 / k_np) / ((xs - (center_freq - split))**2 + lw2)
-                + lw2 / ((xs - center_freq)**2 + lw2)
-                + (lw2 * k_np) / ((xs - (center_freq + split))**2 + lw2)
+                (lw2 / k_np) / ((xs - (center_freq - split)) ** 2 + lw2)
+                + lw2 / ((xs - center_freq) ** 2 + lw2)
+                + (lw2 * k_np) / ((xs - (center_freq + split)) ** 2 + lw2)
             )
             dip_depth = unit_dip_depth / float(g.max())
 

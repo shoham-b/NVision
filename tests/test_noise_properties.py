@@ -5,9 +5,7 @@ import random
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from nvision import CompositeOverFrequencyNoise
-from nvision import DataBatch
-from nvision import OverFrequencyGaussianNoise, OverFrequencyPoissonNoise
+from nvision import CompositeOverFrequencyNoise, DataBatch, OverFrequencyGaussianNoise, OverFrequencyPoissonNoise
 
 
 @settings(deadline=None)

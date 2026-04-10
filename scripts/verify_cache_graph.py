@@ -3,9 +3,7 @@ import shutil
 import traceback
 from pathlib import Path
 
-from nvision import LocatorTask
-from nvision import run_task
-from nvision import CombinationGrid
+from nvision import CombinationGrid, LocatorTask, run_task
 
 
 def main():

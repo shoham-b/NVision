@@ -6,21 +6,17 @@ from nvision import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
-)
-from nvision import CoreExperiment
-from nvision import Locator
-from nvision import (
+    CoreExperiment,
+    Locator,
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
-    TwoPeakCoreGenerator,
-)
-from nvision import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverProbeDriftNoise,
+    SimpleSweepLocator,
+    TwoPeakCoreGenerator,
+    run_loop,
 )
-from nvision import SimpleSweepLocator
-from nvision import run_loop
 
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:

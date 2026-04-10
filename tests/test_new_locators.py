@@ -5,17 +5,21 @@ from __future__ import annotations
 import math
 import random
 
-from nvision import CoreExperiment
-from nvision import GaussianModel
-from nvision import Locator
-from nvision import Observer, RunResult
-from nvision import SimpleSweepLocator
-from nvision import TrueSignal
-from nvision import run_loop
+from nvision import (
+    CoreExperiment,
+    GaussianModel,
+    Locator,
+    Observer,
+    RunResult,
+    SimpleSweepLocator,
+    TrueSignal,
+    run_loop,
+)
 
 
 def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperiment:
     from nvision.spectra.gaussian import GaussianSpectrum
+
     model = GaussianModel()
     typed_params = GaussianSpectrum(
         frequency=center,

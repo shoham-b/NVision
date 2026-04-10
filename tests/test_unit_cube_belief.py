@@ -6,19 +6,20 @@ import random
 
 import numpy as np
 
-from nvision import CoreExperiment
 from nvision import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
+    CoreExperiment,
     NVCenterCoreGenerator,
+    Observer,
+    UnitCubeGridMarginalDistribution,
+    UnitCubeSignalModel,
+    UnitCubeSMCMarginalDistribution,
+    nv_center_belief,
     nv_center_lorentzian_bounds_for_domain,
+    nv_center_smc_belief,
+    run_loop,
 )
-from nvision import Observer
-from nvision import UnitCubeGridMarginalDistribution
-from nvision import UnitCubeSMCMarginalDistribution
-from nvision import UnitCubeSignalModel
-from nvision import nv_center_belief, nv_center_smc_belief
-from nvision import run_loop
 from nvision.belief.grid_marginal import GridMarginalDistribution
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 

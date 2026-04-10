@@ -2,8 +2,13 @@
 
 import random
 
-from nvision import clear_signal_experiment_cache, get_shared_core_experiment
-from nvision import measurement_repeat_key, repeat_seed_int, signal_repeat_key
+from nvision import (
+    clear_signal_experiment_cache,
+    get_shared_core_experiment,
+    measurement_repeat_key,
+    repeat_seed_int,
+    signal_repeat_key,
+)
 
 
 def test_signal_repeat_key_ignores_strategy_and_noise():

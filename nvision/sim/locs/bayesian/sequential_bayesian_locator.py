@@ -8,9 +8,9 @@ from collections.abc import Callable, Mapping, Sequence
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.grid_marginal import GridParameter
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.belief.grid_marginal import GridParameter
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
@@ -196,7 +196,9 @@ class SequentialBayesianLocator(Locator):
         override this to provide their own hard-coded belief setup.
         """
         if builder is None:
-            raise ValueError(f"{cls.__name__} requires a 'builder' callable to create the AbstractMarginalDistribution.")
+            raise ValueError(
+                f"{cls.__name__} requires a 'builder' callable to create the AbstractMarginalDistribution."
+            )
         belief = builder(parameter_bounds, **grid_config)
         return cls(
             belief,

@@ -9,10 +9,7 @@ import numpy as np
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.signal import (
     ParamSpec,
-    ParamsT,
-    SampleParamsT,
     SignalModel,
-    UncertaintyT,
     VectorizedManySamplesInput,
 )
 

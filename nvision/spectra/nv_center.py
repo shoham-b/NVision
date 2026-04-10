@@ -19,10 +19,6 @@ from nvision.spectra.signal import ParamSpec, SignalModel
 A_PARAM = 0.0003
 MIN_K_NP = 2.0
 MAX_K_NP = 4.0
-MIN_NV_CENTER_DELTA = 0.01
-MAX_NV_CENTER_DELTA = 0.15
-MIN_NV_CENTER_OMEGA = 0.008
-MAX_NV_CENTER_OMEGA = 0.01
 
 DEFAULT_NV_CENTER_FREQ_X_MIN = 2.6e9
 DEFAULT_NV_CENTER_FREQ_X_MAX = 3.1e9
@@ -239,7 +235,9 @@ class NVCenterLorentzianModel(
         )
         return np.asarray(out, dtype=FLOAT_DTYPE)
 
-    def compute_vectorized_many(self, x_array: Sequence[float], samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
+    def compute_vectorized_many(
+        self, x_array: Sequence[float], samples: NVCenterLorentzianSpectrumSamples
+    ) -> np.ndarray:
         if not hasattr(samples, "frequency"):
             # Accept raw arrays / sample containers via the generic base fallback.
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
@@ -376,7 +374,9 @@ class _NVCenterVoigtSpec(
         )
 
 
-class NVCenterVoigtModel(SignalModel[NVCenterVoigtSpectrum, NVCenterVoigtSpectrumSamples, NVCenterVoigtSpectrumUncertainty]):
+class NVCenterVoigtModel(
+    SignalModel[NVCenterVoigtSpectrum, NVCenterVoigtSpectrumSamples, NVCenterVoigtSpectrumUncertainty]
+):
     """NV center with Gaussian broadening (Voigt profile).
 
     Not njit-accelerated: evaluation uses SciPy/JAX ``wofz`` or a pseudo-Voigt fallback.
@@ -654,7 +654,7 @@ def nv_center_lorentzian_bounds_for_domain(
     return {
         "frequency": (float(x_min), float(x_max)),
         "linewidth": (width * 0.001, width * 0.05),
-        "split": (0.0, width * 0.5),
+        "split": (0.0, 5.0e6),
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.05, 0.29),
         "background": (0.95, 1.05),
@@ -674,7 +674,7 @@ def nv_center_voigt_bounds_for_domain(
         "frequency": (float(x_min), float(x_max)),
         "fwhm_lorentz": (width * 0.001, width * 0.1),
         "fwhm_gauss": (width * 0.0001, width * 0.05),
-        "split": (0.0, width * 0.5),
+        "split": (0.0, 5.0e6),
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.05, 0.29),
         "background": (0.95, 1.05),

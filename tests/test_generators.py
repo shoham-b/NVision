@@ -8,9 +8,9 @@ from nvision import (
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
     SymmetricTwoPeakCoreGenerator,
+    TrueSignal,
     TwoPeakCoreGenerator,
 )
-from nvision import TrueSignal
 
 
 def _peak_value(signal: TrueSignal, n: int = 2001) -> float:

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import random
 
-from nvision import CompositeOverFrequencyNoise
-from nvision import DataBatch
 from nvision import (
+    CompositeOverFrequencyNoise,
+    DataBatch,
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,

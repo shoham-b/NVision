@@ -185,10 +185,7 @@ class _TaskRunner:
                     self.task.seed,
                 )
                 # Strip heavy fields to keep manifest small
-                return [
-                    ([strip_heavy_fields(e) for e in entries], row)
-                    for entries, row in cached
-                ]
+                return [([strip_heavy_fields(e) for e in entries], row) for entries, row in cached]
             log.warning(
                 "Cache miss for %s/%s/%s (seed=%s) with --require-cache. Skipping.",
                 self.generator_name,
@@ -210,10 +207,7 @@ class _TaskRunner:
                     self.task.seed,
                 )
                 # Strip heavy fields to keep manifest small
-                return [
-                    ([strip_heavy_fields(e) for e in entries], row)
-                    for entries, row in cached
-                ]
+                return [([strip_heavy_fields(e) for e in entries], row) for entries, row in cached]
         return None
 
     def _run_repeats(self, locator_class: type[Locator], locator_config: dict[str, Any]) -> _RepeatArtifacts:

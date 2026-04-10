@@ -48,7 +48,9 @@ def _posterior_animation_inputs(
     if isinstance(b0, UnitCubeGridMarginalDistribution):
         grid = b0.physical_param_grid(scan_param)
         # Use base get_grid_param to access unit-cube PMF directly.
-        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
+        hist = [
+            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots
+        ]
         return hist, grid
     if isinstance(b0, GridMarginalDistribution):
         grid = b0.get_grid_param(scan_param).grid
@@ -117,7 +119,9 @@ def _extract_unit_cube_grid_posterior(
     b0 = run_result.snapshots[0].belief
     for scan_param in names:
         grid = b0.physical_param_grid(scan_param)
-        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots]
+        hist = [
+            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots
+        ]
         out[scan_param] = (hist, grid)
     return out
 

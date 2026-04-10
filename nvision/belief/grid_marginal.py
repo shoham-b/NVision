@@ -84,7 +84,7 @@ class _MarginalGrid1D:
 class GridParameter:
     """A parameter with uncertainty represented as a discrete 1D grid."""
 
-    __slots__ = ("_marginal", "name", "bounds", "value")
+    __slots__ = ("_marginal", "bounds", "name", "value")
 
     def __init__(self, name: str, bounds: tuple[float, float], grid: np.ndarray, posterior: np.ndarray) -> None:
         g = np.ascontiguousarray(np.asarray(grid, dtype=np.float64))

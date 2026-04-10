@@ -239,9 +239,9 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         lw2 = linewidth**2
         xs = np.linspace(frequency - split, frequency + split, 200)
         g = (
-            (lw2 / k_np) / ((xs - (frequency - split))**2 + lw2)
-            + lw2 / ((xs - frequency)**2 + lw2)
-            + (lw2 * k_np) / ((xs - (frequency + split))**2 + lw2)
+            (lw2 / k_np) / ((xs - (frequency - split)) ** 2 + lw2)
+            + lw2 / ((xs - frequency) ** 2 + lw2)
+            + (lw2 * k_np) / ((xs - (frequency + split)) ** 2 + lw2)
         )
         dip_depth = 1.0 / float(g.max())
 

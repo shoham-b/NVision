@@ -12,15 +12,15 @@ import random
 
 import numpy as np
 
-from nvision import CoreExperiment
-from nvision import Locator
-from nvision import Observer
-from nvision import run_loop
-from nvision import LorentzianModel
 from nvision import (
     BeliefSignal,
+    CoreExperiment,
+    Locator,
+    LorentzianModel,
+    Observer,
     ParameterWithPosterior,
     TrueSignal,
+    run_loop,
 )
 
 

@@ -53,11 +53,11 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
 
     # If manifest is too large, don't inline it - app.js will fetch it
     if manifest_bytes > _MAX_INLINE_MANIFEST_BYTES:
-        data_scripts.append('<script>window.MANIFEST = null;</script>')
+        data_scripts.append("<script>window.MANIFEST = null;</script>")
     else:
         # Inline the manifest
         safe_manifest = manifest_json.replace("</", "<\\/")
-        data_scripts.append(f'<script>window.MANIFEST = {safe_manifest};</script>')
+        data_scripts.append(f"<script>window.MANIFEST = {safe_manifest};</script>")
 
     # Inline settings
     settings_json = json.dumps(
@@ -68,14 +68,14 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
         indent=2,
     )
     safe_settings = settings_json.replace("</", "<\\/")
-    data_scripts.append(f'<script>window.SETTINGS = {safe_settings};</script>')
+    data_scripts.append(f"<script>window.SETTINGS = {safe_settings};</script>")
 
     # Add asset prefix for resolving relative paths
     data_scripts.append('<script>window.NVISION_ASSET_PREFIX = "./";</script>')
 
     # Inject data scripts before </head>
-    data_block = '\n'.join(data_scripts)
-    index_html = index_html.replace('</head>', f'{data_block}\n</head>')
+    data_block = "\n".join(data_scripts)
+    index_html = index_html.replace("</head>", f"{data_block}\n</head>")
 
     # Replace the iframe loader with direct script tag
     iframe_pattern = '<iframe src="../artifacts/loader.html" style="display:none"></iframe>'
@@ -88,6 +88,7 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
 
     # Copy static assets to out_dir
     import shutil
+
     shutil.copy2(_STATIC_DIR / "styles.css", out_dir / "styles.css")
 
     # Copy app.js with cache-busting in the URL (content unchanged)

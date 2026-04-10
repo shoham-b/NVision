@@ -205,4 +205,3 @@ class AbstractMarginalDistribution(ABC):
         np.ndarray
             CDF values corresponding to x.
         """
-

@@ -16,7 +16,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from nvision.cache import CacheBridge
 from nvision.cli.app_instance import app
 from nvision.gui.report import prepare_static_ui_data
-from nvision.runner.cache import restore_graphs
+from nvision.runner.cache import restore_graphs, strip_heavy_fields
 from nvision.sim import cases as sim_cases
 from nvision.sim.combinations import CombinationGrid
 from nvision.tools.artifacts import (
@@ -29,7 +29,6 @@ from nvision.tools.artifacts import (
     write_locator_results_csv,
     write_plots_manifest,
 )
-from nvision.runner.cache import strip_heavy_fields
 from nvision.tools.paths import ARTIFACTS_ROOT
 from nvision.tools.utils import NVISION_RNG_SEED
 from nvision.viz import Viz
@@ -251,7 +250,11 @@ def _collect_cache_results_from_configs(
                     if not entry.get("generator") or not entry.get("strategy"):
                         log.warning(
                             "Scan entry missing generator or strategy field: %s",
-                            {k: v for k, v in entry.items() if k in ("type", "generator", "strategy", "path", "repeat")},
+                            {
+                                k: v
+                                for k, v in entry.items()
+                                if k in ("type", "generator", "strategy", "path", "repeat")
+                            },
                         )
             plot_manifest.extend(cleaned_entries)
             df_rows.append(main_result_row)

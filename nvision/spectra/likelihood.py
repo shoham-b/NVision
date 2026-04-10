@@ -68,6 +68,7 @@ def likelihood_from_observation_model(
     predicted: np.ndarray,
     noise_std: float,
     frequency_noise_model: tuple[dict[str, Any], ...] | None,
+    tempering_factor: float = 10.0,
 ) -> np.ndarray:
     """Compute per-prediction likelihoods using observation noise metadata.
 
@@ -76,13 +77,15 @@ def likelihood_from_observation_model(
 
     Fallback:
     - Gaussian approximation with ``noise_std``
+
+    A tempering factor > 1.0 slows down Bayesian concentration by increasing effective noise.
     """
     if not frequency_noise_model:
-        return _gaussian_likelihood(obs_y, predicted, noise_std)
+        return _gaussian_likelihood(obs_y, predicted, noise_std * np.sqrt(tempering_factor))
 
     if len(frequency_noise_model) == 1 and frequency_noise_model[0].get("type") == "poisson":
         scale = float(frequency_noise_model[0].get("scale", 0.0))
         if scale > 0:
-            return _poisson_likelihood_from_scaled_observation(obs_y, predicted, scale)
+            return _poisson_likelihood_from_scaled_observation(obs_y, predicted, scale / tempering_factor)
 
-    return _gaussian_likelihood(obs_y, predicted, noise_std)
+    return _gaussian_likelihood(obs_y, predicted, noise_std * np.sqrt(tempering_factor))
