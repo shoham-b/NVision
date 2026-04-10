@@ -235,17 +235,15 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         frequency = rng.uniform(split + 0.1, 1.0 - split - 0.1)
         background = 1.0
 
-        # Find the actual minimum by sampling densely across the peak region
-        # (the minimum may be shifted from peak centers due to asymmetric peak heights)
+        # Compute the true peak-shape maximum via vectorized numpy
+        lw2 = linewidth**2
         xs = np.linspace(frequency - split, frequency + split, 200)
-        values = np.array([
-            VoigtZeemanModel.compute_voigt_zeeman_model(x, frequency, linewidth, split, k_np, 1.0, 0.0)
-            for x in xs
-        ])
-        min_val = float(np.min(values))
-
-        # Min_val is the negative of the total peak height per unit dip_depth
-        dip_depth = 1.0 / abs(min_val) if abs(min_val) > 1e-12 else 1.0
+        g = (
+            (lw2 / k_np) / ((xs - (frequency - split))**2 + lw2)
+            + lw2 / ((xs - frequency)**2 + lw2)
+            + (lw2 * k_np) / ((xs - (frequency + split))**2 + lw2)
+        )
+        dip_depth = 1.0 / float(g.max())
 
         return VoigtZeemanSpectrum(
             frequency=frequency,

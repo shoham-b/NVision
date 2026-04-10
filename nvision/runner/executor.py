@@ -16,7 +16,7 @@ from nvision.models.experiment import CoreExperiment
 from nvision.models.locator import Locator
 from nvision.models.observer import Observer, RunResult
 from nvision.models.task import LocatorTask
-from nvision.runner.cache import embed_graph_content, restore_graphs
+from nvision.runner.cache import embed_graph_content, restore_graphs, strip_heavy_fields
 from nvision.runner.convert import run_result_to_finalize_record, run_result_to_history_df
 from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
@@ -184,7 +184,11 @@ class _TaskRunner:
                     self.strategy_name,
                     self.task.seed,
                 )
-                return cached
+                # Strip heavy fields to keep manifest small
+                return [
+                    ([strip_heavy_fields(e) for e in entries], row)
+                    for entries, row in cached
+                ]
             log.warning(
                 "Cache miss for %s/%s/%s (seed=%s) with --require-cache. Skipping.",
                 self.generator_name,
@@ -205,7 +209,11 @@ class _TaskRunner:
                     self.strategy_name,
                     self.task.seed,
                 )
-                return cached
+                # Strip heavy fields to keep manifest small
+                return [
+                    ([strip_heavy_fields(e) for e in entries], row)
+                    for entries, row in cached
+                ]
         return None
 
     def _run_repeats(self, locator_class: type[Locator], locator_config: dict[str, Any]) -> _RepeatArtifacts:

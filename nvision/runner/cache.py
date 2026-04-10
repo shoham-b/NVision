@@ -13,7 +13,17 @@ log = logging.getLogger(__name__)
 __all__ = [
     "embed_graph_content",
     "restore_graphs",
+    "strip_heavy_fields",
 ]
+
+
+def strip_heavy_fields(entry: dict) -> dict:
+    """Return a copy of *entry* with heavy fields (content, plot_data) removed.
+
+    These fields are used for cache storage or backfill purposes but should
+    not be included in the plots_manifest.json to keep it small and loadable.
+    """
+    return {k: v for k, v in entry.items() if k not in ("content", "plot_data")}
 
 
 def _decompress_content(entry: dict) -> str:

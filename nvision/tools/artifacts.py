@@ -95,6 +95,11 @@ def relativize_summary_plot_paths(summary_plots_meta: list[dict[str, object]], o
         meta["path"] = Path(meta["path"]).relative_to(out_dir).as_posix()
 
 
+def _strip_heavy_fields(entry: dict[str, object]) -> dict[str, object]:
+    """Return entry without heavy fields (content, plot_data) that bloat the manifest."""
+    return {k: v for k, v in entry.items() if k not in ("content", "plot_data")}
+
+
 def merge_run_plot_manifest_with_existing_on_disk(
     plot_manifest: list[dict[str, object]],
     out_dir: Path,
@@ -106,6 +111,8 @@ def merge_run_plot_manifest_with_existing_on_disk(
         return
     try:
         old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        # Strip heavy fields from old entries to prevent manifest bloat
+        old_manifest = [_strip_heavy_fields(e) for e in old_manifest]
         new_combos: set[tuple[object, object, object]] = set()
         for entry in plot_manifest:
             if entry.get("type") == "scan":
@@ -153,5 +160,7 @@ def ensure_plot_manifest_non_empty(plot_manifest: list[dict[str, object]], log: 
 
 def write_plots_manifest(plot_manifest: list[dict[str, object]], out_dir: Path) -> Path:
     path = plots_manifest_path(out_dir)
-    path.write_text(json.dumps(plot_manifest, indent=2), encoding="utf-8")
+    # Stream JSON to disk to avoid MemoryError with large manifests
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(plot_manifest, f, indent=2)
     return path

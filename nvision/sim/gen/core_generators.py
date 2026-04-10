@@ -5,6 +5,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+import numpy as np
+
 from nvision.spectra import (
     CompositePeakModel,
     ExponentialDecayModel,
@@ -28,6 +30,7 @@ from nvision.spectra.nv_center import (
     MIN_NV_CENTER_OMEGA,
     NVCenterLorentzianSpectrum,
     NVCenterVoigtSpectrum,
+    NVCenterVoigtSpectrumSamples,
     nv_center_lorentzian_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
 )
@@ -168,8 +171,16 @@ class NVCenterCoreGenerator:
 
         if self.variant == "lorentzian":
             model = NVCenterLorentzianModel()
-            # Draw normalized dip depth directly
-            dip_depth = rng.uniform(0.3, 0.95)
+            # Scale a desired contrast onto the true peak-shape maximum
+            unit_dip_depth = rng.uniform(0.3, 0.95)
+            lw2 = linewidth**2
+            xs = np.linspace(center_freq - split, center_freq + split, 200)
+            g = (
+                (lw2 / k_np) / ((xs - (center_freq - split))**2 + lw2)
+                + lw2 / ((xs - center_freq)**2 + lw2)
+                + (lw2 * k_np) / ((xs - (center_freq + split))**2 + lw2)
+            )
+            dip_depth = unit_dip_depth / float(g.max())
 
             typed_params = NVCenterLorentzianSpectrum(
                 frequency=center_freq,
@@ -185,7 +196,20 @@ class NVCenterCoreGenerator:
             fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)
 
             model = NVCenterVoigtModel()
-            dip_depth = rng.uniform(0.3, 0.95)
+            # Scale a desired contrast onto the true peak-shape maximum
+            unit_dip_depth = rng.uniform(0.3, 0.95)
+            xs = np.linspace(center_freq - split, center_freq + split, 200)
+            single = NVCenterVoigtSpectrumSamples(
+                frequency=np.array([center_freq]),
+                fwhm_lorentz=np.array([fwhm_lorentz]),
+                fwhm_gauss=np.array([fwhm_gauss]),
+                split=np.array([split]),
+                k_np=np.array([k_np]),
+                dip_depth=np.array([1.0]),
+                background=np.array([0.0]),
+            )
+            g_max = float(-np.min(model.compute_vectorized_many(xs, single)))
+            dip_depth = unit_dip_depth / g_max if g_max > 1e-12 else unit_dip_depth
 
             typed_params = NVCenterVoigtSpectrum(
                 frequency=center_freq,

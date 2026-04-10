@@ -29,6 +29,7 @@ from nvision.tools.artifacts import (
     write_locator_results_csv,
     write_plots_manifest,
 )
+from nvision.runner.cache import strip_heavy_fields
 from nvision.tools.paths import ARTIFACTS_ROOT
 from nvision.tools.utils import NVISION_RNG_SEED
 from nvision.viz import Viz
@@ -241,10 +242,10 @@ def _collect_cache_results_from_configs(
         hits += 1
         restore_graphs(cached_results, out_dir)
         for entries, main_result_row in cached_results:
-            # Strip content field (used for cache storage only) to keep manifest small
+            # Strip heavy fields (content, plot_data) to keep manifest small
             cleaned_entries = []
             for entry in entries:
-                cleaned = {k: v for k, v in entry.items() if k != "content"}
+                cleaned = strip_heavy_fields(entry)
                 cleaned_entries.append(cleaned)
                 if entry.get("type") == "scan":
                     if not entry.get("generator") or not entry.get("strategy"):
