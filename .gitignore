@@ -125,3 +125,4 @@ gha-creds-*.json
 .\junit-result.xml
 artifacts/cache/
 artifacts/
+demo_artifacts/

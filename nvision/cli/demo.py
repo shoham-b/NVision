@@ -59,7 +59,7 @@ def demo(
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
-    ] = 8,
+    ] = 5,
 ) -> int:
     """Quick demo to validate improvements - fast, focused, visual.
 
@@ -174,11 +174,11 @@ def _display_summary() -> None:
         table.add_column("Time (s)", justify="right")
 
         for row in recent.to_dicts():
-            strategy = row.get("strategy_name", "N/A")[:20]
-            generator = row.get("generator_name", "N/A")[:20]
-            steps = str(row.get("num_steps", "N/A"))
-            error = f"{row.get('final_error', 0):.6f}" if row.get("final_error") else "N/A"
-            time_val = f"{row.get('time_elapsed_sec', 0):.1f}" if row.get("time_elapsed_sec") else "N/A"
+            strategy = str(row.get("strategy", "N/A"))[:20]
+            generator = str(row.get("generator", "N/A"))[:20]
+            steps = str(row.get("measurements", "N/A"))
+            error = f"{row.get('abs_err_x', 0):.6f}" if row.get("abs_err_x") is not None else "N/A"
+            time_val = f"{row.get('duration_ms', 0) / 1000:.1f}" if row.get("duration_ms") is not None else "N/A"
             table.add_row(strategy, generator, steps, error, time_val)
 
         console.print(table)
