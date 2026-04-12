@@ -539,6 +539,7 @@ def compute_scan_plot_data(
     focus_window: tuple[float, float] | None = None,
     mode_estimates: Mapping[str, float] | None = None,
     belief_unit_cube: UnitCubeSignalModel | None = None,
+    narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> dict[str, Any]:
     """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``)."""
     history_xs_s, history_ys_s = _extract_history_xy(history)
@@ -564,6 +565,14 @@ def compute_scan_plot_data(
         lo, hi = float(focus_window[0]), float(focus_window[1])
         if np.isfinite(lo) and np.isfinite(hi) and hi > lo:
             out["focus_window"] = [lo, hi]
+    if narrowed_param_bounds:
+        safe_bounds: dict[str, list[float]] = {}
+        for name, (lo, hi) in narrowed_param_bounds.items():
+            flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
+            if flo is not None and fhi is not None and fhi > flo:
+                safe_bounds[name] = [flo, fhi]
+        if safe_bounds:
+            out["narrowed_param_bounds"] = safe_bounds
     return out
 
 
@@ -724,7 +733,13 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
         entry["plot_data"] = plot_data
 
 
-def _scan_layout(fig: go.Figure, has_metrics: bool) -> None:
+def _scan_layout(
+    fig: go.Figure,
+    has_metrics: bool,
+    *,
+    focus_window: tuple[float, float] | None = None,
+) -> None:
+    xaxis_range = list(focus_window) if focus_window is not None else None
     layout_args: dict = dict(
         title="Scan with sampled measurements",
         template="plotly_white",
@@ -740,6 +755,8 @@ def _scan_layout(fig: go.Figure, has_metrics: bool) -> None:
                 height=800,
             )
         )
+        if xaxis_range is not None:
+            layout_args["xaxis"] = dict(title="frequency", range=xaxis_range, autorange=False)
     else:
         layout_args.update(
             dict(
@@ -755,6 +772,8 @@ def _scan_layout(fig: go.Figure, has_metrics: bool) -> None:
                 margin=dict(t=110),
             )
         )
+        if xaxis_range is not None:
+            layout_args["xaxis"] = dict(title="frequency", range=xaxis_range, autorange=False)
     fig.update_layout(**layout_args)
 
 
@@ -773,6 +792,7 @@ class MeasurementsMixin:
         mode_estimates: Mapping[str, float] | None = None,
         focus_window: tuple[float, float] | None = None,
         belief_unit_cube: UnitCubeSignalModel | None = None,
+        narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
     ) -> Path:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
@@ -783,6 +803,8 @@ class MeasurementsMixin:
           (matches ``mode_estimates``) instead of ``scan.true_signal.model``.
         - Measurements (noisy): points from `history` colored by step order (gradient).
         - Noisy curve: simulated by applying the provided CompositeNoise to the dense grid.
+        - ``narrowed_param_bounds``: non-scan parameters narrowed after the initial sweep.
+          Embedded in the figure ``meta`` so the UI can parse and display them.
         """
         ensure_out_dir(out_path.parent)
 
@@ -838,7 +860,18 @@ class MeasurementsMixin:
             belief_unit_cube=belief_unit_cube,
         )
         _add_metric_traces(fig, history, has_metrics)
-        _scan_layout(fig, has_metrics)
+        _scan_layout(fig, has_metrics, focus_window=focus_window)
+
+        # Embed narrowed_param_bounds in figure meta so the UI can retrieve it
+        # without needing a separate manifest field or extra HTTP request.
+        if narrowed_param_bounds:
+            safe_meta: dict[str, list[float]] = {}
+            for name, (lo, hi) in narrowed_param_bounds.items():
+                flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
+                if flo is not None and fhi is not None and fhi > flo:
+                    safe_meta[name] = [flo, fhi]
+            if safe_meta:
+                fig.update_layout(meta={"narrowed_param_bounds": safe_meta})
 
         fig.write_html(out_path.as_posix(), include_plotlyjs="cdn")
         return out_path

@@ -13,6 +13,7 @@ from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribut
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
+from nvision.sim.locs.bayesian.sweep_param_estimator import estimate_non_scan_param_bounds
 from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
 
 
@@ -175,6 +176,8 @@ class SequentialBayesianLocator(Locator):
         # Post-sweep interval in physical units where _acquire may search; starts at full scan.
         self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
         self._sweep_observations: list[Observation] = []
+        # Non-scan parameter bounds narrowed after the sweep (empty = not yet set).
+        self._narrowed_param_bounds: dict[str, tuple[float, float]] = {}
 
     @classmethod
     def create(
@@ -317,7 +320,14 @@ class SequentialBayesianLocator(Locator):
         return (min(lo, hi), max(lo, hi))
 
     def _set_acquisition_window_after_sweep(self) -> None:
-        """Set the single acquisition interval from informative sweep samples (fixed heuristic)."""
+        """Set the single acquisition interval from informative sweep samples (fixed heuristic).
+
+        In addition to narrowing the scan (frequency) axis, estimates tighter
+        bounds for non-scan parameters (background, dip_depth, linewidth family,
+        split) using :func:`~nvision.sim.locs.bayesian.sweep_param_estimator
+        .estimate_non_scan_param_bounds` and applies them to the belief when
+        supported.
+        """
         xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
         ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
         span = _normalized_acquisition_interval_from_sweep(xs, ys)
@@ -329,14 +339,65 @@ class SequentialBayesianLocator(Locator):
         self._acquisition_hi = self._denormalize(self._scan_param, hi_norm)
 
         if isinstance(self.belief, (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution)):
+            # ------------------------------------------------------------------
+            # Split-based frequency window constraint.
+            # The two NV dips sit at frequency ± split, so the scan window only
+            # needs to reach 2×split_max away from the centre in each direction
+            # (4×split_max total).  Apply this before narrowing the belief so
+            # both constraints are intersected.
+            # ------------------------------------------------------------------
+            phys_bounds = self.belief.physical_param_bounds
+            if "split" in phys_bounds and self._scan_param in phys_bounds:
+                _, split_hi = phys_bounds["split"]
+                if split_hi > 0:
+                    max_half_span = 2.0 * split_hi
+                    center = 0.5 * (self._acquisition_lo + self._acquisition_hi)
+                    split_lo_cand = center - max_half_span
+                    split_hi_cand = center + max_half_span
+                    # Only narrow — never widen the current acquisition window.
+                    self._acquisition_lo = max(self._acquisition_lo, split_lo_cand)
+                    self._acquisition_hi = min(self._acquisition_hi, split_hi_cand)
+                    # Clamp to the full scan domain.
+                    self._acquisition_lo = max(self._acquisition_lo, self._full_domain_lo)
+                    self._acquisition_hi = min(self._acquisition_hi, self._full_domain_hi)
+
             self.belief.narrow_scan_parameter_physical_bounds(
                 self._scan_param,
                 self._acquisition_lo,
                 self._acquisition_hi,
             )
-            slo, shi = self.belief.parameter_bounds[self._scan_param]
+            # Re-read scan axis bounds after narrowing (belief syncs them)
+            slo, shi = self.belief.physical_param_bounds[self._scan_param]
             self._acquisition_lo = min(slo, shi)
             self._acquisition_hi = max(slo, shi)
+
+            # ------------------------------------------------------------------
+            # Non-scan parameter narrowing
+            # ------------------------------------------------------------------
+            # Sweep xs are normalized [0,1]; convert to physical for the estimator
+            # so that width estimates are in consistent units.
+            phys_xs = self._full_domain_lo + xs * (self._full_domain_hi - self._full_domain_lo)
+            param_names = list(self.belief.model.parameter_names())
+
+            # USE PHYSICAL BOUNDS for the estimator, otherwise [0, 1] unit-cube
+            # bounds will clamp the physical-scale estimates (e.g. background=1000).
+            current_bounds = dict(self.belief.physical_param_bounds)
+
+            non_scan_estimates = estimate_non_scan_param_bounds(
+                phys_xs,
+                ys,
+                param_names,
+                current_bounds,
+                scan_param=self._scan_param,
+            )
+            for param, (new_lo, new_hi) in non_scan_estimates.items():
+                try:
+                    self.belief.narrow_scan_parameter_physical_bounds(param, new_lo, new_hi)
+                    # Re-read actual PHYSICAL bounds after narrowing (belief may clamp).
+                    actual_lo, actual_hi = self.belief.physical_param_bounds[param]
+                    self._narrowed_param_bounds[param] = (min(actual_lo, actual_hi), max(actual_lo, actual_hi))
+                except Exception:  # noqa: BLE001
+                    pass  # Non-critical: skip parameters that fail narrowing
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Same physical interval as :meth:`_acquisition_bounds` for scan / manifest UI."""
@@ -354,6 +415,20 @@ class SequentialBayesianLocator(Locator):
         if (hi - lo) >= span * (1.0 - 1e-9):
             return None
         return (lo, hi)
+
+    def narrowed_param_bounds(self) -> dict[str, tuple[float, float]]:
+        """Physical bounds of non-scan parameters narrowed after the initial sweep.
+
+        Returns an empty dict when no sweep has been completed or no parameters
+        could be narrowed.
+
+        Returns
+        -------
+        dict[str, tuple[float, float]]
+            Mapping of parameter name → ``(lo, hi)`` in physical units after
+            narrowing.  Only parameters that were genuinely tightened are included.
+        """
+        return dict(self._narrowed_param_bounds)
 
     # ------------------------------------------------------------------
     # Utility helpers available to all acquisition implementations

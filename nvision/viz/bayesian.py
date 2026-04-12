@@ -329,6 +329,7 @@ class BayesianMixin:
         acquisition_window: tuple[float, float] | None = None,
         acquisition_param: str | None = None,
         experiment_domain: tuple[float, float] | None = None,
+        narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
     ) -> None:
         """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
 
@@ -339,6 +340,10 @@ class BayesianMixin:
         Bayesian locator), a green band marks that interval on the corresponding marginal; if
         ``experiment_domain`` is the full sweep ``(x_min, x_max)``, the x-axis is expanded so the
         band appears in context of the original domain.
+
+        When ``narrowed_param_bounds`` is provided, additional green bands are drawn on each
+        non-scan marginal that was narrowed by the sweep estimator, giving a visual cue of
+        which parameter regions survived the coarse sweep.
         """
         if not posterior_inputs_by_param:
             return
@@ -412,6 +417,22 @@ class BayesianMixin:
                 window=acquisition_window,
                 full_domain=experiment_domain,
             )
+
+        # Shade narrowed bounds for non-scan parameters.
+        if narrowed_param_bounds:
+            for param, window in narrowed_param_bounds.items():
+                if param not in posterior_inputs_by_param:
+                    continue
+                if param == acquisition_param:
+                    continue  # already shaded above
+                row_nb = param_names.index(param) + 1
+                _add_acquisition_window_subplot(
+                    fig,
+                    row=row_nb,
+                    col=1,
+                    window=window,
+                    full_domain=None,
+                )
 
         _add_true_vline_subplots(fig, param_names, true_params)
 

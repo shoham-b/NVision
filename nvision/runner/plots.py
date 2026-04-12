@@ -234,6 +234,7 @@ def _bayesian_auxiliary_entries(
             acquisition_window=run_result.focus_window,
             acquisition_param=scan_param,
             experiment_domain=experiment_domain,
+            narrowed_param_bounds=run_result.narrowed_param_bounds,
         )
     else:
         anim_inputs = _posterior_animation_inputs(run_result, scan_param)
@@ -318,6 +319,7 @@ def generate_attempt_plots(
         mode_estimates=mode_estimates,
         focus_window=focus_window,
         belief_unit_cube=belief_unit_cube,
+        narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
     )
 
     scan_entry = entry_base.copy()

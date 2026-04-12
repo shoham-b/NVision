@@ -423,7 +423,7 @@ function main() {
         }
 
         function parsePlotDataFromHtml(html) {
-            // Extract Plotly.newPlot data arrays from HTML
+            // Extract Plotly.newPlot data arrays + layout from HTML
             const m = html.match(/Plotly\.newPlot\(\s*"[^"]+",\s*/);
             if (!m) return null;
             const pos = m.index + m[0].length;
@@ -444,12 +444,41 @@ function main() {
                 }
                 const data = JSON.parse(dataStr.slice(0, end));
                 if (!Array.isArray(data)) return null;
-                return extractPlotDataFromTraces(data);
+                const out = extractPlotDataFromTraces(data);
+                if (!out) return null;
+
+                // Try to parse layout for narrowed_param_bounds in meta
+                try {
+                    let layoutStart = pos + end;
+                    while (layoutStart < html.length && /[\s,]/.test(html[layoutStart])) layoutStart++;
+                    if (html[layoutStart] === '{') {
+                        // find matching closing brace
+                        let ldepth = 0, lend = 0;
+                        for (let i = layoutStart; i < html.length; i++) {
+                            if (html[i] === '{') ldepth++;
+                            else if (html[i] === '}') {
+                                ldepth--;
+                                if (ldepth === 0) { lend = i + 1; break; }
+                            }
+                        }
+                        if (lend > layoutStart) {
+                            const layout = JSON.parse(html.slice(layoutStart, lend));
+                            const meta = layout && layout.meta;
+                            if (meta && meta.narrowed_param_bounds && typeof meta.narrowed_param_bounds === 'object') {
+                                out.narrowed_param_bounds = meta.narrowed_param_bounds;
+                            }
+                        }
+                    }
+                } catch (layoutErr) {
+                    // Non-critical: layout parse failures are silently ignored
+                }
+                return out;
             } catch (e) {
                 console.warn('Failed to parse plot data from HTML:', e);
                 return null;
             }
         }
+
 
         function extractPlotDataFromTraces(traces) {
             let x_dense = null, y_dense = null, y_dense_noisy = null, y_dense_mode = null;
@@ -993,7 +1022,80 @@ function main() {
                 // Keep legend preference when switching locator strategy/repeat (new iframe src).
                 applyMeasurementDistributionPreferenceInScanIframe();
                 bindScanIframeLegendPreferenceSync();
+                // Parse and render narrowed param bounds from the scan figure meta.
+                renderNarrowedBoundsFromIframe();
             });
+        }
+
+        const narrowedBoundsPanel = document.getElementById('narrowed-bounds-panel');
+
+        function formatBoundValue(v) {
+            if (typeof v !== 'number' || !Number.isFinite(v)) return '?';
+            if (Math.abs(v) < 1e-3 || Math.abs(v) >= 1e5) return v.toExponential(2);
+            return v.toPrecision(4);
+        }
+
+        function renderNarrowedBoundsPanel(narrowedBounds) {
+            if (!narrowedBoundsPanel) return;
+            if (!narrowedBounds || typeof narrowedBounds !== 'object' || Object.keys(narrowedBounds).length === 0) {
+                narrowedBoundsPanel.hidden = true;
+                narrowedBoundsPanel.innerHTML = '';
+                return;
+            }
+            const entries = Object.entries(narrowedBounds)
+                .filter(([, range]) => Array.isArray(range) && range.length === 2)
+                .map(([name, [lo, hi]]) => ({ name, lo, hi }));
+            if (entries.length === 0) {
+                narrowedBoundsPanel.hidden = true;
+                narrowedBoundsPanel.innerHTML = '';
+                return;
+            }
+            const chips = entries.map(({ name, lo, hi }) =>
+                '<span class="param-bound-chip" title="' + name + ': [' + lo + ', ' + hi + ']">' +
+                '\uD83D\uDD0D\u00A0<strong>' + name + '</strong>\u00A0[' + formatBoundValue(lo) + ',\u00A0' + formatBoundValue(hi) + ']</span>'
+            ).join('');
+            narrowedBoundsPanel.innerHTML =
+                '<span class="param-bound-label">Sweep-narrowed priors:</span>' + chips;
+            narrowedBoundsPanel.hidden = false;
+        }
+
+        function renderNarrowedBoundsFromIframe() {
+            if (!scanIframe || !narrowedBoundsPanel) return;
+            const frameDoc = scanIframe.contentDocument;
+            if (!frameDoc) { renderNarrowedBoundsPanel(null); return; }
+            const html = frameDoc.documentElement ? frameDoc.documentElement.outerHTML : '';
+            if (!html) { renderNarrowedBoundsPanel(null); return; }
+            try {
+                const m = html.match(/Plotly\.newPlot\(\s*"[^"]+",\s*/);
+                if (!m) { renderNarrowedBoundsPanel(null); return; }
+                const pos = m.index + m[0].length;
+                const dataStr = html.slice(pos);
+                let depth = 0, end = 0;
+                for (let i = 0; i < dataStr.length; i++) {
+                    if (dataStr[i] === '[') depth++;
+                    else if (dataStr[i] === ']') {
+                        depth--;
+                        if (depth === 0) { end = i + 1; break; }
+                    }
+                }
+                let layoutStart = pos + end;
+                while (layoutStart < html.length && /[\s,]/.test(html[layoutStart])) layoutStart++;
+                if (html[layoutStart] !== '{') { renderNarrowedBoundsPanel(null); return; }
+                let ldepth = 0, lend = 0;
+                for (let i = layoutStart; i < html.length; i++) {
+                    if (html[i] === '{') ldepth++;
+                    else if (html[i] === '}') {
+                        ldepth--;
+                        if (ldepth === 0) { lend = i + 1; break; }
+                    }
+                }
+                if (lend <= layoutStart) { renderNarrowedBoundsPanel(null); return; }
+                const layout = JSON.parse(html.slice(layoutStart, lend));
+                const meta = layout && layout.meta;
+                renderNarrowedBoundsPanel(meta && meta.narrowed_param_bounds);
+            } catch (e) {
+                renderNarrowedBoundsPanel(null);
+            }
         }
 
         function setupTabs() {

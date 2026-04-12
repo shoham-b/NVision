@@ -653,7 +653,7 @@ def nv_center_lorentzian_bounds_for_domain(
 
     return {
         "frequency": (float(x_min), float(x_max)),
-        "linewidth": (width * 0.001, width * 0.05),
+        "linewidth": (width * 0.0001, width * 0.05),
         "split": (0.0, 5.0e6),
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.05, 0.29),
@@ -672,8 +672,8 @@ def nv_center_voigt_bounds_for_domain(
 
     return {
         "frequency": (float(x_min), float(x_max)),
-        "fwhm_lorentz": (width * 0.001, width * 0.1),
-        "fwhm_gauss": (width * 0.0001, width * 0.05),
+        "fwhm_lorentz": (50e3, 2.0e6),
+        "fwhm_gauss": (20e3, 800e3),
         "split": (0.0, 5.0e6),
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.05, 0.29),

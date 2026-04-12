@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import queue
+import webbrowser
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -207,6 +208,14 @@ def run(  # noqa: C901
             help="Number of runner processes (use 1 for sequential execution).",
         ),
     ] = 4,
+    open_browser: Annotated[
+        bool,
+        typer.Option("--open/--no-open", help="Open results in browser after run"),
+    ] = False,
+    logs_root: Annotated[
+        Path | None,
+        typer.Option("--logs-root", help="Custom logs directory (default: logs/ under out)"),
+    ] = None,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -275,9 +284,14 @@ def run(  # noqa: C901
     if out is None:
         out = ARTIFACTS_ROOT
     ensure_out_dir(out)
-    _prune_run_logs(LOGS_ROOT, max_runs=2)
+
+    # Use custom logs root if provided, otherwise default to LOGS_ROOT
+    effective_logs_root = logs_root if logs_root is not None else LOGS_ROOT
+    ensure_out_dir(effective_logs_root)
+
+    _prune_run_logs(effective_logs_root, max_runs=2)
     run_log_path = (
-        LOGS_ROOT / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y%m%dT%H%M%S%f')}.log"
+        effective_logs_root / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y%m%dT%H%M%S%f')}.log"
     )
     file_handler = logging.FileHandler(run_log_path, encoding="utf-8")
     file_handler.setLevel(log_level_value)
@@ -443,6 +457,14 @@ def run(  # noqa: C901
         log.info(f"Prepared static UI data. Open: {ui_entrypoint.absolute().as_uri()}")
     except Exception as exc:
         log.warning(f"Failed to build HTML index: {exc}")
+
+    if open_browser and ui_entrypoint.exists():
+        url = ui_entrypoint.absolute().as_uri()
+        log.info(f"Opening browser: {url}")
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            log.warning(f"Could not open browser: {e}")
 
     log.info(f"Wrote locator results to: {out_dir}")
     return 0

@@ -52,6 +52,7 @@ class RunResult:
     snapshots: list[StepSnapshot]
     true_signal: TrueSignal
     focus_window: tuple[float, float] | None = None
+    narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
 
     def uncertainty_trajectory(self, param: str) -> list[float]:
         """Get uncertainty (std) trajectory for parameter.
@@ -231,13 +232,20 @@ class Observer:
                 self.snapshots.append(snapshot)
 
         focus_window: tuple[float, float] | None = None
+        narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
         if last_locator is not None:
             getter = getattr(last_locator, "bayesian_focus_window", None)
             if callable(getter):
                 focus_window = getter()
+            bounds_getter = getattr(last_locator, "narrowed_param_bounds", None)
+            if callable(bounds_getter):
+                nb = bounds_getter()
+                if nb:
+                    narrowed_param_bounds = nb
 
         return RunResult(
             snapshots=self.snapshots,
             true_signal=self.true_signal,
             focus_window=focus_window,
+            narrowed_param_bounds=narrowed_param_bounds,
         )

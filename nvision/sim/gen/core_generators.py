@@ -158,9 +158,9 @@ class NVCenterCoreGenerator:
             center_freq = rng.uniform(self.x_min + split + 0.05 * width, self.x_max - split - 0.05 * width)
 
         # Random linewidth (HWHM for Lorentzian)
-        # Physically realistic NV center linewidths are typically 0.3 to 1.5 MHz
-        # This ensures the 2-3 MHz hyperfine splitting remains visually resolvable
-        linewidth = rng.uniform(0.3e6, 1.5e6)
+        # To ensure the dip strongly returns before the next hyperfine peak,
+        # we generate exceptionally sharp lines (50 kHz to 400 kHz HWHM).
+        linewidth = rng.uniform(0.05e6, 0.4e6)
 
         # Random k_np (non-polarization factor)
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
