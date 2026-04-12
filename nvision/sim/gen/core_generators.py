@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -33,14 +33,127 @@ from nvision.spectra.nv_center import (
 from nvision.spectra.signal import TrueSignal
 
 
-def _lorentzian_depth_bounds() -> tuple[float, float]:
-    """Upper bound for ``dip_depth`` in :class:`~nvision.spectra.lorentzian.LorentzianModel`."""
-    return (0.0, 1.5)
+# ---------------------------------------------------------------------------
+# Peak spec — a plain data struct describing one peak type's constants
+# ---------------------------------------------------------------------------
 
 
-def _lorentzian_depth_draw(rng: random.Random, dip_lo: float, dip_hi: float) -> float:
-    """Sample ``dip_depth`` directly."""
-    return rng.uniform(dip_lo, dip_hi)
+@dataclass(frozen=True)
+class PeakSpec:
+    """Static constants that describe a single peak type.
+
+    Attributes:
+        width_key: Parameter name for the width field (e.g. ``"sigma"``
+            for Gaussian, ``"linewidth"`` for Lorentzian).
+        width_frac: ``(lo, hi)`` width range expressed as *fractions of the
+            domain width* (so ``0.01`` means 1 % of ``x_max - x_min``).
+        dip_depth: ``(lo, hi)`` allowed range for the dip depth parameter.
+        background: ``(lo, hi)`` allowed range for the background parameter
+            when used as a *standalone* (non-composite) peak.
+        composite_background: ``(lo, hi)`` range used when the peak is one
+            component of a composite model and the baseline is shared.
+        background_default: The fixed background value generated peaks use
+            (0.0 for bump-up models, 1.0 for dip-down models).
+    """
+
+    width_key: str
+    width_frac: tuple[float, float]
+    dip_depth: tuple[float, float]
+    background: tuple[float, float]
+    composite_background: tuple[float, float]
+    background_default: float
+
+
+# ---------------------------------------------------------------------------
+# Named singletons for the three supported peak types
+# ---------------------------------------------------------------------------
+
+GAUSSIAN = PeakSpec(
+    width_key="sigma",
+    width_frac=(0.01, 0.2),
+    dip_depth=(0.1, 1.4),
+    background=(0.0, 0.5),
+    composite_background=(0.0, 0.5),
+    background_default=0.0,
+)
+
+LORENTZIAN = PeakSpec(
+    width_key="linewidth",
+    width_frac=(0.01, 0.2),
+    dip_depth=(0.05, 1.5),
+    background=(0.5, 1.2),
+    composite_background=(0.0, 0.5),
+    background_default=1.0,
+)
+
+EXPONENTIAL = PeakSpec(
+    width_key="decay_rate",
+    width_frac=(0.1, 2.0),
+    dip_depth=(0.1, 1.4),
+    background=(0.0, 0.5),
+    composite_background=(0.0, 0.5),
+    background_default=0.0,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers that act on a PeakSpec
+# ---------------------------------------------------------------------------
+
+
+def _make_bounds(
+    spec: PeakSpec,
+    x_min: float,
+    x_max: float,
+    prefix: str = "",
+    *,
+    composite: bool = False,
+) -> dict[str, tuple[float, float]]:
+    """Return parameter bounds for *spec* over the domain ``[x_min, x_max]``.
+
+    Args:
+        spec: Peak type descriptor.
+        x_min: Lower domain bound.
+        x_max: Upper domain bound.
+        prefix: Key prefix for composite models (e.g. ``"peak1_"``).
+        composite: When ``True``, use the narrower background range
+            appropriate for composite signal components.
+    """
+    w = x_max - x_min
+    bg = spec.composite_background if composite else spec.background
+    return {
+        f"{prefix}frequency": (x_min, x_max),
+        f"{prefix}{spec.width_key}": (w * spec.width_frac[0], w * spec.width_frac[1]),
+        f"{prefix}dip_depth": spec.dip_depth,
+        f"{prefix}background": bg,
+    }
+
+
+def _make_model_and_spectrum(
+    spec: PeakSpec,
+    *,
+    pos: float,
+    width: float,
+    dip_depth: float,
+    background: float,
+) -> tuple[object, object]:
+    """Instantiate ``(model, spectrum)`` for the given *spec*.
+
+    Returns a ``(SignalModel, typed_spectrum)`` pair.
+    """
+    if spec is GAUSSIAN:
+        return GaussianModel(), GaussianSpectrum(
+            frequency=pos, sigma=width, dip_depth=dip_depth, background=background
+        )
+    if spec is LORENTZIAN:
+        return LorentzianModel(), LorentzianSpectrum(
+            frequency=pos, linewidth=width, dip_depth=dip_depth, background=background
+        )
+    if spec is EXPONENTIAL:
+        return ExponentialDecayModel(), ExponentialDecaySpectrum(
+            decay_rate=width * 5, dip_depth=dip_depth, background=background
+        )
+    raise ValueError(f"Unknown PeakSpec: {spec!r}")
 
 
 def _true_signal_from_typed(model, typed_params, bounds: dict[str, tuple[float, float]]) -> TrueSignal:
@@ -57,7 +170,7 @@ class OnePeakCoreGenerator:
 
     x_min: float = 0.0
     x_max: float = 1.0
-    peak_type: str = "gaussian"  # "gaussian" or "lorentzian"
+    peak_config: PeakSpec = field(default_factory=lambda: GAUSSIAN)
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate a single-peak signal.
@@ -73,48 +186,17 @@ class OnePeakCoreGenerator:
             Signal with single peak at random location
         """
         width = self.x_max - self.x_min
-
-        # Random peak position (avoid edges)
         peak_pos = rng.uniform(self.x_min + 0.05 * width, self.x_max - 0.05 * width)
-
-        # Random peak width (5-10% of domain)
         peak_width = rng.uniform(0.05 * width, 0.10 * width)
 
-        # To normalize the signal, we fix amplitudes to exactly 1.0 depth and background appropriately
-        if self.peak_type == "gaussian":
-            # Gaussian is a bump from 0 to 1
-            background = 0.0
-            dip_depth = 1.0
-            model = GaussianModel()
-            typed_params = GaussianSpectrum(
-                frequency=peak_pos,
-                sigma=peak_width,
-                dip_depth=dip_depth,
-                background=background,
-            )
-            bounds = {
-                "frequency": (self.x_min, self.x_max),
-                "sigma": (width * 0.01, width * 0.2),
-                "dip_depth": (0.0, 1.5),
-                "background": (0.0, 0.5),
-            }
-        else:  # lorentzian
-            # Lorentzian is a dip from 1 to 0; peak height = dip_depth
-            background = 1.0
-            dip_depth = 1.0  # This enforces exactly a dip depth of 1.0
-            model = LorentzianModel()
-            typed_params = LorentzianSpectrum(
-                frequency=peak_pos,
-                linewidth=peak_width,
-                dip_depth=dip_depth,
-                background=background,
-            )
-            bounds = {
-                "frequency": (self.x_min, self.x_max),
-                "linewidth": (width * 0.01, width * 0.2),
-                "dip_depth": (0.0, 1.5),
-                "background": (0.5, 1.2),
-            }
+        model, typed_params = _make_model_and_spectrum(
+            self.peak_config,
+            pos=peak_pos,
+            width=peak_width,
+            dip_depth=1.0,
+            background=self.peak_config.background_default,
+        )
+        bounds = _make_bounds(self.peak_config, self.x_min, self.x_max)
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 
@@ -237,8 +319,8 @@ class TwoPeakCoreGenerator:
 
     x_min: float = 0.0
     x_max: float = 1.0
-    peak_type_left: str = "gaussian"
-    peak_type_right: str = "gaussian"
+    peak_config_left: PeakSpec = field(default_factory=lambda: GAUSSIAN)
+    peak_config_right: PeakSpec = field(default_factory=lambda: GAUSSIAN)
     min_separation: float = 0.2  # Minimum separation as fraction of domain
 
     def generate(self, rng: random.Random):  # TrueSignal
@@ -264,69 +346,23 @@ class TwoPeakCoreGenerator:
         # Random peak parameters
         peak1_width = rng.uniform(0.02 * width, 0.08 * width)
         peak2_width = rng.uniform(0.02 * width, 0.08 * width)
-        peak1_depth = 1.0
-        peak2_depth = 1.0
-        background = 1.0 if self.peak_type_left == "lorentzian" or self.peak_type_right == "lorentzian" else 0.0
-
-        # Create signal for each peak
-        if self.peak_type_left == "gaussian":
-            model1 = GaussianModel()
-        elif self.peak_type_left == "lorentzian":
-            model1 = LorentzianModel()
-        else:  # exponential
-            model1 = ExponentialDecayModel()
-
-        if self.peak_type_right == "gaussian":
-            model2 = GaussianModel()
-        elif self.peak_type_right == "lorentzian":
-            model2 = LorentzianModel()
-        else:  # exponential
-            model2 = ExponentialDecayModel()
-
-        # Create composite model
-        composite_model = CompositePeakModel(
-            [
-                ("peak1", model1),
-                ("peak2", model2),
-            ]
+        background = max(
+            self.peak_config_left.background_default,
+            self.peak_config_right.background_default,
         )
-
-        if self.peak_type_left == "gaussian":
-            peak1_typed = GaussianSpectrum(peak1_pos, peak1_width, peak1_depth, background / 2)
-            left_width_key = "peak1_sigma"
-        elif self.peak_type_left == "lorentzian":
-            peak1_typed = LorentzianSpectrum(peak1_pos, peak1_width, peak1_depth, background / 2)
-            left_width_key = "peak1_linewidth"
-        else:
-            peak1_typed = ExponentialDecaySpectrum(peak1_width * 5, peak1_depth, background / 2)
-            left_width_key = "peak1_decay_rate"
-
-        if self.peak_type_right == "gaussian":
-            peak2_typed = GaussianSpectrum(peak2_pos, peak2_width, peak2_depth, background / 2)
-            right_width_key = "peak2_sigma"
-        elif self.peak_type_right == "lorentzian":
-            peak2_typed = LorentzianSpectrum(peak2_pos, peak2_width, peak2_depth, background / 2)
-            right_width_key = "peak2_linewidth"
-        else:
-            peak2_typed = ExponentialDecaySpectrum(peak2_width * 5, peak2_depth, background / 2)
-            right_width_key = "peak2_decay_rate"
-
-        left_width_bounds = (
-            (width * 0.1, width * 2.0) if left_width_key.endswith("decay_rate") else (width * 0.01, width * 0.2)
+        model1, peak1_typed = _make_model_and_spectrum(
+            self.peak_config_left,
+            pos=peak1_pos, width=peak1_width, dip_depth=1.0, background=background / 2,
         )
-        right_width_bounds = (
-            (width * 0.1, width * 2.0) if right_width_key.endswith("decay_rate") else (width * 0.01, width * 0.2)
+        model2, peak2_typed = _make_model_and_spectrum(
+            self.peak_config_right,
+            pos=peak2_pos, width=peak2_width, dip_depth=1.0, background=background / 2,
         )
-        bounds = {
-            "peak1_frequency": (self.x_min, self.x_max),
-            left_width_key: left_width_bounds,
-            "peak1_dip_depth": (0.0, 1.5),
-            "peak1_background": (0.0, 0.5),
-            "peak2_frequency": (self.x_min, self.x_max),
-            right_width_key: right_width_bounds,
-            "peak2_dip_depth": (0.0, 1.5),
-            "peak2_background": (0.0, 0.5),
-        }
+        composite_model = CompositePeakModel([("peak1", model1), ("peak2", model2)])
+
+        bounds: dict[str, tuple[float, float]] = {}
+        bounds.update(_make_bounds(self.peak_config_left, self.x_min, self.x_max, "peak1_", composite=True))
+        bounds.update(_make_bounds(self.peak_config_right, self.x_min, self.x_max, "peak2_", composite=True))
 
         typed_params = CompositeSpectrum(peaks=(peak1_typed, peak2_typed))
         return _true_signal_from_typed(model=composite_model, typed_params=typed_params, bounds=bounds)
@@ -342,7 +378,7 @@ class MultiPeakCoreGenerator:
     x_min: float = 0.0
     x_max: float = 1.0
     count: int = 3
-    peak_types: list[str] | None = None  # ["gaussian", "lorentzian", ...]
+    peak_configs: list[PeakSpec] | None = None  # per-peak specs; defaults to all Gaussian
     min_separation: float = 0.1  # Minimum separation as fraction of domain
 
     def generate(self, rng: random.Random):  # TrueSignal
@@ -361,17 +397,16 @@ class MultiPeakCoreGenerator:
         width = self.x_max - self.x_min
         min_sep = self.min_separation * width
 
-        # Determine peak types
-        if self.peak_types is None:
-            peak_types = ["gaussian"] * self.count
+        # Resolve per-peak configs, padding with Gaussian when too few supplied.
+        if self.peak_configs is None:
+            configs: list[PeakSpec] = [GAUSSIAN] * self.count
         else:
-            peak_types = self.peak_types[: self.count]
-            # Pad with gaussian if not enough
-            while len(peak_types) < self.count:
-                peak_types.append("gaussian")
+            configs = list(self.peak_configs[: self.count])
+            while len(configs) < self.count:
+                configs.append(GAUSSIAN)
 
         # Generate well-separated peak positions
-        positions = []
+        positions: list[float] = []
         max_attempts = 1000
         for _ in range(self.count):
             for _ in range(max_attempts):
@@ -379,65 +414,22 @@ class MultiPeakCoreGenerator:
                 if not positions or all(abs(pos - p) >= min_sep for p in positions):
                     positions.append(pos)
                     break
-
-        # Sort positions
         positions.sort()
 
         # Create signal and typed parameters
         models = []
         typed_peak_params: list[object] = []
         bounds: dict[str, tuple[float, float]] = {}
-        background = 1.0 if any(pt == "lorentzian" for pt in peak_types) else 0.0
+        background = max(cfg.background_default for cfg in configs)
 
-        for i, (pos, peak_type) in enumerate(zip(positions, peak_types, strict=False)):
+        for i, (pos, cfg) in enumerate(zip(positions, configs, strict=False)):
             prefix = f"peak{i + 1}"
-
-            # Random parameters
             peak_width = rng.uniform(0.02 * width, 0.08 * width)
-            dip_depth = 1.0  # Normalized depth
-
-            # Create model
-            if peak_type == "gaussian":
-                model = GaussianModel()
-                typed_peak_params.append(
-                    GaussianSpectrum(
-                        frequency=pos,
-                        sigma=peak_width,
-                        dip_depth=dip_depth,
-                        background=background / self.count,
-                    )
-                )
-                bounds[f"{prefix}_frequency"] = (self.x_min, self.x_max)
-                bounds[f"{prefix}_sigma"] = (width * 0.01, width * 0.2)
-                bounds[f"{prefix}_dip_depth"] = (0.0, 1.5)
-                bounds[f"{prefix}_background"] = (0.0, 0.5)
-            elif peak_type == "lorentzian":
-                model = LorentzianModel()
-                typed_peak_params.append(
-                    LorentzianSpectrum(
-                        frequency=pos,
-                        linewidth=peak_width,
-                        dip_depth=dip_depth,
-                        background=1.0 - background / self.count,
-                    )
-                )
-                bounds[f"{prefix}_frequency"] = (self.x_min, self.x_max)
-                bounds[f"{prefix}_linewidth"] = (width * 0.01, width * 0.2)
-                bounds[f"{prefix}_dip_depth"] = (0.0, 1.5)
-                bounds[f"{prefix}_background"] = (0.0, 0.5)
-            else:  # exponential
-                model = ExponentialDecayModel()
-                typed_peak_params.append(
-                    ExponentialDecaySpectrum(
-                        decay_rate=peak_width * 5,
-                        dip_depth=dip_depth,
-                        background=background / self.count,
-                    )
-                )
-                bounds[f"{prefix}_decay_rate"] = (width * 0.1, width * 2.0)
-                bounds[f"{prefix}_dip_depth"] = (0.0, 1.5)
-                bounds[f"{prefix}_background"] = (0.0, 0.5)
-
+            model, spectrum = _make_model_and_spectrum(
+                cfg, pos=pos, width=peak_width, dip_depth=1.0, background=background / self.count
+            )
+            typed_peak_params.append(spectrum)
+            bounds.update(_make_bounds(cfg, self.x_min, self.x_max, f"{prefix}_", composite=True))
             models.append((prefix, model))
 
         composite_model = CompositePeakModel(models)
@@ -456,7 +448,7 @@ class SymmetricTwoPeakCoreGenerator:
     x_max: float = 1.0
     center: float = 0.5
     sep_frac: float = 0.2  # Separation as fraction of domain
-    peak_type: str = "gaussian"
+    peak_config: PeakSpec = field(default_factory=lambda: GAUSSIAN)
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate symmetric two-peak signal.
@@ -474,66 +466,21 @@ class SymmetricTwoPeakCoreGenerator:
         width = self.x_max - self.x_min
         delta = 0.5 * self.sep_frac * width
 
-        # Symmetric positions
         left_pos = self.center - delta
         right_pos = self.center + delta
 
-        # Same parameters for both peaks (symmetric)
         peak_width = rng.uniform(0.02 * width, 0.06 * width)
-        dip_depth = 1.0
-        background = 1.0 if self.peak_type == "lorentzian" else 0.0
-
-        # Create model
-        if self.peak_type == "gaussian":
-            model_left = GaussianModel()
-            model_right = GaussianModel()
-            param_key = "sigma"
-        elif self.peak_type == "lorentzian":
-            model_left = LorentzianModel()
-            model_right = LorentzianModel()
-            param_key = "linewidth"
-        else:  # exponential
-            model_left = ExponentialDecayModel()
-            model_right = ExponentialDecayModel()
-            param_key = "decay_rate"
-
-        composite_model = CompositePeakModel(
-            [
-                ("peak1", model_left),
-                ("peak2", model_right),
-            ]
+        background = self.peak_config.background_default
+        model1, peak1_typed = _make_model_and_spectrum(
+            self.peak_config, pos=left_pos, width=peak_width, dip_depth=1.0, background=background / 2
         )
-
-        # Build typed parameters
-
-        if self.peak_type in ["gaussian", "lorentzian"]:
-            if self.peak_type == "gaussian":
-                peak1_typed = GaussianSpectrum(left_pos, peak_width, dip_depth, background / 2)
-                peak2_typed = GaussianSpectrum(right_pos, peak_width, dip_depth, background / 2)
-            else:
-                peak1_typed = LorentzianSpectrum(left_pos, peak_width, dip_depth, background / 2)
-                peak2_typed = LorentzianSpectrum(right_pos, peak_width, dip_depth, background / 2)
-            bounds = {
-                "peak1_frequency": (self.x_min, self.x_max),
-                f"peak1_{param_key}": (width * 0.01, width * 0.2),
-                "peak1_dip_depth": (0.0, 1.5),
-                "peak1_background": (0.0, 0.5),
-                "peak2_frequency": (self.x_min, self.x_max),
-                f"peak2_{param_key}": (width * 0.01, width * 0.2),
-                "peak2_dip_depth": (0.0, 1.5),
-                "peak2_background": (0.0, 0.5),
-            }
-        else:  # exponential
-            peak1_typed = ExponentialDecaySpectrum(peak_width * 5, dip_depth, background / 2)
-            peak2_typed = ExponentialDecaySpectrum(peak_width * 5, dip_depth, background / 2)
-            bounds = {
-                "peak1_decay_rate": (width * 0.1, width * 2.0),
-                "peak1_dip_depth": (0.0, 1.5),
-                "peak1_background": (0.0, 0.5),
-                "peak2_decay_rate": (width * 0.1, width * 2.0),
-                "peak2_dip_depth": (0.0, 1.5),
-                "peak2_background": (0.0, 0.5),
-            }
+        model2, peak2_typed = _make_model_and_spectrum(
+            self.peak_config, pos=right_pos, width=peak_width, dip_depth=1.0, background=background / 2
+        )
+        composite_model = CompositePeakModel([("peak1", model1), ("peak2", model2)])
+        bounds: dict[str, tuple[float, float]] = {}
+        bounds.update(_make_bounds(self.peak_config, self.x_min, self.x_max, "peak1_", composite=True))
+        bounds.update(_make_bounds(self.peak_config, self.x_min, self.x_max, "peak2_", composite=True))
 
         typed_params = CompositeSpectrum(peaks=(peak1_typed, peak2_typed))
         return _true_signal_from_typed(model=composite_model, typed_params=typed_params, bounds=bounds)

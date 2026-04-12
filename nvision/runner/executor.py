@@ -22,6 +22,7 @@ from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
 from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
 from nvision.runner.signal_cache import get_shared_core_experiment
+from nvision.sim import cases as sim_cases
 from nvision.sim.combinations import CombinationGrid
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
@@ -106,13 +107,21 @@ class _TaskRunner:
 
     def _combination_cache_kwargs(self) -> dict[str, Any]:
         """Arguments for :meth:`LocatorResultsRepository.get_cached_combination` / save methods."""
+        # Use effective max_steps: CLI value overrides strategy default, but strategy
+        # config may have its own default that differs from DEFAULT_LOC_MAX_STEPS.
+        # We must match the actual value used in _run_single_repeat for cache hits.
+        strategy_default_max_steps = self.task.strategy_spec.locator_config.get("max_steps")
+        effective_max_steps = self.task.loc_max_steps
+        if strategy_default_max_steps is not None and self.task.loc_max_steps == sim_cases.DEFAULT_LOC_MAX_STEPS:
+            # User didn't override --loc-max-steps, use strategy's default for cache key
+            effective_max_steps = strategy_default_max_steps
         return {
             "generator": self.generator_name,
             "noise": self.noise_name,
             "strategy": self.strategy_name,
             "repeats": self.repeats,
             "seed": self.task.seed,
-            "max_steps": self.task.loc_max_steps,
+            "max_steps": effective_max_steps,
             "timeout_s": self.task.loc_timeout_s,
         }
 
@@ -373,10 +382,14 @@ class _TaskRunner:
         experiment: CoreExperiment,
         repeat_start_time: float,
     ) -> tuple[pl.DataFrame, dict[str, Any], str, RunResult]:
+        noise_std = 0.05
+        if experiment.noise is not None:
+            noise_std = float(experiment.noise.estimated_noise_std())
         cfg = {
             **locator_config,
             "max_steps": self.task.loc_max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
+            "noise_std": noise_std,
         }
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
 
@@ -402,6 +415,10 @@ class _TaskRunner:
         )
         # Used by the progress ETA estimator via cached `locator_results.csv` metadata.
         finalize_record["duration_ms"] = (time.perf_counter() - repeat_start_time) * 1000
+        last_loc = observer.last_locator
+        if last_loc is not None:
+            finalize_record["sweep_steps"] = int(getattr(last_loc, "initial_sweep_steps", 0) or 0)
+            finalize_record["locator_steps"] = int(getattr(last_loc, "inference_step_count", 0) or 0)
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

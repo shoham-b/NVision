@@ -12,6 +12,7 @@ from nvision import (
     TrueSignal,
     run_loop,
 )
+from nvision.sim.gen.core_generators import GAUSSIAN
 
 
 def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame:
@@ -41,7 +42,7 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
 
 
 def test_one_peak_run_completes():
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_type="gaussian")
+    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_config=GAUSSIAN)
     df = _run_batch(gen, repeats=2)
     assert isinstance(df, pl.DataFrame)
     assert df.height == 2

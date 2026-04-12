@@ -11,6 +11,7 @@ from nvision import (
     TrueSignal,
     TwoPeakCoreGenerator,
 )
+from nvision.sim.gen.core_generators import GAUSSIAN, LORENTZIAN
 
 
 def _peak_value(signal: TrueSignal, n: int = 2001) -> float:
@@ -35,7 +36,7 @@ def _peak_value(signal: TrueSignal, n: int = 2001) -> float:
 
 def test_one_peak_gaussian_produces_true_signal():
     rng = random.Random(321)
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_type="gaussian")
+    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_config=GAUSSIAN)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     assert len(sig.parameter_names) == 4
@@ -46,7 +47,7 @@ def test_one_peak_gaussian_produces_true_signal():
 
 def test_one_peak_lorentzian_produces_true_signal():
     rng = random.Random(42)
-    gen = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="lorentzian")
+    gen = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=LORENTZIAN)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     freq_value = sig.get_param_value("frequency")
@@ -56,7 +57,7 @@ def test_one_peak_lorentzian_produces_true_signal():
 def test_lorentzian_and_nv_have_nonflat_contrast_on_ghz_domain():
     """Lorentzian dip depth is amplitude/linewidth²; O(1) amplitudes look flat at GHz scale."""
     rng = random.Random(0)
-    lorentz = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="lorentzian").generate(rng)
+    lorentz = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=LORENTZIAN).generate(rng)
     nv = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian").generate(rng)
     x0, x1 = 2.6e9, 3.1e9
     grid = [x0 + (x1 - x0) * i / 500 for i in range(501)]

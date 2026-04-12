@@ -220,6 +220,7 @@ class Observer:
             Complete result with trajectory data
         """
         self.snapshots = []
+        self.last_locator: Locator | None = None
 
         last_locator: Locator | None = None
         for locator in runner:
@@ -243,6 +244,7 @@ class Observer:
                 )
                 self.snapshots.append(snapshot)
 
+        self.last_locator = last_locator
         focus_window: tuple[float, float] | None = None
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
         if last_locator is not None:

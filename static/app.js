@@ -1006,9 +1006,16 @@ function main() {
                     const attemptLabel = repeatTotal
                         ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
                         : 'Attempt ' + plot.repeat;
+                    let stepsPart = '';
+                    if (plot.sweep_steps != null || plot.locator_steps != null) {
+                        const sweepStr = plot.sweep_steps != null ? plot.sweep_steps : '—';
+                        const locStr = plot.locator_steps != null ? plot.locator_steps : '—';
+                        stepsPart = ' • Sweep steps: ' + sweepStr + ' • Locator steps: ' + locStr;
+                    }
                     scanMetrics.textContent =
                         attemptLabel +
                         ' • Measurements: ' + measurements +
+                        stepsPart +
                         ' • Duration: ' + duration +
                         ' • Abs error: ' +
                         absErr +

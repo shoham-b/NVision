@@ -27,6 +27,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
         exploration_rate: float = 100.0,
+        noise_std: float | None = None,
     ) -> None:
         super().__init__(
             belief=belief,
@@ -37,6 +38,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
             initial_sweep_builder=initial_sweep_builder,
             convergence_params=convergence_params,
             convergence_patience_steps=convergence_patience_steps,
+            noise_std=noise_std,
         )
         self.exploration_rate = max(0.0, float(exploration_rate))
 
@@ -53,6 +55,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
         exploration_rate: float = 8.0,
+        noise_std: float | None = None,
         **grid_config: object,
     ) -> MaximumLikelihoodLocator:
         if builder is None:
@@ -68,6 +71,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
             convergence_params=convergence_params,
             convergence_patience_steps=convergence_patience_steps,
             exploration_rate=exploration_rate,
+            noise_std=noise_std,
         )
 
     def _acquire(self) -> float:

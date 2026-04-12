@@ -11,6 +11,8 @@ from nvision.models.noise import (
 )
 
 from .gen.core_generators import (
+    GAUSSIAN,
+    LORENTZIAN,
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
     TwoPeakCoreGenerator,
@@ -45,11 +47,11 @@ def generators_basic() -> list[tuple[str, object]]:
         # One Peak generators - for each signal type
         (
             "OnePeak-gaussian",
-            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="gaussian"),
+            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=GAUSSIAN),
         ),
         (
             "OnePeak-lorentzian",
-            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_type="lorentzian"),
+            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=LORENTZIAN),
         ),
         # Two Peak generators - for each signal type
         (
@@ -57,8 +59,8 @@ def generators_basic() -> list[tuple[str, object]]:
             TwoPeakCoreGenerator(
                 x_min=2.6e9,
                 x_max=3.1e9,
-                peak_type_left="gaussian",
-                peak_type_right="gaussian",
+                peak_config_left=GAUSSIAN,
+                peak_config_right=GAUSSIAN,
             ),
         ),
         (
@@ -66,8 +68,8 @@ def generators_basic() -> list[tuple[str, object]]:
             TwoPeakCoreGenerator(
                 x_min=2.6e9,
                 x_max=3.1e9,
-                peak_type_left="lorentzian",
-                peak_type_right="lorentzian",
+                peak_config_left=LORENTZIAN,
+                peak_config_right=LORENTZIAN,
             ),
         ),
         # NV Center generators - different variants

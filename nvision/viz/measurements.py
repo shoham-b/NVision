@@ -444,7 +444,7 @@ def _extract_history_xy(history: pl.DataFrame) -> tuple[list[Any], list[Any]]:
     return xs_s, ys_s
 
 
-def _dense_xs_with_measurements(scan: Any, history_xs: list[Any], *, n_dense: int = 1000) -> np.ndarray:
+def _dense_xs_with_measurements(scan: Any, history_xs: list[Any], *, n_dense: int = 5000) -> np.ndarray:
     xs_base = np.linspace(scan.x_min, scan.x_max, n_dense)
     if not history_xs:
         return xs_base
@@ -816,7 +816,7 @@ class MeasurementsMixin:
             if history_xs_arr.size == 0:
                 history_xs_arr = None
 
-        xs_base = np.linspace(scan.x_min, scan.x_max, 1000)
+        xs_base = np.linspace(scan.x_min, scan.x_max, 5000)
         xs = np.unique(np.concatenate([xs_base, history_xs_arr])) if history_xs_arr is not None else xs_base
         ys = [float(scan.signal(x)) for x in xs]
 

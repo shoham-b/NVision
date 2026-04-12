@@ -56,7 +56,7 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         n_mc_samples: int = 64,
         n_candidates: int = 64,
     ) -> None:
-        super().__init__(belief, max_steps, convergence_threshold, scan_param)
+        super().__init__(belief, max_steps, convergence_threshold, scan_param, noise_std=noise_std)
         self.pickiness = float(max(0.0, pickiness))
         self.noise_std = float(max(1e-9, noise_std))
         self.cost = float(max(1e-9, cost))

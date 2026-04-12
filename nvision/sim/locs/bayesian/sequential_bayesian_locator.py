@@ -12,6 +12,7 @@ from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.locator import Locator
+from nvision.models.measurement_noise import DEFAULT_MEASUREMENT_NOISE_STD
 from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
 
@@ -62,7 +63,7 @@ def _normalized_acquisition_interval_from_sweep(xs: np.ndarray, ys: np.ndarray) 
     if xs.size < 3 or ys.size < 3:
         return None
 
-    info_quantile = 0.6
+    info_quantile = 0.8
     padding_fraction = 0.1
     min_width_fraction = 0.15
     segment_peak_ratio = 0.6
@@ -169,6 +170,10 @@ class SequentialBayesianLocator(Locator):
     """
 
     DEFAULT_INITIAL_SWEEP_STEPS = 32
+    # Minimum number of sweep points that should land inside the expected
+    # signal footprint so that :func:`_normalized_acquisition_interval_from_sweep`
+    # can reliably identify the focus region.
+    _MIN_SIGNAL_HITS = 10
 
     def __init__(
         self,
@@ -180,6 +185,7 @@ class SequentialBayesianLocator(Locator):
         initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
+        noise_std: float | None = None,
     ) -> None:
         super().__init__(belief)
         self.max_steps = int(max_steps)
@@ -199,7 +205,7 @@ class SequentialBayesianLocator(Locator):
         self._convergence_streak = 0
 
         if initial_sweep_steps is None:
-            initial_sweep_steps = self.DEFAULT_INITIAL_SWEEP_STEPS
+            initial_sweep_steps = self._sweep_steps_for_signal_coverage(belief, noise_std=noise_std)
 
         self.initial_sweep_steps = max(0, int(initial_sweep_steps))
         self._initial_sweep_builder = initial_sweep_builder or sobol_1d_sequence
@@ -220,6 +226,101 @@ class SequentialBayesianLocator(Locator):
         self._narrowed_param_bounds: dict[str, tuple[float, float]] = {}
 
     @classmethod
+    def _sweep_steps_for_signal_coverage(
+        cls, belief: AbstractMarginalDistribution, *, noise_std: float | None = None
+    ) -> int:
+        """Derive sweep count from the required spacing to resolve the signal.
+
+        The sweep spacing must be small enough that at least
+        :data:`_MIN_SIGNAL_HITS` points land inside the *detectable* width of a
+        single dip/peak.  A sweep sample is only a useful "hit" when the signal
+        deviation at that point exceeds the measurement-noise amplitude.
+
+        For a Lorentzian dip with half-width ``γ`` and peak depth ``A``, the
+        signal at distance ``d`` from centre is ``A · γ²/(d² + γ²)``.  This
+        exceeds noise level ``σ`` when::
+
+            d < γ · √(A/σ − 1)          (SNR-aware detectable half-width)
+
+        The required spacing is then::
+
+            spacing = 2 · d_detect / _MIN_SIGNAL_HITS
+            n_steps = ⌈domain_width / spacing⌉
+
+        When depth/noise information is unavailable or the representative depth
+        sits below the noise floor the method falls back to
+        :data:`DEFAULT_INITIAL_SWEEP_STEPS`.
+        """
+        phys: dict[str, tuple[float, float]] | None = getattr(belief, "physical_param_bounds", None)
+        if phys is None:
+            return cls.DEFAULT_INITIAL_SWEEP_STEPS
+
+        # Scan domain width in physical units.
+        scan_name: str = belief.parameters[0].name if belief.parameters else ""
+        if scan_name not in phys:
+            return cls.DEFAULT_INITIAL_SWEEP_STEPS
+        scan_lo, scan_hi = phys[scan_name]
+        domain_width = float(scan_hi - scan_lo)
+        if domain_width <= 0:
+            return cls.DEFAULT_INITIAL_SWEEP_STEPS
+
+        # Lower-quartile linewidth estimate (lo^0.75 x hi^0.25):
+        # more conservative than the geometric mean so the sweep is dense
+        # enough to catch features near the narrow end of the prior.
+        linewidth_est: float = 0.0
+        for key in ("linewidth", "fwhm_lorentz", "fwhm_gauss", "sigma"):
+            if key in phys:
+                lo, hi = float(phys[key][0]), float(phys[key][1])
+                if hi <= 0:
+                    continue
+                safe_lo = max(lo, 1e-12)
+                lq = float(np.exp(0.75 * np.log(safe_lo) + 0.25 * np.log(hi)))
+                linewidth_est = max(linewidth_est, lq)
+
+        if linewidth_est <= 0:
+            return cls.DEFAULT_INITIAL_SWEEP_STEPS
+
+        # --- SNR-aware detectable width ---
+        # A sweep point is a "hit" only when the signal exceeds the noise —
+        # anything below the noise floor is surely not signal.
+        #
+        # For a Lorentzian dip: signal(d) = depth × γ²/(d² + γ²).
+        # Detectable when signal(d) > noise_std → d < γ √(depth/noise − 1).
+        #
+        # We use the geometric mean of the depth bounds as a representative
+        # amplitude: the prior minimum may sit at the noise floor (undetectable),
+        # while the maximum is optimistic.
+        depth_est: float = 0.0
+        for key in ("dip_depth", "depth", "amplitude"):
+            if key in phys:
+                dlo, dhi = float(phys[key][0]), float(phys[key][1])
+                if dhi > 0:
+                    depth_est = max(depth_est, float(np.sqrt(max(dlo, 1e-12) * dhi)))
+
+        # Use the actual noise std when provided by the executor; otherwise
+        # fall back to the default measurement noise (0.05).
+        if noise_std is None or noise_std <= 0:
+            noise_std = DEFAULT_MEASUREMENT_NOISE_STD
+
+        # SNR-aware detectable half-width.
+        snr_ratio = depth_est / noise_std if (depth_est > 0 and noise_std > 0) else 0.0
+        if snr_ratio > 1.0:
+            d_detect = linewidth_est * float(np.sqrt(snr_ratio - 1.0))
+            feature_width = 2.0 * d_detect
+        else:
+            # depth ≤ noise: signal is undetectable; use the default sweep.
+            return cls.DEFAULT_INITIAL_SWEEP_STEPS
+
+        if feature_width <= 0:
+            return cls.DEFAULT_INITIAL_SWEEP_STEPS
+
+        # Required spacing so _MIN_SIGNAL_HITS points fall within one feature.
+        required_spacing = feature_width / cls._MIN_SIGNAL_HITS
+        needed = int(np.ceil(domain_width / required_spacing))
+
+        return int(np.clip(needed, cls.DEFAULT_INITIAL_SWEEP_STEPS, 512))
+
+    @classmethod
     def create(
         cls,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
@@ -231,6 +332,7 @@ class SequentialBayesianLocator(Locator):
         initial_sweep_builder: Callable[[int], np.ndarray] | None = None,
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
+        noise_std: float | None = None,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -252,6 +354,7 @@ class SequentialBayesianLocator(Locator):
             initial_sweep_builder=initial_sweep_builder,
             convergence_params=convergence_params,
             convergence_patience_steps=convergence_patience_steps,
+            noise_std=noise_std,
         )
 
     @property
@@ -463,6 +566,26 @@ class SequentialBayesianLocator(Locator):
             slo, shi = self.belief.physical_param_bounds[self._scan_param]
             self._acquisition_lo = min(slo, shi)
             self._acquisition_hi = max(slo, shi)
+
+            # ------------------------------------------------------------------
+            # Constrain split to fit within the narrowed window.
+            # For NV center: dips are at center ± split, so both must satisfy
+            #   center - split >= x_lo  and  center + split <= x_hi
+            # This requires split <= min(center - x_lo, x_hi - center).
+            # The tightest bound is split <= (x_hi - x_lo) / 2.
+            # ------------------------------------------------------------------
+            if "split" in phys_bounds:
+                window_width = self._acquisition_hi - self._acquisition_lo
+                if window_width > 0:
+                    max_split_for_window = window_width / 2.0
+                    split_lo, split_hi = phys_bounds["split"]
+                    new_split_hi = min(float(split_hi), max_split_for_window)
+                    if new_split_hi > float(split_lo):
+                        self.belief.narrow_scan_parameter_physical_bounds(
+                            "split",
+                            float(split_lo),
+                            new_split_hi,
+                        )
 
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:

@@ -45,9 +45,13 @@ from nvision.sim.gen import (
     nv_center_lorentzian_bounds_for_domain,
 )
 from nvision.sim.gen.core_generators import (
+    EXPONENTIAL,
+    GAUSSIAN,
+    LORENTZIAN,
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
+    PeakSpec,
     SymmetricTwoPeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
@@ -95,6 +99,11 @@ __all__ = [
     "nv_center_smc_belief",
     "SymmetricTwoPeakCoreGenerator",
     "TwoPeakCoreGenerator",
+    # Peak specs
+    "PeakSpec",
+    "GAUSSIAN",
+    "LORENTZIAN",
+    "EXPONENTIAL",
     # Models
     "CoreExperiment",
     "DataBatch",

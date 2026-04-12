@@ -90,6 +90,18 @@ def generate_attempt_metrics(
         **metrics_serialized,
     }
 
+    sweep_steps: int | None = None
+    locator_steps: int | None = None
+    if not finalize_row.is_empty():
+        if "sweep_steps" in finalize_row.columns:
+            val = finalize_row.get_column("sweep_steps")[0]
+            if val is not None:
+                sweep_steps = int(val)
+        if "locator_steps" in finalize_row.columns:
+            val = finalize_row.get_column("locator_steps")[0]
+            if val is not None:
+                locator_steps = int(val)
+
     entry_base: dict[str, Any] = {
         "generator": gen_name,
         "noise": noise_name,
@@ -101,6 +113,8 @@ def generate_attempt_metrics(
         "uncert": metrics_serialized.get("uncert"),
         "measurements": metrics_serialized.get("measurements"),
         "duration_ms": metrics_serialized.get("duration_ms"),
+        "sweep_steps": sweep_steps,
+        "locator_steps": locator_steps,
         "metrics": metrics_serialized,
     }
 
