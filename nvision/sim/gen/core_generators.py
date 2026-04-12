@@ -221,6 +221,10 @@ class NVCenterCoreGenerator:
             )
             bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
 
+        # Lock split to 0 for zero-field case (not a sought parameter)
+        if self.zero_field:
+            bounds["split"] = (0.0, 0.0)
+
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 
 
