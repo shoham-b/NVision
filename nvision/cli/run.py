@@ -3,7 +3,6 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import queue
-import webbrowser
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -458,13 +457,6 @@ def run(  # noqa: C901
     except Exception as exc:
         log.warning(f"Failed to build HTML index: {exc}")
 
-    if open_browser and ui_entrypoint.exists():
-        url = ui_entrypoint.absolute().as_uri()
-        log.info(f"Opening browser: {url}")
-        try:
-            webbrowser.open(url)
-        except Exception as e:
-            log.warning(f"Could not open browser: {e}")
-
     log.info(f"Wrote locator results to: {out_dir}")
+    log.info(f"View results: uv run python -m nvision serve --dir {out_dir}")
     return 0

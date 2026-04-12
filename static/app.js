@@ -42,22 +42,11 @@ window.NVISION_BOOTSTRAP = (async () => {
         return null;
     }
 
-    const manifestCandidate = await loadScript(
-        [
-            { src: 'manifest.js', prefix: '' },
-            { src: './manifest.js', prefix: '' },
-            { src: '../artifacts/manifest.js', prefix: '../artifacts/' },
-        ],
-        (candidate) => {
-            window.NVISION_ASSET_PREFIX = candidate.prefix;
-        }
-    );
-    if (!manifestCandidate) {
-        window.NVISION_ASSET_PREFIX = '';
-        window.MANIFEST = [];
-        console.warn('Could not load manifest.js from current directory or ../artifacts/. Using empty manifest.');
+    // If MANIFEST was already inlined by report.py, skip loading manifest.js
+    if (window.MANIFEST && Array.isArray(window.MANIFEST) && window.MANIFEST.length > 0) {
+        // Already inlined — nothing to do
     } else if (window.MANIFEST === null) {
-        // Manifest is too large - fetch it as JSON instead
+        // Manifest is too large to inline — fetch it as JSON
         console.log('Large manifest detected, fetching via JSON...');
         const fetched = await fetchManifest(window.NVISION_ASSET_PREFIX);
         if (fetched) {
@@ -66,16 +55,44 @@ window.NVISION_BOOTSTRAP = (async () => {
             window.MANIFEST = [];
             console.warn('Could not fetch plots_manifest.json. Using empty manifest.');
         }
+    } else {
+        // No inline manifest — try loading manifest.js
+        const manifestCandidate = await loadScript(
+            [
+                { src: 'manifest.js', prefix: '' },
+                { src: './manifest.js', prefix: '' },
+                { src: '../artifacts/manifest.js', prefix: '../artifacts/' },
+            ],
+            (candidate) => {
+                window.NVISION_ASSET_PREFIX = candidate.prefix;
+            }
+        );
+        if (!manifestCandidate) {
+            window.NVISION_ASSET_PREFIX = '';
+            window.MANIFEST = [];
+            console.warn('Could not load manifest.js from current directory or ../artifacts/. Using empty manifest.');
+        } else if (window.MANIFEST === null) {
+            const fetched = await fetchManifest(window.NVISION_ASSET_PREFIX);
+            if (fetched) {
+                window.MANIFEST = fetched;
+            } else {
+                window.MANIFEST = [];
+                console.warn('Could not fetch plots_manifest.json. Using empty manifest.');
+            }
+        }
     }
 
-    const settingsCandidate = await loadScript([
-        { src: 'settings.js' },
-        { src: './settings.js' },
-        { src: '../artifacts/settings.js' },
-    ]);
-    if (!settingsCandidate) {
-        window.SETTINGS = { out_dir: '', generated_at: null };
-        console.warn('Could not load settings.js from current directory or ../artifacts/. Using default settings.');
+    // Same for settings — skip if already inlined
+    if (!window.SETTINGS) {
+        const settingsCandidate = await loadScript([
+            { src: 'settings.js' },
+            { src: './settings.js' },
+            { src: '../artifacts/settings.js' },
+        ]);
+        if (!settingsCandidate) {
+            window.SETTINGS = { out_dir: '', generated_at: null };
+            console.warn('Could not load settings.js from current directory or ../artifacts/. Using default settings.');
+        }
     }
 })();
 

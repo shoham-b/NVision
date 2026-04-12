@@ -7,6 +7,7 @@ from nvision.cli import cases_cmd as _cases_cmd  # noqa: F401
 from nvision.cli import demo as _demo  # noqa: F401
 from nvision.cli import render as _render  # noqa: F401
 from nvision.cli import run as _run  # noqa: F401
+from nvision.cli import serve as _serve  # noqa: F401
 from nvision.cli.main import app
 
 

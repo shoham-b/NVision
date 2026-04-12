@@ -226,7 +226,15 @@ def _bayesian_auxiliary_entries(
     experiment_domain = (float(experiment.x_min), float(experiment.x_max))
     interactive_path = bayes_dir / f"{attempt_slug}_posterior.html"
     anim_all = _posterior_animation_inputs_all_params(run_result)
+    log.info("Posterior animation inputs: %s", "available" if anim_all is not None else "None")
     if anim_all is not None:
+        # Extract per-step narrowed bounds from snapshots for dynamic UI
+        per_step_narrowed_bounds = []
+        for snapshot in run_result.snapshots:
+            if snapshot.narrowed_param_bounds:
+                per_step_narrowed_bounds.append(snapshot.narrowed_param_bounds)
+            else:
+                per_step_narrowed_bounds.append({})
         viz.plot_posterior_animation_all_params(
             anim_all,
             interactive_path,
@@ -235,6 +243,7 @@ def _bayesian_auxiliary_entries(
             acquisition_param=scan_param,
             experiment_domain=experiment_domain,
             narrowed_param_bounds=run_result.narrowed_param_bounds,
+            per_step_narrowed_bounds=per_step_narrowed_bounds,
         )
     else:
         anim_inputs = _posterior_animation_inputs(run_result, scan_param)

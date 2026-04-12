@@ -30,8 +30,9 @@ def _add_acquisition_window_subplot(
     col: int,
     window: tuple[float, float],
     full_domain: tuple[float, float] | None,
+    annotation_text: str = "acquisition window",
 ) -> None:
-    """Shade the post-sweep acquisition interval on one marginal (matches scan ``focus_window``)."""
+    """Shade the acquisition interval on one marginal."""
     x0, x1 = float(window[0]), float(window[1])
     if not math.isfinite(x0) or not math.isfinite(x1) or x1 <= x0:
         return
@@ -42,7 +43,7 @@ def _add_acquisition_window_subplot(
         line_width=1,
         line_color="rgba(46, 204, 113, 0.75)",
         layer="below",
-        annotation_text="post-sweep acquisition",
+        annotation_text=annotation_text,
         annotation_position="top left",
         row=row,
         col=col,
@@ -330,6 +331,7 @@ class BayesianMixin:
         acquisition_param: str | None = None,
         experiment_domain: tuple[float, float] | None = None,
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
+        per_step_narrowed_bounds: list[dict[str, tuple[float, float]]] | None = None,
     ) -> None:
         """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
 
@@ -381,33 +383,117 @@ class BayesianMixin:
             fig.update_xaxes(title_text=name, row=i, col=1)
 
         frames = []
+        refocusing_steps = set()  # Track steps where refocusing occurs
+        
         for si, step_idx in enumerate(step_indices):
+            # Get narrowed bounds for this step if available
+            step_bounds = None
+            if per_step_narrowed_bounds is not None and step_idx < len(per_step_narrowed_bounds):
+                step_bounds = per_step_narrowed_bounds[step_idx]
+            elif narrowed_param_bounds is not None:
+                # Fallback to final bounds if per-step not available
+                step_bounds = narrowed_param_bounds
+
+            frame_data = traces_for_step(step_idx)
+            
+            # Add acquisition window overlays for this step to frame data
+            if step_bounds and acquisition_param and acquisition_param in step_bounds:
+                window = step_bounds[acquisition_param]
+                if acquisition_param in posterior_inputs_by_param:
+                    row_nb = param_names.index(acquisition_param) + 1
+                    # Create a vrect shape for this frame
+                    x0, x1 = float(window[0]), float(window[1])
+                    if math.isfinite(x0) and math.isfinite(x1) and x1 > x0:
+                        # Determine annotation text based on step
+                        if step_idx < 32:  # Initial sweep steps
+                            annotation = "post-sweep acquisition"
+                        else:
+                            annotation = "posterior refocusing"
+                        
+                        frame_data.append(
+                            go.Scatter(
+                                x=[x0, x1, x1, x0, x0],
+                                y=[0, 0, 1, 1, 0],
+                                fill="toself",
+                                fillcolor="rgba(46, 204, 113, 0.18)",
+                                line=dict(color="rgba(46, 204, 113, 0.75)", width=1),
+                                hoverinfo="skip",
+                                showlegend=False,
+                                xaxis=f"x{row_nb}" if row_nb > 1 else "x",
+                                yaxis=f"y{row_nb}" if row_nb > 1 else "y",
+                                name=annotation,  # Store annotation in name for hover
+                            )
+                        )
+                        
+                        # Track refocusing events (after initial sweep, every 20 steps)
+                        if step_idx >= 32 and (step_idx - 32) % 20 == 0:
+                            refocusing_steps.add(si)
+            
+            # If no per-step bounds but we have acquisition window, show it as post-sweep
+            elif not step_bounds and acquisition_window is not None and acquisition_param and acquisition_param in posterior_inputs_by_param:
+                if step_idx >= 32:  # Only show after sweep is complete
+                    row_nb = param_names.index(acquisition_param) + 1
+                    x0, x1 = float(acquisition_window[0]), float(acquisition_window[1])
+                    if math.isfinite(x0) and math.isfinite(x1) and x1 > x0:
+                        frame_data.append(
+                            go.Scatter(
+                                x=[x0, x1, x1, x0, x0],
+                                y=[0, 0, 1, 1, 0],
+                                fill="toself",
+                                fillcolor="rgba(46, 204, 113, 0.18)",
+                                line=dict(color="rgba(46, 204, 113, 0.75)", width=1),
+                                hoverinfo="skip",
+                                showlegend=False,
+                                xaxis=f"x{row_nb}" if row_nb > 1 else "x",
+                                yaxis=f"y{row_nb}" if row_nb > 1 else "y",
+                                name="post-sweep acquisition",
+                            )
+                        )
+                        
+                        # Manually track refocusing events every 20 steps after initial sweep
+                        if step_idx >= 32 and (step_idx - 32) % 20 == 0:
+                            refocusing_steps.add(si)
+
+            # Add refocusing indicator to title
+            title_text = f"Posterior evolution (all parameters) — step {step_idx + 1}/{total_steps}"
+            if si in refocusing_steps:
+                title_text += " [REFOCUSING]"
+                
             frames.append(
                 go.Frame(
-                    data=traces_for_step(step_idx),
+                    data=frame_data,
                     name=str(si),
                     layout=go.Layout(
-                        title_text=f"Posterior evolution (all parameters) — step {step_idx + 1}/{total_steps}",
+                        title_text=title_text,
                     ),
                 )
             )
 
-        slider_steps = [
-            {
-                "args": [
-                    [frame.name],
-                    {
-                        "mode": "immediate",
-                        "frame": {"duration": 0, "redraw": True},
-                        "transition": {"duration": 0},
-                    },
-                ],
-                "label": str(step_indices[si] + 1),
-                "method": "animate",
-            }
-            for si, frame in enumerate(frames)
-        ]
+        slider_steps = []
+        for si, frame in enumerate(frames):
+            step_num = step_indices[si] + 1
+            # Highlight refocusing steps with brackets
+            if si in refocusing_steps:
+                label = f"[{step_num}]"  # Brackets mark refocusing steps
+            else:
+                label = str(step_num)
+                
+            slider_steps.append(
+                {
+                    "args": [
+                        [frame.name],
+                        {
+                            "mode": "immediate",
+                            "frame": {"duration": 0, "redraw": True},
+                            "transition": {"duration": 0},
+                        },
+                    ],
+                    "label": label,
+                    "method": "animate",
+                }
+            )
 
+        # Initial acquisition window for frequency (will be overridden per-step)
         if acquisition_window is not None and acquisition_param and acquisition_param in posterior_inputs_by_param:
             row_ap = param_names.index(acquisition_param) + 1
             _add_acquisition_window_subplot(
@@ -416,23 +502,8 @@ class BayesianMixin:
                 col=1,
                 window=acquisition_window,
                 full_domain=experiment_domain,
+                annotation_text="post-sweep acquisition",
             )
-
-        # Shade narrowed bounds for non-scan parameters.
-        if narrowed_param_bounds:
-            for param, window in narrowed_param_bounds.items():
-                if param not in posterior_inputs_by_param:
-                    continue
-                if param == acquisition_param:
-                    continue  # already shaded above
-                row_nb = param_names.index(param) + 1
-                _add_acquisition_window_subplot(
-                    fig,
-                    row=row_nb,
-                    col=1,
-                    window=window,
-                    full_domain=None,
-                )
 
         _add_true_vline_subplots(fig, param_names, true_params)
 

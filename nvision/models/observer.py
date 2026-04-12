@@ -23,11 +23,14 @@ class StepSnapshot:
         Snapshot of posterior at this step
     true_signal : TrueSignal
         Ground truth for error computation
+    narrowed_param_bounds : dict[str, tuple[float, float]] | None
+        Current narrowed parameter bounds at this step (for dynamic UI updates)
     """
 
     obs: Observation
     belief: AbstractMarginalDistribution
     true_signal: TrueSignal
+    narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
 
 
 @dataclass
@@ -224,10 +227,19 @@ class Observer:
             # Snapshot the current state
             # Make deep copy of belief to preserve state at this step
             if locator.belief.last_obs is not None:
+                # Capture current narrowed bounds if the locator supports it
+                bounds_getter = getattr(locator, "narrowed_param_bounds", None)
+                current_bounds = None
+                if callable(bounds_getter):
+                    nb = bounds_getter()
+                    if nb:
+                        current_bounds = nb
+
                 snapshot = StepSnapshot(
                     obs=locator.belief.last_obs,
                     belief=locator.belief.copy(),
                     true_signal=self.true_signal,
+                    narrowed_param_bounds=current_bounds,
                 )
                 self.snapshots.append(snapshot)
 

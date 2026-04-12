@@ -9,10 +9,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-import subprocess
-import sys
+import shutil
 import time
-import webbrowser
 from pathlib import Path
 from typing import Annotated
 
@@ -22,7 +20,6 @@ from rich.table import Table
 
 from nvision.cli.app_instance import app
 from nvision.cli.run import run
-from nvision.sim import cases as sim_cases
 from nvision.sim.grid_enums import GeneratorName
 from nvision.tools.paths import ensure_out_dir
 
@@ -32,6 +29,23 @@ console = Console()
 # Dedicated demo artifacts directory (separate from main runs)
 DEMO_ARTIFACTS_ROOT = Path("demo_artifacts")
 DEMO_LOGS_ROOT = DEMO_ARTIFACTS_ROOT / "logs"
+
+
+def _clear_demo_artifacts(keep_logs: bool = True) -> None:
+    """Clear demo artifacts directory to ensure only latest run is shown."""
+    if not DEMO_ARTIFACTS_ROOT.exists():
+        return
+
+    for item in DEMO_ARTIFACTS_ROOT.iterdir():
+        if keep_logs and item.name == "logs":
+            continue
+        try:
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+        except OSError:
+            pass  # Best effort cleanup
 
 
 @app.command()
@@ -69,6 +83,9 @@ def demo(
     console.print("[bold cyan]NVision Quick Demo[/bold cyan]")
     console.print(f"Repeats: {repeats}, Steps: {loc_max_steps}, Cache: {not no_cache}")
     console.print()
+
+    # Clear old demo artifacts to ensure only latest run is shown
+    _clear_demo_artifacts(keep_logs=True)
 
     # Ensure demo artifacts directory exists
     ensure_out_dir(DEMO_ARTIFACTS_ROOT)
@@ -131,17 +148,14 @@ def demo(
     # Display quick summary
     _display_summary()
 
-    # Open browser if requested
+    # Open browser via local HTTP server
     if open_browser:
         ui_path = DEMO_ARTIFACTS_ROOT / "index.html"
         if ui_path.exists():
-            url = ui_path.absolute().as_uri()
-            console.print(f"[bold]Opening:[/bold] {url}")
-            try:
-                webbrowser.open(url)
-            except Exception as e:
-                console.print(f"[yellow]Could not open browser: {e}[/yellow]")
-                console.print(f"Please open manually: {url}")
+            from nvision.cli.serve import serve as _serve_cmd
+
+            console.print()
+            _serve_cmd(directory=DEMO_ARTIFACTS_ROOT, port=None, no_open=False)
         else:
             console.print(f"[yellow]UI not found at {ui_path}[/yellow]")
 

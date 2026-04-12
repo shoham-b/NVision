@@ -8,13 +8,53 @@ from collections.abc import Callable, Mapping, Sequence
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
-from nvision.belief.grid_marginal import GridParameter
+from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.sim.locs.bayesian.sweep_param_estimator import estimate_non_scan_param_bounds
 from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
+
+
+_POSTERIOR_NARROWING_INTERVAL: int = 20
+_POSTERIOR_CREDIBLE_LEVEL: float = 0.95
+_POSTERIOR_MIN_NARROWING_FRACTION: float = 0.05
+
+
+def _posterior_credible_interval(
+    belief: UnitCubeGridMarginalDistribution | UnitCubeSMCMarginalDistribution,
+    param_name: str,
+    level: float = _POSTERIOR_CREDIBLE_LEVEL,
+) -> tuple[float, float] | None:
+    """Return a ``level``-credible interval in physical units for ``param_name``.
+
+    For grid beliefs: uses the marginal CDF to find the equal-tailed interval.
+    For SMC beliefs: uses weighted particle quantiles.
+    Returns ``None`` if the interval cannot be computed or is degenerate.
+    """
+    tail = (1.0 - level) / 2.0
+    lo_phys, hi_phys = belief.physical_param_bounds[param_name]
+    if hi_phys <= lo_phys:
+        return None
+
+    if isinstance(belief, UnitCubeGridMarginalDistribution):
+        p = GridMarginalDistribution.get_grid_param(belief, param_name)
+        cdf = np.cumsum(p.posterior)
+        if cdf[-1] <= 0:
+            return None
+        cdf = cdf / cdf[-1]
+        u_lo = float(np.interp(tail, cdf, p.grid))
+        u_hi = float(np.interp(1.0 - tail, cdf, p.grid))
+        return (lo_phys + u_lo * (hi_phys - lo_phys), lo_phys + u_hi * (hi_phys - lo_phys))
+
+    if isinstance(belief, UnitCubeSMCMarginalDistribution):
+        j = belief._param_names.index(param_name)
+        u_vals = belief._particles[:, j]
+        u_lo = float(np.quantile(u_vals, tail))
+        u_hi = float(np.quantile(u_vals, 1.0 - tail))
+        return (lo_phys + u_lo * (hi_phys - lo_phys), lo_phys + u_hi * (hi_phys - lo_phys))
+
+    return None
 
 
 def _normalized_acquisition_interval_from_sweep(xs: np.ndarray, ys: np.ndarray) -> tuple[float, float] | None:
@@ -260,8 +300,62 @@ class SequentialBayesianLocator(Locator):
             return self._to_experiment_normalized(physical_value)
 
         self.inference_step_count += 1
+        if (
+            self.inference_step_count > 0
+            and self.inference_step_count % _POSTERIOR_NARROWING_INTERVAL == 0
+        ):
+            self._narrow_non_scan_params_from_posterior()
         physical_value = self._acquire()
         return self._to_experiment_normalized(physical_value)
+
+    def _narrow_non_scan_params_from_posterior(self) -> None:
+        """Periodically tighten non-scan parameter bounds using the current posterior.
+
+        Computes a :data:`_POSTERIOR_CREDIBLE_LEVEL` credible interval from the
+        live marginal posterior for every non-scan parameter and calls
+        :meth:`narrow_scan_parameter_physical_bounds` to shrink the belief.
+        Only narrows by at least :data:`_POSTERIOR_MIN_NARROWING_FRACTION` of the
+        current prior width — never widens.
+        """
+        if not isinstance(self.belief, (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution)):
+            return
+        param_names = list(self.belief.model.parameter_names())
+        for param in param_names:
+            if param == self._scan_param:
+                continue
+            if param not in self.belief.physical_param_bounds:
+                continue
+            interval = _posterior_credible_interval(self.belief, param)
+            if interval is None:
+                continue
+            new_lo, new_hi = interval
+            cur_lo, cur_hi = self.belief.physical_param_bounds[param]
+            cur_width = cur_hi - cur_lo
+            if cur_width <= 0:
+                continue
+            new_lo = max(new_lo, cur_lo)
+            new_hi = min(new_hi, cur_hi)
+            if new_hi <= new_lo:
+                continue
+            if (cur_width - (new_hi - new_lo)) / cur_width < _POSTERIOR_MIN_NARROWING_FRACTION:
+                continue
+            try:
+                self.belief.narrow_scan_parameter_physical_bounds(param, new_lo, new_hi)
+                # Update narrowed_param_bounds so the UI reflects the live acquisition
+                # window as it shrinks during inference. Only include the scan parameter
+                # to keep the posterior plots clean.
+                if param == self._scan_param:
+                    actual_lo, actual_hi = self.belief.physical_param_bounds[param]
+                    self._narrowed_param_bounds[param] = (
+                        min(actual_lo, actual_hi),
+                        max(actual_lo, actual_hi),
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+
+    def narrowed_param_bounds(self) -> dict[str, tuple[float, float]] | None:
+        """Return current narrowed parameter bounds for UI updates."""
+        return getattr(self, "_narrowed_param_bounds", None)
 
     def observe(self, obs: Observation) -> None:
         """Update belief and record sweep observations for the post-sweep window."""
@@ -320,13 +414,12 @@ class SequentialBayesianLocator(Locator):
         return (min(lo, hi), max(lo, hi))
 
     def _set_acquisition_window_after_sweep(self) -> None:
-        """Set the single acquisition interval from informative sweep samples (fixed heuristic).
+        """Set the acquisition interval from informative sweep samples (frequency axis only).
 
-        In addition to narrowing the scan (frequency) axis, estimates tighter
-        bounds for non-scan parameters (background, dip_depth, linewidth family,
-        split) using :func:`~nvision.sim.locs.bayesian.sweep_param_estimator
-        .estimate_non_scan_param_bounds` and applies them to the belief when
-        supported.
+        Only the scan (frequency) axis is narrowed here.  Non-scan parameters
+        are left at their priors and will be tightened later by
+        :meth:`_narrow_non_scan_params_from_posterior` once the posterior has
+        accumulated enough information.
         """
         xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
         ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
@@ -371,33 +464,6 @@ class SequentialBayesianLocator(Locator):
             self._acquisition_lo = min(slo, shi)
             self._acquisition_hi = max(slo, shi)
 
-            # ------------------------------------------------------------------
-            # Non-scan parameter narrowing
-            # ------------------------------------------------------------------
-            # Sweep xs are normalized [0,1]; convert to physical for the estimator
-            # so that width estimates are in consistent units.
-            phys_xs = self._full_domain_lo + xs * (self._full_domain_hi - self._full_domain_lo)
-            param_names = list(self.belief.model.parameter_names())
-
-            # USE PHYSICAL BOUNDS for the estimator, otherwise [0, 1] unit-cube
-            # bounds will clamp the physical-scale estimates (e.g. background=1000).
-            current_bounds = dict(self.belief.physical_param_bounds)
-
-            non_scan_estimates = estimate_non_scan_param_bounds(
-                phys_xs,
-                ys,
-                param_names,
-                current_bounds,
-                scan_param=self._scan_param,
-            )
-            for param, (new_lo, new_hi) in non_scan_estimates.items():
-                try:
-                    self.belief.narrow_scan_parameter_physical_bounds(param, new_lo, new_hi)
-                    # Re-read actual PHYSICAL bounds after narrowing (belief may clamp).
-                    actual_lo, actual_hi = self.belief.physical_param_bounds[param]
-                    self._narrowed_param_bounds[param] = (min(actual_lo, actual_hi), max(actual_lo, actual_hi))
-                except Exception:  # noqa: BLE001
-                    pass  # Non-critical: skip parameters that fail narrowing
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Same physical interval as :meth:`_acquisition_bounds` for scan / manifest UI."""

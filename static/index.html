@@ -1,31 +1,20 @@
 <!doctype html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8">
     <title>NVision results</title>
     <link rel="stylesheet" href="styles.css">
-
-    
-
 </head>
-
 <body>
 <h1>NVision results <span id="out-dir-display"></span></h1>
-
 <p><a download href="locator_results.csv">Download locator_results.csv</a></p>
-
-<div class="tab-bar">
-</div>
-
+<div class="tab-bar"></div>
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
     <h2>Scan measurements</h2>
-
     <div class="control-row scan-target-row">
         <span class="control-label">Target:</span>
         <div aria-label="Scan target" class="segmented-control" id="scan-generator-type" role="radiogroup"></div>
     </div>
-
     <div class="scan-controls-split">
         <div class="panel panel-signal">
             <h3 class="panel-title">Signal</h3>
@@ -46,38 +35,29 @@
             </div>
         </div>
     </div>
-
     <div class="repeat-row">
         <div class="control-row">
             <span class="control-label">Repeat:</span>
             <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
-                <button aria-label="Previous repeat" class="control-button" id="scan-repeat-prev" type="button">
-                    Previous
-                </button>
+                <button aria-label="Previous repeat" class="control-button" id="scan-repeat-prev" type="button">Previous</button>
                 <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
-                <button aria-label="Next repeat" class="control-button" id="scan-repeat-next" type="button">
-                    Next
-                </button>
+                <button aria-label="Next repeat" class="control-button" id="scan-repeat-next" type="button">Next</button>
             </div>
         </div>
     </div>
     <p class="metrics" id="scan-metrics"></p>
     <div class="narrowed-bounds-panel" hidden id="narrowed-bounds-panel"></div>
     <iframe id="scan-iframe"></iframe>
-
     <div id="bayes-section-container" style="margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em;">
         <h2>Bayesian Analysis</h2>
-
         <div hidden id="bayes-interactive-section">
             <h3>Posterior Evolution</h3>
             <iframe id="bayes-interactive-iframe"></iframe>
         </div>
-
         <div hidden id="bayes-convergence-section">
             <h3>Parameter Convergence</h3>
             <iframe id="bayes-convergence-iframe"></iframe>
         </div>
-
         <div hidden id="bayes-stats-section">
             <h3>Bayesian Inference Statistics</h3>
             <div>
@@ -92,27 +72,21 @@
         </div>
     </div>
 </div>
-
-<div aria-labelledby="tab-scan-comparison" class="section tab-panel is-hidden" id="scan-comparison-section"
-     role="tabpanel">
+<div aria-labelledby="tab-scan-comparison" class="section tab-panel is-hidden" id="scan-comparison-section" role="tabpanel">
     <h2>Head to head</h2>
-
     <div class="comparison-shared-signal">
         <h3 class="comparison-subheading">Signal</h3>
         <div class="control-row scan-target-row">
             <span class="control-label">Target:</span>
-            <div aria-label="Comparison shared target" class="segmented-control" id="cmp-shared-generator-type"
-                 role="radiogroup"></div>
+            <div aria-label="Comparison shared target" class="segmented-control" id="cmp-shared-generator-type" role="radiogroup"></div>
         </div>
         <div class="control-row">
             <span class="control-label">Generator:</span>
-            <div aria-label="Comparison shared generator" class="segmented-control" id="cmp-shared-generator"
-                 role="radiogroup"></div>
+            <div aria-label="Comparison shared generator" class="segmented-control" id="cmp-shared-generator" role="radiogroup"></div>
         </div>
         <div class="control-row">
             <span class="control-label">Noise:</span>
-            <div aria-label="Comparison shared noise" class="segmented-control" id="cmp-shared-noise"
-                 role="radiogroup"></div>
+            <div aria-label="Comparison shared noise" class="segmented-control" id="cmp-shared-noise" role="radiogroup"></div>
         </div>
         <div class="repeat-row">
             <div class="control-row">
@@ -121,15 +95,13 @@
             </div>
         </div>
     </div>
-
     <h3 class="comparison-subheading">Locators</h3>
     <div class="scan-controls-split comparison-locators">
         <div class="panel panel-locator">
             <h4 class="panel-title">Left</h4>
             <div class="control-row">
                 <span class="control-label">Strategy:</span>
-                <div aria-label="Left comparison strategy" class="segmented-control" id="left-strategy"
-                     role="radiogroup"></div>
+                <div aria-label="Left comparison strategy" class="segmented-control" id="left-strategy" role="radiogroup"></div>
             </div>
             <p class="metrics" id="left-metrics"></p>
         </div>
@@ -137,36 +109,27 @@
             <h4 class="panel-title">Right</h4>
             <div class="control-row">
                 <span class="control-label">Strategy:</span>
-                <div aria-label="Right comparison strategy" class="segmented-control" id="right-strategy"
-                     role="radiogroup"></div>
+                <div aria-label="Right comparison strategy" class="segmented-control" id="right-strategy" role="radiogroup"></div>
             </div>
             <p class="metrics" id="right-metrics"></p>
         </div>
     </div>
-    <div aria-label="Combined head to head scan plot" class="head-to-head-plot" id="head-to-head-plot"
-         role="img"></div>
+    <div aria-label="Combined head to head scan plot" class="head-to-head-plot" id="head-to-head-plot" role="img"></div>
 </div>
-
-<div aria-labelledby="tab-model-comparison" class="section tab-panel is-hidden" id="strategy-comparison-section"
-     role="tabpanel">
+<div aria-labelledby="tab-model-comparison" class="section tab-panel is-hidden" id="strategy-comparison-section" role="tabpanel">
     <h2>Strategy Comparison</h2>
-
     <div class="control-row">
         <span class="control-label">Target:</span>
-        <div aria-label="Comparison generator type" class="segmented-control" id="comp-generator-type"
-             role="radiogroup">
-        </div>
+        <div aria-label="Comparison generator type" class="segmented-control" id="comp-generator-type" role="radiogroup"></div>
     </div>
     <div class="control-row">
         <span class="control-label">Generator:</span>
-        <div aria-label="Comparison generator" class="segmented-control" id="comp-generator" role="radiogroup">
-        </div>
+        <div aria-label="Comparison generator" class="segmented-control" id="comp-generator" role="radiogroup"></div>
     </div>
     <div class="control-row">
         <span class="control-label">Noise:</span>
         <div aria-label="Comparison noise" class="segmented-control" id="comp-noise" role="radiogroup"></div>
     </div>
-
     <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
         <div style="flex: 1; min-width: 400px;">
             <h3>Absolute Frequency Error</h3>
@@ -182,9 +145,6 @@
         </div>
     </div>
 </div>
-
 <iframe src="loader.html" style="display:none"></iframe>
-
 </body>
-
 </html>
