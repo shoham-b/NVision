@@ -99,7 +99,7 @@ def noises_none() -> list[tuple[str, CompositeNoise | None]]:
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     gauss_noise = 0.01
-    poisson_noise = 2000.0
+    poisson_noise = 3000.0
     over_probe_noise = 0.001
     return [
         (
