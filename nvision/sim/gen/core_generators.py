@@ -25,9 +25,12 @@ from nvision.spectra.nv_center import (
     MAX_K_NP,
     MIN_K_NP,
     NVCenterLorentzianSpectrum,
+    NVCenterOnePeakLorentzianModel,
+    NVCenterOnePeakLorentzianSpectrum,
     NVCenterVoigtSpectrum,
     NVCenterVoigtSpectrumSamples,
     nv_center_lorentzian_bounds_for_domain,
+    nv_center_one_peak_lorentzian_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
 )
 from nvision.spectra.signal import TrueSignal
@@ -141,15 +144,15 @@ def _make_model_and_spectrum(
 
     Returns a ``(SignalModel, typed_spectrum)`` pair.
     """
-    if spec is GAUSSIAN:
+    if spec == GAUSSIAN:
         return GaussianModel(), GaussianSpectrum(
             frequency=pos, sigma=width, dip_depth=dip_depth, background=background
         )
-    if spec is LORENTZIAN:
+    if spec == LORENTZIAN:
         return LorentzianModel(), LorentzianSpectrum(
             frequency=pos, linewidth=width, dip_depth=dip_depth, background=background
         )
-    if spec is EXPONENTIAL:
+    if spec == EXPONENTIAL:
         return ExponentialDecayModel(), ExponentialDecaySpectrum(
             decay_rate=width * 5, dip_depth=dip_depth, background=background
         )
@@ -251,27 +254,37 @@ class NVCenterCoreGenerator:
         background = 1.0
 
         if self.variant == "lorentzian":
-            model = NVCenterLorentzianModel()
-            # Scale a desired contrast onto the true peak-shape maximum
             unit_dip_depth = rng.uniform(0.3, 0.95)
             lw2 = linewidth**2
-            xs = np.linspace(center_freq - split, center_freq + split, 200)
-            g = (
-                (lw2 / k_np) / ((xs - (center_freq - split)) ** 2 + lw2)
-                + lw2 / ((xs - center_freq) ** 2 + lw2)
-                + (lw2 * k_np) / ((xs - (center_freq + split)) ** 2 + lw2)
-            )
-            dip_depth = unit_dip_depth / float(g.max())
-
-            typed_params = NVCenterLorentzianSpectrum(
-                frequency=center_freq,
-                linewidth=linewidth,
-                split=split,
-                k_np=k_np,
-                dip_depth=dip_depth,
-                background=background,
-            )
-            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
+            if self.zero_field:
+                model = NVCenterOnePeakLorentzianModel()
+                dip_depth = unit_dip_depth / float(1.0)  # single Lorentzian peak height at centre = 1.0
+                typed_params = NVCenterOnePeakLorentzianSpectrum(
+                    frequency=center_freq,
+                    linewidth=linewidth,
+                    dip_depth=dip_depth,
+                    background=background,
+                )
+                bounds = nv_center_one_peak_lorentzian_bounds_for_domain(self.x_min, self.x_max)
+            else:
+                model = NVCenterLorentzianModel()
+                # Scale a desired contrast onto the true peak-shape maximum
+                xs = np.linspace(center_freq - split, center_freq + split, 200)
+                g = (
+                    (lw2 / k_np) / ((xs - (center_freq - split)) ** 2 + lw2)
+                    + lw2 / ((xs - center_freq) ** 2 + lw2)
+                    + (lw2 * k_np) / ((xs - (center_freq + split)) ** 2 + lw2)
+                )
+                dip_depth = unit_dip_depth / float(g.max())
+                typed_params = NVCenterLorentzianSpectrum(
+                    frequency=center_freq,
+                    linewidth=linewidth,
+                    split=split,
+                    k_np=k_np,
+                    dip_depth=dip_depth,
+                    background=background,
+                )
+                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
         else:  # voigt
             fwhm_lorentz = 2 * linewidth
             fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)
@@ -302,10 +315,6 @@ class NVCenterCoreGenerator:
                 background=background,
             )
             bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
-
-        # Lock split to 0 for zero-field case (not a sought parameter)
-        if self.zero_field:
-            bounds["split"] = (0.0, 0.0)
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 

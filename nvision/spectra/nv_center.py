@@ -656,7 +656,157 @@ def nv_center_lorentzian_bounds_for_domain(
         "linewidth": (width * 0.0001, width * 0.05),
         "split": (0.0, 5.0e6),
         "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.05, 0.29),
+        "dip_depth": (0.001, 1.0),
+        "background": (0.95, 1.05),
+    }
+
+
+# ---------------------------------------------------------------------------
+# One-peak (zero-field) NV Lorentzian model — split and k_np are fixed to 0/1
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NVCenterOnePeakLorentzianSpectrum:
+    frequency: float
+    linewidth: float
+    dip_depth: float
+    background: float
+
+
+@dataclass(frozen=True)
+class NVCenterOnePeakLorentzianSpectrumSamples:
+    frequency: np.ndarray
+    linewidth: np.ndarray
+    dip_depth: np.ndarray
+    background: np.ndarray
+
+
+@dataclass(frozen=True)
+class NVCenterOnePeakLorentzianSpectrumUncertainty:
+    frequency: float
+    linewidth: float
+    dip_depth: float
+    background: float
+
+
+class _NVCenterOnePeakLorentzianSpec(
+    ParamSpec[
+        NVCenterOnePeakLorentzianSpectrum,
+        NVCenterOnePeakLorentzianSpectrumSamples,
+        NVCenterOnePeakLorentzianSpectrumUncertainty,
+    ]
+):
+    @property
+    def names(self) -> tuple[str, ...]:
+        return ("frequency", "linewidth", "dip_depth", "background")
+
+    @property
+    def dim(self) -> int:
+        return 4
+
+    def unpack_params(self, values) -> NVCenterOnePeakLorentzianSpectrum:
+        f, w, d, b = values
+        return NVCenterOnePeakLorentzianSpectrum(float(f), float(w), float(d), float(b))
+
+    def pack_params(self, params: NVCenterOnePeakLorentzianSpectrum) -> tuple[float, ...]:
+        return (float(params.frequency), float(params.linewidth), float(params.dip_depth), float(params.background))
+
+    def unpack_uncertainty(self, values) -> NVCenterOnePeakLorentzianSpectrumUncertainty:
+        f, w, d, b = values
+        return NVCenterOnePeakLorentzianSpectrumUncertainty(float(f), float(w), float(d), float(b))
+
+    def pack_uncertainty(self, u: NVCenterOnePeakLorentzianSpectrumUncertainty) -> tuple[float, ...]:
+        return (float(u.frequency), float(u.linewidth), float(u.dip_depth), float(u.background))
+
+    def unpack_samples(self, arrays_in_order) -> NVCenterOnePeakLorentzianSpectrumSamples:
+        f, w, d, b = arrays_in_order
+        return NVCenterOnePeakLorentzianSpectrumSamples(
+            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
+            linewidth=np.asarray(w, dtype=FLOAT_DTYPE),
+            dip_depth=np.asarray(d, dtype=FLOAT_DTYPE),
+            background=np.asarray(b, dtype=FLOAT_DTYPE),
+        )
+
+    def pack_samples(self, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> tuple[np.ndarray, ...]:
+        return (
+            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
+            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
+            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+        )
+
+
+class NVCenterOnePeakLorentzianModel(
+    SignalModel[
+        NVCenterOnePeakLorentzianSpectrum,
+        NVCenterOnePeakLorentzianSpectrumSamples,
+        NVCenterOnePeakLorentzianSpectrumUncertainty,
+    ]
+):
+    """NV center ODMR signal — single Lorentzian dip (zero-field / no hyperfine splitting).
+
+    split is fixed to 0 and k_np is fixed to 1, so only 4 parameters are inferred:
+    frequency, linewidth, dip_depth, background.
+
+    Signal form:
+        S(f) = background - dip_depth * linewidth² / ((f - frequency)² + linewidth²)
+    """
+
+    _SPEC = _NVCenterOnePeakLorentzianSpec()
+
+    @property
+    def spec(self) -> _NVCenterOnePeakLorentzianSpec:
+        return self._SPEC
+
+    def is_scale_parameter(self, name: str) -> bool:
+        return name in ("linewidth", "dip_depth")
+
+    def compute(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> float:
+        lw2 = params.linewidth ** 2
+        denom = (float(x) - params.frequency) ** 2 + lw2
+        return float(params.background - (params.dip_depth * lw2) / denom)
+
+    def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
+        x_f = float(x)
+        freq = np.asarray(samples.frequency, dtype=np.float64)
+        lw = np.asarray(samples.linewidth, dtype=np.float64)
+        depth = np.asarray(samples.dip_depth, dtype=np.float64)
+        bg = np.asarray(samples.background, dtype=np.float64)
+        lw2 = lw ** 2
+        denom = (x_f - freq) ** 2 + lw2
+        return (bg - depth * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
+
+    def compute_vectorized_many(
+        self, x_array: Sequence[float], samples: NVCenterOnePeakLorentzianSpectrumSamples
+    ) -> np.ndarray:
+        if not hasattr(samples, "frequency"):
+            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+        xs = np.asarray(x_array, dtype=np.float64)
+        if xs.ndim != 1:
+            raise ValueError("x_array must be one-dimensional")
+        freq = np.asarray(samples.frequency, dtype=np.float64)
+        lw = np.asarray(samples.linewidth, dtype=np.float64)
+        depth = np.asarray(samples.dip_depth, dtype=np.float64)
+        bg = np.asarray(samples.background, dtype=np.float64)
+        x2d = xs[:, None]
+        lw2 = lw[None, :] ** 2
+        denom = (x2d - freq[None, :]) ** 2 + lw2
+        return (bg[None, :] - depth[None, :] * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
+
+
+def nv_center_one_peak_lorentzian_bounds_for_domain(
+    x_min: float,
+    x_max: float,
+) -> dict[str, tuple[float, float]]:
+    """Physical parameter bounds for NV single-peak (zero-field) Lorentzian over ``[x_min, x_max]``."""
+    width = float(x_max - x_min)
+    if width <= 0:
+        raise ValueError("x_max must exceed x_min")
+    return {
+        "frequency": (float(x_min), float(x_max)),
+        "linewidth": (width * 0.0001, width * 0.05),
+        "dip_depth": (0.01, 1.0),
         "background": (0.95, 1.05),
     }
 
@@ -676,6 +826,6 @@ def nv_center_voigt_bounds_for_domain(
         "fwhm_gauss": (20e3, 800e3),
         "split": (0.0, 5.0e6),
         "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.05, 0.29),
+        "dip_depth": (0.001, 1.0),
         "background": (0.95, 1.05),
     }

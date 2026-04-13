@@ -219,10 +219,16 @@ function main() {
 
             if (interactivePlot) {
                 bayesInteractiveIframe.src = interactivePlot.path;
+                // Dynamic height: max(260, 180 * param_count) + padding for controls (~100px)
+                const paramCount = interactivePlot.param_count || 1;
+                const plotHeight = Math.max(260, 180 * paramCount);
+                const totalHeight = plotHeight + 120;  // Add space for title, controls, slider
+                bayesInteractiveIframe.style.height = totalHeight + 'px';
                 bayesInteractiveSection.hidden = false;
             } else {
                 bayesInteractiveSection.hidden = true;
                 bayesInteractiveIframe.src = '';
+                bayesInteractiveIframe.style.height = '';
             }
 
             const convergencePlot = plots.find(
@@ -1583,6 +1589,61 @@ function main() {
             document.body.appendChild(errorDiv);
         }
     }
+
+    // Keyboard shortcut: 'r' to reload/recalculate results
+    let _reloadInProgress = false;
+    document.addEventListener('keydown', async (e) => {
+        if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            if (_reloadInProgress) {
+                console.log('Reload already in progress...');
+                return;
+            }
+            _reloadInProgress = true;
+            console.log('Reloading results...');
+            // Show notification
+            const notif = document.createElement('div');
+            notif.id = 'reload-notification';
+            notif.style.cssText = 'position:fixed;top:20px;right:20px;padding:15px 25px;background:#2196F3;color:white;border-radius:4px;z-index:9999;font-family:sans-serif;font-weight:bold;box-shadow:0 2px 10px rgba(0,0,0,0.3);';
+            notif.textContent = 'Reloading results...';
+            document.body.appendChild(notif);
+
+            try {
+                const response = await fetch('/api/reload', { method: 'POST' });
+                const data = await response.json();
+                console.log('Reload response:', data);
+
+                if (data.status === 'started') {
+                    notif.style.background = '#4CAF50';
+                    notif.textContent = 'Recalculating... (this may take a moment)';
+                    // Poll for completion
+                    const pollInterval = setInterval(async () => {
+                        try {
+                            const statusResp = await fetch('/api/status');
+                            const status = await statusResp.json();
+                            if (!status.reload_running) {
+                                clearInterval(pollInterval);
+                                notif.style.background = '#4CAF50';
+                                notif.textContent = 'Done! Reloading page...';
+                                setTimeout(() => window.location.reload(), 1000);
+                            }
+                        } catch (e) {
+                            console.error('Poll error:', e);
+                        }
+                    }, 1000);
+                } else if (data.status === 'already_running') {
+                    notif.style.background = '#FF9800';
+                    notif.textContent = 'Reload already in progress';
+                    setTimeout(() => notif.remove(), 3000);
+                }
+            } catch (error) {
+                console.error('Reload failed:', error);
+                notif.style.background = '#f44336';
+                notif.textContent = 'Reload failed (see console)';
+                setTimeout(() => notif.remove(), 5000);
+                _reloadInProgress = false;
+            }
+        }
+    });
 
     window.addEventListener('DOMContentLoaded', () => {
         window.NVISION_BOOTSTRAP

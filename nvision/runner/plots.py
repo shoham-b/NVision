@@ -14,6 +14,7 @@ from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
+from nvision.viz.bayesian import _get_nv_parameter_descriptions, _get_signal_formula
 
 log = logging.getLogger(__name__)
 
@@ -235,6 +236,10 @@ def _bayesian_auxiliary_entries(
                 per_step_narrowed_bounds.append(snapshot.narrowed_param_bounds)
             else:
                 per_step_narrowed_bounds.append({})
+        # Generate parameter descriptions and signal formula from the signal model
+        signal_model = run_result.true_signal.model
+        param_descriptions = _get_nv_parameter_descriptions(signal_model)
+        signal_formula = _get_signal_formula(signal_model)
         viz.plot_posterior_animation_all_params(
             anim_all,
             interactive_path,
@@ -244,6 +249,8 @@ def _bayesian_auxiliary_entries(
             experiment_domain=experiment_domain,
             narrowed_param_bounds=run_result.narrowed_param_bounds,
             per_step_narrowed_bounds=per_step_narrowed_bounds,
+            param_descriptions=param_descriptions,
+            signal_formula=signal_formula,
         )
     else:
         anim_inputs = _posterior_animation_inputs(run_result, scan_param)
@@ -262,6 +269,7 @@ def _bayesian_auxiliary_entries(
         ie = entry_base.copy()
         ie["type"] = "bayesian_interactive"
         ie["path"] = interactive_path.relative_to(out_dir).as_posix()
+        ie["param_count"] = len(anim_all) if anim_all is not None else 1
         extra.append(ie)
 
     param_hist = [s.belief.uncertainty().as_dict() for s in run_result.snapshots]
@@ -297,7 +305,9 @@ def generate_attempt_plots(
     history_with_phase = current_history_df
 
     # Annotate coarse vs fine phase for strategies that perform an initial sweep.
-    initial_sweep_steps = _initial_sweep_steps_from_strategy(strat_obj)
+    # Use actual sweep_steps from entry_base if available (captured from locator),
+    # otherwise fall back to inferring from strategy config.
+    initial_sweep_steps = entry_base.get("sweep_steps") or _initial_sweep_steps_from_strategy(strat_obj)
     if "step" in current_history_df.columns and initial_sweep_steps > 0:
         history_with_phase = current_history_df.with_columns(
             pl.when(pl.col("step") < initial_sweep_steps)

@@ -62,9 +62,10 @@ def _systematic_resample_indices(cumulative_sum: np.ndarray, positions: np.ndarr
     j = 0
     m = cumulative_sum.shape[0]
     while i < n:
-        if j >= m:
-            j = m - 1
-        if positions[i] < cumulative_sum[j]:
+        if j >= m - 1:
+            indices[i] = m - 1
+            i += 1
+        elif positions[i] < cumulative_sum[j]:
             indices[i] = j
             i += 1
         else:
@@ -222,12 +223,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return ParameterValues.from_mapping(self._param_names, data)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
-        from scipy.stats import gaussian_kde
+        from scipy.stats import gaussian_kde, norm
 
         idx = self._param_names.index(param_name)
         samples = self._particles[:, idx]
 
-        # Fit KDE using weights
+        # Fall back to a narrow Gaussian when particles have collapsed (zero variance)
+        if np.std(samples) < 1e-10:
+            mean_val, _ = _weighted_mean_variance_1d(samples, self._weights)
+            lo, hi = self.parameter_bounds[param_name]
+            bw = (hi - lo) * 1e-3
+            return norm.pdf(x, loc=mean_val, scale=max(bw, 1e-10))
+
         kde = gaussian_kde(samples, weights=self._weights)
         return kde.evaluate(x)
 

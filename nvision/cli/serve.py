@@ -4,16 +4,23 @@ Usage:
     uv run python -m nvision serve                       # Serve main artifacts (port 8080)
     uv run python -m nvision serve --dir demo_artifacts  # Serve demo artifacts (port 8081)
     uv run python -m nvision serve --port 9000           # Custom port
+
+Keyboard shortcuts (in browser):
+    'r' - Reload/recalculate results
 """
 
 from __future__ import annotations
 
 import http.server
+import json
 import logging
 import socketserver
+import subprocess
+import sys
+import threading
 import webbrowser
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import typer
 from rich.console import Console
@@ -28,12 +35,93 @@ console = Console()
 PORT_MAIN = 18080
 PORT_DEMO = 18081
 
+# Global state for reload tracking
+_reload_state: dict = {"running": False, "last_output": ""}
 
-class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    """HTTP handler that suppresses per-request log lines."""
+
+class _APIHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTP handler with API endpoints for reload functionality."""
+
+    # Class variables set by the server
+    directory_to_serve: ClassVar[Path] = Path(".")
+    is_demo: ClassVar[bool] = False
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         pass
+
+    def do_GET(self) -> None:
+        """Handle GET requests - check for API endpoints first."""
+        if self.path == "/api/status":
+            self._send_json({
+                "reload_running": _reload_state["running"],
+                "last_output": _reload_state["last_output"],
+            })
+            return
+        # Fall through to static file serving
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        """Handle POST requests for API endpoints."""
+        if self.path == "/api/reload":
+            self._handle_reload()
+            return
+        self.send_error(404, "Not found")
+
+    def _handle_reload(self) -> None:
+        """Trigger a reload/recalculation in the background."""
+        global _reload_state
+
+        if _reload_state["running"]:
+            self._send_json({"status": "already_running", "message": "Reload already in progress"})
+            return
+
+        _reload_state["running"] = True
+        _reload_state["last_output"] = ""
+
+        # Start reload in background thread
+        thread = threading.Thread(target=self._run_reload, daemon=True)
+        thread.start()
+
+        self._send_json({"status": "started", "message": "Reload started"})
+
+    def _run_reload(self) -> None:
+        """Run the actual reload command."""
+        global _reload_state
+
+        try:
+            if self.is_demo:
+                # Run demo command
+                cmd = [sys.executable, "-m", "nvision", "demo", "--no-open"]
+            else:
+                # Run render to regenerate from cache
+                cmd = [sys.executable, "-m", "nvision", "render"]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=str(self.directory_to_serve.parent),
+            )
+            _reload_state["last_output"] = result.stdout + result.stderr
+            if result.returncode != 0:
+                _reload_state["last_output"] += f"\n[Exit code: {result.returncode}]"
+        except Exception as e:
+            _reload_state["last_output"] = f"Error: {e}"
+        finally:
+            _reload_state["running"] = False
+
+    def _send_json(self, data: dict) -> None:
+        """Send JSON response."""
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+
+    def end_headers(self) -> None:
+        """Add CORS headers for API requests."""
+        self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
 
 
 def _default_port_for_dir(directory: Path) -> int:
@@ -76,7 +164,9 @@ def serve(
 
     Serves the artifacts directory so that all graphs, iframes, and
     fetch-based resources load correctly in the browser.
-    Uses port 8080 for main artifacts and 8081 for demo artifacts.
+    Uses port 18080 for main artifacts and 18081 for demo artifacts.
+
+    Press 'r' in the browser to reload/recalculate results.
     """
     directory = directory.resolve()
     if not directory.exists():
@@ -101,9 +191,13 @@ def serve(
             webbrowser.open(url)
         return
 
+    # Configure handler class variables
+    _APIHandler.directory_to_serve = directory
+    _APIHandler.is_demo = "demo" in directory.name.lower()
+
     console.print(f"[bold cyan]Serving:[/bold cyan] {directory}")
     console.print(f"[bold cyan]URL:[/bold cyan]     {url}")
-    console.print("[dim]Press Ctrl+C to stop.[/dim]")
+    console.print("[dim]Keyboard: 'r' = reload/recalculate | Ctrl+C = stop[/dim]")
 
     if not no_open:
         webbrowser.open(url)
@@ -113,7 +207,7 @@ def serve(
     original_dir = os.getcwd()
     try:
         os.chdir(directory)
-        with socketserver.TCPServer(("", port), _QuietHandler) as httpd:
+        with socketserver.TCPServer(("", port), _APIHandler) as httpd:
             httpd.serve_forever()
     except KeyboardInterrupt:
         console.print("\n[bold]Server stopped.[/bold]")

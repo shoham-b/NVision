@@ -18,7 +18,8 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     UtilitySamplingLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import (
-    nv_center_belief,
+    nv_center_one_peak_smc_belief,
+    nv_center_smc_belief,
     one_peak_gaussian_belief,
     one_peak_lorentzian_belief,
     two_peak_gaussian_belief,
@@ -39,10 +40,11 @@ class Combination:
     strategy: type | dict[str, Any]
 
 
-_NV_GRID: dict[str, int] = {
-    "n_grid_freq": 160,
-    "n_grid_linewidth": 80,
-    "n_grid_split": 80,
+_NV_SMC: dict[str, object] = {
+    "builder": nv_center_smc_belief,
+    "num_particles": 5000,
+    "jitter_scale": 0.05,
+    "ess_threshold": 0.5,
 }
 
 
@@ -80,22 +82,58 @@ class CombinationGrid:
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
-        if generator_name.startswith("NVCenter-"):
-            nv = {"builder": nv_center_belief, **_NV_GRID}
+        if generator_name in ("NVCenter-one_peak", "NVCenter-voigt_one_peak"):
+            _NV_ONE_PEAK: dict[str, object] = {
+                "builder": nv_center_one_peak_smc_belief,
+                "num_particles": 5000,
+                "jitter_scale": 0.05,
+                "ess_threshold": 0.5,
+            }
             return [
                 ("SimpleSweep", SimpleSweepLocator),
                 (
                     "Bayesian-SBED",
-                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **nv}},
+                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **_NV_ONE_PEAK}},
                 ),
-                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, **nv}}),
+                (
+                    "Bayesian-MaximumLikelihood",
+                    {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, **_NV_ONE_PEAK}},
+                ),
                 (
                     "Bayesian-UtilitySampling",
                     {
                         "class": UtilitySamplingLocator,
                         "config": {
                             "max_steps": 200,
-                            **nv,
+                            **_NV_ONE_PEAK,
+                            "pickiness": 4.0,
+                            "noise_std": 0.02,
+                            "cost": 1.0,
+                            "n_mc_samples": 64,
+                            "n_candidates": 64,
+                        },
+                    },
+                ),
+            ]
+
+        if generator_name.startswith("NVCenter-"):
+            return [
+                ("SimpleSweep", SimpleSweepLocator),
+                (
+                    "Bayesian-SBED",
+                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **_NV_SMC}},
+                ),
+                (
+                    "Bayesian-MaximumLikelihood",
+                    {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, **_NV_SMC}},
+                ),
+                (
+                    "Bayesian-UtilitySampling",
+                    {
+                        "class": UtilitySamplingLocator,
+                        "config": {
+                            "max_steps": 200,
+                            **_NV_SMC,
                             "pickiness": 4.0,
                             "noise_std": 0.02,
                             "cost": 1.0,

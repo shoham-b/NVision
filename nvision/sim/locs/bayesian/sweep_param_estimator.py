@@ -108,7 +108,7 @@ def _find_dip_peaks(
     Returns:
         List of (x_center, depth_fraction) tuples, one per dip.
     """
-    threshold = background - 0.4 * dip_depth * background
+    threshold = background - 0.2 * dip_depth * background
     below = ys_sorted < threshold
     if not np.any(below):
         return []
@@ -156,7 +156,8 @@ def estimate_non_scan_param_bounds(
     the true value is not excluded, then clamped to the current prior.
 
     Args:
-        xs: Normalized [0, 1] sweep probe positions.
+        xs: Sweep probe positions in **physical units** (same scale as the
+            ``current_bounds`` values, e.g. Hz for a frequency axis).
         ys: Measured signal values at each probe position.
         param_names: Names of all model parameters (in order).
         current_bounds: Current physical bounds for each parameter.
@@ -197,25 +198,12 @@ def estimate_non_scan_param_bounds(
             result["background"] = (new_lo, new_hi)
             log.debug("Narrowed background: [%.4g, %.4g] → [%.4g, %.4g]", lo_pr, hi_pr, new_lo, new_hi)
 
-    # -----------------------------------------------------------------------
-    # linewidth / fwhm_lorentz / fwhm_gauss
-    # -----------------------------------------------------------------------
-    full_width = _estimate_linewidth_from_dip(xs_s, ys_s, background, dip_depth)
-    if full_width is not None and full_width > 0:
-        for lw_name in ("linewidth", "fwhm_lorentz"):
-            if lw_name in param_names and lw_name != scan_param:
-                lo_pr, hi_pr = current_bounds.get(lw_name, (0.0, 1.0))
-                # full_width is the total dip extent, linewidth is HWHM ≈ half of that.
-                est_lw = full_width * 0.5
-                pad = safety_factor * max(est_lw, hi_pr - lo_pr * 0.5)
-                new_lo = max(lo_pr, est_lw - pad)
-                new_hi = min(hi_pr, est_lw + pad)
-                if _is_useful_narrowing(new_lo, new_hi, lo_pr, hi_pr):
-                    result[lw_name] = (new_lo, new_hi)
-                    log.debug(
-                        "Narrowed %s: [%.4g, %.4g] → [%.4g, %.4g]",
-                        lw_name, lo_pr, hi_pr, new_lo, new_hi,
-                    )
+    # NOTE: linewidth / fwhm_lorentz are intentionally NOT narrowed from the
+    # coarse sweep.  The sweep spacing is typically much larger than the dip
+    # HWHM, so any width estimated from the sweep is driven by sample spacing
+    # rather than the true linewidth (systematic 2-5× overestimation).  This
+    # causes new_lo > true_value, locking the posterior to the wrong region.
+    # Linewidth converges reliably via posterior updates during inference.
 
     # -----------------------------------------------------------------------
     # split — requires two resolved dip peaks
@@ -228,9 +216,8 @@ def estimate_non_scan_param_bounds(
             sorted_peaks = sorted(peaks, key=lambda p: p[0])
             x_left = sorted_peaks[0][0]
             x_right = sorted_peaks[-1][0]
-            # xs are normalized [0,1]; convert to physical split via current freq bounds.
             # split ≈ physical half-distance between outermost peaks.
-            # Note: xs here are already in physical units (from sweep observations).
+            # xs are in physical units so the difference is already physical.
             est_split = (x_right - x_left) / 2.0
             pad = safety_factor * max(est_split, (hi_pr - lo_pr) * 0.1)
             new_lo = max(lo_pr, est_split - pad)

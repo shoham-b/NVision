@@ -1,9 +1,13 @@
 """Quick demo command for validating improvements.
 
 Usage:
-    uv run python -m nvision demo              # Run quick demo with cache
+    uv run python -m nvision demo              # Run quick demo with cache (60 tasks)
     uv run python -m nvision demo --no-cache   # Run fresh comparison
     uv run python -m nvision demo --open       # Auto-open results in browser
+
+Fast options (reduce task count):
+    uv run python -m nvision demo --filter-generator NVCenter-zeeman --filter-noise NoNoise
+    uv run python -m nvision demo --filter-generator NVCenter-zeeman --filter-noise Gauss
 """
 
 from __future__ import annotations
@@ -20,7 +24,6 @@ from rich.table import Table
 
 from nvision.cli.app_instance import app
 from nvision.cli.run import run
-from nvision.sim.grid_enums import GeneratorName
 from nvision.tools.paths import ensure_out_dir
 
 log = logging.getLogger("nvision")
@@ -73,7 +76,15 @@ def demo(
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
-    ] = 5,
+    ] = 8,
+    filter_generator: Annotated[
+        str | None,
+        typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-zeeman')"),
+    ] = None,
+    filter_noise: Annotated[
+        str | None,
+        typer.Option("--filter-noise", help="Filter to specific noise (e.g., 'NoNoise', 'Gauss')"),
+    ] = None,
 ) -> int:
     """Quick demo to validate improvements - fast, focused, visual.
 
@@ -82,6 +93,10 @@ def demo(
     """
     console.print("[bold cyan]NVision Quick Demo[/bold cyan]")
     console.print(f"Repeats: {repeats}, Steps: {loc_max_steps}, Cache: {not no_cache}")
+    if filter_generator:
+        console.print(f"Generator filter: {filter_generator}")
+    if filter_noise:
+        console.print(f"Noise filter: {filter_noise}")
     console.print()
 
     # Clear old demo artifacts to ensure only latest run is shown
@@ -92,17 +107,34 @@ def demo(
 
     start_time = time.time()
 
-    # NV center generators to demo: zeeman (split) and voigt variants
-    nv_generators = [
-        ("zeeman (Lorentzian)", GeneratorName.NVCENTER_ZEEMAN),
-        ("voigt one-peak", GeneratorName.NVCENTER_VOIGT_ONE_PEAK),
-        ("voigt zeeman", GeneratorName.NVCENTER_VOIGT_ZEEMAN),
-    ]
+    # Run all Bayesian strategies (SBED + MaximumLikelihood) in single run
+    console.print("[bold]Running Bayesian strategies (SBED + MaximumLikelihood) on NV center variants...[/bold]")
+    result = run(
+        out=DEMO_ARTIFACTS_ROOT,
+        repeats=repeats,
+        loc_max_steps=loc_max_steps,
+        loc_timeout_s=300,
+        no_cache=no_cache,
+        ignore_cache_strategy=None,
+        filter_category="NVCenter",
+        filter_strategy="Bayesian",  # Matches both SBED and MaximumLikelihood
+        filter_generator=filter_generator,
+        filter_noise=filter_noise,
+        all_experiments=False,
+        no_progress=False,  # Show unified progress bar
+        require_cache=False,
+        log_level="INFO",
+        runners=runners,
+        logs_root=DEMO_LOGS_ROOT,
+    )
+    if result != 0:
+        console.print("[bold red]Demo failed![/bold red]")
+        return result
 
-    # Run Bayesian strategy on all NV center variants
-    console.print("[bold]Running Bayesian SBED strategy on NV center variants...[/bold]")
-    for name, gen in nv_generators:
-        console.print(f"  - {name}...")
+    # Optionally run SimpleSweep comparison
+    if compare:
+        console.print()
+        console.print("[bold]Running SimpleSweep baseline for comparison...[/bold]")
         result = run(
             out=DEMO_ARTIFACTS_ROOT,
             repeats=repeats,
@@ -111,44 +143,18 @@ def demo(
             no_cache=no_cache,
             ignore_cache_strategy=None,
             filter_category="NVCenter",
-            filter_strategy="Bayesian-SBED",
-            filter_generator=gen,
+            filter_strategy="SimpleSweep",
+            filter_generator=filter_generator,
+            filter_noise=filter_noise,
             all_experiments=False,
-            no_progress=False,
+            no_progress=False,  # Show unified progress bar
             require_cache=False,
             log_level="INFO",
             runners=runners,
             logs_root=DEMO_LOGS_ROOT,
         )
         if result != 0:
-            console.print(f"[bold red]Demo failed for {name}![/bold red]")
-            return result
-
-    # Optionally run comparison strategy
-    if compare:
-        console.print()
-        console.print("[bold]Running SimpleSweep baseline for comparison...[/bold]")
-        for name, gen in nv_generators:
-            console.print(f"  - {name}...")
-            result = run(
-                out=DEMO_ARTIFACTS_ROOT,
-                repeats=repeats,
-                loc_max_steps=loc_max_steps,
-                loc_timeout_s=300,
-                no_cache=no_cache,
-                ignore_cache_strategy=None,
-                filter_category="NVCenter",
-                filter_strategy="SimpleSweep",
-                filter_generator=gen,
-                all_experiments=False,
-                no_progress=False,
-                require_cache=False,
-                log_level="INFO",
-                runners=runners,
-                logs_root=DEMO_LOGS_ROOT,
-            )
-            if result != 0:
-                console.print(f"[yellow]Warning: Baseline run failed for {name}[/yellow]")
+            console.print("[yellow]Warning: Baseline run failed[/yellow]")
 
     elapsed = time.time() - start_time
     console.print()

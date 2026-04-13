@@ -3,10 +3,90 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+
+def _get_signal_formula(model: Any) -> str:
+    """Return a LaTeX string with the full signal formula for the given model.
+
+    Plotly renders LaTeX in titles when wrapped in $...$.
+    """
+    # Unwrap UnitCubeSignalModel to get the inner physical model
+    inner = getattr(model, "inner", model)
+    inner_name = type(inner).__name__
+
+    if "OnePeakLorentzian" in inner_name:
+        return (
+            r"$S(f) = B - A \frac{\omega^2}{(f - f_0)^2 + \omega^2}$"
+        )
+    if "NVCenterLorentzian" in inner_name:
+        return (
+            r"$S(f) = B - \frac{A}{k} \frac{\omega^2}{(f-f_0+\Delta)^2 + \omega^2} - A \frac{\omega^2}{(f-f_0)^2 + \omega^2} - A \cdot k \cdot \frac{\omega^2}{(f-f_0-\Delta)^2 + \omega^2}$"
+        )
+    if "VoigtZeeman" in inner_name:
+        return (
+            r"$\begin{aligned} S(f) &= B - \frac{A}{k}V(f-f_0+\Delta) - A \cdot V(f-f_0) - A \cdot k \cdot V(f-f_0-\Delta) \\ "
+            r"V(x; \text{fwhm_lorentz}, \text{fwhm_gauss}) &= \int_{-\infty}^{\infty} \frac{\gamma/\pi}{(x-t)^2 + \gamma^2} \cdot \frac{e^{-t^2/(2\sigma^2)}}{\sigma\sqrt{2\pi}} \, dt \\ "
+            r"\gamma = \frac{\text{fwhm_lorentz}}{2}, \quad \sigma &= \frac{\text{fwhm_gauss}}{2\sqrt{2\ln 2}} \end{aligned}$"
+        )
+    if "NVCenterVoigt" in inner_name:
+        return (
+            r"$\begin{aligned} S(f) &= B - \frac{A}{k}V(f-f_0+\Delta) - A \cdot V(f-f_0) - A \cdot k \cdot V(f-f_0-\Delta) \\ "
+            r"V(x; \text{fwhm_lorentz}, \text{fwhm_gauss}) &= \int_{-\infty}^{\infty} \frac{\gamma/\pi}{(x-t)^2 + \gamma^2} \cdot \frac{e^{-t^2/(2\sigma^2)}}{\sigma\sqrt{2\pi}} \, dt \\ "
+            r"\gamma = \frac{\text{fwhm_lorentz}}{2}, \quad \sigma &= \frac{\text{fwhm_gauss}}{2\sqrt{2\ln 2}} \end{aligned}$"
+        )
+    if "OnePeakVoigt" in inner_name:
+        return (
+            r"$\begin{aligned} S(f) &= B - A \cdot V(f - f_0) \\ "
+            r"V(x; \text{fwhm_lorentz}, \text{fwhm_gauss}) &= \int_{-\infty}^{\infty} \frac{\gamma/\pi}{(x-t)^2 + \gamma^2} \cdot \frac{e^{-t^2/(2\sigma^2)}}{\sigma\sqrt{2\pi}} \, dt \\ "
+            r"\gamma = \frac{\text{fwhm_lorentz}}{2}, \quad \sigma &= \frac{\text{fwhm_gauss}}{2\sqrt{2\ln 2}} \end{aligned}$"
+        )
+    if "Lorentzian" in inner_name:
+        return r"$S(f) = B - A \frac{\omega^2}{(f - f_0)^2 + \omega^2}$"
+    if "Gaussian" in inner_name:
+        return r"$S(f) = B + A \exp\left[-\frac{(f - f_0)^2}{2\sigma^2}\right]$"
+    if "Composite" in inner_name:
+        return r"$S(f) = \sum_i S_i(f)$  (composite)"
+    return ""
+
+
+def _get_nv_parameter_descriptions(model: Any) -> dict[str, str]:
+    """Generate parameter descriptions with formulas for NV center models.
+
+    Returns a mapping from parameter name to rich description including
+    the parameter's role in the signal equation.
+    """
+    inner = getattr(model, "inner", model)
+    inner_name = type(inner).__name__
+
+    is_voigt = "Voigt" in inner_name
+
+    base_descriptions: dict[str, str] = {
+        "frequency": "f₀ — central frequency (center of main dip)",
+        "linewidth": "ω — Lorentzian linewidth (HWHM)" if not is_voigt else "γ — Lorentzian FWHM",
+        "fwhm_lorentz": "γ_L — Lorentzian FWHM",
+        "fwhm_gauss": "γ_G — Gaussian FWHM (inhomogeneous broadening)",
+        "split": "Δ — hyperfine splitting (outer peak distance)",
+        "k_np": "k — non-polarization factor (asymmetry ratio)",
+        "dip_depth": "A — dip depth (peak amplitude scaling)",
+        "background": "B — background signal level",
+    }
+
+    return base_descriptions
+
+
+def _build_subplot_title(param: str, descriptions: dict[str, str] | None) -> str:
+    """Build rich subplot title with parameter name and description."""
+    if descriptions is None:
+        return param
+    desc = descriptions.get(param, "")
+    if desc:
+        return f"<b>{param}</b><br><span style='font-size:10px;color:#666;'>{desc}</span>"
+    return param
 
 
 def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> None:
@@ -31,6 +111,7 @@ def _add_acquisition_window_subplot(
     window: tuple[float, float],
     full_domain: tuple[float, float] | None,
     annotation_text: str = "acquisition window",
+    zoom_to_window: bool = False,
 ) -> None:
     """Shade the acquisition interval on one marginal."""
     x0, x1 = float(window[0]), float(window[1])
@@ -48,7 +129,11 @@ def _add_acquisition_window_subplot(
         row=row,
         col=col,
     )
-    if full_domain is not None:
+    if zoom_to_window:
+        # Focus only on the acquisition window with 10% padding
+        pad = (x1 - x0) * 0.1
+        fig.update_xaxes(range=[x0 - pad, x1 + pad], row=row, col=col)
+    elif full_domain is not None:
         flo, fhi = float(full_domain[0]), float(full_domain[1])
         if math.isfinite(flo) and math.isfinite(fhi) and fhi > flo:
             lo = min(flo, x0)
@@ -119,7 +204,7 @@ def _trace_one_marginal_posterior(
             histnorm="probability density",
             name=f"{param} (particles)",
             opacity=0.75,
-            nbinsx=40,
+            nbinsx=80,
             showlegend=False,
         )
     return go.Scatter(
@@ -319,7 +404,7 @@ class BayesianMixin:
         _add_true_vline_single_axis(fig, true_value)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        fig.write_html(out_path, include_mathjax="cdn")
 
     def plot_posterior_animation_all_params(
         self,
@@ -332,6 +417,8 @@ class BayesianMixin:
         experiment_domain: tuple[float, float] | None = None,
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
         per_step_narrowed_bounds: list[dict[str, tuple[float, float]]] | None = None,
+        param_descriptions: dict[str, str] | None = None,
+        signal_formula: str | None = None,
     ) -> None:
         """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
 
@@ -346,6 +433,9 @@ class BayesianMixin:
         When ``narrowed_param_bounds`` is provided, additional green bands are drawn on each
         non-scan marginal that was narrowed by the sweep estimator, giving a visual cue of
         which parameter regions survived the coarse sweep.
+
+        ``param_descriptions`` maps parameter names to rich HTML descriptions that will be
+        displayed as subplot titles alongside the parameter names.
         """
         if not posterior_inputs_by_param:
             return
@@ -370,11 +460,12 @@ class BayesianMixin:
                 traces.append(_trace_one_marginal_posterior(posterior, grid, param))
             return traces
 
+        subplot_titles = tuple(_build_subplot_title(p, param_descriptions) for p in param_names)
         fig = make_subplots(
             rows=n,
             cols=1,
-            subplot_titles=tuple(param_names),
-            vertical_spacing=min(0.12, 0.5 / max(n, 1)),
+            subplot_titles=subplot_titles,
+            vertical_spacing=min(0.15, 0.6 / max(n, 1)),  # slightly more spacing for rich titles
         )
         for i, tr in enumerate(traces_for_step(step_indices[0]), start=1):
             fig.add_trace(tr, row=i, col=1)
@@ -454,10 +545,11 @@ class BayesianMixin:
                         if step_idx >= 32 and (step_idx - 32) % 20 == 0:
                             refocusing_steps.add(si)
 
-            # Add refocusing indicator to title
-            title_text = f"Posterior evolution (all parameters) — step {step_idx + 1}/{total_steps}"
+            # Add refocusing indicator to title (LaTeX formulas render via $...$)
+            _formula_suffix = f"  {signal_formula}" if signal_formula else ""
+            title_text = f"Posterior evolution (all parameters){_formula_suffix}<br>step {step_idx + 1}/{total_steps}"
             if si in refocusing_steps:
-                title_text += " [REFOCUSING]"
+                title_text = title_text.replace("<br>", " [REFOCUSING]<br>", 1)
                 
             frames.append(
                 go.Frame(
@@ -503,27 +595,36 @@ class BayesianMixin:
                 window=acquisition_window,
                 full_domain=experiment_domain,
                 annotation_text="post-sweep acquisition",
+                zoom_to_window=True,
             )
 
         _add_true_vline_subplots(fig, param_names, true_params)
 
+        base_title = "Posterior evolution (all parameters)"
+        if signal_formula:
+            base_title = f"{base_title}  {signal_formula}"
+
         fig.update_layout(
-            title_text=f"Posterior evolution (all parameters) — step {step_indices[0] + 1}/{total_steps}",
+            title_text=f"{base_title}<br>step {step_indices[0] + 1}/{total_steps}",
+            title_font_size=14,
+            title_y=0.98,
+            title_yanchor="top",
             template="plotly_white",
-            height=max(260, 180 * n),
+            height=max(300, 180 * n),
             updatemenus=[
                 dict(
                     type="buttons",
                     direction="left",
-                    x=0.0,
-                    y=1.08,
+                    x=0.02,
+                    y=0.02,
                     xanchor="left",
-                    yanchor="top",
-                    showactive=False,
-                    pad={"r": 10, "t": 0},
+                    yanchor="bottom",
+                    showactive=True,
+                    active=0,
+                    pad={"r": 10, "t": 10},
                     buttons=[
                         dict(
-                            label="Play",
+                            label="▶ Play",
                             method="animate",
                             args=[
                                 None,
@@ -531,11 +632,12 @@ class BayesianMixin:
                                     "frame": {"duration": 100, "redraw": True},
                                     "fromcurrent": True,
                                     "transition": {"duration": 0},
+                                    "mode": "immediate",
                                 },
                             ],
                         ),
                         dict(
-                            label="Pause",
+                            label="⏸ Pause",
                             method="animate",
                             args=[
                                 [None],
@@ -561,7 +663,7 @@ class BayesianMixin:
         fig.frames = frames
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        fig.write_html(out_path, include_mathjax="cdn")
 
     def plot_parameter_convergence(
         self,
@@ -641,4 +743,4 @@ class BayesianMixin:
         )
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        fig.write_html(out_path, include_mathjax="cdn")

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 from nvision.cache import CacheBridge
-from nvision.models.experiment import CoreExperiment
+from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
 from nvision.models.observer import Observer, RunResult
 from nvision.models.task import LocatorTask
@@ -24,10 +26,77 @@ from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
 from nvision.runner.signal_cache import get_shared_core_experiment
 from nvision.sim import cases as sim_cases
 from nvision.sim.combinations import CombinationGrid
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
+
+# Process-level shared sweep cache (shared across all locators, all tasks)
+_SWEEP_CACHE_LOCK = threading.Lock()
+_SWEEP_OBSERVATIONS_BY_KEY: dict[str, list[Observation]] = {}
+
+
+def _sweep_cache_key(experiment: CoreExperiment, sweep_steps: int) -> str:
+    """Generate cache key from experiment characteristics.
+
+    Key includes: x-range, sweep steps, noise config, and signal signature.
+    """
+    sig_bounds = getattr(experiment.true_signal, "bounds", {})
+    noise_name = experiment.noise.__class__.__name__ if experiment.noise else "none"
+    noise_seed = getattr(experiment.noise, "seed", "noseed") if experiment.noise else "noseed"
+    # Include parameter values for signal instances with different true parameters
+    param_values = getattr(experiment.true_signal, "parameter_values", lambda: {})()
+    return (
+        f"sweep:{experiment.x_min:.9f}:{experiment.x_max:.9f}:"
+        f"{sweep_steps}:{noise_name}:{noise_seed}:"
+        f"{hash(str(sorted(sig_bounds.items())))}:{hash(str(sorted(param_values.items())))}"
+    )
+
+
+def get_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> list[Observation] | None:
+    """Retrieve cached sweep observations if available."""
+    key = _sweep_cache_key(experiment, sweep_steps)
+    with _SWEEP_CACHE_LOCK:
+        return _SWEEP_OBSERVATIONS_BY_KEY.get(key)
+
+
+def put_cached_sweep(experiment: CoreExperiment, sweep_steps: int, observations: list[Observation]) -> None:
+    """Store sweep observations in shared cache."""
+    key = _sweep_cache_key(experiment, sweep_steps)
+    with _SWEEP_CACHE_LOCK:
+        _SWEEP_OBSERVATIONS_BY_KEY[key] = observations
+
+
+def has_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> bool:
+    """Check if sweep is cached for this experiment."""
+    key = _sweep_cache_key(experiment, sweep_steps)
+    with _SWEEP_CACHE_LOCK:
+        return key in _SWEEP_OBSERVATIONS_BY_KEY
+
+
+def clear_sweep_cache() -> None:
+    """Clear all cached sweep observations (useful for testing)."""
+    with _SWEEP_CACHE_LOCK:
+        _SWEEP_OBSERVATIONS_BY_KEY.clear()
+
+
+@dataclass
+class SweepCache:
+    """Per-task sweep cache wrapper that uses the process-level shared cache.
+
+    This allows each _TaskRunner to have its own cache reference while sharing
+    the underlying storage across all locators in the process.
+    """
+
+    def get(self, experiment: CoreExperiment, sweep_steps: int) -> list[Observation] | None:
+        return get_cached_sweep(experiment, sweep_steps)
+
+    def put(self, experiment: CoreExperiment, sweep_steps: int, observations: list[Observation]) -> None:
+        put_cached_sweep(experiment, sweep_steps, observations)
+
+    def has(self, experiment: CoreExperiment, sweep_steps: int) -> bool:
+        return has_cached_sweep(experiment, sweep_steps)
 
 type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]
@@ -37,13 +106,36 @@ def run_loop(
     locator_class: type[Locator],
     experiment: CoreExperiment,
     rng: random.Random,
+    sweep_cache: SweepCache | None = None,
     **locator_config: Any,
 ) -> Iterator[Locator]:
-    """Run one repeat's measurement loop and yield locator states."""
+    """Run one repeat's measurement loop and yield locator states.
+
+    For Bayesian locators with initial sweeps, checks ``sweep_cache`` for
+    pre-computed sweep observations to avoid redundant measurements.
+    """
     locator = locator_class.create(**locator_config)
+
+    # Check if we can use cached sweep for Bayesian locators
+    cached_sweep: list[Observation] | None = None
+    if sweep_cache is not None and isinstance(locator, SequentialBayesianLocator):
+        sweep_steps = getattr(locator, "initial_sweep_steps", 0)
+        if sweep_cache.has(experiment, sweep_steps):
+            cached_sweep = sweep_cache.get(experiment, sweep_steps)
+
+    step = 0
     while not locator.done():
+        step += 1
         x_normalized = locator.next()
-        obs = experiment.measure(x_normalized, rng)
+
+        # Use cached observation if in sweep phase and cache available
+        if cached_sweep is not None and step <= len(cached_sweep):
+            obs = cached_sweep[step - 1]
+            # Ensure observation x matches what the locator expects
+            # (Locator generates x via next(), we provide cached signal_value)
+        else:
+            obs = experiment.measure(x_normalized, rng)
+
         locator.observe(obs)
         yield locator
 
@@ -98,6 +190,8 @@ class _TaskRunner:
             self._owns_bridge = True
         self.cache = self.bridge.get_cache_for_category(category)
         self._viz: Viz | None = None
+        # Shared sweep cache across all repeats for this task
+        self._sweep_cache = SweepCache()
 
     @property
     def viz(self) -> Viz:
@@ -394,7 +488,7 @@ class _TaskRunner:
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
 
         try:
-            result = observer.watch(run_loop(locator_class, experiment, rng, **cfg))
+            result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))
             stop_reason = "locator_stop"
         except TimeoutError:
             result = RunResult(
@@ -403,6 +497,15 @@ class _TaskRunner:
                 focus_window=None,
             )
             stop_reason = "repeat_timeout"
+
+        # Populate sweep cache from this repeat's observations (for sharing with subsequent repeats)
+        if observer.last_locator is not None:
+            last_loc = observer.last_locator
+            if isinstance(last_loc, SequentialBayesianLocator):
+                sweep_steps = getattr(last_loc, "initial_sweep_steps", 0)
+                sweep_obs = getattr(last_loc, "_sweep_observations", [])
+                if sweep_steps > 0 and sweep_obs and not self._sweep_cache.has(experiment, sweep_steps):
+                    self._sweep_cache.put(experiment, sweep_steps, list(sweep_obs))
 
         locator_instance = locator_class.create(**cfg)
         if result.snapshots:

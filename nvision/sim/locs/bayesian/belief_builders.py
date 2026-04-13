@@ -177,6 +177,37 @@ def two_peak_lorentzian_belief(
     )
 
 
+def nv_center_one_peak_belief(
+    parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
+    *,
+    n_grid_freq: int = 500,
+    n_grid_linewidth: int = 80,
+    n_grid_depth: int = 100,
+    n_grid_background: int = 60,
+    **_extra: object,
+) -> UnitCubeGridMarginalDistribution:
+    """NV-center single-peak (zero-field) belief: 4 parameters, no split or k_np."""
+    from nvision.spectra.nv_center import (
+        NVCenterOnePeakLorentzianModel,
+        nv_center_one_peak_lorentzian_bounds_for_domain,
+    )
+
+    model = NVCenterOnePeakLorentzianModel()
+    phys = nv_center_one_peak_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
+    base_specs: list[tuple[str, tuple[float, float], int]] = [
+        ("frequency", phys["frequency"], n_grid_freq),
+        ("linewidth", phys["linewidth"], n_grid_linewidth),
+        ("dip_depth", phys["dip_depth"], n_grid_depth),
+        ("background", phys["background"], n_grid_background),
+    ]
+    return _unit_cube_belief_from_specs(
+        model=model,
+        parameter_bounds=parameter_bounds,
+        specs=base_specs,
+        x_param_name="frequency",
+    )
+
+
 def nv_center_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
@@ -233,6 +264,49 @@ def nv_center_belief(
         parameter_bounds=parameter_bounds,
         specs=base_specs,
         x_param_name="frequency",
+    )
+
+
+def nv_center_one_peak_smc_belief(
+    parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
+    *,
+    num_particles: int = 5000,
+    jitter_scale: float = 0.05,
+    ess_threshold: float = 0.5,
+    **_extra: object,
+) -> UnitCubeSMCMarginalDistribution:
+    """NV-center single-peak (zero-field) belief: 4 parameters, SMC particles."""
+    from nvision.spectra.nv_center import (
+        NVCenterOnePeakLorentzianModel,
+        nv_center_one_peak_lorentzian_bounds_for_domain,
+    )
+
+    model = NVCenterOnePeakLorentzianModel()
+    merged_bounds = nv_center_one_peak_lorentzian_bounds_for_domain(
+        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX
+    )
+
+    if parameter_bounds:
+        for name in merged_bounds:
+            if name in parameter_bounds and parameter_bounds[name][1] > parameter_bounds[name][0]:
+                merged_bounds[name] = parameter_bounds[name]
+
+    # Enforce dip_depth floor so the posterior cannot collapse to "flat signal".
+    if "dip_depth" in merged_bounds:
+        d_lo, d_hi = merged_bounds["dip_depth"]
+        merged_bounds["dip_depth"] = (max(float(d_lo), 0.05), float(d_hi))
+
+    x_phys = merged_bounds["frequency"]
+    wrapped = UnitCubeSignalModel(model, merged_bounds, x_phys)
+
+    return UnitCubeSMCMarginalDistribution(
+        model=wrapped,
+        parameter_bounds={name: (0.0, 1.0) for name in merged_bounds},
+        num_particles=num_particles,
+        jitter_scale=jitter_scale,
+        ess_threshold=ess_threshold,
+        physical_param_bounds=merged_bounds,
+        physical_x_bounds=x_phys,
     )
 
 

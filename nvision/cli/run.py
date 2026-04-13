@@ -75,7 +75,7 @@ def _run_tasks_process_pool(
                 if getattr(locator_task, "task_id", None) is not None:
                     progress_queue.put((locator_task.task_id, locator_task.repeats))
                 log.exception("Task failed with error (combination=%s)", locator_task.slug)
-                errors.append(RuntimeError(f"Check logs for details: {run_log_path.as_uri()}"))
+                errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
                 if len(errors) > 5:
                     log.error("Too many errors (>5), terminating...")
                     for pending_future in future_to_task:
@@ -407,7 +407,7 @@ def run(  # noqa: C901
                                 df_rows.append(main_result_row)
                         except Exception:
                             log.exception("Task failed with error (combination=%s)", locator_task.slug)
-                            errors.append(RuntimeError(f"Check logs for details: {run_log_path.as_uri()}"))
+                            errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
                             if len(errors) > 5:
                                 log.error("Too many errors (>5), terminating...")
                                 break
