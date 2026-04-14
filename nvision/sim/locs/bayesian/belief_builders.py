@@ -213,8 +213,8 @@ def nv_center_belief(
     *,
     n_grid_freq: int = 500,
     n_grid_linewidth: int = 80,
-    n_grid_fwhm_lorentz: int = 80,
-    n_grid_fwhm_gauss: int = 60,
+    n_grid_fwhm_total: int = 80,
+    n_grid_lorentz_frac: int = 60,
     n_grid_split: int = 80,
     n_grid_k_np: int = 60,
     n_grid_depth: int = 100,
@@ -224,7 +224,7 @@ def nv_center_belief(
     """NV-center belief: **unit** parameter grids, **physical** signal model.
 
     Automatically detects if it should use NVCenterLorentzianModel or NVCenterVoigtModel
-    based on the presence of 'fwhm_lorentz' in the required parameter set.
+    based on the presence of 'fwhm_total' in the required parameter set.
     """
     from nvision.spectra.nv_center import (
         NVCenterLorentzianModel,
@@ -233,15 +233,15 @@ def nv_center_belief(
         nv_center_voigt_bounds_for_domain,
     )
 
-    is_voigt = "fwhm_lorentz" in (parameter_bounds or {}) or n_grid_fwhm_lorentz != 80 or "fwhm_gauss" in _extra
+    is_voigt = "fwhm_total" in (parameter_bounds or {}) or n_grid_fwhm_total != 80 or "lorentz_frac" in _extra
 
     if is_voigt:
         model = NVCenterVoigtModel()
         phys = nv_center_voigt_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
         base_specs: list[tuple[str, tuple[float, float], int]] = [
             ("frequency", phys["frequency"], n_grid_freq),
-            ("fwhm_lorentz", phys["fwhm_lorentz"], n_grid_fwhm_lorentz),
-            ("fwhm_gauss", phys["fwhm_gauss"], n_grid_fwhm_gauss),
+            ("fwhm_total", phys["fwhm_total"], n_grid_fwhm_total),
+            ("lorentz_frac", phys["lorentz_frac"], n_grid_lorentz_frac),
             ("split", phys["split"], n_grid_split),
             ("k_np", phys["k_np"], n_grid_k_np),
             ("dip_depth", phys["dip_depth"], n_grid_depth),

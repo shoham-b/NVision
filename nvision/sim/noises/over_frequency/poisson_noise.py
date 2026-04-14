@@ -17,7 +17,7 @@ class OverFrequencyPoissonNoise(OverFrequencyNoise):
     Scales input by a scale, draws from Poisson, then rescales back.
     """
 
-    scale: float = 100.0
+    scale: float = 1000.0
 
     @staticmethod
     def _sample_poisson(lam: float, rng: random.Random) -> int:
@@ -54,4 +54,14 @@ class OverFrequencyPoissonNoise(OverFrequencyNoise):
         return DataBatch.from_frame(df, meta=dict(data.meta))
 
     def noise_std(self) -> float:
-        return 1 / self.scale
+        # For Poisson(λ) noise with λ = v·scale, std(k/scale) = √v/√scale.
+        # Evaluated at background level v=1.0 → std = 1/√scale.
+        return 1.0 / math.sqrt(max(self.scale, 1e-12))
+
+    def max_noise_deviation(self, n_samples: int = 20) -> float:
+        # EVT maximum for n i.i.d. Poisson samples at signal level v=1.0.
+        # std = 1/√scale; EVT: std × √(2·log(n)).
+        std = self.noise_std()
+        if std <= 0 or n_samples < 2:
+            return 0.0
+        return std * math.sqrt(2.0 * math.log(max(n_samples, 2)))

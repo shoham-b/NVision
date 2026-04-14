@@ -73,6 +73,8 @@ def _poll_scroll_key_win32() -> str | None:
         c = msvcrt.getch()
         if c == b"\t":
             return "tab"
+        if c in (b"q", b"Q"):
+            return "quit"
         if c in (b"\xe0", b"\x00"):
             c2 = msvcrt.getch()
             mapping = {
@@ -155,6 +157,8 @@ def _poll_scroll_key_posix() -> str | None:
         first = stdin.read(1)
         if first == "\t":
             return "tab"
+        if first in ("q", "Q"):
+            return "quit"
         if first != "\x1b":
             return None
         return _posix_key_after_esc(stdin)
@@ -281,6 +285,7 @@ class ProgressMonitor:
         self._tid_to_weight: dict[Any, float] = {}
         self._completed_weighted = 0.0
         self._monitor_thread: threading.Thread | None = None
+        self.exit_requested = False
 
     def _inner_height(self, panel_height: int) -> int:
         return max(1, panel_height - 2)
@@ -366,6 +371,9 @@ class ProgressMonitor:
     def _poll_keys(self) -> None:
         key = _poll_scroll_key()
         if key is not None:
+            if key == "quit":
+                self.exit_requested = True
+                return
             self._apply_scroll_key(key)
 
     def _refresh_live(self) -> None:
@@ -376,6 +384,9 @@ class ProgressMonitor:
         while True:
             self._sync_incoming()
             self._poll_keys()
+
+            if self.exit_requested:
+                break
 
             try:
                 item = self.progress_queue.get(timeout=0.12)
@@ -445,13 +456,13 @@ class ProgressMonitor:
 
 
 def _panel_title(base: str, *, focused: bool) -> str:
-    hint = "[dim]Tab | arrows | PgUp/Dn | Home/End[/]"
+    hint = "[dim]Tab | arrows | PgUp/Dn | Home/End | q=quit[/]"
     mark = "[bold cyan]*[/] " if focused else ""
     return f"{mark}[bold]{base}[/] {hint}"
 
 
 def _error_panel_title(*, focused: bool) -> str:
-    hint = "[dim]Tab | arrows | PgUp/Dn | Home/End[/]"
+    hint = "[dim]Tab | arrows | PgUp/Dn | Home/End | q=quit[/]"
     mark = "[bold red]*[/] " if focused else ""
     return f"{mark}[bold red]Errors[/] {hint}"
 

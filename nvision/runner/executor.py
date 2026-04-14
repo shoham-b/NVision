@@ -476,14 +476,33 @@ class _TaskRunner:
         experiment: CoreExperiment,
         repeat_start_time: float,
     ) -> tuple[pl.DataFrame, dict[str, Any], str, RunResult]:
+        from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
         noise_std = 0.05
+        noise_max_dev: float | None = None
         if experiment.noise is not None:
             noise_std = float(experiment.noise.estimated_noise_std())
+            if hasattr(experiment.noise, "estimated_max_noise_deviation"):
+                # Use DEFAULT_INITIAL_SWEEP_STEPS // 2 as the n_samples count
+                # so the threshold accounts for the actual mid-sweep sample size.
+                mid_n = SequentialBayesianLocator.DEFAULT_INITIAL_SWEEP_STEPS // 2
+                noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=mid_n))
+        # Read signal spans from the model's declared methods.
+        domain_width = float(experiment.x_max - experiment.x_min)
+        signal_min_span: float | None = None
+        signal_max_span: float | None = None
+        model = experiment.true_signal.model
+        if hasattr(model, "signal_min_span") and callable(model.signal_min_span):
+            signal_min_span = model.signal_min_span(domain_width)
+        if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
+            signal_max_span = model.signal_max_span(domain_width)
         cfg = {
             **locator_config,
             "max_steps": self.task.loc_max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": noise_std,
+            **({}  if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
+            **({}  if signal_min_span is None else {"signal_min_span": signal_min_span}),
+            **({}  if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -30,6 +31,26 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
         rss = sum(p.noise_std() ** 2 for p in self._parts)
         std = rss**0.5
         return std
+
+    def max_noise_deviation(self, n_samples: int = 20) -> float:
+        """Expected maximum downward deviation across n_samples for all components.
+
+        Continuous (Gaussian/Poisson) components combine in quadrature and their
+        combined EVT maximum is computed.  Impulsive components (those whose own
+        max_noise_deviation exceeds what the EVT of their std would predict) add
+        their excess linearly on top, because spikes can coincide with continuous
+        background fluctuations.
+        """
+        factor = math.sqrt(2.0 * math.log(max(n_samples, 2)))
+        combined_std = math.sqrt(sum(p.noise_std() ** 2 for p in self._parts))
+        continuous_max = combined_std * factor
+        impulsive_excess = 0.0
+        for p in self._parts:
+            component_evt = p.noise_std() * factor
+            component_max = p.max_noise_deviation(n_samples)
+            if component_max > component_evt:
+                impulsive_excess += component_max - component_evt
+        return continuous_max + impulsive_excess
 
     def likelihood_spec(self) -> tuple[dict[str, Any], ...]:
         """Return a structured description of frequency-noise components.
@@ -101,3 +122,15 @@ class CompositeNoise:
         rss = sum(p.noise_std() ** 2 for p in parts)
         std = rss**0.5
         return std if std > 1e-12 else 0.05
+
+    def estimated_max_noise_deviation(self, n_samples: int = 20) -> float:
+        """Expected maximum downward deviation across n_samples, from all noise components.
+
+        Returns the value from the composite over-frequency noise model, or falls
+        back to ``estimated_noise_std() × √(2·log(n_samples))`` when no model is set.
+        """
+        if self.over_frequency_noise is None:
+            import math
+            std = self.estimated_noise_std()
+            return std * math.sqrt(2.0 * math.log(max(n_samples, 2)))
+        return self.over_frequency_noise.max_noise_deviation(n_samples)

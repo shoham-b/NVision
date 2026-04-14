@@ -19,11 +19,15 @@ from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.signal import ParamSpec, SignalModel
 
 
-def sobol_1d_sequence(n: int) -> NDArray[np.float64]:
-    """Minimal deterministic 1D low-discrepancy sequence over [0, 1]."""
+def sobol_1d_sequence(n: int, *, offset: float = 0.0) -> NDArray[np.float64]:
+    """Minimal deterministic 1D low-discrepancy sequence over [0, 1].
 
-    # Use a simple van der Corput base-2 sequence as a stand-in.
-    def vdc(k: int, base: int = 2) -> float:
+    Uses a van der Corput base-2 sequence as a stand-in for a true Sobol
+    sequence.  The optional ``offset`` shifts all points by a fixed amount
+    (mod 1) so that a second sweep can avoid the same gap pattern when
+    the first sweep finds no signal.
+    """
+    def vdc(k: int, base: int = 3) -> float:
         v = 0.0
         denom = 1.0
         while k:
@@ -32,7 +36,10 @@ def sobol_1d_sequence(n: int) -> NDArray[np.float64]:
             v += remainder / denom
         return v
 
-    return np.array([vdc(i + 1) for i in range(n)], dtype=float)
+    points = np.array([vdc(i + 1) for i in range(n)], dtype=float)
+    if offset != 0.0:
+        points = (points + offset) % 1.0
+    return points
 
 
 @dataclass(frozen=True)

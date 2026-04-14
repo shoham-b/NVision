@@ -65,6 +65,15 @@ class PeakSpec:
     background: tuple[float, float]
     composite_background: tuple[float, float]
     background_default: float
+    max_span_frac: float
+    """Maximum total signal span as a fraction of the domain width.
+
+    For a single peak this is approximately ``4 × width_frac[1]`` (the signal
+    is meaningful out to ~2× the characteristic width on each side).  This
+    value is injected into parameter bounds as ``"_signal_max_span"`` so the
+    locator can size the initial Sobol sweep and mid-sweep refocus window
+    without re-deriving the span from individual parameter bounds.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +87,7 @@ GAUSSIAN = PeakSpec(
     background=(0.0, 0.5),
     composite_background=(0.0, 0.5),
     background_default=0.0,
+    max_span_frac=4 * 0.2,  # ±2σ at maximum linewidth
 )
 
 LORENTZIAN = PeakSpec(
@@ -87,6 +97,7 @@ LORENTZIAN = PeakSpec(
     background=(0.5, 1.2),
     composite_background=(0.0, 0.5),
     background_default=1.0,
+    max_span_frac=4 * 0.2,  # ±2×linewidth at maximum linewidth
 )
 
 EXPONENTIAL = PeakSpec(
@@ -96,6 +107,7 @@ EXPONENTIAL = PeakSpec(
     background=(0.0, 0.5),
     composite_background=(0.0, 0.5),
     background_default=0.0,
+    max_span_frac=min(4 * 2.0, 1.0),  # exponential decays span most of the domain
 )
 
 
@@ -124,12 +136,16 @@ def _make_bounds(
     """
     w = x_max - x_min
     bg = spec.composite_background if composite else spec.background
-    return {
+    bounds: dict[str, tuple[float, float]] = {
         f"{prefix}frequency": (x_min, x_max),
         f"{prefix}{spec.width_key}": (w * spec.width_frac[0], w * spec.width_frac[1]),
         f"{prefix}dip_depth": spec.dip_depth,
         f"{prefix}background": bg,
     }
+    # Inject max signal span for sweep density and refocus window sizing.
+    # Stored without prefix so the locator always finds it under "_signal_max_span".
+    bounds["_signal_max_span"] = (0.0, w * spec.max_span_frac)
+    return bounds
 
 
 def _make_model_and_spectrum(
@@ -271,9 +287,9 @@ class NVCenterCoreGenerator:
                 # Scale a desired contrast onto the true peak-shape maximum
                 xs = np.linspace(center_freq - split, center_freq + split, 200)
                 g = (
-                    (lw2 / k_np) / ((xs - (center_freq - split)) ** 2 + lw2)
-                    + lw2 / ((xs - center_freq) ** 2 + lw2)
-                    + (lw2 * k_np) / ((xs - (center_freq + split)) ** 2 + lw2)
+                    (lw2 / k_np**2) / ((xs - (center_freq - split)) ** 2 + lw2)
+                    + (lw2 / k_np) / ((xs - center_freq) ** 2 + lw2)
+                    + lw2 / ((xs - (center_freq + split)) ** 2 + lw2)
                 )
                 dip_depth = unit_dip_depth / float(g.max())
                 typed_params = NVCenterLorentzianSpectrum(
@@ -286,8 +302,9 @@ class NVCenterCoreGenerator:
                 )
                 bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
         else:  # voigt
-            fwhm_lorentz = 2 * linewidth
-            fwhm_gauss = fwhm_lorentz * rng.uniform(0.1, 0.3)
+            lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
+            lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
+            fwhm_total = 2 * linewidth * (1.0 + lorentz_ratio)
 
             model = NVCenterVoigtModel()
             # Scale a desired contrast onto the true peak-shape maximum
@@ -295,8 +312,8 @@ class NVCenterCoreGenerator:
             xs = np.linspace(center_freq - split, center_freq + split, 200)
             single = NVCenterVoigtSpectrumSamples(
                 frequency=np.array([center_freq]),
-                fwhm_lorentz=np.array([fwhm_lorentz]),
-                fwhm_gauss=np.array([fwhm_gauss]),
+                fwhm_total=np.array([fwhm_total]),
+                lorentz_frac=np.array([lorentz_frac]),
                 split=np.array([split]),
                 k_np=np.array([k_np]),
                 dip_depth=np.array([1.0]),
@@ -307,8 +324,8 @@ class NVCenterCoreGenerator:
 
             typed_params = NVCenterVoigtSpectrum(
                 frequency=center_freq,
-                fwhm_lorentz=fwhm_lorentz,
-                fwhm_gauss=fwhm_gauss,
+                fwhm_total=fwhm_total,
+                lorentz_frac=lorentz_frac,
                 split=split,
                 k_np=k_np,
                 dip_depth=dip_depth,

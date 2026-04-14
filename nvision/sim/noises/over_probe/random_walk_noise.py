@@ -14,7 +14,7 @@ class OverProbeRandomWalkNoise(OverProbeNoise):
     The walk is independent of sampling interval; each probe advances one step.
     """
 
-    step_sigma: float = 0.02
+    step_sigma: float = 0.005
     initial_offset: float = 0.0
     stateful: bool = True
     _offset: float | None = None

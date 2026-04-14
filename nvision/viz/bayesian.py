@@ -29,21 +29,21 @@ def _get_signal_formula(model: Any) -> str:
         )
     if "VoigtZeeman" in inner_name:
         return (
-            r"$\begin{aligned} S(f) &= B - \frac{A}{k}V(f-f_0+\Delta) - A \cdot V(f-f_0) - A \cdot k \cdot V(f-f_0-\Delta) \\ "
-            r"V(x; \text{fwhm_lorentz}, \text{fwhm_gauss}) &= \int_{-\infty}^{\infty} \frac{\gamma/\pi}{(x-t)^2 + \gamma^2} \cdot \frac{e^{-t^2/(2\sigma^2)}}{\sigma\sqrt{2\pi}} \, dt \\ "
-            r"\gamma = \frac{\text{fwhm_lorentz}}{2}, \quad \sigma &= \frac{\text{fwhm_gauss}}{2\sqrt{2\ln 2}} \end{aligned}$"
+            r"$S(f) = B - \frac{A}{k}(L*G)(f\!-\!f_0\!+\!\Delta) - A(L*G)(f\!-\!f_0) - Ak(L*G)(f\!-\!f_0\!-\!\Delta)$, "
+            r"$(L*G)(x) = \int_{-\infty}^{\infty}\!\frac{\eta W/2\pi}{t^2+(\eta W/2)^2} \cdot "
+            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2((1-\eta)W/2\sqrt{2\ln 2})^2}\right]}{\frac{(1-\eta)W}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"
         )
     if "NVCenterVoigt" in inner_name:
         return (
-            r"$\begin{aligned} S(f) &= B - \frac{A}{k}V(f-f_0+\Delta) - A \cdot V(f-f_0) - A \cdot k \cdot V(f-f_0-\Delta) \\ "
-            r"V(x; \text{fwhm_lorentz}, \text{fwhm_gauss}) &= \int_{-\infty}^{\infty} \frac{\gamma/\pi}{(x-t)^2 + \gamma^2} \cdot \frac{e^{-t^2/(2\sigma^2)}}{\sigma\sqrt{2\pi}} \, dt \\ "
-            r"\gamma = \frac{\text{fwhm_lorentz}}{2}, \quad \sigma &= \frac{\text{fwhm_gauss}}{2\sqrt{2\ln 2}} \end{aligned}$"
+            r"$S(f) = B - \frac{A}{k}(L*G)(f\!-\!f_0\!+\!\Delta) - A(L*G)(f\!-\!f_0) - Ak(L*G)(f\!-\!f_0\!-\!\Delta)$, "
+            r"$(L*G)(x) = \int_{-\infty}^{\infty}\!\frac{\eta W/2\pi}{t^2+(\eta W/2)^2} \cdot "
+            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2((1-\eta)W/2\sqrt{2\ln 2})^2}\right]}{\frac{(1-\eta)W}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"
         )
     if "OnePeakVoigt" in inner_name:
         return (
-            r"$\begin{aligned} S(f) &= B - A \cdot V(f - f_0) \\ "
-            r"V(x; \text{fwhm_lorentz}, \text{fwhm_gauss}) &= \int_{-\infty}^{\infty} \frac{\gamma/\pi}{(x-t)^2 + \gamma^2} \cdot \frac{e^{-t^2/(2\sigma^2)}}{\sigma\sqrt{2\pi}} \, dt \\ "
-            r"\gamma = \frac{\text{fwhm_lorentz}}{2}, \quad \sigma &= \frac{\text{fwhm_gauss}}{2\sqrt{2\ln 2}} \end{aligned}$"
+            r"$S(f) = B - A(L*G)(f\!-\!f_0)$, $(L*G)(x) = \int_{-\infty}^{\infty}\!"
+            r"\frac{\gamma_L/2\pi}{t^2+(\gamma_L/2)^2} \cdot "
+            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2(\gamma_G/2\sqrt{2\ln 2})^2}\right]}{\frac{\gamma_G}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"
         )
     if "Lorentzian" in inner_name:
         return r"$S(f) = B - A \frac{\omega^2}{(f - f_0)^2 + \omega^2}$"
@@ -68,6 +68,8 @@ def _get_nv_parameter_descriptions(model: Any) -> dict[str, str]:
     base_descriptions: dict[str, str] = {
         "frequency": "f₀ — central frequency (center of main dip)",
         "linewidth": "ω — Lorentzian linewidth (HWHM)" if not is_voigt else "γ — Lorentzian FWHM",
+        "fwhm_total": "W — total effective linewidth (Lorentzian + Gaussian)",
+        "lorentz_frac": "η — Lorentzian fraction [0, 1]",
         "fwhm_lorentz": "γ_L — Lorentzian FWHM",
         "fwhm_gauss": "γ_G — Gaussian FWHM (inhomogeneous broadening)",
         "split": "Δ — hyperfine splitting (outer peak distance)",
@@ -342,6 +344,31 @@ class BayesianMixin:
             ]
             yaxis_layout = dict(title="Probability Density", range=[0, max_prob * 1.1])
 
+        # Speed multipliers for single parameter animation
+        speed_options_single = [
+            ("0.5×", 200),
+            ("1×", 100),
+            ("1.5×", 67),
+            ("2×", 50),
+        ]
+
+        speed_buttons_single = [
+            dict(
+                label=label,
+                method="animate",
+                args=[
+                    None,
+                    {
+                        "frame": {"duration": duration, "redraw": True},
+                        "fromcurrent": True,
+                        "transition": {"duration": 0},
+                        "mode": "immediate",
+                    },
+                ],
+            )
+            for label, duration in speed_options_single
+        ]
+
         fig = go.Figure(
             data=initial_data,
             layout=go.Layout(
@@ -349,18 +376,19 @@ class BayesianMixin:
                 yaxis=yaxis_layout,
                 title="Posterior Evolution",
                 updatemenus=[
+                    # Play/Pause toggle - positioned below slider
                     dict(
                         type="buttons",
                         direction="left",
-                        x=0.0,
-                        y=1.15,
+                        x=0.02,
+                        y=-0.12,
                         xanchor="left",
                         yanchor="top",
                         showactive=False,
                         pad={"r": 10, "t": 0},
                         buttons=[
                             dict(
-                                label="Play",
+                                label="▶ Play",
                                 method="animate",
                                 args=[
                                     None,
@@ -372,7 +400,7 @@ class BayesianMixin:
                                 ],
                             ),
                             dict(
-                                label="Pause",
+                                label="⏸ Pause",
                                 method="animate",
                                 args=[
                                     [None],
@@ -384,12 +412,25 @@ class BayesianMixin:
                                 ],
                             ),
                         ],
-                    )
+                    ),
+                    # Speed controls - positioned below slider, right of play/pause
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=0.18,
+                        y=-0.12,
+                        xanchor="left",
+                        yanchor="top",
+                        showactive=True,
+                        active=1,  # Default to 1×
+                        pad={"r": 10, "t": 0},
+                        buttons=speed_buttons_single,
+                    ),
                 ],
                 sliders=[
                     dict(
                         active=0,
-                        pad={"t": 50, "b": 10},
+                        pad={"t": 30, "b": 10},
                         currentvalue={"prefix": "Step: "},
                         steps=slider_steps,
                     )
@@ -604,6 +645,63 @@ class BayesianMixin:
         if signal_formula:
             base_title = f"{base_title}  {signal_formula}"
 
+        # Speed multipliers and their corresponding frame durations (ms)
+        # Default is 100ms per frame, so speeds are inversely proportional
+        speed_options = [
+            ("0.5×", 200),
+            ("1×", 100),
+            ("1.5×", 67),
+            ("2×", 50),
+        ]
+
+        # Build play/pause button with toggle capability
+        def play_pause_button(is_play: bool) -> dict:
+            if is_play:
+                return dict(
+                    label="▶ Play",
+                    method="animate",
+                    args=[
+                        None,
+                        {
+                            "frame": {"duration": 100, "redraw": True},
+                            "fromcurrent": True,
+                            "transition": {"duration": 0},
+                            "mode": "immediate",
+                        },
+                    ],
+                )
+            else:
+                return dict(
+                    label="⏸ Pause",
+                    method="animate",
+                    args=[
+                        [None],
+                        {
+                            "frame": {"duration": 0, "redraw": False},
+                            "mode": "immediate",
+                            "transition": {"duration": 0},
+                        },
+                    ],
+                )
+
+        # Build speed buttons
+        speed_buttons = [
+            dict(
+                label=label,
+                method="animate",
+                args=[
+                    None,
+                    {
+                        "frame": {"duration": duration, "redraw": True},
+                        "fromcurrent": True,
+                        "transition": {"duration": 0},
+                        "mode": "immediate",
+                    },
+                ],
+            )
+            for label, duration in speed_options
+        ]
+
         fig.update_layout(
             title_text=f"{base_title}<br>step {step_indices[0] + 1}/{total_steps}",
             title_font_size=14,
@@ -612,49 +710,39 @@ class BayesianMixin:
             template="plotly_white",
             height=max(300, 180 * n),
             updatemenus=[
+                # Play/Pause toggle button - positioned below slider, left side
                 dict(
                     type="buttons",
                     direction="left",
                     x=0.02,
-                    y=0.02,
+                    y=-0.12,
                     xanchor="left",
-                    yanchor="bottom",
-                    showactive=True,
-                    active=0,
-                    pad={"r": 10, "t": 10},
+                    yanchor="top",
+                    showactive=False,
+                    pad={"r": 10, "t": 0},
                     buttons=[
-                        dict(
-                            label="▶ Play",
-                            method="animate",
-                            args=[
-                                None,
-                                {
-                                    "frame": {"duration": 100, "redraw": True},
-                                    "fromcurrent": True,
-                                    "transition": {"duration": 0},
-                                    "mode": "immediate",
-                                },
-                            ],
-                        ),
-                        dict(
-                            label="⏸ Pause",
-                            method="animate",
-                            args=[
-                                [None],
-                                {
-                                    "frame": {"duration": 0, "redraw": False},
-                                    "mode": "immediate",
-                                    "transition": {"duration": 0},
-                                },
-                            ],
-                        ),
+                        play_pause_button(True),
+                        play_pause_button(False),
                     ],
-                )
+                ),
+                # Speed control buttons - positioned below slider, right of play/pause
+                dict(
+                    type="buttons",
+                    direction="left",
+                    x=0.18,
+                    y=-0.12,
+                    xanchor="left",
+                    yanchor="top",
+                    showactive=True,
+                    active=1,  # Default to 1× speed
+                    pad={"r": 10, "t": 0},
+                    buttons=speed_buttons,
+                ),
             ],
             sliders=[
                 dict(
                     active=0,
-                    pad={"t": 40, "b": 10},
+                    pad={"t": 30, "b": 10},
                     currentvalue={"prefix": "Measurement step: "},
                     steps=slider_steps,
                 )

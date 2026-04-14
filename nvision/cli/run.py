@@ -47,6 +47,7 @@ def _run_tasks_process_pool(
     progress_queue: queue.Queue,
     log: logging.Logger,
     run_log_path: Path,
+    monitor: ProgressMonitor | None = None,
 ) -> tuple[list[dict[str, object]], list[dict], list[Exception]]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
@@ -61,6 +62,9 @@ def _run_tasks_process_pool(
     try:
         future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in tasks}
         for future in concurrent.futures.as_completed(future_to_task):
+            # Check if user requested exit via 'q' key
+            if monitor is not None and monitor.exit_requested:
+                raise KeyboardInterrupt("User requested exit")
             locator_task = future_to_task[future]
             try:
                 results_for_task = future.result()
@@ -82,9 +86,41 @@ def _run_tasks_process_pool(
                         pending_future.cancel()
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
+    except KeyboardInterrupt:
+        log.warning("Cancelling pending tasks due to interruption...")
+        # Cancel all pending futures first
+        for pending_future in future_to_task:
+            pending_future.cancel()
+        # Shutdown without waiting - terminate processes immediately
+        executor.shutdown(wait=False, cancel_futures=True)
+        # On Windows, forcibly kill child processes if needed
+        try:
+            import psutil
+            parent = psutil.Process()
+            for child in parent.children(recursive=True):
+                try:
+                    child.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+            # Give processes a moment to terminate gracefully
+            import time
+            time.sleep(0.5)
+            # Kill any remaining
+            for child in parent.children(recursive=True):
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    pass
+        except ImportError:
+            pass  # psutil not available
+        raise  # Re-raise to let the caller handle it
     finally:
         # If we didn't terminate early, wait for workers to finish.
-        executor.shutdown(wait=True)
+        try:
+            if not executor._shutdown:
+                executor.shutdown(wait=True)
+        except Exception:
+            pass  # Best effort cleanup
 
     return plot_manifest, df_rows, errors
 
@@ -380,6 +416,7 @@ def run(  # noqa: C901
         plot_manifest: list[dict[str, object]] = []
         df_rows: list[dict] = []
         errors: list[Exception] = []
+        interrupted = False
 
         # One bridge for the whole run avoids opening/closing SQLite per task (200+ tasks on `cases run all`).
         # For process-based parallelism we intentionally do not construct it in the parent.
@@ -397,9 +434,13 @@ def run(  # noqa: C901
                         progress_queue=progress_queue,
                         log=log,
                         run_log_path=run_log_path,
+                        monitor=monitor,
                     )
                 else:
                     for locator_task in tasks:
+                        # Check if user requested exit via 'q' key
+                        if monitor.exit_requested:
+                            raise KeyboardInterrupt("User requested exit")
                         try:
                             results_for_task = run_task(locator_task, cache_bridge=cache_bridge)
                             for entries, main_result_row in results_for_task:
@@ -411,17 +452,36 @@ def run(  # noqa: C901
                             if len(errors) > 5:
                                 log.error("Too many errors (>5), terminating...")
                                 break
+        except KeyboardInterrupt:
+            interrupted = True
+            # Stop monitor immediately to clean up UI
+            monitor.stop()
+            console.print("\n[yellow]Interrupted by user. Saving partial results and generating UI...[/yellow]")
+            log.warning("Run interrupted by user (Ctrl-C). Saving partial results...")
         finally:
             if cache_bridge is not None:
                 cache_bridge.close()
 
-        if errors:
+        if errors and not interrupted:
             console.print("\n[bold red]Errors occurred during execution:[/bold red]")
             for i, err in enumerate(errors, 1):
                 console.print(f"{i}. {err}")
             raise typer.Exit(code=1)
     finally:
+        # Drain the log queue before stopping the listener to avoid losing messages
+        try:
+            while not log_queue.empty():
+                try:
+                    log_queue.get_nowait()
+                except queue.Empty:
+                    break
+        except Exception:
+            pass
         listener.stop()
+
+    # Skip UI generation if there are hard errors (not just interruption)
+    if errors and not interrupted:
+        return 1
 
     logging.basicConfig(
         level=log_level_value,
@@ -431,6 +491,17 @@ def run(  # noqa: C901
         force=True,
     )
     logging.getLogger("nvision").setLevel(log_level_value)
+
+    # Generate UI even with partial results after interruption
+    if not df_rows:
+        if interrupted:
+            console.print("[yellow]No results collected before interruption.[/yellow]")
+        else:
+            console.print("[yellow]No results to display.[/yellow]")
+        return 0 if interrupted else 0
+
+    if interrupted:
+        console.print(f"[cyan]Processing {len(df_rows)} partial result(s)...[/cyan]")
 
     df_loc = pl.DataFrame(df_rows)
     df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
@@ -454,6 +525,8 @@ def run(  # noqa: C901
     try:
         ui_entrypoint = prepare_static_ui_data(out_dir)
         log.info(f"Prepared static UI data. Open: {ui_entrypoint.absolute().as_uri()}")
+        if interrupted:
+            console.print(f"[green]Partial UI generated at: {ui_entrypoint.absolute().as_uri()}[/green]")
     except Exception as exc:
         log.warning(f"Failed to build HTML index: {exc}")
 

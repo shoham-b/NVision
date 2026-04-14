@@ -4,6 +4,7 @@ Usage:
     uv run python -m nvision serve                       # Serve main artifacts (port 8080)
     uv run python -m nvision serve --dir demo_artifacts  # Serve demo artifacts (port 8081)
     uv run python -m nvision serve --port 9000           # Custom port
+    uv run python -m nvision serve --demo                # Run demo then serve results
 
 Keyboard shortcuts (in browser):
     'r' - Reload/recalculate results
@@ -38,6 +39,10 @@ PORT_DEMO = 18081
 # Global state for reload tracking
 _reload_state: dict = {"running": False, "last_output": ""}
 
+# Global server instance for shutdown control
+_server_instance: socketserver.TCPServer | None = None
+_server_thread: threading.Thread | None = None
+
 
 class _APIHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP handler with API endpoints for reload functionality."""
@@ -65,7 +70,21 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/reload":
             self._handle_reload()
             return
+        if self.path == "/api/stop":
+            self._handle_stop()
+            return
         self.send_error(404, "Not found")
+
+    def _handle_stop(self) -> None:
+        """Trigger server shutdown."""
+        global _server_instance
+
+        self._send_json({"status": "stopping", "message": "Server shutting down"})
+
+        # Shutdown server in a thread to avoid blocking the response
+        if _server_instance is not None:
+            thread = threading.Thread(target=_server_instance.shutdown, daemon=True)
+            thread.start()
 
     def _handle_reload(self) -> None:
         """Trigger a reload/recalculation in the background."""
@@ -159,6 +178,14 @@ def serve(
         bool,
         typer.Option("--no-open", help="Don't auto-open browser"),
     ] = False,
+    demo: Annotated[
+        bool,
+        typer.Option("--demo", help="Run demo first, then serve results"),
+    ] = False,
+    background: Annotated[
+        bool,
+        typer.Option("--background", help="Run server in background and exit immediately"),
+    ] = False,
 ) -> None:
     """Start a local HTTP server for viewing NVision results.
 
@@ -167,7 +194,21 @@ def serve(
     Uses port 18080 for main artifacts and 18081 for demo artifacts.
 
     Press 'r' in the browser to reload/recalculate results.
+    Use --background to run server in background and return immediately.
     """
+    # Run demo first if requested
+    if demo:
+        from nvision.cli.demo import demo as demo_cmd, DEMO_ARTIFACTS_ROOT
+
+        directory = DEMO_ARTIFACTS_ROOT
+        index = directory / "index.html"
+        if not index.exists():
+            console.print("[bold cyan]Running demo first...[/bold cyan]")
+            result = demo_cmd(open_browser=False)
+            if result != 0:
+                console.print("[bold red]Demo failed![/bold red]")
+                raise typer.Exit(result)
+
     directory = directory.resolve()
     if not directory.exists():
         console.print(f"[bold red]Directory not found:[/bold red] {directory}")
@@ -205,10 +246,31 @@ def serve(
     import os
 
     original_dir = os.getcwd()
+
+    def _run_server() -> None:
+        global _server_instance
+        try:
+            os.chdir(directory)
+            with socketserver.TCPServer(("", port), _APIHandler) as httpd:
+                _server_instance = httpd
+                httpd.serve_forever()
+        except OSError as e:
+            if "Address already in use" in str(e) or "Only one usage" in str(e):
+                log.debug("Server already running on port %s", port)
+            else:
+                log.error("Server error: %s", e)
+        finally:
+            _server_instance = None
+            os.chdir(original_dir)
+
+    if background:
+        thread = threading.Thread(target=_run_server, daemon=True)
+        thread.start()
+        console.print("[bold green]Server running in background.[/bold green]")
+        return
+
     try:
-        os.chdir(directory)
-        with socketserver.TCPServer(("", port), _APIHandler) as httpd:
-            httpd.serve_forever()
+        _run_server()
     except KeyboardInterrupt:
         console.print("\n[bold]Server stopped.[/bold]")
     except OSError as e:
@@ -218,5 +280,41 @@ def serve(
                 webbrowser.open(url)
         else:
             raise
-    finally:
-        os.chdir(original_dir)
+
+
+@app.command(name="serve-stop")
+def serve_stop(
+    port: Annotated[
+        int | None,
+        typer.Option("--port", help="Port of the server to stop (auto-detected if omitted)"),
+    ] = None,
+    directory: Annotated[
+        Path,
+        typer.Option("--dir", help="Directory the server was serving (for port auto-detection)"),
+    ] = ARTIFACTS_ROOT,
+) -> None:
+    """Stop a running background server.
+
+    Sends a shutdown signal to the server on the specified port.
+    If port is not provided, auto-detects based on the directory.
+    """
+    if port is None:
+        port = _default_port_for_dir(directory)
+
+    url = f"http://localhost:{port}"
+
+    if not _port_is_open(port):
+        console.print(f"[yellow]No server running on port {port}[/yellow]")
+        raise typer.Exit(1)
+
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(f"{url}/api/stop", method="POST")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            console.print(f"[bold green]Server stopped:[/bold green] {url}")
+            console.print(f"[dim]Response: {data.get('message', 'OK')}[/dim]")
+    except Exception as e:
+        console.print(f"[bold red]Failed to stop server:[/bold red] {e}")
+        raise typer.Exit(1)

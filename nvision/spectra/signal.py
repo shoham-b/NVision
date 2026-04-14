@@ -107,6 +107,34 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         """
         return False
 
+    def signal_min_span(self, domain_width: float) -> float | None:
+        """Minimum possible frequency span of this signal in physical units.
+
+        Determines the maximum sweep step count: the sweep must be dense enough
+        to guarantee hits even when the signal is at its narrowest.
+        Returns ``None`` if the model cannot estimate this.
+        """
+        return None
+
+    def signal_max_span(self, domain_width: float) -> float | None:
+        """Maximum possible frequency span of this signal in physical units.
+
+        Used to size the mid-sweep refocus window so all dips (including outer
+        Zeeman-split dips) fall inside the focus band.
+        Returns ``None`` if the model cannot estimate this.
+        """
+        return None
+
+    def parameter_weights(self) -> dict[str, float]:
+        """Return relative convergence weights for each parameter (default 1.0).
+
+        A weight ``w > 1`` for a parameter means the locator must reach
+        ``convergence_threshold / w`` normalized uncertainty for that parameter
+        before declaring convergence.  Override in concrete models to tighten
+        convergence on parameters whose estimation drives accuracy of the rest.
+        """
+        return {name: 1.0 for name in self.parameter_names()}
+
     def parameter_names(self) -> list[str]:
         """Return parameter names in the order expected by beliefs/core generators."""
 

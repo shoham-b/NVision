@@ -15,8 +15,8 @@ from nvision.spectra.signal import ParamSpec, SignalModel
 @dataclass(frozen=True)
 class VoigtZeemanSpectrum:
     frequency: float
-    fwhm_lorentz: float
-    fwhm_gauss: float
+    fwhm_total: float
+    lorentz_frac: float
     split: float
     k_np: float
     dip_depth: float
@@ -26,8 +26,8 @@ class VoigtZeemanSpectrum:
 @dataclass(frozen=True)
 class VoigtZeemanSpectrumSamples:
     frequency: np.ndarray
-    fwhm_lorentz: np.ndarray
-    fwhm_gauss: np.ndarray
+    fwhm_total: np.ndarray
+    lorentz_frac: np.ndarray
     split: np.ndarray
     k_np: np.ndarray
     dip_depth: np.ndarray
@@ -37,8 +37,8 @@ class VoigtZeemanSpectrumSamples:
 @dataclass(frozen=True)
 class VoigtZeemanSpectrumUncertainty:
     frequency: float
-    fwhm_lorentz: float
-    fwhm_gauss: float
+    fwhm_total: float
+    lorentz_frac: float
     split: float
     k_np: float
     dip_depth: float
@@ -48,21 +48,21 @@ class VoigtZeemanSpectrumUncertainty:
 class _VoigtZeemanSpec(ParamSpec[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples, VoigtZeemanSpectrumUncertainty]):
     @property
     def names(self) -> tuple[str, ...]:
-        return ("frequency", "fwhm_lorentz", "fwhm_gauss", "split", "k_np", "dip_depth", "background")
+        return ("frequency", "fwhm_total", "lorentz_frac", "split", "k_np", "dip_depth", "background")
 
     @property
     def dim(self) -> int:
         return 7
 
     def unpack_params(self, values) -> VoigtZeemanSpectrum:
-        f, wl, wg, s, k, d, b = values
-        return VoigtZeemanSpectrum(float(f), float(wl), float(wg), float(s), float(k), float(d), float(b))
+        f, ft, lf, s, k, d, b = values
+        return VoigtZeemanSpectrum(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
 
     def pack_params(self, params: VoigtZeemanSpectrum) -> tuple[float, ...]:
         return (
             float(params.frequency),
-            float(params.fwhm_lorentz),
-            float(params.fwhm_gauss),
+            float(params.fwhm_total),
+            float(params.lorentz_frac),
             float(params.split),
             float(params.k_np),
             float(params.dip_depth),
@@ -70,14 +70,14 @@ class _VoigtZeemanSpec(ParamSpec[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples
         )
 
     def unpack_uncertainty(self, values) -> VoigtZeemanSpectrumUncertainty:
-        f, wl, wg, s, k, d, b = values
-        return VoigtZeemanSpectrumUncertainty(float(f), float(wl), float(wg), float(s), float(k), float(d), float(b))
+        f, ft, lf, s, k, d, b = values
+        return VoigtZeemanSpectrumUncertainty(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
 
     def pack_uncertainty(self, u: VoigtZeemanSpectrumUncertainty) -> tuple[float, ...]:
         return (
             float(u.frequency),
-            float(u.fwhm_lorentz),
-            float(u.fwhm_gauss),
+            float(u.fwhm_total),
+            float(u.lorentz_frac),
             float(u.split),
             float(u.k_np),
             float(u.dip_depth),
@@ -85,11 +85,11 @@ class _VoigtZeemanSpec(ParamSpec[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples
         )
 
     def unpack_samples(self, arrays_in_order) -> VoigtZeemanSpectrumSamples:
-        f, wl, wg, s, k, d, b = arrays_in_order
+        f, ft, lf, s, k, d, b = arrays_in_order
         return VoigtZeemanSpectrumSamples(
             frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            fwhm_lorentz=np.asarray(wl, dtype=FLOAT_DTYPE),
-            fwhm_gauss=np.asarray(wg, dtype=FLOAT_DTYPE),
+            fwhm_total=np.asarray(ft, dtype=FLOAT_DTYPE),
+            lorentz_frac=np.asarray(lf, dtype=FLOAT_DTYPE),
             split=np.asarray(s, dtype=FLOAT_DTYPE),
             k_np=np.asarray(k, dtype=FLOAT_DTYPE),
             dip_depth=np.asarray(d, dtype=FLOAT_DTYPE),
@@ -99,8 +99,8 @@ class _VoigtZeemanSpec(ParamSpec[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples
     def pack_samples(self, samples: VoigtZeemanSpectrumSamples) -> tuple[np.ndarray, ...]:
         return (
             np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.fwhm_lorentz, dtype=FLOAT_DTYPE),
-            np.asarray(samples.fwhm_gauss, dtype=FLOAT_DTYPE),
+            np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
@@ -121,16 +121,16 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     ----------
     frequency : float
         Central frequency (f_B)
-    fwhm_lorentz : float
-        Lorentzian FWHM (full width at half maximum)
-    fwhm_gauss : float
-        Gaussian FWHM (inhomogeneous broadening)
+    fwhm_total : float
+        Total effective linewidth (Lorentzian + Gaussian)
+    lorentz_frac : float
+        Lorentzian share of broadening in [0, 1]
     split : float
         Hyperfine splitting (delta_f_HF)
     k_np : float
         Non-polarization factor (amplitude ratio between peaks)
     dip_depth : float
-        Peak dip depth (contrast) factor. Peak height = dip_depth.
+        Right (deepest) peak depth in [0, 1]. Center depth = dip_depth / k_np.
     background : float
         Background level
     """
@@ -202,17 +202,20 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         self,
         x: float,
         frequency: float,
-        fwhm_lorentz: float,
-        fwhm_gauss: float,
+        fwhm_total: float,
+        lorentz_frac: float,
         split: float,
         k_np: float,
         dip_depth: float,
         background: float,
     ) -> float:
         """Triple Voigt NV model; parameter order matches :meth:`parameter_names`."""
-        left_dip = (dip_depth / k_np) * self._voigt_profile_unit_peak(x, frequency - split, fwhm_lorentz, fwhm_gauss)
-        center_dip = dip_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
-        right_dip = (dip_depth * k_np) * self._voigt_profile_unit_peak(x, frequency + split, fwhm_lorentz, fwhm_gauss)
+        fwhm_l = lorentz_frac * fwhm_total
+        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
+        actual_depth = dip_depth / k_np
+        left_dip = (actual_depth / k_np) * self._voigt_profile_unit_peak(x, frequency - split, fwhm_l, fwhm_g)
+        center_dip = actual_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_l, fwhm_g)
+        right_dip = (actual_depth * k_np) * self._voigt_profile_unit_peak(x, frequency + split, fwhm_l, fwhm_g)
         return background - (left_dip + center_dip + right_dip)
 
     _SPEC = _VoigtZeemanSpec()
@@ -222,14 +225,14 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         return self._SPEC
 
     def is_scale_parameter(self, name: str) -> bool:
-        return name in ("fwhm_lorentz", "fwhm_gauss", "dip_depth")
+        return name in ("fwhm_total", "dip_depth")
 
     def compute(self, x: float, params: VoigtZeemanSpectrum) -> float:
         return self.compute_voigt_zeeman_model(
             float(x),
             params.frequency,
-            params.fwhm_lorentz,
-            params.fwhm_gauss,
+            params.fwhm_total,
+            params.lorentz_frac,
             params.split,
             params.k_np,
             params.dip_depth,
@@ -239,11 +242,14 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     def compute_vectorized_samples(self, x: float, samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
         x_f = float(x)
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=FLOAT_DTYPE)
-        fwhm_g = np.asarray(samples.fwhm_gauss, dtype=FLOAT_DTYPE)
+        fwhm_total = np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE)
+        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE)
+        fwhm_l = lorentz_frac * fwhm_total
+        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
         split = np.asarray(samples.split, dtype=FLOAT_DTYPE)
         k_np = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
         dip_depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
+        actual_depth = dip_depth / k_np
         bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
 
         # Compute center heights for normalization
@@ -284,9 +290,9 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         center_profile = profile_at(freq) / center_height
         right_profile = profile_at(freq + split) / center_height
 
-        left_dip = (dip_depth / k_np) * left_profile
-        center_dip = dip_depth * center_profile
-        right_dip = (dip_depth * k_np) * right_profile
+        left_dip = (actual_depth / k_np) * left_profile
+        center_dip = actual_depth * center_profile
+        right_dip = (actual_depth * k_np) * right_profile
 
         return (bg - (left_dip + center_dip + right_dip)).astype(FLOAT_DTYPE, copy=False)
 
@@ -299,11 +305,14 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             raise ValueError("x_array must be one-dimensional")
 
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=FLOAT_DTYPE)
-        fwhm_g = np.asarray(samples.fwhm_gauss, dtype=FLOAT_DTYPE)
+        fwhm_total = np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE)
+        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE)
+        fwhm_l = lorentz_frac * fwhm_total
+        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
         split = np.asarray(samples.split, dtype=FLOAT_DTYPE)
         k_np = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
         dip_depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
+        actual_depth = dip_depth / k_np
         bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
 
         x2d = xs[:, None]
@@ -349,34 +358,36 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         center_profile = profile_at(freq2d) / center_height
         right_profile = profile_at(freq2d + split2d) / center_height
 
-        amp_l = dip_depth[None, :] / k_np[None, :]
-        amp_c = dip_depth[None, :]
-        amp_r = dip_depth[None, :] * k_np[None, :]
+        amp_l = actual_depth[None, :] / k_np[None, :]
+        amp_c = actual_depth[None, :]
+        amp_r = actual_depth[None, :] * k_np[None, :]
 
         out = bg[None, :] - (amp_l * left_profile + amp_c * center_profile + amp_r * right_profile)
         return out.astype(FLOAT_DTYPE, copy=False)
 
     def sample_params(self, rng: random.Random) -> VoigtZeemanSpectrum:
         """Sample parameters that keep the signal within [0, 1]."""
-        fwhm_lorentz = rng.uniform(0.03, 0.08)
-        fwhm_gauss = rng.uniform(0.01, 0.05)
+        fwhm_total = rng.uniform(0.04, 0.13)
+        lorentz_frac = rng.uniform(0.23, 0.89)
+        fwhm_l = lorentz_frac * fwhm_total
+        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
         split = rng.uniform(0.05, 0.12)
         k_np = rng.uniform(2.0, 4.0)
         frequency = rng.uniform(split + 0.1, 1.0 - split - 0.1)
         background = 1.0
 
-        # Estimate dip_depth using a coarse grid
+        # Estimate dip_depth (right peak depth) using a coarse grid with actual_depth=1/k_np
         xs = np.linspace(frequency - split, frequency + split, 200)
-        left_vals = self._voigt_profile_unit_peak(xs, frequency - split, fwhm_lorentz, fwhm_gauss)
-        center_vals = self._voigt_profile_unit_peak(xs, frequency, fwhm_lorentz, fwhm_gauss)
-        right_vals = self._voigt_profile_unit_peak(xs, frequency + split, fwhm_lorentz, fwhm_gauss)
-        g = (left_vals / k_np) + center_vals + (right_vals * k_np)
+        left_vals = self._voigt_profile_unit_peak(xs, frequency - split, fwhm_l, fwhm_g)
+        center_vals = self._voigt_profile_unit_peak(xs, frequency, fwhm_l, fwhm_g)
+        right_vals = self._voigt_profile_unit_peak(xs, frequency + split, fwhm_l, fwhm_g)
+        g = (left_vals / k_np**2) + (center_vals / k_np) + right_vals
         dip_depth = 1.0 / float(g.max())
 
         return VoigtZeemanSpectrum(
             frequency=frequency,
-            fwhm_lorentz=fwhm_lorentz,
-            fwhm_gauss=fwhm_gauss,
+            fwhm_total=fwhm_total,
+            lorentz_frac=lorentz_frac,
             split=split,
             k_np=k_np,
             dip_depth=dip_depth,

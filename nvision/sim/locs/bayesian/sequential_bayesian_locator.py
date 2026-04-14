@@ -280,6 +280,8 @@ class SequentialBayesianLocator(Locator):
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
         noise_std: float | None = None,
+        noise_max_dev: float | None = None,
+        signal_max_span: float | None = None,
     ) -> None:
         super().__init__(belief)
         self.max_steps = int(max_steps)
@@ -299,17 +301,15 @@ class SequentialBayesianLocator(Locator):
         self._convergence_streak = 0
         # Stored for noise-aware dip detection during sweep refocus.
         self._noise_std: float = float(noise_std) if (noise_std is not None and noise_std > 0) else DEFAULT_MEASUREMENT_NOISE_STD
+        # Pre-computed maximum expected noise deviation for mid-sweep threshold.
+        # When provided by the executor (via CompositeNoise.estimated_max_noise_deviation),
+        # this is used directly as the dip threshold, bypassing the IQR fallback.
+        self._noise_max_dev: float | None = float(noise_max_dev) if (noise_max_dev is not None and noise_max_dev > 0) else None
+        # Physical max signal span (from signal spec's _signal_max_span bound).
+        # Drives both sweep density and refocus window width directly.
+        self._signal_max_span: float | None = float(signal_max_span) if (signal_max_span is not None and signal_max_span > 0) else None
 
-        if initial_sweep_steps is None:
-            initial_sweep_steps = self._sweep_steps_for_signal_coverage(belief, noise_std=noise_std)
-
-        self.initial_sweep_steps = max(0, int(initial_sweep_steps))
-        self._initial_sweep_builder = initial_sweep_builder or sobol_1d_sequence
-        if self.initial_sweep_steps > 0:
-            self._initial_sweep_points = self._initial_sweep_builder(self.initial_sweep_steps)
-        else:
-            self._initial_sweep_points = np.empty(0, dtype=float)
-
+        # Set domain bounds BEFORE calculating sweep steps (needed for _model_signal_min_span)
         # For UnitCube beliefs, use physical_param_bounds; for Grid beliefs, use parameter_bounds
         if isinstance(self.belief, (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution)):
             self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._scan_param]
@@ -319,6 +319,19 @@ class SequentialBayesianLocator(Locator):
         # Belief / :meth:`_normalize` may use a tighter domain after the sweep; returned ``x`` must
         # stay normalized to this full range so ``measure()`` probes the intended frequency.
         self._full_domain_lo, self._full_domain_hi = float(self._scan_lo), float(self._scan_hi)
+
+        if initial_sweep_steps is None:
+            # Use signal_min_span for sweep step calculation (need enough steps to catch narrowest signal)
+            initial_sweep_steps = self._sweep_steps_for_signal_coverage(
+                belief, noise_std=noise_std, signal_min_span=self._model_signal_min_span()
+            )
+
+        self.initial_sweep_steps = max(0, int(initial_sweep_steps))
+        self._initial_sweep_builder = initial_sweep_builder or sobol_1d_sequence
+        if self.initial_sweep_steps > 0:
+            self._initial_sweep_points = self._initial_sweep_builder(self.initial_sweep_steps)
+        else:
+            self._initial_sweep_points = np.empty(0, dtype=float)
         # Post-sweep interval in physical units where _acquire may search; starts at full scan.
         self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
         self._sweep_observations: list[Observation] = []
@@ -326,10 +339,46 @@ class SequentialBayesianLocator(Locator):
         self._narrowed_param_bounds: dict[str, tuple[float, float]] = {}
         # Staged sweep state: have we performed the mid-sweep refocus?
         self._sweep_refocus_done = False
+        # Fallback sweep state: have we done a second sweep with offset when no signal found?
+        self._sweep_fallback_done = False
+        # Secondary refinement sweep state: triggered after initial sweep when signal found
+        self._secondary_sweep_active = False
+        self._secondary_sweep_steps_done = 0
+        self._secondary_sweep_steps_total = 0
+        self._secondary_sweep_points: np.ndarray = np.empty(0, dtype=float)
+        self._secondary_sweep_observations: list[Observation] = []
+
+    def _inner_model(self):
+        """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""
+        return getattr(self.belief.model, "inner", self.belief.model)
+
+    def _model_signal_min_span(self) -> float | None:
+        """Read signal_min_span from the inner model using the current domain width."""
+        domain_width = self._full_domain_hi - self._full_domain_lo
+        if domain_width <= 0:
+            return None
+        m = getattr(self.belief.model, "signal_min_span", None)
+        if callable(m):
+            return m(domain_width)
+        return None
+
+    def _model_signal_max_span(self) -> float | None:
+        """Read signal_max_span from the inner model using the current domain width."""
+        domain_width = self._full_domain_hi - self._full_domain_lo
+        if domain_width <= 0:
+            return None
+        m = getattr(self.belief.model, "signal_max_span", None)
+        if callable(m):
+            return m(domain_width)
+        return None
 
     @classmethod
     def _sweep_steps_for_signal_coverage(
-        cls, belief: AbstractMarginalDistribution, *, noise_std: float | None = None
+        cls,
+        belief: AbstractMarginalDistribution,
+        *,
+        noise_std: float | None = None,
+        signal_min_span: float | None = None,
     ) -> int:
         """Derive sweep count from the required spacing to resolve the signal.
 
@@ -371,7 +420,7 @@ class SequentialBayesianLocator(Locator):
         # more conservative than the geometric mean so the sweep is dense
         # enough to catch features near the narrow end of the prior.
         linewidth_est: float = 0.0
-        for key in ("linewidth", "fwhm_lorentz", "fwhm_gauss", "sigma"):
+        for key in ("linewidth", "fwhm_total", "fwhm_lorentz", "fwhm_gauss", "sigma"):
             if key in phys:
                 lo, hi = float(phys[key][0]), float(phys[key][1])
                 if hi <= 0:
@@ -390,15 +439,23 @@ class SequentialBayesianLocator(Locator):
         # For a Lorentzian dip: signal(d) = depth × γ²/(d² + γ²).
         # Detectable when signal(d) > noise_std → d < γ √(depth/noise − 1).
         #
-        # We use the geometric mean of the depth bounds as a representative
-        # amplitude: the prior minimum may sit at the noise floor (undetectable),
-        # while the maximum is optimistic.
+        # We use a conservative (lower-quartile) depth estimate: the prior
+        # minimum may sit at the noise floor (undetectable), while the maximum
+        # is optimistic. Using dlo^0.75 * dhi^0.25 ensures we don't undersample
+        # weak signals near the lower bound of the prior.
+        # --- Conservative depth estimate ---
+        # Use lower-quartile depth (dlo^0.75 * dhi^0.25) instead of geometric mean.
+        # This ensures sweep density is sufficient even when actual signals have
+        # depths closer to the lower bound of the prior (common for weak signals).
         depth_est: float = 0.0
         for key in ("dip_depth", "depth", "amplitude"):
             if key in phys:
                 dlo, dhi = float(phys[key][0]), float(phys[key][1])
                 if dhi > 0:
-                    depth_est = max(depth_est, float(np.sqrt(max(dlo, 1e-12) * dhi)))
+                    safe_dlo = max(dlo, 1e-12)
+                    # Lower-quartile: more conservative than geometric mean
+                    lq_depth = float(np.exp(0.75 * np.log(safe_dlo) + 0.25 * np.log(dhi)))
+                    depth_est = max(depth_est, lq_depth)
 
         # Use the actual noise std when provided by the executor; otherwise
         # fall back to the default measurement noise (0.05).
@@ -414,12 +471,24 @@ class SequentialBayesianLocator(Locator):
             # depth ≤ noise: signal is undetectable; use the default sweep.
             return cls.DEFAULT_INITIAL_SWEEP_STEPS
 
+        # If the model declares its minimum physical span, use it directly
+        # as the feature width floor — the sweep must be dense enough to catch
+        # signals even at their narrowest.  The SNR estimate remains the ceiling
+        # (no point sampling finer than the detectable width).
+        if signal_min_span is not None and signal_min_span > 0:
+            feature_width = min(feature_width, float(signal_min_span)) if feature_width > 0 else float(signal_min_span)
+
         if feature_width <= 0:
             return cls.DEFAULT_INITIAL_SWEEP_STEPS
 
         # Required spacing so _MIN_SIGNAL_HITS points fall within one feature.
+        # Apply 1.5x safety margin to account for:
+        #   - Sobol sequence alignment jitter (points may not align perfectly)
+        #   - Boundary effects near domain edges
+        #   - Depth variation within the detectable width (signal not flat)
+        safety_margin = 1.5
         required_spacing = feature_width / cls._MIN_SIGNAL_HITS
-        needed = int(np.ceil(domain_width / required_spacing))
+        needed = int(np.ceil(safety_margin * domain_width / required_spacing))
 
         return int(np.clip(needed, cls.DEFAULT_INITIAL_SWEEP_STEPS, 512))
 
@@ -436,6 +505,8 @@ class SequentialBayesianLocator(Locator):
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
         noise_std: float | None = None,
+        noise_max_dev: float | None = None,
+        signal_max_span: float | None = None,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -458,6 +529,8 @@ class SequentialBayesianLocator(Locator):
             convergence_params=convergence_params,
             convergence_patience_steps=convergence_patience_steps,
             noise_std=noise_std,
+            noise_max_dev=noise_max_dev,
+            signal_max_span=signal_max_span,
         )
 
     @property
@@ -507,16 +580,30 @@ class SequentialBayesianLocator(Locator):
                 self._sweep_refocus_done = True
                 self._maybe_refocus_sweep(mid_point)
 
-            u = float(self._initial_sweep_points[self.step_count - 1])
-            # After refocusing, sweep points are in narrowed normalized coordinates.
-            # Use acquisition bounds (which are narrowed after refocus) for conversion.
-            lo, hi = self._acquisition_lo, self._acquisition_hi
-            is_scale = getattr(self.belief.model, "is_scale_parameter", lambda name: False)(self._scan_param)
-            if is_scale and lo > 0 and hi > lo:
-                physical_value = float(np.exp(np.log(lo) + u * (np.log(hi) - np.log(lo))))
-            else:
-                physical_value = lo + u * (hi - lo)
+            u_full = float(self._initial_sweep_points[self.step_count - 1])
+            # After refocusing, sweep points are in full-domain normalized coordinates.
+            # Convert directly to physical using full domain bounds.
+            physical_value = self._full_domain_lo + u_full * (self._full_domain_hi - self._full_domain_lo)
             return self._to_experiment_normalized(physical_value)
+
+        # ------------------------------------------------------------------
+        # Secondary refinement sweep phase (when signal was found in initial sweep)
+        # ------------------------------------------------------------------
+        if self._secondary_sweep_active:
+            # Check stopping condition first
+            if self._check_secondary_sweep_stop():
+                self._secondary_sweep_active = False
+                # Fall through to Bayesian
+            elif self._secondary_sweep_steps_done < self._secondary_sweep_steps_total:
+                self._secondary_sweep_steps_done += 1
+                # _secondary_sweep_points are already in full-domain normalized
+                # coordinates [0,1] (see _start_secondary_refinement_sweep).
+                u_full = float(self._secondary_sweep_points[self._secondary_sweep_steps_done - 1])
+                physical_value = self._full_domain_lo + u_full * (self._full_domain_hi - self._full_domain_lo)
+                return self._to_experiment_normalized(physical_value)
+            else:
+                # Secondary sweep complete
+                self._secondary_sweep_active = False
 
         self.inference_step_count += 1
         physical_value = self._acquire()
@@ -563,6 +650,8 @@ class SequentialBayesianLocator(Locator):
         super().observe(obs)
         if self.step_count <= self.initial_sweep_steps:
             self._sweep_observations.append(obs)
+        elif self._secondary_sweep_active:
+            self._secondary_sweep_observations.append(obs)
 
     def done(self) -> bool:
         """Stop when converged (after warm-up) or step budget is exhausted."""
@@ -626,6 +715,20 @@ class SequentialBayesianLocator(Locator):
         ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
         span = _normalized_acquisition_interval_from_sweep(xs, ys)
         if span is None:
+            # No signal detected in initial sweep. Try a fallback sweep with offset points
+            # to avoid the aliasing problem where the Sobol gaps align with equal splits.
+            if not self._sweep_fallback_done and self.initial_sweep_steps > 0:
+                self._sweep_fallback_done = True
+                # Regenerate sweep points with 0.5 offset (half-domain shift)
+                self._initial_sweep_points = self._initial_sweep_builder(
+                    self.initial_sweep_steps, offset=0.5
+                )
+                # Clear observations and reset step count to restart the sweep fresh
+                self._sweep_observations.clear()
+                self.step_count = 0
+                self._sweep_refocus_done = False
+                return  # Next call to next() will start the fallback sweep
+            # Fallback already done or no sweep steps: use full domain
             self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
             return
         lo_norm, hi_norm = span
@@ -657,23 +760,10 @@ class SequentialBayesianLocator(Locator):
                     self._acquisition_hi = min(self._acquisition_hi, self._full_domain_hi)
 
             # ------------------------------------------------------------------
-            # Further narrow to single best segment (strongest dip only).
-            # This focuses Bayesian acquisition on the most informative feature
-            # rather than spreading across multiple detected dips.
+            # Keep the merged interval from all detected signal segments.
+            # This ensures the secondary sweep covers all dips (important for
+            # NV center with two peaks), not just the single strongest one.
             # ------------------------------------------------------------------
-            best_seg = _best_segment_from_sweep(xs, ys)
-            if best_seg is not None:
-                best_lo_norm, best_hi_norm = best_seg
-                best_lo = self._full_domain_lo + best_lo_norm * (self._full_domain_hi - self._full_domain_lo)
-                best_hi = self._full_domain_lo + best_hi_norm * (self._full_domain_hi - self._full_domain_lo)
-                # Intersect with current window to ensure we only narrow
-                self._acquisition_lo = max(self._acquisition_lo, best_lo)
-                self._acquisition_hi = min(self._acquisition_hi, best_hi)
-                # Ensure valid ordering
-                if self._acquisition_hi <= self._acquisition_lo:
-                    # Fall back to wider window if intersection failed
-                    self._acquisition_lo = self._full_domain_lo + lo_norm * (self._full_domain_hi - self._full_domain_lo)
-                    self._acquisition_hi = self._full_domain_lo + hi_norm * (self._full_domain_hi - self._full_domain_lo)
 
             self.belief.narrow_scan_parameter_physical_bounds(
                 self._scan_param,
@@ -711,6 +801,85 @@ class SequentialBayesianLocator(Locator):
                 for name, (lo, hi) in self.belief.physical_param_bounds.items()
             }
 
+        # ------------------------------------------------------------------
+        # Secondary refinement sweep: when signal found, do a finer characterization
+        # before switching to Bayesian. This gives better initial posterior.
+        # ------------------------------------------------------------------
+        if span is not None and self.initial_sweep_steps > 0:
+            self._start_secondary_refinement_sweep()
+
+    def _start_secondary_refinement_sweep(self) -> None:
+        """Start a secondary refinement sweep within the narrowed window.
+
+        Generates denser points covering the signal_max_span-aware window
+        to better characterize the dip before expensive Bayesian acquisition.
+        Steps are calculated from the signal span to ensure adequate coverage.
+        """
+        self._secondary_sweep_active = True
+        self._secondary_sweep_steps_done = 0
+
+        # Calculate steps needed from signal span: ensure at least 10 points
+        # within the detected window for good dip characterization.
+        domain_width = self._full_domain_hi - self._full_domain_lo
+        window_width_norm = (self._acquisition_hi - self._acquisition_lo) / domain_width if domain_width > 0 else 0.2
+        max_span = self._model_signal_max_span()
+        if max_span is not None and domain_width > 0:
+            # Use actual signal span for spacing calculation
+            span_norm = max_span / domain_width
+            min_spacing = span_norm / 10.0  # 10 points across the span
+        else:
+            min_spacing = window_width_norm / 8.0  # fallback: 8 points across window
+        min_spacing = max(min_spacing, 0.01)  # don't oversample
+        self._secondary_sweep_steps_total = max(6, min(32, int(window_width_norm / min_spacing)))
+
+        # Generate points within the narrowed acquisition window
+        domain_width = self._full_domain_hi - self._full_domain_lo
+        window_lo_norm = (self._acquisition_lo - self._full_domain_lo) / domain_width if domain_width > 0 else 0.0
+        window_hi_norm = (self._acquisition_hi - self._full_domain_lo) / domain_width if domain_width > 0 else 1.0
+        # Use Sobol sequence within the narrowed window
+        base_points = self._initial_sweep_builder(self._secondary_sweep_steps_total)
+        self._secondary_sweep_points = window_lo_norm + base_points * (window_hi_norm - window_lo_norm)
+        self._secondary_sweep_observations.clear()
+
+    def _check_secondary_sweep_stop(self) -> bool:
+        """Check stopping condition for secondary refinement sweep.
+
+        Returns True if sweep should stop early (signal confirmed characterized).
+        Stops once we have enough points around the dip to start Bayesian.
+        """
+        if len(self._secondary_sweep_observations) < 5:
+            return False
+
+        xs = np.array([float(o.x) for o in self._secondary_sweep_observations])
+        ys = np.array([float(o.signal_value) for o in self._secondary_sweep_observations])
+        background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)):]))
+        min_signal = float(np.min(ys))
+
+        # Same threshold logic as mid-sweep refocus
+        if self._noise_max_dev is not None:
+            dip_threshold = max(self._noise_max_dev, 0.04)
+        else:
+            iqr = float(np.percentile(ys, 75) - np.percentile(ys, 25))
+            data_noise_scale = max(iqr / 1.35, self._noise_std, 1e-6)
+            dip_threshold = max(2.5 * data_noise_scale, 0.04)
+
+        # Signal not found - continue sweeping
+        if background_est - min_signal < dip_threshold:
+            return False
+
+        # Signal confirmed - check if we have enough points around it
+        # Stop if we have points on both sides of the minimum
+        min_idx = int(np.argmin(ys))
+        min_x = float(xs[min_idx])
+        window_lo_norm = (self._acquisition_lo - self._full_domain_lo) / (self._full_domain_hi - self._full_domain_lo)
+        window_hi_norm = (self._acquisition_hi - self._full_domain_lo) / (self._full_domain_hi - self._full_domain_lo)
+        window_width = window_hi_norm - window_lo_norm
+
+        has_left = np.any(xs < min_x - 0.1 * window_width)
+        has_right = np.any(xs > min_x + 0.1 * window_width)
+        # Stop early if we have points bracketing the dip
+        return has_left and has_right
+
     def _maybe_refocus_sweep(self, mid_point: int) -> None:
         """Mid-sweep analysis: refocus if signal found, otherwise continue.
 
@@ -732,39 +901,58 @@ class SequentialBayesianLocator(Locator):
         min_signal = float(ys[min_idx])
 
         # Only proceed if the minimum is clearly below background.
-        # Threshold = 3× noise_std to reject Poisson / large-noise fluctuations.
-        background_est = float(np.median(ys))
-        dip_threshold = max(3.0 * self._noise_std, 0.05)
+        #
+        # Threshold = expected maximum downward noise deviation for this sweep size.
+        # When the executor provides noise_max_dev (from each noise model's own
+        # EVT formula), we use it directly — it is exact for that noise distribution.
+        # Fallback: IQR-based estimate from the sweep data itself, which adapts
+        # to whatever noise is actually present.
+        background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)):]))
+        if self._noise_max_dev is not None:
+            dip_threshold = max(self._noise_max_dev, 0.04)
+        else:
+            iqr = float(np.percentile(ys, 75) - np.percentile(ys, 25))
+            data_noise_scale = max(iqr / 1.35, self._noise_std, 1e-6)
+            dip_threshold = max(2.5 * data_noise_scale, 0.04)
         if background_est - min_signal < dip_threshold:
             return
 
-        # Compute the required half-span from the prior signal geometry.
-        # For multi-dip signals (NV center): span must cover center ± 2×split_max
-        # so that ALL dips fall within the refocus window even when the sweep only
-        # caught one outer dip. We add linewidth to avoid clipping dip edges.
+        # Refocus window half-width: use the signal model's declared max span when
+        # available. The model's signal_max_span() method is the authoritative value
+        # — it already accounts for split, linewidth, and any multi-dip structure.
+        # Fall back to deriving the span from individual parameter bounds when the
+        # model does not provide it.
         domain_width = self._full_domain_hi - self._full_domain_lo
-        half_span_phys = 0.0
-        phys_bounds: dict[str, tuple[float, float]] = getattr(
-            self.belief, "physical_param_bounds", {}
-        )
-        for key in ("split",):
-            if key in phys_bounds:
-                _, split_hi = phys_bounds[key]
-                half_span_phys = max(half_span_phys, 2.0 * float(split_hi))
-        for key in ("linewidth", "fwhm_lorentz", "fwhm_gauss", "sigma"):
-            if key in phys_bounds:
-                _, lw_hi = phys_bounds[key]
-                half_span_phys += float(lw_hi)
-                break  # one linewidth contribution is enough
-        # Normalise to [0,1] domain; clamp to [5%, 40%] of domain
-        if domain_width > 0 and half_span_phys > 0:
-            half_w = float(np.clip(half_span_phys / domain_width, 0.05, 0.40))
+        max_span = self._model_signal_max_span()
+        if max_span is not None and domain_width > 0:
+            half_w = float(np.clip(max_span / 2.0 / domain_width, 0.05, 0.40))
         else:
-            half_w = 0.10  # safe default
+            half_span_phys = 0.0
+            phys_bounds: dict[str, tuple[float, float]] = getattr(
+                self.belief, "physical_param_bounds", {}
+            )
+            for key in ("split",):
+                if key in phys_bounds:
+                    _, split_hi = phys_bounds[key]
+                    half_span_phys = max(half_span_phys, 2.0 * float(split_hi))
+            for key in ("linewidth", "fwhm_total", "fwhm_lorentz", "fwhm_gauss", "sigma"):
+                if key in phys_bounds:
+                    _, lw_hi = phys_bounds[key]
+                    half_span_phys += float(lw_hi)
+                    break  # one linewidth contribution is enough
+            if domain_width > 0 and half_span_phys > 0:
+                half_w = float(np.clip(half_span_phys / domain_width, 0.05, 0.40))
+            else:
+                half_w = 0.10  # safe default
 
-        # Build window centered on the detected dip, sized by signal span
-        lo_norm = float(np.clip(best_point_norm - half_w, 0.0, 1.0))
-        hi_norm = float(np.clip(best_point_norm + half_w, 0.0, 1.0))
+        # Build window centered on the detected dip, sized by signal span.
+        # When near domain boundaries, shrink half_w proportionally to keep
+        # the window centered on the dip rather than creating an asymmetric window.
+        left_space = best_point_norm  # distance to 0 boundary
+        right_space = 1.0 - best_point_norm  # distance to 1 boundary
+        half_w = min(half_w, left_space, right_space)
+        lo_norm = best_point_norm - half_w
+        hi_norm = best_point_norm + half_w
 
         # Convert normalized to physical for acquisition bounds
         lo_phys = self._full_domain_lo + lo_norm * (self._full_domain_hi - self._full_domain_lo)
@@ -845,6 +1033,70 @@ class SequentialBayesianLocator(Locator):
         if is_scale and lo > 0 and hi > lo:
             return np.exp(np.linspace(np.log(lo), np.log(hi), num_candidates))
         return np.linspace(lo, hi, num_candidates)
+
+    def _apply_parameter_weight_bias(
+        self,
+        utilities: np.ndarray,
+        mu_preds: np.ndarray,
+        sampled: object,
+    ) -> np.ndarray:
+        """Boost utilities toward measurements that are most informative about high-weight parameters.
+
+        For each candidate ``x_i`` the **frequency-specificity** is the squared
+        correlation between the signal predictions ``S(x_i, θ)`` and the
+        frequency dimension of the posterior samples::
+
+            R²_f(x_i) = Cov(S(x_i,θ), θ_f)² / [Var(S(x_i,θ)) · Var(θ_f)]
+
+        This is in ``[0, 1]``.  A measurement where predictions are perfectly
+        correlated with frequency uncertainty gets its utility multiplied by
+        ``freq_weight``; a measurement uncorrelated with frequency is unchanged.
+
+        Only parameters with weight > 1 contribute (default weight = 1 → no-op).
+
+        Parameters
+        ----------
+        utilities : np.ndarray
+            Shape ``(n_candidates,)`` — base acquisition utilities.
+        mu_preds : np.ndarray
+            Shape ``(n_candidates, n_samples)`` — signal predictions over posterior samples.
+        sampled : ParameterValues[np.ndarray]
+            Posterior parameter samples (unit-cube or physical; scale does not matter).
+
+        Returns
+        -------
+        np.ndarray
+            Biased utilities, same shape as input.
+        """
+        inner_model = getattr(self.belief.model, "inner", self.belief.model)
+        if not hasattr(inner_model, "parameter_weights"):
+            return utilities
+        weights = inner_model.parameter_weights()
+
+        result = utilities.copy()
+        pred_var = np.var(mu_preds, axis=1)  # (n_candidates,)
+
+        for param_name, weight in weights.items():
+            if weight <= 1.0:
+                continue
+            try:
+                param_particles = np.asarray(sampled[param_name], dtype=np.float64)
+            except (KeyError, TypeError):
+                continue
+            p_var = float(np.var(param_particles))
+            if p_var < 1e-30:
+                continue
+
+            p_mean = param_particles.mean()
+            p_dev = param_particles - p_mean
+            mu_mean = mu_preds.mean(axis=1)
+            cov = ((mu_preds - mu_mean[:, None]) * p_dev[None, :]).mean(axis=1)
+            r2 = cov**2 / (pred_var * p_var + 1e-30)
+            r2 = np.clip(r2, 0.0, 1.0)
+
+            result = result * (1.0 + (weight - 1.0) * r2)
+
+        return result
 
     def _to_experiment_normalized(self, physical_value: float) -> float:
         """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""

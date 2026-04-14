@@ -16,7 +16,7 @@ class OverFrequencyGaussianNoise(OverFrequencyNoise):
     If clip_min is set, values are clamped to [clip_min, clip_max] (clip_max optional).
     """
 
-    sigma: float = 0.05
+    sigma: float = 0.015
     clip_min: float | None = None
     clip_max: float | None = None
 

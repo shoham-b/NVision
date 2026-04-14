@@ -157,6 +157,16 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
     def parameter_names(self) -> list[str]:
         return self.inner.parameter_names()
 
+    def signal_min_span(self, domain_width: float) -> float | None:
+        x_lo, x_hi = self.x_bounds_phys
+        phys_width = float(x_hi - x_lo) if (x_hi - x_lo) > 0 else domain_width
+        return self.inner.signal_min_span(phys_width)
+
+    def signal_max_span(self, domain_width: float) -> float | None:
+        x_lo, x_hi = self.x_bounds_phys
+        phys_width = float(x_hi - x_lo) if (x_hi - x_lo) > 0 else domain_width
+        return self.inner.signal_max_span(phys_width)
+
     def narrow_physical_interval_for_param(
         self,
         param_name: str,

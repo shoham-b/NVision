@@ -35,8 +35,8 @@ class NVCenterLorentzianSpectrum:
 
     @property
     def physical_amplitude(self) -> float:
-        """Physical Hz² amplitude (numerator): dip_depth * linewidth²."""
-        return self.dip_depth * self.linewidth**2
+        """Physical Hz² amplitude (numerator): right peak depth × linewidth²."""
+        return (self.dip_depth / self.k_np) * self.linewidth**2
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,7 @@ class NVCenterLorentzianModel(
         Non-polarization factor (amplitude ratio between peaks)
         Left peak amplitude: a/k_np, Center: a, Right: a*k_np
     dip_depth : float
-        Normalized peak depth (0 to 1). Peak height = dip_depth.
+        Right (deepest) peak depth in [0, 1]. Center depth = dip_depth / k_np.
     background : float
         Background level (typically 1.0 for normalized signal)
     """
@@ -212,6 +212,18 @@ class NVCenterLorentzianModel(
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("linewidth", "dip_depth")
 
+    def parameter_weights(self) -> dict[str, float]:
+        return {"frequency": 2.0, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "dip_depth": 1.0, "background": 1.0}
+
+    def signal_min_span(self, domain_width: float) -> float | None:
+        linewidth_lo = domain_width * 0.0001
+        return 4.0 * linewidth_lo
+
+    def signal_max_span(self, domain_width: float) -> float | None:
+        split_hi = 5.0e6
+        linewidth_hi = domain_width * 0.05
+        return 2.0 * split_hi + 4.0 * linewidth_hi
+
     def compute(self, x: float, params: NVCenterLorentzianSpectrum) -> float:
         return self.compute_nvcenter_lorentzian_model(
             float(x),
@@ -219,18 +231,19 @@ class NVCenterLorentzianModel(
             params.linewidth,
             params.split,
             params.k_np,
-            params.dip_depth,
+            params.dip_depth / params.k_np,
             params.background,
         )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
+        actual_depth = np.asarray(samples.dip_depth, dtype=np.float64) / np.asarray(samples.k_np, dtype=np.float64)
         out = self.compute_nvcenter_lorentzian_model_vectorized(
             x,
             samples.frequency,
             samples.linewidth,
             samples.split,
             samples.k_np,
-            samples.dip_depth,
+            actual_depth,
             samples.background,
         )
         return np.asarray(out, dtype=FLOAT_DTYPE)
@@ -251,6 +264,7 @@ class NVCenterLorentzianModel(
         k_np_arr = np.asarray(samples.k_np, dtype=np.float64)
         depth = np.asarray(samples.dip_depth, dtype=np.float64)
         bg = np.asarray(samples.background, dtype=np.float64)
+        actual_depth = depth / k_np_arr
 
         x2d = xs[:, None]
         lw2 = linewidth_arr[None, :] ** 2
@@ -258,9 +272,9 @@ class NVCenterLorentzianModel(
         denom_c = (x2d - freq[None, :]) ** 2 + lw2
         denom_r = (x2d - (freq[None, :] + split_arr[None, :])) ** 2 + lw2
 
-        amp_l = (depth[None, :] * lw2) / k_np_arr[None, :]
-        amp_c = depth[None, :] * lw2
-        amp_r = depth[None, :] * lw2 * k_np_arr[None, :]
+        amp_l = (actual_depth[None, :] * lw2) / k_np_arr[None, :]
+        amp_c = actual_depth[None, :] * lw2
+        amp_r = actual_depth[None, :] * lw2 * k_np_arr[None, :]
 
         out = bg[None, :] - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
         return np.asarray(out, dtype=FLOAT_DTYPE)
@@ -269,8 +283,8 @@ class NVCenterLorentzianModel(
 @dataclass(frozen=True)
 class NVCenterVoigtSpectrum:
     frequency: float
-    fwhm_lorentz: float
-    fwhm_gauss: float
+    fwhm_total: float
+    lorentz_frac: float
     split: float
     k_np: float
     dip_depth: float
@@ -279,15 +293,15 @@ class NVCenterVoigtSpectrum:
     @property
     def physical_amplitude(self) -> float:
         """Physical Hz² amplitude (numerator): approximate Lorentzian-equivalent amplitude."""
-        # For Voigt, dip_depth * gamma_L^2 is a reasonable scale factor.
-        return self.dip_depth * (self.fwhm_lorentz / 2) ** 2
+        gamma_L = self.lorentz_frac * self.fwhm_total / 2
+        return (self.dip_depth / self.k_np) * gamma_L ** 2
 
 
 @dataclass(frozen=True)
 class NVCenterVoigtSpectrumSamples:
     frequency: np.ndarray
-    fwhm_lorentz: np.ndarray
-    fwhm_gauss: np.ndarray
+    fwhm_total: np.ndarray
+    lorentz_frac: np.ndarray
     split: np.ndarray
     k_np: np.ndarray
     dip_depth: np.ndarray
@@ -297,8 +311,8 @@ class NVCenterVoigtSpectrumSamples:
 @dataclass(frozen=True)
 class NVCenterVoigtSpectrumUncertainty:
     frequency: float
-    fwhm_lorentz: float
-    fwhm_gauss: float
+    fwhm_total: float
+    lorentz_frac: float
     split: float
     k_np: float
     dip_depth: float
@@ -314,21 +328,21 @@ class _NVCenterVoigtSpec(
 ):
     @property
     def names(self) -> tuple[str, ...]:
-        return ("frequency", "fwhm_lorentz", "fwhm_gauss", "split", "k_np", "dip_depth", "background")
+        return ("frequency", "fwhm_total", "lorentz_frac", "split", "k_np", "dip_depth", "background")
 
     @property
     def dim(self) -> int:
         return 7
 
     def unpack_params(self, values) -> NVCenterVoigtSpectrum:
-        f, fl, fg, s, k, d, b = values
-        return NVCenterVoigtSpectrum(float(f), float(fl), float(fg), float(s), float(k), float(d), float(b))
+        f, ft, lf, s, k, d, b = values
+        return NVCenterVoigtSpectrum(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
 
     def pack_params(self, params: NVCenterVoigtSpectrum) -> tuple[float, ...]:
         return (
             float(params.frequency),
-            float(params.fwhm_lorentz),
-            float(params.fwhm_gauss),
+            float(params.fwhm_total),
+            float(params.lorentz_frac),
             float(params.split),
             float(params.k_np),
             float(params.dip_depth),
@@ -336,14 +350,14 @@ class _NVCenterVoigtSpec(
         )
 
     def unpack_uncertainty(self, values) -> NVCenterVoigtSpectrumUncertainty:
-        f, fl, fg, s, k, d, b = values
-        return NVCenterVoigtSpectrumUncertainty(float(f), float(fl), float(fg), float(s), float(k), float(d), float(b))
+        f, ft, lf, s, k, d, b = values
+        return NVCenterVoigtSpectrumUncertainty(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
 
     def pack_uncertainty(self, u: NVCenterVoigtSpectrumUncertainty) -> tuple[float, ...]:
         return (
             float(u.frequency),
-            float(u.fwhm_lorentz),
-            float(u.fwhm_gauss),
+            float(u.fwhm_total),
+            float(u.lorentz_frac),
             float(u.split),
             float(u.k_np),
             float(u.dip_depth),
@@ -351,11 +365,11 @@ class _NVCenterVoigtSpec(
         )
 
     def unpack_samples(self, arrays_in_order) -> NVCenterVoigtSpectrumSamples:
-        f, fl, fg, s, k, d, b = arrays_in_order
+        f, ft, lf, s, k, d, b = arrays_in_order
         return NVCenterVoigtSpectrumSamples(
             frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            fwhm_lorentz=np.asarray(fl, dtype=FLOAT_DTYPE),
-            fwhm_gauss=np.asarray(fg, dtype=FLOAT_DTYPE),
+            fwhm_total=np.asarray(ft, dtype=FLOAT_DTYPE),
+            lorentz_frac=np.asarray(lf, dtype=FLOAT_DTYPE),
             split=np.asarray(s, dtype=FLOAT_DTYPE),
             k_np=np.asarray(k, dtype=FLOAT_DTYPE),
             dip_depth=np.asarray(d, dtype=FLOAT_DTYPE),
@@ -365,8 +379,8 @@ class _NVCenterVoigtSpec(
     def pack_samples(self, samples: NVCenterVoigtSpectrumSamples) -> tuple[np.ndarray, ...]:
         return (
             np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.fwhm_lorentz, dtype=FLOAT_DTYPE),
-            np.asarray(samples.fwhm_gauss, dtype=FLOAT_DTYPE),
+            np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
@@ -389,16 +403,16 @@ class NVCenterVoigtModel(
     ----------
     frequency : float
         Central frequency f_B in Hz
-    fwhm_lorentz : float
-        Lorentzian FWHM (full width at half maximum) in Hz
-    fwhm_gauss : float
-        Gaussian FWHM in Hz
+    fwhm_total : float
+        Total effective linewidth (Lorentzian + Gaussian) in Hz
+    lorentz_frac : float
+        Lorentzian share of broadening in [0, 1] (0 = pure Gaussian, 1 = pure Lorentzian)
     split : float
         Hyperfine splitting in Hz
     k_np : float
         Non-polarization factor
     dip_depth : float
-        Amplitude scaling factor (directly proportional to peak depth)
+        Right (deepest) peak depth in [0, 1]. Center depth = dip_depth / k_np.
     background : float
         Background level
     """
@@ -475,21 +489,24 @@ class NVCenterVoigtModel(
         self,
         x: float,
         frequency: float,
-        fwhm_lorentz: float,
-        fwhm_gauss: float,
+        fwhm_total: float,
+        lorentz_frac: float,
         split: float,
         k_np: float,
         dip_depth: float,
         background: float,
     ) -> float:
         """Triple Voigt NV ODMR; parameter order matches :meth:`parameter_names`."""
+        fwhm_l = lorentz_frac * fwhm_total
+        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
+        actual_depth = dip_depth / k_np
         if split < 1e-10:
-            # Zero-field: single combined dip with amplitude = dip_depth
-            return background - dip_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
+            # Zero-field: single combined dip with amplitude = actual_depth
+            return background - actual_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_l, fwhm_g)
 
-        left_dip = (dip_depth / k_np) * self._voigt_profile_unit_peak(x, frequency - split, fwhm_lorentz, fwhm_gauss)
-        center_dip = dip_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_lorentz, fwhm_gauss)
-        right_dip = (dip_depth * k_np) * self._voigt_profile_unit_peak(x, frequency + split, fwhm_lorentz, fwhm_gauss)
+        left_dip = (actual_depth / k_np) * self._voigt_profile_unit_peak(x, frequency - split, fwhm_l, fwhm_g)
+        center_dip = actual_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_l, fwhm_g)
+        right_dip = (actual_depth * k_np) * self._voigt_profile_unit_peak(x, frequency + split, fwhm_l, fwhm_g)
 
         return background - (left_dip + center_dip + right_dip)
 
@@ -500,14 +517,26 @@ class NVCenterVoigtModel(
         return self._SPEC
 
     def is_scale_parameter(self, name: str) -> bool:
-        return name in ("fwhm_lorentz", "fwhm_gauss", "dip_depth")
+        return name in ("fwhm_total", "dip_depth")
+
+    def parameter_weights(self) -> dict[str, float]:
+        return {"frequency": 2.0, "fwhm_total": 1.0, "lorentz_frac": 1.0, "split": 1.0, "k_np": 1.0, "dip_depth": 1.0, "background": 1.0}
+
+    def signal_min_span(self, domain_width: float) -> float | None:
+        fwhm_total_lo = 70e3
+        return 2.0 * fwhm_total_lo
+
+    def signal_max_span(self, domain_width: float) -> float | None:
+        split_hi = 5.0e6
+        fwhm_total_hi = 2.8e6
+        return 2.0 * split_hi + 2.0 * fwhm_total_hi
 
     def compute(self, x: float, params: NVCenterVoigtSpectrum) -> float:
         return self.compute_nvcenter_voigt_model(
             float(x),
             params.frequency,
-            params.fwhm_lorentz,
-            params.fwhm_gauss,
+            params.fwhm_total,
+            params.lorentz_frac,
             params.split,
             params.k_np,
             params.dip_depth,
@@ -517,11 +546,14 @@ class NVCenterVoigtModel(
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
         x_f = float(x)
         freq = np.asarray(samples.frequency, dtype=np.float64)
-        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=np.float64)
-        fwhm_g = np.asarray(samples.fwhm_gauss, dtype=np.float64)
+        fwhm_total = np.asarray(samples.fwhm_total, dtype=np.float64)
+        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=np.float64)
+        fwhm_l = lorentz_frac * fwhm_total
+        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
         split = np.asarray(samples.split, dtype=np.float64)
         k_np = np.asarray(samples.k_np, dtype=np.float64)
         depth = np.asarray(samples.dip_depth, dtype=np.float64)
+        actual_depth = depth / k_np
         bg = np.asarray(samples.background, dtype=np.float64)
 
         sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
@@ -565,13 +597,13 @@ class NVCenterVoigtModel(
         # Split case: left/right/center dips
         profile_l = profile_at(freq - split)
         profile_r = profile_at(freq + split)
-        center_dip = depth * profile_c
-        left_dip = (depth / k_np) * profile_l
-        right_dip = (depth * k_np) * profile_r
+        center_dip = actual_depth * profile_c
+        left_dip = (actual_depth / k_np) * profile_l
+        right_dip = (actual_depth * k_np) * profile_r
         pred_split = bg - (left_dip + center_dip + right_dip)
 
         # No-split case: combined dip at center
-        pred_nosplit = bg - depth * profile_c
+        pred_nosplit = bg - actual_depth * profile_c
 
         return np.where(split_mask, pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)
 
@@ -584,11 +616,14 @@ class NVCenterVoigtModel(
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
         freq = np.asarray(samples.frequency, dtype=np.float64)
-        fwhm_l = np.asarray(samples.fwhm_lorentz, dtype=np.float64)
-        fwhm_g = np.asarray(samples.fwhm_gauss, dtype=np.float64)
+        fwhm_total = np.asarray(samples.fwhm_total, dtype=np.float64)
+        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=np.float64)
+        fwhm_l = lorentz_frac * fwhm_total
+        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
         split = np.asarray(samples.split, dtype=np.float64)
         k_np = np.asarray(samples.k_np, dtype=np.float64)
         depth = np.asarray(samples.dip_depth, dtype=np.float64)
+        actual_depth = depth / k_np
         bg = np.asarray(samples.background, dtype=np.float64)
 
         sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
@@ -633,12 +668,12 @@ class NVCenterVoigtModel(
         profile_l = profile_at(freq - split)
         profile_r = profile_at(freq + split)
 
-        center_dip = depth[None, :] * profile_c
-        left_dip = (depth[None, :] / k_np[None, :]) * profile_l
-        right_dip = (depth[None, :] * k_np[None, :]) * profile_r
+        center_dip = actual_depth[None, :] * profile_c
+        left_dip = (actual_depth[None, :] / k_np[None, :]) * profile_l
+        right_dip = (actual_depth[None, :] * k_np[None, :]) * profile_r
         pred_split = bg[None, :] - (left_dip + center_dip + right_dip)
 
-        pred_nosplit = bg[None, :] - depth[None, :] * profile_c
+        pred_nosplit = bg[None, :] - actual_depth[None, :] * profile_c
         return np.where(split_mask[None, :], pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)
 
 
@@ -651,13 +686,18 @@ def nv_center_lorentzian_bounds_for_domain(
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
+    split_hi = 5.0e6
+    linewidth_hi = width * 0.05
+    # Total span: centre ± split ± linewidth on each outer dip
+    max_span = 2.0 * split_hi + 4.0 * linewidth_hi
     return {
         "frequency": (float(x_min), float(x_max)),
-        "linewidth": (width * 0.0001, width * 0.05),
-        "split": (0.0, 5.0e6),
+        "linewidth": (width * 0.0001, linewidth_hi),
+        "split": (0.0, split_hi),
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.001, 1.0),
         "background": (0.95, 1.05),
+        "_signal_max_span": (0.0, max_span),
     }
 
 
@@ -762,6 +802,17 @@ class NVCenterOnePeakLorentzianModel(
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("linewidth", "dip_depth")
 
+    def parameter_weights(self) -> dict[str, float]:
+        return {"frequency": 2.0, "linewidth": 1.0, "dip_depth": 1.0, "background": 1.0}
+
+    def signal_min_span(self, domain_width: float) -> float | None:
+        linewidth_lo = domain_width * 0.0001
+        return 4.0 * linewidth_lo
+
+    def signal_max_span(self, domain_width: float) -> float | None:
+        linewidth_hi = domain_width * 0.05
+        return 4.0 * linewidth_hi
+
     def compute(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> float:
         lw2 = params.linewidth ** 2
         denom = (float(x) - params.frequency) ** 2 + lw2
@@ -803,11 +854,13 @@ def nv_center_one_peak_lorentzian_bounds_for_domain(
     width = float(x_max - x_min)
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
+    linewidth_hi = width * 0.05
     return {
         "frequency": (float(x_min), float(x_max)),
-        "linewidth": (width * 0.0001, width * 0.05),
+        "linewidth": (width * 0.0001, linewidth_hi),
         "dip_depth": (0.01, 1.0),
         "background": (0.95, 1.05),
+        "_signal_max_span": (0.0, 4.0 * linewidth_hi),
     }
 
 
@@ -820,12 +873,16 @@ def nv_center_voigt_bounds_for_domain(
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
+    split_hi = 5.0e6
+    fwhm_total_hi = 2.8e6
+    max_span = 2.0 * split_hi + 2.0 * fwhm_total_hi
     return {
         "frequency": (float(x_min), float(x_max)),
-        "fwhm_lorentz": (50e3, 2.0e6),
-        "fwhm_gauss": (20e3, 800e3),
-        "split": (0.0, 5.0e6),
+        "fwhm_total": (70e3, fwhm_total_hi),
+        "lorentz_frac": (0.05, 0.98),
+        "split": (0.0, split_hi),
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.001, 1.0),
         "background": (0.95, 1.05),
+        "_signal_max_span": (0.0, max_span),
     }

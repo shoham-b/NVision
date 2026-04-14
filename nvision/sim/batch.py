@@ -97,6 +97,22 @@ class OverFrequencyNoise(ABC):
         """
         return 0.0
 
+    def max_noise_deviation(self, n_samples: int = 20) -> float:
+        """Expected maximum downward deviation from the true signal in n_samples.
+
+        Based on extreme-value theory for the minimum of n i.i.d. samples:
+            E[|min of n samples|] ≈ noise_std × √(2 · log(n))
+
+        Subclasses with non-Gaussian tails (e.g. impulsive noise) should
+        override to return a more accurate bound.
+        """
+        import math
+
+        std = self.noise_std()
+        if std <= 0 or n_samples < 2:
+            return 0.0
+        return std * math.sqrt(2.0 * math.log(max(n_samples, 2)))
+
 
 class OverProbeNoise(ABC):
     """Base class for noise applied per-probe to a single signal value."""

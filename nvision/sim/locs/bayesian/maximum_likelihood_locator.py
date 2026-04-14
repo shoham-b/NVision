@@ -96,6 +96,20 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         # Normalized discrete marginal.
         base_prob = pdf / total
 
+        # Apply frequency-specificity bias: boost probabilities for candidates
+        # whose signal predictions covary most with high-weight parameters.
+        try:
+            n_samples = 64
+            sampled = self.belief.sample(n_samples)
+            mu_preds = self.belief.model.compute_vectorized_many(candidates, sampled)
+            biased = self._apply_parameter_weight_bias(np.asarray(base_prob, dtype=float), np.asarray(mu_preds, dtype=float), sampled)
+            base_prob = np.maximum(biased, 0.0)
+            total = float(np.sum(base_prob))
+            if total > 0:
+                base_prob = base_prob / total
+        except Exception:
+            pass  # Fall back to unbiased marginal if sampling fails
+
         # Soften extreme zeroes prior to temperature scaling
         base_prob = base_prob * 0.99 + 0.01 / len(candidates)
 

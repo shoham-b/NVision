@@ -133,6 +133,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # speed; Polars is used only for the final argmax selection.
         chunk_size = 64 if len(candidates) > 64 else len(candidates)
         utilities = np.zeros(len(candidates), dtype=float)
+        all_mu_preds = np.empty((len(candidates), num_samples), dtype=float)
         eps = 1e-12
 
         for start in range(0, len(candidates), chunk_size):
@@ -141,6 +142,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
             # mu_preds shape: (m, num_samples)
             mu_preds = model.compute_vectorized_many(xs, sampled)
+            all_mu_preds[start:end] = mu_preds
 
             noise_chunk = measurement_noise[start:end]  # (m, num_samples)
             inv_noise_std = 1.0 / noise_std
@@ -165,5 +167,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 eps=eps,
             )
 
+        utilities = self._apply_parameter_weight_bias(utilities, all_mu_preds, sampled)
         best_idx = int(pl.Series(utilities).arg_max())
         return float(candidates[best_idx])

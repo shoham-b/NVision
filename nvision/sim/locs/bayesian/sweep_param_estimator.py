@@ -6,7 +6,7 @@ signal already encodes considerable information about the other model parameters
 - The baseline level estimates ``background``.
 - The minimum signal relative to the baseline estimates ``dip_depth``.
 - The width of the informative region estimates the linewidth family (``linewidth``,
-  ``fwhm_lorentz``, ``fwhm_gauss``).
+  ``fwhm_total``).
 - Two separated dip regions allow estimating ``split``.
 
 All returned intervals are padded conservatively (controlled by ``safety_factor``)
@@ -147,7 +147,7 @@ def estimate_non_scan_param_bounds(
 
     Uses signal statistics (baseline, width of informative regions, and
     separation of dips) to infer narrower intervals for each model parameter.
-    ``dip_depth`` and ``fwhm_gauss`` are intentionally not narrowed: the sparse
+    ``dip_depth`` and ``lorentz_frac`` are intentionally not narrowed: the sparse
     coarse sweep systematically underestimates both, and narrowing them risks
     excluding the true value. Only returns bounds for parameters that are
     genuinely tighter than the current prior by at least ``_MIN_NARROWING_FRACTION``.
