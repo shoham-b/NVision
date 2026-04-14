@@ -505,7 +505,7 @@ function main() {
 
         function extractPlotDataFromTraces(traces) {
             let x_dense = null, y_dense = null, y_dense_noisy = null, y_dense_mode = null;
-            let coarse_x = [], coarse_y = [], fine_x = [], fine_y = [], fine_step = [];
+            let coarse_x = [], coarse_y = [], secondary_x = [], secondary_y = [], fine_x = [], fine_y = [], fine_step = [];
             let step_x = [], step_y = [], step_idx = [];
             let has_metrics = false, focus_window = null;
 
@@ -522,6 +522,9 @@ function main() {
                 } else if (name === 'measurements (coarse)') {
                     coarse_x = tr.x || [];
                     coarse_y = tr.y || [];
+                } else if (name === 'measurements (secondary)') {
+                    secondary_x = tr.x || [];
+                    secondary_y = tr.y || [];
                 } else if (name === 'measurements (inference)') {
                     fine_x = tr.x || [];
                     fine_y = tr.y || [];
@@ -541,10 +544,11 @@ function main() {
             if (y_dense_mode && y_dense_mode.length === x_dense.length) out.y_dense_mode = y_dense_mode;
             if (y_dense_noisy && y_dense_noisy.length === x_dense.length) out.y_dense_noisy = y_dense_noisy;
 
-            if (coarse_x.length || fine_x.length) {
+            if (coarse_x.length || secondary_x.length || fine_x.length) {
                 out.measurements = {
                     mode: 'phases',
                     coarse_x, coarse_y: coarse_y.map(y => y == null ? null : Number(y)),
+                    secondary_x, secondary_y: secondary_y.map(y => y == null ? null : Number(y)),
                     fine_x, fine_y: fine_y.map(y => y == null ? null : Number(y)),
                     fine_step: fine_step.map(s => Number(s))
                 };
@@ -588,6 +592,7 @@ function main() {
             }
             if (m.mode === 'phases') {
                 const coarseColor = 'rgba(176,176,176,0.9)';
+                const secondaryColor = 'rgba(255,127,14,0.9)';
                 if (m.coarse_x && m.coarse_x.length) {
                     traces.push({
                         type: 'scatter',
@@ -602,6 +607,22 @@ function main() {
                             line: { width: 0.6, color: '#4a4a4a' },
                         },
                         hovertemplate: 'x=%{x}<br>y=%{y:.4f}<br>phase=initial sweep<extra></extra>',
+                    });
+                }
+                if (m.secondary_x && m.secondary_x.length) {
+                    traces.push({
+                        type: 'scatter',
+                        x: m.secondary_x,
+                        y: m.secondary_y,
+                        mode: 'markers',
+                        name: `${label} (secondary)`,
+                        marker: {
+                            size: 7,
+                            color: secondaryColor,
+                            symbol: symbol,
+                            line: { width: 0.6, color: '#8B4513' },
+                        },
+                        hovertemplate: 'x=%{x}<br>y=%{y:.4f}<br>phase=secondary sweep<extra></extra>',
                     });
                 }
                 if (m.fine_x && m.fine_x.length) {

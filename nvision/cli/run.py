@@ -381,8 +381,8 @@ def run(  # noqa: C901
 
         filter_category_str = filter_category if filter_category is not None else None
         filter_strategy_str = filter_strategy if filter_strategy is not None else None
-        filter_generator_str = filter_generator.value if filter_generator is not None else None
-        filter_noise_str = filter_noise.value if filter_noise is not None else None
+        filter_generator_str = getattr(filter_generator, "value", filter_generator) if filter_generator is not None else None
+        filter_noise_str = getattr(filter_noise, "value", filter_noise) if filter_noise is not None else None
         filter_signal_str = filter_signal if filter_signal is not None else None
 
         worker_log_queue = None if runners > 1 else log_queue

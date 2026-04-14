@@ -1,14 +1,12 @@
 """Quick demo command for validating improvements.
 
 Usage:
-    uv run python -m nvision demo              # Run quick demo with cache (60 tasks)
+    uv run python -m nvision demo              # Run NV center zeeman demo (default)
     uv run python -m nvision demo --no-cache   # Run fresh comparison
     uv run python -m nvision demo --open       # Auto-open results in browser
 
-Fast options (reduce task count):
-    uv run python -m nvision demo --filter-generator NVCenter-zeeman --filter-noise NoNoise
-    uv run python -m nvision demo --filter-generator NVCenter-zeeman --filter-noise Gauss
-"""
+To run all NV center generators (slower):
+    uv run python -m nvision demo --filter-generator """
 
 from __future__ import annotations
 
@@ -79,9 +77,9 @@ def demo(
         typer.Option("--runners", min=1, help="Parallel runner processes"),
     ] = 8,
     filter_generator: Annotated[
-        str | None,
+        str,
         typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-zeeman')"),
-    ] = None,
+    ] = "NVCenter-zeeman",
     filter_noise: Annotated[
         str | None,
         typer.Option("--filter-noise", help="Filter to specific noise (e.g., 'NoNoise', 'Gauss')"),

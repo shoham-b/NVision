@@ -231,9 +231,12 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
         phases = history.get_column("phase").to_list()
         coarse_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "coarse"]
         coarse_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "coarse"]
+        secondary_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "secondary"]
+        secondary_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "secondary"]
         fine_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "fine"]
         fine_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "fine"]
         coarse_depth = [depth_percent(y) for y in coarse_y]
+        secondary_depth = [depth_percent(y) for y in secondary_y]
         fine_depth = [depth_percent(y) for y in fine_y]
 
         if coarse_x:
@@ -245,6 +248,21 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
                     name="measurements (coarse)",
                     marker=dict(size=7, color="rgba(176,176,176,0.95)", line=dict(width=0.6, color="#4a4a4a")),
                     customdata=coarse_depth,
+                    hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
+                ),
+                row=row,
+                col=col,
+            )
+
+        if secondary_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=secondary_x,
+                    y=secondary_y,
+                    mode="markers",
+                    name="measurements (secondary)",
+                    marker=dict(size=7, color="rgba(255,127,14,0.9)", line=dict(width=0.6, color="#8B4513")),
+                    customdata=secondary_depth,
                     hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
                 ),
                 row=row,

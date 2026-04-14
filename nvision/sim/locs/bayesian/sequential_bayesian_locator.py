@@ -263,11 +263,11 @@ class SequentialBayesianLocator(Locator):
         Defaults to a Sobol-like low-discrepancy 1D sequence.
     """
 
-    DEFAULT_INITIAL_SWEEP_STEPS = 32
+    DEFAULT_INITIAL_SWEEP_STEPS = 24
     # Minimum number of sweep points that should land inside the expected
     # signal footprint so that :func:`_normalized_acquisition_interval_from_sweep`
     # can reliably identify the focus region.
-    _MIN_SIGNAL_HITS = 10
+    _MIN_SIGNAL_HITS = 6
 
     def __init__(
         self,
@@ -593,6 +593,7 @@ class SequentialBayesianLocator(Locator):
             # Check stopping condition first
             if self._check_secondary_sweep_stop():
                 self._secondary_sweep_active = False
+                self._refine_window_after_secondary_sweep()
                 # Fall through to Bayesian
             elif self._secondary_sweep_steps_done < self._secondary_sweep_steps_total:
                 self._secondary_sweep_steps_done += 1
@@ -602,8 +603,9 @@ class SequentialBayesianLocator(Locator):
                 physical_value = self._full_domain_lo + u_full * (self._full_domain_hi - self._full_domain_lo)
                 return self._to_experiment_normalized(physical_value)
             else:
-                # Secondary sweep complete
+                # Secondary sweep complete - refine window before Bayesian
                 self._secondary_sweep_active = False
+                self._refine_window_after_secondary_sweep()
 
         self.inference_step_count += 1
         physical_value = self._acquire()
@@ -737,33 +739,9 @@ class SequentialBayesianLocator(Locator):
         self._acquisition_hi = self._full_domain_lo + hi_norm * (self._full_domain_hi - self._full_domain_lo)
 
         if isinstance(self.belief, (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution)):
-            # ------------------------------------------------------------------
-            # Split-based frequency window constraint.
-            # The two NV dips sit at frequency ± split, so the scan window only
-            # needs to reach 2×split_max away from the centre in each direction
-            # (4×split_max total).  Apply this before narrowing the belief so
-            # both constraints are intersected.
-            # ------------------------------------------------------------------
-            phys_bounds = self.belief.physical_param_bounds
-            if "split" in phys_bounds and self._scan_param in phys_bounds:
-                _, split_hi = phys_bounds["split"]
-                if split_hi > 0:
-                    max_half_span = 2.0 * split_hi
-                    center = 0.5 * (self._acquisition_lo + self._acquisition_hi)
-                    split_lo_cand = center - max_half_span
-                    split_hi_cand = center + max_half_span
-                    # Only narrow — never widen the current acquisition window.
-                    self._acquisition_lo = max(self._acquisition_lo, split_lo_cand)
-                    self._acquisition_hi = min(self._acquisition_hi, split_hi_cand)
-                    # Clamp to the full scan domain.
-                    self._acquisition_lo = max(self._acquisition_lo, self._full_domain_lo)
-                    self._acquisition_hi = min(self._acquisition_hi, self._full_domain_hi)
-
-            # ------------------------------------------------------------------
-            # Keep the merged interval from all detected signal segments.
-            # This ensures the secondary sweep covers all dips (important for
-            # NV center with two peaks), not just the single strongest one.
-            # ------------------------------------------------------------------
+            # Use the detected window directly - trust the sweep data over theory.
+            # The merged interval from all detected signal segments ensures the
+            # secondary sweep covers all dips (important for NV center with two peaks).
 
             self.belief.narrow_scan_parameter_physical_bounds(
                 self._scan_param,
@@ -771,7 +749,8 @@ class SequentialBayesianLocator(Locator):
                 self._acquisition_hi,
             )
             # Re-read scan axis bounds after narrowing (belief syncs them)
-            slo, shi = self.belief.physical_param_bounds[self._scan_param]
+            phys_bounds = self.belief.physical_param_bounds
+            slo, shi = phys_bounds[self._scan_param]
             self._acquisition_lo = min(slo, shi)
             self._acquisition_hi = max(slo, shi)
 
@@ -818,7 +797,7 @@ class SequentialBayesianLocator(Locator):
         self._secondary_sweep_active = True
         self._secondary_sweep_steps_done = 0
 
-        # Calculate steps needed from signal span: ensure at least 10 points
+        # Calculate steps needed from signal span: ensure at least 6 points
         # within the detected window for good dip characterization.
         domain_width = self._full_domain_hi - self._full_domain_lo
         window_width_norm = (self._acquisition_hi - self._acquisition_lo) / domain_width if domain_width > 0 else 0.2
@@ -826,11 +805,11 @@ class SequentialBayesianLocator(Locator):
         if max_span is not None and domain_width > 0:
             # Use actual signal span for spacing calculation
             span_norm = max_span / domain_width
-            min_spacing = span_norm / 10.0  # 10 points across the span
+            min_spacing = span_norm / 6.0  # 6 points across the span
         else:
-            min_spacing = window_width_norm / 8.0  # fallback: 8 points across window
-        min_spacing = max(min_spacing, 0.01)  # don't oversample
-        self._secondary_sweep_steps_total = max(6, min(32, int(window_width_norm / min_spacing)))
+            min_spacing = window_width_norm / 6.0  # fallback: 6 points across window
+        min_spacing = max(min_spacing, 0.015)  # don't oversample
+        self._secondary_sweep_steps_total = max(4, min(20, int(window_width_norm / min_spacing)))
 
         # Generate points within the narrowed acquisition window
         domain_width = self._full_domain_hi - self._full_domain_lo
@@ -879,6 +858,48 @@ class SequentialBayesianLocator(Locator):
         has_right = np.any(xs > min_x + 0.1 * window_width)
         # Stop early if we have points bracketing the dip
         return has_left and has_right
+
+    def _refine_window_after_secondary_sweep(self) -> None:
+        """Tighten acquisition window using precise secondary sweep data.
+
+        After the denser secondary sweep completes, use the accumulated
+        observations to compute a tighter focus window around the actual
+        peak/dip locations. This gives Bayesian acquisition a better starting
+        point with less wasted exploration in empty regions.
+        """
+        if len(self._secondary_sweep_observations) < 5:
+            return  # Not enough data to refine
+
+        xs = np.array([float(o.x) for o in self._secondary_sweep_observations], dtype=float)
+        ys = np.array([float(o.signal_value) for o in self._secondary_sweep_observations], dtype=float)
+
+        # Use the same interval detection but with tighter constraints
+        # since secondary sweep has better resolution
+        span = _normalized_acquisition_interval_from_sweep(xs, ys)
+        if span is None:
+            return  # Keep current window if no signal detected
+
+        lo_norm, hi_norm = span
+        # Convert to physical coordinates
+        new_lo = self._full_domain_lo + lo_norm * (self._full_domain_hi - self._full_domain_lo)
+        new_hi = self._full_domain_lo + hi_norm * (self._full_domain_hi - self._full_domain_lo)
+
+        # Use the detected window directly - it came from the actual sweep data
+        # so it knows where the signal really is. Constrain to full domain only.
+        self._acquisition_lo = max(self._full_domain_lo, min(new_lo, new_hi))
+        self._acquisition_hi = min(self._full_domain_hi, max(new_lo, new_hi))
+
+        # Update belief with refined bounds
+        if isinstance(self.belief, (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution)):
+            self.belief.narrow_scan_parameter_physical_bounds(
+                self._scan_param,
+                self._acquisition_lo,
+                self._acquisition_hi,
+            )
+            # Sync back from belief
+            slo, shi = self.belief.physical_param_bounds[self._scan_param]
+            self._acquisition_lo = min(slo, shi)
+            self._acquisition_hi = max(slo, shi)
 
     def _maybe_refocus_sweep(self, mid_point: int) -> None:
         """Mid-sweep analysis: refocus if signal found, otherwise continue.
@@ -990,6 +1011,10 @@ class SequentialBayesianLocator(Locator):
                 idx = mid_point + i
                 if idx < len(self._initial_sweep_points):
                     self._initial_sweep_points[idx] = new_points[i]
+
+    def secondary_sweep_count(self) -> int:
+        """Number of secondary refinement sweep steps performed (for UI phase coloring)."""
+        return self._secondary_sweep_steps_total
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Same physical interval as :meth:`_acquisition_bounds` for scan / manifest UI."""

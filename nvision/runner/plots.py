@@ -304,14 +304,19 @@ def generate_attempt_plots(
 
     history_with_phase = current_history_df
 
-    # Annotate coarse vs fine phase for strategies that perform an initial sweep.
-    # Use actual sweep_steps from entry_base if available (captured from locator),
-    # otherwise fall back to inferring from strategy config.
-    initial_sweep_steps = entry_base.get("sweep_steps") or _initial_sweep_steps_from_strategy(strat_obj)
-    if "step" in current_history_df.columns and initial_sweep_steps > 0:
+    # Annotate coarse vs secondary vs fine phase for strategies that perform sweeps.
+    # Use actual sweep_steps from run_result if available (captured from locator).
+    sweep_steps = run_result.sweep_steps if run_result is not None else 0
+    secondary_sweep_steps = run_result.secondary_sweep_steps if run_result is not None else 0
+    if sweep_steps == 0:
+        sweep_steps = entry_base.get("sweep_steps") or _initial_sweep_steps_from_strategy(strat_obj)
+    if "step" in current_history_df.columns and sweep_steps > 0:
+        total_sweep_end = sweep_steps + secondary_sweep_steps
         history_with_phase = current_history_df.with_columns(
-            pl.when(pl.col("step") < initial_sweep_steps)
+            pl.when(pl.col("step") < sweep_steps)
             .then(pl.lit("coarse"))
+            .when(pl.col("step") < total_sweep_end)
+            .then(pl.lit("secondary"))
             .otherwise(pl.lit("fine"))
             .alias("phase")
         )
