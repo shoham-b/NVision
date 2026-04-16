@@ -70,12 +70,25 @@ class CoreExperiment:
 
         # Get true signal value
         signal_value = self.true_signal(x_physical)
+        true_value = signal_value  # Keep reference for noise constraint
 
-        # Apply noise components if configured
+        # Compute noise scale factor to ensure noise never exceeds smallest dip
+        min_dip = self.true_signal.min_dip_amplitude()
+        noise_scale = 1.0
+        if min_dip is not None and self.noise is not None:
+            # Use conservative 5-sigma bound for all noise types
+            # This ensures ~99.9999% of samples stay within dip amplitude
+            max_allowed_std = min_dip / 5.0
+
+            current_std = self.noise.estimated_noise_std()
+            if current_std > max_allowed_std:
+                noise_scale = max_allowed_std / current_std
+
+        # Apply noise components if configured (with proactive scaling)
         noise_std = DEFAULT_MEASUREMENT_NOISE_STD  # default for no-noise case (aligned with Observation)
         frequency_noise_model = None
         if self.noise is not None:
-            noise_std = self.noise.estimated_noise_std()
+            noise_std = self.noise.estimated_noise_std() * noise_scale
             if self.noise.over_frequency_noise is not None:
                 frequency_noise_model = self.frequency_noise_model()
                 from nvision.sim.batch import DataBatch
@@ -83,8 +96,14 @@ class CoreExperiment:
                 batch = DataBatch(x=[x_physical], signal_values=[signal_value])
                 noisy_batch = self.noise.over_frequency_noise.apply(batch, rng)
                 signal_value = float(noisy_batch.df["signal_values"][0])
+                # Apply the proactive scale to the noise result
+                if noise_scale != 1.0:
+                    signal_value = true_value + (signal_value - true_value) * noise_scale
             if self.noise.over_probe_noise is not None:
                 signal_value = self.noise.over_probe_noise.apply(signal_value, rng, None)
+                # Apply scale to over-probe noise component as well
+                if noise_scale != 1.0:
+                    signal_value = true_value + (signal_value - true_value) * noise_scale
 
         # Return observation in normalized space
         return Observation(

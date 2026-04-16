@@ -45,6 +45,9 @@ _NV_SMC: dict[str, object] = {
     "num_particles": 5000,
     "jitter_scale": 0.05,
     "ess_threshold": 0.5,
+    "use_full_covariance": True,  # NIST-style robust resampling (Dushenko et al.)
+    "a_param": 0.98,
+    "scale": True,
 }
 
 
@@ -88,6 +91,9 @@ class CombinationGrid:
                 "num_particles": 5000,
                 "jitter_scale": 0.05,
                 "ess_threshold": 0.5,
+                "use_full_covariance": True,  # NIST-style robust resampling (Dushenko et al.)
+                "a_param": 0.98,
+                "scale": True,
             }
             return [
                 ("SimpleSweep", SimpleSweepLocator),

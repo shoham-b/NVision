@@ -152,16 +152,31 @@ def _default_port_for_dir(directory: Path) -> int:
 
 
 def _port_is_open(port: int) -> bool:
-    """Check if a port is already bound (i.e. a server is already listening)."""
-    import socket
+    """Check if a healthy server is already running on the port.
 
+    Verifies actual HTTP response to avoid false positives from
+    TIME_WAIT sockets or zombie processes on Windows.
+    """
+    import socket
+    import urllib.error
+    import urllib.request
+
+    # First: can we connect at TCP level?
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         try:
             s.connect(("localhost", port))
-            return True
         except (ConnectionRefusedError, OSError):
             return False
+
+    # Second: does it actually respond to HTTP requests?
+    # This filters out TIME_WAIT sockets and zombie processes
+    try:
+        req = urllib.request.Request(f"http://localhost:{port}/api/status", method="GET")
+        with urllib.request.urlopen(req, timeout=2) as response:
+            return response.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
 
 
 @app.command()
@@ -247,11 +262,16 @@ def serve(
 
     original_dir = os.getcwd()
 
+    class _ReuseAddrTCPServer(socketserver.TCPServer):
+        """TCP server that allows address reuse (critical on Windows)."""
+
+        allow_reuse_address = True
+
     def _run_server() -> None:
         global _server_instance
         try:
             os.chdir(directory)
-            with socketserver.TCPServer(("", port), _APIHandler) as httpd:
+            with _ReuseAddrTCPServer(("", port), _APIHandler) as httpd:
                 _server_instance = httpd
                 httpd.serve_forever()
         except OSError as e:

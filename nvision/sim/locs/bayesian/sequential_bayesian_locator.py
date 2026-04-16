@@ -68,7 +68,7 @@ def _normalized_acquisition_interval_from_sweep(xs: np.ndarray, ys: np.ndarray) 
     if xs.size < 5 or ys.size < 5:
         return None
 
-    padding_fraction = 0.1
+    padding_fraction = 0.02
     min_width_fraction = 0.15
     segment_peak_ratio = 0.6
     merge_gap_factor = 2.0
@@ -151,60 +151,96 @@ def _normalized_acquisition_interval_from_sweep(xs: np.ndarray, ys: np.ndarray) 
     return (lo_norm, hi_norm)
 
 
-def _best_segment_from_sweep(xs: np.ndarray, ys: np.ndarray) -> tuple[float, float] | None:
-    """Return a tight window around the single strongest dip point in normalized [0, 1] coordinates.
+def _detect_dip_edges(xs_sorted: np.ndarray, ys_sorted: np.ndarray, min_idx: int) -> tuple[int, int]:
+    """Find left and right edges of a dip around its minimum point.
 
-    Unlike the full interval function that merges all segments, this focuses only on
-    the single point with maximum dip depth, creating a minimal window around it.
+    A dip is the pattern: baseline -> down (decreasing y) -> minimum -> up (increasing y) -> baseline.
+    Returns (left_edge_idx, right_edge_idx) as indices into the sorted arrays.
+    """
+    n = len(ys_sorted)
+    if n < 3:
+        return (0, n - 1)
+
+    # Estimate baseline from upper quartile (assuming most points are baseline)
+    baseline = float(np.percentile(ys_sorted, 75))
+    min_signal = float(ys_sorted[min_idx])
+    dip_depth = baseline - min_signal
+    if dip_depth <= 0:
+        return (max(0, min_idx - 1), min(n - 1, min_idx + 1))
+
+    # Threshold for being "in the dip" vs at baseline
+    # Use 50% of dip depth: if signal is within 50% of baseline, it's still in the dip
+    dip_region_threshold = baseline - 0.5 * dip_depth
+
+    # Find left edge: move left from minimum until we leave the dip region
+    left_idx = min_idx
+    while left_idx > 0:
+        prev_y = float(ys_sorted[left_idx - 1])
+
+        # If previous point is at/near baseline (above threshold), we've left the dip
+        if prev_y >= dip_region_threshold:
+            # Include one more point at/beyond baseline for full coverage
+            if left_idx > 1:
+                left_idx -= 1  # Step to the baseline point
+            else:
+                left_idx = 0
+            break
+
+        left_idx -= 1
+
+    # Find right edge: move right from minimum until we leave the dip region
+    right_idx = min_idx
+    while right_idx < n - 1:
+        next_y = float(ys_sorted[right_idx + 1])
+
+        # If next point is at/near baseline (above threshold), we've left the dip
+        if next_y >= dip_region_threshold:
+            # Include one more point at/beyond baseline for full coverage
+            if right_idx < n - 2:
+                right_idx += 1  # Step to the baseline point
+            else:
+                right_idx = n - 1
+            break
+
+        right_idx += 1
+
+    return (left_idx, right_idx)
+
+
+def _best_segment_from_sweep(xs: np.ndarray, ys: np.ndarray) -> tuple[float, float] | None:
+    """Return a tight window around the single strongest dip in normalized [0, 1] coordinates.
+
+    Detects the full dip pattern (down then back up) and creates a window spanning
+    from where the signal starts descending to where it recovers to baseline.
     """
     if xs.size < 5 or ys.size < 5:
         return None
 
     min_width_fraction = 0.03  # Very tight: ~3% of domain
-    max_width_fraction = 0.15  # But not too tight for NV split pairs
+    max_width_fraction = 0.50  # Allow wide window to capture full dip extent
 
     # Sort by x for analysis
     order = np.argsort(xs)
     xs_sorted = xs[order]
     ys_sorted = ys[order]
 
-    # Compute local "dip score": how much below neighbors
-    n = len(ys_sorted)
-    dip_scores = np.zeros(n)
-    for i in range(1, n - 1):
-        left_neighbor = ys_sorted[i - 1]
-        right_neighbor = ys_sorted[i + 1]
-        local_baseline = 0.5 * (left_neighbor + right_neighbor)
-        dip_scores[i] = max(0.0, local_baseline - ys_sorted[i])
+    # Estimate baseline from upper quartile
+    baseline = float(np.percentile(ys_sorted, 75))
 
-    if n > 1:
-        dip_scores[0] = max(0.0, ys_sorted[1] - ys_sorted[0])
-        dip_scores[-1] = max(0.0, ys_sorted[-2] - ys_sorted[-1])
+    # Find the deepest point
+    min_idx = int(np.argmin(ys_sorted))
+    min_signal = float(ys_sorted[min_idx])
+    dip_depth = baseline - min_signal
 
-    # Find the single point with maximum dip score
-    best_idx = int(np.argmax(dip_scores))
-    best_dip_score = float(dip_scores[best_idx])
-
-    # Require a meaningful dip (at least 5% below neighbors)
-    if best_dip_score < 0.05:
+    # Require a meaningful dip (at least 5% below baseline)
+    if dip_depth < 0.05:
         return None
 
-    # Build window around the best point: include neighbors with similar dip scores
-    # (within 50% of the best score) - use stricter 0.6 factor to avoid noise expansion
-    threshold = best_dip_score * 0.5
-    lo_idx = best_idx
-    hi_idx = best_idx
+    # Detect full dip edges: where it goes down and comes back up
+    left_idx, right_idx = _detect_dip_edges(xs_sorted, ys_sorted, min_idx)
 
-    # Expand left while dip scores remain significant (stricter threshold)
-    while lo_idx > 0 and dip_scores[lo_idx - 1] > threshold * 0.6:
-        lo_idx -= 1
-
-    # Expand right while dip scores remain significant
-    while hi_idx < n - 1 and dip_scores[hi_idx + 1] > threshold * 0.6:
-        hi_idx += 1
-
-    lo_norm = float(xs_sorted[lo_idx])
-    hi_norm = float(xs_sorted[hi_idx])
+    lo_norm = float(xs_sorted[left_idx])
+    hi_norm = float(xs_sorted[right_idx])
 
     # Ensure minimum and maximum width
     width = hi_norm - lo_norm
@@ -213,8 +249,8 @@ def _best_segment_from_sweep(xs: np.ndarray, ys: np.ndarray) -> tuple[float, flo
         lo_norm = float(np.clip(mid - 0.5 * min_width_fraction, 0.0, 1.0))
         hi_norm = float(np.clip(mid + 0.5 * min_width_fraction, 0.0, 1.0))
     elif width > max_width_fraction:
-        # Too wide - shrink to max width centered on best point
-        mid = float(xs_sorted[best_idx])
+        # Too wide - shrink to max width centered on minimum point
+        mid = float(xs_sorted[min_idx])
         lo_norm = float(np.clip(mid - 0.5 * max_width_fraction, 0.0, 1.0))
         hi_norm = float(np.clip(mid + 0.5 * max_width_fraction, 0.0, 1.0))
 
@@ -347,6 +383,8 @@ class SequentialBayesianLocator(Locator):
         self._secondary_sweep_steps_total = 0
         self._secondary_sweep_points: np.ndarray = np.empty(0, dtype=float)
         self._secondary_sweep_observations: list[Observation] = []
+        # Track actual step count when initial sweep completed (including any fallback)
+        self._initial_sweep_completed_at_step: int = 0
 
     def _inner_model(self):
         """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""
@@ -567,6 +605,9 @@ class SequentialBayesianLocator(Locator):
 
         if self.step_count == self.initial_sweep_steps + 1:
             self._set_acquisition_window_after_sweep()
+            # Record actual step count when initial sweep phase completed (normal case)
+            if self._initial_sweep_completed_at_step == 0:
+                self._initial_sweep_completed_at_step = self.step_count - 1
 
         if self.step_count <= self.initial_sweep_steps:
             # Staged sweep: at 50% completion, analyze and potentially refocus
@@ -580,10 +621,22 @@ class SequentialBayesianLocator(Locator):
                 self._sweep_refocus_done = True
                 self._maybe_refocus_sweep(mid_point)
 
+            # Early stopping: if signal is clearly detected with enough bracketing,
+            # skip remaining initial sweep steps and go straight to window setting
+            early_stopping_triggered = (
+                self._sweep_refocus_done
+                and len(self._sweep_observations) >= 6
+                and self._check_initial_sweep_stop()
+            )
+
             u_full = float(self._initial_sweep_points[self.step_count - 1])
-            # After refocusing, sweep points are in full-domain normalized coordinates.
-            # Convert directly to physical using full domain bounds.
             physical_value = self._full_domain_lo + u_full * (self._full_domain_hi - self._full_domain_lo)
+
+            if early_stopping_triggered:
+                # Record actual step count for phase tracking, then jump to end
+                self._initial_sweep_completed_at_step = self.step_count
+                self.step_count = self.initial_sweep_steps  # Jump after this point
+
             return self._to_experiment_normalized(physical_value)
 
         # ------------------------------------------------------------------
@@ -715,7 +768,10 @@ class SequentialBayesianLocator(Locator):
         """
         xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
         ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
-        span = _normalized_acquisition_interval_from_sweep(xs, ys)
+        # Use tight bounds helper to avoid 15% minimum width constraint
+        span = self._tight_signal_bounds_from_observations(xs, ys)
+        if span is None:
+            span = _normalized_acquisition_interval_from_sweep(xs, ys)
         if span is None:
             # No signal detected in initial sweep. Try a fallback sweep with offset points
             # to avoid the aliasing problem where the Sobol gaps align with equal splits.
@@ -729,6 +785,8 @@ class SequentialBayesianLocator(Locator):
                 self._sweep_observations.clear()
                 self.step_count = 0
                 self._sweep_refocus_done = False
+                # Track total initial sweep steps including fallback for phase coloring
+                self._initial_sweep_completed_at_step = self.initial_sweep_steps
                 return  # Next call to next() will start the fallback sweep
             # Fallback already done or no sweep steps: use full domain
             self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
@@ -788,37 +846,139 @@ class SequentialBayesianLocator(Locator):
             self._start_secondary_refinement_sweep()
 
     def _start_secondary_refinement_sweep(self) -> None:
-        """Start a secondary refinement sweep within the narrowed window.
+        """Start a secondary refinement sweep focused on actual signal region.
 
-        Generates denser points covering the signal_max_span-aware window
-        to better characterize the dip before expensive Bayesian acquisition.
-        Steps are calculated from the signal span to ensure adequate coverage.
+        Uses initial sweep observations to find where the signal actually is,
+        then generates denser points concentrated in that region.
+        Spacing is one "stage" finer than what the initial sweep achieved.
+        Eliminates long-tail no-signal regions from the secondary sweep.
         """
         self._secondary_sweep_active = True
         self._secondary_sweep_steps_done = 0
-
-        # Calculate steps needed from signal span: ensure at least 6 points
-        # within the detected window for good dip characterization.
         domain_width = self._full_domain_hi - self._full_domain_lo
-        window_width_norm = (self._acquisition_hi - self._acquisition_lo) / domain_width if domain_width > 0 else 0.2
+
+        # Find tight signal region from initial sweep observations
+        signal_lo_norm, signal_hi_norm = self._signal_region_from_initial_sweep()
+
+        # Calculate actual spacing used in initial sweep within signal region
+        # then use one stage finer (half the spacing) for secondary sweep
+        signal_width_norm = signal_hi_norm - signal_lo_norm
+        initial_sweep_spacing = self._initial_sweep_spacing_in_region(signal_lo_norm, signal_hi_norm)
+
+        # One stage finer = half the spacing of initial sweep
+        min_spacing = initial_sweep_spacing / 2.0
+
+        # Also respect model signal span if available
         max_span = self._model_signal_max_span()
         if max_span is not None and domain_width > 0:
-            # Use actual signal span for spacing calculation
             span_norm = max_span / domain_width
-            min_spacing = span_norm / 6.0  # 6 points across the span
-        else:
-            min_spacing = window_width_norm / 6.0  # fallback: 6 points across window
-        min_spacing = max(min_spacing, 0.015)  # don't oversample
-        self._secondary_sweep_steps_total = max(4, min(20, int(window_width_norm / min_spacing)))
+            # Don't exceed signal span resolution
+            min_spacing = max(min_spacing, span_norm / 16.0)
 
-        # Generate points within the narrowed acquisition window
-        domain_width = self._full_domain_hi - self._full_domain_lo
-        window_lo_norm = (self._acquisition_lo - self._full_domain_lo) / domain_width if domain_width > 0 else 0.0
-        window_hi_norm = (self._acquisition_hi - self._full_domain_lo) / domain_width if domain_width > 0 else 1.0
-        # Use Sobol sequence within the narrowed window
+        min_spacing = max(min_spacing, 0.003)  # Hard floor at 0.3% of domain
+        self._secondary_sweep_steps_total = max(10, min(50, int(signal_width_norm / min_spacing) + 4))
+
+        # DEBUG: Log secondary sweep parameters
+        import logging
+        logging.getLogger("nvision").info(
+            f"[SECONDARY SWEEP] signal_region=[{signal_lo_norm:.4f}, {signal_hi_norm:.4f}], "
+            f"width={signal_width_norm:.4f}, initial_spacing={initial_sweep_spacing:.4f}, "
+            f"min_spacing={min_spacing:.4f}, steps={self._secondary_sweep_steps_total}"
+        )
+
+        # Generate points concentrated in signal region
         base_points = self._initial_sweep_builder(self._secondary_sweep_steps_total)
-        self._secondary_sweep_points = window_lo_norm + base_points * (window_hi_norm - window_lo_norm)
+        self._secondary_sweep_points = signal_lo_norm + base_points * signal_width_norm
+
+        # DEBUG: Log generated points
+        logging.getLogger("nvision").info(
+            f"[SECONDARY SWEEP] base_points (first 5): {base_points[:5]}, "
+            f"final_points (first 5): {self._secondary_sweep_points[:5]}"
+        )
+
         self._secondary_sweep_observations.clear()
+
+    def _signal_region_from_initial_sweep(self) -> tuple[float, float]:
+        """Extract tight signal region from initial sweep observations.
+
+        Returns normalized [lo, hi] bounds around where signal was actually detected.
+        Uses merged interval from all detected segments to cover multi-dip signals.
+        Falls back to acquisition window if no clear signal found.
+        """
+        domain_width = self._full_domain_hi - self._full_domain_lo
+        if domain_width <= 0:
+            return (0.0, 1.0)
+
+        # Get initial sweep observations
+        if len(self._sweep_observations) < 3:
+            # Fallback to full acquisition window
+            lo_norm = (self._acquisition_lo - self._full_domain_lo) / domain_width
+            hi_norm = (self._acquisition_hi - self._full_domain_lo) / domain_width
+            return (max(0.0, lo_norm), min(1.0, hi_norm))
+
+        xs = np.array([float(o.x) for o in self._sweep_observations])
+        ys = np.array([float(o.signal_value) for o in self._sweep_observations])
+
+        # Observation.x is already in normalized [0,1] coordinates (see CoreExperiment.measure)
+        xs_norm = xs
+
+        # Use tight bounds helper to avoid 15% minimum width constraint
+        # of _normalized_acquisition_interval_from_sweep
+        tight_span = self._tight_signal_bounds_from_observations(xs_norm, ys)
+        if tight_span is not None:
+            lo_norm, hi_norm = tight_span
+        else:
+            # Fallback: use threshold-based detection directly
+            baseline = float(np.percentile(ys, 75))
+            threshold = baseline - 0.1 * (baseline - float(np.min(ys)))
+            signal_mask = ys < threshold
+            if np.any(signal_mask):
+                lo_norm = float(np.min(xs_norm[signal_mask]))
+                hi_norm = float(np.max(xs_norm[signal_mask]))
+            else:
+                lo_norm, hi_norm = 0.0, 1.0
+
+        # Moderate padding: 5% on each side to balance tight focus with capturing full dip
+        width = hi_norm - lo_norm
+        padding = 0.05 * width
+        lo_norm = max(0.0, lo_norm - padding)
+        hi_norm = min(1.0, hi_norm + padding)
+
+        return (lo_norm, hi_norm)
+
+    def _initial_sweep_spacing_in_region(
+        self, region_lo_norm: float, region_hi_norm: float
+    ) -> float:
+        """Calculate minimum spacing of initial sweep points within signal region.
+
+        Returns the characteristic spacing achieved in the initial sweep,
+        which is used to make the secondary sweep one "stage" finer.
+        """
+        if len(self._sweep_observations) < 2:
+            # Default: typical Sobol spacing for initial sweep step count
+            return 1.0 / max(1, self.initial_sweep_steps)
+
+        # Get points within the signal region (o.x is already normalized [0,1])
+        points_in_region = [
+            float(o.x) for o in self._sweep_observations
+            if region_lo_norm <= float(o.x) <= region_hi_norm
+        ]
+
+        if len(points_in_region) < 2:
+            # No points in region yet - use full-domain spacing estimate
+            xs = np.array([float(o.x) for o in self._sweep_observations])
+            xs_sorted = np.sort(xs)
+            spacings = np.diff(xs_sorted)
+            return float(np.median(spacings)) if len(spacings) > 0 else 1.0 / self.initial_sweep_steps
+
+        # Calculate minimum spacing between consecutive points in region
+        points_sorted = np.sort(points_in_region)
+        spacings = np.diff(points_sorted)
+        min_spacing = float(np.min(spacings)) if len(spacings) > 0 else 1.0 / len(points_in_region)
+
+        # For van der Corput/Sobol sequences, characteristic spacing is ~2x the min
+        # (points cluster at certain resolutions)
+        return max(min_spacing * 2.0, 1.0 / (2.0 * len(self._sweep_observations)))
 
     def _check_secondary_sweep_stop(self) -> bool:
         """Check stopping condition for secondary refinement sweep.
@@ -859,13 +1019,175 @@ class SequentialBayesianLocator(Locator):
         # Stop early if we have points bracketing the dip
         return has_left and has_right
 
+    def _check_initial_sweep_stop(self) -> bool:
+        """Check if initial sweep can stop early (signal clearly detected).
+
+        Returns True if we have enough points around the signal to characterize
+        it and can skip remaining initial sweep steps.
+        """
+        if len(self._sweep_observations) < 6:
+            return False
+
+        xs = np.array([float(o.x) for o in self._sweep_observations])
+        ys = np.array([float(o.signal_value) for o in self._sweep_observations])
+
+        # Check for clear signal dip
+        min_idx = int(np.argmin(ys))
+        min_signal = float(ys[min_idx])
+        baseline = float(np.percentile(ys, 75))
+
+        # Must have significant dip (more than 5% below baseline)
+        if baseline - min_signal < 0.05 * baseline:
+            return False
+
+        min_x = float(xs[min_idx])
+
+        # Check if we have points bracketing the dip on both sides
+        # Use 2% of domain as bracketing threshold
+        bracket_threshold = 0.02 * (self._full_domain_hi - self._full_domain_lo)
+        has_left = np.any(xs < min_x - bracket_threshold)
+        has_right = np.any(xs > min_x + bracket_threshold)
+
+        return has_left and has_right
+
+    def _tight_signal_bounds_from_observations(
+        self, xs: np.ndarray, ys: np.ndarray, noise_threshold: float | None = None
+    ) -> tuple[float, float] | None:
+        """Compute tight [lo, hi] bounds using model knowledge of expected signal span.
+
+        Uses the model's signal_max_span, signal_min_span, and expected_dip_count to
+        set appropriate window size. This is more informed than simple thresholding
+        because it respects the physics of the expected signal shape.
+        """
+        if len(xs) < 3 or len(ys) < 3:
+            return None
+
+        domain_width = self._full_domain_hi - self._full_domain_lo
+        if domain_width <= 0:
+            return None
+
+        expected_dips = self._expected_dip_count_from_model()
+
+        # Get model's expected signal span
+        max_span_phys = self._model_signal_max_span()
+        min_span_phys = self._model_signal_min_span()
+
+        if expected_dips == 1:
+            # Single dip: center on the minimum point
+            min_idx = int(np.argmin(ys))
+            dip_center_norm = float(xs[min_idx])
+
+            if max_span_phys is not None and max_span_phys > 0:
+                half_span_norm = (max_span_phys * 0.6) / domain_width
+            elif min_span_phys is not None and min_span_phys > 0:
+                half_span_norm = (min_span_phys * 1.5) / domain_width
+            else:
+                # Data-based fallback
+                baseline = float(np.percentile(ys, 75))
+                dip_depth = baseline - float(np.min(ys))
+                threshold = baseline - 0.2 * dip_depth
+                signal_mask = ys < threshold
+                if np.any(signal_mask):
+                    signal_xs = xs[signal_mask]
+                    half_span_norm = float(np.max(signal_xs) - np.min(signal_xs)) / 2 * 1.1
+                else:
+                    half_span_norm = 0.1  # 10% default
+
+            # Ensure not narrower than min_span
+            if min_span_phys is not None and min_span_phys > 0:
+                min_half_span_norm = (min_span_phys * 0.8) / domain_width
+                half_span_norm = max(half_span_norm, min_half_span_norm)
+
+            lo_norm = dip_center_norm - half_span_norm
+            hi_norm = dip_center_norm + half_span_norm
+
+        elif expected_dips == 2:
+            # Two dips: detect dips and span from first to last with model-informed margin
+            baseline = float(np.percentile(ys, 75))
+            dip_depth = baseline - float(np.min(ys))
+            # Lower threshold to catch more of the dip sides
+            threshold = baseline - 0.15 * dip_depth
+            signal_mask = ys < threshold
+
+            if np.any(signal_mask):
+                signal_xs = xs[signal_mask]
+                lo_norm = float(np.min(signal_xs))
+                hi_norm = float(np.max(signal_xs))
+                # Add 10% margin to ensure full dip coverage
+                margin = 0.10 * (hi_norm - lo_norm)
+                lo_norm -= margin
+                hi_norm += margin
+            else:
+                # Fallback: use model span centered on data center
+                data_center = float(np.median(xs))
+                if max_span_phys is not None and max_span_phys > 0:
+                    half_span_norm = (max_span_phys * 0.7) / domain_width
+                elif min_span_phys is not None and min_span_phys > 0:
+                    half_span_norm = (min_span_phys * 1.5) / domain_width
+                else:
+                    half_span_norm = 0.15
+                lo_norm = data_center - half_span_norm
+                hi_norm = data_center + half_span_norm
+
+        else:
+            # Three dips (Zeeman triplet): critical to capture all three minima
+            # Use model's max_span directly to ensure outer dips are included
+            if max_span_phys is not None and max_span_phys > 0:
+                # Trust the model's expected span for Zeeman triplet
+                half_span_norm = (max_span_phys * 0.7) / domain_width
+            elif min_span_phys is not None and min_span_phys > 0:
+                half_span_norm = (min_span_phys * 2.0) / domain_width
+            else:
+                half_span_norm = 0.15
+
+            # Find the center of all three dips using the median of low points
+            baseline = float(np.percentile(ys, 75))
+            dip_depth = baseline - float(np.min(ys))
+            threshold = baseline - 0.15 * dip_depth
+            signal_mask = ys < threshold
+
+            if np.any(signal_mask):
+                signal_xs = xs[signal_mask]
+                # Center on the median of detected signal points (middle of triplet)
+                triplet_center = float(np.median(signal_xs))
+            else:
+                # Fallback: use minimum point
+                triplet_center = float(xs[int(np.argmin(ys))])
+
+            lo_norm = triplet_center - half_span_norm
+            hi_norm = triplet_center + half_span_norm
+
+            # Expand if data extends beyond (ensure we don't clip detected dips)
+            if np.any(signal_mask):
+                signal_xs = xs[signal_mask]
+                data_lo = float(np.min(signal_xs))
+                data_hi = float(np.max(signal_xs))
+                lo_norm = min(lo_norm, data_lo - 0.02)
+                hi_norm = max(hi_norm, data_hi + 0.02)
+
+        # Clamp to domain
+        lo_norm = max(0.0, lo_norm)
+        hi_norm = min(1.0, hi_norm)
+
+        return (lo_norm, hi_norm)
+
+    def _expected_dip_count_from_model(self) -> int:
+        """Return expected number of dips from the signal model.
+
+        Delegates to the model's expected_dip_count() method which knows
+        its own structure (1, 2, or 3 dips based on physics).
+        """
+        inner = self._inner_model()
+        return inner.expected_dip_count()
+
     def _refine_window_after_secondary_sweep(self) -> None:
         """Tighten acquisition window using precise secondary sweep data.
 
         After the denser secondary sweep completes, use the accumulated
         observations to compute a tighter focus window around the actual
-        peak/dip locations. This gives Bayesian acquisition a better starting
-        point with less wasted exploration in empty regions.
+        peak/dip locations. This enhanced version uses knowledge of the
+        expected signal shape (1 vs 2 dips from model split parameter) to
+        apply more precise window narrowing.
         """
         if len(self._secondary_sweep_observations) < 5:
             return  # Not enough data to refine
@@ -873,19 +1195,72 @@ class SequentialBayesianLocator(Locator):
         xs = np.array([float(o.x) for o in self._secondary_sweep_observations], dtype=float)
         ys = np.array([float(o.signal_value) for o in self._secondary_sweep_observations], dtype=float)
 
-        # Use the same interval detection but with tighter constraints
-        # since secondary sweep has better resolution
-        span = _normalized_acquisition_interval_from_sweep(xs, ys)
-        if span is None:
-            return  # Keep current window if no signal detected
+        expected_dips = self._expected_dip_count_from_model()
+        domain_width = self._full_domain_hi - self._full_domain_lo
 
-        lo_norm, hi_norm = span
+        # Choose windowing strategy based on expected signal shape
+        if expected_dips == 1:
+            # Single dip expected: use tight window around strongest dip
+            # Use tight bounds helper to avoid 15% minimum width constraint
+            tight_span = self._tight_signal_bounds_from_observations(xs, ys)
+            if tight_span is not None:
+                lo_norm, hi_norm = tight_span
+            else:
+                span = _best_segment_from_sweep(xs, ys)
+                if span is None:
+                    return
+                lo_norm, hi_norm = span
+        elif expected_dips == 2:
+            # Two dips expected: use tight bounds to avoid wasting measurements
+            # The 15% minimum in _normalized_acquisition_interval_from_sweep is too wide
+            # for close dips like NV center (often only 5-10% apart)
+            tight_span = self._tight_signal_bounds_from_observations(xs, ys)
+            if tight_span is not None:
+                lo_norm, hi_norm = tight_span
+            else:
+                span = _normalized_acquisition_interval_from_sweep(xs, ys)
+                if span is None:
+                    return
+                lo_norm, hi_norm = span
+        elif expected_dips == 3:
+            # Three dips expected (triplet): ensure window covers outer dips
+            # Use standard detection but ensure minimum width for outer peaks
+            span = _normalized_acquisition_interval_from_sweep(xs, ys)
+            if span is None:
+                return
+            lo_norm, hi_norm = span
+            # Ensure minimum width to capture outer dips of triplet
+            min_width = 0.10  # At least 10% of domain for triplet
+            current_width = hi_norm - lo_norm
+            if current_width < min_width:
+                mid = 0.5 * (lo_norm + hi_norm)
+                lo_norm = max(0.0, mid - 0.5 * min_width)
+                hi_norm = min(1.0, mid + 0.5 * min_width)
+        else:
+            # Fallback: use standard detection
+            span = _normalized_acquisition_interval_from_sweep(xs, ys)
+            if span is None:
+                return
+            lo_norm, hi_norm = span
+
         # Convert to physical coordinates
-        new_lo = self._full_domain_lo + lo_norm * (self._full_domain_hi - self._full_domain_lo)
-        new_hi = self._full_domain_lo + hi_norm * (self._full_domain_hi - self._full_domain_lo)
+        new_lo = self._full_domain_lo + lo_norm * domain_width
+        new_hi = self._full_domain_lo + hi_norm * domain_width
 
-        # Use the detected window directly - it came from the actual sweep data
-        # so it knows where the signal really is. Constrain to full domain only.
+        # Apply additional tightening based on signal span knowledge
+        max_span = self._model_signal_max_span()
+        if max_span is not None and max_span > 0 and domain_width > 0:
+            # Ensure window doesn't exceed expected signal span + small margin
+            max_window_phys = max_span * 1.2  # 20% margin
+            current_window_phys = abs(new_hi - new_lo)
+            if current_window_phys > max_window_phys:
+                # Shrink to max expected span centered on detected signal
+                mid = 0.5 * (new_lo + new_hi)
+                half_window = max_window_phys / 2
+                new_lo = max(self._full_domain_lo, mid - half_window)
+                new_hi = min(self._full_domain_hi, mid + half_window)
+
+        # Constrain to full domain
         self._acquisition_lo = max(self._full_domain_lo, min(new_lo, new_hi))
         self._acquisition_hi = min(self._full_domain_hi, max(new_lo, new_hi))
 
@@ -1013,8 +1388,20 @@ class SequentialBayesianLocator(Locator):
                     self._initial_sweep_points[idx] = new_points[i]
 
     def secondary_sweep_count(self) -> int:
-        """Number of secondary refinement sweep steps performed (for UI phase coloring)."""
+        """Number of secondary refinement sweep steps planned (for UI phase coloring)."""
         return self._secondary_sweep_steps_total
+
+    def effective_initial_sweep_steps(self) -> int:
+        """Effective initial sweep step count including any fallback sweep."""
+        # If fallback occurred, _initial_sweep_completed_at_step tracks the original
+        # sweep steps before reset. Total coarse steps = original + fallback.
+        if self._initial_sweep_completed_at_step > 0 and self._sweep_fallback_done:
+            return self._initial_sweep_completed_at_step + self.initial_sweep_steps
+        # Normal case: initial sweep completed without fallback
+        if self._initial_sweep_completed_at_step > 0:
+            return self._initial_sweep_completed_at_step
+        # Still in initial sweep - return current count
+        return self.step_count
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Same physical interval as :meth:`_acquisition_bounds` for scan / manifest UI."""

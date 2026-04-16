@@ -154,6 +154,10 @@ function main() {
         const bayesInteractiveIframe = document.getElementById('bayes-interactive-iframe');
         const bayesConvergenceSection = document.getElementById('bayes-convergence-section');
         const bayesConvergenceIframe = document.getElementById('bayes-convergence-iframe');
+        const bayesFisherSection = document.getElementById('bayes-fisher-section');
+        const bayesFisherIframe = document.getElementById('bayes-fisher-iframe');
+        const bayesEllipseSection = document.getElementById('bayes-ellipse-section');
+        const bayesEllipseIframe = document.getElementById('bayes-ellipse-iframe');
         const bayesStatsPlots = plots.filter((p) => p.type === 'bayesian_stats');
         const bayesStatsSection = document.getElementById('bayes-stats-section');
         const posteriorHistoryImage = document.getElementById('posterior-history-image');
@@ -162,7 +166,9 @@ function main() {
             bayesPlots.length > 0 ||
             bayesInteractivePlots.length > 0 ||
             bayesStatsPlots.length > 0 ||
-            plots.some((p) => p.type === 'bayesian_parameter_convergence');
+            plots.some((p) => p.type === 'bayesian_parameter_convergence') ||
+            plots.some((p) => p.type === 'bayesian_fisher_bounds') ||
+            plots.some((p) => p.type === 'bayesian_covariance_ellipses');
         if (bayesSection) {
             bayesSection.hidden = !hasBayesArtifacts;
         }
@@ -246,6 +252,40 @@ function main() {
             } else {
                 bayesConvergenceSection.hidden = true;
                 bayesConvergenceIframe.src = '';
+            }
+
+            const fisherPlot = plots.find(
+                (p) =>
+                    p.type === 'bayesian_fisher_bounds' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            if (fisherPlot) {
+                bayesFisherIframe.src = fisherPlot.path;
+                bayesFisherSection.hidden = false;
+            } else {
+                bayesFisherSection.hidden = true;
+                bayesFisherIframe.src = '';
+            }
+
+            const ellipsePlot = plots.find(
+                (p) =>
+                    p.type === 'bayesian_covariance_ellipses' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            if (ellipsePlot) {
+                bayesEllipseIframe.src = ellipsePlot.path;
+                bayesEllipseSection.hidden = false;
+            } else {
+                bayesEllipseSection.hidden = true;
+                bayesEllipseIframe.src = '';
             }
         }
 

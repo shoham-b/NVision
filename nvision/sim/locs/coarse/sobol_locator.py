@@ -27,7 +27,7 @@ def sobol_1d_sequence(n: int, *, offset: float = 0.0) -> NDArray[np.float64]:
     (mod 1) so that a second sweep can avoid the same gap pattern when
     the first sweep finds no signal.
     """
-    def vdc(k: int, base: int = 3) -> float:
+    def vdc(k: int, base: int = 2) -> float:
         v = 0.0
         denom = 1.0
         while k:

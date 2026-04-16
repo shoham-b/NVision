@@ -227,6 +227,10 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("fwhm_total", "dip_depth")
 
+    def expected_dip_count(self) -> int:
+        """Zeeman splitting produces 3 dips: ms=-1, 0, +1 transitions."""
+        return 3
+
     def compute(self, x: float, params: VoigtZeemanSpectrum) -> float:
         return self.compute_voigt_zeeman_model(
             float(x),

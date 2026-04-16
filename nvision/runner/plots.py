@@ -281,6 +281,55 @@ def _bayesian_auxiliary_entries(
             ce["type"] = "bayesian_parameter_convergence"
             ce["path"] = conv_path.relative_to(out_dir).as_posix()
             extra.append(ce)
+
+    # Fisher information bounds vs actual uncertainty for SMC beliefs
+    from nvision.belief.smc_marginal import SMCMarginalDistribution
+    from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
+    if run_result.snapshots and isinstance(run_result.snapshots[0].belief, SMCMarginalDistribution):
+        param_names = list(run_result.snapshots[0].belief.model.parameter_names())
+        n_params = len(param_names)
+
+        # Compute cumulative Fisher information and bounds at each step
+        fisher_hist = []  # Cumulative FIM at each step
+        fisher_bounds_hist = []  # sqrt(diag(inv(FIM))) - theoretical minimum uncertainty
+        actual_uncertainty_hist = []  # Actual SMC uncertainty
+
+        cum_fim = np.zeros((n_params, n_params))
+        for s in run_result.snapshots:
+            # Get observation point and compute Fisher contribution
+            x_obs = s.obs.x
+            model = s.belief.model
+            params = s.belief.estimates()
+
+            fim_i = fisher_information_matrix(
+                x=x_obs,
+                model=model,
+                parameters=params,
+                last_obs=s.obs,
+            )
+            if fim_i is not None:
+                cum_fim = cum_fim + fim_i
+
+            fisher_hist.append(cum_fim.copy())
+            fisher_bounds_hist.append(single_shot_marginal_stds_from_fim(cum_fim, n_params))
+            actual_uncertainty_hist.append(s.belief.uncertainty().as_dict())
+
+        if fisher_hist and len(param_names) >= 2:
+            # Fisher bounds vs actual uncertainty plot
+            fisher_path = bayes_dir / f"{attempt_slug}_fisher_bounds.html"
+            viz.plot_fisher_bounds_comparison(
+                fisher_bounds_hist,
+                actual_uncertainty_hist,
+                param_names,
+                fisher_path,
+                true_params=true_params,
+            )
+            if fisher_path.exists():
+                che = entry_base.copy()
+                che["type"] = "bayesian_fisher_bounds"
+                che["path"] = fisher_path.relative_to(out_dir).as_posix()
+                extra.append(che)
+
     return extra
 
 
@@ -310,8 +359,17 @@ def generate_attempt_plots(
     secondary_sweep_steps = run_result.secondary_sweep_steps if run_result is not None else 0
     if sweep_steps == 0:
         sweep_steps = entry_base.get("sweep_steps") or _initial_sweep_steps_from_strategy(strat_obj)
+    # DEBUG: Log phase assignment values
+    import logging
+    log = logging.getLogger("nvision")
+    log.info(f"[PHASE DEBUG] sweep_steps={sweep_steps}, secondary_sweep_steps={secondary_sweep_steps}, "
+             f"history steps: min={current_history_df['step'].min() if 'step' in current_history_df.columns else 'N/A'}, "
+             f"max={current_history_df['step'].max() if 'step' in current_history_df.columns else 'N/A'}, "
+             f"height={current_history_df.height}")
     if "step" in current_history_df.columns and sweep_steps > 0:
         total_sweep_end = sweep_steps + secondary_sweep_steps
+        log.info(f"[PHASE DEBUG] total_sweep_end={total_sweep_end}, "
+                 f"coarse: step < {sweep_steps}, secondary: step < {total_sweep_end}")
         history_with_phase = current_history_df.with_columns(
             pl.when(pl.col("step") < sweep_steps)
             .then(pl.lit("coarse"))

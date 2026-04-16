@@ -832,3 +832,397 @@ class BayesianMixin:
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
+
+    def plot_correlation_heatmap_animation(
+        self,
+        correlation_history: list[np.ndarray],
+        param_names: list[str],
+        out_path: Path,
+        *,
+        true_params: Mapping[str, float] | None = None,
+    ) -> None:
+        """Animate correlation matrix evolution as a heatmap (Option A).
+
+        Shows how parameter correlations develop and stabilize over inference steps.
+        Values range from -1 (red, negative correlation) to +1 (blue, positive correlation).
+        """
+        if not correlation_history or len(param_names) < 2:
+            return
+
+        n_steps = len(correlation_history)
+        n_params = len(param_names)
+
+        # Subsample if too many steps
+        step_indices = list(range(n_steps))
+        if n_steps > 100:
+            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 100)]
+            correlation_history = [correlation_history[i] for i in step_indices]
+            n_steps = len(step_indices)
+
+        # Initial frame
+        initial_corr = correlation_history[0]
+
+        fig = go.Figure(
+            data=go.Heatmap(
+                z=initial_corr,
+                x=param_names,
+                y=param_names,
+                zmin=-1,
+                zmax=1,
+                colorscale="RdBu",
+                colorbar=dict(title="Correlation"),
+                text=np.round(initial_corr, 2),
+                texttemplate="%{text:.2f}",
+                textfont=dict(size=10),
+            ),
+            layout=go.Layout(
+                title="Parameter Correlation Evolution",
+                xaxis=dict(title="Parameter", tickangle=45),
+                yaxis=dict(title="Parameter", autorange="reversed"),
+                template="plotly_white",
+            ),
+        )
+
+        # Build frames
+        frames = []
+        for step_idx, corr in enumerate(correlation_history):
+            frames.append(
+                go.Frame(
+                    data=[
+                        go.Heatmap(
+                            z=corr,
+                            x=param_names,
+                            y=param_names,
+                            zmin=-1,
+                            zmax=1,
+                            colorscale="RdBu",
+                            text=np.round(corr, 2),
+                            texttemplate="%{text:.2f}",
+                        )
+                    ],
+                    name=str(step_idx),
+                    layout=dict(title=f"Parameter Correlation Evolution — Step {step_indices[step_idx]}"),
+                )
+            )
+
+        # Animation controls
+        fig.update_layout(
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="left",
+                    pad={"r": 10, "t": 10},
+                    showactive=False,
+                    x=0.1,
+                    y=-0.15,
+                    xanchor="left",
+                    yanchor="top",
+                    buttons=[
+                        dict(
+                            label="▶ Play",
+                            method="animate",
+                            args=[
+                                None,
+                                {
+                                    "frame": {"duration": 100, "redraw": True},
+                                    "fromcurrent": True,
+                                    "transition": {"duration": 50},
+                                },
+                            ],
+                        ),
+                        dict(
+                            label="⏸ Pause",
+                            method="animate",
+                            args=[
+                                [None],
+                                {
+                                    "frame": {"duration": 0, "redraw": False},
+                                    "mode": "immediate",
+                                    "transition": {"duration": 0},
+                                },
+                            ],
+                        ),
+                    ],
+                )
+            ],
+            sliders=[
+                dict(
+                    active=0,
+                    pad={"t": 30, "b": 10},
+                    currentvalue={"prefix": "Step: "},
+                    steps=[
+                        dict(
+                            method="animate",
+                            args=[
+                                [str(i)],
+                                {
+                                    "frame": {"duration": 100, "redraw": True},
+                                    "mode": "immediate",
+                                    "transition": {"duration": 50},
+                                },
+                            ],
+                            label=str(step_indices[i]),
+                        )
+                        for i in range(n_steps)
+                    ],
+                )
+            ],
+        )
+
+        # Set frames directly on figure (not via update_layout - frames is a figure property)
+        fig.frames = frames
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(out_path, include_mathjax="cdn")
+
+    def plot_covariance_ellipses(
+        self,
+        covariance_history: list[np.ndarray],
+        param_names: list[str],
+        pairs: list[tuple[int, int]],
+        out_path: Path,
+        *,
+        true_params: Mapping[str, float] | None = None,
+    ) -> None:
+        """Animate 2D covariance ellipses for parameter pairs (Option C).
+
+        Shows how uncertainty regions shrink toward true parameter values.
+        Each subplot shows a 2σ ellipse shrinking as inference progresses.
+        """
+        if not covariance_history or not pairs:
+            return
+
+        n_steps = len(covariance_history)
+
+        # Subsample if too many steps
+        step_indices = list(range(n_steps))
+        if n_steps > 100:
+            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 100)]
+            covariance_history = [covariance_history[i] for i in step_indices]
+            n_steps = len(step_indices)
+
+        from plotly.subplots import make_subplots
+
+        n_pairs = len(pairs)
+        fig = make_subplots(
+            rows=1,
+            cols=n_pairs,
+            subplot_titles=[
+                f"{param_names[i]} vs {param_names[j]}" for i, j in pairs
+            ],
+        )
+
+        # Colors for progression (early = light, late = dark)
+        colors = [f"rgba(0, 100, 200, {0.3 + 0.7 * i / max(1, n_steps - 1)})" for i in range(n_steps)]
+
+        # Build all frames upfront
+        frames = []
+        for step_idx in range(n_steps):
+            frame_data = []
+
+            for pair_idx, (i, j) in enumerate(pairs):
+                # Get 2x2 covariance for this pair at this step
+                cov_full = covariance_history[step_idx]
+                cov_2d = np.array([
+                    [cov_full[i, i], cov_full[i, j]],
+                    [cov_full[j, i], cov_full[j, j]],
+                ])
+
+                # Generate 2σ ellipse points
+                theta = np.linspace(0, 2 * np.pi, 100)
+                eigvals, eigvecs = np.linalg.eigh(cov_2d)
+                a, b = 2 * np.sqrt(np.maximum(eigvals, 0))
+
+                ellipse_x = a * np.cos(theta)
+                ellipse_y = b * np.sin(theta)
+                R = eigvecs
+                points = np.column_stack([ellipse_x, ellipse_y]) @ R.T
+
+                frame_data.append(
+                    go.Scatter(
+                        x=points[:, 0],
+                        y=points[:, 1],
+                        mode="lines",
+                        line=dict(color=colors[step_idx], width=2),
+                        fill="toself",
+                        fillcolor=colors[step_idx],
+                        opacity=0.7,
+                        name=f"Step {step_indices[step_idx]}",
+                        showlegend=(pair_idx == 0),
+                    )
+                )
+
+            frames.append(
+                go.Frame(
+                    data=frame_data,
+                    name=str(step_idx),
+                    layout=dict(
+                        title=f"Covariance Ellipse Evolution — Step {step_indices[step_idx]}",
+                    ),
+                )
+            )
+
+        # Initial frame
+        fig.add_traces(frames[0].data)
+
+        # Layout
+        fig.update_layout(
+            template="plotly_white",
+            title="Covariance Ellipse Evolution",
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="left",
+                    pad={"r": 10, "t": 10},
+                    showactive=False,
+                    x=0.1,
+                    y=-0.2,
+                    xanchor="left",
+                    yanchor="top",
+                    buttons=[
+                        dict(
+                            label="▶ Play",
+                            method="animate",
+                            args=[
+                                None,
+                                {
+                                    "frame": {"duration": 100, "redraw": True},
+                                    "fromcurrent": True,
+                                    "transition": {"duration": 50},
+                                },
+                            ],
+                        ),
+                        dict(
+                            label="⏸ Pause",
+                            method="animate",
+                            args=[
+                                [None],
+                                {
+                                    "frame": {"duration": 0, "redraw": False},
+                                    "mode": "immediate",
+                                    "transition": {"duration": 0},
+                                },
+                            ],
+                        ),
+                    ],
+                )
+            ],
+            sliders=[
+                dict(
+                    active=0,
+                    pad={"t": 30, "b": 30},
+                    currentvalue={"prefix": "Step: "},
+                    steps=[
+                        dict(
+                            method="animate",
+                            args=[
+                                [str(i)],
+                                {
+                                    "frame": {"duration": 100, "redraw": True},
+                                    "mode": "immediate",
+                                    "transition": {"duration": 50},
+                                },
+                            ],
+                            label=str(step_indices[i]),
+                        )
+                        for i in range(n_steps)
+                    ],
+                )
+            ],
+        )
+
+        fig.frames = frames
+
+        # Update all subplots with proper axis labels
+        for pair_idx, (i, j) in enumerate(pairs):
+            col = pair_idx + 1
+            fig.update_xaxes(title_text=f"Δ{param_names[i]} (deviation)", row=1, col=col)
+            fig.update_yaxes(title_text=f"Δ{param_names[j]} (deviation)", row=1, col=col)
+            fig.update_yaxes(scaleanchor=f"x{col if col > 1 else ''}", scaleratio=1, row=1, col=col)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(out_path, include_mathjax="cdn")
+
+    def plot_fisher_bounds_comparison(
+        self,
+        fisher_bounds_hist: list[np.ndarray],
+        actual_uncertainty_hist: list[Mapping[str, float]],
+        param_names: list[str],
+        out_path: Path,
+        *,
+        true_params: Mapping[str, float] | None = None,
+    ) -> None:
+        """Plot Fisher information bounds vs actual SMC uncertainty over time.
+
+        Shows how close the Bayesian inference gets to the Cramér-Rao bound.
+        The Fisher bound (green) is the theoretical minimum uncertainty.
+        The actual uncertainty (blue) should approach this bound as measurements accumulate.
+        """
+        n_steps = len(fisher_bounds_hist)
+        n_params = len(param_names)
+
+        # Create subplots - one per parameter
+        fig = make_subplots(
+            rows=(n_params + 1) // 2,
+            cols=2,
+            subplot_titles=[f"{p}" for p in param_names],
+            vertical_spacing=0.1,
+            horizontal_spacing=0.1,
+        )
+
+        steps = list(range(n_steps))
+
+        # Add traces for each parameter
+        for i, param in enumerate(param_names):
+            row = i // 2 + 1
+            col = i % 2 + 1
+
+            # Fisher bound (theoretical minimum)
+            fisher_vals = [float(fb[i]) for fb in fisher_bounds_hist]
+            fig.add_trace(
+                go.Scatter(
+                    x=steps,
+                    y=fisher_vals,
+                    name="Fisher Bound (CRB)",
+                    line=dict(color="green", width=2, dash="dash"),
+                    legendgroup="fisher",
+                    showlegend=(i == 0),
+                ),
+                row=row,
+                col=col,
+            )
+
+            # Actual uncertainty from SMC
+            actual_vals = [float(u.get(param, np.nan)) for u in actual_uncertainty_hist]
+            fig.add_trace(
+                go.Scatter(
+                    x=steps,
+                    y=actual_vals,
+                    name="Actual Uncertainty",
+                    line=dict(color="blue", width=2),
+                    legendgroup="actual",
+                    showlegend=(i == 0),
+                ),
+                row=row,
+                col=col,
+            )
+
+        fig.update_layout(
+            title="Fisher Information Bounds vs Actual Uncertainty",
+            xaxis_title="Step",
+            yaxis_title="Standard Deviation",
+            height=300 * ((n_params + 1) // 2),
+            width=1000,
+            template="plotly_white",
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.15,
+                xanchor="center",
+                x=0.5,
+            ),
+        )
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(out_path, include_mathjax="cdn")

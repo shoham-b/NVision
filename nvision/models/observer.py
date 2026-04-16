@@ -252,19 +252,21 @@ class Observer:
         sweep_steps = 0
         secondary_sweep_steps = 0
         if last_locator is not None:
-            getter = getattr(last_locator, "bayesian_focus_window", None)
-            if callable(getter):
-                focus_window = getter()
-            bounds_getter = getattr(last_locator, "narrowed_param_bounds", None)
-            if callable(bounds_getter):
-                nb = bounds_getter()
+            # Use duck typing with hasattr for optional locator capabilities
+            if hasattr(last_locator, "bayesian_focus_window"):
+                focus_window = last_locator.bayesian_focus_window()
+            if hasattr(last_locator, "narrowed_param_bounds"):
+                nb = last_locator.narrowed_param_bounds()
                 if nb:
                     narrowed_param_bounds = nb
             # Capture sweep step counts for phase coloring in UI
-            sweep_steps = getattr(last_locator, "initial_sweep_steps", 0)
-            secondary_getter = getattr(last_locator, "secondary_sweep_count", None)
-            if callable(secondary_getter):
-                secondary_sweep_steps = secondary_getter()
+            # Use effective_initial_sweep_steps to account for any fallback sweep
+            if hasattr(last_locator, "effective_initial_sweep_steps"):
+                sweep_steps = last_locator.effective_initial_sweep_steps()
+            elif hasattr(last_locator, "initial_sweep_steps"):
+                sweep_steps = last_locator.initial_sweep_steps
+            if hasattr(last_locator, "secondary_sweep_count"):
+                secondary_sweep_steps = last_locator.secondary_sweep_count()
 
         return RunResult(
             snapshots=self.snapshots,

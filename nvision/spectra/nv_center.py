@@ -224,6 +224,10 @@ class NVCenterLorentzianModel(
         linewidth_hi = domain_width * 0.05
         return 2.0 * split_hi + 4.0 * linewidth_hi
 
+    def expected_dip_count(self) -> int:
+        """Doublet (two dips) when strain-split; model supports ms=+1/-1 transitions."""
+        return 2
+
     def compute(self, x: float, params: NVCenterLorentzianSpectrum) -> float:
         return self.compute_nvcenter_lorentzian_model(
             float(x),
@@ -531,6 +535,10 @@ class NVCenterVoigtModel(
         fwhm_total_hi = 2.8e6
         return 2.0 * split_hi + 2.0 * fwhm_total_hi
 
+    def expected_dip_count(self) -> int:
+        """Triplet (three dips) when split>0: ms=-1, 0, +1 transitions."""
+        return 3
+
     def compute(self, x: float, params: NVCenterVoigtSpectrum) -> float:
         return self.compute_nvcenter_voigt_model(
             float(x),
@@ -812,6 +820,10 @@ class NVCenterOnePeakLorentzianModel(
     def signal_max_span(self, domain_width: float) -> float | None:
         linewidth_hi = domain_width * 0.05
         return 4.0 * linewidth_hi
+
+    def expected_dip_count(self) -> int:
+        """Single dip (no splitting); single Lorentzian lineshape."""
+        return 1
 
     def compute(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> float:
         lw2 = params.linewidth ** 2

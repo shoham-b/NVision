@@ -90,12 +90,29 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     """Belief distribution using Sequential Monte Carlo (Particle Filter).
 
     Maintains a joint posterior over parameters using a set of weighted particles.
+
+    Parameters
+    ----------
+    use_full_covariance : bool
+        If True, use NIST optbayesexpt-style resampling with full covariance
+        multivariate Gaussian nudging and contraction toward mean (a_param).
+        If False (default), use independent per-dimension jitter.
+    a_param : float
+        Contraction parameter for full-covariance resampling. Particles are
+        contracted (1 - a_param) of the distance toward the mean after nudging.
+        Default 0.98 (as in NIST optbayesexpt).
+    scale : bool
+        If True and use_full_covariance=True, apply contraction toward mean.
+        Default True.
     """
 
     parameter_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     num_particles: int = 1000
     jitter_scale: float = 0.05
     ess_threshold: float = 0.5
+    use_full_covariance: bool = False
+    a_param: float = 0.98
+    scale: bool = True
 
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
@@ -159,12 +176,72 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles = self._particles[indices]
         self._weights = np.ones(self.num_particles) / self.num_particles
 
-        # Add jitter (kernel density perturbation)
+        if self.use_full_covariance:
+            self._resample_nist_style()
+        else:
+            # Add jitter (kernel density perturbation) - independent per-dimension
+            for j, name in enumerate(self._param_names):
+                lo, hi = self.parameter_bounds[name]
+                std = np.std(self._particles[:, j])
+                jitter = np.random.normal(0, std * self.jitter_scale, self.num_particles)
+                self._particles[:, j] = np.clip(self._particles[:, j] + jitter, lo, hi)
+
+    def _resample_nist_style(self) -> None:
+        """NIST optbayesexpt-style resampling with full covariance nudging and contraction.
+
+        This implements the algorithm from Dushenko et al. (2020) as described in
+        the supplemental material Section S.3:
+        1. Particles are resampled with replacement (already done in _resample)
+        2. Each particle gets a random displacement (nudge) from a multivariate
+           Gaussian with covariance (1 - a_param^2) * particle_covariance
+        3. All particles are contracted toward the mean by factor a_param to
+           compensate for the diffusion from nudging
+        4. Weights are reset to uniform
+        """
+        d_dim = len(self._param_names)
+
+        # Compute mean and full covariance of current particles
+        mean = _weighted_mean_axis0(self._particles, self._weights)  # shape (d,)
+        cov = np.cov(self._particles, rowvar=False, aweights=self._weights)  # shape (d, d)
+
+        if cov.ndim == 0:
+            cov = np.array([[cov]])
+
+        # Nudge covariance: (1 - a_param^2) * cov
+        # This ensures the nudge scale is small compared to distribution spread
+        nudge_cov = (1 - self.a_param ** 2) * cov
+
+        # Ensure nudge_cov is positive semi-definite for numerical stability
+        try:
+            nudges = np.random.multivariate_normal(
+                np.zeros(d_dim),
+                nudge_cov,
+                self.num_particles
+            )  # shape (n_particles, d)
+        except np.linalg.LinAlgError:
+            # Fall back to diagonal covariance if full covariance is singular
+            diag_cov = np.diag(np.diag(nudge_cov))
+            nudges = np.random.multivariate_normal(
+                np.zeros(d_dim),
+                diag_cov,
+                self.num_particles
+            )
+
+        # Apply nudges
+        self._particles = self._particles + nudges
+
+        # Shrinkage/contraction toward mean if enabled
+        if self.scale:
+            old_center = mean.reshape(1, -1)  # shape (1, d)
+            self._particles = (
+                self._particles * self.a_param +
+                old_center * (1 - self.a_param)
+            )
+
+        # Clip to bounds
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
-            std = np.std(self._particles[:, j])
-            jitter = np.random.normal(0, std * self.jitter_scale, self.num_particles)
-            self._particles[:, j] = np.clip(self._particles[:, j] + jitter, lo, hi)
+            self._particles[:, j] = np.clip(self._particles[:, j], lo, hi)
 
     def _marginal_std(self, dim_idx: int) -> float:
         _, var = _weighted_mean_variance_1d(self._particles[:, dim_idx], self._weights)
@@ -192,6 +269,43 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         d_dim = len(self._param_names)
         return float(0.5 * logdet + 0.5 * d_dim * (1 + np.log(2 * np.pi)))
 
+    def covariance_matrix(self) -> np.ndarray:
+        """Return full covariance matrix of particle distribution.
+
+        Returns a (d, d) array where d is the number of parameters.
+        """
+        cov = np.cov(self._particles, rowvar=False, aweights=self._weights)
+        if cov.ndim == 0:
+            cov = np.array([[cov]])
+        return cov
+
+    def correlation_matrix(self) -> np.ndarray:
+        """Return correlation matrix (normalized covariance).
+
+        Returns a (d, d) array with values in [-1, 1].
+        Diagonal entries are always 1.0.
+        """
+        cov = self.covariance_matrix()
+        stds = np.sqrt(np.diag(cov))
+        # Avoid division by zero
+        if np.any(stds < 1e-15):
+            stds = np.maximum(stds, 1e-15)
+        corr = cov / np.outer(stds, stds)
+        # Clip to handle numerical errors
+        return np.clip(corr, -1.0, 1.0)
+
+    def generalized_variance(self) -> float:
+        """Return determinant of covariance matrix (generalized variance).
+
+        This is a scalar measure of total uncertainty volume.
+        Smaller values indicate tighter posterior concentration.
+        """
+        cov = self.covariance_matrix()
+        sign, logdet = np.linalg.slogdet(cov)
+        if sign <= 0:
+            return 0.0
+        return float(np.exp(logdet))
+
     def converged(self, threshold: float) -> bool:
         return all(u < threshold for u in self.uncertainty().values())
 
@@ -202,6 +316,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             num_particles=self.num_particles,
             jitter_scale=self.jitter_scale,
             ess_threshold=self.ess_threshold,
+            use_full_covariance=self.use_full_covariance,
+            a_param=self.a_param,
+            scale=self.scale,
             last_obs=self.last_obs,
         )
         dist._param_names = self._param_names.copy()

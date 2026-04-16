@@ -125,6 +125,19 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         """
         return None
 
+    def expected_dip_count(self) -> int:
+        """Expected number of dips/peaks in this signal's spectrum.
+
+        Used by locators to apply appropriate window narrowing strategies
+        after coarse sweeps. For example:
+        - 1: Single dip (e.g., unstrained NV center)
+        - 2: Doublet (e.g., strain-split NV center ms=+1/-1 transitions)
+        - 3: Triplet (e.g., NV center with all three ms transitions visible)
+
+        Returns 1 by default; subclasses with known multi-dip structure should override.
+        """
+        return 1
+
     def parameter_weights(self) -> dict[str, float]:
         """Return relative convergence weights for each parameter (default 1.0).
 
@@ -214,6 +227,26 @@ class TrueSignal[ParamsT]:
 
     def all_param_bounds(self) -> dict[str, tuple[float, float]]:
         return {name: self.get_param_bounds(name) for name in self.parameter_names}
+
+    def min_dip_amplitude(self) -> float | None:
+        """Return the smallest dip amplitude for multi-dip signals, or None for single-peak.
+
+        For NV center with Zeeman splitting (3 dips), the smallest dip is:
+            dip_depth / k_np^2
+
+        This is used to constrain noise so that max_noise < smallest_dip,
+        ensuring the signal remains detectable.
+        """
+        params = self.typed_parameters
+
+        # NV center models with k_np and dip_depth
+        if hasattr(params, "k_np") and hasattr(params, "dip_depth"):
+            k_np = float(params.k_np)
+            dip_depth = float(params.dip_depth)
+            # For 3-dip Zeeman splitting, smallest dip is left dip: dip_depth / k_np^2
+            return dip_depth / (k_np ** 2)
+
+        return None
 
     @classmethod
     def from_typed(
