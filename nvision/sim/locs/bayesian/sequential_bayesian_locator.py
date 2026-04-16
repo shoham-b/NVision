@@ -849,8 +849,9 @@ class SequentialBayesianLocator(Locator):
         """Start a secondary refinement sweep focused on actual signal region.
 
         Uses initial sweep observations to find where the signal actually is,
-        then generates denser points concentrated in that region.
-        Spacing is one "stage" finer than what the initial sweep achieved.
+        then generates additional points concentrated in that region.
+        Uses the same Sobol spacing as the initial sweep for consistent resolution,
+        just applied to the detected signal region instead of the full domain.
         Eliminates long-tail no-signal regions from the secondary sweep.
         """
         self._secondary_sweep_active = True
@@ -860,23 +861,23 @@ class SequentialBayesianLocator(Locator):
         # Find tight signal region from initial sweep observations
         signal_lo_norm, signal_hi_norm = self._signal_region_from_initial_sweep()
 
-        # Calculate actual spacing used in initial sweep within signal region
-        # then use one stage finer (half the spacing) for secondary sweep
+        # Use the same spacing as the initial sweep for consistent resolution
+        # This provides the same characteristic Sobol spacing but concentrated
+        # in the detected signal region where more measurements are needed
         signal_width_norm = signal_hi_norm - signal_lo_norm
         initial_sweep_spacing = self._initial_sweep_spacing_in_region(signal_lo_norm, signal_hi_norm)
 
-        # One stage finer = half the spacing of initial sweep
-        min_spacing = initial_sweep_spacing / 2.0
+        # Same spacing as initial sweep (not finer) for consistent detection
+        min_spacing = initial_sweep_spacing
 
-        # Also respect model signal span if available
+        # Respect model signal span limits
         max_span = self._model_signal_max_span()
         if max_span is not None and domain_width > 0:
             span_norm = max_span / domain_width
-            # Don't exceed signal span resolution
-            min_spacing = max(min_spacing, span_norm / 16.0)
+            min_spacing = max(min_spacing, span_norm / 20.0)
 
-        min_spacing = max(min_spacing, 0.003)  # Hard floor at 0.3% of domain
-        self._secondary_sweep_steps_total = max(10, min(50, int(signal_width_norm / min_spacing) + 4))
+        min_spacing = max(min_spacing, 0.002)  # Hard floor at 0.2% of domain
+        self._secondary_sweep_steps_total = max(8, min(40, int(signal_width_norm / min_spacing) + 2))
 
         # DEBUG: Log secondary sweep parameters
         import logging
@@ -938,9 +939,10 @@ class SequentialBayesianLocator(Locator):
             else:
                 lo_norm, hi_norm = 0.0, 1.0
 
-        # Moderate padding: 5% on each side to balance tight focus with capturing full dip
+        # Slightly more padding: 10% on each side to ensure full dip capture
+        # including signal tails that may extend beyond threshold detection
         width = hi_norm - lo_norm
-        padding = 0.05 * width
+        padding = 0.10 * width
         lo_norm = max(0.0, lo_norm - padding)
         hi_norm = min(1.0, hi_norm + padding)
 
