@@ -9,7 +9,6 @@ from nvision.sim.batch import (
 from .gen import (
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
-    OnePeakCoreGenerator,
     SymmetricTwoPeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "DataBatch",
     "MultiPeakCoreGenerator",
     "NVCenterCoreGenerator",
-    "OnePeakCoreGenerator",
     "OverFrequencyGaussianNoise",
     "OverFrequencyNoise",
     "OverFrequencyOutlierSpikes",

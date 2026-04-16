@@ -50,7 +50,6 @@ from nvision.sim.gen.core_generators import (
     LORENTZIAN,
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
-    OnePeakCoreGenerator,
     PeakSpec,
     SymmetricTwoPeakCoreGenerator,
     TwoPeakCoreGenerator,
@@ -91,7 +90,6 @@ __all__ = [
     # Generators
     "MultiPeakCoreGenerator",
     "NVCenterCoreGenerator",
-    "OnePeakCoreGenerator",
     "DEFAULT_NV_CENTER_FREQ_X_MAX",
     "DEFAULT_NV_CENTER_FREQ_X_MIN",
     "nv_center_lorentzian_bounds_for_domain",

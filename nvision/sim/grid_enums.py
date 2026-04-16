@@ -9,7 +9,6 @@ class GeneratorCategory(StrEnum):
     """High-level generator family used by :meth:`nvision.sim.combinations.CombinationGrid.generator_category`."""
 
     NVCENTER = "NVCenter"
-    ONE_PEAK = "OnePeak"
     TWO_PEAK = "TwoPeak"
 
 
@@ -28,13 +27,9 @@ class StrategyFilter(StrEnum):
 class GeneratorName(StrEnum):
     """Registered generator keys from :func:`nvision.sim.cases.generators_basic`."""
 
-    ONE_PEAK_GAUSSIAN = "OnePeak-gaussian"
-    ONE_PEAK_LORENTZIAN = "OnePeak-lorentzian"
     TWO_PEAK_GAUSSIAN = "TwoPeak-gaussian"
     TWO_PEAK_LORENTZIAN = "TwoPeak-lorentzian"
-    NVCENTER_ONE_PEAK = "NVCenter-one_peak"
     NVCENTER_ZEEMAN = "NVCenter-zeeman"
-    NVCENTER_VOIGT_ONE_PEAK = "NVCenter-voigt_one_peak"
     NVCENTER_VOIGT_ZEEMAN = "NVCenter-voigt_zeeman"
 
 

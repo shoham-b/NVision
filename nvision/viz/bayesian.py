@@ -19,13 +19,9 @@ def _get_signal_formula(model: Any) -> str:
     inner = getattr(model, "inner", model)
     inner_name = type(inner).__name__
 
-    if "OnePeakLorentzian" in inner_name:
-        return (
-            r"$S(f) = B - A \frac{\omega^2}{(f - f_0)^2 + \omega^2}$"
-        )
     if "NVCenterLorentzian" in inner_name:
         return (
-            r"$S(f) = B - \frac{A}{k} \frac{\omega^2}{(f-f_0+\Delta)^2 + \omega^2} - A \frac{\omega^2}{(f-f_0)^2 + \omega^2} - A \cdot k \cdot \frac{\omega^2}{(f-f_0-\Delta)^2 + \omega^2}$"
+            r"$\mu = 1 - \frac{ak_{NP}}{(f - f_B - \Delta f_{HF})^2 + \Omega^2} - \frac{a}{(f - f_B)^2 + \Omega^2} - \frac{a/k_{NP}}{(f - f_B + \Delta f_{HF})^2 + \Omega^2}$"
         )
     if "VoigtZeeman" in inner_name:
         return (
@@ -38,12 +34,6 @@ def _get_signal_formula(model: Any) -> str:
             r"$S(f) = B - \frac{A}{k}(L*G)(f\!-\!f_0\!+\!\Delta) - A(L*G)(f\!-\!f_0) - Ak(L*G)(f\!-\!f_0\!-\!\Delta)$, "
             r"$(L*G)(x) = \int_{-\infty}^{\infty}\!\frac{\eta W/2\pi}{t^2+(\eta W/2)^2} \cdot "
             r"\frac{\exp\!\left[-\frac{(x-t)^2}{2((1-\eta)W/2\sqrt{2\ln 2})^2}\right]}{\frac{(1-\eta)W}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"
-        )
-    if "OnePeakVoigt" in inner_name:
-        return (
-            r"$S(f) = B - A(L*G)(f\!-\!f_0)$, $(L*G)(x) = \int_{-\infty}^{\infty}\!"
-            r"\frac{\gamma_L/2\pi}{t^2+(\gamma_L/2)^2} \cdot "
-            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2(\gamma_G/2\sqrt{2\ln 2})^2}\right]}{\frac{\gamma_G}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"
         )
     if "Lorentzian" in inner_name:
         return r"$S(f) = B - A \frac{\omega^2}{(f - f_0)^2 + \omega^2}$"
@@ -1222,6 +1212,142 @@ class BayesianMixin:
                 xanchor="center",
                 x=0.5,
             ),
+        )
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(out_path, include_mathjax="cdn")
+
+    def plot_convergence_metrics(
+        self,
+        conv_metrics: list[dict],
+        param_names: list[str],
+        convergence_threshold: float,
+        convergence_patience: int,
+        out_path: Path,
+    ) -> None:
+        """Plot convergence metrics showing per-parameter uncertainty vs threshold.
+
+        Creates an interactive visualization with:
+        - Per-parameter uncertainty evolution with threshold line
+        - Convergence streak counter
+        - Convergence achieved indicator
+        """
+        n_steps = len(conv_metrics)
+        n_params = len(param_names)
+
+        # Create subplots - one row per parameter, plus one for convergence streak
+        fig = make_subplots(
+            rows=n_params + 1,
+            cols=1,
+            subplot_titles=[f"{p} (normalized σ)" for p in param_names] + ["Convergence Streak"],
+            vertical_spacing=0.08,
+            shared_xaxes=True,
+        )
+
+        steps = list(range(n_steps))
+
+        # Plot per-parameter uncertainties with threshold line
+        for i, param in enumerate(param_names):
+            row = i + 1
+
+            # Uncertainty values
+            uncertainties = [float(cm['uncertainties'].get(param, np.nan)) for cm in conv_metrics]
+            fig.add_trace(
+                go.Scatter(
+                    x=steps,
+                    y=uncertainties,
+                    name=f"{param} σ",
+                    line=dict(width=2),
+                    showlegend=False,
+                ),
+                row=row,
+                col=1,
+            )
+
+            # Threshold line
+            fig.add_hline(
+                y=convergence_threshold,
+                line=dict(color="red", dash="dash", width=1.5),
+                annotation_text=f"threshold ({convergence_threshold})",
+                row=row,
+                col=1,
+            )
+
+            # Highlight converged regions
+            converged_regions = []
+            in_converged = False
+            start_idx = 0
+            for idx, cm in enumerate(conv_metrics):
+                is_conv = cm['converged_params'].get(param, False)
+                if is_conv and not in_converged:
+                    in_converged = True
+                    start_idx = idx
+                elif not is_conv and in_converged:
+                    in_converged = False
+                    converged_regions.append((start_idx, idx - 1))
+            if in_converged:
+                converged_regions.append((start_idx, n_steps - 1))
+
+            for start, end in converged_regions:
+                fig.add_vrect(
+                    x0=start,
+                    x1=end,
+                    fillcolor="green",
+                    opacity=0.1,
+                    layer="below",
+                    line_width=0,
+                    row=row,
+                    col=1,
+                )
+
+        # Convergence streak plot (bottom subplot)
+        streaks = [int(cm['convergence_streak']) for cm in conv_metrics]
+        achieved = [bool(cm['convergence_achieved']) for cm in conv_metrics]
+
+        fig.add_trace(
+            go.Scatter(
+                x=steps,
+                y=streaks,
+                name="Convergence Streak",
+                line=dict(color="blue", width=2),
+                fill="tozeroy",
+                fillcolor="rgba(0, 0, 255, 0.1)",
+                showlegend=False,
+            ),
+            row=n_params + 1,
+            col=1,
+        )
+
+        # Patience threshold line
+        fig.add_hline(
+            y=convergence_patience,
+            line=dict(color="green", dash="dash", width=2),
+            annotation_text=f"patience ({convergence_patience})",
+            row=n_params + 1,
+            col=1,
+        )
+
+        # Highlight where convergence is achieved
+        for idx, is_achieved in enumerate(achieved):
+            if is_achieved:
+                fig.add_vrect(
+                    x0=idx,
+                    x1=idx + 0.9,
+                    fillcolor="green",
+                    opacity=0.3,
+                    layer="below",
+                    line_width=0,
+                    row=n_params + 1,
+                    col=1,
+                )
+
+        fig.update_layout(
+            title="Bayesian Convergence Metrics",
+            xaxis_title="Step",
+            height=250 * (n_params + 1),
+            width=900,
+            template="plotly_white",
+            showlegend=False,
         )
 
         out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -14,7 +14,6 @@ from .gen.core_generators import (
     GAUSSIAN,
     LORENTZIAN,
     NVCenterCoreGenerator,
-    OnePeakCoreGenerator,
     TwoPeakCoreGenerator,
 )
 from .grid_enums import GeneratorCategory, GeneratorName, StrategyFilter
@@ -44,15 +43,6 @@ DEFAULT_LOC_MAX_STEPS = 500
 # Now using core architecture with TrueSignal and explicit SignalModels
 def generators_basic() -> list[tuple[str, object]]:
     return [
-        # One Peak generators - for each signal type
-        (
-            "OnePeak-gaussian",
-            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=GAUSSIAN),
-        ),
-        (
-            "OnePeak-lorentzian",
-            OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=LORENTZIAN),
-        ),
         # Two Peak generators - for each signal type
         (
             "TwoPeak-gaussian",
@@ -74,20 +64,12 @@ def generators_basic() -> list[tuple[str, object]]:
         ),
         # NV Center generators - different variants
         (
-            "NVCenter-one_peak",
-            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", zero_field=True),
-        ),
-        (
             "NVCenter-zeeman",
-            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", zero_field=False),
-        ),
-        (
-            "NVCenter-voigt_one_peak",
-            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt", zero_field=True),
+            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian"),
         ),
         (
             "NVCenter-voigt_zeeman",
-            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt", zero_field=False),
+            NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt"),
         ),
     ]
 

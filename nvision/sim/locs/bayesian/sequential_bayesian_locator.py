@@ -385,6 +385,10 @@ class SequentialBayesianLocator(Locator):
         self._secondary_sweep_observations: list[Observation] = []
         # Track actual step count when initial sweep completed (including any fallback)
         self._initial_sweep_completed_at_step: int = 0
+        # Per-dip focus windows: list of (lo, hi) tuples for individual dip targeting
+        self._per_dip_windows: list[tuple[float, float]] | None = None
+        # Current dip window index for round-robin acquisition across multiple dips
+        self._current_dip_window_idx: int = 0
 
     def _inner_model(self):
         """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""
@@ -754,8 +758,12 @@ class SequentialBayesianLocator(Locator):
         return self.belief.estimates()
 
     def _acquisition_bounds(self) -> tuple[float, float]:
-        """Physical bounds where :meth:`_acquire` searches (post-sweep window)."""
-        lo, hi = float(self._acquisition_lo), float(self._acquisition_hi)
+        """Physical bounds where :meth:`_acquire` searches (post-sweep window).
+
+        When per-dip windows are active (for multi-dip signals like NV center),
+        returns windows in round-robin order to focus measurements on each dip.
+        """
+        lo, hi = self._get_current_acquisition_bounds()
         return (min(lo, hi), max(lo, hi))
 
     def _set_acquisition_window_after_sweep(self) -> None:
@@ -768,10 +776,7 @@ class SequentialBayesianLocator(Locator):
         """
         xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
         ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
-        # Use tight bounds helper to avoid 15% minimum width constraint
-        span = self._tight_signal_bounds_from_observations(xs, ys)
-        if span is None:
-            span = _normalized_acquisition_interval_from_sweep(xs, ys)
+        span = _normalized_acquisition_interval_from_sweep(xs, ys)
         if span is None:
             # No signal detected in initial sweep. Try a fallback sweep with offset points
             # to avoid the aliasing problem where the Sobol gaps align with equal splits.
@@ -849,9 +854,8 @@ class SequentialBayesianLocator(Locator):
         """Start a secondary refinement sweep focused on actual signal region.
 
         Uses initial sweep observations to find where the signal actually is,
-        then generates additional points concentrated in that region.
-        Uses the same Sobol spacing as the initial sweep for consistent resolution,
-        just applied to the detected signal region instead of the full domain.
+        then generates denser points concentrated in that region.
+        Spacing is one "stage" finer than what the initial sweep achieved.
         Eliminates long-tail no-signal regions from the secondary sweep.
         """
         self._secondary_sweep_active = True
@@ -861,23 +865,23 @@ class SequentialBayesianLocator(Locator):
         # Find tight signal region from initial sweep observations
         signal_lo_norm, signal_hi_norm = self._signal_region_from_initial_sweep()
 
-        # Use the same spacing as the initial sweep for consistent resolution
-        # This provides the same characteristic Sobol spacing but concentrated
-        # in the detected signal region where more measurements are needed
+        # Calculate actual spacing used in initial sweep within signal region
+        # then use one stage finer (half the spacing) for secondary sweep
         signal_width_norm = signal_hi_norm - signal_lo_norm
         initial_sweep_spacing = self._initial_sweep_spacing_in_region(signal_lo_norm, signal_hi_norm)
 
-        # Same spacing as initial sweep (not finer) for consistent detection
-        min_spacing = initial_sweep_spacing
+        # One stage finer = half the spacing of initial sweep
+        min_spacing = initial_sweep_spacing / 2.0
 
-        # Respect model signal span limits
+        # Also respect model signal span if available
         max_span = self._model_signal_max_span()
         if max_span is not None and domain_width > 0:
             span_norm = max_span / domain_width
-            min_spacing = max(min_spacing, span_norm / 20.0)
+            # Don't exceed signal span resolution
+            min_spacing = max(min_spacing, span_norm / 16.0)
 
-        min_spacing = max(min_spacing, 0.002)  # Hard floor at 0.2% of domain
-        self._secondary_sweep_steps_total = max(8, min(40, int(signal_width_norm / min_spacing) + 2))
+        min_spacing = max(min_spacing, 0.003)  # Hard floor at 0.3% of domain
+        self._secondary_sweep_steps_total = max(10, min(50, int(signal_width_norm / min_spacing) + 4))
 
         # DEBUG: Log secondary sweep parameters
         import logging
@@ -923,13 +927,13 @@ class SequentialBayesianLocator(Locator):
         # Observation.x is already in normalized [0,1] coordinates (see CoreExperiment.measure)
         xs_norm = xs
 
-        # Use tight bounds helper to avoid 15% minimum width constraint
-        # of _normalized_acquisition_interval_from_sweep
-        tight_span = self._tight_signal_bounds_from_observations(xs_norm, ys)
-        if tight_span is not None:
-            lo_norm, hi_norm = tight_span
+        # Use merged interval from ALL detected segments (not just best one)
+        # This ensures secondary sweep covers all dips for multi-peak signals like NV center
+        span = _normalized_acquisition_interval_from_sweep(xs_norm, ys)
+        if span is not None:
+            lo_norm, hi_norm = span
         else:
-            # Fallback: use threshold-based detection directly
+            # Fallback: use threshold-based detection
             baseline = float(np.percentile(ys, 75))
             threshold = baseline - 0.1 * (baseline - float(np.min(ys)))
             signal_mask = ys < threshold
@@ -939,10 +943,9 @@ class SequentialBayesianLocator(Locator):
             else:
                 lo_norm, hi_norm = 0.0, 1.0
 
-        # Slightly more padding: 10% on each side to ensure full dip capture
-        # including signal tails that may extend beyond threshold detection
+        # Minimal padding - keep window tight around actual signal
         width = hi_norm - lo_norm
-        padding = 0.10 * width
+        padding = 0.02 * width
         lo_norm = max(0.0, lo_norm - padding)
         hi_norm = min(1.0, hi_norm + padding)
 
@@ -1052,126 +1055,130 @@ class SequentialBayesianLocator(Locator):
 
         return has_left and has_right
 
-    def _tight_signal_bounds_from_observations(
-        self, xs: np.ndarray, ys: np.ndarray, noise_threshold: float | None = None
-    ) -> tuple[float, float] | None:
-        """Compute tight [lo, hi] bounds using model knowledge of expected signal span.
+    def _detect_dip_centers(
+        self, xs: np.ndarray, ys: np.ndarray
+    ) -> list[tuple[float, float]]:
+        """Detect individual dip centers and their depths.
 
-        Uses the model's signal_max_span, signal_min_span, and expected_dip_count to
-        set appropriate window size. This is more informed than simple thresholding
-        because it respects the physics of the expected signal shape.
+        Returns list of (center_norm, depth_fraction) for each resolved dip.
+        Uses contiguous segments below a threshold to identify separate dips.
         """
         if len(xs) < 3 or len(ys) < 3:
-            return None
+            return []
 
-        domain_width = self._full_domain_hi - self._full_domain_lo
-        if domain_width <= 0:
+        # Sort by x
+        order = np.argsort(xs)
+        xs_sorted = xs[order]
+        ys_sorted = ys[order]
+
+        # Estimate background and dip depth
+        background = float(np.percentile(ys_sorted, 75))
+        dip_depth = background - float(np.min(ys_sorted))
+
+        if dip_depth <= 0:
+            return []
+
+        # Threshold at 20% of dip depth - points below this are "in a dip"
+        threshold = background - 0.2 * dip_depth
+        below = ys_sorted < threshold
+
+        if not np.any(below):
+            return []
+
+        # Find contiguous segments (individual dips)
+        changes = np.diff(below.astype(int))
+        starts = np.where(changes == 1)[0] + 1
+        ends = np.where(changes == -1)[0] + 1
+
+        if below[0]:
+            starts = np.concatenate([[0], starts])
+        if below[-1]:
+            ends = np.concatenate([ends, [len(below)]])
+
+        dips: list[tuple[float, float]] = []
+        for s, e in zip(starts, ends, strict=False):
+            seg_ys = ys_sorted[s:e]
+            seg_xs = xs_sorted[s:e]
+            min_idx = int(np.argmin(seg_ys))
+            center_norm = float(seg_xs[min_idx])
+            depth_frac = (background - float(seg_ys[min_idx])) / max(background, 1e-12)
+            dips.append((center_norm, depth_frac))
+
+        return dips
+
+    def _per_dip_focus_windows(
+        self, xs: np.ndarray, ys: np.ndarray
+    ) -> list[tuple[float, float]] | None:
+        """Compute individual focus windows around each detected dip.
+
+        For NV center with large splitting, creates separate tight windows
+        around left, center, and right dips instead of one large window covering
+        the entire span. This is more efficient for Bayesian acquisition.
+
+        Returns list of (lo_norm, hi_norm) tuples, one per dip, or None if
+        dips cannot be resolved separately.
+        """
+        dips = self._detect_dip_centers(xs, ys)
+
+        if len(dips) < 2:
+            # Single dip or none - use single window
             return None
 
         expected_dips = self._expected_dip_count_from_model()
 
-        # Get model's expected signal span
-        max_span_phys = self._model_signal_max_span()
-        min_span_phys = self._model_signal_min_span()
+        # For symmetry: group left/right dips if they have similar depth
+        # This handles the asymmetric NV center case (left shallow, right deep)
+        if expected_dips == 3 and len(dips) >= 2:
+            # Check if first and last dips have depths in expected ratio
+            # For k_np ~ 2-4, left should be ~1/k_np of right
+            left_depth = dips[0][1]
+            right_depth = dips[-1][1]
+            depth_ratio = left_depth / max(right_depth, 1e-12)
 
-        if expected_dips == 1:
-            # Single dip: center on the minimum point
-            min_idx = int(np.argmin(ys))
-            dip_center_norm = float(xs[min_idx])
+            # k_np range is typically 2-4, so left/right ratio should be 0.25-0.5
+            if 0.15 <= depth_ratio <= 0.6 and len(dips) == 3:
+                # Asymmetric triplet: create windows around each dip
+                # Group outer dips together (they're symmetric in position but not amplitude)
+                left_center, _ = dips[0]
+                right_center, _ = dips[-1]
+                center_center, _ = dips[1]
 
-            if max_span_phys is not None and max_span_phys > 0:
-                half_span_norm = (max_span_phys * 0.6) / domain_width
-            elif min_span_phys is not None and min_span_phys > 0:
-                half_span_norm = (min_span_phys * 1.5) / domain_width
-            else:
-                # Data-based fallback
-                baseline = float(np.percentile(ys, 75))
-                dip_depth = baseline - float(np.min(ys))
-                threshold = baseline - 0.2 * dip_depth
-                signal_mask = ys < threshold
-                if np.any(signal_mask):
-                    signal_xs = xs[signal_mask]
-                    half_span_norm = float(np.max(signal_xs) - np.min(signal_xs)) / 2 * 1.1
-                else:
-                    half_span_norm = 0.1  # 10% default
+                # Window covering both outer dips
+                outer_span = right_center - left_center
+                outer_lo = max(0.0, left_center - 0.12 * outer_span)
+                outer_hi = min(1.0, right_center + 0.12 * outer_span)
 
-            # Ensure not narrower than min_span
-            if min_span_phys is not None and min_span_phys > 0:
-                min_half_span_norm = (min_span_phys * 0.8) / domain_width
-                half_span_norm = max(half_span_norm, min_half_span_norm)
+                # Tight window around center dip
+                min_span_norm = 0.025  # 2.5% of domain minimum
+                center_lo = max(0.0, center_center - min_span_norm)
+                center_hi = min(1.0, center_center + min_span_norm)
 
-            lo_norm = dip_center_norm - half_span_norm
-            hi_norm = dip_center_norm + half_span_norm
+                return [(outer_lo, outer_hi), (center_lo, center_hi)]
 
-        elif expected_dips == 2:
-            # Two dips: detect dips and span from first to last with model-informed margin
-            baseline = float(np.percentile(ys, 75))
-            dip_depth = baseline - float(np.min(ys))
-            # Lower threshold to catch more of the dip sides
-            threshold = baseline - 0.15 * dip_depth
-            signal_mask = ys < threshold
+        # Default: create individual window around each dip
+        windows: list[tuple[float, float]] = []
+        min_span_norm = 0.03  # 3% of domain
 
-            if np.any(signal_mask):
-                signal_xs = xs[signal_mask]
-                lo_norm = float(np.min(signal_xs))
-                hi_norm = float(np.max(signal_xs))
-                # Add 10% margin to ensure full dip coverage
-                margin = 0.10 * (hi_norm - lo_norm)
-                lo_norm -= margin
-                hi_norm += margin
-            else:
-                # Fallback: use model span centered on data center
-                data_center = float(np.median(xs))
-                if max_span_phys is not None and max_span_phys > 0:
-                    half_span_norm = (max_span_phys * 0.7) / domain_width
-                elif min_span_phys is not None and min_span_phys > 0:
-                    half_span_norm = (min_span_phys * 1.5) / domain_width
-                else:
-                    half_span_norm = 0.15
-                lo_norm = data_center - half_span_norm
-                hi_norm = data_center + half_span_norm
+        for center_norm, _ in dips:
+            lo = max(0.0, center_norm - min_span_norm)
+            hi = min(1.0, center_norm + min_span_norm)
+            windows.append((lo, hi))
 
-        else:
-            # Three dips (Zeeman triplet): critical to capture all three minima
-            # Use model's max_span directly to ensure outer dips are included
-            if max_span_phys is not None and max_span_phys > 0:
-                # Trust the model's expected span for Zeeman triplet
-                half_span_norm = (max_span_phys * 0.7) / domain_width
-            elif min_span_phys is not None and min_span_phys > 0:
-                half_span_norm = (min_span_phys * 2.0) / domain_width
-            else:
-                half_span_norm = 0.15
+        return windows if len(windows) >= 2 else None
 
-            # Find the center of all three dips using the median of low points
-            baseline = float(np.percentile(ys, 75))
-            dip_depth = baseline - float(np.min(ys))
-            threshold = baseline - 0.15 * dip_depth
-            signal_mask = ys < threshold
+    def _get_current_acquisition_bounds(self) -> tuple[float, float]:
+        """Return the current acquisition window bounds.
 
-            if np.any(signal_mask):
-                signal_xs = xs[signal_mask]
-                # Center on the median of detected signal points (middle of triplet)
-                triplet_center = float(np.median(signal_xs))
-            else:
-                # Fallback: use minimum point
-                triplet_center = float(xs[int(np.argmin(ys))])
-
-            lo_norm = triplet_center - half_span_norm
-            hi_norm = triplet_center + half_span_norm
-
-            # Expand if data extends beyond (ensure we don't clip detected dips)
-            if np.any(signal_mask):
-                signal_xs = xs[signal_mask]
-                data_lo = float(np.min(signal_xs))
-                data_hi = float(np.max(signal_xs))
-                lo_norm = min(lo_norm, data_lo - 0.02)
-                hi_norm = max(hi_norm, data_hi + 0.02)
-
-        # Clamp to domain
-        lo_norm = max(0.0, lo_norm)
-        hi_norm = min(1.0, hi_norm)
-
-        return (lo_norm, hi_norm)
+        If per-dip windows are active, returns the current dip's window
+        and advances to the next dip for subsequent calls (round-robin).
+        Otherwise returns the single acquisition window.
+        """
+        if self._per_dip_windows is not None and len(self._per_dip_windows) > 0:
+            # Round-robin through per-dip windows
+            window = self._per_dip_windows[self._current_dip_window_idx]
+            self._current_dip_window_idx = (self._current_dip_window_idx + 1) % len(self._per_dip_windows)
+            return window
+        return (self._acquisition_lo, self._acquisition_hi)
 
     def _expected_dip_count_from_model(self) -> int:
         """Return expected number of dips from the signal model.
@@ -1203,30 +1210,44 @@ class SequentialBayesianLocator(Locator):
         # Choose windowing strategy based on expected signal shape
         if expected_dips == 1:
             # Single dip expected: use tight window around strongest dip
-            # Use tight bounds helper to avoid 15% minimum width constraint
-            tight_span = self._tight_signal_bounds_from_observations(xs, ys)
-            if tight_span is not None:
-                lo_norm, hi_norm = tight_span
-            else:
-                span = _best_segment_from_sweep(xs, ys)
-                if span is None:
-                    return
-                lo_norm, hi_norm = span
+            span = _best_segment_from_sweep(xs, ys)
+            if span is None:
+                return
+            lo_norm, hi_norm = span
         elif expected_dips == 2:
-            # Two dips expected: use tight bounds to avoid wasting measurements
-            # The 15% minimum in _normalized_acquisition_interval_from_sweep is too wide
-            # for close dips like NV center (often only 5-10% apart)
-            tight_span = self._tight_signal_bounds_from_observations(xs, ys)
-            if tight_span is not None:
-                lo_norm, hi_norm = tight_span
-            else:
-                span = _normalized_acquisition_interval_from_sweep(xs, ys)
-                if span is None:
-                    return
-                lo_norm, hi_norm = span
+            # Two dips expected: use full interval but shrink padding
+            span = _normalized_acquisition_interval_from_sweep(xs, ys)
+            if span is None:
+                return
+            lo_norm, hi_norm = span
+            # Reduce padding since we know the structure better
+            current_width = hi_norm - lo_norm
+            reduced_padding = 0.03  # 3% instead of default 10%
+            lo_norm = max(0.0, lo_norm - reduced_padding * current_width)
+            hi_norm = min(1.0, hi_norm + reduced_padding * current_width)
         elif expected_dips == 3:
-            # Three dips expected (triplet): ensure window covers outer dips
-            # Use standard detection but ensure minimum width for outer peaks
+            # Three dips expected (triplet): use per-dip focus windows for efficiency
+            # Try to detect individual dips and create focused windows
+            per_dip_windows = self._per_dip_focus_windows(xs, ys)
+
+            if per_dip_windows is not None and len(per_dip_windows) >= 2:
+                # Store per-dip windows for round-robin acquisition
+                self._per_dip_windows = [
+                    (self._full_domain_lo + lo * domain_width,
+                     self._full_domain_lo + hi * domain_width)
+                    for lo, hi in per_dip_windows
+                ]
+                # Use the full span of all windows as the main window
+                all_lo = [w[0] for w in self._per_dip_windows]
+                all_hi = [w[1] for w in self._per_dip_windows]
+                new_lo = min(all_lo)
+                new_hi = max(all_hi)
+                # Update acquisition bounds to full span
+                self._acquisition_lo = max(self._full_domain_lo, min(new_lo, new_hi))
+                self._acquisition_hi = min(self._full_domain_hi, max(new_lo, new_hi))
+                return  # Skip the rest - per-dip windows are set
+
+            # Fallback: use standard detection but ensure minimum width for outer peaks
             span = _normalized_acquisition_interval_from_sweep(xs, ys)
             if span is None:
                 return

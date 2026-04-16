@@ -330,6 +330,60 @@ def _bayesian_auxiliary_entries(
                 che["path"] = fisher_path.relative_to(out_dir).as_posix()
                 extra.append(che)
 
+    # Convergence metrics visualization for all Bayesian beliefs
+    if run_result.snapshots:
+        # Extract convergence-related metrics from each snapshot
+        # Note: The actual convergence threshold and patience are locator config,
+        # not stored per-snapshot. We use typical defaults for visualization.
+        convergence_threshold = 0.01  # Default from SequentialBayesianLocator
+        convergence_patience = 8  # Default patience steps
+
+        conv_metrics = []
+        for i, s in enumerate(run_result.snapshots):
+            belief = s.belief
+            param_names = list(belief.model.parameter_names())
+            uncertainties = belief.uncertainty().as_dict()
+
+            # Check which parameters are converged (uncertainty < threshold)
+            converged_params = {
+                name: float(uncertainties.get(name, float('inf'))) < convergence_threshold
+                for name in param_names
+            }
+
+            # Compute convergence streak (consecutive steps where all params converged)
+            all_converged = all(converged_params.values())
+
+            conv_metrics.append({
+                'step': i,
+                'uncertainties': uncertainties,
+                'converged_params': converged_params,
+                'all_converged': all_converged,
+            })
+
+        # Compute convergence streak
+        streak = 0
+        for cm in conv_metrics:
+            if cm['all_converged']:
+                streak += 1
+            else:
+                streak = 0
+            cm['convergence_streak'] = streak
+            cm['convergence_achieved'] = streak >= convergence_patience
+
+        conv_path = bayes_dir / f"{attempt_slug}_convergence_metrics.html"
+        viz.plot_convergence_metrics(
+            conv_metrics,
+            param_names,
+            convergence_threshold,
+            convergence_patience,
+            conv_path,
+        )
+        if conv_path.exists():
+            ce = entry_base.copy()
+            ce["type"] = "bayesian_convergence_metrics"
+            ce["path"] = conv_path.relative_to(out_dir).as_posix()
+            extra.append(ce)
+
     return extra
 
 

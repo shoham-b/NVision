@@ -25,12 +25,9 @@ from nvision.spectra.nv_center import (
     MAX_K_NP,
     MIN_K_NP,
     NVCenterLorentzianSpectrum,
-    NVCenterOnePeakLorentzianModel,
-    NVCenterOnePeakLorentzianSpectrum,
     NVCenterVoigtSpectrum,
     NVCenterVoigtSpectrumSamples,
     nv_center_lorentzian_bounds_for_domain,
-    nv_center_one_peak_lorentzian_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
 )
 from nvision.spectra.signal import TrueSignal
@@ -181,56 +178,15 @@ def _true_signal_from_typed(model, typed_params, bounds: dict[str, tuple[float, 
 
 
 @dataclass
-class OnePeakCoreGenerator:
-    """Generates single-peak signals using core architecture.
-
-    Produces TrueSignal with either Gaussian or Lorentzian model.
-    """
-
-    x_min: float = 0.0
-    x_max: float = 1.0
-    peak_config: PeakSpec = field(default_factory=lambda: GAUSSIAN)
-
-    def generate(self, rng: random.Random):  # TrueSignal
-        """Generate a single-peak signal.
-
-        Parameters
-        ----------
-        rng : random.Random
-            Random number generator
-
-        Returns
-        -------
-        TrueSignal
-            Signal with single peak at random location
-        """
-        width = self.x_max - self.x_min
-        peak_pos = rng.uniform(self.x_min + 0.05 * width, self.x_max - 0.05 * width)
-        peak_width = rng.uniform(0.05 * width, 0.10 * width)
-
-        model, typed_params = _make_model_and_spectrum(
-            self.peak_config,
-            pos=peak_pos,
-            width=peak_width,
-            dip_depth=1.0,
-            background=self.peak_config.background_default,
-        )
-        bounds = _make_bounds(self.peak_config, self.x_min, self.x_max)
-
-        return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
-
-
-@dataclass
 class NVCenterCoreGenerator:
     """Generates NV center ODMR signals using core architecture.
 
-    Produces TrueSignal with physically accurate NV center signal.
+    Produces TrueSignal with physically accurate NV center triplet signal.
     """
 
     x_min: float = DEFAULT_NV_CENTER_FREQ_X_MIN  # 2.6 GHz
     x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
-    zero_field: bool = False  # If True, generate with delta_f_hf = 0 (single peak)
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate NV center ODMR signal.
@@ -247,16 +203,10 @@ class NVCenterCoreGenerator:
         """
         width = self.x_max - self.x_min
 
-        # Random central frequency (avoiding edges)
-        if self.zero_field:
-            # For zero-field case, can be anywhere
-            center_freq = rng.uniform(self.x_min + 0.1 * width, self.x_max - 0.1 * width)
-            split = 0.0
-        else:
-            # For hyperfine-split case, need room for side peaks
-            # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
-            split = rng.uniform(2.0e6, 3.5e6)
-            center_freq = rng.uniform(self.x_min + split + 0.05 * width, self.x_max - split - 0.05 * width)
+        # For hyperfine-split case, need room for side peaks
+        # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
+        split = rng.uniform(2.0e6, 3.5e6)
+        center_freq = rng.uniform(self.x_min + split + 0.05 * width, self.x_max - split - 0.05 * width)
 
         # Random linewidth (HWHM for Lorentzian)
         # To ensure the dip strongly returns before the next hyperfine peak,
@@ -272,35 +222,24 @@ class NVCenterCoreGenerator:
         if self.variant == "lorentzian":
             unit_dip_depth = rng.uniform(0.3, 0.95)
             lw2 = linewidth**2
-            if self.zero_field:
-                model = NVCenterOnePeakLorentzianModel()
-                dip_depth = unit_dip_depth / float(1.0)  # single Lorentzian peak height at centre = 1.0
-                typed_params = NVCenterOnePeakLorentzianSpectrum(
-                    frequency=center_freq,
-                    linewidth=linewidth,
-                    dip_depth=dip_depth,
-                    background=background,
-                )
-                bounds = nv_center_one_peak_lorentzian_bounds_for_domain(self.x_min, self.x_max)
-            else:
-                model = NVCenterLorentzianModel()
-                # Scale a desired contrast onto the true peak-shape maximum
-                xs = np.linspace(center_freq - split, center_freq + split, 200)
-                g = (
-                    (lw2 / k_np**2) / ((xs - (center_freq - split)) ** 2 + lw2)
-                    + (lw2 / k_np) / ((xs - center_freq) ** 2 + lw2)
-                    + lw2 / ((xs - (center_freq + split)) ** 2 + lw2)
-                )
-                dip_depth = unit_dip_depth / float(g.max())
-                typed_params = NVCenterLorentzianSpectrum(
-                    frequency=center_freq,
-                    linewidth=linewidth,
-                    split=split,
-                    k_np=k_np,
-                    dip_depth=dip_depth,
-                    background=background,
-                )
-                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
+            model = NVCenterLorentzianModel()
+            # Scale a desired contrast onto the true peak-shape maximum
+            xs = np.linspace(center_freq - split, center_freq + split, 200)
+            g = (
+                (lw2 / k_np**2) / ((xs - (center_freq - split)) ** 2 + lw2)
+                + (lw2 / k_np) / ((xs - center_freq) ** 2 + lw2)
+                + lw2 / ((xs - (center_freq + split)) ** 2 + lw2)
+            )
+            dip_depth = unit_dip_depth / float(g.max())
+            typed_params = NVCenterLorentzianSpectrum(
+                frequency=center_freq,
+                linewidth=linewidth,
+                split=split,
+                k_np=k_np,
+                dip_depth=dip_depth,
+                background=background,
+            )
+            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
         else:  # voigt
             lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
             lorentz_frac = 1.0 / (1.0 + lorentz_ratio)

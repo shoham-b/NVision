@@ -154,6 +154,8 @@ function main() {
         const bayesInteractiveIframe = document.getElementById('bayes-interactive-iframe');
         const bayesConvergenceSection = document.getElementById('bayes-convergence-section');
         const bayesConvergenceIframe = document.getElementById('bayes-convergence-iframe');
+        const bayesConvMetricsSection = document.getElementById('bayes-conv-metrics-section');
+        const bayesConvMetricsIframe = document.getElementById('bayes-conv-metrics-iframe');
         const bayesFisherSection = document.getElementById('bayes-fisher-section');
         const bayesFisherIframe = document.getElementById('bayes-fisher-iframe');
         const bayesEllipseSection = document.getElementById('bayes-ellipse-section');
@@ -167,6 +169,7 @@ function main() {
             bayesInteractivePlots.length > 0 ||
             bayesStatsPlots.length > 0 ||
             plots.some((p) => p.type === 'bayesian_parameter_convergence') ||
+            plots.some((p) => p.type === 'bayesian_convergence_metrics') ||
             plots.some((p) => p.type === 'bayesian_fisher_bounds') ||
             plots.some((p) => p.type === 'bayesian_covariance_ellipses');
         if (bayesSection) {
@@ -269,6 +272,23 @@ function main() {
             } else {
                 bayesFisherSection.hidden = true;
                 bayesFisherIframe.src = '';
+            }
+
+            const convMetricsPlot = plots.find(
+                (p) =>
+                    p.type === 'bayesian_convergence_metrics' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            if (convMetricsPlot) {
+                bayesConvMetricsIframe.src = convMetricsPlot.path;
+                bayesConvMetricsSection.hidden = false;
+            } else {
+                bayesConvMetricsSection.hidden = true;
+                bayesConvMetricsIframe.src = '';
             }
 
             const ellipsePlot = plots.find(

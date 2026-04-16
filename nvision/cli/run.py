@@ -184,7 +184,7 @@ def run(  # noqa: C901
         str | None,
         typer.Option(
             "--filter-category",
-            help="Filter by generator category (NVCenter, OnePeak, TwoPeak).",
+            help="Filter by generator category (NVCenter, TwoPeak)."
         ),
     ] = None,
     filter_strategy: Annotated[

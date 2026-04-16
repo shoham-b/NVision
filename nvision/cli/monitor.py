@@ -431,8 +431,12 @@ class ProgressMonitor:
             # Ensure `task.elapsed` for the ETA column starts immediately.
             # This matters more with multiprocessing, where the first completed update
             # can happen significantly after the run begins.
-            with contextlib.suppress(Exception):
+            try:
                 self.main_progress.start_task(self.main_task_id)
+            except Exception:
+                pass  # Task may already be started
+            # Force initial render so UI appears immediately
+            self._refresh_live()
             _keyboard_tty_enter()
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
@@ -440,7 +444,7 @@ class ProgressMonitor:
     def stop(self) -> None:
         self.progress_queue.put(None)
         if self._monitor_thread:
-            self._monitor_thread.join()
+            self._monitor_thread.join(timeout=2.0)
             self._monitor_thread = None
         _keyboard_tty_exit()
         if self._live is not None:

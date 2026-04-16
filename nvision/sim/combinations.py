@@ -18,10 +18,7 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     UtilitySamplingLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import (
-    nv_center_one_peak_smc_belief,
     nv_center_smc_belief,
-    one_peak_gaussian_belief,
-    one_peak_lorentzian_belief,
     two_peak_gaussian_belief,
     two_peak_lorentzian_belief,
 )
@@ -75,7 +72,6 @@ class CombinationGrid:
     @staticmethod
     def generator_category(name: str) -> str:
         for prefix, cat in (
-            ("OnePeak-", "OnePeak"),
             ("TwoPeak-", "TwoPeak"),
             ("NVCenter-", "NVCenter"),
         ):
@@ -85,43 +81,6 @@ class CombinationGrid:
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
-        if generator_name in ("NVCenter-one_peak", "NVCenter-voigt_one_peak"):
-            _NV_ONE_PEAK: dict[str, object] = {
-                "builder": nv_center_one_peak_smc_belief,
-                "num_particles": 5000,
-                "jitter_scale": 0.05,
-                "ess_threshold": 0.5,
-                "use_full_covariance": True,  # NIST-style robust resampling (Dushenko et al.)
-                "a_param": 0.98,
-                "scale": True,
-            }
-            return [
-                ("SimpleSweep", SimpleSweepLocator),
-                (
-                    "Bayesian-SBED",
-                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **_NV_ONE_PEAK}},
-                ),
-                (
-                    "Bayesian-MaximumLikelihood",
-                    {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, **_NV_ONE_PEAK}},
-                ),
-                (
-                    "Bayesian-UtilitySampling",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {
-                            "max_steps": 200,
-                            **_NV_ONE_PEAK,
-                            "pickiness": 4.0,
-                            "noise_std": 0.02,
-                            "cost": 1.0,
-                            "n_mc_samples": 64,
-                            "n_candidates": 64,
-                        },
-                    },
-                ),
-            ]
-
         if generator_name.startswith("NVCenter-"):
             return [
                 ("SimpleSweep", SimpleSweepLocator),
@@ -146,36 +105,6 @@ class CombinationGrid:
                             "n_mc_samples": 64,
                             "n_candidates": 64,
                         },
-                    },
-                ),
-            ]
-
-        if generator_name == "OnePeak-gaussian":
-            cfg = {"builder": one_peak_gaussian_belief, "max_steps": 200}
-            return [
-                ("SimpleSweep", SimpleSweepLocator),
-                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
-                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
-                (
-                    "Bayesian-UtilitySampling",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
-                    },
-                ),
-            ]
-
-        if generator_name == "OnePeak-lorentzian":
-            cfg = {"builder": one_peak_lorentzian_belief, "max_steps": 200}
-            return [
-                ("SimpleSweep", SimpleSweepLocator),
-                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
-                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
-                (
-                    "Bayesian-UtilitySampling",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
                     },
                 ),
             ]
