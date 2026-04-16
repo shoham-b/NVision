@@ -57,8 +57,10 @@ def _run_tasks_process_pool(
     plot_manifest: list[dict[str, object]] = []
     df_rows: list[dict] = []
     errors: list[Exception] = []
+    future_to_task: dict[concurrent.futures.Future, object] = {}
 
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=runners)
+    shutdown_called = False
     try:
         future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in tasks}
         for future in concurrent.futures.as_completed(future_to_task):
@@ -74,6 +76,11 @@ def _run_tasks_process_pool(
                 for entries, main_result_row in results_for_task:
                     plot_manifest.extend(entries)
                     df_rows.append(main_result_row)
+            except concurrent.futures.CancelledError:
+                # Expected during shutdown - don't log as error
+                pass
+            except KeyboardInterrupt:
+                raise  # Let outer handler deal with Ctrl+C
             except Exception:
                 # Still advance progress to keep the UI consistent.
                 if getattr(locator_task, "task_id", None) is not None:
@@ -85,6 +92,7 @@ def _run_tasks_process_pool(
                     for pending_future in future_to_task:
                         pending_future.cancel()
                     executor.shutdown(wait=False, cancel_futures=True)
+                    shutdown_called = True
                     break
     except KeyboardInterrupt:
         log.warning("Cancelling pending tasks due to interruption...")
@@ -92,7 +100,9 @@ def _run_tasks_process_pool(
         for pending_future in future_to_task:
             pending_future.cancel()
         # Shutdown without waiting - terminate processes immediately
-        executor.shutdown(wait=False, cancel_futures=True)
+        if not shutdown_called:
+            executor.shutdown(wait=False, cancel_futures=True)
+            shutdown_called = True
         # On Windows, forcibly kill child processes if needed
         try:
             import psutil
@@ -115,10 +125,16 @@ def _run_tasks_process_pool(
             pass  # psutil not available
         raise  # Re-raise to let the caller handle it
     finally:
-        # If we didn't terminate early, wait for workers to finish.
+        # If we didn't terminate early, wait for workers to finish (with timeout to avoid stall).
         try:
-            if not executor._shutdown:
+            if not shutdown_called:
                 executor.shutdown(wait=True)
+        except KeyboardInterrupt:
+            # User hit Ctrl+C again during shutdown - force terminate without waiting
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
         except Exception:
             pass  # Best effort cleanup
 
