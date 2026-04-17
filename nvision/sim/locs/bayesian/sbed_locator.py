@@ -167,6 +167,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 eps=eps,
             )
 
-        utilities = self._apply_parameter_weight_bias(utilities, all_mu_preds, sampled)
+        utilities = self._apply_parameter_weight_bias(utilities, all_mu_preds, sampled, candidates)
         best_idx = int(pl.Series(utilities).arg_max())
         return float(candidates[best_idx])

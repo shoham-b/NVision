@@ -36,26 +36,41 @@ def _resolve_scan_param(strat_obj: Any, run_result: RunResult) -> str:
 def _posterior_animation_inputs(
     run_result: RunResult,
     scan_param: str,
+    start_idx: int = 0,
 ) -> tuple[list[np.ndarray], np.ndarray] | None:
-    """Build (posterior_history, freq_grid) for ``plot_posterior_animation``."""
+    """Build (posterior_history, freq_grid) for ``plot_posterior_animation``.
+
+    Parameters
+    ----------
+    run_result : RunResult
+        Full result with snapshots
+    scan_param : str
+        Parameter to extract posterior for
+    start_idx : int
+        Starting index to slice snapshots (used to exclude initial sweep stages)
+    """
     if not run_result.snapshots:
+        return None
+
+    snapshots = run_result.snapshots[start_idx:] if start_idx > 0 else run_result.snapshots
+    if not snapshots:
         return None
 
     from nvision.belief.grid_marginal import GridMarginalDistribution
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 
-    b0 = run_result.snapshots[0].belief
+    b0 = snapshots[0].belief
     if isinstance(b0, UnitCubeGridMarginalDistribution):
         grid = b0.physical_param_grid(scan_param)
         # Use base get_grid_param to access unit-cube PMF directly.
         hist = [
-            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots
+            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots
         ]
         return hist, grid
     if isinstance(b0, GridMarginalDistribution):
         grid = b0.get_grid_param(scan_param).grid
-        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in snapshots]
         return hist, grid
 
     if isinstance(b0, SMCMarginalDistribution):
@@ -68,7 +83,7 @@ def _posterior_animation_inputs(
             is_unit_cube = True
             lo, hi = b0.model.param_bounds_phys[scan_param]
 
-        for s in run_result.snapshots:
+        for s in snapshots:
             b = s.belief
             assert isinstance(b, SMCMarginalDistribution)
             col = b._particles[:, idx].copy()
@@ -84,12 +99,25 @@ def _posterior_animation_inputs(
 
 def _posterior_animation_inputs_all_params(
     run_result: RunResult,
+    start_idx: int = 0,
 ) -> dict[str, tuple[list[np.ndarray], np.ndarray]] | None:
-    """Marginal posterior history + axis grid for every model parameter (for faceted animation)."""
+    """Marginal posterior history + axis grid for every model parameter (for faceted animation).
+
+    Parameters
+    ----------
+    run_result : RunResult
+        Full result with snapshots
+    start_idx : int
+        Starting index to slice snapshots (used to exclude initial sweep stages)
+    """
     if not run_result.snapshots:
         return None
 
-    b0 = run_result.snapshots[0].belief
+    snapshots = run_result.snapshots[start_idx:] if start_idx > 0 else run_result.snapshots
+    if not snapshots:
+        return None
+
+    b0 = snapshots[0].belief
     names = list(b0.model.parameter_names())
     if not names:
         return None
@@ -99,49 +127,49 @@ def _posterior_animation_inputs_all_params(
     from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 
     if isinstance(b0, UnitCubeGridMarginalDistribution):
-        return _extract_unit_cube_grid_posterior(run_result, names)
+        return _extract_unit_cube_grid_posterior(snapshots, names)
 
     if isinstance(b0, GridMarginalDistribution):
-        return _extract_grid_posterior(run_result, names)
+        return _extract_grid_posterior(snapshots, names)
 
     if isinstance(b0, SMCMarginalDistribution):
-        return _extract_smc_posterior(run_result, names)
+        return _extract_smc_posterior(snapshots, names)
 
     log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
     return None
 
 
 def _extract_unit_cube_grid_posterior(
-    run_result: RunResult, names: list[str]
+    snapshots: list, names: list[str]
 ) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     from nvision.belief.grid_marginal import GridMarginalDistribution
 
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = run_result.snapshots[0].belief
+    b0 = snapshots[0].belief
     for scan_param in names:
         grid = b0.physical_param_grid(scan_param)
         hist = [
-            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in run_result.snapshots
+            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots
         ]
         out[scan_param] = (hist, grid)
     return out
 
 
-def _extract_grid_posterior(run_result: RunResult, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+def _extract_grid_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = run_result.snapshots[0].belief
+    b0 = snapshots[0].belief
     for scan_param in names:
         grid = b0.get_grid_param(scan_param).grid
-        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in run_result.snapshots]
+        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in snapshots]
         out[scan_param] = (hist, grid)
     return out
 
 
-def _extract_smc_posterior(run_result: RunResult, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     from nvision.belief.smc_marginal import SMCMarginalDistribution
 
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = run_result.snapshots[0].belief
+    b0 = snapshots[0].belief
     stub_grid = np.linspace(0.0, 1.0, 2)
     is_unit_cube = hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel)
 
@@ -152,7 +180,7 @@ def _extract_smc_posterior(run_result: RunResult, names: list[str]) -> dict[str,
         if is_unit_cube:
             lo, hi = b0.model.param_bounds_phys[scan_param]
 
-        for s in run_result.snapshots:
+        for s in snapshots:
             b = s.belief
             assert isinstance(b, SMCMarginalDistribution)
             col = b._particles[:, idx].copy()
@@ -199,14 +227,6 @@ def _initial_sweep_steps_from_strategy(strat_obj: Any) -> int:
         except Exception:
             pass
 
-        try:
-            from nvision.sim.locs.coarse.two_phase_sweep_locator import TwoPhaseSweepLocator
-
-            if cls is TwoPhaseSweepLocator:
-                return int(config.get("phase1_max_steps", 0) or 0)
-        except Exception:
-            pass
-
     return 0
 
 
@@ -226,12 +246,15 @@ def _bayesian_auxiliary_entries(
     true_params = run_result.true_signal.parameter_values()
     experiment_domain = (float(experiment.x_min), float(experiment.x_max))
     interactive_path = bayes_dir / f"{attempt_slug}_posterior.html"
-    anim_all = _posterior_animation_inputs_all_params(run_result)
+    # Filter out initial sweep stages from posterior animation
+    sweep_steps = run_result.sweep_steps
+    anim_all = _posterior_animation_inputs_all_params(run_result, start_idx=sweep_steps)
     log.info("Posterior animation inputs: %s", "available" if anim_all is not None else "None")
     if anim_all is not None:
-        # Extract per-step narrowed bounds from snapshots for dynamic UI
+        # Extract per-step narrowed bounds from snapshots for dynamic UI (only Bayesian stages)
+        bayesian_snapshots = run_result.snapshots[sweep_steps:] if sweep_steps > 0 else run_result.snapshots
         per_step_narrowed_bounds = []
-        for snapshot in run_result.snapshots:
+        for snapshot in bayesian_snapshots:
             if snapshot.narrowed_param_bounds:
                 per_step_narrowed_bounds.append(snapshot.narrowed_param_bounds)
             else:
@@ -253,7 +276,7 @@ def _bayesian_auxiliary_entries(
             signal_formula=signal_formula,
         )
     else:
-        anim_inputs = _posterior_animation_inputs(run_result, scan_param)
+        anim_inputs = _posterior_animation_inputs(run_result, scan_param, start_idx=sweep_steps)
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
             true_one = true_params.get(scan_param)
@@ -272,7 +295,10 @@ def _bayesian_auxiliary_entries(
         ie["param_count"] = len(anim_all) if anim_all is not None else 1
         extra.append(ie)
 
-    param_hist = [s.belief.uncertainty().as_dict() for s in run_result.snapshots]
+    # Filter out initial sweep stages from parameter convergence plot
+    sweep_steps = run_result.sweep_steps
+    bayesian_snapshots = run_result.snapshots[sweep_steps:] if sweep_steps > 0 else run_result.snapshots
+    param_hist = [s.belief.uncertainty().as_dict() for s in bayesian_snapshots]
     if param_hist:
         conv_path = bayes_dir / f"{attempt_slug}_param_convergence.html"
         viz.plot_parameter_convergence(param_hist, conv_path)
@@ -285,8 +311,8 @@ def _bayesian_auxiliary_entries(
     # Fisher information bounds vs actual uncertainty for SMC beliefs
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
-    if run_result.snapshots and isinstance(run_result.snapshots[0].belief, SMCMarginalDistribution):
-        param_names = list(run_result.snapshots[0].belief.model.parameter_names())
+    if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
+        param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
         n_params = len(param_names)
 
         # Compute cumulative Fisher information and bounds at each step
@@ -295,7 +321,7 @@ def _bayesian_auxiliary_entries(
         actual_uncertainty_hist = []  # Actual SMC uncertainty
 
         cum_fim = np.zeros((n_params, n_params))
-        for s in run_result.snapshots:
+        for s in bayesian_snapshots:
             # Get observation point and compute Fisher contribution
             x_obs = s.obs.x
             model = s.belief.model

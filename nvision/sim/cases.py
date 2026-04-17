@@ -36,7 +36,7 @@ class RunCaseName(StrEnum):
 
 
 # Single source for ``nvision run`` / ``nvision render`` defaults and :func:`default_run_case`.
-DEFAULT_LOC_MAX_STEPS = 500
+DEFAULT_LOC_MAX_STEPS = 1500
 
 
 # Generators: three main categories with subcategories

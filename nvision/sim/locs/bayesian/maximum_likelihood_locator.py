@@ -102,7 +102,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
             n_samples = 64
             sampled = self.belief.sample(n_samples)
             mu_preds = self.belief.model.compute_vectorized_many(candidates, sampled)
-            biased = self._apply_parameter_weight_bias(np.asarray(base_prob, dtype=float), np.asarray(mu_preds, dtype=float), sampled)
+            biased = self._apply_parameter_weight_bias(np.asarray(base_prob, dtype=float), np.asarray(mu_preds, dtype=float), sampled, candidates)
             base_prob = np.maximum(biased, 0.0)
             total = float(np.sum(base_prob))
             if total > 0:
