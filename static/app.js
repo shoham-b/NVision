@@ -1727,6 +1727,10 @@ function main() {
     });
 
     window.addEventListener('DOMContentLoaded', () => {
+        const lastRunEl = document.getElementById('last-run-time');
+        if (lastRunEl) {
+            lastRunEl.textContent = 'Last run: ' + new Date().toLocaleString();
+        }
         window.NVISION_BOOTSTRAP
             .then(() => {
                 main();

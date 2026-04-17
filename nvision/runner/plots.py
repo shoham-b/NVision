@@ -434,6 +434,7 @@ def generate_attempt_plots(
         )
 
     focus_window = run_result.focus_window if run_result is not None else None
+    per_dip_windows = run_result.per_dip_windows if run_result is not None else None
 
     strat_name = str(entry_base.get("strategy", ""))
     mode_estimates: dict[str, float] | None = None
@@ -454,6 +455,7 @@ def generate_attempt_plots(
         over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
         mode_estimates=mode_estimates,
         focus_window=focus_window,
+        per_dip_windows=per_dip_windows,
         belief_unit_cube=belief_unit_cube,
         narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
     )

@@ -50,11 +50,15 @@ class RunResult:
         Physical ``(lo, hi)`` interval where Bayesian acquisition searches after the
         initial sweep — same as the locator's acquisition bounds when the locator
         implements ``bayesian_focus_window()`` (see ``SequentialBayesianLocator``).
+    per_dip_windows : list[tuple[float, float]] | None
+        Individual per-dip focus windows for multi-dip signals (e.g., NV center triplets).
+        Each tuple is ``(lo, hi)`` in physical units. None when using single window.
     """
 
     snapshots: list[StepSnapshot]
     true_signal: TrueSignal
     focus_window: tuple[float, float] | None = None
+    per_dip_windows: list[tuple[float, float]] | None = None
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
     sweep_steps: int = 0
     secondary_sweep_steps: int = 0
@@ -248,6 +252,7 @@ class Observer:
 
         self.last_locator = last_locator
         focus_window: tuple[float, float] | None = None
+        per_dip_windows: list[tuple[float, float]] | None = None
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
         sweep_steps = 0
         secondary_sweep_steps = 0
@@ -255,6 +260,8 @@ class Observer:
             # Use duck typing with hasattr for optional locator capabilities
             if hasattr(last_locator, "bayesian_focus_window"):
                 focus_window = last_locator.bayesian_focus_window()
+            if hasattr(last_locator, "per_dip_windows"):
+                per_dip_windows = last_locator.per_dip_windows()
             if hasattr(last_locator, "narrowed_param_bounds"):
                 nb = last_locator.narrowed_param_bounds()
                 if nb:
@@ -272,6 +279,7 @@ class Observer:
             snapshots=self.snapshots,
             true_signal=self.true_signal,
             focus_window=focus_window,
+            per_dip_windows=per_dip_windows,
             narrowed_param_bounds=narrowed_param_bounds,
             sweep_steps=sweep_steps,
             secondary_sweep_steps=secondary_sweep_steps,

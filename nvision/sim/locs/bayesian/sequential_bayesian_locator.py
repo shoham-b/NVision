@@ -528,11 +528,11 @@ class SequentialBayesianLocator(Locator):
         #   - Sobol sequence alignment jitter (points may not align perfectly)
         #   - Boundary effects near domain edges
         #   - Depth variation within the detectable width (signal not flat)
-        safety_margin = 1.5
+        safety_margin = 2.5
         required_spacing = feature_width / cls._MIN_SIGNAL_HITS
         needed = int(np.ceil(safety_margin * domain_width / required_spacing))
 
-        return int(np.clip(needed, cls.DEFAULT_INITIAL_SWEEP_STEPS, 512))
+        return int(np.clip(needed, cls.DEFAULT_INITIAL_SWEEP_STEPS, 1000))
 
     @classmethod
     def create(
@@ -1442,6 +1442,14 @@ class SequentialBayesianLocator(Locator):
         if (hi - lo) >= span * (1.0 - 1e-9):
             return None
         return (lo, hi)
+
+    def per_dip_windows(self) -> list[tuple[float, float]] | None:
+        """Individual per-dip focus windows for multi-dip signals (e.g., NV center triplets).
+
+        Returns a list of (lo, hi) tuples when per-dip targeting is active,
+        or None when using a single acquisition window.
+        """
+        return self._per_dip_windows
 
     def narrowed_param_bounds(self) -> dict[str, tuple[float, float]]:
         """Physical bounds of non-scan parameters narrowed after the initial sweep.

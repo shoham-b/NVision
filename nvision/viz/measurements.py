@@ -345,6 +345,44 @@ def _add_focus_window_overlay(
     )
 
 
+def _add_per_dip_windows_overlay(
+    fig: go.Figure,
+    *,
+    per_dip_windows: list[tuple[float, float]] | None,
+    has_metrics: bool,
+) -> None:
+    """Overlay individual per-dip focus windows as colored vertical bands.
+
+    Each dip window is shown with a distinct color to distinguish individual dips.
+    """
+    if per_dip_windows is None or not per_dip_windows:
+        return
+    row, col = _row_col(has_metrics)
+    # Use distinct colors for different dips (orange, purple, cyan for up to 3 dips)
+    colors = [
+        ("rgba(255, 159, 64, 0.20)", "rgba(255, 159, 64, 0.8)"),  # Orange
+        ("rgba(153, 102, 255, 0.20)", "rgba(153, 102, 255, 0.8)"),  # Purple
+        ("rgba(54, 162, 235, 0.20)", "rgba(54, 162, 235, 0.8)"),  # Blue
+    ]
+    for i, (lo, hi) in enumerate(per_dip_windows):
+        x0, x1 = float(lo), float(hi)
+        if not np.isfinite(x0) or not np.isfinite(x1) or x1 <= x0:
+            continue
+        fill_color, line_color = colors[i % len(colors)]
+        fig.add_vrect(
+            x0=x0,
+            x1=x1,
+            fillcolor=fill_color,
+            line_width=1,
+            line_color=line_color,
+            layer="below",
+            annotation_text=f"Dip {i + 1}",
+            annotation_position="top left",
+            row=row,
+            col=col,
+        )
+
+
 def _add_metric_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool) -> None:
     if not has_metrics or history.height == 0:
         return
@@ -809,6 +847,7 @@ class MeasurementsMixin:
         over_frequency_noise: CompositeOverFrequencyNoise | None = None,
         mode_estimates: Mapping[str, float] | None = None,
         focus_window: tuple[float, float] | None = None,
+        per_dip_windows: list[tuple[float, float]] | None = None,
         belief_unit_cube: UnitCubeSignalModel | None = None,
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
     ) -> Path:
@@ -868,6 +907,7 @@ class MeasurementsMixin:
         _add_measurement_distribution_trace(fig, history=history, xs_dense=xs, ys_dense=ys, has_metrics=has_metrics)
         _add_history_traces(fig, history, has_metrics)
         _add_focus_window_overlay(fig, focus_window=focus_window, has_metrics=has_metrics)
+        _add_per_dip_windows_overlay(fig, per_dip_windows=per_dip_windows, has_metrics=has_metrics)
         # Draw last so the curve sits on top of true/noisy/measurements/distribution.
         _add_mode_belief_trace(
             fig,
@@ -880,8 +920,9 @@ class MeasurementsMixin:
         _add_metric_traces(fig, history, has_metrics)
         _scan_layout(fig, has_metrics, focus_window=focus_window)
 
-        # Embed narrowed_param_bounds in figure meta so the UI can retrieve it
+        # Embed narrowed_param_bounds and per_dip_windows in figure meta so the UI can retrieve them
         # without needing a separate manifest field or extra HTTP request.
+        meta_dict: dict[str, object] = {}
         if narrowed_param_bounds:
             safe_meta: dict[str, list[float]] = {}
             for name, (lo, hi) in narrowed_param_bounds.items():
@@ -889,7 +930,17 @@ class MeasurementsMixin:
                 if flo is not None and fhi is not None and fhi > flo:
                     safe_meta[name] = [flo, fhi]
             if safe_meta:
-                fig.update_layout(meta={"narrowed_param_bounds": safe_meta})
+                meta_dict["narrowed_param_bounds"] = safe_meta
+        if per_dip_windows:
+            safe_windows: list[list[float]] = []
+            for lo, hi in per_dip_windows:
+                flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
+                if flo is not None and fhi is not None and fhi > flo:
+                    safe_windows.append([flo, fhi])
+            if safe_windows:
+                meta_dict["per_dip_windows"] = safe_windows
+        if meta_dict:
+            fig.update_layout(meta=meta_dict)
 
         fig.write_html(out_path.as_posix(), include_plotlyjs="cdn")
         return out_path
