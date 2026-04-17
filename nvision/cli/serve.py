@@ -292,7 +292,11 @@ def serve(
     try:
         _run_server()
     except KeyboardInterrupt:
-        console.print("\n[bold]Server stopped.[/bold]")
+        log.warning("Server interrupted by user (Ctrl+C)")
+        console.print("\n[yellow]Interrupted by user. Stopping server...[/yellow]")
+        # Graceful shutdown of server
+        if _server_instance is not None:
+            _server_instance.shutdown()
     except OSError as e:
         if "Address already in use" in str(e) or "Only one usage" in str(e):
             console.print(f"[bold cyan]Server already running:[/bold cyan] {url}")

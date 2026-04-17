@@ -81,6 +81,54 @@ def clear_sweep_cache() -> None:
         _SWEEP_OBSERVATIONS_BY_KEY.clear()
 
 
+def precompute_sweep(
+    locator_class: type[Locator],
+    experiment: CoreExperiment,
+    rng: random.Random,
+    sweep_cache: SweepCache,
+    **locator_config: Any,
+) -> list[Observation] | None:
+    """Pre-generate and cache sweep observations for Bayesian locators.
+
+    This function creates a temporary Bayesian locator, runs only the initial
+    sweep phase (without Bayesian acquisition), and stores the observations
+    in the shared sweep cache. Subsequent repeats can then use these cached
+    observations without re-measuring.
+
+    Returns the precomputed sweep observations, or None if the locator is not
+    a Bayesian locator or has no initial sweep.
+    """
+    locator = locator_class.create(**locator_config)
+
+    # Only Bayesian locators with initial sweeps need pre-computation
+    if not isinstance(locator, SequentialBayesianLocator):
+        return None
+
+    sweep_steps = getattr(locator, "initial_sweep_steps", 0)
+    if sweep_steps <= 0:
+        return None
+
+    # Check if already cached
+    if sweep_cache.has(experiment, sweep_steps):
+        return sweep_cache.get(experiment, sweep_steps)
+
+    # Run only the sweep phase
+    observations: list[Observation] = []
+    step = 0
+    while not locator.done() and step < sweep_steps:
+        step += 1
+        x_normalized = locator.next()
+        obs = experiment.measure(x_normalized, rng)
+        locator.observe(obs)
+        observations.append(obs)
+
+    # Store in cache for subsequent repeats
+    if observations:
+        sweep_cache.put(experiment, sweep_steps, observations)
+
+    return observations
+
+
 @dataclass
 class SweepCache:
     """Per-task sweep cache wrapper that uses the process-level shared cache.
@@ -327,6 +375,11 @@ class _TaskRunner:
             repeat_rngs.append(measurement_rng)
             experiments.append(get_shared_core_experiment(self.task, attempt_idx, self._build_experiment))
 
+        # Pre-generate sweep for Bayesian locators so all repeats can share it
+        # This is done once before any repeats run, ensuring the sweep is in cache
+        if experiments:
+            self._precompute_sweep_for_task(locator_class, locator_config, experiments[0], repeat_rngs[0])
+
         history_dfs: list[pl.DataFrame] = []
         finalize_records: list[dict[str, Any]] = []
         run_results: list[RunResult] = []
@@ -466,6 +519,49 @@ class _TaskRunner:
             return None, None
         return (x_min, x_max) if x_max > x_min else (None, None)
 
+    def _precompute_sweep_for_task(
+        self,
+        locator_class: type[Locator],
+        locator_config: dict[str, Any],
+        experiment: CoreExperiment,
+        rng: random.Random,
+    ) -> None:
+        """Pre-generate and cache sweep observations for Bayesian locators.
+
+        This ensures that when repeats are spawned, the sweep is already in cache
+        and all repeats can share the same initial sweep measurements.
+        """
+        from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
+        noise_std = 0.05
+        noise_max_dev: float | None = None
+        if experiment.noise is not None:
+            noise_std = float(experiment.noise.estimated_noise_std())
+            if hasattr(experiment.noise, "estimated_max_noise_deviation"):
+                mid_n = SequentialBayesianLocator.DEFAULT_INITIAL_SWEEP_STEPS // 2
+                noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=mid_n))
+
+        domain_width = float(experiment.x_max - experiment.x_min)
+        signal_min_span: float | None = None
+        signal_max_span: float | None = None
+        model = experiment.true_signal.model
+        if hasattr(model, "signal_min_span") and callable(model.signal_min_span):
+            signal_min_span = model.signal_min_span(domain_width)
+        if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
+            signal_max_span = model.signal_max_span(domain_width)
+
+        cfg = {
+            **locator_config,
+            "max_steps": self.task.loc_max_steps,
+            "parameter_bounds": self._injected_parameter_bounds(experiment),
+            "noise_std": noise_std,
+            **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
+            **({} if signal_min_span is None else {"signal_min_span": signal_min_span}),
+            **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
+        }
+
+        precompute_sweep(locator_class, experiment, rng, self._sweep_cache, **cfg)
+
     def _run_single_repeat(
         self,
         *,
@@ -521,8 +617,11 @@ class _TaskRunner:
         if observer.last_locator is not None:
             last_loc = observer.last_locator
             if isinstance(last_loc, SequentialBayesianLocator):
+                # Use initial_sweep_steps (calculated) for cache key consistency with lookup
                 sweep_steps = getattr(last_loc, "initial_sweep_steps", 0)
-                sweep_obs = getattr(last_loc, "_sweep_observations", [])
+                # _sweep_observations is on the staged_sobol, not the Bayesian locator itself
+                staged_sobol = getattr(last_loc, "_staged_sobol", None)
+                sweep_obs = getattr(staged_sobol, "_sweep_observations", []) if staged_sobol is not None else []
                 if sweep_steps > 0 and sweep_obs and not self._sweep_cache.has(experiment, sweep_steps):
                     self._sweep_cache.put(experiment, sweep_steps, list(sweep_obs))
 
@@ -539,7 +638,9 @@ class _TaskRunner:
         finalize_record["duration_ms"] = (time.perf_counter() - repeat_start_time) * 1000
         last_loc = observer.last_locator
         if last_loc is not None:
-            finalize_record["sweep_steps"] = int(getattr(last_loc, "initial_sweep_steps", 0) or 0)
+            # Use effective_initial_sweep_steps() to get actual steps taken (accounts for early stopping)
+            eff_sweep_steps = getattr(last_loc, "effective_initial_sweep_steps", lambda: 0)()
+            finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(getattr(last_loc, "inference_step_count", 0) or 0)
         return history_df, finalize_record, stop_reason, result
 

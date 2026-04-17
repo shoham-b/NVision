@@ -258,7 +258,7 @@ def run(  # noqa: C901
             min=1,
             help="Number of runner processes (use 1 for sequential execution).",
         ),
-    ] = 4,
+    ] = 8,
     open_browser: Annotated[
         bool,
         typer.Option("--open/--no-open", help="Open results in browser after run"),
