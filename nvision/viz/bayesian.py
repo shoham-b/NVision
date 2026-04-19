@@ -1388,12 +1388,21 @@ class BayesianMixin:
                             fig.add_trace(frames[0].data[trace_idx], row=row, col=col)
                             trace_idx += 1
 
-        # Set axis labels for all pairs
+        # Table-style labels: show parameter names only on edges (first row/column)
+        # Enable autorange so axes zoom to fit the ellipse data
         for i, j in pairs:
             row = i + 1
             col = j + 1
-            fig.update_xaxes(title_text=param_names[i], row=row, col=col)
-            fig.update_yaxes(title_text=param_names[j], row=row, col=col)
+            # Only show x-axis title on first row (top edge = column header)
+            if row == 1:
+                fig.update_xaxes(title_text=param_names[j], autorange=True, row=row, col=col)
+            else:
+                fig.update_xaxes(showticklabels=False, autorange=True, row=row, col=col)
+            # Only show y-axis title on first column (left edge = row header)
+            if col == 1:
+                fig.update_yaxes(title_text=param_names[i], autorange=True, row=row, col=col)
+            else:
+                fig.update_yaxes(showticklabels=False, autorange=True, row=row, col=col)
 
         # Layout with animation controls - autosize to avoid scrollbars
         fig.update_layout(

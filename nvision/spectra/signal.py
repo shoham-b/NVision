@@ -155,6 +155,15 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
 
         return np.stack([self.compute_vectorized_samples(float(x), samples) for x in xs], axis=0)
 
+    @property
+    def inner(self) -> SignalModel:
+        """Return the inner physical model (for wrapped models like UnitCubeSignalModel).
+
+        By default returns self. Subclasses that wrap other models (e.g.,
+        UnitCubeSignalModel) should override to return the wrapped inner model.
+        """
+        return self  # type: ignore[return-value]
+
     def is_scale_parameter(self, name: str) -> bool:
         """Return True if the parameter represents a strictly-positive scale
         (e.g., width, amplitude) that should employ logarithmic spacing.
@@ -211,6 +220,50 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         """Optional analytical gradient support (defaults to None)."""
 
         return None
+
+    def gradient_vectorized(
+        self, x: float, *param_arrays: object
+    ) -> dict[str, np.ndarray] | None:
+        """Vectorized gradient computation for all particles at position x.
+
+        Returns a dict mapping parameter names to arrays of gradient values
+        (one per particle). Default implementation loops over particles and
+        calls gradient() - models with analytical gradients should override.
+
+        Parameters
+        ----------
+        x : float
+            Measurement position.
+        *param_arrays : object
+            Arrays of parameter values in parameter_names order, each shaped
+            (n_particles,).
+
+        Returns
+        -------
+        dict[str, np.ndarray] | None
+            Gradient arrays per parameter, or None if gradients unavailable.
+        """
+        n_particles = len(param_arrays[0]) if param_arrays else 0
+        if n_particles == 0:
+            return None
+
+        # Loop over particles and collect gradients (slow fallback)
+        param_names = self.parameter_names()
+        result: dict[str, list[float]] = {name: [] for name in param_names}
+
+        for i in range(n_particles):
+            # Extract single particle params
+            particle_values = [float(arr[i]) for arr in param_arrays]
+            typed_params = self.spec.unpack_params(particle_values)
+            grads = self.gradient(float(x), typed_params)
+
+            if grads is None:
+                return None  # Model doesn't support gradients
+
+            for name in param_names:
+                result[name].append(float(grads[name]))
+
+        return {name: np.array(values) for name, values in result.items()}
 
     def compute_from_params(self, x: float, params: ParamsT) -> float:
         """Evaluate the model at ``x`` using a typed parameter bundle."""

@@ -85,27 +85,21 @@ class SweepingLocator(Locator):
 
     def _inner_model(self):
         """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""
-        return getattr(self.signal_model, "inner", self.signal_model)
+        return self.signal_model.inner
 
     def _model_signal_min_span(self) -> float | None:
         """Read signal_min_span from the inner model using the current domain width."""
         domain_width = self._domain_hi - self._domain_lo
         if domain_width <= 0:
             return None
-        m = getattr(self._inner_model(), "signal_min_span", None)
-        if callable(m):
-            return m(domain_width)
-        return None
+        return self._inner_model().signal_min_span(domain_width)
 
     def _model_signal_max_span(self) -> float | None:
         """Read signal_max_span from the inner model using the current domain width."""
         domain_width = self._domain_hi - self._domain_lo
         if domain_width <= 0:
             return None
-        m = getattr(self._inner_model(), "signal_max_span", None)
-        if callable(m):
-            return m(domain_width)
-        return None
+        return self._inner_model().signal_max_span(domain_width)
 
     @abstractmethod
     def _generate_sweep_points(self, n: int) -> np.ndarray:

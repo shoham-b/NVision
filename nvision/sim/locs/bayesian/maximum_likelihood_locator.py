@@ -100,7 +100,8 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         # whose signal predictions covary most with high-weight parameters.
         try:
             n_samples = 64
-            sampled = self.belief.sample(n_samples)
+            # Use maximum likelihood particle selection instead of random sampling
+            sampled = self.belief.select_maximum_likelihood(n_samples)
             mu_preds = self.belief.model.compute_vectorized_many(candidates, sampled)
             biased = self._apply_parameter_weight_bias(np.asarray(base_prob, dtype=float), np.asarray(mu_preds, dtype=float), sampled, candidates)
             base_prob = np.maximum(biased, 0.0)

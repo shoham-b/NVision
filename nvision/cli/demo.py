@@ -59,7 +59,7 @@ def demo(
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps per run (default: 50)"),
-    ] = 50,
+    ] = 60,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache/--cache", help="Disable cache for fresh run"),

@@ -91,7 +91,9 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         candidates = self._generate_candidates(200)
         num_samples = 100
 
-        sampled = self.belief.sample(num_samples)
+        # Use information-gain-based particle selection instead of random sampling
+        candidates_arr = np.asarray(candidates)
+        sampled = self.belief.select_max_information_gain(candidates_arr, num_samples)
 
         # Use the known measurement noise from the last observation.
         # For Gaussian frequency noise we draw Gaussian hypothetical outcomes;

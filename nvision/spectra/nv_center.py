@@ -173,7 +173,7 @@ class NVCenterLorentzianModel(
 
     def expected_dip_count(self) -> int:
         """Doublet (two dips) when strain-split; model supports ms=+1/-1 transitions."""
-        return 2
+        return 3
 
     def compute(self, x: float, params: NVCenterLorentzianSpectrum) -> float:
         return self.compute_nvcenter_lorentzian_model(

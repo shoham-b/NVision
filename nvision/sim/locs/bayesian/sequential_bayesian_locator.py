@@ -317,6 +317,7 @@ class SequentialBayesianLocator(Locator):
         noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
+        signal_min_span: float | None = None,
     ) -> None:
         super().__init__(belief)
         self.max_steps = int(max_steps)
@@ -349,6 +350,11 @@ class SequentialBayesianLocator(Locator):
         self._signal_max_span: float | None = (
             float(signal_max_span) if (signal_max_span is not None and signal_max_span > 0) else None
         )
+        # Physical min signal span (from signal spec's _signal_min_span bound).
+        # Used for sweep density calculation - need enough steps to catch narrowest signal.
+        self._signal_min_span: float | None = (
+            float(signal_min_span) if (signal_min_span is not None and signal_min_span > 0) else None
+        )
 
         # Set domain bounds BEFORE calculating sweep steps (needed for _model_signal_min_span)
         # For UnitCube beliefs, use physical_param_bounds; for Grid beliefs, use parameter_bounds
@@ -363,8 +369,10 @@ class SequentialBayesianLocator(Locator):
 
         if initial_sweep_steps is None:
             # Use signal_min_span for sweep step calculation (need enough steps to catch narrowest signal)
+            # Prefer the injected signal_min_span, fall back to model's declared value
+            effective_min_span = self._signal_min_span if self._signal_min_span is not None else self._model_signal_min_span()
             initial_sweep_steps = self._sweep_steps_for_signal_coverage(
-                belief, noise_std=noise_std, signal_min_span=self._model_signal_min_span()
+                belief, noise_std=noise_std, signal_min_span=effective_min_span
             )
 
         self.initial_sweep_steps = max(0, int(initial_sweep_steps))
@@ -394,30 +402,26 @@ class SequentialBayesianLocator(Locator):
         self._per_dip_windows: list[tuple[float, float]] | None = None
         # Current dip window index for round-robin acquisition across multiple dips
         self._current_dip_window_idx: int = 0
+        # Buffer for sweep observations - batch update belief after sweep completes
+        self._sweep_observations_buffer: list[Observation] = []
 
     def _inner_model(self):
         """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""
-        return getattr(self.belief.model, "inner", self.belief.model)
+        return self.belief.model.inner
 
     def _model_signal_min_span(self) -> float | None:
         """Read signal_min_span from the inner model using the current domain width."""
         domain_width = self._full_domain_hi - self._full_domain_lo
         if domain_width <= 0:
             return None
-        m = getattr(self.belief.model, "signal_min_span", None)
-        if callable(m):
-            return m(domain_width)
-        return None
+        return self._inner_model().signal_min_span(domain_width)
 
     def _model_signal_max_span(self) -> float | None:
         """Read signal_max_span from the inner model using the current domain width."""
         domain_width = self._full_domain_hi - self._full_domain_lo
         if domain_width <= 0:
             return None
-        m = getattr(self.belief.model, "signal_max_span", None)
-        if callable(m):
-            return m(domain_width)
-        return None
+        return self._inner_model().signal_max_span(domain_width)
 
     @classmethod
     def _sweep_steps_for_signal_coverage(
@@ -554,6 +558,7 @@ class SequentialBayesianLocator(Locator):
         noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
+        signal_min_span: float | None = None,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -578,6 +583,7 @@ class SequentialBayesianLocator(Locator):
             noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
+            signal_min_span=signal_min_span,
         )
 
     @property
@@ -669,10 +675,20 @@ class SequentialBayesianLocator(Locator):
                 pass
 
     def observe(self, obs: Observation) -> None:
-        """Update belief and record sweep observations for the post-sweep window."""
-        super().observe(obs)
+        """Update belief and record sweep observations for the post-sweep window.
+
+        During the sweep phase, observations are buffered instead of being applied
+        immediately. This allows for efficient batch updates after the sweep completes,
+        which is especially beneficial for SMC beliefs where per-observation updates
+        are computationally expensive.
+        """
         if not self._staged_sobol.done():
+            # During sweep phase: buffer observations, update belief only at the end
+            self._sweep_observations_buffer.append(obs)
             self._staged_sobol.observe(obs)
+        else:
+            # After sweep phase: normal incremental belief update
+            super().observe(obs)
 
     def done(self) -> bool:
         """Stop when converged (after warm-up) or step budget is exhausted."""
@@ -749,10 +765,23 @@ class SequentialBayesianLocator(Locator):
 
         Copies the window bounds from the completed staged Sobol locator and
         narrows the belief's scan parameter bounds accordingly.
+        Also performs a batch update of the belief with all sweep observations
+        for efficient SMC belief updates.
         """
         # Finalize the sweep (this rigorously trims baseline tails for multi-dip structures)
         if hasattr(self._staged_sobol, "finalize"):
             self._staged_sobol.finalize()
+
+        # Batch update belief with all sweep observations at once (more efficient for SMC)
+        if self._sweep_observations_buffer:
+            if hasattr(self.belief, "batch_update"):
+                self.belief.batch_update(self._sweep_observations_buffer)
+            else:
+                # Fallback: update one by one for beliefs without batch_update
+                for obs in self._sweep_observations_buffer:
+                    self.belief.update(obs)
+            # Clear the buffer after updating
+            self._sweep_observations_buffer.clear()
 
         # Get narrowed window from staged Sobol locator
         self._acquisition_lo, self._acquisition_hi = self._staged_sobol.acquisition_window()
