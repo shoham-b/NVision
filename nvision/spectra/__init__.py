@@ -1,7 +1,6 @@
 """Concrete signal model implementations."""
 
 from nvision.spectra.composite import CompositePeakModel
-from nvision.spectra.exponential_decay import ExponentialDecayModel
 from nvision.spectra.gaussian import GaussianModel
 from nvision.spectra.lorentzian import LorentzianModel
 from nvision.spectra.nv_center import (
@@ -21,7 +20,6 @@ __all__ = [
     "MAX_K_NP",
     "MIN_K_NP",
     "CompositePeakModel",
-    "ExponentialDecayModel",
     "GaussianModel",
     "LorentzianModel",
     "NVCenterLorentzianModel",

@@ -42,29 +42,23 @@ from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
-    nv_center_lorentzian_bounds_for_domain,
-)
-from nvision.sim.gen.core_generators import (
-    EXPONENTIAL,
     GAUSSIAN,
     LORENTZIAN,
-    MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
     PeakSpec,
-    SymmetricTwoPeakCoreGenerator,
-    TwoPeakCoreGenerator,
+    nv_center_lorentzian_bounds_for_domain,
 )
-from nvision.sim.locs import SimpleSweepLocator
+from nvision.sim.locs.coarse import StagedSobolLocator
 from nvision.sim.locs.bayesian import nv_center_belief
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.noises import (
+from nvision.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
 )
-from nvision.sim.noises.groups import OverProbeNoises as CompositeOverProbeNoise
-from nvision.sim.noises.over_probe.drift_noise import OverProbeDriftNoise
-from nvision.sim.noises.over_probe.random_walk_noise import OverProbeRandomWalkNoise
+from nvision.noises.groups import OverProbeNoises as CompositeOverProbeNoise
+from nvision.noises.over_probe.drift_noise import OverProbeDriftNoise
+from nvision.noises.over_probe.random_walk_noise import OverProbeRandomWalkNoise
 from nvision.spectra.gaussian import GaussianModel, GaussianSpectrum
 from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.lorentzian import LorentzianModel, LorentzianSpectrum
@@ -88,15 +82,12 @@ __all__ = [
     "signal_repeat_key",
     "run_loop",
     # Generators
-    "MultiPeakCoreGenerator",
     "NVCenterCoreGenerator",
     "DEFAULT_NV_CENTER_FREQ_X_MAX",
     "DEFAULT_NV_CENTER_FREQ_X_MIN",
     "nv_center_lorentzian_bounds_for_domain",
     "nv_center_belief",
     "nv_center_smc_belief",
-    "SymmetricTwoPeakCoreGenerator",
-    "TwoPeakCoreGenerator",
     # Peak specs
     "PeakSpec",
     "GAUSSIAN",
@@ -127,7 +118,7 @@ __all__ = [
     "VoigtZeemanModel",
     # Locators
     "Locator",
-    "SimpleSweepLocator",
+    "StagedSobolLocator",
     # Spectra
     "likelihood_from_observation_model",
     # Cache

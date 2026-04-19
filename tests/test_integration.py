@@ -12,7 +12,7 @@ from nvision import (
     TrueSignal,
     run_loop,
 )
-from nvision.sim.gen.core_generators import GAUSSIAN
+from nvision.sim.gen.peak_spec import GAUSSIAN
 
 
 def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame:

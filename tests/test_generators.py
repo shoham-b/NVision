@@ -11,7 +11,7 @@ from nvision import (
     TrueSignal,
     TwoPeakCoreGenerator,
 )
-from nvision.sim.gen.core_generators import GAUSSIAN, LORENTZIAN
+from nvision.sim.gen.peak_spec import GAUSSIAN, LORENTZIAN
 
 
 def _peak_value(signal: TrueSignal, n: int = 2001) -> float:
@@ -39,8 +39,8 @@ def test_one_peak_gaussian_produces_true_signal():
     gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_config=GAUSSIAN)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    assert len(sig.parameter_names) == 4
-    freq_value = sig.get_param_value("frequency")
+    assert len(sig.parameter_names) == 4  # peak1_frequency, peak1_sigma, peak1_dip_depth, peak1_background
+    freq_value = sig.get_param_value("peak1_frequency")
     assert math.isfinite(freq_value)
     assert 0.0 <= freq_value <= 1.0
 
@@ -50,7 +50,7 @@ def test_one_peak_lorentzian_produces_true_signal():
     gen = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=LORENTZIAN)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
-    freq_value = sig.get_param_value("frequency")
+    freq_value = sig.get_param_value("peak1_frequency")
     assert 2.6e9 <= freq_value <= 3.1e9
 
 

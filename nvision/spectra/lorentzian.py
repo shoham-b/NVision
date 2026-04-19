@@ -10,7 +10,7 @@ import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import lorentzian_peak_value
-from nvision.spectra.signal import ParamSpec, SignalModel
+from nvision.spectra.signal import GenericParamSpec, SignalModel
 
 
 @dataclass(frozen=True)
@@ -42,45 +42,10 @@ class LorentzianSpectrumUncertainty:
     background: float
 
 
-class _LorentzianSpec(ParamSpec[LorentzianSpectrum, LorentzianSpectrumSamples, LorentzianSpectrumUncertainty]):
-    @property
-    def names(self) -> tuple[str, ...]:
-        return ("frequency", "linewidth", "dip_depth", "background")
-
-    @property
-    def dim(self) -> int:
-        return 4
-
-    def unpack_params(self, values) -> LorentzianSpectrum:
-        f, w, a, b = values
-        return LorentzianSpectrum(float(f), float(w), float(a), float(b))
-
-    def pack_params(self, params: LorentzianSpectrum) -> tuple[float, ...]:
-        return (float(params.frequency), float(params.linewidth), float(params.dip_depth), float(params.background))
-
-    def unpack_uncertainty(self, values) -> LorentzianSpectrumUncertainty:
-        f, w, a, b = values
-        return LorentzianSpectrumUncertainty(float(f), float(w), float(a), float(b))
-
-    def pack_uncertainty(self, u: LorentzianSpectrumUncertainty) -> tuple[float, ...]:
-        return (float(u.frequency), float(u.linewidth), float(u.dip_depth), float(u.background))
-
-    def unpack_samples(self, arrays_in_order) -> LorentzianSpectrumSamples:
-        f, w, a, b = arrays_in_order
-        return LorentzianSpectrumSamples(
-            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            linewidth=np.asarray(w, dtype=FLOAT_DTYPE),
-            dip_depth=np.asarray(a, dtype=FLOAT_DTYPE),
-            background=np.asarray(b, dtype=FLOAT_DTYPE),
-        )
-
-    def pack_samples(self, samples: LorentzianSpectrumSamples) -> tuple[np.ndarray, ...]:
-        return (
-            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
-        )
+class _LorentzianSpec(GenericParamSpec[LorentzianSpectrum, LorentzianSpectrumSamples, LorentzianSpectrumUncertainty]):
+    params_cls = LorentzianSpectrum
+    samples_cls = LorentzianSpectrumSamples
+    uncertainty_cls = LorentzianSpectrumUncertainty
 
 
 class LorentzianModel(SignalModel[LorentzianSpectrum, LorentzianSpectrumSamples, LorentzianSpectrumUncertainty]):

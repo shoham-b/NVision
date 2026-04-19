@@ -6,13 +6,8 @@ from nvision.sim.batch import (
     OverProbeNoise,
 )
 
-from .gen import (
-    MultiPeakCoreGenerator,
-    NVCenterCoreGenerator,
-    SymmetricTwoPeakCoreGenerator,
-    TwoPeakCoreGenerator,
-)
-from .noises import (
+from .gen import NVCenterCoreGenerator
+from nvision.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
@@ -22,7 +17,6 @@ from .noises import (
 
 __all__ = [
     "DataBatch",
-    "MultiPeakCoreGenerator",
     "NVCenterCoreGenerator",
     "OverFrequencyGaussianNoise",
     "OverFrequencyNoise",
@@ -31,6 +25,4 @@ __all__ = [
     "OverProbeDriftNoise",
     "OverProbeNoise",
     "OverProbeRandomWalkNoise",
-    "SymmetricTwoPeakCoreGenerator",
-    "TwoPeakCoreGenerator",
 ]

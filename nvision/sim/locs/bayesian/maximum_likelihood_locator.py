@@ -132,8 +132,9 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         # it periodically checks other areas to escape and find the true signal.
         # Higher noise defaults to a higher exploration rate (bounded 5% to 50%).
         epsilon = 0.15
-        if self._sweep_observations:
-            epsilon = float(np.clip(self._sweep_observations[-1].noise_std, 0.05, 0.50))
+        sweep_obs = getattr(self, "_staged_sobol", None)
+        if sweep_obs is not None and hasattr(sweep_obs, "_sweep_observations") and sweep_obs._sweep_observations:
+            epsilon = float(np.clip(sweep_obs._sweep_observations[-1].noise_std, 0.05, 0.50))
 
         # Decay exploration as we approach max budget (ends at 20% of starting value)
         # Allows robust early exploration but tight exploitation later.

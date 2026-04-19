@@ -213,3 +213,7 @@ def _display_summary() -> None:
 
     except Exception as e:
         console.print(f"[dim]Could not display summary: {e}[/dim]")
+
+if __name__=="__main__":
+    demo(
+    )

@@ -1133,7 +1133,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
 
-    def plot_fisher_bounds_comparison(
+    def plot_fisher_vs_crlb(
         self,
         fisher_bounds_hist: list[np.ndarray],
         actual_uncertainty_hist: list[Mapping[str, float]],
@@ -1142,10 +1142,10 @@ class BayesianMixin:
         *,
         true_params: Mapping[str, float] | None = None,
     ) -> None:
-        """Plot Fisher information bounds vs actual SMC uncertainty over time.
+        """Plot Fisher Information against Cramér-Rao Lower Bound vs actual uncertainty over time.
 
-        Shows how close the Bayesian inference gets to the Cramér-Rao bound.
-        The Fisher bound (green) is the theoretical minimum uncertainty.
+        Shows how close the Bayesian inference gets to the Cramér-Rao Lower Bound (CRLB).
+        The CRLB (green) is the theoretical minimum uncertainty from Fisher Information.
         The actual uncertainty (blue) should approach this bound as measurements accumulate.
         """
         n_steps = len(fisher_bounds_hist)
@@ -1167,13 +1167,13 @@ class BayesianMixin:
             row = i // 2 + 1
             col = i % 2 + 1
 
-            # Fisher bound (theoretical minimum)
+            # Cramér-Rao Lower Bound (theoretical minimum from Fisher Information)
             fisher_vals = [float(fb[i]) for fb in fisher_bounds_hist]
             fig.add_trace(
                 go.Scatter(
                     x=steps,
                     y=fisher_vals,
-                    name="Fisher Bound (CRB)",
+                    name="CRLB (from Fisher Info)",
                     line=dict(color="green", width=2, dash="dash"),
                     legendgroup="fisher",
                     showlegend=(i == 0),
@@ -1198,7 +1198,7 @@ class BayesianMixin:
             )
 
         fig.update_layout(
-            title="Fisher Information Bounds vs Actual Uncertainty",
+            title="Fisher Information / CRLB vs Actual Uncertainty",
             xaxis_title="Step",
             yaxis_title="Standard Deviation",
             height=300 * ((n_params + 1) // 2),
@@ -1213,6 +1213,264 @@ class BayesianMixin:
                 x=0.5,
             ),
         )
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(out_path, include_mathjax="cdn")
+
+    def plot_fisher_crlb_pairs(
+        self,
+        fisher_hist: list[np.ndarray],
+        param_names: list[str],
+        out_path: Path,
+        *,
+        steps_to_show: list[int] | None = None,
+        confidence: float = 0.95,
+        true_params: Mapping[str, float] | None = None,
+    ) -> None:
+        """Plot Fisher Information CRLB confidence ellipses for parameter pairs.
+
+        Shows 2D joint uncertainty bounds revealing parameter correlations.
+        Each ellipse represents the Cramér-Rao Lower Bound covariance for a
+        parameter pair. Tight ellipses (circular) indicate uncorrelated, well-
+        constrained parameters; elongated ellipses reveal strong correlations.
+
+        Parameters
+        ----------
+        fisher_hist : list[np.ndarray]
+            List of full Fisher Information Matrices (n_params × n_params) at each step.
+        param_names : list[str]
+            Names of parameters (order matches FIM dimensions).
+        out_path : Path
+            Output HTML file path.
+        steps_to_show : list[int] | None
+            Specific steps to visualize. If None, shows start, middle, and end.
+        confidence : float
+            Confidence level for ellipses (default 0.95 for 95%).
+        true_params : Mapping[str, float] | None
+            Ground truth values to mark with red crosses.
+        """
+        n_params = len(param_names)
+        if n_params < 2:
+            return
+
+        n_steps = len(fisher_hist)
+
+        # Subsample if too many steps for performance
+        step_indices = list(range(n_steps))
+        if n_steps > 100:
+            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 100)]
+            fisher_hist = [fisher_hist[i] for i in step_indices]
+            n_steps = len(step_indices)
+
+        # Generate all unique pairs
+        pairs = [(i, j) for i in range(n_params) for j in range(i + 1, n_params)]
+        n_pairs = len(pairs)
+        if n_pairs == 0:
+            return
+
+        from plotly.subplots import make_subplots
+
+        # Create a full matrix layout: n_params x n_params grid
+        # Diagonal will be empty, off-diagonal shows parameter pairs
+        fig = make_subplots(
+            rows=n_params,
+            cols=n_params,
+            vertical_spacing=0.02,
+            horizontal_spacing=0.02,
+        )
+
+        # Chi-squared scale factor for confidence ellipse
+        # For 2D: r^2 = chi2.ppf(confidence, 2)
+        import scipy.stats as stats
+
+        chi2_scale = np.sqrt(stats.chi2.ppf(confidence, 2))
+
+        # Build animation frames showing ellipse evolution over time
+        # Each subplot needs axis references: xaxis="x", xaxis2, etc.
+        def get_axis_refs(row, col):
+            xaxis = f"x{col}" if col > 1 else "x"
+            yaxis = f"y{row}" if row > 1 else "y"
+            return xaxis, yaxis
+
+        frames = []
+        for step_idx in range(n_steps):
+            frame_data = []
+
+            for i, j in pairs:
+                row = i + 1
+                col = j + 1
+                xaxis, yaxis = get_axis_refs(row, col)
+
+                fim = fisher_hist[step_idx]
+                if fim is None or fim.shape != (n_params, n_params):
+                    continue
+
+                # Extract 2x2 submatrix and invert to get CRLB covariance
+                sub_indices = [i, j]
+                sub_fim = fim[np.ix_(sub_indices, sub_indices)]
+
+                try:
+                    # Add small ridge for numerical stability
+                    sub_cov = np.linalg.inv(sub_fim + np.eye(2) * 1e-8)
+                except np.linalg.LinAlgError:
+                    continue
+
+                # Generate ellipse points
+                theta = np.linspace(0, 2 * np.pi, 100)
+                eigvals, eigvecs = np.linalg.eigh(sub_cov)
+                eigvals = np.maximum(eigvals, 0)
+
+                # Scale by chi-squared factor for confidence level
+                a = chi2_scale * np.sqrt(eigvals[0])
+                b = chi2_scale * np.sqrt(eigvals[1])
+
+                x_std = a * np.cos(theta)
+                y_std = b * np.sin(theta)
+                ellipse_points = eigvecs @ np.vstack([x_std, y_std])
+                x_ellipse = ellipse_points[0, :]
+                y_ellipse = ellipse_points[1, :]
+
+                frame_data.append(
+                    go.Scatter(
+                        x=x_ellipse,
+                        y=y_ellipse,
+                        xaxis=xaxis,
+                        yaxis=yaxis,
+                        mode="lines",
+                        line=dict(color="#2d8f2d", width=2),
+                        name=f"CRLB Ellipse",
+                        showlegend=(i == 0 and j == 1),
+                        legendgroup="ellipse",
+                    )
+                )
+
+                # Mark true parameters if provided (static across frames)
+                if true_params is not None:
+                    true_i = true_params.get(param_names[i])
+                    true_j = true_params.get(param_names[j])
+                    if true_i is not None and true_j is not None:
+                        frame_data.append(
+                            go.Scatter(
+                                x=[true_i],
+                                y=[true_j],
+                                xaxis=xaxis,
+                                yaxis=yaxis,
+                                mode="markers",
+                                marker=dict(color="red", size=10, symbol="x"),
+                                name="True Value",
+                                showlegend=(i == 0 and j == 1),
+                                legendgroup="true",
+                            )
+                        )
+
+            frames.append(
+                go.Frame(
+                    data=frame_data,
+                    name=str(step_idx),
+                )
+            )
+
+        # Add initial frame data to proper subplots
+        if frames:
+            trace_idx = 0
+            for i, j in pairs:
+                row = i + 1
+                col = j + 1
+                # Add ellipse trace
+                if trace_idx < len(frames[0].data):
+                    fig.add_trace(frames[0].data[trace_idx], row=row, col=col)
+                    trace_idx += 1
+                    # Add true value marker if present
+                    if true_params is not None:
+                        true_i = true_params.get(param_names[i])
+                        true_j = true_params.get(param_names[j])
+                        if true_i is not None and true_j is not None and trace_idx < len(frames[0].data):
+                            fig.add_trace(frames[0].data[trace_idx], row=row, col=col)
+                            trace_idx += 1
+
+        # Set axis labels for all pairs
+        for i, j in pairs:
+            row = i + 1
+            col = j + 1
+            fig.update_xaxes(title_text=param_names[i], row=row, col=col)
+            fig.update_yaxes(title_text=param_names[j], row=row, col=col)
+
+        # Layout with animation controls - autosize to avoid scrollbars
+        fig.update_layout(
+            autosize=True,
+            template="plotly_white",
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.02,
+                xanchor="center",
+                x=0.5,
+            ),
+            margin=dict(l=60, r=30, t=40, b=60),
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="left",
+                    pad={"r": 10, "t": 10},
+                    showactive=False,
+                    x=0.1,
+                    y=-0.15,
+                    xanchor="left",
+                    yanchor="top",
+                    buttons=[
+                        dict(
+                            label="▶ Play",
+                            method="animate",
+                            args=[
+                                None,
+                                {
+                                    "frame": {"duration": 150, "redraw": True},
+                                    "fromcurrent": True,
+                                    "transition": {"duration": 50},
+                                },
+                            ],
+                        ),
+                        dict(
+                            label="⏸ Pause",
+                            method="animate",
+                            args=[
+                                [None],
+                                {
+                                    "frame": {"duration": 0, "redraw": False},
+                                    "mode": "immediate",
+                                    "transition": {"duration": 0},
+                                },
+                            ],
+                        ),
+                    ],
+                )
+            ],
+            sliders=[
+                dict(
+                    active=0,
+                    pad={"t": 30, "b": 10},
+                    currentvalue={"prefix": "Step: "},
+                    steps=[
+                        dict(
+                            method="animate",
+                            args=[
+                                [str(i)],
+                                {
+                                    "frame": {"duration": 100, "redraw": True},
+                                    "mode": "immediate",
+                                    "transition": {"duration": 50},
+                                },
+                            ],
+                            label=str(step_indices[i]),
+                        )
+                        for i in range(n_steps)
+                    ],
+                )
+            ],
+        )
+
+        fig.frames = frames
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")

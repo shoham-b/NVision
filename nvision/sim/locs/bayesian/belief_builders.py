@@ -24,7 +24,7 @@ import numpy as np
 from nvision.belief.grid_marginal import GridParameter
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.sim.gen.core_generators import (
+from nvision.sim.gen.nv_center_generator import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
 )

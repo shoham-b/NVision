@@ -10,14 +10,10 @@ from nvision.models.noise import (
     CompositeOverProbeNoise,
 )
 
-from .gen.core_generators import (
-    GAUSSIAN,
-    LORENTZIAN,
-    NVCenterCoreGenerator,
-    TwoPeakCoreGenerator,
-)
+from .gen.nv_center_generator import NVCenterCoreGenerator
+from .gen.peak_spec import GAUSSIAN, LORENTZIAN
 from .grid_enums import GeneratorCategory, GeneratorName, StrategyFilter
-from .noises import (
+from nvision.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
@@ -39,29 +35,10 @@ class RunCaseName(StrEnum):
 DEFAULT_LOC_MAX_STEPS = 1500
 
 
-# Generators: three main categories with subcategories
+# Generators: NV Center variants only
 # Now using core architecture with TrueSignal and explicit SignalModels
 def generators_basic() -> list[tuple[str, object]]:
     return [
-        # Two Peak generators - for each signal type
-        (
-            "TwoPeak-gaussian",
-            TwoPeakCoreGenerator(
-                x_min=2.6e9,
-                x_max=3.1e9,
-                peak_config_left=GAUSSIAN,
-                peak_config_right=GAUSSIAN,
-            ),
-        ),
-        (
-            "TwoPeak-lorentzian",
-            TwoPeakCoreGenerator(
-                x_min=2.6e9,
-                x_max=3.1e9,
-                peak_config_left=LORENTZIAN,
-                peak_config_right=LORENTZIAN,
-            ),
-        ),
         # NV Center generators - different variants
         (
             "NVCenter-zeeman",

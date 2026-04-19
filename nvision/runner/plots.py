@@ -341,9 +341,9 @@ def _bayesian_auxiliary_entries(
             actual_uncertainty_hist.append(s.belief.uncertainty().as_dict())
 
         if fisher_hist and len(param_names) >= 2:
-            # Fisher bounds vs actual uncertainty plot
+            # Fisher bounds vs actual uncertainty plot (marginals)
             fisher_path = bayes_dir / f"{attempt_slug}_fisher_bounds.html"
-            viz.plot_fisher_bounds_comparison(
+            viz.plot_fisher_vs_crlb(
                 fisher_bounds_hist,
                 actual_uncertainty_hist,
                 param_names,
@@ -354,6 +354,20 @@ def _bayesian_auxiliary_entries(
                 che = entry_base.copy()
                 che["type"] = "bayesian_fisher_bounds"
                 che["path"] = fisher_path.relative_to(out_dir).as_posix()
+                extra.append(che)
+
+            # Fisher CRLB confidence ellipses for parameter pairs (correlations)
+            fisher_pairs_path = bayes_dir / f"{attempt_slug}_fisher_crlb_pairs.html"
+            viz.plot_fisher_crlb_pairs(
+                fisher_hist,
+                param_names,
+                fisher_pairs_path,
+                true_params=true_params,
+            )
+            if fisher_pairs_path.exists():
+                che = entry_base.copy()
+                che["type"] = "bayesian_fisher_crlb_pairs"
+                che["path"] = fisher_pairs_path.relative_to(out_dir).as_posix()
                 extra.append(che)
 
     # Convergence metrics visualization for all Bayesian beliefs

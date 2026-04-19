@@ -8,7 +8,7 @@ from nvision import (
     SequentialBayesianExperimentDesignLocator,
     one_peak_lorentzian_belief,
 )
-from nvision.sim.gen.core_generators import LORENTZIAN
+from nvision.sim.gen.peak_spec import LORENTZIAN
 
 
 def main() -> None:

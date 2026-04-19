@@ -12,9 +12,9 @@ import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import nv_center_lorentzian_eval
-from nvision.spectra.signal import ParamSpec, SignalModel
+from nvision.spectra.signal import GenericParamSpec, SignalModel
 
-# Legacy scale factor (no longer used by :class:`~nvision.sim.gen.core_generators.NVCenterCoreGenerator`;
+# Legacy scale factor (no longer used by :class:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator`;
 # Lorentzian NV uses ``amplitude ≈ dip_depth * linewidth²`` in Hz², matching :class:`LorentzianModel`).
 A_PARAM = 0.0003
 MIN_K_NP = 2.0
@@ -60,68 +60,15 @@ class NVCenterLorentzianSpectrumUncertainty:
 
 
 class _NVCenterLorentzianSpec(
-    ParamSpec[
+    GenericParamSpec[
         NVCenterLorentzianSpectrum,
         NVCenterLorentzianSpectrumSamples,
         NVCenterLorentzianSpectrumUncertainty,
     ]
 ):
-    @property
-    def names(self) -> tuple[str, ...]:
-        return ("frequency", "linewidth", "split", "k_np", "dip_depth", "background")
-
-    @property
-    def dim(self) -> int:
-        return 6
-
-    def unpack_params(self, values) -> NVCenterLorentzianSpectrum:
-        f, w, s, k, d, b = values
-        return NVCenterLorentzianSpectrum(float(f), float(w), float(s), float(k), float(d), float(b))
-
-    def pack_params(self, params: NVCenterLorentzianSpectrum) -> tuple[float, ...]:
-        return (
-            float(params.frequency),
-            float(params.linewidth),
-            float(params.split),
-            float(params.k_np),
-            float(params.dip_depth),
-            float(params.background),
-        )
-
-    def unpack_uncertainty(self, values) -> NVCenterLorentzianSpectrumUncertainty:
-        f, w, s, k, d, b = values
-        return NVCenterLorentzianSpectrumUncertainty(float(f), float(w), float(s), float(k), float(d), float(b))
-
-    def pack_uncertainty(self, u: NVCenterLorentzianSpectrumUncertainty) -> tuple[float, ...]:
-        return (
-            float(u.frequency),
-            float(u.linewidth),
-            float(u.split),
-            float(u.k_np),
-            float(u.dip_depth),
-            float(u.background),
-        )
-
-    def unpack_samples(self, arrays_in_order) -> NVCenterLorentzianSpectrumSamples:
-        f, w, s, k, d, b = arrays_in_order
-        return NVCenterLorentzianSpectrumSamples(
-            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            linewidth=np.asarray(w, dtype=FLOAT_DTYPE),
-            split=np.asarray(s, dtype=FLOAT_DTYPE),
-            k_np=np.asarray(k, dtype=FLOAT_DTYPE),
-            dip_depth=np.asarray(d, dtype=FLOAT_DTYPE),
-            background=np.asarray(b, dtype=FLOAT_DTYPE),
-        )
-
-    def pack_samples(self, samples: NVCenterLorentzianSpectrumSamples) -> tuple[np.ndarray, ...]:
-        return (
-            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.split, dtype=FLOAT_DTYPE),
-            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
-        )
+    params_cls = NVCenterLorentzianSpectrum
+    samples_cls = NVCenterLorentzianSpectrumSamples
+    uncertainty_cls = NVCenterLorentzianSpectrumUncertainty
 
 
 class NVCenterLorentzianModel(
@@ -324,72 +271,15 @@ class NVCenterVoigtSpectrumUncertainty:
 
 
 class _NVCenterVoigtSpec(
-    ParamSpec[
+    GenericParamSpec[
         NVCenterVoigtSpectrum,
         NVCenterVoigtSpectrumSamples,
         NVCenterVoigtSpectrumUncertainty,
     ]
 ):
-    @property
-    def names(self) -> tuple[str, ...]:
-        return ("frequency", "fwhm_total", "lorentz_frac", "split", "k_np", "dip_depth", "background")
-
-    @property
-    def dim(self) -> int:
-        return 7
-
-    def unpack_params(self, values) -> NVCenterVoigtSpectrum:
-        f, ft, lf, s, k, d, b = values
-        return NVCenterVoigtSpectrum(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
-
-    def pack_params(self, params: NVCenterVoigtSpectrum) -> tuple[float, ...]:
-        return (
-            float(params.frequency),
-            float(params.fwhm_total),
-            float(params.lorentz_frac),
-            float(params.split),
-            float(params.k_np),
-            float(params.dip_depth),
-            float(params.background),
-        )
-
-    def unpack_uncertainty(self, values) -> NVCenterVoigtSpectrumUncertainty:
-        f, ft, lf, s, k, d, b = values
-        return NVCenterVoigtSpectrumUncertainty(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
-
-    def pack_uncertainty(self, u: NVCenterVoigtSpectrumUncertainty) -> tuple[float, ...]:
-        return (
-            float(u.frequency),
-            float(u.fwhm_total),
-            float(u.lorentz_frac),
-            float(u.split),
-            float(u.k_np),
-            float(u.dip_depth),
-            float(u.background),
-        )
-
-    def unpack_samples(self, arrays_in_order) -> NVCenterVoigtSpectrumSamples:
-        f, ft, lf, s, k, d, b = arrays_in_order
-        return NVCenterVoigtSpectrumSamples(
-            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            fwhm_total=np.asarray(ft, dtype=FLOAT_DTYPE),
-            lorentz_frac=np.asarray(lf, dtype=FLOAT_DTYPE),
-            split=np.asarray(s, dtype=FLOAT_DTYPE),
-            k_np=np.asarray(k, dtype=FLOAT_DTYPE),
-            dip_depth=np.asarray(d, dtype=FLOAT_DTYPE),
-            background=np.asarray(b, dtype=FLOAT_DTYPE),
-        )
-
-    def pack_samples(self, samples: NVCenterVoigtSpectrumSamples) -> tuple[np.ndarray, ...]:
-        return (
-            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
-            np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
-            np.asarray(samples.split, dtype=FLOAT_DTYPE),
-            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
-        )
+    params_cls = NVCenterVoigtSpectrum
+    samples_cls = NVCenterVoigtSpectrumSamples
+    uncertainty_cls = NVCenterVoigtSpectrumUncertainty
 
 
 class NVCenterVoigtModel(
@@ -739,50 +629,15 @@ class NVCenterOnePeakLorentzianSpectrumUncertainty:
 
 
 class _NVCenterOnePeakLorentzianSpec(
-    ParamSpec[
+    GenericParamSpec[
         NVCenterOnePeakLorentzianSpectrum,
         NVCenterOnePeakLorentzianSpectrumSamples,
         NVCenterOnePeakLorentzianSpectrumUncertainty,
     ]
 ):
-    @property
-    def names(self) -> tuple[str, ...]:
-        return ("frequency", "linewidth", "dip_depth", "background")
-
-    @property
-    def dim(self) -> int:
-        return 4
-
-    def unpack_params(self, values) -> NVCenterOnePeakLorentzianSpectrum:
-        f, w, d, b = values
-        return NVCenterOnePeakLorentzianSpectrum(float(f), float(w), float(d), float(b))
-
-    def pack_params(self, params: NVCenterOnePeakLorentzianSpectrum) -> tuple[float, ...]:
-        return (float(params.frequency), float(params.linewidth), float(params.dip_depth), float(params.background))
-
-    def unpack_uncertainty(self, values) -> NVCenterOnePeakLorentzianSpectrumUncertainty:
-        f, w, d, b = values
-        return NVCenterOnePeakLorentzianSpectrumUncertainty(float(f), float(w), float(d), float(b))
-
-    def pack_uncertainty(self, u: NVCenterOnePeakLorentzianSpectrumUncertainty) -> tuple[float, ...]:
-        return (float(u.frequency), float(u.linewidth), float(u.dip_depth), float(u.background))
-
-    def unpack_samples(self, arrays_in_order) -> NVCenterOnePeakLorentzianSpectrumSamples:
-        f, w, d, b = arrays_in_order
-        return NVCenterOnePeakLorentzianSpectrumSamples(
-            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            linewidth=np.asarray(w, dtype=FLOAT_DTYPE),
-            dip_depth=np.asarray(d, dtype=FLOAT_DTYPE),
-            background=np.asarray(b, dtype=FLOAT_DTYPE),
-        )
-
-    def pack_samples(self, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> tuple[np.ndarray, ...]:
-        return (
-            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
-        )
+    params_cls = NVCenterOnePeakLorentzianSpectrum
+    samples_cls = NVCenterOnePeakLorentzianSpectrumSamples
+    uncertainty_cls = NVCenterOnePeakLorentzianSpectrumUncertainty
 
 
 class NVCenterOnePeakLorentzianModel(

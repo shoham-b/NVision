@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 from numba import njit
@@ -150,10 +151,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             frequency_noise_model=obs.frequency_noise_model,
         )
 
-        # 2. Update weights
-        self._weights *= likelihoods
+        # 2. Compute information-based weights from Fisher Information
+        # Particles suggesting measurements at informative regions (high gradient,
+        # strong cross-parameter sensitivity) get higher weight
+        info_weights = self._compute_information_weights(obs.x, predicted, noise_std, obs.frequency_noise_model)
 
-        # 3. Normalize weights
+        # 3. Update weights combining likelihood AND information content
+        # This ensures particles that both fit the data AND carry parameter
+        # information are preserved, accounting for cross-parameter correlations
+        self._weights *= likelihoods * info_weights
+
+        # 4. Normalize weights
         weight_sum = np.sum(self._weights)
         if weight_sum > 1e-10:
             self._weights /= weight_sum
@@ -161,10 +169,69 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             # If all particles have 0 likelihood, reset to uniform (should rarely happen)
             self._weights = np.ones(self.num_particles) / self.num_particles
 
-        # 4. Resample if Effective Sample Size (ESS) is too low
+        # 5. Resample if Effective Sample Size (ESS) is too low
         ess = _inverse_sum_squares(self._weights)
         if ess < self.ess_threshold * self.num_particles:
             self._resample()
+
+    def _compute_information_weights(
+        self,
+        x: float,
+        predicted: np.ndarray,
+        noise_std: float,
+        frequency_noise_model: tuple[Any, ...] | None,
+    ) -> np.ndarray:
+        """Compute per-particle weights based on Fisher information content.
+
+        Returns weights proportional to the generalized variance (determinant of FIM)
+        which captures both individual parameter sensitivity AND cross-parameter
+        correlations. Higher = more informative about the joint parameter distribution.
+        """
+        n_particles = self._particles.shape[0]
+        info_scores = np.zeros(n_particles)
+
+        for i in range(n_particles):
+            # Extract particle parameters
+            particle_params = {name: float(self._particles[i, j]) for j, name in enumerate(self._param_names)}
+            typed_params = self.model.spec.unpack_params([particle_params[n] for n in self._param_names])
+
+            # Compute gradients at this particle's parameter set
+            grads = self.model.gradient(x, typed_params)
+            if grads is None:
+                info_scores[i] = 1.0  # Neutral if no gradients available
+                continue
+
+            grad_vec = np.array([grads[name] for name in self._param_names], dtype=np.float64)
+
+            # Build Fisher Information Matrix: FIM = (1/sigma^2) * g * g^T for Gaussian
+            # This captures cross-parameter correlations via outer product structure
+            sigma = max(float(noise_std), 1e-9)
+            fim = np.outer(grad_vec, grad_vec) / (sigma * sigma)
+
+            # Use log-determinant as information score (generalized variance)
+            # Higher determinant = more total information about parameters jointly
+            sign, logdet = np.linalg.slogdet(fim + np.eye(len(self._param_names)) * 1e-6)
+            if sign > 0 and np.isfinite(logdet):
+                # Use softplus-like transformation: log(1 + exp(logdet/2)) to avoid overflow
+                # This maps [-inf, +inf] -> [0, +inf] smoothly with saturation
+                half_logdet = logdet * 0.5
+                if half_logdet > 10:  # exp(10) ≈ 22026, start softening here
+                    info_scores[i] = half_logdet  # Linear growth for large values
+                else:
+                    info_scores[i] = np.log1p(np.exp(half_logdet))
+            else:
+                # Fall back to trace (sum of eigenvalues) if determinant numerically unstable
+                info_scores[i] = max(1e-6, np.trace(fim))
+
+        # Clip to prevent overwhelming the likelihoods (0.1 = 10x less weight, 10 = 10x more weight)
+        # This keeps information weights as a gentle nudge rather than a hard filter
+        clipped_scores = np.clip(info_scores, 0.1, 10.0)
+
+        # Normalize to mean 1.0 so likelihood remains primary driver
+        mean_score = np.mean(clipped_scores)
+        if mean_score > 0:
+            return clipped_scores / mean_score
+        return np.ones(n_particles)
 
     def _resample(self) -> None:
         """Systematic resampling with jitter to prevent particle collapse."""

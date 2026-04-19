@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
-from nvision.spectra.signal import ParamSpec, SignalModel
+from nvision.spectra.signal import GenericParamSpec, ParamSpec, SignalModel
 
 
 @dataclass(frozen=True)

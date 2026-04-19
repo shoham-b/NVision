@@ -158,6 +158,8 @@ function main() {
         const bayesConvMetricsIframe = document.getElementById('bayes-conv-metrics-iframe');
         const bayesFisherSection = document.getElementById('bayes-fisher-section');
         const bayesFisherIframe = document.getElementById('bayes-fisher-iframe');
+        const bayesFisherPairsSection = document.getElementById('bayes-fisher-pairs-section');
+        const bayesFisherPairsIframe = document.getElementById('bayes-fisher-pairs-iframe');
         const bayesEllipseSection = document.getElementById('bayes-ellipse-section');
         const bayesEllipseIframe = document.getElementById('bayes-ellipse-iframe');
         const bayesStatsPlots = plots.filter((p) => p.type === 'bayesian_stats');
@@ -171,6 +173,7 @@ function main() {
             plots.some((p) => p.type === 'bayesian_parameter_convergence') ||
             plots.some((p) => p.type === 'bayesian_convergence_metrics') ||
             plots.some((p) => p.type === 'bayesian_fisher_bounds') ||
+            plots.some((p) => p.type === 'bayesian_fisher_crlb_pairs') ||
             plots.some((p) => p.type === 'bayesian_covariance_ellipses');
         if (bayesSection) {
             bayesSection.hidden = !hasBayesArtifacts;
@@ -272,6 +275,23 @@ function main() {
             } else {
                 bayesFisherSection.hidden = true;
                 bayesFisherIframe.src = '';
+            }
+
+            const fisherPairsPlot = plots.find(
+                (p) =>
+                    p.type === 'bayesian_fisher_crlb_pairs' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            if (fisherPairsPlot) {
+                bayesFisherPairsIframe.src = fisherPairsPlot.path;
+                bayesFisherPairsSection.hidden = false;
+            } else {
+                bayesFisherPairsSection.hidden = true;
+                bayesFisherPairsIframe.src = '';
             }
 
             const convMetricsPlot = plots.find(

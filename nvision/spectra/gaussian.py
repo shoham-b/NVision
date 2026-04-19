@@ -9,7 +9,7 @@ import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import gaussian_peak_value
-from nvision.spectra.signal import ParamSpec, SignalModel
+from nvision.spectra.signal import GenericParamSpec, SignalModel
 
 
 @dataclass(frozen=True)
@@ -36,45 +36,10 @@ class GaussianSpectrumUncertainty:
     background: float
 
 
-class _GaussianSpec(ParamSpec[GaussianSpectrum, GaussianSpectrumSamples, GaussianSpectrumUncertainty]):
-    @property
-    def names(self) -> tuple[str, ...]:
-        return ("frequency", "sigma", "dip_depth", "background")
-
-    @property
-    def dim(self) -> int:
-        return 4
-
-    def unpack_params(self, values) -> GaussianSpectrum:
-        f, s, a, b = values
-        return GaussianSpectrum(float(f), float(s), float(a), float(b))
-
-    def pack_params(self, params: GaussianSpectrum) -> tuple[float, ...]:
-        return (float(params.frequency), float(params.sigma), float(params.dip_depth), float(params.background))
-
-    def unpack_uncertainty(self, values) -> GaussianSpectrumUncertainty:
-        f, s, a, b = values
-        return GaussianSpectrumUncertainty(float(f), float(s), float(a), float(b))
-
-    def pack_uncertainty(self, u: GaussianSpectrumUncertainty) -> tuple[float, ...]:
-        return (float(u.frequency), float(u.sigma), float(u.dip_depth), float(u.background))
-
-    def unpack_samples(self, arrays_in_order) -> GaussianSpectrumSamples:
-        f, s, a, b = arrays_in_order
-        return GaussianSpectrumSamples(
-            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            sigma=np.asarray(s, dtype=FLOAT_DTYPE),
-            dip_depth=np.asarray(a, dtype=FLOAT_DTYPE),
-            background=np.asarray(b, dtype=FLOAT_DTYPE),
-        )
-
-    def pack_samples(self, samples: GaussianSpectrumSamples) -> tuple[np.ndarray, ...]:
-        return (
-            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.sigma, dtype=FLOAT_DTYPE),
-            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
-        )
+class _GaussianSpec(GenericParamSpec[GaussianSpectrum, GaussianSpectrumSamples, GaussianSpectrumUncertainty]):
+    params_cls = GaussianSpectrum
+    samples_cls = GaussianSpectrumSamples
+    uncertainty_cls = GaussianSpectrumUncertainty
 
 
 class GaussianModel(SignalModel[GaussianSpectrum, GaussianSpectrumSamples, GaussianSpectrumUncertainty]):

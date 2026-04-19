@@ -13,6 +13,8 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 from nvision.cache import CacheBridge
 from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
@@ -27,6 +29,7 @@ from nvision.runner.signal_cache import get_shared_core_experiment
 from nvision.sim import cases as sim_cases
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
 
@@ -81,6 +84,32 @@ def clear_sweep_cache() -> None:
         _SWEEP_OBSERVATIONS_BY_KEY.clear()
 
 
+def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribution:
+    """Create a minimal GridMarginalDistribution for sweeping locators.
+
+    Sweeping locators need a belief to satisfy the Locator parent class,
+    but they don't actually use it for sweep detection (they use signal_model).
+    This creates a simple grid belief with the signal model's parameters.
+    """
+    model = experiment.true_signal.model
+    param_names = model.parameter_names()
+
+    # Create grid parameters for each model parameter
+    parameters = []
+    for name in param_names:
+        # Use experiment bounds if available, otherwise default
+        bounds = getattr(experiment.true_signal, "bounds", {}).get(name, (experiment.x_min, experiment.x_max))
+        grid = np.linspace(bounds[0], bounds[1], 64)
+        parameters.append(GridParameter(
+            name=name,
+            bounds=bounds,
+            grid=grid,
+            posterior=np.ones(64) / 64,
+        ))
+
+    return GridMarginalDistribution(model=model, parameters=parameters)
+
+
 def precompute_sweep(
     locator_class: type[Locator],
     experiment: CoreExperiment,
@@ -98,11 +127,13 @@ def precompute_sweep(
     Returns the precomputed sweep observations, or None if the locator is not
     a Bayesian locator or has no initial sweep.
     """
-    locator = locator_class.create(**locator_config)
+    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
-    # Only Bayesian locators with initial sweeps need pre-computation
-    if not isinstance(locator, SequentialBayesianLocator):
+    # Only Bayesian locators need pre-computation
+    if not issubclass(locator_class, SequentialBayesianLocator):
         return None
+
+    locator = locator_class.create(**locator_config)
 
     sweep_steps = getattr(locator, "initial_sweep_steps", 0)
     if sweep_steps <= 0:
@@ -600,6 +631,13 @@ class _TaskRunner:
             **({}  if signal_min_span is None else {"signal_min_span": signal_min_span}),
             **({}  if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
+
+        # For sweeping locators, add belief and signal_model
+        if issubclass(locator_class, SweepingLocator):
+            belief = _create_sweep_belief(experiment)
+            cfg["belief"] = belief
+            cfg["signal_model"] = experiment.true_signal.model
+
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
 
         try:
@@ -640,8 +678,15 @@ class _TaskRunner:
         if last_loc is not None:
             # Use effective_initial_sweep_steps() to get actual steps taken (accounts for early stopping)
             eff_sweep_steps = getattr(last_loc, "effective_initial_sweep_steps", lambda: 0)()
+            init_sweep_steps = getattr(last_loc, "initial_sweep_steps", 0)
+            step_count = getattr(last_loc, "step_count", 0)
+            inf_steps = getattr(last_loc, "inference_step_count", 0)
+            max_steps = getattr(last_loc, "max_steps", 0)
+            log = logging.getLogger("nvision")
+            log.info(f"[STEP DEBUG] rid={rid} init_sweep={init_sweep_steps} eff_sweep={eff_sweep_steps} "
+                     f"step_count={step_count} inf_steps={inf_steps} max_steps={max_steps}")
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
-            finalize_record["locator_steps"] = int(getattr(last_loc, "inference_step_count", 0) or 0)
+            finalize_record["locator_steps"] = int(inf_steps or 0)
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

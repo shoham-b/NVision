@@ -22,7 +22,7 @@ from nvision.sim.locs.bayesian.belief_builders import (
     two_peak_gaussian_belief,
     two_peak_lorentzian_belief,
 )
-from nvision.sim.locs.coarse.sweep_locator import SimpleSweepLocator
+from nvision.sim.locs.coarse.sobol_locator import StagedSobolLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +83,7 @@ class CombinationGrid:
         """Return the locator strategies appropriate for *generator_name*."""
         if generator_name.startswith("NVCenter-"):
             return [
-                ("SimpleSweep", SimpleSweepLocator),
+                ("StagedSobol", StagedSobolLocator),
                 (
                     "Bayesian-SBED",
                     {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **_NV_SMC}},
@@ -112,7 +112,7 @@ class CombinationGrid:
         if generator_name == "TwoPeak-gaussian":
             cfg = {"builder": two_peak_gaussian_belief, "max_steps": 240}
             return [
-                ("SimpleSweep", SimpleSweepLocator),
+                ("StagedSobol", StagedSobolLocator),
                 ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
                 (
@@ -127,7 +127,7 @@ class CombinationGrid:
         if generator_name == "TwoPeak-lorentzian":
             cfg = {"builder": two_peak_lorentzian_belief, "max_steps": 240}
             return [
-                ("SimpleSweep", SimpleSweepLocator),
+                ("StagedSobol", StagedSobolLocator),
                 ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
                 ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
                 (
@@ -139,7 +139,7 @@ class CombinationGrid:
                 ),
             ]
 
-        return [("SimpleSweep", SimpleSweepLocator)]
+        return [("StagedSobol", StagedSobolLocator)]
 
     def __iter__(self) -> Iterator[Combination]:
         """Iterate all combinations (no filtering, no dedup)."""

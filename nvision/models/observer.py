@@ -272,6 +272,10 @@ class Observer:
                 sweep_steps = last_locator.effective_initial_sweep_steps()
             elif hasattr(last_locator, "initial_sweep_steps"):
                 sweep_steps = last_locator.initial_sweep_steps
+            import logging
+            logging.getLogger("nvision").info(f"[OBSERVER DEBUG] sweep_steps={sweep_steps} "
+                                             f"snapshots={len(self.snapshots)} "
+                                             f"last_loc type={type(last_locator).__name__}")
             if hasattr(last_locator, "secondary_sweep_count"):
                 secondary_sweep_steps = last_locator.secondary_sweep_count()
 

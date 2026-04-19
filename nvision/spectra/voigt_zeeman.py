@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
-from nvision.spectra.signal import ParamSpec, SignalModel
+from nvision.spectra.signal import GenericParamSpec, SignalModel
 
 
 @dataclass(frozen=True)
@@ -45,67 +45,10 @@ class VoigtZeemanSpectrumUncertainty:
     background: float
 
 
-class _VoigtZeemanSpec(ParamSpec[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples, VoigtZeemanSpectrumUncertainty]):
-    @property
-    def names(self) -> tuple[str, ...]:
-        return ("frequency", "fwhm_total", "lorentz_frac", "split", "k_np", "dip_depth", "background")
-
-    @property
-    def dim(self) -> int:
-        return 7
-
-    def unpack_params(self, values) -> VoigtZeemanSpectrum:
-        f, ft, lf, s, k, d, b = values
-        return VoigtZeemanSpectrum(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
-
-    def pack_params(self, params: VoigtZeemanSpectrum) -> tuple[float, ...]:
-        return (
-            float(params.frequency),
-            float(params.fwhm_total),
-            float(params.lorentz_frac),
-            float(params.split),
-            float(params.k_np),
-            float(params.dip_depth),
-            float(params.background),
-        )
-
-    def unpack_uncertainty(self, values) -> VoigtZeemanSpectrumUncertainty:
-        f, ft, lf, s, k, d, b = values
-        return VoigtZeemanSpectrumUncertainty(float(f), float(ft), float(lf), float(s), float(k), float(d), float(b))
-
-    def pack_uncertainty(self, u: VoigtZeemanSpectrumUncertainty) -> tuple[float, ...]:
-        return (
-            float(u.frequency),
-            float(u.fwhm_total),
-            float(u.lorentz_frac),
-            float(u.split),
-            float(u.k_np),
-            float(u.dip_depth),
-            float(u.background),
-        )
-
-    def unpack_samples(self, arrays_in_order) -> VoigtZeemanSpectrumSamples:
-        f, ft, lf, s, k, d, b = arrays_in_order
-        return VoigtZeemanSpectrumSamples(
-            frequency=np.asarray(f, dtype=FLOAT_DTYPE),
-            fwhm_total=np.asarray(ft, dtype=FLOAT_DTYPE),
-            lorentz_frac=np.asarray(lf, dtype=FLOAT_DTYPE),
-            split=np.asarray(s, dtype=FLOAT_DTYPE),
-            k_np=np.asarray(k, dtype=FLOAT_DTYPE),
-            dip_depth=np.asarray(d, dtype=FLOAT_DTYPE),
-            background=np.asarray(b, dtype=FLOAT_DTYPE),
-        )
-
-    def pack_samples(self, samples: VoigtZeemanSpectrumSamples) -> tuple[np.ndarray, ...]:
-        return (
-            np.asarray(samples.frequency, dtype=FLOAT_DTYPE),
-            np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
-            np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
-            np.asarray(samples.split, dtype=FLOAT_DTYPE),
-            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
-        )
+class _VoigtZeemanSpec(GenericParamSpec[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples, VoigtZeemanSpectrumUncertainty]):
+    params_cls = VoigtZeemanSpectrum
+    samples_cls = VoigtZeemanSpectrumSamples
+    uncertainty_cls = VoigtZeemanSpectrumUncertainty
 
 
 class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples, VoigtZeemanSpectrumUncertainty]):

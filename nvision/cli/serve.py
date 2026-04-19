@@ -142,6 +142,14 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         super().end_headers()
 
+    def handle(self) -> None:
+        """Handle requests with graceful client disconnect handling."""
+        try:
+            super().handle()
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            # Silently ignore benign client disconnects (browser refresh/close)
+            pass
+
 
 def _default_port_for_dir(directory: Path) -> int:
     """Return the well-known port for a directory, or PORT_MAIN as fallback."""

@@ -81,11 +81,13 @@ def _run_tasks_process_pool(
                 pass
             except KeyboardInterrupt:
                 raise  # Let outer handler deal with Ctrl+C
-            except Exception:
+            except Exception as exc:
                 # Still advance progress to keep the UI consistent.
                 if getattr(locator_task, "task_id", None) is not None:
                     progress_queue.put((locator_task.task_id, locator_task.repeats))
-                log.exception("Task failed with error (combination=%s)", locator_task.slug)
+                # Log clean error to console (via monitor), full traceback to file only
+                log.error("Task failed with error (combination=%s): %s", locator_task.slug, type(exc).__name__)
+                log.debug("Task failed with error (combination=%s)", locator_task.slug, exc_info=True)
                 errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
                 if len(errors) > 5:
                     log.error("Too many errors (>5), terminating...")
@@ -345,7 +347,7 @@ def run(  # noqa: C901
         effective_logs_root / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y%m%dT%H%M%S%f')}.log"
     )
     file_handler = logging.FileHandler(run_log_path, encoding="utf-8")
-    file_handler.setLevel(log_level_value)
+    file_handler.setLevel(logging.DEBUG)  # Always capture full tracebacks in file
     _combo_filter = CombinationLogFilter()
     file_handler.addFilter(_combo_filter)
     file_handler.setFormatter(
@@ -462,8 +464,10 @@ def run(  # noqa: C901
                             for entries, main_result_row in results_for_task:
                                 plot_manifest.extend(entries)
                                 df_rows.append(main_result_row)
-                        except Exception:
-                            log.exception("Task failed with error (combination=%s)", locator_task.slug)
+                        except Exception as exc:
+                            # Log clean error to console (via monitor), full traceback to file only
+                            log.error("Task failed with error (combination=%s): %s", locator_task.slug, type(exc).__name__)
+                            log.debug("Task failed with error (combination=%s)", locator_task.slug, exc_info=True)
                             errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
                             if len(errors) > 5:
                                 log.error("Too many errors (>5), terminating...")

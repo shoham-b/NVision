@@ -4,14 +4,68 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from dataclasses import dataclass, fields
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
 ParamsT = TypeVar("ParamsT")
 SampleParamsT = TypeVar("SampleParamsT")
 UncertaintyT = TypeVar("UncertaintyT")
+
+
+class GenericParamSpec(Generic[ParamsT, SampleParamsT, UncertaintyT]):
+    """Auto-implement ParamSpec methods using dataclass field introspection.
+
+    Subclasses must define three class attributes:
+        params_cls: type[ParamsT]          # frozen dataclass with fields
+        samples_cls: type[SampleParamsT]  # frozen dataclass with np.ndarray fields
+        uncertainty_cls: type[UncertaintyT]  # frozen dataclass with fields
+
+    The ``names`` property is derived from ``params_cls`` field names.
+    All pack/unpack methods work by iterating fields in declaration order.
+    """
+
+    params_cls: type[ParamsT]
+    samples_cls: type[SampleParamsT]
+    uncertainty_cls: type[UncertaintyT]
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(f.name for f in fields(self.params_cls))
+
+    @property
+    def dim(self) -> int:
+        return len(self.names)
+
+    def unpack_params(self, values: Sequence[float]) -> ParamsT:
+        return self.params_cls(**dict(zip(self.names, values)))
+
+    def pack_params(self, params: ParamsT) -> tuple[float, ...]:
+        return tuple(getattr(params, name) for name in self.names)
+
+    def unpack_uncertainty(self, values: Sequence[float]) -> UncertaintyT:
+        return self.uncertainty_cls(**dict(zip(self.names, values)))
+
+    def pack_uncertainty(self, u: UncertaintyT) -> tuple[float, ...]:
+        return tuple(getattr(u, name) for name in self.names)
+
+    def unpack_samples(self, arrays_in_order: Sequence[np.ndarray]) -> SampleParamsT:
+        from nvision.spectra.dtypes import FLOAT_DTYPE
+
+        return self.samples_cls(
+            **{
+                name: np.asarray(arr, dtype=FLOAT_DTYPE)
+                for name, arr in zip(self.names, arrays_in_order, strict=True)
+            }
+        )
+
+    def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]:
+        from nvision.spectra.dtypes import FLOAT_DTYPE
+
+        return tuple(
+            np.asarray(getattr(samples, name), dtype=FLOAT_DTYPE) for name in self.names
+        )
 
 
 @runtime_checkable
