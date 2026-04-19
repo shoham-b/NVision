@@ -678,7 +678,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Compute predictions for all particles at all candidates
         arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
         # Shape: (n_candidates, n_particles)
-        predictions = self.model.compute_vectorized(candidates, *arrays_in_order)
+        predictions = self.model.compute_vectorized_many(candidates, arrays_in_order)
 
         # Score each particle by weighted combination of:
         # 1. Posterior weight (particles must represent posterior mass)

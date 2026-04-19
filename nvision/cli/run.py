@@ -364,13 +364,13 @@ def run(  # noqa: C901
         _queue_handler = QueueHandler(log_queue)
         _queue_handler.addFilter(_combo_filter)
         logging.basicConfig(
-            level=log_level_value,
+            level=logging.DEBUG,  # Allow all messages through; handlers filter by level
             format="%(message)s",
             datefmt="[%X]",
             handlers=[_queue_handler],
             force=True,
         )
-        logging.getLogger("nvision").setLevel(log_level_value)
+        logging.getLogger("nvision").setLevel(logging.DEBUG)  # File handler always gets debug
         log.info("Session log: %s (up to two run logs kept under logs/)", run_log_path.resolve())
 
         if defaulted_category:
