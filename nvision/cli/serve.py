@@ -35,6 +35,7 @@ console = Console()
 # Well-known ports for each artifacts directory (high numbers to avoid conflicts)
 PORT_MAIN = 18080
 PORT_DEMO = 18081
+PORT_BETA = 18082
 
 # Global state for reload tracking
 _reload_state: dict = {"running": False, "last_output": ""}
@@ -156,6 +157,8 @@ def _default_port_for_dir(directory: Path) -> int:
     name = directory.resolve().name.lower()
     if "demo" in name:
         return PORT_DEMO
+    if "beta" in name:
+        return PORT_BETA
     return PORT_MAIN
 
 
