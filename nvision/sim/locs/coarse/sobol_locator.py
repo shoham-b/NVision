@@ -282,12 +282,17 @@ class Stage3SobolLocator:
         if len(below_idx) < 2:
             return  # Safety fallback to domain bounds
 
+        # obs.x values from experiment.measure() are normalized [0,1];
+        # convert to physical coordinates before comparing with domain bounds
+        domain_width = self.domain_hi - self.domain_lo
+        if domain_width > 0 and float(np.max(xs_valid)) <= 1.0001 and float(np.min(xs_valid)) >= -0.0001:
+            xs_valid = self.domain_lo + xs_valid * domain_width
+
         dip_xs = xs_valid[below_idx]
         x_min = float(np.min(dip_xs))
         x_max = float(np.max(dip_xs))
         d = x_max - x_min
 
-        domain_width = self.domain_hi - self.domain_lo
         tol = max(0.015 * domain_width, 1e-4)
 
         def check_empty(spot: float) -> bool:
@@ -331,7 +336,7 @@ class StagedSobolSweepLocator(Locator):
         cls,
         belief: AbstractMarginalDistribution,
         signal_model: SignalModel,
-        max_steps: int = 24,
+        max_steps: int = 300,
         *,
         noise_std: float = 0.01,
         noise_max_dev: float | None = None,
@@ -391,6 +396,7 @@ class StagedSobolSweepLocator(Locator):
 
         # Track initial sweep steps for Observer phase coloring
         self._initial_sweep_steps = 0
+        self._stage1_end_step = 0
 
         self._stage1 = Stage1SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi)
         self._stage2: Stage2SobolLocator | None = None
@@ -421,6 +427,7 @@ class StagedSobolSweepLocator(Locator):
         self._active_locator.observe(obs)
 
         if self._active_locator is self._stage1 and self._active_locator.done():
+            self._stage1_end_step = self.step_count
             self._stage2 = Stage2SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
             self._active_locator = self._stage2
 
@@ -432,21 +439,30 @@ class StagedSobolSweepLocator(Locator):
             self._transition_to_stage3()
 
     def _transition_to_stage3(self) -> None:
-        self._initial_sweep_steps = self.step_count
+        self._initial_sweep_steps = self._stage1_end_step
         self._stage3 = Stage3SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
         self._active_locator = self._stage3
         self._signal_found = True
 
     def effective_initial_sweep_steps(self) -> int:
-        """Return number of steps in the initial sweep (Stage 1 + Stage 2).
+        """Return number of steps in Stage 1 (coarse phase).
 
         Called by the Observer to determine how many measurements belong to
         the 'coarse' phase for plot coloring.
         """
-        if self._initial_sweep_steps > 0:
-            return self._initial_sweep_steps
-        # If we never reached Stage 3, all completed steps were initial sweep
+        if self._stage1_end_step > 0:
+            return self._stage1_end_step
+        # If we never reached Stage 2, all completed steps were Stage 1
         return self.step_count
+
+    def secondary_sweep_count(self) -> int:
+        """Return number of steps in Stage 2 (secondary phase).
+
+        Called by the Observer for secondary phase coloring.
+        """
+        if self._initial_sweep_steps > 0:
+            return self._initial_sweep_steps - self._stage1_end_step
+        return 0
 
     def finalize(self) -> None:
         pass
