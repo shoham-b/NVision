@@ -244,8 +244,8 @@ class NVCenterVoigtSpectrum:
     @property
     def physical_amplitude(self) -> float:
         """Physical Hz² amplitude (numerator): approximate Lorentzian-equivalent amplitude."""
-        gamma_L = self.lorentz_frac * self.fwhm_total / 2
-        return (self.dip_depth / self.k_np) * gamma_L ** 2
+        gamma_l = self.lorentz_frac * self.fwhm_total / 2
+        return (self.dip_depth / self.k_np) * gamma_l**2
 
 
 @dataclass(frozen=True)
@@ -414,7 +414,15 @@ class NVCenterVoigtModel(
         return name in ("fwhm_total", "dip_depth")
 
     def parameter_weights(self) -> dict[str, float]:
-        return {"frequency": 2.0, "fwhm_total": 1.0, "lorentz_frac": 1.0, "split": 1.0, "k_np": 1.0, "dip_depth": 1.0, "background": 1.0}
+        return {
+            "frequency": 2.0,
+            "fwhm_total": 1.0,
+            "lorentz_frac": 1.0,
+            "split": 1.0,
+            "k_np": 1.0,
+            "dip_depth": 1.0,
+            "background": 1.0,
+        }
 
     def signal_min_span(self, domain_width: float) -> float | None:
         fwhm_total_lo = 70e3
@@ -681,7 +689,7 @@ class NVCenterOnePeakLorentzianModel(
         return 1
 
     def compute(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> float:
-        lw2 = params.linewidth ** 2
+        lw2 = params.linewidth**2
         denom = (float(x) - params.frequency) ** 2 + lw2
         return float(params.background - (params.dip_depth * lw2) / denom)
 
@@ -691,7 +699,7 @@ class NVCenterOnePeakLorentzianModel(
         lw = np.asarray(samples.linewidth, dtype=np.float64)
         depth = np.asarray(samples.dip_depth, dtype=np.float64)
         bg = np.asarray(samples.background, dtype=np.float64)
-        lw2 = lw ** 2
+        lw2 = lw**2
         denom = (x_f - freq) ** 2 + lw2
         return (bg - depth * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
 

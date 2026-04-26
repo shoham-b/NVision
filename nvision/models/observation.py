@@ -44,33 +44,34 @@ class Observation:
 
 class ObservationHistory:
     """Maintains a collection of observations with parallel pre-allocated numpy arrays for fast data access."""
-    
+
     def __init__(self, max_steps: int):
         import numpy as np
+
         self.max_steps = max_steps
         self.observations: list[Observation] = []
         self._xs = np.empty(max_steps, dtype=np.float64)
         self._ys = np.empty(max_steps, dtype=np.float64)
         self.count = 0
-        
+
     def append(self, obs: Observation) -> None:
         if self.count >= self.max_steps:
             raise ValueError(f"ObservationHistory capacity of {self.max_steps} exceeded.")
-            
+
         self.observations.append(obs)
         self._xs[self.count] = obs.x
         self._ys[self.count] = obs.signal_value
         self.count += 1
-        
+
     @property
     def xs(self) -> Any:
         """Returns the valid slice of the x positions array."""
-        return self._xs[:self.count]
-        
+        return self._xs[: self.count]
+
     @property
     def ys(self) -> Any:
         """Returns the valid slice of the signal values array."""
-        return self._ys[:self.count]
+        return self._ys[: self.count]
 
 
 def gaussian_likelihood_std(obs: Observation | None) -> float:

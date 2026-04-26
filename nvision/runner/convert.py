@@ -36,11 +36,9 @@ def run_result_to_history_df(
         x = snapshot.obs.x
         # Detect if x is normalized [0,1] or already physical
         # Normalized x is in [0, 1]; physical x for NV centers is ~2.6e9-3.1e9 (Hz)
-        if 0 <= x <= 1:
-            x_phys = denormalize_x(x, x_min, x_max)
-        else:
-            # x is already in physical coordinates (e.g., from SweepingLocator)
-            x_phys = x
+        x_phys = (
+            denormalize_x(x, x_min, x_max) if 0 <= x <= 1 else x
+        )  # x is already in physical coordinates (e.g., from SweepingLocator)
         rows.append(
             {
                 "repeat_id": repeat_id,

@@ -64,9 +64,7 @@ def _posterior_animation_inputs(
     if isinstance(b0, UnitCubeGridMarginalDistribution):
         grid = b0.physical_param_grid(scan_param)
         # Use base get_grid_param to access unit-cube PMF directly.
-        hist = [
-            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots
-        ]
+        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots]
         return hist, grid
     if isinstance(b0, GridMarginalDistribution):
         grid = b0.get_grid_param(scan_param).grid
@@ -148,9 +146,7 @@ def _extract_unit_cube_grid_posterior(
     b0 = snapshots[0].belief
     for scan_param in names:
         grid = b0.physical_param_grid(scan_param)
-        hist = [
-            GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots
-        ]
+        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots]
         out[scan_param] = (hist, grid)
     return out
 
@@ -230,7 +226,7 @@ def _initial_sweep_steps_from_strategy(strat_obj: Any) -> int:
     return 0
 
 
-def _bayesian_auxiliary_entries(
+def _bayesian_auxiliary_entries(  # noqa: C901
     viz: Viz,
     entry_base: dict[str, Any],
     run_result: RunResult,
@@ -311,6 +307,7 @@ def _bayesian_auxiliary_entries(
     # Fisher information bounds vs actual uncertainty for SMC beliefs
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
+
     if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
         param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
         n_params = len(param_names)
@@ -386,29 +383,30 @@ def _bayesian_auxiliary_entries(
 
             # Check which parameters are converged (uncertainty < threshold)
             converged_params = {
-                name: float(uncertainties.get(name, float('inf'))) < convergence_threshold
-                for name in param_names
+                name: float(uncertainties.get(name, float("inf"))) < convergence_threshold for name in param_names
             }
 
             # Compute convergence streak (consecutive steps where all params converged)
             all_converged = all(converged_params.values())
 
-            conv_metrics.append({
-                'step': i,
-                'uncertainties': uncertainties,
-                'converged_params': converged_params,
-                'all_converged': all_converged,
-            })
+            conv_metrics.append(
+                {
+                    "step": i,
+                    "uncertainties": uncertainties,
+                    "converged_params": converged_params,
+                    "all_converged": all_converged,
+                }
+            )
 
         # Compute convergence streak
         streak = 0
         for cm in conv_metrics:
-            if cm['all_converged']:
+            if cm["all_converged"]:
                 streak += 1
             else:
                 streak = 0
-            cm['convergence_streak'] = streak
-            cm['convergence_achieved'] = streak >= convergence_patience
+            cm["convergence_streak"] = streak
+            cm["convergence_achieved"] = streak >= convergence_patience
 
         conv_path = bayes_dir / f"{attempt_slug}_convergence_metrics.html"
         viz.plot_convergence_metrics(
@@ -455,15 +453,20 @@ def generate_attempt_plots(
         sweep_steps = entry_base.get("sweep_steps") or _initial_sweep_steps_from_strategy(strat_obj)
     # DEBUG: Log phase assignment values
     import logging
+
     log = logging.getLogger("nvision")
-    log.info(f"[PHASE DEBUG] sweep_steps={sweep_steps}, secondary_sweep_steps={secondary_sweep_steps}, "
-             f"history steps: min={current_history_df['step'].min() if 'step' in current_history_df.columns else 'N/A'}, "
-             f"max={current_history_df['step'].max() if 'step' in current_history_df.columns else 'N/A'}, "
-             f"height={current_history_df.height}")
+    log.info(
+        f"[PHASE DEBUG] sweep_steps={sweep_steps}, secondary_sweep_steps={secondary_sweep_steps}, "
+        f"history steps: min={current_history_df['step'].min() if 'step' in current_history_df.columns else 'N/A'}, "
+        f"max={current_history_df['step'].max() if 'step' in current_history_df.columns else 'N/A'}, "
+        f"height={current_history_df.height}"
+    )
     if "step" in current_history_df.columns and sweep_steps > 0:
         total_sweep_end = sweep_steps + secondary_sweep_steps
-        log.info(f"[PHASE DEBUG] total_sweep_end={total_sweep_end}, "
-                 f"coarse: step < {sweep_steps}, secondary: step < {total_sweep_end}")
+        log.info(
+            f"[PHASE DEBUG] total_sweep_end={total_sweep_end}, "
+            f"coarse: step < {sweep_steps}, secondary: step < {total_sweep_end}"
+        )
         history_with_phase = current_history_df.with_columns(
             pl.when(pl.col("step") < sweep_steps)
             .then(pl.lit("coarse"))

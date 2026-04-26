@@ -131,6 +131,7 @@ class CompositeNoise:
         """
         if self.over_frequency_noise is None:
             import math
+
             std = self.estimated_noise_std()
             return std * math.sqrt(2.0 * math.log(max(n_samples, 2)))
         return self.over_frequency_noise.max_noise_deviation(n_samples)

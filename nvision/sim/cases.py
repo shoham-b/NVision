@@ -9,16 +9,15 @@ from nvision.models.noise import (
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
 )
-
-from .gen.nv_center_generator import NVCenterCoreGenerator
-from .gen.peak_spec import GAUSSIAN, LORENTZIAN
-from .grid_enums import GeneratorCategory, GeneratorName, StrategyFilter
 from nvision.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
     OverProbeDriftNoise,
 )
+
+from .gen.nv_center_generator import NVCenterCoreGenerator
+from .grid_enums import GeneratorCategory, GeneratorName, StrategyFilter
 
 
 class RunCaseName(StrEnum):

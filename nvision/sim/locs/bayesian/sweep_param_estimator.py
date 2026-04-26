@@ -34,9 +34,7 @@ _DEFAULT_SAFETY_FACTOR = 0.6
 _MIN_NARROWING_FRACTION = 0.10
 
 
-def _sorted_sweep(
-    xs: np.ndarray, ys: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+def _sorted_sweep(xs: np.ndarray, ys: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Return (xs, ys) sorted by x and with duplicates averaged."""
     order = np.argsort(xs)
     return xs[order], ys[order]
@@ -188,7 +186,7 @@ def estimate_non_scan_param_bounds(
     # -----------------------------------------------------------------------
     # background
     # -----------------------------------------------------------------------
-    if "background" in param_names and "background" != scan_param:
+    if "background" in param_names and scan_param != "background":
         lo_pr, hi_pr = current_bounds.get("background", (0.0, 2.0))
         est_bg = background
         half_pad = safety_factor * max(abs(hi_pr - lo_pr) * 0.1, 1e-9)
@@ -208,7 +206,7 @@ def estimate_non_scan_param_bounds(
     # -----------------------------------------------------------------------
     # split — requires two resolved dip peaks
     # -----------------------------------------------------------------------
-    if "split" in param_names and "split" != scan_param:
+    if "split" in param_names and scan_param != "split":
         lo_pr, hi_pr = current_bounds.get("split", (0.0, 1.0))
         peaks = _find_dip_peaks(xs_s, ys_s, background, dip_depth)
         if len(peaks) >= 2:
@@ -226,7 +224,10 @@ def estimate_non_scan_param_bounds(
                 result["split"] = (new_lo, new_hi)
                 log.debug(
                     "Narrowed split: [%.4g, %.4g] → [%.4g, %.4g]",
-                    lo_pr, hi_pr, new_lo, new_hi,
+                    lo_pr,
+                    hi_pr,
+                    new_lo,
+                    new_hi,
                 )
 
     return result

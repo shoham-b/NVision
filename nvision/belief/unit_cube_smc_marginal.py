@@ -63,9 +63,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         """Select top-n particles by posterior weight (physical scale)."""
         return super().select_maximum_likelihood(n)
 
-    def select_max_information_gain(
-        self, candidates: np.ndarray, n: int
-    ) -> ParameterValues[np.ndarray]:
+    def select_max_information_gain(self, candidates: np.ndarray, n: int) -> ParameterValues[np.ndarray]:
         """Select particles maximizing information gain at candidates (physical scale)."""
         return super().select_max_information_gain(candidates, n)
 

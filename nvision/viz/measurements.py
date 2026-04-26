@@ -836,7 +836,7 @@ class MeasurementsMixin:
     # Typing for mixin dependency (self.out_dir from VizBase)
     out_dir: Path
 
-    def plot_scan_measurements(
+    def plot_scan_measurements(  # noqa: C901
         self,
         scan,
         history: pl.DataFrame,

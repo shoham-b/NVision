@@ -12,7 +12,7 @@ from rich.table import Table
 from nvision.cache import CacheBridge
 from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.app_instance import app
-from nvision.sim.grid_enums import GeneratorCategory, GeneratorName, NoiseName, StrategyFilter
+from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
 
 console = Console()
 
@@ -165,7 +165,7 @@ def cache_clean(
 
 
 @cache_app.command(name="clean-manifest")
-def clean_manifest(
+def clean_manifest(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
 ) -> None:
@@ -182,7 +182,7 @@ def clean_manifest(
         console.print("[yellow]No plots_manifest.json found.[/yellow]")
         return
 
-    with open(manifest_path, "r") as f:
+    with open(manifest_path) as f:
         plots = json.load(f)
 
     original_count = len(plots)
@@ -208,7 +208,7 @@ def clean_manifest(
     cache_removed = 0
     if invalid_generators:
         cache_root = out / "cache"
-        for cat_name, cat_cache in _get_caches(cache_root):
+        for _cat_name, cat_cache in _get_caches(cache_root):
             backend = cat_cache.backend
             keys_to_delete = []
             for key in backend:

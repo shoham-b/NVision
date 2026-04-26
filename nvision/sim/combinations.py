@@ -20,7 +20,7 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
+from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator, StagedSobolSweepLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +91,7 @@ class CombinationGrid:
             return [
                 ("GenericSweep", GenericSweepLocator),
                 ("SimpleSweep", GenericSweepLocator),
+                ("SobolSweep", SobolSweepLocator),
                 ("StagedSobolSweep", StagedSobolSweepLocator),
                 (
                     "Bayesian-SBED",
@@ -117,13 +118,18 @@ class CombinationGrid:
                 ),
             ]
 
-        return [("GenericSweep", GenericSweepLocator), ("SimpleSweep", GenericSweepLocator), ("StagedSobolSweep", StagedSobolSweepLocator)]
+        return [
+            ("GenericSweep", GenericSweepLocator),
+            ("SimpleSweep", GenericSweepLocator),
+            ("SobolSweep", SobolSweepLocator),
+            ("StagedSobolSweep", StagedSobolSweepLocator),
+        ]
 
     def __iter__(self) -> Iterator[Combination]:
         """Iterate all combinations (no filtering, no dedup)."""
         return self.iter(filter_category=None, filter_strategy=None, filter_generator=None, filter_noise=None)
 
-    def iter(
+    def iter(  # noqa: C901
         self,
         filter_category: str | None = None,
         filter_strategy: str | None = None,

@@ -20,20 +20,18 @@ def _get_signal_formula(model: Any) -> str:
     inner_name = type(inner).__name__
 
     if "NVCenterLorentzian" in inner_name:
-        return (
-            r"$\mu = 1 - \frac{ak_{NP}}{(f - f_B - \Delta f_{HF})^2 + \Omega^2} - \frac{a}{(f - f_B)^2 + \Omega^2} - \frac{a/k_{NP}}{(f - f_B + \Delta f_{HF})^2 + \Omega^2}$"
-        )
+        return r"$\mu = 1 - \frac{ak_{NP}}{(f - f_B - \Delta f_{HF})^2 + \Omega^2} - \frac{a}{(f - f_B)^2 + \Omega^2} - \frac{a/k_{NP}}{(f - f_B + \Delta f_{HF})^2 + \Omega^2}$"  # noqa: E501
     if "VoigtZeeman" in inner_name:
         return (
             r"$S(f) = B - \frac{A}{k}(L*G)(f\!-\!f_0\!+\!\Delta) - A(L*G)(f\!-\!f_0) - Ak(L*G)(f\!-\!f_0\!-\!\Delta)$, "
             r"$(L*G)(x) = \int_{-\infty}^{\infty}\!\frac{\eta W/2\pi}{t^2+(\eta W/2)^2} \cdot "
-            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2((1-\eta)W/2\sqrt{2\ln 2})^2}\right]}{\frac{(1-\eta)W}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"
+            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2((1-\eta)W/2\sqrt{2\ln 2})^2}\right]}{\frac{(1-\eta)W}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"  # noqa: E501
         )
     if "NVCenterVoigt" in inner_name:
         return (
             r"$S(f) = B - \frac{A}{k}(L*G)(f\!-\!f_0\!+\!\Delta) - A(L*G)(f\!-\!f_0) - Ak(L*G)(f\!-\!f_0\!-\!\Delta)$, "
             r"$(L*G)(x) = \int_{-\infty}^{\infty}\!\frac{\eta W/2\pi}{t^2+(\eta W/2)^2} \cdot "
-            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2((1-\eta)W/2\sqrt{2\ln 2})^2}\right]}{\frac{(1-\eta)W}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"
+            r"\frac{\exp\!\left[-\frac{(x-t)^2}{2((1-\eta)W/2\sqrt{2\ln 2})^2}\right]}{\frac{(1-\eta)W}{2\sqrt{2\ln 2}}\sqrt{2\pi}}\,dt$"  # noqa: E501
         )
     if "Lorentzian" in inner_name:
         return r"$S(f) = B - A \frac{\omega^2}{(f - f_0)^2 + \omega^2}$"
@@ -437,7 +435,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
 
-    def plot_posterior_animation_all_params(
+    def plot_posterior_animation_all_params(  # noqa: C901
         self,
         posterior_inputs_by_param: dict[str, tuple[list[np.ndarray], np.ndarray]],
         out_path: Path,
@@ -506,7 +504,7 @@ class BayesianMixin:
 
         frames = []
         refocusing_steps = set()  # Track steps where refocusing occurs
-        
+
         for si, step_idx in enumerate(step_indices):
             # Get narrowed bounds for this step if available
             step_bounds = None
@@ -517,7 +515,7 @@ class BayesianMixin:
                 step_bounds = narrowed_param_bounds
 
             frame_data = traces_for_step(step_idx)
-            
+
             # Add acquisition window overlays for this step to frame data
             if step_bounds and acquisition_param and acquisition_param in step_bounds:
                 window = step_bounds[acquisition_param]
@@ -527,11 +525,8 @@ class BayesianMixin:
                     x0, x1 = float(window[0]), float(window[1])
                     if math.isfinite(x0) and math.isfinite(x1) and x1 > x0:
                         # Determine annotation text based on step
-                        if step_idx < 32:  # Initial sweep steps
-                            annotation = "post-sweep acquisition"
-                        else:
-                            annotation = "posterior refocusing"
-                        
+                        annotation = "post-sweep acquisition" if step_idx < 32 else "posterior refocusing"
+
                         frame_data.append(
                             go.Scatter(
                                 x=[x0, x1, x1, x0, x0],
@@ -546,13 +541,18 @@ class BayesianMixin:
                                 name=annotation,  # Store annotation in name for hover
                             )
                         )
-                        
+
                         # Track refocusing events (after initial sweep, every 20 steps)
                         if step_idx >= 32 and (step_idx - 32) % 20 == 0:
                             refocusing_steps.add(si)
-            
+
             # If no per-step bounds but we have acquisition window, show it as post-sweep
-            elif not step_bounds and acquisition_window is not None and acquisition_param and acquisition_param in posterior_inputs_by_param:
+            elif (
+                not step_bounds
+                and acquisition_window is not None
+                and acquisition_param
+                and acquisition_param in posterior_inputs_by_param
+            ):
                 if step_idx >= 32:  # Only show after sweep is complete
                     row_nb = param_names.index(acquisition_param) + 1
                     x0, x1 = float(acquisition_window[0]), float(acquisition_window[1])
@@ -571,7 +571,7 @@ class BayesianMixin:
                                 name="post-sweep acquisition",
                             )
                         )
-                        
+
                         # Manually track refocusing events every 20 steps after initial sweep
                         if step_idx >= 32 and (step_idx - 32) % 20 == 0:
                             refocusing_steps.add(si)
@@ -581,7 +581,7 @@ class BayesianMixin:
             title_text = f"Posterior evolution (all parameters){_formula_suffix}<br>step {step_idx + 1}/{total_steps}"
             if si in refocusing_steps:
                 title_text = title_text.replace("<br>", " [REFOCUSING]<br>", 1)
-                
+
             frames.append(
                 go.Frame(
                     data=frame_data,
@@ -596,11 +596,8 @@ class BayesianMixin:
         for si, frame in enumerate(frames):
             step_num = step_indices[si] + 1
             # Highlight refocusing steps with brackets
-            if si in refocusing_steps:
-                label = f"[{step_num}]"  # Brackets mark refocusing steps
-            else:
-                label = str(step_num)
-                
+            label = f"[{step_num}]" if si in refocusing_steps else str(step_num)  # Brackets mark refocusing steps
+
             slider_steps.append(
                 {
                     "args": [
@@ -840,7 +837,7 @@ class BayesianMixin:
             return
 
         n_steps = len(correlation_history)
-        n_params = len(param_names)
+        len(param_names)
 
         # Subsample if too many steps
         step_indices = list(range(n_steps))
@@ -997,9 +994,7 @@ class BayesianMixin:
         fig = make_subplots(
             rows=1,
             cols=n_pairs,
-            subplot_titles=[
-                f"{param_names[i]} vs {param_names[j]}" for i, j in pairs
-            ],
+            subplot_titles=[f"{param_names[i]} vs {param_names[j]}" for i, j in pairs],
         )
 
         # Colors for progression (early = light, late = dark)
@@ -1013,10 +1008,12 @@ class BayesianMixin:
             for pair_idx, (i, j) in enumerate(pairs):
                 # Get 2x2 covariance for this pair at this step
                 cov_full = covariance_history[step_idx]
-                cov_2d = np.array([
-                    [cov_full[i, i], cov_full[i, j]],
-                    [cov_full[j, i], cov_full[j, j]],
-                ])
+                cov_2d = np.array(
+                    [
+                        [cov_full[i, i], cov_full[i, j]],
+                        [cov_full[j, i], cov_full[j, j]],
+                    ]
+                )
 
                 # Generate 2σ ellipse points
                 theta = np.linspace(0, 2 * np.pi, 100)
@@ -1025,8 +1022,8 @@ class BayesianMixin:
 
                 ellipse_x = a * np.cos(theta)
                 ellipse_y = b * np.sin(theta)
-                R = eigvecs
-                points = np.column_stack([ellipse_x, ellipse_y]) @ R.T
+                rot = eigvecs
+                points = np.column_stack([ellipse_x, ellipse_y]) @ rot.T
 
                 frame_data.append(
                     go.Scatter(
@@ -1217,7 +1214,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
 
-    def plot_fisher_crlb_pairs(
+    def plot_fisher_crlb_pairs(  # noqa: C901
         self,
         fisher_hist: list[np.ndarray],
         param_names: list[str],
@@ -1338,7 +1335,7 @@ class BayesianMixin:
                         yaxis=yaxis,
                         mode="lines",
                         line=dict(color="#2d8f2d", width=2),
-                        name=f"CRLB Ellipse",
+                        name="CRLB Ellipse",
                         showlegend=(i == 0 and j == 1),
                         legendgroup="ellipse",
                     )
@@ -1518,7 +1515,7 @@ class BayesianMixin:
             row = i + 1
 
             # Uncertainty values
-            uncertainties = [float(cm['uncertainties'].get(param, np.nan)) for cm in conv_metrics]
+            uncertainties = [float(cm["uncertainties"].get(param, np.nan)) for cm in conv_metrics]
             fig.add_trace(
                 go.Scatter(
                     x=steps,
@@ -1545,7 +1542,7 @@ class BayesianMixin:
             in_converged = False
             start_idx = 0
             for idx, cm in enumerate(conv_metrics):
-                is_conv = cm['converged_params'].get(param, False)
+                is_conv = cm["converged_params"].get(param, False)
                 if is_conv and not in_converged:
                     in_converged = True
                     start_idx = idx
@@ -1568,8 +1565,8 @@ class BayesianMixin:
                 )
 
         # Convergence streak plot (bottom subplot)
-        streaks = [int(cm['convergence_streak']) for cm in conv_metrics]
-        achieved = [bool(cm['convergence_achieved']) for cm in conv_metrics]
+        streaks = [int(cm["convergence_streak"]) for cm in conv_metrics]
+        achieved = [bool(cm["convergence_achieved"]) for cm in conv_metrics]
 
         fig.add_trace(
             go.Scatter(

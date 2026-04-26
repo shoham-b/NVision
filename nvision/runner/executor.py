@@ -99,12 +99,14 @@ def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribu
         # Use experiment bounds if available, otherwise default
         bounds = getattr(experiment.true_signal, "bounds", {}).get(name, (experiment.x_min, experiment.x_max))
         grid = np.linspace(bounds[0], bounds[1], 64)
-        parameters.append(GridParameter(
-            name=name,
-            bounds=bounds,
-            grid=grid,
-            posterior=np.ones(64) / 64,
-        ))
+        parameters.append(
+            GridParameter(
+                name=name,
+                bounds=bounds,
+                grid=grid,
+                posterior=np.ones(64) / 64,
+            )
+        )
 
     return GridMarginalDistribution(model=model, parameters=parameters)
 
@@ -137,10 +139,7 @@ def precompute_sweep(
     locator = locator_class.create(**locator_config)
 
     # For Bayesian: use initial_sweep_steps; for sweep: use max_steps (full sweep)
-    if is_bayesian:
-        sweep_steps = getattr(locator, "initial_sweep_steps", 0)
-    else:
-        sweep_steps = getattr(locator, "max_steps", 0)
+    sweep_steps = getattr(locator, "initial_sweep_steps", 0) if is_bayesian else getattr(locator, "max_steps", 0)
 
     if sweep_steps <= 0:
         return None
@@ -184,6 +183,7 @@ class SweepCache:
 
     def has(self, experiment: CoreExperiment, sweep_steps: int) -> bool:
         return has_cached_sweep(experiment, sweep_steps)
+
 
 type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]
@@ -610,8 +610,8 @@ class _TaskRunner:
             signal_max_span = model.signal_max_span(domain_width)
 
         # Check locator class attributes to determine configuration
-        uses_sweep_max_steps = getattr(locator_class, 'USES_SWEEP_MAX_STEPS', False)
-        requires_belief = getattr(locator_class, 'REQUIRES_BELIEF', False)
+        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+        requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
         max_steps = self.task.sweep_max_steps if uses_sweep_max_steps else self.task.loc_max_steps
 
         cfg = {
@@ -631,7 +631,7 @@ class _TaskRunner:
 
         precompute_sweep(locator_class, experiment, rng, self._sweep_cache, **cfg)
 
-    def _run_single_repeat(
+    def _run_single_repeat(  # noqa: C901
         self,
         *,
         rid: int,
@@ -642,6 +642,7 @@ class _TaskRunner:
         repeat_start_time: float,
     ) -> tuple[pl.DataFrame, dict[str, Any], str, RunResult]:
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
         noise_std = 0.05
         noise_max_dev: float | None = None
         if experiment.noise is not None:
@@ -653,16 +654,15 @@ class _TaskRunner:
                 noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=mid_n))
         # Read signal spans from the model's declared methods.
         domain_width = float(experiment.x_max - experiment.x_min)
-        signal_min_span: float | None = None
         signal_max_span: float | None = None
         model = experiment.true_signal.model
         if hasattr(model, "signal_min_span") and callable(model.signal_min_span):
-            signal_min_span = model.signal_min_span(domain_width)
+            model.signal_min_span(domain_width)
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
         # Check locator class attributes to determine configuration
-        uses_sweep_max_steps = getattr(locator_class, 'USES_SWEEP_MAX_STEPS', False)
-        requires_belief = getattr(locator_class, 'REQUIRES_BELIEF', False)
+        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+        requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
         max_steps = self.task.sweep_max_steps if uses_sweep_max_steps else self.task.loc_max_steps
 
         cfg = {
@@ -670,8 +670,8 @@ class _TaskRunner:
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": noise_std,
-            **({}  if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
-            **({}  if signal_max_span is None else {"signal_max_span": signal_max_span}),
+            **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
+            **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
 
         # For locators that require belief, add belief and signal_model
@@ -725,8 +725,10 @@ class _TaskRunner:
             inf_steps = getattr(last_loc, "inference_step_count", 0)
             max_steps = getattr(last_loc, "max_steps", 0)
             log = logging.getLogger("nvision")
-            log.info(f"[STEP DEBUG] rid={rid} init_sweep={init_sweep_steps} eff_sweep={eff_sweep_steps} "
-                     f"step_count={step_count} inf_steps={inf_steps} max_steps={max_steps}")
+            log.info(
+                f"[STEP DEBUG] rid={rid} init_sweep={init_sweep_steps} eff_sweep={eff_sweep_steps} "
+                f"step_count={step_count} inf_steps={inf_steps} max_steps={max_steps}"
+            )
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
         return history_df, finalize_record, stop_reason, result

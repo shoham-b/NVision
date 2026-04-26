@@ -212,7 +212,7 @@ class Observer:
         self.x_max = x_max
         self.snapshots: list[StepSnapshot] = []
 
-    def watch(self, runner: Iterator[Locator]) -> RunResult:
+    def watch(self, runner: Iterator[Locator]) -> RunResult:  # noqa: C901
         """Watch a run and accumulate snapshots.
 
         Parameters
@@ -273,9 +273,12 @@ class Observer:
             elif hasattr(last_locator, "initial_sweep_steps"):
                 sweep_steps = last_locator.initial_sweep_steps
             import logging
-            logging.getLogger("nvision").info(f"[OBSERVER DEBUG] sweep_steps={sweep_steps} "
-                                             f"snapshots={len(self.snapshots)} "
-                                             f"last_loc type={type(last_locator).__name__}")
+
+            logging.getLogger("nvision").info(
+                f"[OBSERVER DEBUG] sweep_steps={sweep_steps} "
+                f"snapshots={len(self.snapshots)} "
+                f"last_loc type={type(last_locator).__name__}"
+            )
             if hasattr(last_locator, "secondary_sweep_count"):
                 secondary_sweep_steps = last_locator.secondary_sweep_count()
 

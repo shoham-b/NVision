@@ -246,16 +246,11 @@ def _collect_cache_results_from_configs(
             for entry in entries:
                 cleaned = strip_heavy_fields(entry)
                 cleaned_entries.append(cleaned)
-                if entry.get("type") == "scan":
-                    if not entry.get("generator") or not entry.get("strategy"):
-                        log.warning(
-                            "Scan entry missing generator or strategy field: %s",
-                            {
-                                k: v
-                                for k, v in entry.items()
-                                if k in ("type", "generator", "strategy", "path", "repeat")
-                            },
-                        )
+                if entry.get("type") == "scan" and (not entry.get("generator") or not entry.get("strategy")):
+                    log.warning(
+                        "Scan entry missing generator or strategy field: %s",
+                        {k: v for k, v in entry.items() if k in ("type", "generator", "strategy", "path", "repeat")},
+                    )
             plot_manifest.extend(cleaned_entries)
             df_rows.append(main_result_row)
 

@@ -60,11 +60,17 @@ class TwoPeakCoreGenerator:
         )
         model1, peak1_typed = _make_model_and_spectrum(
             self.peak_config_left,
-            pos=peak1_pos, width=peak1_width, dip_depth=1.0, background=background / 2,
+            pos=peak1_pos,
+            width=peak1_width,
+            dip_depth=1.0,
+            background=background / 2,
         )
         model2, peak2_typed = _make_model_and_spectrum(
             self.peak_config_right,
-            pos=peak2_pos, width=peak2_width, dip_depth=1.0, background=background / 2,
+            pos=peak2_pos,
+            width=peak2_width,
+            dip_depth=1.0,
+            background=background / 2,
         )
         composite_model = CompositePeakModel([("peak1", model1), ("peak2", model2)])
 

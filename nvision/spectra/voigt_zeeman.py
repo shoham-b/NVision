@@ -45,7 +45,13 @@ class VoigtZeemanSpectrumUncertainty:
     background: float
 
 
-class _VoigtZeemanSpec(GenericParamSpec[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples, VoigtZeemanSpectrumUncertainty]):
+class _VoigtZeemanSpec(
+    GenericParamSpec[
+        VoigtZeemanSpectrum,
+        VoigtZeemanSpectrumSamples,
+        VoigtZeemanSpectrumUncertainty,
+    ]
+):
     params_cls = VoigtZeemanSpectrum
     samples_cls = VoigtZeemanSpectrumSamples
     uncertainty_cls = VoigtZeemanSpectrumUncertainty

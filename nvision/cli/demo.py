@@ -11,7 +11,7 @@ Beta testing (isolated from demo artifacts, uses port 18082):
     uv run python -m nvision beta --no-cache   # Fresh beta run
 
 To run all NV center generators (slower):
-    uv run python -m nvision demo --filter-generator """
+    uv run python -m nvision demo --filter-generator"""
 
 from __future__ import annotations
 
@@ -31,7 +31,6 @@ from nvision.tools.paths import ensure_out_dir
 
 log = logging.getLogger("nvision")
 console = Console()
-
 
 
 def _clear_demo_artifacts(artifacts_root: Path, keep_logs: bool = True) -> None:
@@ -287,5 +286,5 @@ def beta(
     )
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     demo()

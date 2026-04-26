@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
+from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
@@ -27,6 +28,7 @@ def sobol_1d_sequence(n: int, *, offset: float = 0.0) -> NDArray[np.float64]:
 
     Uses a van der Corput base-2 sequence.
     """
+
     def vdc(k: int, base: int = 2) -> float:
         v = 0.0
         denom = 1.0
@@ -55,6 +57,103 @@ def vdc_generator(base: int = 2) -> Iterator[float]:
             v += remainder / denom
         yield v
         k += 1
+
+
+class SobolSweepLocator(SweepingLocator):
+    """Simple Sobol-based sweep locator without refocusing.
+
+    Generates a van der Corput (Sobol-like) low-discrepancy sequence over the
+    full domain, detects signal dips from the sweep data, and sets an
+    acquisition window. Unlike ``StagedSobolSweepLocator``, there is no Stage 2
+    thresholding or Stage 3 focused sampling — just a single sweep with
+    signal detection handled by the inherited ``finalize()``.
+    """
+
+    @classmethod
+    def create(
+        cls,
+        belief: AbstractMarginalDistribution,
+        signal_model: SignalModel,
+        max_steps: int,
+        *,
+        noise_std: float = 0.01,
+        noise_max_dev: float | None = None,
+        signal_min_span: float | None = None,
+        signal_max_span: float | None = None,
+        scan_param: str | None = None,
+        domain_lo: float = 0.0,
+        domain_hi: float = 1.0,
+        parameter_bounds: dict[str, tuple[float, float]] | None = None,
+    ) -> SobolSweepLocator:
+        """Factory method for creating a SobolSweepLocator."""
+        if parameter_bounds is not None:
+            param_name = scan_param or (
+                signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
+            )
+            if param_name in parameter_bounds:
+                domain_lo, domain_hi = parameter_bounds[param_name]
+
+        return cls(
+            belief=belief,
+            signal_model=signal_model,
+            max_steps=max_steps,
+            noise_std=noise_std,
+            noise_max_dev=noise_max_dev,
+            signal_min_span=signal_min_span,
+            signal_max_span=signal_max_span,
+            scan_param=scan_param,
+            domain_lo=domain_lo,
+            domain_hi=domain_hi,
+        )
+
+    def __init__(
+        self,
+        belief: AbstractMarginalDistribution,
+        signal_model: SignalModel,
+        max_steps: int,
+        *,
+        noise_std: float = 0.01,
+        noise_max_dev: float | None = None,
+        signal_min_span: float | None = None,
+        signal_max_span: float | None = None,
+        scan_param: str | None = None,
+        domain_lo: float = 0.0,
+        domain_hi: float = 1.0,
+    ):
+        super().__init__(
+            belief=belief,
+            signal_model=signal_model,
+            max_steps=max_steps,
+            noise_std=noise_std,
+            noise_max_dev=noise_max_dev,
+            signal_min_span=signal_min_span,
+            signal_max_span=signal_max_span,
+            scan_param=scan_param,
+            domain_lo=domain_lo,
+            domain_hi=domain_hi,
+        )
+        # Refocusing disabled — single sweep over full domain
+        self._refocus_at = None
+
+    def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
+        """Generate n Sobol sequence points in [0, 1]."""
+        if n <= 0:
+            return np.array([], dtype=float)
+        return sobol_1d_sequence(n)
+
+    def _generate_fallback_points(self, n: int) -> NDArray[np.float64]:
+        """Generate fallback Sobol points with 0.5 offset for coverage."""
+        if n <= 0:
+            return np.array([], dtype=float)
+        return sobol_1d_sequence(n, offset=0.5)
+
+    def _should_refocus(self, step_count: int) -> int | None:
+        """No refocusing for simple Sobol sweep."""
+        return None
+
+    def _regenerate_points(self, refocus_step: int, lo_norm: float, hi_norm: float) -> None:
+        """No-op — refocusing is disabled."""
+        pass
 
 
 class Stage1SobolLocator:
@@ -115,10 +214,10 @@ class Stage2SobolLocator:
         # Extract top 70% of measurements (discard the bottom 30% which may contain signal dips)
         p30_val = float(np.percentile(ys_valid, 30))
         noise_points = ys_valid[ys_valid >= p30_val]
-        
+
         noise_median = float(np.median(noise_points))
         noise_std = float(np.std(noise_points))
-        
+
         # Threshold is defined as 2 stds below the median of the noise points
         self._noise_threshold = noise_median - 2.0 * noise_std
 
@@ -146,21 +245,23 @@ class Stage3SobolLocator:
         self._infer_bounds()
 
     def next(self) -> float:
-        """Draw repeatedly until we hit one inside our precise heuristic window."""
-        while True:
-            u = next(self._sobol_gen)
-            x = self.domain_lo + u * (self.domain_hi - self.domain_lo)
-            if self.window_lo <= x <= self.window_hi:
-                return x
+        """Return the next Sobol point scaled directly to the focus window.
+
+        The van der Corput sequence gives uniform low-discrepancy coverage
+        of [0, 1]; scaling it linearly to ``[window_lo, window_hi]`` preserves
+        that property inside the window without expensive rejection sampling.
+        """
+        u = next(self._sobol_gen)
+        return self.window_lo + u * (self.window_hi - self.window_lo)
 
     def observe(self, obs: Observation) -> None:
         pass
 
     def done(self) -> bool:
-        # By instantly returning True, we force the parent SequentialBayesianLocator 
-        # to immediately take over. It will natively batch update the SMC history, 
-        # restrict inference to the bounds inferred here, and optimize data collection.
-        return True
+        # When used inside SequentialBayesianLocator, the parent checks this and
+        # takes over. When used standalone (StagedSobolSweepLocator), we continue
+        # generating focused points; the parent handles max_steps via step_count.
+        return False
 
     def _infer_bounds(self) -> None:
         ys_valid = self.history.ys
@@ -169,10 +270,10 @@ class Stage3SobolLocator:
         # Extract top 70% of measurements (discard the bottom 30% which may contain signal dips)
         p30_val = float(np.percentile(ys_valid, 30))
         noise_points = ys_valid[ys_valid >= p30_val]
-        
+
         noise_median = float(np.median(noise_points))
         noise_std = float(np.std(noise_points))
-        
+
         # Threshold is defined as 2 stds below the median of the noise points
         noise_threshold = noise_median - 2.0 * noise_std
 
@@ -274,6 +375,9 @@ class StagedSobolSweepLocator(Locator):
         self._sobol_gen = vdc_generator()
         self._signal_found = False
 
+        # Track initial sweep steps for Observer phase coloring
+        self._initial_sweep_steps = 0
+
         self._stage1 = Stage1SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi)
         self._stage2: Stage2SobolLocator | None = None
         self._stage3: Stage3SobolLocator | None = None
@@ -284,16 +388,14 @@ class StagedSobolSweepLocator(Locator):
         self.step_count += 1
 
         if self.done():
-             return (self.domain_lo + self.domain_hi) / 2.0
+            return (self.domain_lo + self.domain_hi) / 2.0
 
         return self._active_locator.next()
 
     def done(self) -> bool:
         if self.step_count >= self.max_steps:
-             return True
-        if self._active_locator is self._stage3 and self._stage3.done():
-             return True
-        return False
+            return True
+        return bool(self._active_locator is self._stage3 and self._stage3.done())
 
     def observe(self, obs: Observation) -> None:
         if self.step_count > self.max_steps:
@@ -305,9 +407,7 @@ class StagedSobolSweepLocator(Locator):
         self._active_locator.observe(obs)
 
         if self._active_locator is self._stage1 and self._active_locator.done():
-            self._stage2 = Stage2SobolLocator(
-                self._sobol_gen, self.domain_lo, self.domain_hi, self.history
-            )
+            self._stage2 = Stage2SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
             self._active_locator = self._stage2
 
             # Cascade: Stage 2 might be instantaneously complete if dips found in Stage 1 data!
@@ -318,18 +418,28 @@ class StagedSobolSweepLocator(Locator):
             self._transition_to_stage3()
 
     def _transition_to_stage3(self) -> None:
-        self._stage3 = Stage3SobolLocator(
-            self._sobol_gen, self.domain_lo, self.domain_hi, self.history
-        )
+        self._initial_sweep_steps = self.step_count
+        self._stage3 = Stage3SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
         self._active_locator = self._stage3
         self._signal_found = True
+
+    def effective_initial_sweep_steps(self) -> int:
+        """Return number of steps in the initial sweep (Stage 1 + Stage 2).
+
+        Called by the Observer to determine how many measurements belong to
+        the 'coarse' phase for plot coloring.
+        """
+        if self._initial_sweep_steps > 0:
+            return self._initial_sweep_steps
+        # If we never reached Stage 3, all completed steps were initial sweep
+        return self.step_count
 
     def finalize(self) -> None:
         pass
 
     def acquisition_window(self) -> tuple[float, float]:
         if self._stage3 is not None:
-             return (self._stage3.window_lo, self._stage3.window_hi)
+            return (self._stage3.window_lo, self._stage3.window_hi)
         return (self.domain_lo, self.domain_hi)
 
     def result(self) -> dict[str, float | bool]:

@@ -22,7 +22,7 @@ def _truth_positions(experiment: CoreExperiment) -> list[float]:
     return [value for name, value in values.items() if "frequency" in name or "position" in name]
 
 
-def generate_attempt_metrics(
+def generate_attempt_metrics(  # noqa: C901
     n_repeats: int,
     attempt_idx_in_combo: int,
     gen_name: str,

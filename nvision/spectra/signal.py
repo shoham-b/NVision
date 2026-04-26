@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
-from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
@@ -14,7 +14,7 @@ SampleParamsT = TypeVar("SampleParamsT")
 UncertaintyT = TypeVar("UncertaintyT")
 
 
-class GenericParamSpec(Generic[ParamsT, SampleParamsT, UncertaintyT]):
+class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
     """Auto-implement ParamSpec methods using dataclass field introspection.
 
     Subclasses must define three class attributes:
@@ -39,13 +39,13 @@ class GenericParamSpec(Generic[ParamsT, SampleParamsT, UncertaintyT]):
         return len(self.names)
 
     def unpack_params(self, values: Sequence[float]) -> ParamsT:
-        return self.params_cls(**dict(zip(self.names, values)))
+        return self.params_cls(**dict(zip(self.names, values, strict=False)))
 
     def pack_params(self, params: ParamsT) -> tuple[float, ...]:
         return tuple(getattr(params, name) for name in self.names)
 
     def unpack_uncertainty(self, values: Sequence[float]) -> UncertaintyT:
-        return self.uncertainty_cls(**dict(zip(self.names, values)))
+        return self.uncertainty_cls(**dict(zip(self.names, values, strict=False)))
 
     def pack_uncertainty(self, u: UncertaintyT) -> tuple[float, ...]:
         return tuple(getattr(u, name) for name in self.names)
@@ -54,18 +54,13 @@ class GenericParamSpec(Generic[ParamsT, SampleParamsT, UncertaintyT]):
         from nvision.spectra.dtypes import FLOAT_DTYPE
 
         return self.samples_cls(
-            **{
-                name: np.asarray(arr, dtype=FLOAT_DTYPE)
-                for name, arr in zip(self.names, arrays_in_order, strict=True)
-            }
+            **{name: np.asarray(arr, dtype=FLOAT_DTYPE) for name, arr in zip(self.names, arrays_in_order, strict=True)}
         )
 
     def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]:
         from nvision.spectra.dtypes import FLOAT_DTYPE
 
-        return tuple(
-            np.asarray(getattr(samples, name), dtype=FLOAT_DTYPE) for name in self.names
-        )
+        return tuple(np.asarray(getattr(samples, name), dtype=FLOAT_DTYPE) for name in self.names)
 
 
 @runtime_checkable
@@ -221,9 +216,7 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
 
         return None
 
-    def gradient_vectorized(
-        self, x: float, *param_arrays: object
-    ) -> dict[str, np.ndarray] | None:
+    def gradient_vectorized(self, x: float, *param_arrays: object) -> dict[str, np.ndarray] | None:
         """Vectorized gradient computation for all particles at position x.
 
         Returns a dict mapping parameter names to arrays of gradient values
@@ -351,7 +344,7 @@ class TrueSignal[ParamsT]:
             k_np = float(params.k_np)
             dip_depth = float(params.dip_depth)
             # For 3-dip Zeeman splitting, smallest dip is left dip: dip_depth / k_np^2
-            return dip_depth / (k_np ** 2)
+            return dip_depth / (k_np**2)
 
         return None
 

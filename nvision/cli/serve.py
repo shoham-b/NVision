@@ -12,6 +12,7 @@ Keyboard shortcuts (in browser):
 
 from __future__ import annotations
 
+import contextlib
 import http.server
 import json
 import logging
@@ -52,16 +53,18 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
     directory_to_serve: ClassVar[Path] = Path(".")
     is_demo: ClassVar[bool] = False
 
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: object) -> None:
         pass
 
     def do_GET(self) -> None:
         """Handle GET requests - check for API endpoints first."""
         if self.path == "/api/status":
-            self._send_json({
-                "reload_running": _reload_state["running"],
-                "last_output": _reload_state["last_output"],
-            })
+            self._send_json(
+                {
+                    "reload_running": _reload_state["running"],
+                    "last_output": _reload_state["last_output"],
+                }
+            )
             return
         # Fall through to static file serving
         super().do_GET()
@@ -145,11 +148,8 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
 
     def handle(self) -> None:
         """Handle requests with graceful client disconnect handling."""
-        try:
-            super().handle()
-        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
-            # Silently ignore benign client disconnects (browser refresh/close)
-            pass
+        with contextlib.suppress(ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            super().handle()  # Silently ignore benign client disconnects (browser refresh/close)
 
 
 def _default_port_for_dir(directory: Path) -> int:
@@ -191,7 +191,7 @@ def _port_is_open(port: int) -> bool:
 
 
 @app.command()
-def serve(
+def serve(  # noqa: C901
     directory: Annotated[
         Path,
         typer.Option("--dir", help="Directory to serve (default: artifacts)"),
@@ -224,7 +224,8 @@ def serve(
     """
     # Run demo first if requested
     if demo:
-        from nvision.cli.demo import demo as demo_cmd, DEMO_ARTIFACTS_ROOT
+        from nvision.cli.demo import DEMO_ARTIFACTS_ROOT
+        from nvision.cli.demo import demo as demo_cmd
 
         directory = DEMO_ARTIFACTS_ROOT
         index = directory / "index.html"
@@ -352,4 +353,4 @@ def serve_stop(
             console.print(f"[dim]Response: {data.get('message', 'OK')}[/dim]")
     except Exception as e:
         console.print(f"[bold red]Failed to stop server:[/bold red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

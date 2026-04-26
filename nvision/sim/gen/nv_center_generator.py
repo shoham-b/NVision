@@ -18,7 +18,6 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtSpectrum,
     NVCenterVoigtSpectrumSamples,
 )
-from nvision.spectra.signal import TrueSignal
 
 from .peak_spec import _true_signal_from_typed
 

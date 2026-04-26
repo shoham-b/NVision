@@ -5,11 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from nvision.spectra import (
-    CompositePeakModel,
     GaussianModel,
     LorentzianModel,
 )
-from nvision.spectra.composite import CompositeSpectrum
 from nvision.spectra.gaussian import GaussianSpectrum
 from nvision.spectra.lorentzian import LorentzianSpectrum
 from nvision.spectra.signal import TrueSignal
@@ -71,6 +69,7 @@ LORENTZIAN = PeakSpec(
     max_span_frac=4 * 0.2,  # ±2×linewidth at maximum linewidth
 )
 
+
 def _make_bounds(
     spec: PeakSpec,
     x_min: float,
@@ -116,9 +115,7 @@ def _make_model_and_spectrum(
     Returns a ``(SignalModel, typed_spectrum)`` pair.
     """
     if spec == GAUSSIAN:
-        return GaussianModel(), GaussianSpectrum(
-            frequency=pos, sigma=width, dip_depth=dip_depth, background=background
-        )
+        return GaussianModel(), GaussianSpectrum(frequency=pos, sigma=width, dip_depth=dip_depth, background=background)
     if spec == LORENTZIAN:
         return LorentzianModel(), LorentzianSpectrum(
             frequency=pos, linewidth=width, dip_depth=dip_depth, background=background

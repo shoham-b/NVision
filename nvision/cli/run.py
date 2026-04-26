@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import logging
 import queue
 from datetime import datetime
@@ -39,7 +40,7 @@ log = logging.getLogger("nvision")
 console = Console()
 
 
-def _run_tasks_process_pool(
+def _run_tasks_process_pool(  # noqa: C901
     tasks: list[object],
     *,
     runners: int,
@@ -108,21 +109,19 @@ def _run_tasks_process_pool(
         # On Windows, forcibly kill child processes if needed
         try:
             import psutil
+
             parent = psutil.Process()
             for child in parent.children(recursive=True):
-                try:
+                with contextlib.suppress(psutil.NoSuchProcess):
                     child.terminate()
-                except psutil.NoSuchProcess:
-                    pass
             # Give processes a moment to terminate gracefully
             import time
+
             time.sleep(0.5)
             # Kill any remaining
             for child in parent.children(recursive=True):
-                try:
+                with contextlib.suppress(psutil.NoSuchProcess):
                     child.kill()
-                except psutil.NoSuchProcess:
-                    pass
         except ImportError:
             pass  # psutil not available
         raise  # Re-raise to let the caller handle it
@@ -133,10 +132,8 @@ def _run_tasks_process_pool(
                 executor.shutdown(wait=True)
         except KeyboardInterrupt:
             # User hit Ctrl+C again during shutdown - force terminate without waiting
-            try:
+            with contextlib.suppress(Exception):
                 executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
         except Exception:
             pass  # Best effort cleanup
 
@@ -204,10 +201,7 @@ def run(  # noqa: C901
     ] = None,
     filter_category: Annotated[
         str | None,
-        typer.Option(
-            "--filter-category",
-            help="Filter by generator category (NVCenter, TwoPeak)."
-        ),
+        typer.Option("--filter-category", help="Filter by generator category (NVCenter, TwoPeak)."),
     ] = None,
     filter_strategy: Annotated[
         str | None,
@@ -348,7 +342,8 @@ def run(  # noqa: C901
 
     _prune_run_logs(effective_logs_root, max_runs=2)
     run_log_path = (
-        effective_logs_root / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        effective_logs_root
+        / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y-%m-%d_%H-%M-%S')}.log"
     )
     file_handler = logging.FileHandler(run_log_path, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)  # Always capture full tracebacks in file
@@ -403,7 +398,9 @@ def run(  # noqa: C901
 
         filter_category_str = filter_category if filter_category is not None else None
         filter_strategy_str = filter_strategy if filter_strategy is not None else None
-        filter_generator_str = getattr(filter_generator, "value", filter_generator) if filter_generator is not None else None
+        filter_generator_str = (
+            getattr(filter_generator, "value", filter_generator) if filter_generator is not None else None
+        )
         filter_noise_str = getattr(filter_noise, "value", filter_noise) if filter_noise is not None else None
         filter_signal_str = filter_signal if filter_signal is not None else None
 
@@ -471,7 +468,11 @@ def run(  # noqa: C901
                                 df_rows.append(main_result_row)
                         except Exception as exc:
                             # Log clean error to console (via monitor), full traceback to file only
-                            log.error("Task failed with error (combination=%s): %s", locator_task.slug, type(exc).__name__)
+                            log.error(
+                                "Task failed with error (combination=%s): %s",
+                                locator_task.slug,
+                                type(exc).__name__,
+                            )
                             log.debug("Task failed with error (combination=%s)", locator_task.slug, exc_info=True)
                             errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
                             if len(errors) > 5:
@@ -523,7 +524,7 @@ def run(  # noqa: C901
             console.print("[yellow]No results collected before interruption.[/yellow]")
         else:
             console.print("[yellow]No results to display.[/yellow]")
-        return 0 if interrupted else 0
+        return 0
 
     if interrupted:
         console.print(f"[cyan]Processing {len(df_rows)} partial result(s)...[/cyan]")

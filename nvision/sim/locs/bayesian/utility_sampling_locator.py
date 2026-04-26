@@ -114,7 +114,12 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
             inv_cost=1.0 / self.cost,
         )
 
-        utilities = self._apply_parameter_weight_bias(utilities, np.asarray(mu_preds, dtype=np.float64), sampled, candidates)
+        utilities = self._apply_parameter_weight_bias(
+            utilities,
+            np.asarray(mu_preds, dtype=np.float64),
+            sampled,
+            candidates,
+        )
         utilities += 1e-12
         probs = utilities**self.pickiness
         probs /= probs.sum()

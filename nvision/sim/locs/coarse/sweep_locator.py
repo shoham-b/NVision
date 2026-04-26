@@ -136,21 +136,16 @@ class SweepingLocator(Locator):
         if self.step_count <= self.max_steps:
             # Check if we should refocus
             refocus_step = self._should_refocus(self.step_count)
-            if (
-                refocus_step is not None
-                and refocus_step < self.max_steps
-                and self.history.count >= refocus_step
-            ):
+            if refocus_step is not None and refocus_step < self.max_steps and self.history.count >= refocus_step:
                 self._last_refocus_step = refocus_step
                 self._maybe_refocus(refocus_step)
 
             # Early stopping check
-            if self._last_refocus_step > 0 and self.history.count >= 6:
-                if self._check_early_stop():
-                    self._early_stopped = True
-                    self._completed_at_step = self.step_count
-                    self.step_count = self.max_steps  # Jump to end
-                    self._set_acquisition_window()
+            if self._last_refocus_step > 0 and self.history.count >= 6 and self._check_early_stop():
+                self._early_stopped = True
+                self._completed_at_step = self.step_count
+                self.step_count = self.max_steps  # Jump to end
+                self._set_acquisition_window()
 
             u = float(self._sweep_points[self.step_count - 1])
             return self._domain_lo + u * (self._domain_hi - self._domain_lo)
@@ -256,10 +251,9 @@ class SweepingLocator(Locator):
         else:
             # Fallback: use model guidance or reasonable default
             max_span = self._signal_max_span if self._signal_max_span is not None else self._model_signal_max_span()
-            if max_span is not None and domain_width > 0:
-                half_w = float(max_span / 2.0 / domain_width)
-            else:
-                half_w = 0.15  # 15% default
+            half_w = (
+                float(max_span / 2.0 / domain_width) if max_span is not None and domain_width > 0 else 0.15
+            )  # 15% default
 
         # Clamp to reasonable bounds: at least 5% of domain, at most 40%
         half_w = float(np.clip(half_w, 0.05, 0.40))
@@ -464,7 +458,7 @@ class SweepingLocator(Locator):
         # Default: uniform grid with offset
         return (np.linspace(0.0, 1.0, n) + 0.5) % 1.0
 
-    def finalize(self) -> None:
+    def finalize(self) -> None:  # noqa: C901
         """Finalize the coarse sweep, strictly refining the window bounds to eliminate baseline tails."""
         if not self._signal_found and not self._early_stopped:
             self._set_acquisition_window()
@@ -548,7 +542,9 @@ class SweepingLocator(Locator):
             self._acquisition_lo = lo
             self._acquisition_hi = hi
 
-    def _detect_signal_span(self, xs: np.ndarray, ys: np.ndarray) -> tuple[float, float] | None:
+    def _detect_signal_span(  # noqa: C901
+        self, xs: np.ndarray, ys: np.ndarray
+    ) -> tuple[float, float] | None:
         """Detect signal span from observations using dip scoring."""
         if xs.size < 5 or ys.size < 5:
             return None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from abc import abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 
@@ -57,7 +58,9 @@ def _posterior_credible_interval(
     return None
 
 
-def _normalized_acquisition_interval_from_sweep(xs: np.ndarray, ys: np.ndarray) -> tuple[float, float] | None:
+def _normalized_acquisition_interval_from_sweep(  # noqa: C901
+    xs: np.ndarray, ys: np.ndarray
+) -> tuple[float, float] | None:
     """Return ``(lo, hi)`` in normalized [0, 1] scan coordinates, or ``None`` to use the full domain.
 
     Detects signal dips by looking for local minima — points significantly below
@@ -370,7 +373,9 @@ class SequentialBayesianLocator(Locator):
         if initial_sweep_steps is None:
             # Use signal_min_span for sweep step calculation (need enough steps to catch narrowest signal)
             # Prefer the injected signal_min_span, fall back to model's declared value
-            effective_min_span = self._signal_min_span if self._signal_min_span is not None else self._model_signal_min_span()
+            effective_min_span = (
+                self._signal_min_span if self._signal_min_span is not None else self._model_signal_min_span()
+            )
             initial_sweep_steps = self._sweep_steps_for_signal_coverage(
                 belief, noise_std=noise_std, signal_min_span=effective_min_span
             )
@@ -424,7 +429,7 @@ class SequentialBayesianLocator(Locator):
         return self._inner_model().signal_max_span(domain_width)
 
     @classmethod
-    def _sweep_steps_for_signal_coverage(
+    def _sweep_steps_for_signal_coverage(  # noqa: C901
         cls,
         belief: AbstractMarginalDistribution,
         *,
@@ -628,11 +633,10 @@ class SequentialBayesianLocator(Locator):
             return self._to_experiment_normalized(value)
 
         # Phase 2: Bayesian acquisition
-        if self.step_count == self.initial_sweep_steps + 1:
+        if self.step_count == self.initial_sweep_steps + 1 and self._initial_sweep_completed_at_step == 0:
             # First step after initial sweep - ensure window is set
-            if self._initial_sweep_completed_at_step == 0:
-                self._initial_sweep_completed_at_step = self.step_count - 1
-                self._set_acquisition_window_from_staged_sobol()
+            self._initial_sweep_completed_at_step = self.step_count - 1
+            self._set_acquisition_window_from_staged_sobol()
 
         self.inference_step_count += 1
         physical_value = self._acquire()
@@ -669,10 +673,8 @@ class SequentialBayesianLocator(Locator):
                 continue
             if (cur_width - (new_hi - new_lo)) / cur_width < _POSTERIOR_MIN_NARROWING_FRACTION:
                 continue
-            try:
+            with contextlib.suppress(Exception):
                 self.belief.narrow_scan_parameter_physical_bounds(param, new_lo, new_hi)
-            except Exception:
-                pass
 
     def observe(self, obs: Observation) -> None:
         """Update belief and record sweep observations for the post-sweep window.
