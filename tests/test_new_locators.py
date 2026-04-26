@@ -44,8 +44,7 @@ def _dummy_belief(model):
     grid = np.linspace(0.0, 1.0, 10)
     posterior = np.ones(10) / 10
     parameters = [
-        GridParameter(name=name, bounds=(0.0, 1.0), grid=grid, posterior=posterior)
-        for name in model.parameter_names()
+        GridParameter(name=name, bounds=(0.0, 1.0), grid=grid, posterior=posterior) for name in model.parameter_names()
     ]
     return GridMarginalDistribution(model=model, parameters=parameters)
 
