@@ -837,7 +837,7 @@ class SequentialBayesianLocator(Locator):
         """Effective initial sweep step count including any fallback sweep."""
         # Return staged Sobol locator's effective step count
         if hasattr(self, "_staged_sobol"):
-            return self._staged_sobol.effective_step_count()
+            return self._staged_sobol.effective_initial_sweep_steps()
         # Fallback if called before _staged_sobol is initialized
         if self._initial_sweep_completed_at_step > 0:
             return self._initial_sweep_completed_at_step

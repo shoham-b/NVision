@@ -134,6 +134,7 @@ class SobolSweepLocator(SweepingLocator):
         )
         # Refocusing disabled — single sweep over full domain
         self._refocus_at = None
+        self._sweep_points = self._generate_sweep_points(max_steps)
 
     def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
         """Generate n Sobol sequence points in [0, 1]."""
@@ -354,6 +355,10 @@ class StagedSobolSweepLocator(Locator):
             max_steps=max_steps,
             domain_lo=domain_lo,
             domain_hi=domain_hi,
+            noise_std=noise_std,
+            noise_max_dev=noise_max_dev,
+            signal_max_span=signal_max_span,
+            scan_param=scan_param,
         )
 
     def __init__(
@@ -363,12 +368,21 @@ class StagedSobolSweepLocator(Locator):
         max_steps: int,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
+        *,
+        noise_std: float = 0.01,
+        noise_max_dev: float | None = None,
+        signal_max_span: float | None = None,
+        scan_param: str | None = None,
     ):
         super().__init__(belief)
         self.signal_model = signal_model
         self.max_steps = max_steps
         self.domain_lo = domain_lo
         self.domain_hi = domain_hi
+        self.noise_std = noise_std
+        self.noise_max_dev = noise_max_dev
+        self.signal_max_span = signal_max_span
+        self.scan_param = scan_param
 
         self.step_count = 0
         self.history = ObservationHistory(self.max_steps)

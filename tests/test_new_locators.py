@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 import random
 
+import numpy as np
+
 from nvision import (
     CoreExperiment,
     GaussianModel,
@@ -15,6 +17,7 @@ from nvision import (
     TrueSignal,
     run_loop,
 )
+from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 
 
 def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperiment:
@@ -37,12 +40,24 @@ def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperim
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=0.0, x_max=1.0)
 
 
+def _dummy_belief(model):
+    grid = np.linspace(0.0, 1.0, 10)
+    posterior = np.ones(10) / 10
+    parameters = [
+        GridParameter(name=name, bounds=(0.0, 1.0), grid=grid, posterior=posterior)
+        for name in model.parameter_names()
+    ]
+    return GridMarginalDistribution(model=model, parameters=parameters)
+
+
 def test_simple_sweep_locator_is_core_locator():
     assert issubclass(SimpleSweepLocator, Locator)
 
 
 def test_simple_sweep_create_returns_instance():
-    loc = SimpleSweepLocator.create(max_steps=10)
+    model = GaussianModel()
+    belief = _dummy_belief(model)
+    loc = SimpleSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
     assert isinstance(loc, SimpleSweepLocator)
 
 

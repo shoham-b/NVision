@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import random
 
+import numpy as np
+
 from nvision import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
     CompositeOverProbeNoise,
     CoreExperiment,
+    GaussianModel,
     Locator,
     NVCenterCoreGenerator,
     OnePeakCoreGenerator,
@@ -17,6 +20,7 @@ from nvision import (
     TwoPeakCoreGenerator,
     run_loop,
 )
+from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
@@ -34,8 +38,20 @@ def test_simple_sweep_locator_is_core_locator():
     assert issubclass(SimpleSweepLocator, Locator)
 
 
+def _dummy_belief(model):
+    grid = np.linspace(0.0, 1.0, 10)
+    posterior = np.ones(10) / 10
+    parameters = [
+        GridParameter(name=name, bounds=(0.0, 1.0), grid=grid, posterior=posterior)
+        for name in model.parameter_names()
+    ]
+    return GridMarginalDistribution(model=model, parameters=parameters)
+
+
 def test_simple_sweep_create_classmethod():
-    loc = SimpleSweepLocator.create(max_steps=10)
+    model = GaussianModel()
+    belief = _dummy_belief(model)
+    loc = SimpleSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
     assert isinstance(loc, SimpleSweepLocator)
 
 

@@ -592,18 +592,14 @@ def nv_center_lorentzian_bounds_for_domain(
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
-    split_hi = 5.0e6
-    linewidth_hi = width * 0.05
-    # Total span: centre ± split ± linewidth on each outer dip
-    max_span = 2.0 * split_hi + 4.0 * linewidth_hi
     return {
         "frequency": (float(x_min), float(x_max)),
-        "linewidth": (width * 0.0001, linewidth_hi),
-        "split": (0.0, split_hi),
+        "linewidth": (width * 0.001, width * 0.05),
+        "split": (width * 0.005, width * 0.02),
         "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.001, 1.0),
-        "background": (0.95, 1.05),
-        "_signal_max_span": (0.0, max_span),
+        "dip_depth": (0.1, 1.0),
+        "background": (0.5, 1.5),
+        "_signal_max_span": (0.0, width * 0.1),
     }
 
 

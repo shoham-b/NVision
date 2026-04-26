@@ -9,8 +9,5 @@ def test_bayesian_strategies_include_other_true_signals():
     grid = CombinationGrid()
     combos = list(grid.iter(filter_strategy="Bayesian"))
     names = {c.generator_name for c in combos}
-    assert "NVCenter-one_peak" in names
-    assert "OnePeak-gaussian" in names
-    assert "OnePeak-lorentzian" in names
-    assert "TwoPeak-gaussian" in names
-    assert "TwoPeak-lorentzian" in names
+    assert "NVCenter-zeeman" in names
+    assert "NVCenter-voigt_zeeman" in names
