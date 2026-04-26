@@ -141,8 +141,9 @@ class GenericSweepLocator(SweepingLocator):
             domain_hi=domain_hi,
         )
 
-        # Refocus configuration - disabled for GenericSweep (pure uniform grid)
-        self._refocus_at = None
+        # Refocus configuration: refocus at half the sweep to focus remaining
+        # points around any detected signal.
+        self._refocus_at = max(20, max_steps // 2)
 
         # Generate initial sweep points
         self._sweep_points = self._generate_sweep_points(max_steps)
@@ -185,7 +186,8 @@ class GenericSweepLocator(SweepingLocator):
     def _should_refocus(self, step_count: int) -> int | None:
         """Return refocus step if we just reached the refocus point.
 
-        GenericSweep uses a pure uniform grid without refocusing.
+        Triggers once after the initial coarse sweep completes, when enough
+        observations exist to detect a signal and refocus the remaining points.
 
         Parameters
         ----------
@@ -195,9 +197,12 @@ class GenericSweepLocator(SweepingLocator):
         Returns
         -------
         int | None
-            None - refocusing is disabled for GenericSweep.
+            Refocus step count, or None if already refocused or disabled.
         """
-        # Refocusing disabled for GenericSweep (pure uniform grid)
+        if self._refocus_at is None or self._last_refocus_step > 0:
+            return None
+        if step_count > self._refocus_at and self.history.count >= self._refocus_at:
+            return self._refocus_at
         return None
 
     def _regenerate_points(self, refocus_step: int, lo_norm: float, hi_norm: float) -> None:
@@ -273,11 +278,13 @@ class GenericSweepLocator(SweepingLocator):
         super().finalize()
 
     def effective_initial_sweep_steps(self) -> int:
-        """Return effective sweep steps for UI phase coloring.
+        """Return effective initial sweep steps for UI phase coloring.
 
         Returns
         -------
         int
-            Effective step count including any fallback sweep.
+            Steps taken before refocusing (or total if never refocused).
         """
+        if self._last_refocus_step > 0:
+            return self._last_refocus_step
         return self.effective_step_count()

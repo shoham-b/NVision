@@ -378,6 +378,7 @@ function main() {
         const scanRepeatNext = document.getElementById('scan-repeat-next');
         const scanIframe = document.getElementById('scan-iframe');
         const scanMetrics = document.getElementById('scan-metrics');
+        const scanSweepMetrics = document.getElementById('scan-sweep-metrics');
         let currentRepeatItems = [];
         let measurementDistributionVisible = null;
 
@@ -484,6 +485,41 @@ function main() {
                 return value.toFixed(1) + ' ms';
             }
             return 'N/A';
+        }
+
+        function renderSweepMetricsPanel(container, metrics) {
+            if (!container) return;
+            container.innerHTML = '';
+            const items = [
+                { key: 'measurements_done', label: 'Measurements done', tip: 'Actual measurements taken before stopping or hitting the step limit.', fmt: formatCount },
+                { key: 'dips_detected', label: 'Dips detected', tip: 'Dips found in the initial sweep after noise filtering.', fmt: formatCount },
+                { key: 'min_dip_width', label: 'Min dip width', tip: 'Width of the narrowest detected dip as a fraction of the full domain.', fmt: formatMetricValue },
+                { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the narrowest dip with 5 samples across it.', fmt: formatCount },
+                { key: 'expected_focused_points', label: 'Exp. focused', tip: 'Focused points needed: 5 per detected dip plus a 20-point baseline.', fmt: formatCount },
+                { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
+            ];
+            let any = false;
+            for (const it of items) {
+                const val = metrics[it.key];
+                if (val == null || (typeof val === 'number' && !Number.isFinite(val))) continue;
+                any = true;
+                const el = document.createElement('div');
+                el.className = 'metric-item';
+                let formula = '';
+                if (it.key === 'expected_uniform_points' && metrics.min_dip_width != null) {
+                    formula = '<div class="metric-formula">5 / ' + formatMetricValue(metrics.min_dip_width) + ' ≈ ' + it.fmt(val) + '</div>';
+                } else if (it.key === 'expected_focused_points' && metrics.dips_detected != null) {
+                    formula = '<div class="metric-formula">' + formatCount(metrics.dips_detected) + ' dips × 5 + 20 = ' + it.fmt(val) + '</div>';
+                }
+                el.innerHTML =
+                    '<div class="metric-row">' +
+                    '<span class="metric-label">' + it.label + '</span>' +
+                    '<span class="metric-value">' + it.fmt(val) + '</span>' +
+                    '<span class="help-icon" title="' + it.tip.replace(/"/g, '&quot;') + '">?</span>' +
+                    '</div>' + formula;
+                container.appendChild(el);
+            }
+            container.hidden = !any;
         }
 
         function resolveAssetPath(relativePath) {
@@ -1095,12 +1131,14 @@ function main() {
                         absErr +
                         ' • Uncertainty: ' +
                         uncertainty;
+                    renderSweepMetricsPanel(scanSweepMetrics, plot.metrics || {});
                     updateBayesView(plot);
                     updateBayesStatsView(plot);
                     updateBayesInteractiveView(plot);
                 } else {
                     scanIframe.src = '';
                     scanMetrics.textContent = '';
+                    if (scanSweepMetrics) { scanSweepMetrics.hidden = true; scanSweepMetrics.innerHTML = ''; }
                     updateBayesView(null);
                     updateBayesStatsView(null);
                     updateBayesInteractiveView(null);
@@ -1108,7 +1146,7 @@ function main() {
             } else {
                 scanIframe.src = '';
                 scanMetrics.textContent = '';
-                scanMetrics.textContent = '';
+                if (scanSweepMetrics) { scanSweepMetrics.hidden = true; scanSweepMetrics.innerHTML = ''; }
                 updateBayesView(null);
                 updateBayesStatsView(null);
                 updateBayesInteractiveView(null);

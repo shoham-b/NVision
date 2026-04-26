@@ -32,7 +32,7 @@ class TaskListBuildConfig:
     progress_queue: queue.Queue
     log_level_value: int
     loc_max_steps: int
-    sweep_max_steps: int
+    sweep_max_steps: int | None
     loc_timeout_s: int
     no_cache: bool
     ignore_cache_strategy: str | None

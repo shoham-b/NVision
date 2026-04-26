@@ -76,6 +76,20 @@ def generate_attempt_metrics(  # noqa: C901
     attempt_metrics = _scan_attempt_metrics(_truth_positions(current_scan), estimate)
     metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
     metrics_serialized["measurements"] = _maybe_finite(measurements)
+
+    # Forward sweep-locator diagnostic metrics when present
+    for _sweep_key in (
+        "dips_detected",
+        "total_dip_width",
+        "min_dip_width",
+        "expected_uniform_points",
+        "expected_focused_points",
+        "sweep_efficiency",
+        "measurements_done",
+    ):
+        if _sweep_key in estimate:
+            metrics_serialized[_sweep_key] = _maybe_finite(estimate[_sweep_key])
+
     if duration_ms_value is None:
         duration_ms_value = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
     metrics_serialized["duration_ms"] = _maybe_finite(duration_ms_value)

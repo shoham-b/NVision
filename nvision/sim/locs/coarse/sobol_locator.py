@@ -177,14 +177,93 @@ class Stage1SobolLocator:
         return self.points_collected >= 127
 
 
-class Stage2SobolLocator:
-    """Stage 2: Continue scanning while thresholding. Stop upon finding 2 dip points."""
+def _infer_focus_window(
+    history: ObservationHistory,
+    domain_lo: float,
+    domain_hi: float,
+) -> tuple[float, float]:
+    """Infer a focused sampling window from dip observations in history.
 
-    def __init__(self, sobol_gen: Iterator[float], domain_lo: float, domain_hi: float, history: ObservationHistory):
+    Uses the same noise-thresholding logic as Stage3SobolLocator._infer_bounds,
+    but returns the window as a tuple so it can be reused when creating Stage 2.
+    """
+    ys_valid = history.ys
+    xs_valid = history.xs
+    if len(ys_valid) == 0:
+        return domain_lo, domain_hi
+
+    p30_val = float(np.percentile(ys_valid, 30))
+    noise_points = ys_valid[ys_valid >= p30_val]
+    if len(noise_points) == 0:
+        return domain_lo, domain_hi
+
+    noise_median = float(np.median(noise_points))
+    noise_std = float(np.std(noise_points))
+    noise_threshold = noise_median - 2.0 * noise_std
+
+    below_idx = np.where(ys_valid < noise_threshold)[0]
+    if len(below_idx) < 2:
+        return domain_lo, domain_hi
+
+    domain_width = domain_hi - domain_lo
+    if domain_width > 0 and float(np.max(xs_valid)) <= 1.0001 and float(np.min(xs_valid)) >= -0.0001:
+        xs_valid = domain_lo + xs_valid * domain_width
+
+    dip_xs = xs_valid[below_idx]
+    x_min = float(np.min(dip_xs))
+    x_max = float(np.max(dip_xs))
+    d = x_max - x_min
+
+    tol = max(0.015 * domain_width, 1e-4)
+
+    def check_empty(spot: float) -> bool:
+        mask = np.abs(xs_valid - spot) < tol
+        nearby_ys = ys_valid[mask]
+        return len(nearby_ys) > 0 and float(np.min(nearby_ys)) > noise_threshold
+
+    empty_right = check_empty(x_max + d)
+    empty_left = check_empty(x_min - d)
+    empty_mid = check_empty(x_min + d / 2.0)
+
+    best_left = x_min - d
+    best_right = x_max + d
+
+    if empty_mid:
+        if empty_right:
+            best_left = x_min - d
+            best_right = x_max
+        elif empty_left:
+            best_left = x_min
+            best_right = x_max + d
+    else:
+        if empty_left and empty_right:
+            best_left = x_min
+            best_right = x_max
+
+    pad = d * 0.3 if d > 0 else tol * 3
+    return max(domain_lo, best_left - pad), min(domain_hi, best_right + pad)
+
+
+class Stage2SobolLocator:
+    """Stage 2: Continue scanning within narrowed window. Stop upon finding 2 dip points."""
+
+    def __init__(
+        self,
+        sobol_gen: Iterator[float],
+        domain_lo: float,
+        domain_hi: float,
+        history: ObservationHistory,
+        *,
+        window_lo: float | None = None,
+        window_hi: float | None = None,
+    ):
         self._sobol_gen = sobol_gen
         self.domain_lo = domain_lo
         self.domain_hi = domain_hi
         self.history = history
+
+        self.window_lo = window_lo if window_lo is not None else domain_lo
+        self.window_hi = window_hi if window_hi is not None else domain_hi
 
         self._noise_threshold = -float("inf")
         self._done = False
@@ -195,7 +274,7 @@ class Stage2SobolLocator:
 
     def next(self) -> float:
         u = next(self._sobol_gen)
-        return self.domain_lo + u * (self.domain_hi - self.domain_lo)
+        return self.window_lo + u * (self.window_hi - self.window_lo)
 
     def observe(self, obs: Observation) -> None:
         # Update dynamically every 128 new scans in Stage 2
@@ -265,64 +344,9 @@ class Stage3SobolLocator:
         return False
 
     def _infer_bounds(self) -> None:
-        ys_valid = self.history.ys
-        xs_valid = self.history.xs
-
-        # Extract top 70% of measurements (discard the bottom 30% which may contain signal dips)
-        p30_val = float(np.percentile(ys_valid, 30))
-        noise_points = ys_valid[ys_valid >= p30_val]
-
-        noise_median = float(np.median(noise_points))
-        noise_std = float(np.std(noise_points))
-
-        # Threshold is defined as 2 stds below the median of the noise points
-        noise_threshold = noise_median - 2.0 * noise_std
-
-        below_idx = np.where(ys_valid < noise_threshold)[0]
-        if len(below_idx) < 2:
-            return  # Safety fallback to domain bounds
-
-        # obs.x values from experiment.measure() are normalized [0,1];
-        # convert to physical coordinates before comparing with domain bounds
-        domain_width = self.domain_hi - self.domain_lo
-        if domain_width > 0 and float(np.max(xs_valid)) <= 1.0001 and float(np.min(xs_valid)) >= -0.0001:
-            xs_valid = self.domain_lo + xs_valid * domain_width
-
-        dip_xs = xs_valid[below_idx]
-        x_min = float(np.min(dip_xs))
-        x_max = float(np.max(dip_xs))
-        d = x_max - x_min
-
-        tol = max(0.015 * domain_width, 1e-4)
-
-        def check_empty(spot: float) -> bool:
-            mask = np.abs(xs_valid - spot) < tol
-            nearby_ys = ys_valid[mask]
-            return len(nearby_ys) > 0 and float(np.min(nearby_ys)) > noise_threshold
-
-        empty_right = check_empty(x_max + d)
-        empty_left = check_empty(x_min - d)
-        empty_mid = check_empty(x_min + d / 2.0)
-
-        best_left = x_min - d
-        best_right = x_max + d
-
-        if empty_mid:
-            if empty_right:
-                best_left = x_min - d
-                best_right = x_max
-            elif empty_left:
-                best_left = x_min
-                best_right = x_max + d
-        else:
-            if empty_left and empty_right:
-                best_left = x_min
-                best_right = x_max
-
-        # Ensure minimal padding ensures bounds contain structures
-        pad = d * 0.3 if d > 0 else tol * 3
-        self.window_lo = max(self.domain_lo, best_left - pad)
-        self.window_hi = min(self.domain_hi, best_right + pad)
+        self.window_lo, self.window_hi = _infer_focus_window(
+            self.history, self.domain_lo, self.domain_hi
+        )
 
 
 class StagedSobolSweepLocator(Locator):
@@ -428,7 +452,11 @@ class StagedSobolSweepLocator(Locator):
 
         if self._active_locator is self._stage1 and self._active_locator.done():
             self._stage1_end_step = self.step_count
-            self._stage2 = Stage2SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
+            win_lo, win_hi = _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
+            self._stage2 = Stage2SobolLocator(
+                self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
+                window_lo=win_lo, window_hi=win_hi,
+            )
             self._active_locator = self._stage2
 
             # Cascade: Stage 2 might be instantaneously complete if dips found in Stage 1 data!
@@ -472,11 +500,121 @@ class StagedSobolSweepLocator(Locator):
             return (self._stage3.window_lo, self._stage3.window_hi)
         return (self.domain_lo, self.domain_hi)
 
+    def _model_expected_measurements(self, num_dips: int) -> dict[str, float | int]:
+        """Compute expected measurement counts from model bounds."""
+        domain_width = self.domain_hi - self.domain_lo
+        min_span = None
+        if hasattr(self.signal_model, "signal_min_span"):
+            min_span = self.signal_model.signal_min_span(domain_width)
+        if min_span is not None and min_span > 0 and domain_width > 0:
+            min_width_norm = min_span / domain_width
+            expected_uniform = 1.0 / (min_width_norm / 5.0)
+        else:
+            expected_uniform = float(self.max_steps)
+        expected_focused = num_dips * 5.0 + 20.0 if num_dips > 0 else expected_uniform
+        efficiency = expected_uniform / max(self.step_count, 1)
+        return {
+            "expected_uniform_points": expected_uniform,
+            "expected_focused_points": expected_focused,
+            "sweep_efficiency": efficiency,
+        }
+
+    def _detect_dip_segments(
+        self, xs: np.ndarray, ys: np.ndarray, noise_std: float | None = None
+    ) -> list[tuple[float, float]]:
+        """Find contiguous dip segments in sorted x/y data."""
+        background = float(np.percentile(ys, 95))
+        dip_depth = background - float(np.min(ys))
+        if dip_depth <= 0:
+            return []
+        threshold_drop = 0.2 * dip_depth
+        if noise_std is not None and noise_std > 0:
+            threshold_drop = max(threshold_drop, 3.0 * noise_std)
+        threshold = background - threshold_drop
+        below = ys < threshold
+        if not np.any(below):
+            return []
+        changes = np.diff(below.astype(int))
+        starts = np.where(changes == 1)[0] + 1
+        ends = np.where(changes == -1)[0] + 1
+        if below[0]:
+            starts = np.concatenate([[0], starts])
+        if below[-1]:
+            ends = np.concatenate([ends, [len(below)]])
+        segments: list[tuple[float, float]] = []
+        for s, e in zip(starts, ends, strict=False):
+            if e > s and (e - s) >= 3:
+                width = float(xs[e - 1]) - float(xs[s])
+                if width >= 0.005:
+                    segments.append((float(xs[s]), float(xs[e - 1])))
+
+        return self._merge_segments(segments, max_gap=0.02)
+
+    @staticmethod
+    def _merge_segments(segments: list[tuple[float, float]], max_gap: float) -> list[tuple[float, float]]:
+        """Merge segments separated by gaps smaller than max_gap."""
+        if len(segments) <= 1:
+            return segments
+        merged: list[tuple[float, float]] = [segments[0]]
+        for lo, hi in segments[1:]:
+            if lo - merged[-1][1] <= max_gap:
+                merged[-1] = (merged[-1][0], hi)
+            else:
+                merged.append((lo, hi))
+        return merged
+
+    def _compute_sweep_metrics(self) -> dict[str, float | int]:
+        """Compute sweep efficiency metrics from observed dips."""
+        metrics: dict[str, float | int] = {
+            "measurements_done": self.step_count,
+            "dips_detected": 0,
+            "total_dip_width": 0.0,
+            "min_dip_width": 0.0,
+            "expected_uniform_points": float(self.max_steps),
+            "expected_focused_points": 0.0,
+            "sweep_efficiency": 1.0,
+        }
+
+        if self.history.count < 3:
+            return metrics
+
+        init_steps = self.effective_initial_sweep_steps()
+        xs = self.history.xs[:init_steps]
+        ys = self.history.ys[:init_steps]
+        order = np.argsort(xs)
+        segments = self._detect_dip_segments(xs[order], ys[order], noise_std=self.noise_std)
+
+        expected_dips = (
+            getattr(self.signal_model, "expected_dip_count", lambda: None)()
+            or (len(segments) if segments else 1)
+        )
+        domain_width = self.domain_hi - self.domain_lo
+        min_span = None
+        if hasattr(self.signal_model, "signal_min_span"):
+            min_span = self.signal_model.signal_min_span(domain_width)
+
+        if segments:
+            widths = [hi - lo for lo, hi in segments]
+            metrics["dips_detected"] = len(segments)
+            metrics["total_dip_width"] = sum(widths)
+            metrics["min_dip_width"] = min(widths)
+        else:
+            metrics["dips_detected"] = expected_dips
+            if min_span is not None and min_span > 0 and domain_width > 0:
+                min_width_norm = min_span / domain_width
+                metrics["min_dip_width"] = min_width_norm
+                metrics["total_dip_width"] = expected_dips * min_width_norm
+
+        metrics.update(self._model_expected_measurements(expected_dips))
+        return metrics
+
     def result(self) -> dict[str, float | bool]:
         lo, hi = self.acquisition_window()
-        return {
+        result = {
             "acquisition_lo": lo,
             "acquisition_hi": hi,
             "signal_found": self._signal_found,
             "completed_at_step": self.step_count,
         }
+        result.update(self._compute_sweep_metrics())
+        return result

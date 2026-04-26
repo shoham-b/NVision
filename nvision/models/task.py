@@ -48,7 +48,7 @@ class LocatorTask:
     scans_dir: Path
     bayes_dir: Path
     loc_max_steps: int
-    sweep_max_steps: int
+    sweep_max_steps: int | None
     loc_timeout_s: int
     use_cache: bool
     cache_dir: Path

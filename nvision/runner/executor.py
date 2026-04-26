@@ -588,6 +588,23 @@ class _TaskRunner:
             return None, None
         return (x_min, x_max) if x_max > x_min else (None, None)
 
+    def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
+        """Return the sweep step count for this experiment.
+
+        If the user explicitly provided ``--sweep-max-steps``, that value is
+        used directly.  Otherwise we compute the minimum number of uniformly
+        spaced points required to resolve the narrowest expected dip in the
+        signal model.
+        """
+        if self.task.sweep_max_steps is not None:
+            return self.task.sweep_max_steps
+        from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
+        return compute_sweep_max_steps(
+            experiment.true_signal.model,
+            float(experiment.x_min),
+            float(experiment.x_max),
+        )
+
     def _precompute_sweep_for_task(
         self,
         locator_class: type[Locator],
@@ -622,7 +639,7 @@ class _TaskRunner:
         # Check locator class attributes to determine configuration
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
-        max_steps = self.task.sweep_max_steps if uses_sweep_max_steps else self.task.loc_max_steps
+        max_steps = self._resolve_sweep_max_steps(experiment) if uses_sweep_max_steps else self.task.loc_max_steps
 
         cfg = {
             **locator_config,
@@ -673,7 +690,7 @@ class _TaskRunner:
         # Check locator class attributes to determine configuration
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
-        max_steps = self.task.sweep_max_steps if uses_sweep_max_steps else self.task.loc_max_steps
+        max_steps = self._resolve_sweep_max_steps(experiment) if uses_sweep_max_steps else self.task.loc_max_steps
 
         cfg = {
             **locator_config,
@@ -715,9 +732,13 @@ class _TaskRunner:
                 if sweep_steps > 0 and sweep_obs and not self._sweep_cache.has(experiment, sweep_steps):
                     self._sweep_cache.put(experiment, sweep_steps, list(sweep_obs))
 
-        locator_instance = locator_class.create(**cfg)
-        if result.snapshots:
-            locator_instance.belief = result.snapshots[-1].belief
+        last_loc = observer.last_locator
+        if last_loc is not None:
+            locator_instance = last_loc
+        else:
+            locator_instance = locator_class.create(**cfg)
+            if result.snapshots:
+                locator_instance.belief = result.snapshots[-1].belief
         locator_final_result = locator_instance.result()
 
         history_df = run_result_to_history_df(result, rid, experiment.x_min, experiment.x_max)

@@ -41,11 +41,11 @@ def generators_basic() -> list[tuple[str, object]]:
     return [
         # NV Center generators - different variants
         (
-            "NVCenter-zeeman",
+            "NVCenter-lorentzian",
             NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian"),
         ),
         (
-            "NVCenter-voigt_zeeman",
+            "NVCenter-voigt",
             NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt"),
         ),
     ]
@@ -111,7 +111,7 @@ class RunCase:
     description: str = ""
     repeats: int = 5
     loc_max_steps: int = DEFAULT_LOC_MAX_STEPS
-    sweep_max_steps: int = 300
+    sweep_max_steps: int | None = None
     loc_timeout_s: int = 1500
     require_cache: bool = False
     log_level: str = "INFO"
@@ -143,7 +143,7 @@ def run_case_nvcenter_sweep() -> RunCase:
         description="NVCenter generators with sweep locators only (GenericSweep + StagedSobolSweep).",
         repeats=5,
         loc_max_steps=DEFAULT_LOC_MAX_STEPS,
-        sweep_max_steps=400,  # Higher for sweep-only runs
+        sweep_max_steps=None,  # Auto-computed from signal model
         loc_timeout_s=1000,
         require_cache=False,
         log_level="INFO",

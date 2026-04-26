@@ -181,9 +181,12 @@ def run(  # noqa: C901
         typer.Option("--loc-max-steps", help="Max steps for Bayesian locator measurement loop"),
     ] = sim_cases.DEFAULT_LOC_MAX_STEPS,
     sweep_max_steps: Annotated[
-        int,
-        typer.Option("--sweep-max-steps", help="Max steps for sweep locator (coarse search)"),
-    ] = 300,  # Default for dense sweep coverage
+        int | None,
+        typer.Option(
+            "--sweep-max-steps",
+            help="Max steps for sweep locator. Omit to auto-compute from signal model.",
+        ),
+    ] = None,  # Auto-computed from signal model dip properties
     loc_timeout_s: Annotated[
         int,
         typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),

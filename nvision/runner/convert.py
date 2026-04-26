@@ -77,7 +77,16 @@ def extract_peak_estimates(
     for key, value in locator_result.items():
         if not isinstance(value, (int, float)):
             continue
-        if "x" in key.lower() or "pos" in key.lower() or "freq" in key.lower():
+        key_lc = key.lower()
+        is_position = (
+            key_lc in ("x", "x1", "x2", "peak_x", "x_hat", "x1_hat", "x2_hat")
+            or key_lc.endswith("_x")
+            or key_lc.endswith("_x1")
+            or key_lc.endswith("_x2")
+            or "pos" in key_lc
+            or "freq" in key_lc
+        )
+        if is_position:
             estimates[key] = denormalize_x(value, x_min, x_max) if 0 <= value <= 1 else value
         else:
             estimates[key] = value

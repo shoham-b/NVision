@@ -27,8 +27,8 @@ class StrategyFilter(StrEnum):
 class GeneratorName(StrEnum):
     """Registered generator keys from :func:`nvision.sim.cases.generators_basic`."""
 
-    NVCENTER_ZEEMAN = "NVCenter-zeeman"
-    NVCENTER_VOIGT_ZEEMAN = "NVCenter-voigt_zeeman"
+    NVCENTER_LORENTZIAN = "NVCenter-lorentzian"
+    NVCENTER_VOIGT = "NVCenter-voigt"
 
 
 class NoiseName(StrEnum):

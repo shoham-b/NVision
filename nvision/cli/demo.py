@@ -78,8 +78,8 @@ def demo(
     ] = 8,
     filter_generator: Annotated[
         str,
-        typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-zeeman')"),
-    ] = "NVCenter-zeeman",
+        typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-lorentzian')"),
+    ] = "NVCenter-lorentzian",
     filter_noise: Annotated[
         str | None,
         typer.Option("--filter-noise", help="Filter to specific noise (e.g., 'NoNoise', 'Gauss')"),
@@ -256,8 +256,8 @@ def beta(
     ] = 8,
     filter_generator: Annotated[
         str,
-        typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-zeeman')"),
-    ] = "NVCenter-zeeman",
+        typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-lorentzian')"),
+    ] = "NVCenter-lorentzian",
     filter_noise: Annotated[
         str | None,
         typer.Option("--filter-noise", help="Filter to specific noise (e.g., 'NoNoise', 'Gauss')"),

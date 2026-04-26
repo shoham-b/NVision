@@ -61,6 +61,7 @@ class SweepingLocator(Locator):
         self.signal_model = signal_model
         self.max_steps = max_steps
         self.step_count = 0
+        self.noise_std = noise_std
         self._noise_std = noise_std
         self._noise_max_dev = noise_max_dev
         self._signal_min_span = signal_min_span
@@ -134,9 +135,14 @@ class SweepingLocator(Locator):
         self.step_count += 1
 
         if self.step_count <= self.max_steps:
-            # Check if we should refocus
+            # Check if we should refocus (only once)
             refocus_step = self._should_refocus(self.step_count)
-            if refocus_step is not None and refocus_step < self.max_steps and self.history.count >= refocus_step:
+            if (
+                refocus_step is not None
+                and self._last_refocus_step == 0
+                and refocus_step < self.max_steps
+                and self.history.count >= refocus_step
+            ):
                 self._last_refocus_step = refocus_step
                 self._maybe_refocus(refocus_step)
 
@@ -161,13 +167,15 @@ class SweepingLocator(Locator):
         return self.step_count >= self.max_steps or self._early_stopped
 
     def result(self) -> dict[str, float]:
-        """Return sweep result with acquisition window bounds."""
-        return {
+        """Return sweep result with acquisition window bounds and sweep metrics."""
+        result = {
             "acquisition_lo": self._acquisition_lo,
             "acquisition_hi": self._acquisition_hi,
             "signal_found": self._signal_found,
             "completed_at_step": self.effective_step_count(),
         }
+        result.update(self._compute_sweep_metrics())
+        return result
 
     def effective_step_count(self) -> int:
         """Effective step count including any fallback sweep."""
@@ -342,6 +350,138 @@ class SweepingLocator(Locator):
             dips.append((center_norm, depth_frac))
 
         return dips
+
+    def _dip_segments(
+        self,
+        xs: np.ndarray,
+        ys: np.ndarray,
+        *,
+        min_points: int = 1,
+        min_width: float = 0.0,
+        max_gap: float = 0.02,
+        background_pct: float = 75.0,
+        threshold_frac: float = 0.2,
+        noise_std: float | None = None,
+    ) -> list[tuple[float, float]]:
+        """Return contiguous dip segments as (lo_norm, hi_norm) for each detected dip."""
+        if len(xs) < 3 or len(ys) < 3:
+            return []
+
+        order = np.argsort(xs)
+        xs_sorted = xs[order]
+        ys_sorted = ys[order]
+
+        background = float(np.percentile(ys_sorted, background_pct))
+        dip_depth = background - float(np.min(ys_sorted))
+
+        if dip_depth <= 0:
+            return []
+
+        # Noise-aware threshold: require at least 3 sigma below background
+        # to avoid counting noise fluctuations as dips when noise is large.
+        threshold_drop = threshold_frac * dip_depth
+        if noise_std is not None and noise_std > 0:
+            threshold_drop = max(threshold_drop, 3.0 * noise_std)
+        threshold = background - threshold_drop
+        below = ys_sorted < threshold
+
+        if not np.any(below):
+            return []
+
+        changes = np.diff(below.astype(int))
+        starts = np.where(changes == 1)[0] + 1
+        ends = np.where(changes == -1)[0] + 1
+
+        if below[0]:
+            starts = np.concatenate([[0], starts])
+        if below[-1]:
+            ends = np.concatenate([ends, [len(below)]])
+
+        segments: list[tuple[float, float]] = []
+        for s, e in zip(starts, ends, strict=False):
+            if e > s and (e - s) >= min_points:
+                width = float(xs_sorted[e - 1]) - float(xs_sorted[s])
+                if width >= min_width:
+                    segments.append((float(xs_sorted[s]), float(xs_sorted[e - 1])))
+
+        return self._merge_segments(segments, max_gap)
+
+    @staticmethod
+    def _merge_segments(segments: list[tuple[float, float]], max_gap: float) -> list[tuple[float, float]]:
+        """Merge segments separated by gaps smaller than max_gap."""
+        if len(segments) <= 1:
+            return segments
+        merged: list[tuple[float, float]] = [segments[0]]
+        for lo, hi in segments[1:]:
+            if lo - merged[-1][1] <= max_gap:
+                merged[-1] = (merged[-1][0], hi)
+            else:
+                merged.append((lo, hi))
+        return merged
+
+    def _compute_sweep_metrics(self) -> dict[str, float | int]:
+        """Compute sweep efficiency metrics from observed dips.
+
+        Returns actual measurement count, detected dip count, dip widths, and
+        estimated expected measurement counts based on dip size and number.
+        """
+        metrics: dict[str, float | int] = {
+            "measurements_done": self.step_count,
+            "dips_detected": 0,
+            "total_dip_width": 0.0,
+            "min_dip_width": 0.0,
+            "expected_uniform_points": float(self.max_steps),
+            "expected_focused_points": 0.0,
+            "sweep_efficiency": 1.0,
+        }
+
+        if self.history.count < 3:
+            return metrics
+
+        # Use only the initial sweep observations for dip detection.
+        # Focused Stage-3 sampling concentrates points inside the dip(s),
+        # which biases background estimation and creates noise segments.
+        init_steps = self.effective_initial_sweep_steps()
+        xs = self.history.xs[:init_steps]
+        ys = self.history.ys[:init_steps]
+
+        segments = self._dip_segments(
+            xs, ys, min_points=3, min_width=0.005, background_pct=95.0, threshold_frac=0.2, noise_std=self.noise_std
+        )
+        num_dips = len(segments)
+
+        # Model-based expected measurements (robust even if observation-based
+        # detection fails with sparse Stage 1 sampling for narrow dips)
+        expected_dips = self._expected_dip_count_from_model() or (num_dips if num_dips > 0 else 1)
+        domain_width = self._domain_hi - self._domain_lo
+        min_span = self._model_signal_min_span()
+        if min_span is not None and min_span > 0 and domain_width > 0:
+            min_width_norm = min_span / domain_width
+            expected_uniform = 1.0 / (min_width_norm / 5.0)
+        else:
+            min_width_norm = 0.0
+            expected_uniform = float(self.max_steps)
+        expected_focused = expected_dips * 5.0 + 20.0
+        efficiency = expected_uniform / max(self.step_count, 1)
+
+        if segments:
+            widths = [hi - lo for lo, hi in segments]
+            metrics["dips_detected"] = num_dips
+            metrics["total_dip_width"] = sum(widths)
+            metrics["min_dip_width"] = min(widths)
+        else:
+            # Observation-based detection failed (sparse Stage 1 sampling).
+            # Fall back to model-based estimates so metrics remain informative.
+            metrics["dips_detected"] = expected_dips
+            if min_span is not None and min_span > 0 and domain_width > 0:
+                min_width_norm = min_span / domain_width
+                metrics["min_dip_width"] = min_width_norm
+                metrics["total_dip_width"] = expected_dips * min_width_norm
+
+        metrics["expected_uniform_points"] = expected_uniform
+        metrics["expected_focused_points"] = expected_focused
+        metrics["sweep_efficiency"] = efficiency
+        return metrics
 
     def _per_dip_focus_windows(self, xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]] | None:
         """Compute individual focus windows around each detected dip.
