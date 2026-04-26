@@ -101,8 +101,6 @@ __all__ = [
     "NVCenterCoreGenerator",
     "Observer",
     "OnePeakCoreGenerator",
-    "SymmetricTwoPeakCoreGenerator",
-    "TwoPeakCoreGenerator",
     "OverFrequencyGaussianNoise",
     "OverFrequencyNoises",
     "OverFrequencyOutlierSpikes",
@@ -116,7 +114,9 @@ __all__ = [
     "RunResult",
     "SimpleSweepLocator",
     "StagedSobolSweepLocator",
+    "SymmetricTwoPeakCoreGenerator",
     "TrueSignal",
+    "TwoPeakCoreGenerator",
     # Belief
     "UnitCubeGridMarginalDistribution",
     "UnitCubeSMCMarginalDistribution",

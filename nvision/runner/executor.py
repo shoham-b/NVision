@@ -136,7 +136,8 @@ def precompute_sweep(
     if not (is_bayesian or is_sweep):
         return None
 
-    if getattr(locator_class, "REQUIRES_BELIEF", False) and ("belief" not in locator_config or "signal_model" not in locator_config):
+    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
+    if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.model)
 
@@ -207,7 +208,8 @@ def run_loop(
     """
     from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 
-    if getattr(locator_class, "REQUIRES_BELIEF", False) and ("belief" not in locator_config or "signal_model" not in locator_config):
+    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
+    if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.model)
 
