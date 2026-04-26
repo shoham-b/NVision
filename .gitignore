@@ -126,3 +126,4 @@ gha-creds-*.json
 artifacts/cache/
 artifacts/
 demo_artifacts/
+beta_artifacts/
