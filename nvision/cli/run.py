@@ -181,8 +181,12 @@ def run(  # noqa: C901
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
     loc_max_steps: Annotated[
         int,
-        typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
+        typer.Option("--loc-max-steps", help="Max steps for Bayesian locator measurement loop"),
     ] = sim_cases.DEFAULT_LOC_MAX_STEPS,
+    sweep_max_steps: Annotated[
+        int,
+        typer.Option("--sweep-max-steps", help="Max steps for sweep locator (coarse search)"),
+    ] = 300,  # Default for dense sweep coverage
     loc_timeout_s: Annotated[
         int,
         typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
@@ -344,7 +348,7 @@ def run(  # noqa: C901
 
     _prune_run_logs(effective_logs_root, max_runs=2)
     run_log_path = (
-        effective_logs_root / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y%m%dT%H%M%S%f')}.log"
+        effective_logs_root / f"nvision-run-{datetime.now(tz=ZoneInfo('Asia/Jerusalem')).strftime('%Y-%m-%d_%H-%M-%S')}.log"
     )
     file_handler = logging.FileHandler(run_log_path, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)  # Always capture full tracebacks in file
@@ -418,6 +422,7 @@ def run(  # noqa: C901
                 progress_queue=worker_progress_queue,
                 log_level_value=log_level_value,
                 loc_max_steps=loc_max_steps,
+                sweep_max_steps=sweep_max_steps,
                 loc_timeout_s=loc_timeout_s,
                 no_cache=no_cache,
                 ignore_cache_strategy=ignore_cache_strategy,

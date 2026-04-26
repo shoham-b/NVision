@@ -553,7 +553,7 @@ def _locator_row_markup(task: object) -> str:
     dots = "." * int(getattr(task, "completed", 0))
     inner = desc
     if desc.startswith("[cyan]") and desc.endswith("[/cyan]"):
-        inner = desc[6:-8]
+        inner = desc[6:-7]
     total = getattr(task, "total", None)
     completed = float(getattr(task, "completed", 0))
     if total is None or total <= 0 or completed <= 0:

@@ -12,7 +12,7 @@ from rich.table import Table
 from nvision.cache import CacheBridge
 from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.app_instance import app
-from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
+from nvision.sim.grid_enums import GeneratorCategory, GeneratorName, NoiseName, StrategyFilter
 
 console = Console()
 
@@ -162,3 +162,72 @@ def cache_clean(
             deleted_count += 1
 
         console.print(f"[green]Deleted {deleted_count} entries.[/green]")
+
+
+@cache_app.command(name="clean-manifest")
+def clean_manifest(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
+) -> None:
+    """Remove old/invalid entries from plots_manifest.json and cache.
+
+    Removes entries for generators that no longer exist (TwoPeak-*) and
+    entries with outdated generator_type categorization. Also cleans
+    corresponding cache entries.
+    """
+    import json
+
+    manifest_path = out / "plots_manifest.json"
+    if not manifest_path.exists():
+        console.print("[yellow]No plots_manifest.json found.[/yellow]")
+        return
+
+    with open(manifest_path, "r") as f:
+        plots = json.load(f)
+
+    original_count = len(plots)
+    valid_generators = {g.value for g in GeneratorName}
+    invalid_generators = set()
+
+    # Identify invalid entries and collect invalid generator names
+    valid_plots = []
+    for p in plots:
+        gen = p.get("generator", "")
+        if gen not in valid_generators or p.get("generator_type") == "Supplemental":
+            invalid_generators.add(gen)
+        else:
+            valid_plots.append(p)
+
+    removed = original_count - len(valid_plots)
+
+    if removed == 0:
+        console.print("[green]No invalid entries found.[/green]")
+        return
+
+    # Also clean cache entries for invalid generators
+    cache_removed = 0
+    if invalid_generators:
+        cache_root = out / "cache"
+        for cat_name, cat_cache in _get_caches(cache_root):
+            backend = cat_cache.backend
+            keys_to_delete = []
+            for key in backend:
+                payload = backend.get(key)
+                if isinstance(payload, dict) and "config" in payload:
+                    cfg = payload["config"]
+                    if cfg.get("generator") in invalid_generators:
+                        keys_to_delete.append(key)
+
+            if dry_run:
+                cache_removed += len(keys_to_delete)
+            else:
+                for key in keys_to_delete:
+                    backend.delete(key)
+                    cache_removed += 1
+
+    if dry_run:
+        console.print(f"[dim]Would remove {removed} manifest entries and {cache_removed} cache entries.[/dim]")
+    else:
+        with open(manifest_path, "w") as f:
+            json.dump(valid_plots, f, indent=2)
+        console.print(f"[green]Removed {removed} manifest entries and {cache_removed} cache entries.[/green]")

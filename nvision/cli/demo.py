@@ -122,6 +122,7 @@ def demo(
         out=demo_artifacts_root,
         repeats=repeats,
         loc_max_steps=loc_max_steps,
+        sweep_max_steps=loc_max_steps,  # Use same value for demo
         loc_timeout_s=300,
         no_cache=no_cache,
         ignore_cache_strategy=None,
@@ -129,6 +130,7 @@ def demo(
         filter_strategy="Bayesian",  # Matches both SBED and MaximumLikelihood
         filter_generator=filter_generator,
         filter_noise=filter_noise,
+        filter_target=None,
         all_experiments=False,
         no_progress=False,  # Show unified progress bar
         require_cache=False,
@@ -148,6 +150,7 @@ def demo(
             out=demo_artifacts_root,
             repeats=repeats,
             loc_max_steps=loc_max_steps,
+            sweep_max_steps=loc_max_steps,
             loc_timeout_s=300,
             no_cache=no_cache,
             ignore_cache_strategy=None,
@@ -155,6 +158,7 @@ def demo(
             filter_strategy="SimpleSweep",
             filter_generator=filter_generator,
             filter_noise=filter_noise,
+            filter_target=None,
             all_experiments=False,
             no_progress=False,  # Show unified progress bar
             require_cache=False,

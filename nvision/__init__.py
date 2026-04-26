@@ -48,7 +48,7 @@ from nvision.sim.gen import (
     PeakSpec,
     nv_center_lorentzian_bounds_for_domain,
 )
-from nvision.sim.locs.coarse import StagedSobolLocator
+from nvision.sim.locs.coarse import SimpleSweepLocator, StagedSobolSweepLocator
 from nvision.sim.locs.bayesian import nv_center_belief
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.noises import (
@@ -118,7 +118,8 @@ __all__ = [
     "VoigtZeemanModel",
     # Locators
     "Locator",
-    "StagedSobolLocator",
+    "SimpleSweepLocator",
+    "StagedSobolSweepLocator",
     # Spectra
     "likelihood_from_observation_model",
     # Cache

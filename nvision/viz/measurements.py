@@ -795,7 +795,8 @@ def _scan_layout(
     *,
     focus_window: tuple[float, float] | None = None,
 ) -> None:
-    xaxis_range = list(focus_window) if focus_window is not None else None
+    # Note: focus_window is used for overlay only, not for setting x-axis range
+    # The plot should show the full scan range (scan.x_min to scan.x_max)
     layout_args: dict = dict(
         title="Scan with sampled measurements",
         template="plotly_white",
@@ -811,8 +812,6 @@ def _scan_layout(
                 height=800,
             )
         )
-        if xaxis_range is not None:
-            layout_args["xaxis"] = dict(title="frequency", range=xaxis_range, autorange=False)
     else:
         layout_args.update(
             dict(
@@ -828,8 +827,6 @@ def _scan_layout(
                 margin=dict(t=110),
             )
         )
-        if xaxis_range is not None:
-            layout_args["xaxis"] = dict(title="frequency", range=xaxis_range, autorange=False)
     fig.update_layout(**layout_args)
 
 

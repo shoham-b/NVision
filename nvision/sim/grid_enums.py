@@ -9,13 +9,13 @@ class GeneratorCategory(StrEnum):
     """High-level generator family used by :meth:`nvision.sim.combinations.CombinationGrid.generator_category`."""
 
     NVCENTER = "NVCenter"
-    TWO_PEAK = "TwoPeak"
 
 
 class StrategyFilter(StrEnum):
     """Substring matched against strategy names in :meth:`nvision.sim.combinations.CombinationGrid.iter`."""
 
     SIMPLE_SWEEP = "SimpleSweep"
+    SWEEP = "Sweep,StagedSobolSweep"  # Matches GenericSweep and StagedSobolSweep
     BAYESIAN = "Bayesian"
     BAYESIAN_SBED = "Bayesian-SBED"
     BAYESIAN_UCB = "Bayesian-UCB"
@@ -27,8 +27,6 @@ class StrategyFilter(StrEnum):
 class GeneratorName(StrEnum):
     """Registered generator keys from :func:`nvision.sim.cases.generators_basic`."""
 
-    TWO_PEAK_GAUSSIAN = "TwoPeak-gaussian"
-    TWO_PEAK_LORENTZIAN = "TwoPeak-lorentzian"
     NVCENTER_ZEEMAN = "NVCenter-zeeman"
     NVCENTER_VOIGT_ZEEMAN = "NVCenter-voigt_zeeman"
 

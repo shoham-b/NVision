@@ -29,7 +29,6 @@ from nvision.runner.signal_cache import get_shared_core_experiment
 from nvision.sim import cases as sim_cases
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
 
@@ -117,25 +116,32 @@ def precompute_sweep(
     sweep_cache: SweepCache,
     **locator_config: Any,
 ) -> list[Observation] | None:
-    """Pre-generate and cache sweep observations for Bayesian locators.
+    """Pre-generate and cache sweep observations for Bayesian and sweep locators.
 
-    This function creates a temporary Bayesian locator, runs only the initial
-    sweep phase (without Bayesian acquisition), and stores the observations
-    in the shared sweep cache. Subsequent repeats can then use these cached
-    observations without re-measuring.
+    This function creates a temporary locator, runs the initial sweep,
+    and stores the observations in the shared sweep cache. Subsequent repeats
+    can then use these cached observations without re-measuring.
 
-    Returns the precomputed sweep observations, or None if the locator is not
-    a Bayesian locator or has no initial sweep.
+    Returns the precomputed sweep observations, or None if the locator doesn't
+    support sweep precomputation.
     """
     from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+    from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 
-    # Only Bayesian locators need pre-computation
-    if not issubclass(locator_class, SequentialBayesianLocator):
+    # Only Bayesian locators and sweep locators need pre-computation
+    is_bayesian = issubclass(locator_class, SequentialBayesianLocator)
+    is_sweep = issubclass(locator_class, SweepingLocator)
+    if not (is_bayesian or is_sweep):
         return None
 
     locator = locator_class.create(**locator_config)
 
-    sweep_steps = getattr(locator, "initial_sweep_steps", 0)
+    # For Bayesian: use initial_sweep_steps; for sweep: use max_steps (full sweep)
+    if is_bayesian:
+        sweep_steps = getattr(locator, "initial_sweep_steps", 0)
+    else:
+        sweep_steps = getattr(locator, "max_steps", 0)
+
     if sweep_steps <= 0:
         return None
 
@@ -143,12 +149,14 @@ def precompute_sweep(
     if sweep_cache.has(experiment, sweep_steps):
         return sweep_cache.get(experiment, sweep_steps)
 
-    # Run only the sweep phase
+    # Run the sweep phase
     observations: list[Observation] = []
     step = 0
     while not locator.done() and step < sweep_steps:
         step += 1
-        x_normalized = locator.next()
+        x_physical = locator.next()
+        # SweepingLocator returns physical x, but experiment.measure() expects normalized [0,1]
+        x_normalized = experiment.normalize_x(x_physical)
         obs = experiment.measure(x_normalized, rng)
         locator.observe(obs)
         observations.append(obs)
@@ -190,30 +198,50 @@ def run_loop(
 ) -> Iterator[Locator]:
     """Run one repeat's measurement loop and yield locator states.
 
-    For Bayesian locators with initial sweeps, checks ``sweep_cache`` for
-    pre-computed sweep observations to avoid redundant measurements.
+    For Bayesian locators with initial sweeps and sweep locators, checks
+    ``sweep_cache`` for pre-computed observations to avoid redundant measurements.
     """
+    from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
+
     locator = locator_class.create(**locator_config)
 
-    # Check if we can use cached sweep for Bayesian locators
+    # Check if we can use cached sweep for Bayesian locators or sweep locators
     cached_sweep: list[Observation] | None = None
-    if sweep_cache is not None and isinstance(locator, SequentialBayesianLocator):
-        sweep_steps = getattr(locator, "initial_sweep_steps", 0)
-        if sweep_cache.has(experiment, sweep_steps):
-            cached_sweep = sweep_cache.get(experiment, sweep_steps)
+    if sweep_cache is not None:
+        if isinstance(locator, SequentialBayesianLocator):
+            sweep_steps = getattr(locator, "initial_sweep_steps", 0)
+            if sweep_cache.has(experiment, sweep_steps):
+                cached_sweep = sweep_cache.get(experiment, sweep_steps)
+        elif isinstance(locator, SweepingLocator):
+            sweep_steps = getattr(locator, "max_steps", 0)
+            if sweep_cache.has(experiment, sweep_steps):
+                cached_sweep = sweep_cache.get(experiment, sweep_steps)
 
     step = 0
     while not locator.done():
         step += 1
-        x_normalized = locator.next()
+        x_current = locator.next()
 
         # Use cached observation if in sweep phase and cache available
         if cached_sweep is not None and step <= len(cached_sweep):
-            obs = cached_sweep[step - 1]
-            # Ensure observation x matches what the locator expects
-            # (Locator generates x via next(), we provide cached signal_value)
+            cached_obs = cached_sweep[step - 1]
+            # Create a new observation with the current x but cached signal value
+            # The signal_value was measured at this x during precompute, but we
+            # need to ensure the x matches what the locator expects now.
+            obs = Observation(
+                x=x_current,
+                signal_value=cached_obs.signal_value,
+                noise_std=cached_obs.noise_std,
+                frequency_noise_model=cached_obs.frequency_noise_model,
+            )
         else:
-            obs = experiment.measure(x_normalized, rng)
+            # Some locators (SweepingLocator, StagedSobolSweepLocator) return physical x,
+            # while others return normalized [0,1]. Normalize when x looks physical.
+            if x_current < 0.0 or x_current > 1.0:
+                x_norm = experiment.normalize_x(x_current)
+                obs = experiment.measure(x_norm, rng)
+            else:
+                obs = experiment.measure(x_current, rng)
 
         locator.observe(obs)
         yield locator
@@ -581,15 +609,25 @@ class _TaskRunner:
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
 
+        # Check locator class attributes to determine configuration
+        uses_sweep_max_steps = getattr(locator_class, 'USES_SWEEP_MAX_STEPS', False)
+        requires_belief = getattr(locator_class, 'REQUIRES_BELIEF', False)
+        max_steps = self.task.sweep_max_steps if uses_sweep_max_steps else self.task.loc_max_steps
+
         cfg = {
             **locator_config,
-            "max_steps": self.task.loc_max_steps,
+            "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": noise_std,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_min_span is None else {"signal_min_span": signal_min_span}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
+
+        # For locators that require belief, add belief and signal_model
+        if requires_belief:
+            cfg["belief"] = _create_sweep_belief(experiment)
+            cfg["signal_model"] = experiment.true_signal.model
 
         precompute_sweep(locator_class, experiment, rng, self._sweep_cache, **cfg)
 
@@ -622,17 +660,22 @@ class _TaskRunner:
             signal_min_span = model.signal_min_span(domain_width)
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
+        # Check locator class attributes to determine configuration
+        uses_sweep_max_steps = getattr(locator_class, 'USES_SWEEP_MAX_STEPS', False)
+        requires_belief = getattr(locator_class, 'REQUIRES_BELIEF', False)
+        max_steps = self.task.sweep_max_steps if uses_sweep_max_steps else self.task.loc_max_steps
+
         cfg = {
             **locator_config,
-            "max_steps": self.task.loc_max_steps,
+            "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": noise_std,
             **({}  if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({}  if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
 
-        # For sweeping locators, add belief and signal_model
-        if issubclass(locator_class, SweepingLocator):
+        # For locators that require belief, add belief and signal_model
+        if requires_belief:
             belief = _create_sweep_belief(experiment)
             cfg["belief"] = belief
             cfg["signal_model"] = experiment.true_signal.model

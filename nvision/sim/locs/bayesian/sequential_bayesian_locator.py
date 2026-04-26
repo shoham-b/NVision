@@ -13,8 +13,8 @@ from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribut
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.measurement_noise import DEFAULT_MEASUREMENT_NOISE_STD
-from nvision.models.observation import Observation
-from nvision.sim.locs.coarse.sobol_locator import StagedSobolLocator
+from nvision.models.observation import Observation, ObservationHistory
+from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
@@ -380,7 +380,7 @@ class SequentialBayesianLocator(Locator):
         # Create staged Sobol locator for initial sweep phase
         # belief is passed to satisfy Locator parent class
         # signal_model (belief.model) is used for sweep detection
-        self._staged_sobol = StagedSobolLocator(
+        self._staged_sobol = StagedSobolSweepLocator(
             belief=self.belief,
             signal_model=self.belief.model,
             max_steps=self.initial_sweep_steps,
@@ -403,7 +403,7 @@ class SequentialBayesianLocator(Locator):
         # Current dip window index for round-robin acquisition across multiple dips
         self._current_dip_window_idx: int = 0
         # Buffer for sweep observations - batch update belief after sweep completes
-        self._sweep_observations_buffer: list[Observation] = []
+        self._sweep_buffer = ObservationHistory(self.initial_sweep_steps)
 
     def _inner_model(self):
         """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""
@@ -684,7 +684,7 @@ class SequentialBayesianLocator(Locator):
         """
         if not self._staged_sobol.done():
             # During sweep phase: buffer observations, update belief only at the end
-            self._sweep_observations_buffer.append(obs)
+            self._sweep_buffer.append(obs)
             self._staged_sobol.observe(obs)
         else:
             # After sweep phase: normal incremental belief update
@@ -773,15 +773,15 @@ class SequentialBayesianLocator(Locator):
             self._staged_sobol.finalize()
 
         # Batch update belief with all sweep observations at once (more efficient for SMC)
-        if self._sweep_observations_buffer:
+        if self._sweep_buffer.count > 0:
             if hasattr(self.belief, "batch_update"):
-                self.belief.batch_update(self._sweep_observations_buffer)
+                self.belief.batch_update(self._sweep_buffer.observations)
             else:
                 # Fallback: update one by one for beliefs without batch_update
-                for obs in self._sweep_observations_buffer:
+                for obs in self._sweep_buffer.observations:
                     self.belief.update(obs)
-            # Clear the buffer after updating
-            self._sweep_observations_buffer.clear()
+            # Clear the buffer by reinitializing it
+            self._sweep_buffer = ObservationHistory(self.initial_sweep_steps)
 
         # Get narrowed window from staged Sobol locator
         self._acquisition_lo, self._acquisition_hi = self._staged_sobol.acquisition_window()

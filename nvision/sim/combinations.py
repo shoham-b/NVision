@@ -6,6 +6,7 @@ noises, and locator strategies exist and how they combine.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -17,12 +18,9 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     SequentialBayesianExperimentDesignLocator,
     UtilitySamplingLocator,
 )
-from nvision.sim.locs.bayesian.belief_builders import (
-    nv_center_smc_belief,
-    two_peak_gaussian_belief,
-    two_peak_lorentzian_belief,
-)
-from nvision.sim.locs.coarse.sobol_locator import StagedSobolLocator
+from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +46,18 @@ _NV_SMC: dict[str, object] = {
 }
 
 
+def _strategy_matches(pattern: str, strat_name: str) -> bool:
+    """Match strategy name against pattern (regex if valid, else substring)."""
+    # Try regex first
+    try:
+        if pattern.startswith("^") or pattern.endswith("$") or any(c in pattern for c in ".*+?[]{}|()"):
+            return bool(re.search(pattern, strat_name))
+    except re.error:
+        pass
+    # Fall back to simple substring match
+    return pattern in strat_name
+
+
 class CombinationGrid:
     """Enumerates every (generator x noise x strategy) combination.
 
@@ -71,19 +81,17 @@ class CombinationGrid:
 
     @staticmethod
     def generator_category(name: str) -> str:
-        for prefix, cat in (
-            ("TwoPeak-", "TwoPeak"),
-            ("NVCenter-", "NVCenter"),
-        ):
-            if name.startswith(prefix):
-                return cat
+        if name.startswith("NVCenter-"):
+            return "NVCenter"
         return "Unknown"
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
         if generator_name.startswith("NVCenter-"):
             return [
-                ("StagedSobol", StagedSobolLocator),
+                ("GenericSweep", GenericSweepLocator),
+                ("SimpleSweep", GenericSweepLocator),
+                ("StagedSobolSweep", StagedSobolSweepLocator),
                 (
                     "Bayesian-SBED",
                     {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **_NV_SMC}},
@@ -109,37 +117,7 @@ class CombinationGrid:
                 ),
             ]
 
-        if generator_name == "TwoPeak-gaussian":
-            cfg = {"builder": two_peak_gaussian_belief, "max_steps": 240}
-            return [
-                ("StagedSobol", StagedSobolLocator),
-                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
-                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
-                (
-                    "Bayesian-UtilitySampling",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
-                    },
-                ),
-            ]
-
-        if generator_name == "TwoPeak-lorentzian":
-            cfg = {"builder": two_peak_lorentzian_belief, "max_steps": 240}
-            return [
-                ("StagedSobol", StagedSobolLocator),
-                ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": dict(cfg)}),
-                ("Bayesian-MaximumLikelihood", {"class": MaximumLikelihoodLocator, "config": dict(cfg)}),
-                (
-                    "Bayesian-UtilitySampling",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {**cfg, "pickiness": 4.0, "noise_std": 0.02, "cost": 1.0},
-                    },
-                ),
-            ]
-
-        return [("StagedSobol", StagedSobolLocator)]
+        return [("GenericSweep", GenericSweepLocator), ("SimpleSweep", GenericSweepLocator), ("StagedSobolSweep", StagedSobolSweepLocator)]
 
     def __iter__(self) -> Iterator[Combination]:
         """Iterate all combinations (no filtering, no dedup)."""
@@ -165,8 +143,12 @@ class CombinationGrid:
                 continue
 
             for strat_name, strat_obj in self.strategies_for(gen_name):
-                if filter_strategy and filter_strategy not in strat_name:
-                    continue
+                if filter_strategy:
+                    # Support comma-separated strategy filters with optional regex
+                    # (e.g., "Sweep,Sobol" matches both, "^Bayesian.*" uses regex)
+                    patterns = [p.strip() for p in filter_strategy.split(",")]
+                    if not any(_strategy_matches(p, strat_name) for p in patterns):
+                        continue
 
                 for noise_name, noise_obj in self._noises.items():
                     if filter_noise is not None and not noise_name.startswith(filter_noise):

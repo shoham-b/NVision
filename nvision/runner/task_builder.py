@@ -32,6 +32,7 @@ class TaskListBuildConfig:
     progress_queue: queue.Queue
     log_level_value: int
     loc_max_steps: int
+    sweep_max_steps: int
     loc_timeout_s: int
     no_cache: bool
     ignore_cache_strategy: str | None
@@ -88,6 +89,7 @@ def build_task_list(
                 scans_dir=config.scans_dir,
                 bayes_dir=config.bayes_dir,
                 loc_max_steps=config.loc_max_steps,
+                sweep_max_steps=config.sweep_max_steps,
                 loc_timeout_s=config.loc_timeout_s,
                 use_cache=not config.no_cache,
                 cache_dir=config.cache_dir,

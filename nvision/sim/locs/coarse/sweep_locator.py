@@ -9,7 +9,7 @@ import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
-from nvision.models.observation import Observation
+from nvision.models.observation import Observation, ObservationHistory
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 
 class SweepingLocator(Locator):
     """Base class for sweeping locators with signal detection and windowing.
+
+    Class Attributes
+    ----------------
+    USES_SWEEP_MAX_STEPS : bool
+        If True, use sweep_max_steps instead of loc_max_steps.
+    REQUIRES_BELIEF : bool
+        If True, inject belief and signal_model parameters.
 
     Provides common functionality for coarse search locators:
     - Signal detection from sweep observations
@@ -31,6 +38,9 @@ class SweepingLocator(Locator):
     - `_should_refocus(step_count)`: Return refocus step or None
     - `_regenerate_points(refocus_step, lo_norm, hi_norm)`: Regenerate remaining points
     """
+
+    USES_SWEEP_MAX_STEPS: bool = True
+    REQUIRES_BELIEF: bool = True
 
     def __init__(
         self,
@@ -61,7 +71,7 @@ class SweepingLocator(Locator):
 
         # Generate initial sweep points (subclass provides method)
         self._sweep_points: np.ndarray = np.empty(0, dtype=float)
-        self._sweep_observations: list[Observation] = []
+        self.history = ObservationHistory(max_steps)
 
         # Sweep state
         self._last_refocus_step = 0
@@ -78,10 +88,13 @@ class SweepingLocator(Locator):
         """Record observation for sweep tracking.
 
         Overrides parent to NOT update belief - sweep locators just track
-        observations for signal detection.
+        observations for signal detection. However, we still set last_obs
+        on the belief so the Observer can create snapshots for plotting.
         """
         if self.step_count <= self.max_steps:
-            self._sweep_observations.append(obs)
+            self.history.append(obs)
+            # Set last_obs so Observer can create snapshots for plotting
+            self.belief.last_obs = obs
 
     def _inner_model(self):
         """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""
@@ -126,13 +139,13 @@ class SweepingLocator(Locator):
             if (
                 refocus_step is not None
                 and refocus_step < self.max_steps
-                and len(self._sweep_observations) >= refocus_step
+                and self.history.count >= refocus_step
             ):
                 self._last_refocus_step = refocus_step
                 self._maybe_refocus(refocus_step)
 
             # Early stopping check
-            if self._last_refocus_step > 0 and len(self._sweep_observations) >= 6:
+            if self._last_refocus_step > 0 and self.history.count >= 6:
                 if self._check_early_stop():
                     self._early_stopped = True
                     self._completed_at_step = self.step_count
@@ -152,11 +165,6 @@ class SweepingLocator(Locator):
         """Return True when sweep is complete (including early stopping)."""
         return self.step_count >= self.max_steps or self._early_stopped
 
-    def observe(self, obs: Observation) -> None:
-        """Record observation."""
-        if self.step_count <= self.max_steps:
-            self._sweep_observations.append(obs)
-
     def result(self) -> dict[str, float]:
         """Return sweep result with acquisition window bounds."""
         return {
@@ -174,9 +182,31 @@ class SweepingLocator(Locator):
             return self._completed_at_step
         return self.step_count
 
+    def effective_initial_sweep_steps(self) -> int:
+        """Return effective sweep steps for UI phase coloring.
+
+        This is called by the Observer to determine how many steps
+        were part of the initial sweep phase (for marking measurements
+        as 'coarse' phase in visualizations).
+
+        Returns
+        -------
+        int
+            Number of steps in the initial sweep phase.
+        """
+        return self.effective_step_count()
+
     def acquisition_window(self) -> tuple[float, float]:
         """Return the acquisition window bounds (lo, hi) in physical units."""
         return (self._acquisition_lo, self._acquisition_hi)
+
+    def bayesian_focus_window(self) -> tuple[float, float]:
+        """Return acquisition window for Observer compatibility.
+
+        This alias allows the Observer to capture the sweep window for visualization
+        the same way it captures Bayesian focus windows.
+        """
+        return self.acquisition_window()
 
     @property
     def signal_found(self) -> bool:
@@ -185,11 +215,11 @@ class SweepingLocator(Locator):
 
     def _maybe_refocus(self, refocus_step: int) -> None:
         """Refocus remaining sweep points around detected signal."""
-        if len(self._sweep_observations) < 5:
+        if self.history.count < 5:
             return
 
-        xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
-        ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
+        xs = self.history.xs
+        ys = self.history.ys
 
         min_idx = int(np.argmin(ys))
         best_point_norm = float(xs[min_idx])
@@ -249,11 +279,11 @@ class SweepingLocator(Locator):
 
     def _check_early_stop(self) -> bool:
         """Check if sweep can stop early due to well-characterized signal."""
-        if len(self._sweep_observations) < 6:
+        if self.history.count < 6:
             return False
 
-        xs = np.array([float(o.x) for o in self._sweep_observations])
-        ys = np.array([float(o.signal_value) for o in self._sweep_observations])
+        xs = self.history.xs
+        ys = self.history.ys
 
         min_idx = int(np.argmin(ys))
         min_signal = float(ys[min_idx])
@@ -388,12 +418,12 @@ class SweepingLocator(Locator):
 
     def _set_acquisition_window(self) -> None:
         """Set acquisition window from sweep observations."""
-        if len(self._sweep_observations) < 3:
+        if self.history.count < 3:
             # No signal found - check if we should do fallback sweep
             if not self._fallback_done and self.max_steps > 0:
                 self._fallback_done = True
                 self._sweep_points = self._generate_fallback_points(self.max_steps)
-                self._sweep_observations.clear()
+                self.history = ObservationHistory(self.max_steps)
                 self.step_count = 0
                 self._last_refocus_step = 0
                 self._completed_at_step = self.max_steps
@@ -405,15 +435,15 @@ class SweepingLocator(Locator):
             return
 
         # Try to detect signal region
-        xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
-        ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
+        xs = self.history.xs
+        ys = self.history.ys
 
         span = self._detect_signal_span(xs, ys)
         if span is None:
             if not self._fallback_done and self.max_steps > 0:
                 self._fallback_done = True
                 self._sweep_points = self._generate_fallback_points(self.max_steps)
-                self._sweep_observations.clear()
+                self.history = ObservationHistory(self.max_steps)
                 self.step_count = 0
                 self._last_refocus_step = 0
                 self._completed_at_step = self.max_steps
@@ -439,15 +469,15 @@ class SweepingLocator(Locator):
         if not self._signal_found and not self._early_stopped:
             self._set_acquisition_window()
 
-        if not self._signal_found or len(self._sweep_observations) < 6:
+        if not self._signal_found or self.history.count < 6:
             return
 
         expected_dips = self._expected_dip_count_from_model()
         if expected_dips != 3:
             return
 
-        xs = np.array([float(o.x) for o in self._sweep_observations], dtype=float)
-        ys = np.array([float(o.signal_value) for o in self._sweep_observations], dtype=float)
+        xs = self.history.xs
+        ys = self.history.ys
 
         bg = float(np.percentile(ys, 75))
         depth = bg - float(np.min(ys))

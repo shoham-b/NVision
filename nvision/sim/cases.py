@@ -24,6 +24,7 @@ from nvision.noises import (
 class RunCaseName(StrEnum):
     ALL = "all"
     NVCENTER = "nvcenter"
+    NVCENTER_SWEEP = "nvcenter_sweep"
     NVCENTER_BAYES_SBED = "nvcenter_bayes_sbed"
     NVCENTER_BAYES_UCB = "nvcenter_bayes_ucb"
     NVCENTER_BAYES_MAXVAR = "nvcenter_bayes_maxvar"
@@ -111,6 +112,7 @@ class RunCase:
     description: str = ""
     repeats: int = 5
     loc_max_steps: int = DEFAULT_LOC_MAX_STEPS
+    sweep_max_steps: int = 300
     loc_timeout_s: int = 1500
     require_cache: bool = False
     log_level: str = "INFO"
@@ -123,10 +125,27 @@ def run_case_nvcenter() -> RunCase:
         name=RunCaseName.NVCENTER.value,
         filter_category=GeneratorCategory.NVCENTER,
         filter_strategy=None,
-        description="NVCenter generators with all available strategies (SimpleSweep + Bayesian).",
+        description="NVCenter generators with all available strategies (Sweep + Bayesian).",
         repeats=5,
         loc_max_steps=DEFAULT_LOC_MAX_STEPS,
         loc_timeout_s=1500,
+        require_cache=False,
+        log_level="INFO",
+        no_progress=False,
+    )
+
+
+def run_case_nvcenter_sweep() -> RunCase:
+    """NVCenter sweep-only run case (GenericSweep + StagedSobolSweep)."""
+    return RunCase(
+        name=RunCaseName.NVCENTER_SWEEP.value,
+        filter_category=GeneratorCategory.NVCENTER,
+        filter_strategy=StrategyFilter.SWEEP,
+        description="NVCenter generators with sweep locators only (GenericSweep + StagedSobolSweep).",
+        repeats=5,
+        loc_max_steps=DEFAULT_LOC_MAX_STEPS,
+        sweep_max_steps=400,  # Higher for sweep-only runs
+        loc_timeout_s=1000,
         require_cache=False,
         log_level="INFO",
         no_progress=False,
@@ -234,6 +253,7 @@ def _run_cases_tuple() -> tuple[RunCase, ...]:
     return (
         run_case_all(),
         run_case_nvcenter(),
+        run_case_nvcenter_sweep(),
         run_case_nvcenter_bayes_sbed(),
         run_case_nvcenter_bayes_ucb(),
         run_case_nvcenter_bayes_maxvar(),

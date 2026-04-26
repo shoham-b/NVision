@@ -135,17 +135,7 @@ function main() {
             }
         });
 
-        plots.forEach((p) => {
-            const gen = p.generator || '';
-            const strat = p.strategy || '';
-            if (gen.startsWith('NVCenter-')) {
-                p.generator_type = strat.includes('Bayesian') ? 'NV Center (Bayesian)' : 'NV Center';
-            } else {
-                p.generator_type = 'Supplemental';
-            }
-        });
-
-        const scanPlots = plots.filter((p) => p.type === 'scan' && p.generator_type);
+        const scanPlots = plots.filter((p) => p.type === 'scan');
         const bayesSection = document.getElementById('bayes-section-container');
         const bayesImage = document.getElementById('bayes-image');
         const bayesPlots = plots.filter((p) => p.type === 'bayesian');
@@ -378,10 +368,8 @@ function main() {
             }
         }
 
-        const nvCenterDefault = scanPlots.find(p => p.generator_type === 'NV Center (Bayesian)');
-        const scanDefault = nvCenterDefault || (scanPlots.length > 0 ? scanPlots[0] : null);
+        const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
 
-        const scanGeneratorType = document.getElementById('scan-generator-type');
         const scanGenerator = document.getElementById('scan-generator');
         const scanNoise = document.getElementById('scan-noise');
         const scanStrategy = document.getElementById('scan-strategy');
@@ -883,11 +871,7 @@ function main() {
                 ),
             ]
                 .map((item) => String(item))
-                .sort((a, b) => {
-                    if (a === 'NV Center (Bayesian)') return -1;
-                    if (b === 'NV Center (Bayesian)') return 1;
-                    return a.localeCompare(b);
-                });
+                .sort((a, b) => a.localeCompare(b));
 
             control.innerHTML = '';
 
@@ -998,17 +982,9 @@ function main() {
             selectRepeatByIndex(targetIndex);
         }
 
-        /** Left column: target, generator, noise (signal / experiment path). */
+        /** Left column: generator, noise (signal / experiment path). */
         function updateScanSignalControls() {
-            const selectedScanGeneratorType = renderSegmentedControl(
-                scanGeneratorType,
-                [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
-                controlValue(scanGeneratorType),
-            );
-
-            const scanGeneratorItems = scanPlots
-                .filter((p) => p.generator_type === selectedScanGeneratorType)
-                .map((p) => p.generator);
+            const scanGeneratorItems = [...new Set(scanPlots.map((p) => p.generator))].sort();
             const selectedScanGenerator = renderSegmentedControl(
                 scanGenerator,
                 scanGeneratorItems,
@@ -1016,11 +992,7 @@ function main() {
             );
 
             const scanNoiseItems = scanPlots
-                .filter(
-                    (p) =>
-                        p.generator_type === selectedScanGeneratorType &&
-                        p.generator === selectedScanGenerator
-                )
+                .filter((p) => p.generator === selectedScanGenerator)
                 .map((p) => p.noise);
             renderSegmentedControl(
                 scanNoise,
@@ -1029,13 +1001,13 @@ function main() {
             );
         }
 
-        /** Right column: strategies for this target type only — not filtered by generator or noise. */
+        /** Right column: strategies available for selected generator. */
         function updateScanStrategyControl() {
-            const selectedScanGeneratorType = controlValue(scanGeneratorType);
+            const selectedScanGenerator = controlValue(scanGenerator);
             const scanStrategyItems = [
                 ...new Set(
                     scanPlots
-                        .filter((p) => p.generator_type === selectedScanGeneratorType)
+                        .filter((p) => p.generator === selectedScanGenerator)
                         .map((p) => p.strategy)
                 ),
             ];
@@ -1048,7 +1020,6 @@ function main() {
 
         /** Repeat options for the full (signal × locator) selection. */
         function updateScanRepeatControl() {
-            const selectedScanGeneratorType = controlValue(scanGeneratorType);
             const selectedScanGenerator = controlValue(scanGenerator);
             const selectedScanNoise = controlValue(scanNoise);
             const selectedScanStrategy = controlValue(scanStrategy);
@@ -1056,7 +1027,6 @@ function main() {
             const scanRepeatItems = scanPlots
                 .filter(
                     (p) =>
-                        p.generator_type === selectedScanGeneratorType &&
                         p.generator === selectedScanGenerator &&
                         p.noise === selectedScanNoise &&
                         p.strategy === selectedScanStrategy
@@ -1081,14 +1051,12 @@ function main() {
         }
 
         function findAndDisplayPlot() {
-            const scanGeneratorTypeValue = controlValue(scanGeneratorType);
             const scanGeneratorValue = controlValue(scanGenerator);
             const scanNoiseValue = controlValue(scanNoise);
             const scanStrategyValue = controlValue(scanStrategy);
             const scanRepeatValue = controlValue(scanRepeat);
 
             if (
-                scanGeneratorTypeValue &&
                 scanGeneratorValue &&
                 scanNoiseValue &&
                 scanStrategyValue &&
@@ -1097,7 +1065,6 @@ function main() {
                 const repeatNumber = parseInt(scanRepeatValue, 10);
                 const plot = scanPlots.find(
                     (p) =>
-                        p.generator_type === scanGeneratorTypeValue &&
                         p.generator === scanGeneratorValue &&
                         p.noise === scanNoiseValue &&
                         p.strategy === scanStrategyValue &&
@@ -1295,7 +1262,6 @@ function main() {
         }
 
         // --- Strategy metrics (model_comparison bar charts) ---
-        const compGeneratorType = document.getElementById('comp-generator-type');
         const compGenerator = document.getElementById('comp-generator');
         const compNoise = document.getElementById('comp-noise');
         const compIframeAbsErr = document.getElementById('comp-iframe-abs-err');
@@ -1305,14 +1271,9 @@ function main() {
         const modelCompPlots = plots.filter(p => p.type === 'model_comparison');
 
         function updateCompControls() {
-            if (!compGeneratorType || !compGenerator || !compNoise) return;
-            const uniqueGenTypes = [...new Set(modelCompPlots.map(p => p.generator_type || (p.generator.startsWith('NVCenter-') ? 'NV Center' : 'Complementary')))].sort();
-            const selectedGenType = renderSegmentedControl(compGeneratorType, uniqueGenTypes, controlValue(compGeneratorType));
-
+            if (!compGenerator || !compNoise) return;
             const uniqueGenerators = [...new Set(
-                modelCompPlots
-                    .filter(p => (p.generator_type || (p.generator.startsWith('NVCenter-') ? 'NV Center' : 'Complementary')) === selectedGenType)
-                    .map(p => p.generator)
+                modelCompPlots.map(p => p.generator)
             )].sort();
             const selectedGen = renderSegmentedControl(compGenerator, uniqueGenerators, controlValue(compGenerator));
 
@@ -1346,12 +1307,7 @@ function main() {
             compIframeDuration.src = durationPlot ? durationPlot.path : '';
         }
 
-        if (compGeneratorType && compGenerator && compNoise) {
-            compGeneratorType.addEventListener('controlchange', () => {
-                updateCompControls();
-                updateCompPlots();
-            });
-
+        if (compGenerator && compNoise) {
             compGenerator.addEventListener('controlchange', () => {
                 updateCompControls();
                 updateCompPlots();
@@ -1362,9 +1318,8 @@ function main() {
             });
         }
 
-        // --- Scan Comparison: same signal (target / generator / noise / repeat), two locators ---
+        // --- Scan Comparison: same signal (generator / noise / repeat), two locators ---
         function setupScanComparison() {
-            const cmpGenType = document.getElementById('cmp-shared-generator-type');
             const cmpGen = document.getElementById('cmp-shared-generator');
             const cmpNoise = document.getElementById('cmp-shared-noise');
             const cmpRepeat = document.getElementById('cmp-shared-repeat');
@@ -1375,7 +1330,6 @@ function main() {
             const rightMetrics = document.getElementById('right-metrics');
 
             if (
-                !cmpGenType ||
                 !cmpGen ||
                 !cmpNoise ||
                 !cmpRepeat ||
@@ -1387,33 +1341,27 @@ function main() {
             }
 
             function updateCmpSharedSignalControls() {
-                const selGenType = renderSegmentedControl(
-                    cmpGenType,
-                    [...new Set(scanPlots.map((p) => p.generator_type))].sort(),
-                    controlValue(cmpGenType),
-                );
-                const genItems = scanPlots.filter((p) => p.generator_type === selGenType).map((p) => p.generator);
+                const genItems = [...new Set(scanPlots.map((p) => p.generator))].sort();
                 const selGen = renderSegmentedControl(cmpGen, genItems, controlValue(cmpGen));
                 const noiseItems = scanPlots
-                    .filter((p) => p.generator_type === selGenType && p.generator === selGen)
+                    .filter((p) => p.generator === selGen)
                     .map((p) => p.noise);
                 renderSegmentedControl(cmpNoise, noiseItems, controlValue(cmpNoise));
             }
 
             function updateCmpStrategyControls() {
-                const selGenType = controlValue(cmpGenType);
+                const selGen = controlValue(cmpGen);
                 const stratItems = [
-                    ...new Set(scanPlots.filter((p) => p.generator_type === selGenType).map((p) => p.strategy)),
+                    ...new Set(scanPlots.filter((p) => p.generator === selGen).map((p) => p.strategy)),
                 ];
                 renderSegmentedControl(leftStrat, stratItems, controlValue(leftStrat));
                 renderSegmentedControl(rightStrat, stratItems, controlValue(rightStrat));
             }
 
-            function repeatStringsFor(gt, g, n, strat) {
+            function repeatStringsFor(g, n, strat) {
                 return scanPlots
                     .filter(
                         (p) =>
-                            p.generator_type === gt &&
                             p.generator === g &&
                             p.noise === n &&
                             p.strategy === strat,
@@ -1422,13 +1370,12 @@ function main() {
             }
 
             function updateCmpRepeatControl() {
-                const gt = controlValue(cmpGenType);
                 const g = controlValue(cmpGen);
                 const n = controlValue(cmpNoise);
                 const sl = controlValue(leftStrat);
                 const sr = controlValue(rightStrat);
-                const repsL = repeatStringsFor(gt, g, n, sl);
-                const repsR = repeatStringsFor(gt, g, n, sr);
+                const repsL = repeatStringsFor(g, n, sl);
+                const repsR = repeatStringsFor(g, n, sr);
                 const setR = new Set(repsR);
                 let common = [...new Set(repsL)].filter((r) => setR.has(r));
                 common.sort((a, b) => Number(a) - Number(b));
@@ -1480,7 +1427,6 @@ function main() {
             }
 
             async function updateCmpPlots() {
-                const vGenType = controlValue(cmpGenType);
                 const vGen = controlValue(cmpGen);
                 const vNoise = controlValue(cmpNoise);
                 const vStratL = controlValue(leftStrat);
@@ -1488,7 +1434,7 @@ function main() {
                 const repStr = controlValue(cmpRepeat);
                 const vRep = repStr ? parseInt(repStr, 10) : NaN;
 
-                if (!vGenType || !vGen || !vNoise || !vStratL || !vStratR || !Number.isFinite(vRep)) {
+                if (!vGen || !vNoise || !vStratL || !vStratR || !Number.isFinite(vRep)) {
                     clearHeadToHeadPlot('');
                     applyMetrics(leftMetrics, null);
                     applyMetrics(rightMetrics, null);
@@ -1497,7 +1443,6 @@ function main() {
 
                 const plotL = scanPlots.find(
                     (p) =>
-                        p.generator_type === vGenType &&
                         p.generator === vGen &&
                         p.noise === vNoise &&
                         p.strategy === vStratL &&
@@ -1505,7 +1450,6 @@ function main() {
                 );
                 const plotR = scanPlots.find(
                     (p) =>
-                        p.generator_type === vGenType &&
                         p.generator === vGen &&
                         p.noise === vNoise &&
                         p.strategy === vStratR &&
@@ -1573,12 +1517,6 @@ function main() {
                 updateCmpPlots();
             }
 
-            cmpGenType.addEventListener('controlchange', () => {
-                updateCmpSharedSignalControls();
-                updateCmpStrategyControls();
-                updateCmpRepeatControl();
-                updateCmpPlots();
-            });
             cmpGen.addEventListener('controlchange', onSharedChange);
             cmpNoise.addEventListener('controlchange', onSharedChange);
             leftStrat.addEventListener('controlchange', () => {
@@ -1595,15 +1533,12 @@ function main() {
             });
 
             if (scanDefault) {
-                cmpGenType.dataset.value = scanDefault.generator_type ?? '';
                 cmpGen.dataset.value = scanDefault.generator ?? '';
                 cmpNoise.dataset.value = scanDefault.noise ?? '';
                 cmpRepeat.dataset.value =
                     scanDefault.repeat === undefined ? '' : String(scanDefault.repeat);
-                const types = [...new Set(scanPlots.map((p) => p.generator_type))];
-                const defType = scanDefault.generator_type ?? types[0];
                 const strats = [
-                    ...new Set(scanPlots.filter((p) => p.generator_type === defType).map((p) => p.strategy)),
+                    ...new Set(scanPlots.filter((p) => p.generator === scanDefault.generator).map((p) => p.strategy)),
                 ].sort();
                 if (strats.length >= 2) {
                     leftStrat.dataset.value = strats[0];
@@ -1623,12 +1558,6 @@ function main() {
         }
 
 
-        scanGeneratorType.addEventListener('controlchange', () => {
-            updateScanSignalControls();
-            updateScanStrategyControl();
-            updateScanRepeatControl();
-            findAndDisplayPlot();
-        });
         scanGenerator.addEventListener('controlchange', () => {
             updateScanSignalControls();
             updateScanRepeatControl();
@@ -1660,7 +1589,6 @@ function main() {
         }
 
         if (scanDefault) {
-            scanGeneratorType.dataset.value = scanDefault.generator_type ?? '';
             scanGenerator.dataset.value = scanDefault.generator ?? '';
             scanNoise.dataset.value = scanDefault.noise ?? '';
             scanStrategy.dataset.value = scanDefault.strategy ?? '';
