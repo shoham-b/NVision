@@ -12,6 +12,7 @@ from nvision.tools.paths import ensure_out_dir
 
 LOCATOR_RESULTS_CSV = "locator_results.csv"
 PLOTS_MANIFEST_JSON = "plots_manifest.json"
+RUN_STATUS_JSON = "run_status.json"
 
 
 def locator_results_path(out_dir: Path) -> Path:
@@ -20,6 +21,50 @@ def locator_results_path(out_dir: Path) -> Path:
 
 def plots_manifest_path(out_dir: Path) -> Path:
     return out_dir / PLOTS_MANIFEST_JSON
+
+
+def run_status_path(out_dir: Path) -> Path:
+    return out_dir / RUN_STATUS_JSON
+
+
+def write_run_status(
+    out_dir: Path,
+    status: str,
+    total_tasks: int | None = None,
+    completed_tasks: int | None = None,
+    started_at: str | None = None,
+    pid: int | None = None,
+    message: str | None = None,
+) -> Path:
+    """Write a lightweight JSON status file for the UI to poll."""
+    path = run_status_path(out_dir)
+    payload: dict[str, object] = {"status": status}
+    if total_tasks is not None:
+        payload["total_tasks"] = total_tasks
+    if completed_tasks is not None:
+        payload["completed_tasks"] = completed_tasks
+    if started_at is not None:
+        payload["started_at"] = started_at
+    if pid is not None:
+        payload["pid"] = pid
+    if message is not None:
+        payload["message"] = message
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def read_run_status(out_dir: Path) -> dict[str, object] | None:
+    """Read the run status file if it exists, else None."""
+    path = run_status_path(out_dir)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return None
 
 
 @dataclass(frozen=True, slots=True)

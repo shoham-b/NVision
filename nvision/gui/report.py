@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Final
 
-from nvision.tools.artifacts import plots_manifest_path
+from nvision.tools.artifacts import plots_manifest_path, read_run_status
 
 _STATIC_DIR: Final = Path(__file__).parents[2] / "static"
 _STATIC_INDEX_PATH: Final = _STATIC_DIR / "index.html"
@@ -69,6 +69,15 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     )
     safe_settings = settings_json.replace("</", "<\\/")
     data_scripts.append(f"<script>window.SETTINGS = {safe_settings};</script>")
+
+    # Inline run status so the UI can show banners even before polling
+    run_status = read_run_status(out_dir)
+    if run_status is not None:
+        run_status_json = json.dumps(run_status, indent=2)
+        safe_run_status = run_status_json.replace("</", "<\\/")
+        data_scripts.append(f"<script>window.RUN_STATUS = {safe_run_status};</script>")
+    else:
+        data_scripts.append("<script>window.RUN_STATUS = null;</script>")
 
     # Add asset prefix for resolving relative paths
     data_scripts.append('<script>window.NVISION_ASSET_PREFIX = "./";</script>')

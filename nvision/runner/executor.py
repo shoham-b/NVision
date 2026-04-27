@@ -525,7 +525,7 @@ class _TaskRunner:
         return all_results
 
     def _save_full_cache(self, results: TaskResults) -> None:
-        if not self.task.use_cache or self.skip_cache or not results:
+        if self.skip_cache or not results:
             return
         full_results = [(embed_graph_content(entries, self.task.out_dir), row) for entries, row in results]
         self.cache.save_cached_combination(**self._combination_cache_kwargs(), results=full_results)
@@ -739,6 +739,11 @@ class _TaskRunner:
             locator_instance = locator_class.create(**cfg)
             if result.snapshots:
                 locator_instance.belief = result.snapshots[-1].belief
+        # Provide the ground-truth signal so sweep locators can compute the
+        # actual dip width (not the model worst-case minimum) for the
+        # expected-uniform baseline.
+        if hasattr(locator_instance, "_true_signal"):
+            locator_instance._true_signal = experiment.true_signal
         locator_final_result = locator_instance.result()
 
         history_df = run_result_to_history_df(result, rid, experiment.x_min, experiment.x_max)

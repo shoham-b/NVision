@@ -85,6 +85,9 @@ class SweepingLocator(Locator):
         self._acquisition_hi = domain_hi
         self._signal_found = False
 
+        # Ground-truth signal for accurate expected-uniform metric
+        self._true_signal = None
+
     def observe(self, obs: Observation) -> None:
         """Record observation for sweep tracking.
 
@@ -171,6 +174,8 @@ class SweepingLocator(Locator):
         result = {
             "acquisition_lo": self._acquisition_lo,
             "acquisition_hi": self._acquisition_hi,
+            "domain_lo": self._domain_lo,
+            "domain_hi": self._domain_hi,
             "signal_found": self._signal_found,
             "completed_at_step": self.effective_step_count(),
         }
@@ -419,6 +424,44 @@ class SweepingLocator(Locator):
                 merged.append((lo, hi))
         return merged
 
+    def _true_signal_dip_width(self) -> float | None:
+        """Return the narrowest dip width of the ground-truth signal in physical units.
+
+        Evaluates the known true signal on a fine grid, detects dips using the
+        same segment logic used on observations, and returns the smallest width.
+        This lets ``expected_uniform_points`` compare against the *actual* signal
+        rather than the model's worst-case minimum span.
+        """
+        if self._true_signal is None:
+            return None
+        domain_width = self._domain_hi - self._domain_lo
+        if domain_width <= 0:
+            return None
+
+        n = 5000
+        xs_phys = np.linspace(self._domain_lo, self._domain_hi, n)
+        try:
+            ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
+        except Exception:
+            return None
+
+        xs_norm = (xs_phys - self._domain_lo) / domain_width
+        segments = self._dip_segments(
+            xs_norm,
+            ys,
+            min_points=3,
+            min_width=0.0,
+            background_pct=95.0,
+            threshold_frac=0.2,
+            noise_std=1e-6,
+        )
+        if not segments:
+            return None
+
+        widths_norm = [hi - lo for lo, hi in segments]
+        min_width_norm = min(widths_norm)
+        return float(min_width_norm * domain_width)
+
     def _compute_sweep_metrics(self) -> dict[str, float | int]:
         """Compute sweep efficiency metrics from observed dips.
 
@@ -454,32 +497,37 @@ class SweepingLocator(Locator):
         # detection fails with sparse Stage 1 sampling for narrow dips)
         expected_dips = self._expected_dip_count_from_model() or (num_dips if num_dips > 0 else 1)
         domain_width = self._domain_hi - self._domain_lo
-        min_span = self._model_signal_min_span()
-        if min_span is not None and min_span > 0 and domain_width > 0:
-            min_width_norm = min_span / domain_width
-            expected_uniform = 1.0 / (min_width_norm / 3.0)
-        else:
-            min_width_norm = 0.0
-            expected_uniform = float(self.max_steps)
-        expected_focused = expected_dips * 5.0 + 20.0
-        efficiency = expected_uniform / max(self.step_count, 1)
 
         if segments:
             widths = [hi - lo for lo, hi in segments]
             metrics["dips_detected"] = num_dips
-            metrics["total_dip_width"] = sum(widths)
-            metrics["min_dip_width"] = min(widths)
+            if domain_width > 0:
+                metrics["total_dip_width"] = sum(widths) / domain_width
+                metrics["min_dip_width"] = min(widths) / domain_width
+            else:
+                metrics["total_dip_width"] = sum(widths)
+                metrics["min_dip_width"] = min(widths)
         else:
             # Observation-based detection failed (sparse Stage 1 sampling).
             # Fall back to model-based estimates so metrics remain informative.
             metrics["dips_detected"] = expected_dips
+            actual_min_span = self._true_signal_dip_width()
+            min_span = actual_min_span if actual_min_span is not None else self._model_signal_min_span()
             if min_span is not None and min_span > 0 and domain_width > 0:
                 min_width_norm = min_span / domain_width
                 metrics["min_dip_width"] = min_width_norm
                 metrics["total_dip_width"] = expected_dips * min_width_norm
 
+        total_dip_width_norm = metrics["total_dip_width"]
+        if total_dip_width_norm > 0:
+            expected_uniform = 2.0 / total_dip_width_norm
+        else:
+            expected_uniform = float(self.max_steps)
+        expected_focused = expected_dips * 5.0 + 20.0
         metrics["expected_uniform_points"] = expected_uniform
         metrics["expected_focused_points"] = expected_focused
+        metrics["measurements_done"] = min(int(round(expected_uniform)), self.max_steps)
+        efficiency = expected_uniform / max(metrics["measurements_done"], 1)
         metrics["sweep_efficiency"] = efficiency
         return metrics
 

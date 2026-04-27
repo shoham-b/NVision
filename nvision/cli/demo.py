@@ -27,7 +27,7 @@ from rich.table import Table
 
 from nvision.cli.app_instance import app
 from nvision.cli.run import run
-from nvision.tools.paths import ensure_out_dir
+from nvision.tools.paths import ensure_out_dir, PROJECT_ROOT
 
 log = logging.getLogger("nvision")
 console = Console()
@@ -95,7 +95,7 @@ def demo(
     feedback. Ideal for testing code changes before full benchmark runs.
     """
     # Set up artifact directories based on CLI option
-    demo_artifacts_root = out if out is not None else Path("demo_artifacts")
+    demo_artifacts_root = out if out is not None else PROJECT_ROOT / "demo_artifacts"
     demo_logs_root = demo_artifacts_root / "logs"
 
     console.print("[bold cyan]NVision Quick Demo[/bold cyan]")
@@ -282,7 +282,7 @@ def beta(
         runners=runners,
         filter_generator=filter_generator,
         filter_noise=filter_noise,
-        out=out if out is not None else Path("beta_artifacts"),
+        out=out if out is not None else PROJECT_ROOT / "beta_artifacts",
     )
 
 

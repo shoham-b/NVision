@@ -497,3 +497,76 @@ body {
             margin-top: 0.1em;
             margin-bottom: 0.1em;
         }
+
+        /* ---- Run status banner ---- */
+        .run-status-banner {
+            padding: 0.75em 1em;
+            margin-bottom: 1em;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5em;
+        }
+
+        .run-status-scheduled {
+            background: #f3e5f5;
+            border: 1px solid #ce93d8;
+            color: #6a1b9a;
+        }
+
+        .run-status-running {
+            background: #e3f2fd;
+            border: 1px solid #90caf9;
+            color: #0d47a1;
+        }
+
+        .run-status-partial {
+            background: #fff3e0;
+            border: 1px solid #ffcc80;
+            color: #e65100;
+        }
+
+        .run-status-error {
+            background: #ffebee;
+            border: 1px solid #ef9a9a;
+            color: #b71c1c;
+        }
+
+        .run-status-complete {
+            background: #e8f5e9;
+            border: 1px solid #a5d6a7;
+            color: #1b5e20;
+        }
+
+        .run-status-spinner {
+            display: inline-block;
+            width: 0.9em;
+            height: 0.9em;
+            border: 2px solid rgba(13, 71, 161, 0.3);
+            border-top-color: #0d47a1;
+            border-radius: 50%;
+            animation: run-status-spin 0.8s linear infinite;
+        }
+
+        @keyframes run-status-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .run-status-refresh-btn {
+            margin-left: 0.5em;
+            padding: 0.35em 0.8em;
+            border: 1px solid currentColor;
+            border-radius: 4px;
+            background: transparent;
+            color: inherit;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .run-status-refresh-btn:hover {
+            background: currentColor;
+            color: #fff;
+        }

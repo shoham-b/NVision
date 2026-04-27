@@ -11,13 +11,12 @@ from nvision import (
     CoreExperiment,
     GaussianModel,
     Locator,
+    MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
-    OnePeakCoreGenerator,
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverProbeDriftNoise,
     SimpleSweepLocator,
-    TwoPeakCoreGenerator,
     run_loop,
 )
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
@@ -56,7 +55,7 @@ def test_simple_sweep_create_classmethod():
 
 def test_locator_runs_on_one_peak():
     rng = random.Random(123)
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
     exp = _make_experiment(gen, rng)
     steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
     assert len(steps) > 0
@@ -65,7 +64,7 @@ def test_locator_runs_on_one_peak():
 
 def test_locator_runs_on_two_peak():
     rng = random.Random(7)
-    gen = TwoPeakCoreGenerator(x_min=0.0, x_max=1.0)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=2)
     exp = _make_experiment(gen, rng)
     steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
     assert len(steps) > 0
@@ -82,7 +81,7 @@ def test_locator_runs_on_nv_center():
 def test_locator_with_gaussian_noise():
     rng = random.Random(5)
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)]))
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
     exp = _make_experiment(gen, rng, noise=noise)
     steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
     assert len(steps) > 0
@@ -96,7 +95,7 @@ def test_locator_with_heavy_noise():
         ),
         over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.05)]),
     )
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
     exp = _make_experiment(gen, rng, noise=noise)
     steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
     assert len(steps) > 0

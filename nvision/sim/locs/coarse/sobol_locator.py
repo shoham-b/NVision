@@ -225,20 +225,20 @@ def _infer_focus_window(
         nearby_ys = ys_valid[mask]
         return len(nearby_ys) > 0 and float(np.min(nearby_ys)) > noise_threshold
 
-    empty_right = check_empty(x_max + d)
-    empty_left = check_empty(x_min - d)
+    empty_right = check_empty(x_max + d / 2.0)
+    empty_left = check_empty(x_min - d / 2.0)
     empty_mid = check_empty(x_min + d / 2.0)
 
-    best_left = x_min - d
-    best_right = x_max + d
+    best_left = x_min
+    best_right = x_max
 
     if empty_mid:
         if empty_right:
-            best_left = x_min - d
+            best_left = x_min - d / 2.0
             best_right = x_max
         elif empty_left:
             best_left = x_min
-            best_right = x_max + d
+            best_right = x_max + d / 2.0
     else:
         if empty_left and empty_right:
             best_left = x_min
@@ -512,20 +512,23 @@ class StagedSobolSweepLocator(Locator):
             return (self._stage2.window_lo, self._stage2.window_hi)
         return None
 
-    def _model_expected_measurements(self, num_dips: int) -> dict[str, float | int]:
+    def _model_expected_measurements(self, num_dips: int, total_dip_width_norm: float | None = None) -> dict[str, float | int]:
         """Compute expected measurement counts from model bounds."""
-        domain_width = self.domain_hi - self.domain_lo
-        min_span = None
-        if hasattr(self.signal_model, "signal_min_span"):
-            min_span = self.signal_model.signal_min_span(domain_width)
-        if min_span is not None and min_span > 0 and domain_width > 0:
-            min_width_norm = min_span / domain_width
-            expected_uniform = 1.0 / (min_width_norm / 3.0)
+        if total_dip_width_norm is not None and total_dip_width_norm > 0:
+            expected_uniform = 2.0 / total_dip_width_norm
         else:
-            expected_uniform = float(self.max_steps)
+            domain_width = self.domain_hi - self.domain_lo
+            min_span = self.signal_model.signal_min_span(domain_width)
+            if min_span is not None and min_span > 0 and domain_width > 0:
+                min_width_norm = min_span / domain_width
+                expected_uniform = 1.0 / (min_width_norm / 3.0)
+            else:
+                expected_uniform = float(self.max_steps)
         expected_focused = num_dips * 5.0 + 20.0 if num_dips > 0 else expected_uniform
-        efficiency = expected_uniform / max(self.step_count, 1)
+        measurements_done = min(int(round(expected_uniform)), self.max_steps)
+        efficiency = expected_uniform / max(measurements_done, 1)
         return {
+            "measurements_done": measurements_done,
             "expected_uniform_points": expected_uniform,
             "expected_focused_points": expected_focused,
             "sweep_efficiency": efficiency,
@@ -596,20 +599,19 @@ class StagedSobolSweepLocator(Locator):
         order = np.argsort(xs)
         segments = self._detect_dip_segments(xs[order], ys[order], noise_std=self.noise_std)
 
-        expected_dips = (
-            getattr(self.signal_model, "expected_dip_count", lambda: None)()
-            or (len(segments) if segments else 1)
-        )
+        expected_dips = self.signal_model.expected_dip_count() or (len(segments) if segments else 1)
         domain_width = self.domain_hi - self.domain_lo
-        min_span = None
-        if hasattr(self.signal_model, "signal_min_span"):
-            min_span = self.signal_model.signal_min_span(domain_width)
+        min_span = self.signal_model.signal_min_span(domain_width)
 
         if segments:
             widths = [hi - lo for lo, hi in segments]
             metrics["dips_detected"] = len(segments)
-            metrics["total_dip_width"] = sum(widths)
-            metrics["min_dip_width"] = min(widths)
+            if domain_width > 0:
+                metrics["total_dip_width"] = sum(widths) / domain_width
+                metrics["min_dip_width"] = min(widths) / domain_width
+            else:
+                metrics["total_dip_width"] = sum(widths)
+                metrics["min_dip_width"] = min(widths)
         else:
             metrics["dips_detected"] = expected_dips
             if min_span is not None and min_span > 0 and domain_width > 0:
@@ -617,7 +619,7 @@ class StagedSobolSweepLocator(Locator):
                 metrics["min_dip_width"] = min_width_norm
                 metrics["total_dip_width"] = expected_dips * min_width_norm
 
-        metrics.update(self._model_expected_measurements(expected_dips))
+        metrics.update(self._model_expected_measurements(expected_dips, metrics.get("total_dip_width")))
         return metrics
 
     def result(self) -> dict[str, float | bool]:
@@ -625,6 +627,8 @@ class StagedSobolSweepLocator(Locator):
         result = {
             "acquisition_lo": lo,
             "acquisition_hi": hi,
+            "domain_lo": self.domain_lo,
+            "domain_hi": self.domain_hi,
             "signal_found": self._signal_found,
             "completed_at_step": self.step_count,
         }

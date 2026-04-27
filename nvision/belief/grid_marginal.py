@@ -221,6 +221,10 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
     def parameter_bounds(self) -> dict[str, tuple[float, float]]:
         return {p.name: p.bounds for p in self.parameters}
 
+    @property
+    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
+        return self.parameter_bounds
+
     def get_grid_param(self, name: str) -> GridParameter:
         for p in self.parameters:
             if p.name == name:

@@ -27,6 +27,17 @@ class UnitCubeGridMarginalDistribution(GridMarginalDistribution):
     physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     physical_x_bounds: tuple[float, float] = (0.0, 1.0)
 
+    @property
+    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:  # type: ignore[override]
+        if hasattr(self, "_physical_param_bounds"):
+            return self._physical_param_bounds
+        # Fallback avoids recursion into super() property which returns self.parameter_bounds
+        return {p.name: p.bounds for p in self.parameters}
+
+    @physical_param_bounds.setter
+    def physical_param_bounds(self, value: dict[str, tuple[float, float]]) -> None:
+        self._physical_param_bounds = value
+
     def __post_init__(self) -> None:
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("UnitCubeGridMarginalDistribution requires a UnitCubeSignalModel")

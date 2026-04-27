@@ -4,6 +4,7 @@ import concurrent.futures
 import contextlib
 import logging
 import queue
+import shutil
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -30,6 +31,7 @@ from nvision.tools.artifacts import (
     relativize_summary_plot_paths,
     write_locator_results_csv,
     write_plots_manifest,
+    write_run_status,
 )
 from nvision.tools.log_context import CombinationLogFilter
 from nvision.tools.paths import ARTIFACTS_ROOT, LOGS_ROOT, ensure_out_dir
@@ -49,6 +51,8 @@ def _run_tasks_process_pool(  # noqa: C901
     log: logging.Logger,
     run_log_path: Path,
     monitor: ProgressMonitor | None = None,
+    out_dir: Path | None = None,
+    started_at: str | None = None,
 ) -> tuple[list[dict[str, object]], list[dict], list[Exception]]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
@@ -59,6 +63,19 @@ def _run_tasks_process_pool(  # noqa: C901
     df_rows: list[dict] = []
     errors: list[Exception] = []
     future_to_task: dict[concurrent.futures.Future, object] = {}
+    completed_count = 0
+    total_count = len(tasks)
+
+    def _update_status(status: str) -> None:
+        if out_dir is not None:
+            with contextlib.suppress(Exception):
+                write_run_status(
+                    out_dir,
+                    status,
+                    total_tasks=total_count,
+                    completed_tasks=completed_count,
+                    started_at=started_at,
+                )
 
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=runners)
     shutdown_called = False
@@ -97,6 +114,9 @@ def _run_tasks_process_pool(  # noqa: C901
                     executor.shutdown(wait=False, cancel_futures=True)
                     shutdown_called = True
                     break
+            finally:
+                completed_count += 1
+                _update_status("running")
     except KeyboardInterrupt:
         log.warning("Cancelling pending tasks due to interruption...")
         # Cancel all pending futures first
@@ -393,9 +413,7 @@ def run(  # noqa: C901
             )
 
         out_dir: Path = out
-        if no_cache and (out_dir / "cache").exists():
-            log.debug("Clearing cache.")
-        tree = prepare_artifact_tree(out_dir, clear_cache=no_cache)
+        tree = prepare_artifact_tree(out_dir, clear_cache=False)
 
         log.debug("Starting simulations...")
 
@@ -440,6 +458,22 @@ def run(  # noqa: C901
         df_rows: list[dict] = []
         errors: list[Exception] = []
         interrupted = False
+        started_at = datetime.now(tz=ZoneInfo("Asia/Jerusalem")).isoformat()
+        total_tasks = len(tasks)
+        completed_tasks = 0
+
+        def _update_run_status(status: str) -> None:
+            with contextlib.suppress(Exception):
+                write_run_status(
+                    out_dir,
+                    status,
+                    total_tasks=total_tasks,
+                    completed_tasks=completed_tasks,
+                    started_at=started_at,
+                )
+
+        # Write initial scheduled status so the UI knows a run is queued
+        _update_run_status("scheduled")
 
         # One bridge for the whole run avoids opening/closing SQLite per task (200+ tasks on `cases run all`).
         # For process-based parallelism we intentionally do not construct it in the parent.
@@ -448,6 +482,8 @@ def run(  # noqa: C901
             cache_bridge = CacheBridge(tree.cache_dir)
         try:
             with monitor:
+                # Tasks are now actually executing
+                _update_run_status("running")
                 if runners > 1:
                     log.info("Parallel execution enabled with %s runner(s).", runners)
                     plot_manifest, df_rows, errors = _run_tasks_process_pool(
@@ -458,6 +494,8 @@ def run(  # noqa: C901
                         log=log,
                         run_log_path=run_log_path,
                         monitor=monitor,
+                        out_dir=out_dir,
+                        started_at=started_at,
                     )
                 else:
                     for locator_task in tasks:
@@ -481,6 +519,9 @@ def run(  # noqa: C901
                             if len(errors) > 5:
                                 log.error("Too many errors (>5), terminating...")
                                 break
+                        finally:
+                            completed_tasks += 1
+                            _update_run_status("running")
         except KeyboardInterrupt:
             interrupted = True
             # Stop monitor immediately to clean up UI
@@ -492,6 +533,7 @@ def run(  # noqa: C901
                 cache_bridge.close()
 
         if errors and not interrupted:
+            _update_run_status("error")
             console.print("\n[bold red]Errors occurred during execution:[/bold red]")
             for i, err in enumerate(errors, 1):
                 console.print(f"{i}. {err}")
@@ -523,6 +565,7 @@ def run(  # noqa: C901
 
     # Generate UI even with partial results after interruption
     if not df_rows:
+        _update_run_status("partial" if interrupted else "complete")
         if interrupted:
             console.print("[yellow]No results collected before interruption.[/yellow]")
         else:
@@ -530,7 +573,10 @@ def run(  # noqa: C901
         return 0
 
     if interrupted:
+        _update_run_status("partial")
         console.print(f"[cyan]Processing {len(df_rows)} partial result(s)...[/cyan]")
+    else:
+        _update_run_status("complete")
 
     df_loc = pl.DataFrame(df_rows)
     df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)

@@ -4,7 +4,7 @@ import random
 
 from nvision import (
     CoreExperiment,
-    OnePeakCoreGenerator,
+    MultiPeakCoreGenerator,
     SequentialBayesianExperimentDesignLocator,
     one_peak_lorentzian_belief,
 )
@@ -13,7 +13,7 @@ from nvision.sim.gen.peak_spec import LORENTZIAN
 
 def main() -> None:
     # Use single Lorentzian peak
-    gen = OnePeakCoreGenerator(peak_config=LORENTZIAN)
+    gen = MultiPeakCoreGenerator(count=1, peak_configs=[LORENTZIAN])
     rng = random.Random(42)
     true_signal = gen.generate(rng)
     tp = true_signal.parameter_values()

@@ -6,8 +6,8 @@ import polars as pl
 
 from nvision import (
     CoreExperiment,
+    MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
-    OnePeakCoreGenerator,
     SimpleSweepLocator,
     TrueSignal,
     run_loop,
@@ -42,7 +42,7 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
 
 
 def test_one_peak_run_completes():
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_config=GAUSSIAN)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1, peak_configs=[GAUSSIAN])
     df = _run_batch(gen, repeats=2)
     assert isinstance(df, pl.DataFrame)
     assert df.height == 2
@@ -59,6 +59,6 @@ def test_nv_center_run_completes():
 
 def test_generator_produces_true_signal_not_scan_batch():
     rng = random.Random(0)
-    gen = OnePeakCoreGenerator()
+    gen = MultiPeakCoreGenerator(count=1)
     result = gen.generate(rng)
     assert isinstance(result, TrueSignal), f"Expected TrueSignal, got {type(result)}"

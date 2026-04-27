@@ -96,7 +96,108 @@ window.NVISION_BOOTSTRAP = (async () => {
     }
 })();
 
+    function renderRunStatusBanner(statusData) {
+        const banner = document.getElementById('run-status-banner');
+        if (!banner) return;
+        banner.className = '';
+        banner.innerHTML = '';
+        banner.hidden = true;
+
+        if (!statusData || typeof statusData !== 'object') return;
+        const status = statusData.status;
+        const total = statusData.total_tasks;
+        const completed = statusData.completed_tasks;
+
+        if (status === 'scheduled') {
+            banner.hidden = false;
+            banner.classList.add('run-status-banner', 'run-status-scheduled');
+            banner.innerHTML = '<span class="run-status-spinner"></span> Run scheduled — waiting to start.';
+        } else if (status === 'running') {
+            banner.hidden = false;
+            banner.classList.add('run-status-banner', 'run-status-running');
+            const progressText = (typeof completed === 'number' && typeof total === 'number')
+                ? ` (${completed}/${total} tasks)`
+                : '';
+            banner.innerHTML = '<span class="run-status-spinner"></span> Run in progress' + progressText + ' — results will update automatically. You can refresh the page to see new data.';
+        } else if (status === 'partial') {
+            banner.hidden = false;
+            banner.classList.add('run-status-banner', 'run-status-partial');
+            banner.textContent = 'Partial results — the run was interrupted before all tasks completed. Some combinations may be missing.';
+        } else if (status === 'error') {
+            banner.hidden = false;
+            banner.classList.add('run-status-banner', 'run-status-error');
+            banner.textContent = 'Run encountered errors. Results may be incomplete.';
+        }
+    }
+
+    async function fetchRunStatus() {
+        const candidates = [
+            'run_status.json',
+            './run_status.json',
+            '../artifacts/run_status.json',
+        ];
+        for (const url of candidates) {
+            try {
+                const response = await fetch(url, { cache: 'no-store' });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && typeof data === 'object') {
+                        return data;
+                    }
+                }
+            } catch (e) {
+                // ignore fetch errors
+            }
+        }
+        return null;
+    }
+
+    function startRunStatusPolling() {
+        let lastStatus = null;
+        const interval = setInterval(async () => {
+            const data = await fetchRunStatus();
+            if (!data) {
+                // If we previously saw a running status and now the file is gone,
+                // assume the run finished and suggest a refresh.
+                if (lastStatus === 'running') {
+                    clearInterval(interval);
+                    const banner = document.getElementById('run-status-banner');
+                    if (banner) {
+                        banner.className = 'run-status-banner run-status-complete';
+                        banner.innerHTML = 'Run complete! <button class="run-status-refresh-btn" onclick="window.location.reload()">Refresh page</button> to see the latest results.';
+                        banner.hidden = false;
+                    }
+                }
+                return;
+            }
+            lastStatus = data.status;
+            renderRunStatusBanner(data);
+            if (data.status !== 'running') {
+                clearInterval(interval);
+            }
+        }, 3000);
+    }
+
+    function initRunStatusBanner() {
+        const inlineStatus = window.RUN_STATUS || null;
+        renderRunStatusBanner(inlineStatus);
+        const isRunning = inlineStatus && inlineStatus.status === 'running';
+        if (isRunning || !inlineStatus) {
+            // Also fetch fresh status in case the inlined one is stale
+            fetchRunStatus().then((fresh) => {
+                if (fresh) {
+                    renderRunStatusBanner(fresh);
+                    if (fresh.status === 'running') {
+                        startRunStatusPolling();
+                    }
+                }
+            });
+        }
+    }
+
 function main() {
+        initRunStatusBanner();
+
         let plots = [];
         try {
             plots = window.MANIFEST;
@@ -501,7 +602,15 @@ function main() {
             const items = [
                 { key: 'measurements_done', label: 'Measurements done', tip: 'Actual measurements taken before stopping or hitting the step limit.', fmt: formatCount },
                 { key: 'dips_detected', label: 'Dips detected', tip: 'Dips found in the initial sweep after noise filtering.', fmt: formatCount },
-                { key: 'min_dip_width', label: 'Min dip width', tip: 'Width of the narrowest detected dip as a fraction of the full domain.', fmt: function(v) { return formatMetricValue(v) + ' × domain'; } },
+                { key: 'min_dip_width', label: 'Min dip width', tip: 'Width of the narrowest detected dip in physical frequency units.', fmt: function(v) {
+                    if (metrics.domain_lo != null && metrics.domain_hi != null) {
+                        const dw = Number(metrics.domain_hi) - Number(metrics.domain_lo);
+                        if (Number.isFinite(dw) && dw > 0) {
+                            return formatMetricValue(v * dw);
+                        }
+                    }
+                    return formatMetricValue(v) + ' × domain';
+                } },
                 { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the narrowest dip with 3 samples across it.', fmt: formatCount },
                 { key: 'expected_focused_points', label: 'Exp. focused', tip: 'Focused points needed: 5 per detected dip plus a 20-point baseline.', fmt: formatCount },
                 { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
@@ -526,8 +635,11 @@ function main() {
                 let formula = '';
                 if (it.key === 'expected_uniform_points' && metrics.min_dip_width != null) {
                     const mdw = metrics.min_dip_width;
-                    if (mdw > 0) {
-                        formula = '<div class="metric-formula">3 samples / (' + formatMetricValue(mdw) + ' dip width) ≈ ' + it.fmt(val) + ' uniform pts</div>';
+                    const tdw = metrics.total_dip_width;
+                    if (tdw != null && tdw > 0) {
+                        formula = '<div class="metric-formula">2 samples / (' + formatMetricValue(tdw) + ' total signal span) ≈ ' + it.fmt(val) + ' uniform pts</div>';
+                    } else if (mdw > 0) {
+                        formula = '<div class="metric-formula">2 samples / (' + formatMetricValue(mdw) + ' dip width) ≈ ' + it.fmt(val) + ' uniform pts</div>';
                     } else {
                         formula = '<div class="metric-formula">dip too narrow to resolve</div>';
                     }
@@ -1156,6 +1268,10 @@ function main() {
                         { label: 'Abs error', val: absErr },
                         { label: 'Uncertainty', val: uncertainty },
                     ];
+                    const expUniform = plot.metrics && plot.metrics.expected_uniform_points;
+                    if (expUniform != null && Number.isFinite(expUniform)) {
+                        scanItems.push({ label: 'Exp. uniform', val: formatCount(expUniform) });
+                    }
                     scanMetrics.className = 'scan-metrics-panel';
                     scanMetrics.innerHTML = scanItems.map(it =>
                         '<div class="metric-item">' +
@@ -1478,7 +1594,12 @@ function main() {
                     const uncertainty = formatMetricValue(plot.uncert);
                     const measurements = formatCount(plot.measurements);
                     const duration = formatDuration(plot.duration_ms);
-                    el.textContent = `Measurements: ${measurements} • Duration: ${duration} • Abs Error: ${absErr} • Uncertainty: ${uncertainty}`;
+                    let text = `Measurements: ${measurements} • Duration: ${duration} • Abs Error: ${absErr} • Uncertainty: ${uncertainty}`;
+                    const expUniform = plot.metrics && plot.metrics.expected_uniform_points;
+                    if (expUniform != null && Number.isFinite(expUniform)) {
+                        text += ` • Exp. uniform: ${formatCount(expUniform)}`;
+                    }
+                    el.textContent = text;
                 } else {
                     el.textContent = '';
                 }

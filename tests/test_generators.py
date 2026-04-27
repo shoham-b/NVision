@@ -6,10 +6,8 @@ import random
 from nvision import (
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
-    OnePeakCoreGenerator,
     SymmetricTwoPeakCoreGenerator,
     TrueSignal,
-    TwoPeakCoreGenerator,
 )
 from nvision.sim.gen.peak_spec import GAUSSIAN, LORENTZIAN
 
@@ -36,7 +34,7 @@ def _peak_value(signal: TrueSignal, n: int = 2001) -> float:
 
 def test_one_peak_gaussian_produces_true_signal():
     rng = random.Random(321)
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0, peak_config=GAUSSIAN)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1, peak_configs=[GAUSSIAN])
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     assert len(sig.parameter_names) == 4  # peak1_frequency, peak1_sigma, peak1_dip_depth, peak1_background
@@ -47,7 +45,7 @@ def test_one_peak_gaussian_produces_true_signal():
 
 def test_one_peak_lorentzian_produces_true_signal():
     rng = random.Random(42)
-    gen = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=LORENTZIAN)
+    gen = MultiPeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, count=1, peak_configs=[LORENTZIAN])
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     freq_value = sig.get_param_value("peak1_frequency")
@@ -57,7 +55,7 @@ def test_one_peak_lorentzian_produces_true_signal():
 def test_lorentzian_and_nv_have_nonflat_contrast_on_ghz_domain():
     """Lorentzian dip depth is amplitude/linewidth²; O(1) amplitudes look flat at GHz scale."""
     rng = random.Random(0)
-    lorentz = OnePeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, peak_config=LORENTZIAN).generate(rng)
+    lorentz = MultiPeakCoreGenerator(x_min=2.6e9, x_max=3.1e9, count=1, peak_configs=[LORENTZIAN]).generate(rng)
     nv = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian").generate(rng)
     x0, x1 = 2.6e9, 3.1e9
     grid = [x0 + (x1 - x0) * i / 500 for i in range(501)]
@@ -68,7 +66,7 @@ def test_lorentzian_and_nv_have_nonflat_contrast_on_ghz_domain():
 
 def test_two_peak_composite_model():
     rng = random.Random(7)
-    gen = TwoPeakCoreGenerator(x_min=0.0, x_max=1.0)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=2)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     freq_names = [name for name in sig.parameter_names if "frequency" in name]
@@ -125,7 +123,7 @@ def test_symmetric_two_peak_generator():
 
 def test_signal_is_callable():
     rng = random.Random(1)
-    gen = OnePeakCoreGenerator(x_min=0.0, x_max=1.0)
+    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
     sig = gen.generate(rng)
     val = sig(0.5)
     assert math.isfinite(val)

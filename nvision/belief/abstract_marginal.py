@@ -205,3 +205,32 @@ class AbstractMarginalDistribution(ABC):
         np.ndarray
             CDF values corresponding to x.
         """
+
+    def batch_update(self, observations: Sequence[Observation]) -> None:
+        """Update belief from a sequence of observations.
+
+        Default implementation loops over :meth:`update`.  Subclasses may
+        override with more efficient batch algorithms.
+        """
+        for obs in observations:
+            self.update(obs)
+
+    @property
+    @abstractmethod
+    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
+        """Physical bounds for each parameter (same as ``parameter_bounds`` for non-unit-cube beliefs)."""
+
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        """Shrink physical bounds for ``param_name`` after a coarse sweep.
+
+        Default is a no-op for beliefs that operate directly in physical space.
+        Unit-cube beliefs override to remap their internal normalized coordinates.
+        """
+
+    def normalized_uncertainties(self) -> ParameterValues[float]:
+        """Return uncertainties in normalized [0, 1] space (for convergence checking).
+
+        For beliefs already in physical space this equals :meth:`_empirical_uncertainty`.
+        Unit-cube beliefs override to return the raw unit-cube uncertainties before scaling.
+        """
+        return self._empirical_uncertainty()

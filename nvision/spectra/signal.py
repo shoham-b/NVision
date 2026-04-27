@@ -144,11 +144,14 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
             return np.empty((0, 0), dtype=float)
 
         # Allow either typed sample bundles or raw parameter-array sequences.
-        if isinstance(samples, ArraysInOrder | tuple | list):
-            param_arrays = samples.arrays_in_order() if hasattr(samples, "arrays_in_order") else samples
-            return np.stack([self.compute_vectorized(float(x), *param_arrays) for x in xs], axis=0)
-
-        return np.stack([self.compute_vectorized_samples(float(x), samples) for x in xs], axis=0)
+        try:
+            param_arrays = samples.arrays_in_order()  # type: ignore[union-attr]
+        except AttributeError:
+            if isinstance(samples, (tuple, list)):
+                param_arrays = samples  # type: ignore[assignment]
+            else:
+                return np.stack([self.compute_vectorized_samples(float(x), samples) for x in xs], axis=0)
+        return np.stack([self.compute_vectorized(float(x), *param_arrays) for x in xs], axis=0)
 
     @property
     def inner(self) -> SignalModel:
@@ -278,12 +281,13 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         x_f = float(x)
         if len(args) == 1:
             s = args[0]
-            if hasattr(s, "arrays_in_order"):
-                arrays = s.arrays_in_order()
+            try:
+                arrays = s.arrays_in_order()  # type: ignore[union-attr]
                 samples = self.spec.unpack_samples(arrays)
                 return self.compute_vectorized_samples(x_f, samples)
-            # Assume native typed sample bundle
-            return self.compute_vectorized_samples(x_f, s)  # type: ignore[arg-type]
+            except AttributeError:
+                # Assume native typed sample bundle
+                return self.compute_vectorized_samples(x_f, s)  # type: ignore[arg-type]
 
         # Treat args as raw parameter arrays in parameter_names order.
         samples = self.spec.unpack_samples(args)  # type: ignore[arg-type]
@@ -340,13 +344,13 @@ class TrueSignal[ParamsT]:
         params = self.typed_parameters
 
         # NV center models with k_np and dip_depth
-        if hasattr(params, "k_np") and hasattr(params, "dip_depth"):
+        try:
             k_np = float(params.k_np)
             dip_depth = float(params.dip_depth)
-            # For 3-dip Zeeman splitting, smallest dip is left dip: dip_depth / k_np^2
-            return dip_depth / (k_np**2)
-
-        return None
+        except AttributeError:
+            return None
+        # For 3-dip Zeeman splitting, smallest dip is left dip: dip_depth / k_np^2
+        return dip_depth / (k_np**2)
 
     @classmethod
     def from_typed(

@@ -99,9 +99,11 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         x_phys = x_lo + float(x_unit) * (x_hi - x_lo)
 
         names = self.parameter_names()
-        if len(param_arrays) == 1 and hasattr(param_arrays[0], "arrays_in_order"):
-            bundle = param_arrays[0]
-            param_arrays = bundle.arrays_in_order()
+        if len(param_arrays) == 1:
+            try:
+                param_arrays = param_arrays[0].arrays_in_order()  # type: ignore[union-attr]
+            except AttributeError:
+                pass
         if len(param_arrays) != len(names):
             raise ValueError(f"{type(self).__name__}: expected {len(names)} param arrays but got {len(param_arrays)}")
 
@@ -126,12 +128,12 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
             return np.empty((0, 0), dtype=FLOAT_DTYPE)
 
         names = self.parameter_names()
-        if hasattr(samples, "arrays_in_order"):
-            param_arrays = samples.arrays_in_order()
-        elif isinstance(samples, tuple | list):
-            param_arrays = samples
-        else:
-            raise TypeError("samples must provide arrays_in_order() or be parameter arrays")
+        try:
+            param_arrays = samples.arrays_in_order()  # type: ignore[union-attr]
+        except AttributeError:
+            if not isinstance(samples, (tuple, list)):
+                raise TypeError("samples must provide arrays_in_order() or be parameter arrays") from None
+            param_arrays = samples  # type: ignore[assignment]
 
         if len(param_arrays) != len(names):
             raise ValueError(f"{type(self).__name__}: expected {len(names)} param arrays but got {len(param_arrays)}")
@@ -145,11 +147,8 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         x_lo, x_hi = self.x_bounds_phys
         x_phys = x_lo + xs * (x_hi - x_lo)
 
-        if hasattr(self.inner, "compute_vectorized_many"):
-            typed_samples = self.inner.spec.unpack_samples(tuple(phys_arrays))
-            return self.inner.compute_vectorized_many(x_phys, typed_samples)
-
-        return np.stack([self.inner.compute_vectorized(float(xp), *phys_arrays) for xp in x_phys], axis=0)
+        typed_samples = self.inner.spec.unpack_samples(tuple(phys_arrays))
+        return self.inner.compute_vectorized_many(x_phys, typed_samples)
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

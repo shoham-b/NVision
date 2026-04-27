@@ -50,13 +50,8 @@ def compute_sweep_max_steps(
     # Unwrap UnitCubeSignalModel if needed
     inner_model = getattr(signal_model, "inner", signal_model)
 
-    min_span: float | None = None
-    max_span: float | None = None
-
-    if hasattr(inner_model, "signal_min_span") and callable(inner_model.signal_min_span):
-        min_span = inner_model.signal_min_span(domain_width)
-    if hasattr(inner_model, "signal_max_span") and callable(inner_model.signal_max_span):
-        max_span = inner_model.signal_max_span(domain_width)
+    min_span = inner_model.signal_min_span(domain_width)
+    max_span = inner_model.signal_max_span(domain_width)
 
     # Pick the narrowest meaningful dip width.
     # ``signal_min_span`` can return an extremely small lower-bound from the
