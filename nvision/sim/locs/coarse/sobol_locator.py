@@ -185,7 +185,7 @@ def _infer_focus_window(
     history: ObservationHistory,
     domain_lo: float,
     domain_hi: float,
-) -> tuple[float, float]:  # noqa: C901
+) -> tuple[float, float]:
     """Infer a focused sampling window from dip observations in history.
 
     Uses the same noise-thresholding logic as Stage3SobolLocator._infer_bounds,

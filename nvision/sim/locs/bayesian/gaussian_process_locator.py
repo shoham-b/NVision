@@ -42,7 +42,11 @@ class GaussianProcessLocator(Locator):
         self.step_count = 0
         self._sweep_points = self._generate_sobol_points(max_steps)
 
-        self.kernel = C(1.0, (1e-3, 1e3)) * RBF(length_scale=0.05, length_scale_bounds=(1e-3, 1.0)) + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-5, 1e-1))
+        self.kernel = (
+            C(1.0, (1e-3, 1e3))
+            * RBF(length_scale=0.05, length_scale_bounds=(1e-3, 1.0))
+            + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-5, 1e-1))
+        )
         self.gp = GaussianProcessRegressor(kernel=self.kernel, n_restarts_optimizer=5, normalize_y=False)
         self._minimum_estimate = (domain_hi + domain_lo) / 2.0
         self._best_params = None
