@@ -1,55 +1,30 @@
-"""Student's t Mixture Bayesian acquisition locator."""
+"""Parametric Student's t Locator."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
-import scipy.special
-from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
 
 
-@njit(cache=True)
-def _students_t_log_likelihood(y: float, mu: np.ndarray, sigma: float, df: float) -> np.ndarray:
-    """Compute Student's t log-likelihood for a vector of predictions.
+class StudentsTLocator(Locator):
+    """Parametric Bayesian Locator using Student's t approximations.
     
-    L(y | mu, sigma, df) = Gamma((df+1)/2) / (Gamma(df/2) * sqrt(pi * df * sigma^2)) * 
-                           (1 + (y - mu)^2 / (df * sigma^2))^(-(df+1)/2)
+    Performs fully analytical Bayesian back inference using MAP optimization 
+    and Laplace approximation (inverse Hessian) to update belief parameters,
+    bypassing SMC particles or discrete grids.
     """
-    n = mu.shape[0]
-    out = np.empty(n, dtype=np.float64)
     
-    # Precompute constants
-    sigma_sq = sigma * sigma
-    df_sigma_sq = df * sigma_sq
-    power = -0.5 * (df + 1.0)
-    
-    # Log-constant part (not strictly needed for relative weights but good for rigor)
-    # log_const = math.lgamma((df + 1.0) / 2.0) - math.lgamma(df / 2.0) - 0.5 * math.log(math.pi * df_sigma_sq)
-    
-    for i in range(n):
-        diff = y - mu[i]
-        # We only need the kernel part for Bayesian updates as we normalize anyway
-        out[i] = power * np.log(1.0 + (diff * diff) / df_sigma_sq)
-        
-    return out
-
-
-class StudentsTLocator(SequentialBayesianLocator):
-    """Student's t Mixture acquisition.
-    
-    Uses a Student's t distribution as the likelihood approximation instead of 
-    Gaussian. This provides heavier tails, making the acquisition more robust 
-    to outliers and promoting broader exploration of the parameter space.
-    """
+    REQUIRES_BELIEF = True
 
     def __init__(
         self,
-        belief: AbstractMarginalDistribution,
+        belief: StudentsTMixtureMarginalDistribution,
         max_steps: int = 150,
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
@@ -60,22 +35,32 @@ class StudentsTLocator(SequentialBayesianLocator):
         noise_std: float | None = None,
         df: float = 3.0,
     ) -> None:
-        super().__init__(
-            belief=belief,
-            max_steps=max_steps,
-            convergence_threshold=convergence_threshold,
-            scan_param=scan_param,
-            initial_sweep_steps=initial_sweep_steps,
-            initial_sweep_builder=initial_sweep_builder,
-            convergence_params=convergence_params,
-            convergence_patience_steps=convergence_patience_steps,
-            noise_std=noise_std,
+        super().__init__(belief)
+        self.belief: StudentsTMixtureMarginalDistribution = belief
+        self.max_steps = max_steps
+        self.convergence_threshold = convergence_threshold
+        
+        # Use first parameter as default scan parameter if none provided
+        self._scan_param = scan_param or (
+            self.belief.model.parameter_names()[0] if self.belief.model.parameter_names() else "peak_x"
         )
+        self.initial_sweep_steps = initial_sweep_steps or 20
+        self._initial_sweep_builder = initial_sweep_builder
+        
+        self.convergence_params = convergence_params or [self._scan_param]
+        self.convergence_patience_steps = convergence_patience_steps
+        self._convergence_streak = 0
+        
+        self.noise_std = noise_std
         self.df = max(1.0, float(df))
+        
+        self.step_count = 0
+        self.inference_step_count = 0
 
     @classmethod
     def create(
         cls,
+        signal_model=None,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 150,
         convergence_threshold: float = 0.01,
@@ -89,9 +74,23 @@ class StudentsTLocator(SequentialBayesianLocator):
         df: float = 3.0,
         **grid_config: object,
     ) -> StudentsTLocator:
-        if builder is None:
-            raise ValueError("StudentsTLocator requires a builder callable.")
-        belief = builder(parameter_bounds, **grid_config)
+        # We enforce the parametric belief here, so we extract the model and use it
+        model = signal_model
+        if model is None:
+            if builder is not None:
+                # Create a dummy belief just to extract the model
+                dummy_belief = builder(parameter_bounds, **grid_config)
+                model = dummy_belief.model
+            else:
+                raise ValueError("StudentsTLocator requires either signal_model or a builder.")
+            
+        bounds = dict(parameter_bounds) if parameter_bounds else {}
+        belief = StudentsTMixtureMarginalDistribution(
+            model=model,
+            _physical_param_bounds=bounds,
+            dfs=np.array([df])
+        )
+        
         return cls(
             belief=belief,
             max_steps=max_steps,
@@ -105,93 +104,87 @@ class StudentsTLocator(SequentialBayesianLocator):
             df=df,
         )
 
-    def observe(self, obs: Observation) -> None:
-        """Update belief using Student's t likelihood.
-        
-        Overrides the default Gaussian update by computing the Student's t
-        likelihood and manually applying it to the belief.
-        """
-        if not self._staged_sobol.done():
-            # During sweep phase: use base class logic (buffering)
-            super().observe(obs)
-            return
-
-        # Inference phase: manual update with Student's t likelihood
+    def next(self) -> float:
         self.step_count += 1
-        self.inference_step_count += 1
-        self.belief.last_obs = obs
-
-        # 1. Generate predictions for the belief (grid or particles)
-        if hasattr(self.belief, "parameters"):
-            # Grid belief: update each marginal independently
-            param_names = self.belief.model.parameter_names()
-            param_by_name = {p.name: p for p in self.belief.parameters}
-            
-            for param in self.belief.parameters:
-                grid = np.asarray(param.grid, dtype=np.float64)
-                arrays_in_order = []
-                for name in param_names:
-                    if name == param.name:
-                        arrays_in_order.append(grid)
-                    else:
-                        other = param_by_name[name]
-                        arrays_in_order.append(np.full(grid.shape, float(other.value), dtype=np.float64))
-                
-                predicted = self.belief.model.compute_vectorized(obs.x, *arrays_in_order)
-                log_lik = _students_t_log_likelihood(obs.signal_value, predicted, obs.noise_std, self.df)
-                
-                # Convert log-likelihood to likelihood with stable normalization
-                likelihoods = np.exp(log_lik - np.max(log_lik))
-                param.apply_likelihood(likelihoods)
         
-        elif hasattr(self.belief, "_particles"):
-            # SMC belief: update particles
-            arrays_in_order = [self.belief._particles[:, j] for j in range(len(self.belief._param_names))]
-            predicted = self.belief.model.compute_vectorized(obs.x, *arrays_in_order)
+        # 1. Initial Sweep Phase
+        if self.step_count <= self.initial_sweep_steps:
+            if self._initial_sweep_builder is not None:
+                sweep_points = self._initial_sweep_builder(self.initial_sweep_steps)
+                return float(sweep_points[self.step_count - 1])
+                
+            # Default fallback sweep: uniform grid
+            lo, hi = self.belief.physical_param_bounds.get(self._scan_param, (0.0, 1.0))
+            if self.initial_sweep_steps <= 1:
+                return (lo + hi) / 2.0
+            return float(lo + (hi - lo) * (self.step_count - 1) / (self.initial_sweep_steps - 1))
             
-            log_lik = _students_t_log_likelihood(obs.signal_value, predicted, obs.noise_std, self.df)
+        # 2. Acquisition Phase (using the parametric belief's uncertainty)
+        # "the students t is just for acquire"
+        # We sample from the Student's t marginal for the scan parameter
+        idx = self.belief._param_names.index(self._scan_param)
+        mu = self.belief.means[0, idx]
+        sigma = np.sqrt(max(self.belief.covariances[0, idx, idx], 1e-12))
+        
+        lo, hi = self.belief.physical_param_bounds.get(self._scan_param, (0.0, 1.0))
+        
+        # Draw a candidate from the Student's t distribution
+        # In 1D, we can just use standard numpy t distribution
+        candidate = mu + sigma * np.random.standard_t(self.df)
+        
+        # Add a small exploration chance (epsilon-greedy)
+        if np.random.random() < 0.05:
+            candidate = np.random.uniform(lo, hi)
             
-            # Combine with information weights if available (SMC-specific)
-            info_weights = self.belief._compute_information_weights(
-                obs.x, predicted, obs.noise_std, obs.frequency_noise_model
-            )
-            
-            # Stable update
-            self.belief._weights *= np.exp(log_lik - np.max(log_lik)) * info_weights
-            
-            # Normalize
-            weight_sum = np.sum(self.belief._weights)
-            if weight_sum > 1e-10:
-                self.belief._weights /= weight_sum
+        return float(np.clip(candidate, lo, hi))
+
+    def observe(self, obs: Observation) -> None:
+        # Buffer observations during the sweep, but we can also just update directly
+        # since the parametric belief uses all history anyway
+        super().observe(obs)
+        
+        if self.step_count > self.initial_sweep_steps:
+            self.inference_step_count += 1
+
+    def _target_params_converged(self) -> bool:
+        if not self.convergence_params:
+            return self.belief.converged(self.convergence_threshold)
+
+        stds = self.belief._empirical_uncertainty()
+        param_uncertainties: dict[str, float] = {}
+        for p in self.convergence_params:
+            if p in stds:
+                param_uncertainties[p] = stds[p]
+                
+        if not param_uncertainties:
+            return self.belief.converged(self.convergence_threshold)
+
+        # Check 1: Each individual parameter must be below threshold
+        individual_converged = all(u < self.convergence_threshold for u in param_uncertainties.values())
+        if not individual_converged:
+            return False
+
+        # Check 2: Overall (RMS) uncertainty must also be below threshold
+        uncertainties_array = np.array(list(param_uncertainties.values()))
+        rms_uncertainty = float(np.sqrt(np.mean(uncertainties_array**2)))
+        overall_converged = rms_uncertainty < self.convergence_threshold
+
+        return overall_converged
+
+    def done(self) -> bool:
+        if self.step_count >= self.max_steps:
+            return True
+        if self.inference_step_count > 0:
+            if self._target_params_converged():
+                self._convergence_streak += 1
             else:
-                self.belief._weights = np.ones(self.belief.num_particles) / self.belief.num_particles
-                
-            # Annealed jitter and Resample
-            if self.belief.annealed_jitter:
-                self.belief._apply_annealed_jitter()
-            
-            ess = 1.0 / np.sum(self.belief._weights**2)
-            if ess < self.belief.ess_threshold * self.belief.num_particles:
-                self.belief._resample()
-        else:
-            # Fallback to standard update if belief structure is unknown
-            super().observe(obs)
+                self._convergence_streak = 0
+            return self._convergence_streak >= self.convergence_patience_steps
+        return False
 
-    def _acquire(self) -> float:
-        """Acquire by sampling from the marginal PDF (as in MaximumLikelihoodLocator)."""
-        candidates = self._generate_candidates()
-        pdf = self.belief.marginal_pdf(self._scan_param, candidates)
-        
-        pdf = np.asarray(pdf, dtype=float)
-        total = float(np.sum(pdf))
-        if not np.isfinite(total) or total <= 0.0:
-            return float(np.random.choice(candidates))
-            
-        probs = pdf / total
-        
-        # Add slight exploration floor
-        epsilon = 0.05
-        probs = probs * (1.0 - epsilon) + epsilon / len(candidates)
-        
-        idx = int(np.random.choice(len(candidates), p=probs))
-        return float(candidates[idx])
+    def effective_initial_sweep_steps(self) -> int:
+        return min(self.step_count, self.initial_sweep_steps)
+
+    def result(self) -> dict[str, float]:
+        """Return posterior-mean estimates for all parameters."""
+        return self.belief.estimates()

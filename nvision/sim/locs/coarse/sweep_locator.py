@@ -16,6 +16,86 @@ if TYPE_CHECKING:
     pass
 
 
+def _infer_focus_window(
+    history: ObservationHistory,
+    domain_lo: float,
+    domain_hi: float,
+) -> tuple[float, float]:
+    """Infer a focused sampling window from dip observations in history.
+
+    Uses a noise threshold to separate signal dips from background, then
+    clusters the dip points by spatial proximity.  The window is bounded by
+    the nearest background measurements flanking the largest dip cluster.
+
+    Steps:
+      1. Estimate noise level from the upper 70% of y-values (above the 30th
+         percentile).  Use 3σ below the noise median as the dip threshold so
+         random noise fluctuations (~0.3% tail) are almost never misclassified.
+      2. Find x-positions whose y falls below that threshold.
+      3. Cluster those positions by sorting them and splitting at gaps larger
+         than 5% of the domain width.  Keep the cluster with the most points
+         (the real signal dip region).
+      4. Bound the window using the nearest background (above-threshold) points
+         on each side of the cluster — if a sampled point is background, the
+         signal cannot extend past it.
+    """
+    ys_valid = history.ys
+    xs_valid = history.xs
+    if len(ys_valid) == 0:
+        return domain_lo, domain_hi
+
+    # --- noise estimation ---
+    p30_val = float(np.percentile(ys_valid, 30))
+    noise_points = ys_valid[ys_valid >= p30_val]
+    if len(noise_points) == 0:
+        return domain_lo, domain_hi
+
+    noise_median = float(np.median(noise_points))
+    noise_std = float(np.std(noise_points))
+    # 3σ: ~0.3% false-positive rate per point (vs ~5% at 2σ)
+    noise_threshold = noise_median - 3.0 * noise_std
+
+    below_idx = np.where(ys_valid < noise_threshold)[0]
+    if len(below_idx) < 2:
+        return domain_lo, domain_hi
+
+    # --- convert to physical x if stored as normalised [0, 1] ---
+    domain_width = domain_hi - domain_lo
+    if domain_width > 0 and float(np.max(xs_valid)) <= 1.0001 and float(np.min(xs_valid)) >= -0.0001:
+        xs_valid = domain_lo + xs_valid * domain_width
+
+    dip_xs = xs_valid[below_idx]
+
+    # --- cluster dip points by proximity ---
+    sorted_dip_xs = np.sort(dip_xs)
+    gap_threshold = 0.05 * domain_width  # split clusters at 5% domain gaps
+    gaps = np.diff(sorted_dip_xs)
+    split_points = np.where(gaps > gap_threshold)[0]
+
+    # Build clusters as slices of sorted_dip_xs
+    cluster_starts = np.concatenate([[0], split_points + 1])
+    cluster_ends = np.concatenate([split_points + 1, [len(sorted_dip_xs)]])
+
+    # Pick the cluster with the most points (the real signal region)
+    best_cluster_idx = int(np.argmax(cluster_ends - cluster_starts))
+    cluster_xs = sorted_dip_xs[cluster_starts[best_cluster_idx] : cluster_ends[best_cluster_idx]]
+
+    x_min = float(cluster_xs[0])
+    x_max = float(cluster_xs[-1])
+
+    # --- bound by nearest background points ---
+    bg_mask = ys_valid >= noise_threshold
+    bg_xs = xs_valid[bg_mask]
+
+    left_bgs = bg_xs[bg_xs < x_min]
+    right_bgs = bg_xs[bg_xs > x_max]
+
+    best_left = float(np.max(left_bgs)) if len(left_bgs) > 0 else domain_lo
+    best_right = float(np.min(right_bgs)) if len(right_bgs) > 0 else domain_hi
+
+    return max(domain_lo, best_left), min(domain_hi, best_right)
+
+
 class SweepingLocator(Locator):
     """Base class for sweeping locators with signal detection and windowing.
 
@@ -474,8 +554,9 @@ class SweepingLocator(Locator):
             "total_dip_width": 0.0,
             "min_dip_width": 0.0,
             "expected_uniform_points": float(self.max_steps),
-            "expected_focused_points": 0.0,
             "sweep_efficiency": 1.0,
+            "domain_lo": self._domain_lo,
+            "domain_hi": self._domain_hi,
         }
 
         if self.history.count < 3:
@@ -501,31 +582,24 @@ class SweepingLocator(Locator):
         if segments:
             widths = [hi - lo for lo, hi in segments]
             metrics["dips_detected"] = num_dips
-            if domain_width > 0:
-                metrics["total_dip_width"] = sum(widths) / domain_width
-                metrics["min_dip_width"] = min(widths) / domain_width
-            else:
-                metrics["total_dip_width"] = sum(widths)
-                metrics["min_dip_width"] = min(widths)
+            metrics["total_dip_width"] = sum(widths)
+            metrics["min_dip_width"] = min(widths)
         else:
             # Observation-based detection failed (sparse Stage 1 sampling).
             # Fall back to model-based estimates so metrics remain informative.
             metrics["dips_detected"] = expected_dips
             actual_min_span = self._true_signal_dip_width()
             min_span = actual_min_span if actual_min_span is not None else self._model_signal_min_span()
-            if min_span is not None and min_span > 0 and domain_width > 0:
-                min_width_norm = min_span / domain_width
-                metrics["min_dip_width"] = min_width_norm
-                metrics["total_dip_width"] = expected_dips * min_width_norm
+            if min_span is not None and min_span > 0:
+                metrics["min_dip_width"] = min_span
+                metrics["total_dip_width"] = expected_dips * min_span
 
-        total_dip_width_norm = metrics["total_dip_width"]
-        if total_dip_width_norm > 0:
-            expected_uniform = 2.0 / total_dip_width_norm
+        total_dip_width = metrics["total_dip_width"]
+        if total_dip_width > 0 and domain_width > 0:
+            expected_uniform = 2.0 * domain_width / total_dip_width
         else:
             expected_uniform = float(self.max_steps)
-        expected_focused = expected_dips * 5.0 + 20.0
         metrics["expected_uniform_points"] = expected_uniform
-        metrics["expected_focused_points"] = expected_focused
         metrics["measurements_done"] = min(int(round(expected_uniform)), self.max_steps)
         efficiency = expected_uniform / max(metrics["measurements_done"], 1)
         metrics["sweep_efficiency"] = efficiency

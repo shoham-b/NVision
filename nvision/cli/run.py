@@ -4,7 +4,6 @@ import concurrent.futures
 import contextlib
 import logging
 import queue
-import shutil
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -297,6 +296,7 @@ def run(  # noqa: C901
     defaulted_category = False
     defaulted_strategy = False
     defaulted_generator = False
+    defaulted_noise = False
     if not all_experiments:
         default_case = sim_cases.default_run_case()
         default_category = default_case.filter_category
@@ -395,6 +395,17 @@ def run(  # noqa: C901
         logging.getLogger("nvision").setLevel(logging.DEBUG)  # File handler always gets debug
         log.info("Session log: %s (up to two run logs kept under logs/)", run_log_path.resolve())
 
+        filter_category_str = filter_category if filter_category is not None else None
+        filter_strategy_str = filter_strategy if filter_strategy is not None else None
+        filter_generator_str = (
+            getattr(filter_generator, "value", filter_generator) if filter_generator is not None else None
+        )
+        filter_noise_str = getattr(filter_noise, "value", filter_noise) if filter_noise is not None else None
+        if not all_experiments and filter_noise_str is None:
+            filter_noise_str = "Poisson,Gauss,NoNoise"
+            defaulted_noise = True
+        filter_signal_str = filter_signal if filter_signal is not None else None
+
         if defaulted_category:
             log.info(
                 "Defaulting to category %r. Use --all to run everything.",
@@ -411,19 +422,16 @@ def run(  # noqa: C901
                 "Defaulting to generator %r (matches Bayesian UI scope). Use --all or --filter-generator to change.",
                 filter_generator,
             )
+        if defaulted_noise:
+            log.info(
+                "Defaulting to noises %r. Use --all or --filter-noise to change.",
+                filter_noise_str,
+            )
 
         out_dir: Path = out
         tree = prepare_artifact_tree(out_dir, clear_cache=False)
 
         log.debug("Starting simulations...")
-
-        filter_category_str = filter_category if filter_category is not None else None
-        filter_strategy_str = filter_strategy if filter_strategy is not None else None
-        filter_generator_str = (
-            getattr(filter_generator, "value", filter_generator) if filter_generator is not None else None
-        )
-        filter_noise_str = getattr(filter_noise, "value", filter_noise) if filter_noise is not None else None
-        filter_signal_str = filter_signal if filter_signal is not None else None
 
         worker_log_queue = None if runners > 1 else log_queue
         worker_progress_queue = None if runners > 1 else progress_queue

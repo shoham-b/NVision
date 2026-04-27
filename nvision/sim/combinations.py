@@ -160,8 +160,10 @@ class CombinationGrid:
                         continue
 
                 for noise_name, noise_obj in self._noises.items():
-                    if filter_noise is not None and not noise_name.startswith(filter_noise):
-                        continue
+                    if filter_noise is not None:
+                        noise_patterns = [p.strip() for p in filter_noise.split(",")]
+                        if not any(noise_name.startswith(p) for p in noise_patterns):
+                            continue
                     key = (gen_name, noise_name, strat_name)
                     if key in seen:
                         continue

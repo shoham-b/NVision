@@ -383,6 +383,98 @@ def _add_per_dip_windows_overlay(
         )
 
 
+def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:
+    """Detect dip segments from dense signal evaluation using percentile thresholding."""
+    xs = np.asarray(xs)
+    ys = np.asarray(ys)
+    if len(xs) < 3 or len(ys) < 3:
+        return []
+    order = np.argsort(xs)
+    xs_s = xs[order]
+    ys_s = ys[order]
+    # Find significant local maxima (near baseline) and minima (deep dips),
+    # then pair each minimum with its nearest flanking maxima.
+    ymax = float(np.max(ys))
+    ymin = float(np.min(ys))
+    # Significant maxima must be near the baseline (top 90%)
+    max_threshold = ymax - 0.1 * (ymax - ymin)
+    # Significant minima must be well into the dip (below 40%)
+    min_threshold = ymax - 0.4 * (ymax - ymin)
+
+    maxima_indices = []
+    minima_indices = []
+    for i in range(1, len(ys_s) - 1):
+        if ys_s[i] > ys_s[i - 1] and ys_s[i] > ys_s[i + 1] and float(ys_s[i]) > max_threshold:
+            maxima_indices.append(i)
+        elif ys_s[i] < ys_s[i - 1] and ys_s[i] < ys_s[i + 1] and float(ys_s[i]) < min_threshold:
+            minima_indices.append(i)
+
+    if not minima_indices:
+        return []
+
+    segments: list[tuple[float, float]] = []
+    for min_idx in minima_indices:
+        left_max = None
+        for m in reversed(maxima_indices):
+            if m < min_idx:
+                left_max = m
+                break
+        right_max = None
+        for m in maxima_indices:
+            if m > min_idx:
+                right_max = m
+                break
+        if left_max is not None and right_max is not None:
+            segments.append((float(xs_s[left_max]), float(xs_s[right_max])))
+
+    # Merge overlapping or adjacent segments
+    if len(segments) <= 1:
+        return segments
+    segments.sort(key=lambda x: x[0])
+    merged: list[tuple[float, float]] = [segments[0]]
+    for lo, hi in segments[1:]:
+        if lo <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+        else:
+            merged.append((lo, hi))
+    return merged
+
+
+def _add_dip_boundary_lines(
+    fig: go.Figure,
+    *,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    has_metrics: bool,
+) -> None:
+    """Overlay vertical dashed lines at true-signal dip boundaries."""
+    segments = _detect_dip_segments(xs, ys)
+    if not segments:
+        return
+    row, col = _row_col(has_metrics)
+    boundary_colors = [
+        "rgba(231, 76, 60, 0.85)",   # Red
+        "rgba(46, 204, 113, 0.85)",  # Green
+        "rgba(155, 89, 182, 0.85)",  # Purple
+    ]
+    for i, (lo, hi) in enumerate(segments):
+        color = boundary_colors[i % len(boundary_colors)]
+        for xb, side in ((lo, "start"), (hi, "end")):
+            fig.add_vline(
+                x=xb,
+                line=dict(color=color, width=2, dash="dash"),
+                annotation_text=f"Dip {i + 1} {side}",
+                annotation_position="top" if side == "start" else "bottom",
+                annotation_font=dict(size=12, color="white"),
+                annotation_bgcolor=color,
+                annotation_bordercolor=color,
+                annotation_borderwidth=1,
+                annotation_borderpad=4,
+                row=row,
+                col=col,
+            )
+
+
 def _add_metric_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool) -> None:
     if not has_metrics or history.height == 0:
         return
@@ -905,6 +997,7 @@ class MeasurementsMixin:
         _add_history_traces(fig, history, has_metrics)
         _add_focus_window_overlay(fig, focus_window=focus_window, has_metrics=has_metrics)
         _add_per_dip_windows_overlay(fig, per_dip_windows=per_dip_windows, has_metrics=has_metrics)
+        _add_dip_boundary_lines(fig, xs=xs, ys=ys, has_metrics=has_metrics)
         # Draw last so the curve sits on top of true/noisy/measurements/distribution.
         _add_mode_belief_trace(
             fig,

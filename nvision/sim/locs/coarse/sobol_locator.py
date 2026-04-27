@@ -1,6 +1,6 @@
 """Sobol-based coarse search locator with 3 stages.
 
-1. 127 points (7th Sobol stage)
+1. 255 points (7th Sobol stage)
 2. Further Sobol points monitoring for 2 dips using dynamic noise thresholding.
 3. Windowed Sobol focusing on inferred target dips.
 """
@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
-from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
+from nvision.sim.locs.coarse.sweep_locator import SweepingLocator, _infer_focus_window
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
@@ -158,7 +158,7 @@ class SobolSweepLocator(SweepingLocator):
 
 
 class Stage1SobolLocator:
-    """Stage 1: Collect exactly 127 points to establish a robust noise baseline."""
+    """Stage 1: Collect exactly 255 points to establish a robust noise baseline."""
 
     def __init__(self, sobol_gen: Iterator[float], domain_lo: float, domain_hi: float):
         self._sobol_gen = sobol_gen
@@ -174,78 +174,12 @@ class Stage1SobolLocator:
         self.points_collected += 1
 
     def done(self) -> bool:
-        return self.points_collected >= 127
+        return self.points_collected >= 255
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Return None — simple sweep locators do not narrow the window."""
         return None
 
-
-def _infer_focus_window(
-    history: ObservationHistory,
-    domain_lo: float,
-    domain_hi: float,
-) -> tuple[float, float]:
-    """Infer a focused sampling window from dip observations in history.
-
-    Uses the same noise-thresholding logic as Stage3SobolLocator._infer_bounds,
-    but returns the window as a tuple so it can be reused when creating Stage 2.
-    """
-    ys_valid = history.ys
-    xs_valid = history.xs
-    if len(ys_valid) == 0:
-        return domain_lo, domain_hi
-
-    p30_val = float(np.percentile(ys_valid, 30))
-    noise_points = ys_valid[ys_valid >= p30_val]
-    if len(noise_points) == 0:
-        return domain_lo, domain_hi
-
-    noise_median = float(np.median(noise_points))
-    noise_std = float(np.std(noise_points))
-    noise_threshold = noise_median - 2.0 * noise_std
-
-    below_idx = np.where(ys_valid < noise_threshold)[0]
-    if len(below_idx) < 2:
-        return domain_lo, domain_hi
-
-    domain_width = domain_hi - domain_lo
-    if domain_width > 0 and float(np.max(xs_valid)) <= 1.0001 and float(np.min(xs_valid)) >= -0.0001:
-        xs_valid = domain_lo + xs_valid * domain_width
-
-    dip_xs = xs_valid[below_idx]
-    x_min = float(np.min(dip_xs))
-    x_max = float(np.max(dip_xs))
-    d = x_max - x_min
-
-    tol = max(0.015 * domain_width, 1e-4)
-
-    def check_empty(spot: float) -> bool:
-        mask = np.abs(xs_valid - spot) < tol
-        nearby_ys = ys_valid[mask]
-        return len(nearby_ys) > 0 and float(np.min(nearby_ys)) > noise_threshold
-
-    empty_right = check_empty(x_max + d / 2.0)
-    empty_left = check_empty(x_min - d / 2.0)
-    empty_mid = check_empty(x_min + d / 2.0)
-
-    best_left = x_min
-    best_right = x_max
-
-    if empty_mid:
-        if empty_right:
-            best_left = x_min - d / 2.0
-            best_right = x_max
-        elif empty_left:
-            best_left = x_min
-            best_right = x_max + d / 2.0
-    else:
-        if empty_left and empty_right:
-            best_left = x_min
-            best_right = x_max
-
-    pad = d * 0.3 if d > 0 else tol * 3
-    return max(domain_lo, best_left - pad), min(domain_hi, best_right + pad)
 
 
 class Stage2SobolLocator:
@@ -272,7 +206,7 @@ class Stage2SobolLocator:
         self._noise_threshold = -float("inf")
         self._done = False
 
-        # Initialize threshold using the 127 observations inherited from Stage 1
+        # Initialize threshold using the 255 observations inherited from Stage 1
         self._update_noise_threshold()
         self._check_for_dips()
 
@@ -302,8 +236,8 @@ class Stage2SobolLocator:
         noise_median = float(np.median(noise_points))
         noise_std = float(np.std(noise_points))
 
-        # Threshold is defined as 2 stds below the median of the noise points
-        self._noise_threshold = noise_median - 2.0 * noise_std
+        # Threshold is defined as 3 stds below the median of the noise points
+        self._noise_threshold = noise_median - 3.0 * noise_std
 
     def _check_for_dips(self) -> None:
         ys_valid = self.history.ys
@@ -421,6 +355,7 @@ class StagedSobolSweepLocator(Locator):
         self.history = ObservationHistory(self.max_steps)
         self._sobol_gen = vdc_generator()
         self._signal_found = False
+        self._true_signal = None
 
         # Track initial sweep steps for Observer phase coloring
         self._initial_sweep_steps = 0
@@ -497,31 +432,52 @@ class StagedSobolSweepLocator(Locator):
         return 0
 
     def finalize(self) -> None:
-        pass
+        """Infer the focus window from collected data if stages didn't complete."""
+        if self._stage3 is None and self.history.count > 0:
+            lo, hi = _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
+            if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
+                self._signal_found = True
+                self._inferred_lo = lo
+                self._inferred_hi = hi
 
     def acquisition_window(self) -> tuple[float, float]:
         if self._stage3 is not None:
             return (self._stage3.window_lo, self._stage3.window_hi)
+        # Fall back to inference from collected data (set by finalize or observe)
+        if hasattr(self, "_inferred_lo"):
+            return (self._inferred_lo, self._inferred_hi)
+        # Last resort: infer directly from history
+        if self.history.count > 0:
+            return _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
         return (self.domain_lo, self.domain_hi)
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
-        """Return the narrowed focus window from Stage2 or Stage3, if available."""
+        """Return the narrowed focus window from any available stage or inference."""
         if self._stage3 is not None:
             return (self._stage3.window_lo, self._stage3.window_hi)
         if self._stage2 is not None:
             return (self._stage2.window_lo, self._stage2.window_hi)
+        if hasattr(self, "_inferred_lo"):
+            return (self._inferred_lo, self._inferred_hi)
+        # Infer from history if we have data
+        if self.history.count > 0:
+            lo, hi = _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
+            if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
+                return (lo, hi)
         return None
 
-    def _model_expected_measurements(self, num_dips: int, total_dip_width_norm: float | None = None) -> dict[str, float | int]:
+    def _model_expected_measurements(
+        self, num_dips: int, total_dip_width: float | None = None, domain_width: float | None = None
+    ) -> dict[str, float | int]:
         """Compute expected measurement counts from model bounds."""
-        if total_dip_width_norm is not None and total_dip_width_norm > 0:
-            expected_uniform = 2.0 / total_dip_width_norm
-        else:
+        if domain_width is None:
             domain_width = self.domain_hi - self.domain_lo
+        if total_dip_width is not None and total_dip_width > 0 and domain_width > 0:
+            expected_uniform = 2.0 * domain_width / total_dip_width
+        else:
             min_span = self.signal_model.signal_min_span(domain_width)
             if min_span is not None and min_span > 0 and domain_width > 0:
-                min_width_norm = min_span / domain_width
-                expected_uniform = 1.0 / (min_width_norm / 3.0)
+                expected_uniform = 6.0 * domain_width / min_span
             else:
                 expected_uniform = float(self.max_steps)
         expected_focused = num_dips * 5.0 + 20.0 if num_dips > 0 else expected_uniform
@@ -535,7 +491,7 @@ class StagedSobolSweepLocator(Locator):
         }
 
     def _detect_dip_segments(
-        self, xs: np.ndarray, ys: np.ndarray, noise_std: float | None = None
+        self, xs: np.ndarray, ys: np.ndarray, noise_std: float | None = None, min_width: float = 0.005
     ) -> list[tuple[float, float]]:
         """Find contiguous dip segments in sorted x/y data."""
         background = float(np.percentile(ys, 95))
@@ -560,7 +516,7 @@ class StagedSobolSweepLocator(Locator):
         for s, e in zip(starts, ends, strict=False):
             if e > s and (e - s) >= 3:
                 width = float(xs[e - 1]) - float(xs[s])
-                if width >= 0.005:
+                if width >= min_width:
                     segments.append((float(xs[s]), float(xs[e - 1])))
 
         return self._merge_segments(segments, max_gap=0.02)
@@ -577,6 +533,70 @@ class StagedSobolSweepLocator(Locator):
             else:
                 merged.append((lo, hi))
         return merged
+
+    def _true_signal_segments(self) -> list[tuple[float, float]] | None:
+        """Return detected dip segments on the ground-truth signal (normalized)."""
+        if self._true_signal is None:
+            return None
+        domain_width = self.domain_hi - self.domain_lo
+        if domain_width <= 0:
+            return None
+        n = 5000
+        xs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
+        try:
+            ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
+        except Exception:
+            return None
+        xs_norm = (xs_phys - self.domain_lo) / domain_width
+        return self._detect_dip_segments(xs_norm, ys, noise_std=1e-6, min_width=0.0)
+
+    def _true_signal_dip_width(self) -> float | None:
+        """Return the narrowest dip width of the ground-truth signal in physical units."""
+        segments = self._true_signal_segments()
+        if not segments:
+            return None
+        domain_width = self.domain_hi - self.domain_lo
+        widths_norm = [hi - lo for lo, hi in segments]
+        return float(min(widths_norm) * domain_width)
+
+    def _true_signal_total_dip_width(self) -> float | None:
+        """Return the total dip width of the ground-truth signal in physical units."""
+        segments = self._true_signal_segments()
+        if not segments:
+            return None
+        domain_width = self.domain_hi - self.domain_lo
+        return float(sum(hi - lo for lo, hi in segments) * domain_width)
+
+    def _true_signal_span(self) -> float | None:
+        """Return total signal span (last dip end - first dip start) in physical units."""
+        segments = self._true_signal_segments()
+        if not segments:
+            return None
+        domain_width = self.domain_hi - self.domain_lo
+        return float((segments[-1][1] - segments[0][0]) * domain_width)
+
+    def _true_signal_dips_merged(self) -> bool | None:
+        """Check whether detected dips are close enough to be considered one combined range.
+
+        Merged means the total span is not much larger than the sum of individual
+        dip widths (gaps are small relative to the dips themselves).
+        """
+        segments = self._true_signal_segments()
+        if not segments:
+            return None
+        if len(segments) == 1:
+            return True
+        total_width = sum(hi - lo for lo, hi in segments)
+        total_span = segments[-1][1] - segments[0][0]
+        # Merged if span is less than 1.5x the total width (gaps are small)
+        return total_span <= total_width * 1.5
+
+    def _true_signal_dip_count(self) -> int | None:
+        """Return the actual number of dips in the ground-truth signal."""
+        segments = self._true_signal_segments()
+        if segments is None:
+            return None
+        return len(segments)
 
     def _compute_sweep_metrics(self) -> dict[str, float | int]:
         """Compute sweep efficiency metrics from observed dips."""
@@ -599,27 +619,43 @@ class StagedSobolSweepLocator(Locator):
         order = np.argsort(xs)
         segments = self._detect_dip_segments(xs[order], ys[order], noise_std=self.noise_std)
 
-        expected_dips = self.signal_model.expected_dip_count() or (len(segments) if segments else 1)
+        # Prefer actual ground-truth dip count when available
+        true_dip_count = self._true_signal_dip_count()
+        expected_dips = true_dip_count if true_dip_count is not None else (
+            self.signal_model.expected_dip_count() or (len(segments) if segments else 1)
+        )
         domain_width = self.domain_hi - self.domain_lo
         min_span = self.signal_model.signal_min_span(domain_width)
 
         if segments:
             widths = [hi - lo for lo, hi in segments]
             metrics["dips_detected"] = len(segments)
-            if domain_width > 0:
-                metrics["total_dip_width"] = sum(widths) / domain_width
-                metrics["min_dip_width"] = min(widths) / domain_width
-            else:
-                metrics["total_dip_width"] = sum(widths)
-                metrics["min_dip_width"] = min(widths)
+            metrics["total_dip_width"] = sum(widths)
+            metrics["min_dip_width"] = min(widths)
         else:
             metrics["dips_detected"] = expected_dips
-            if min_span is not None and min_span > 0 and domain_width > 0:
-                min_width_norm = min_span / domain_width
-                metrics["min_dip_width"] = min_width_norm
-                metrics["total_dip_width"] = expected_dips * min_width_norm
+            if min_span is not None and min_span > 0:
+                metrics["min_dip_width"] = min_span
+                metrics["total_dip_width"] = expected_dips * min_span
 
-        metrics.update(self._model_expected_measurements(expected_dips, metrics.get("total_dip_width")))
+        # Override with actual signal dip width from ground truth when available
+        true_min = self._true_signal_dip_width()
+        true_total = self._true_signal_total_dip_width()
+        true_span = self._true_signal_span()
+        merged = self._true_signal_dips_merged()
+        if true_min is not None:
+            metrics["min_dip_width"] = true_min
+        if true_total is not None:
+            metrics["total_dip_width"] = true_total
+        if true_span is not None:
+            metrics["total_signal_span"] = true_span
+        if merged is not None:
+            metrics["dips_merged"] = merged
+
+        # Use span for expected_uniform when dips are merged (one combined range),
+        # otherwise fall back to total dip width
+        effective_width = metrics.get("total_signal_span") if merged else metrics.get("total_dip_width")
+        metrics.update(self._model_expected_measurements(expected_dips, effective_width, domain_width))
         return metrics
 
     def result(self) -> dict[str, float | bool]:

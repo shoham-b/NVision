@@ -574,6 +574,17 @@ function main() {
             return 'N/A';
         }
 
+        function formatFrequency(value) {
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                const scaled = value / 1e9;
+                if (Math.abs(scaled) >= 0.01) {
+                    return scaled.toFixed(2) + ' B';
+                }
+                return scaled.toPrecision(3) + ' B';
+            }
+            return 'N/A';
+        }
+
         function formatCount(value) {
             if (typeof value === 'number' && Number.isFinite(value)) {
                 return Math.round(value).toString();
@@ -591,8 +602,11 @@ function main() {
         function renderSweepMetricsPanel(container, metrics) {
             if (!container) return;
             container.innerHTML = '';
-            // Build a displayable focus_window string from acquisition bounds if available
-            if (metrics.acquisition_lo != null && metrics.acquisition_hi != null) {
+            // Build a displayable focus_window string from acquisition bounds,
+            // but only for sweep locators that support focus (indicated by
+            // the presence of expected_focused_points).
+            if (metrics.expected_focused_points != null &&
+                metrics.acquisition_lo != null && metrics.acquisition_hi != null) {
                 const lo = Number(metrics.acquisition_lo);
                 const hi = Number(metrics.acquisition_hi);
                 if (Number.isFinite(lo) && Number.isFinite(hi)) {
@@ -601,17 +615,11 @@ function main() {
             }
             const items = [
                 { key: 'measurements_done', label: 'Measurements done', tip: 'Actual measurements taken before stopping or hitting the step limit.', fmt: formatCount },
-                { key: 'dips_detected', label: 'Dips detected', tip: 'Dips found in the initial sweep after noise filtering.', fmt: formatCount },
-                { key: 'min_dip_width', label: 'Min dip width', tip: 'Width of the narrowest detected dip in physical frequency units.', fmt: function(v) {
-                    if (metrics.domain_lo != null && metrics.domain_hi != null) {
-                        const dw = Number(metrics.domain_hi) - Number(metrics.domain_lo);
-                        if (Number.isFinite(dw) && dw > 0) {
-                            return formatMetricValue(v * dw);
-                        }
-                    }
-                    return formatMetricValue(v) + ' × domain';
-                } },
-                { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the narrowest dip with 3 samples across it.', fmt: formatCount },
+                { key: 'dips_detected', label: 'Dips detected', tip: 'Dips found in the initial sweep after noise filtering. When the sweep is too sparse to detect dips, falls back to the true ground-truth dip count.', fmt: formatCount },
+                { key: 'dips_merged', label: 'Dips merged', tip: 'Whether detected dips are close enough to be treated as one combined range.', fmt: function(v) { return v ? 'Yes' : 'No'; } },
+                { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatFrequency },
+                { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatFrequency },
+                { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the signal with 2 samples across the effective span.', fmt: formatCount },
                 { key: 'expected_focused_points', label: 'Exp. focused', tip: 'Focused points needed: 5 per detected dip plus a 20-point baseline.', fmt: formatCount },
                 { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
                 { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function(v){ return v; } },
@@ -636,10 +644,13 @@ function main() {
                 if (it.key === 'expected_uniform_points' && metrics.min_dip_width != null) {
                     const mdw = metrics.min_dip_width;
                     const tdw = metrics.total_dip_width;
-                    if (tdw != null && tdw > 0) {
-                        formula = '<div class="metric-formula">2 samples / (' + formatMetricValue(tdw) + ' total signal span) ≈ ' + it.fmt(val) + ' uniform pts</div>';
+                    const tss = metrics.total_signal_span;
+                    if (metrics.dips_merged && tss != null && tss > 0) {
+                        formula = '<div class="metric-formula">2 × domain / (' + formatFrequency(tss) + ' merged span) ≈ ' + it.fmt(val) + ' uniform pts</div>';
+                    } else if (tdw != null && tdw > 0) {
+                        formula = '<div class="metric-formula">2 × domain / (' + formatFrequency(tdw) + ' total dip width) ≈ ' + it.fmt(val) + ' uniform pts</div>';
                     } else if (mdw > 0) {
-                        formula = '<div class="metric-formula">2 samples / (' + formatMetricValue(mdw) + ' dip width) ≈ ' + it.fmt(val) + ' uniform pts</div>';
+                        formula = '<div class="metric-formula">2 × domain / (' + formatFrequency(mdw) + ' dip width) ≈ ' + it.fmt(val) + ' uniform pts</div>';
                     } else {
                         formula = '<div class="metric-formula">dip too narrow to resolve</div>';
                     }
@@ -1245,8 +1256,8 @@ function main() {
                 );
                 scanIframe.src = plot ? plot.path : '';
                 if (plot) {
-                    const absErr = formatMetricValue(plot.abs_err_x);
-                    const uncertainty = formatMetricValue(plot.uncert);
+                    const absErr = formatFrequency(plot.abs_err_x);
+                    const uncertainty = formatFrequency(plot.uncert);
                     const measurements = formatCount(plot.measurements);
                     const duration = formatDuration(plot.duration_ms);
                     const repeatTotal = plot.repeat_total ?? null;
@@ -1590,8 +1601,8 @@ function main() {
                     return;
                 }
                 if (plot) {
-                    const absErr = formatMetricValue(plot.abs_err_x);
-                    const uncertainty = formatMetricValue(plot.uncert);
+                    const absErr = formatFrequency(plot.abs_err_x);
+                    const uncertainty = formatFrequency(plot.uncert);
                     const measurements = formatCount(plot.measurements);
                     const duration = formatDuration(plot.duration_ms);
                     let text = `Measurements: ${measurements} • Duration: ${duration} • Abs Error: ${absErr} • Uncertainty: ${uncertainty}`;
