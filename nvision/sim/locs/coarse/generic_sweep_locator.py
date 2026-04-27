@@ -280,11 +280,17 @@ class GenericSweepLocator(SweepingLocator):
     def effective_initial_sweep_steps(self) -> int:
         """Return effective initial sweep steps for UI phase coloring.
 
+        For GenericSweepLocator, ALL measurements are part of the sweep
+        (there is no separate inference/locator phase), so this returns
+        the total step count.
+
         Returns
         -------
         int
-            Steps taken before refocusing (or total if never refocused).
+            Total measurements taken (all are sweep measurements).
         """
-        if self._last_refocus_step > 0:
-            return self._last_refocus_step
         return self.effective_step_count()
+
+    def bayesian_focus_window(self) -> tuple[float, float] | None:
+        """Return None — uniform sweep locators do not narrow the window."""
+        return None

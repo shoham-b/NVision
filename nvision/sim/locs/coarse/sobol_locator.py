@@ -176,12 +176,16 @@ class Stage1SobolLocator:
     def done(self) -> bool:
         return self.points_collected >= 127
 
+    def bayesian_focus_window(self) -> tuple[float, float] | None:
+        """Return None — simple sweep locators do not narrow the window."""
+        return None
+
 
 def _infer_focus_window(
     history: ObservationHistory,
     domain_lo: float,
     domain_hi: float,
-) -> tuple[float, float]:
+) -> tuple[float, float]:  # noqa: C901
     """Infer a focused sampling window from dip observations in history.
 
     Uses the same noise-thresholding logic as Stage3SobolLocator._infer_bounds,
@@ -500,6 +504,14 @@ class StagedSobolSweepLocator(Locator):
             return (self._stage3.window_lo, self._stage3.window_hi)
         return (self.domain_lo, self.domain_hi)
 
+    def bayesian_focus_window(self) -> tuple[float, float] | None:
+        """Return the narrowed focus window from Stage2 or Stage3, if available."""
+        if self._stage3 is not None:
+            return (self._stage3.window_lo, self._stage3.window_hi)
+        if self._stage2 is not None:
+            return (self._stage2.window_lo, self._stage2.window_hi)
+        return None
+
     def _model_expected_measurements(self, num_dips: int) -> dict[str, float | int]:
         """Compute expected measurement counts from model bounds."""
         domain_width = self.domain_hi - self.domain_lo
@@ -508,7 +520,7 @@ class StagedSobolSweepLocator(Locator):
             min_span = self.signal_model.signal_min_span(domain_width)
         if min_span is not None and min_span > 0 and domain_width > 0:
             min_width_norm = min_span / domain_width
-            expected_uniform = 1.0 / (min_width_norm / 5.0)
+            expected_uniform = 1.0 / (min_width_norm / 3.0)
         else:
             expected_uniform = float(self.max_steps)
         expected_focused = num_dips * 5.0 + 20.0 if num_dips > 0 else expected_uniform

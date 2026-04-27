@@ -310,75 +310,190 @@ body {
         /* ---- Sweep metrics panel ---- */
         .sweep-metrics-panel {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
             gap: 0.5em;
-            padding: 0.8em 1em;
-            margin-top: 0.6em;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            background: #f8f9fa;
-            font-size: 0.9em;
-            color: #444;
+            padding: 0.65em;
+            margin-top: 0.5em;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            font-size: 0.8em;
         }
 
         .sweep-metrics-panel .metric-item {
             display: flex;
             flex-direction: column;
-            padding: 0.35em 0.5em;
-            background: #fff;
-            border: 1px solid #e8e8e8;
-            border-radius: 6px;
+            padding: 0.5em 0.65em;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+            transition: all 0.15s ease;
+            position: relative;
+            overflow: hidden;
         }
 
-        .sweep-metrics-panel .metric-row {
+        .sweep-metrics-panel .metric-item:hover {
+            box-shadow: 0 4px 12px rgba(0, 86, 179, 0.08);
+            transform: translateY(-1px);
+            border-color: #bfdbfe;
+        }
+
+        .sweep-metrics-panel .metric-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            opacity: 0.8;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .sweep-metrics-panel .metric-header {
             display: flex;
-            align-items: baseline;
-            gap: 0.4em;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.3em;
+            margin-bottom: 0.2em;
         }
 
         .sweep-metrics-panel .metric-label {
             font-weight: 500;
-            color: #555;
-            white-space: nowrap;
+            color: #64748b;
+            font-size: 0.72em;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            line-height: 1.2;
         }
 
         .sweep-metrics-panel .metric-value {
-            font-family: ui-monospace, SFMono-Regular, monospace;
-            color: #0056b3;
-            font-weight: 600;
-            margin-left: auto;
-            padding-left: 0.3em;
-            padding-right: 0.2em;
+            font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', monospace;
+            color: #1e40af;
+            font-weight: 700;
+            font-size: 1.15em;
+            line-height: 1.1;
+            margin-top: 0.1em;
+            margin-bottom: 0.1em;
         }
 
         .sweep-metrics-panel .help-icon {
             visibility: hidden;
-            display: inline-block;
-            width: 1.15em;
-            height: 1.15em;
-            line-height: 1.15em;
-            text-align: center;
+            opacity: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.1em;
+            height: 1.1em;
             border-radius: 50%;
-            background: #d0d0d0;
-            color: #fff;
-            font-size: 0.78em;
+            background: #e2e8f0;
+            color: #64748b;
+            font-size: 0.65em;
             font-weight: 700;
             cursor: help;
             flex-shrink: 0;
-            margin-left: 0.2em;
+            transition: all 0.15s ease;
         }
 
         .sweep-metrics-panel .metric-item:hover .help-icon {
             visibility: visible;
+            opacity: 1;
         }
 
         .sweep-metrics-panel .help-icon:hover {
-            background: #0056b3;
+            background: #3b82f6;
+            color: #fff;
         }
 
         .sweep-metrics-panel .metric-formula {
-            font-size: 0.82em;
-            color: #777;
-            margin-top: 0.15em;
+            font-size: 0.7em;
+            color: #94a3b8;
             font-family: ui-monospace, SFMono-Regular, monospace;
+            margin-top: 0.2em;
+            padding-top: 0.2em;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        /* Efficiency coloring */
+        .sweep-metrics-panel .metric-item.efficiency-good::before {
+            background: linear-gradient(90deg, #16a34a, #4ade80);
+        }
+        .sweep-metrics-panel .metric-item.efficiency-good .metric-value {
+            color: #15803d;
+        }
+        .sweep-metrics-panel .metric-item.efficiency-medium::before {
+            background: linear-gradient(90deg, #ea580c, #fb923c);
+        }
+        .sweep-metrics-panel .metric-item.efficiency-medium .metric-value {
+            color: #c2410c;
+        }
+        .sweep-metrics-panel .metric-item.efficiency-bad::before {
+            background: linear-gradient(90deg, #dc2626, #f87171);
+        }
+        .sweep-metrics-panel .metric-item.efficiency-bad .metric-value {
+            color: #b91c1c;
+        }
+
+        /* ---- Scan summary metrics panel ---- */
+        .scan-metrics-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.5em;
+            padding: 0.65em;
+            margin-bottom: 0.5em;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            font-size: 0.8em;
+        }
+
+        .scan-metrics-panel .metric-item {
+            display: flex;
+            flex-direction: column;
+            padding: 0.5em 0.65em;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+            transition: all 0.15s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .scan-metrics-panel .metric-item:hover {
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.08);
+            transform: translateY(-1px);
+            border-color: #ddd6fe;
+        }
+
+        .scan-metrics-panel .metric-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+            opacity: 0.8;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .scan-metrics-panel .metric-label {
+            font-weight: 500;
+            color: #64748b;
+            font-size: 0.72em;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            line-height: 1.2;
+        }
+
+        .scan-metrics-panel .metric-value {
+            font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', monospace;
+            color: #5b21b6;
+            font-weight: 700;
+            font-size: 1.15em;
+            line-height: 1.1;
+            margin-top: 0.1em;
+            margin-bottom: 0.1em;
         }

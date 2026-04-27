@@ -77,6 +77,14 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     data_block = "\n".join(data_scripts)
     index_html = index_html.replace("</head>", f"{data_block}\n</head>")
 
+    # Inline CSS to avoid file:// URL caching issues
+    css_src = _STATIC_DIR / "styles.css"
+    if css_src.exists():
+        css_content = css_src.read_text(encoding="utf-8")
+        css_inline = f"<style>\n{css_content}\n</style>"
+        css_pattern = '<link rel="stylesheet" href="styles.css">'
+        index_html = index_html.replace(css_pattern, css_inline)
+
     # Replace the iframe loader with direct script tag
     iframe_pattern = '<iframe src="../artifacts/loader.html" style="display:none"></iframe>'
     script_tag = f'<script src="app.js?v={stamp}"></script>'
@@ -86,12 +94,9 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     iframe_pattern2 = '<iframe src="loader.html" style="display:none"></iframe>'
     index_html = index_html.replace(iframe_pattern2, script_tag)
 
-    # Copy static assets to out_dir
+    # Copy app.js with cache-busting in the URL (content unchanged)
     import shutil
 
-    shutil.copy2(_STATIC_DIR / "styles.css", out_dir / "styles.css")
-
-    # Copy app.js with cache-busting in the URL (content unchanged)
     app_js_src = _STATIC_DIR / "app.js"
     app_js_dest = out_dir / "app.js"
     if app_js_src.exists():

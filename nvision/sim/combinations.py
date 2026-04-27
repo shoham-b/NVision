@@ -88,9 +88,10 @@ class CombinationGrid:
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
         if generator_name.startswith("NVCenter-"):
+            from nvision.sim.locs.bayesian.gaussian_process_locator import GaussianProcessLocator
+            from nvision.sim.locs.bayesian.laplace_locator import LaplaceLocator
             return [
                 ("GenericSweep", GenericSweepLocator),
-                ("SimpleSweep", GenericSweepLocator),
                 ("SobolSweep", SobolSweepLocator),
                 ("StagedSobolSweep", StagedSobolSweepLocator),
                 (
@@ -116,11 +117,18 @@ class CombinationGrid:
                         },
                     },
                 ),
+                (
+                    "GaussianProcessRegression",
+                    {"class": GaussianProcessLocator, "config": {"max_steps": 150}},
+                ),
+                (
+                    "LaplaceApproximation",
+                    {"class": LaplaceLocator, "config": {"max_steps": 200}},
+                ),
             ]
 
         return [
             ("GenericSweep", GenericSweepLocator),
-            ("SimpleSweep", GenericSweepLocator),
             ("SobolSweep", SobolSweepLocator),
             ("StagedSobolSweep", StagedSobolSweepLocator),
         ]

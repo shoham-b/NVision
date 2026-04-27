@@ -490,13 +490,22 @@ function main() {
         function renderSweepMetricsPanel(container, metrics) {
             if (!container) return;
             container.innerHTML = '';
+            // Build a displayable focus_window string from acquisition bounds if available
+            if (metrics.acquisition_lo != null && metrics.acquisition_hi != null) {
+                const lo = Number(metrics.acquisition_lo);
+                const hi = Number(metrics.acquisition_hi);
+                if (Number.isFinite(lo) && Number.isFinite(hi)) {
+                    metrics.focus_window = '[' + lo.toExponential(3) + ', ' + hi.toExponential(3) + ']';
+                }
+            }
             const items = [
                 { key: 'measurements_done', label: 'Measurements done', tip: 'Actual measurements taken before stopping or hitting the step limit.', fmt: formatCount },
                 { key: 'dips_detected', label: 'Dips detected', tip: 'Dips found in the initial sweep after noise filtering.', fmt: formatCount },
-                { key: 'min_dip_width', label: 'Min dip width', tip: 'Width of the narrowest detected dip as a fraction of the full domain.', fmt: formatMetricValue },
-                { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the narrowest dip with 5 samples across it.', fmt: formatCount },
+                { key: 'min_dip_width', label: 'Min dip width', tip: 'Width of the narrowest detected dip as a fraction of the full domain.', fmt: function(v) { return formatMetricValue(v) + ' × domain'; } },
+                { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the narrowest dip with 3 samples across it.', fmt: formatCount },
                 { key: 'expected_focused_points', label: 'Exp. focused', tip: 'Focused points needed: 5 per detected dip plus a 20-point baseline.', fmt: formatCount },
                 { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
+                { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function(v){ return v; } },
             ];
             let any = false;
             for (const it of items) {
@@ -505,18 +514,34 @@ function main() {
                 any = true;
                 const el = document.createElement('div');
                 el.className = 'metric-item';
+                if (it.key === 'sweep_efficiency' && val != null) {
+                    if (val >= 1) {
+                        el.classList.add('efficiency-good');
+                    } else if (val >= 0.5) {
+                        el.classList.add('efficiency-medium');
+                    } else {
+                        el.classList.add('efficiency-bad');
+                    }
+                }
                 let formula = '';
                 if (it.key === 'expected_uniform_points' && metrics.min_dip_width != null) {
-                    formula = '<div class="metric-formula">5 / ' + formatMetricValue(metrics.min_dip_width) + ' ≈ ' + it.fmt(val) + '</div>';
+                    const mdw = metrics.min_dip_width;
+                    if (mdw > 0) {
+                        formula = '<div class="metric-formula">3 samples / (' + formatMetricValue(mdw) + ' dip width) ≈ ' + it.fmt(val) + ' uniform pts</div>';
+                    } else {
+                        formula = '<div class="metric-formula">dip too narrow to resolve</div>';
+                    }
                 } else if (it.key === 'expected_focused_points' && metrics.dips_detected != null) {
-                    formula = '<div class="metric-formula">' + formatCount(metrics.dips_detected) + ' dips × 5 + 20 = ' + it.fmt(val) + '</div>';
+                    formula = '<div class="metric-formula">' + formatCount(metrics.dips_detected) + ' dips × 5 pts/dip + 20 baseline = ' + it.fmt(val) + ' focused pts</div>';
+                } else if (it.key === 'sweep_efficiency' && metrics.expected_uniform_points != null && metrics.measurements_done != null) {
+                    formula = '<div class="metric-formula">' + formatCount(metrics.expected_uniform_points) + ' expected / ' + formatCount(metrics.measurements_done) + ' actual = ' + it.fmt(val) + '×</div>';
                 }
                 el.innerHTML =
-                    '<div class="metric-row">' +
+                    '<div class="metric-header">' +
                     '<span class="metric-label">' + it.label + '</span>' +
-                    '<span class="metric-value">' + it.fmt(val) + '</span>' +
                     '<span class="help-icon" title="' + it.tip.replace(/"/g, '&quot;') + '">?</span>' +
-                    '</div>' + formula;
+                    '</div>' +
+                    '<div class="metric-value">' + it.fmt(val) + '</div>' + formula;
                 container.appendChild(el);
             }
             container.hidden = !any;
@@ -1116,28 +1141,36 @@ function main() {
                     const attemptLabel = repeatTotal
                         ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
                         : 'Attempt ' + plot.repeat;
-                    let stepsPart = '';
+                    let sweepStr = '—';
+                    let locStr = '—';
                     if (plot.sweep_steps != null || plot.locator_steps != null) {
-                        const sweepStr = plot.sweep_steps != null ? plot.sweep_steps : '—';
-                        const locStr = plot.locator_steps != null ? plot.locator_steps : '—';
-                        stepsPart = ' • Sweep steps: ' + sweepStr + ' • Locator steps: ' + locStr;
+                        sweepStr = plot.sweep_steps != null ? String(plot.sweep_steps) : '—';
+                        locStr = plot.locator_steps != null ? String(plot.locator_steps) : '—';
                     }
-                    scanMetrics.textContent =
-                        attemptLabel +
-                        ' • Measurements: ' + measurements +
-                        stepsPart +
-                        ' • Duration: ' + duration +
-                        ' • Abs error: ' +
-                        absErr +
-                        ' • Uncertainty: ' +
-                        uncertainty;
+                    const scanItems = [
+                        { label: 'Attempt', val: attemptLabel },
+                        { label: 'Measurements', val: measurements },
+                        { label: 'Sweep steps', val: sweepStr },
+                        { label: 'Locator steps', val: locStr },
+                        { label: 'Duration', val: duration },
+                        { label: 'Abs error', val: absErr },
+                        { label: 'Uncertainty', val: uncertainty },
+                    ];
+                    scanMetrics.className = 'scan-metrics-panel';
+                    scanMetrics.innerHTML = scanItems.map(it =>
+                        '<div class="metric-item">' +
+                        '<div class="metric-label">' + it.label + '</div>' +
+                        '<div class="metric-value">' + it.val + '</div>' +
+                        '</div>'
+                    ).join('');
                     renderSweepMetricsPanel(scanSweepMetrics, plot.metrics || {});
                     updateBayesView(plot);
                     updateBayesStatsView(plot);
                     updateBayesInteractiveView(plot);
                 } else {
                     scanIframe.src = '';
-                    scanMetrics.textContent = '';
+                    scanMetrics.className = '';
+                    scanMetrics.innerHTML = '';
                     if (scanSweepMetrics) { scanSweepMetrics.hidden = true; scanSweepMetrics.innerHTML = ''; }
                     updateBayesView(null);
                     updateBayesStatsView(null);

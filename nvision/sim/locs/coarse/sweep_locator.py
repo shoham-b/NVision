@@ -457,7 +457,7 @@ class SweepingLocator(Locator):
         min_span = self._model_signal_min_span()
         if min_span is not None and min_span > 0 and domain_width > 0:
             min_width_norm = min_span / domain_width
-            expected_uniform = 1.0 / (min_width_norm / 5.0)
+            expected_uniform = 1.0 / (min_width_norm / 3.0)
         else:
             min_width_norm = 0.0
             expected_uniform = float(self.max_steps)

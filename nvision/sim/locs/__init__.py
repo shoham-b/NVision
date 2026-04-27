@@ -1,4 +1,6 @@
 from nvision.sim.locs.bayesian import (
+    GaussianProcessLocator,
+    LaplaceLocator,
     SequentialBayesianExperimentDesignLocator,
     SequentialBayesianLocator,
     UtilitySamplingLocator,
@@ -7,6 +9,8 @@ from nvision.sim.locs.bayesian import (
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
 __all__ = [
+    "GaussianProcessLocator",
+    "LaplaceLocator",
     "SequentialBayesianExperimentDesignLocator",
     "SequentialBayesianLocator",
     "StagedSobolSweepLocator",

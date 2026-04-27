@@ -86,6 +86,8 @@ def generate_attempt_metrics(  # noqa: C901
         "expected_focused_points",
         "sweep_efficiency",
         "measurements_done",
+        "acquisition_lo",
+        "acquisition_hi",
     ):
         if _sweep_key in estimate:
             metrics_serialized[_sweep_key] = _maybe_finite(estimate[_sweep_key])

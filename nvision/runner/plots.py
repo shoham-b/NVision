@@ -477,6 +477,12 @@ def generate_attempt_plots(
         )
 
     focus_window = run_result.focus_window if run_result is not None else None
+    # Fallback to narrowed_param_bounds for sweep locators that don't implement
+    # bayesian_focus_window but still have a focused inference window
+    if focus_window is None and run_result is not None and run_result.narrowed_param_bounds:
+        nb = run_result.narrowed_param_bounds
+        param = next(iter(nb))  # take first param
+        focus_window = nb[param]
     per_dip_windows = run_result.per_dip_windows if run_result is not None else None
 
     strat_name = str(entry_base.get("strategy", ""))
