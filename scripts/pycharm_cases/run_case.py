@@ -1,18 +1,17 @@
-"""PyCharm-friendly case launcher.
+"""PyCharm-friendly group launcher.
 
 Open this file and click the green Run button.
-Change CASE_NAME to pick which preset to run.
+Change GROUP_NAME to pick which preset group to run.
 """
 
-from nvision import run_preset
-from nvision.sim.cases import RunCaseName
+from nvision.cli.groups_cmd import run_preset
 
-# Type-safe case selection with autocomplete in IDEs.
-CASE_NAME: RunCaseName = RunCaseName.NVCENTER
+# Change this string to pick a group (e.g., "all", "sweep_only", "bayesian_only").
+GROUP_NAME: str = "all"
 
 
 def main() -> None:
-    run_preset(case_name=CASE_NAME)
+    run_preset(group_name=GROUP_NAME)
 
 
 if __name__ == "__main__":

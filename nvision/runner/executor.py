@@ -26,7 +26,7 @@ from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
 from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
 from nvision.runner.signal_cache import get_shared_core_experiment
-from nvision.sim import cases as sim_cases
+from nvision.sim import presets as sim_presets
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
@@ -323,7 +323,7 @@ class _TaskRunner:
         # We must match the actual value used in _run_single_repeat for cache hits.
         strategy_default_max_steps = self.task.strategy_spec.locator_config.get("max_steps")
         effective_max_steps = self.task.loc_max_steps
-        if strategy_default_max_steps is not None and self.task.loc_max_steps == sim_cases.DEFAULT_LOC_MAX_STEPS:
+        if strategy_default_max_steps is not None and self.task.loc_max_steps == sim_presets.DEFAULT_LOC_MAX_STEPS:
             # User didn't override --loc-max-steps, use strategy's default for cache key
             effective_max_steps = strategy_default_max_steps
         return {
@@ -767,6 +767,10 @@ class _TaskRunner:
             )
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
+            # Forward per-stage step counts for StagedSobolSweepLocator UI breakdown
+            for stage_key in ("stage1_steps", "stage2_steps", "stage3_steps"):
+                if stage_key in locator_final_result:
+                    finalize_record[stage_key] = int(locator_final_result[stage_key] or 0)
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

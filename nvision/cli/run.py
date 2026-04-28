@@ -20,7 +20,7 @@ from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
-from nvision.sim import cases as sim_cases
+from nvision.sim import presets as sim_presets, run_groups as sim_run_groups
 from nvision.sim.grid_enums import GeneratorName, NoiseName
 from nvision.tools.artifacts import (
     ensure_plot_manifest_non_empty,
@@ -191,14 +191,13 @@ def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
     )
 
 
-@app.command()
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = None,
     repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps for Bayesian locator measurement loop"),
-    ] = sim_cases.DEFAULT_LOC_MAX_STEPS,
+    ] = sim_presets.DEFAULT_LOC_MAX_STEPS,
     sweep_max_steps: Annotated[
         int | None,
         typer.Option(
@@ -253,6 +252,10 @@ def run(  # noqa: C901
             help="Filter by signal type/variant substring in generator name (e.g., 'voigt', 'lorentzian').",
         ),
     ] = None,
+    run_group: Annotated[
+        str | None,
+        typer.Option("--run-group", help="Run group name to use for preset combinations (overrides filter options)."),
+    ] = None,
     all_experiments: Annotated[
         bool,
         typer.Option("--all", help="Run all experiments (disables default filtering)"),
@@ -297,25 +300,24 @@ def run(  # noqa: C901
     defaulted_strategy = False
     defaulted_generator = False
     defaulted_noise = False
-    if not all_experiments:
-        default_case = sim_cases.default_run_case()
-        default_category = default_case.filter_category
-        default_strategy = default_case.filter_strategy
-        default_generator = default_case.filter_generator
+    combination_names: list[tuple[str, str, str]] | None = None
+
+    if run_group is not None:
+        group = sim_run_groups.get_run_group(run_group)
+        # Cartesian product of the group's explicit name lists
+        combination_names = [
+            (g, n, s)
+            for g in group.generator_names
+            for n in group.noise_names
+            for s in group.strategy_names
+        ]
+    elif not all_experiments:
+        # Backward-compatible default: NVCenter category (old default_run_case behaviour)
         if filter_category is None:
-            filter_category = default_category
+            filter_category = "NVCenter"
             defaulted_category = True
-        if filter_strategy is None and filter_category == default_category:
-            filter_strategy = default_strategy
-            defaulted_strategy = True
-        if (
-            filter_generator is None
-            and default_generator is not None
-            and filter_category == default_category
-            and filter_strategy == default_strategy
-        ):
-            filter_generator = default_generator
-            defaulted_generator = True
+        # Old default_run_case did not set a default strategy or generator,
+        # so we leave them open (all strategies / all generators in the category).
 
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
     suppress_list: list[object] = [typer]
@@ -458,6 +460,7 @@ def run(  # noqa: C901
                 filter_generator=filter_generator_str,
                 filter_noise=filter_noise_str,
                 filter_signal=filter_signal_str,
+                combination_names=combination_names,
             ),
             monitor=monitor,
         )

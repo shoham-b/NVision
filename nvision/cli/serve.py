@@ -285,7 +285,7 @@ def serve(  # noqa: C901
             os.chdir(directory)
             with _ReuseAddrTCPServer(("", port), _APIHandler) as httpd:
                 _server_instance = httpd
-                httpd.serve_forever()
+                httpd.serve_forever(poll_interval=0.1)
         except OSError as e:
             if "Address already in use" in str(e) or "Only one usage" in str(e):
                 log.debug("Server already running on port %s", port)

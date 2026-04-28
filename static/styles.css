@@ -611,3 +611,42 @@ body {
             background: currentColor;
             color: #fff;
         }
+
+        .bayes-tab-bar {
+            display: flex;
+            gap: 0.5em;
+            margin: 1em 0;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 0.5em;
+        }
+
+        .bayes-tab-button {
+            padding: 0.4em 0.9em;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: #f1f1f1;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+            font-size: 0.9em;
+        }
+
+        .bayes-tab-button:hover:not(:disabled) {
+            border-color: #888;
+            background-color: #e2e2e2;
+        }
+
+        .bayes-tab-button.is-active {
+            background-color: #0056b3;
+            border-color: #0056b3;
+            color: #fff;
+        }
+
+        .bayes-tab-panel {
+            display: none;
+        }
+
+        .bayes-tab-panel.is-active {
+            display: block;
+        }

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from nvision.models.task import LocatorTask
-from nvision.sim.combinations import CombinationGrid
+from nvision.sim.combinations import Combination, CombinationGrid
 from nvision.tools.artifacts import locator_results_path
 from nvision.tools.paths import slugify
 
@@ -42,6 +42,8 @@ class TaskListBuildConfig:
     filter_generator: str | None
     filter_noise: str | None
     filter_signal: str | None
+    # When set, overrides filter_* and resolves explicit (gen, noise, strat) triples.
+    combination_names: list[tuple[str, str, str]] | None = None
 
 
 def build_task_list(
@@ -56,13 +58,22 @@ def build_task_list(
     used_slugs: set[str] = set()
     total_weighted_repeats = 0.0
 
-    for combo in grid.iter(
-        config.filter_category,
-        config.filter_strategy,
-        config.filter_generator,
-        config.filter_noise,
-        config.filter_signal,
-    ):
+    if config.combination_names is not None:
+        combos: list[Combination] = []
+        for gen_name, noise_name, strat_name in config.combination_names:
+            combo = grid.resolve(gen_name, noise_name, strat_name)
+            if combo is not None:
+                combos.append(combo)
+    else:
+        combos = list(grid.iter(
+            config.filter_category,
+            config.filter_strategy,
+            config.filter_generator,
+            config.filter_noise,
+            config.filter_signal,
+        ))
+
+    for combo in combos:
         slug_base = "_".join(slugify(p) for p in (combo.generator_name, combo.noise_name, combo.strategy_name))
         slug = slug_base
         suffix = 1

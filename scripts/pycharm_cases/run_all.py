@@ -1,11 +1,10 @@
 """PyCharm launcher: run all NVision preset combinations (cache enabled by default)."""
 
-from nvision import run_preset
-from nvision.sim.cases import RunCaseName
+from nvision.cli.groups_cmd import run_preset
 
 
 def main() -> None:
-    run_preset(case_name=RunCaseName.ALL)
+    run_preset(group_name="all")
 
 
 if __name__ == "__main__":

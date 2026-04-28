@@ -17,6 +17,8 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
+from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
+from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
@@ -55,46 +57,26 @@ def _infer_tight_focus_window(
 ) -> tuple[float, float]:
     """Infer a tight focus window around the deepest dip.
 
-    Only narrows when a dip is clearly significant (at least ``min_depth_sigma``
-    below the noise median).  The window is drawn around the points that lie
-    within ``depth_fraction`` of the dip bottom, with only ``pad_fraction``
-    padding on each side.
+    Delegates to :func:`nvision.sim.locs.refocus.infer_focus_window`.
     """
+    # Compute noise threshold the same way the old implementation did
     ys = history.ys
-    xs = history.xs
     if len(ys) < 20:
         return domain_lo, domain_hi
 
-    # Noise estimate from upper 70%
     p30 = float(np.percentile(ys, 30))
     noise_pts = ys[ys >= p30]
     noise_med = float(np.median(noise_pts))
     noise_std = float(np.std(noise_pts))
-
-    # Check for a significant dip
     min_y = float(np.min(ys))
     dip_depth = noise_med - min_y
     if dip_depth < min_depth_sigma * max(noise_std, 1e-12):
         return domain_lo, domain_hi
 
-    # Tight threshold: only points deep in the dip
-    threshold = noise_med - depth_fraction * dip_depth
-    dip_mask = ys < threshold
-
-    n_dip = int(np.sum(dip_mask))
-    if n_dip < 1:
-        return domain_lo, domain_hi
-
-    dip_xs = xs[dip_mask]
-
-    # Small padding (2% of domain by default)
-    domain_width = domain_hi - domain_lo
-    pad = pad_fraction * domain_width
-
-    lo = float(np.min(dip_xs)) - pad
-    hi = float(np.max(dip_xs)) + pad
-
-    return max(domain_lo, lo), min(domain_hi, hi)
+    noise_threshold = noise_med - depth_fraction * dip_depth
+    return _refocus_infer_focus_window(
+        history, domain_lo, domain_hi, noise_threshold=noise_threshold
+    )
 
 
 def vdc_generator(base: int = 2) -> Iterator[float]:
@@ -447,8 +429,16 @@ class Stage3SobolLocator:
         xs_win = xs[in_window]
         ys_win = ys[in_window]
 
-        segments = self._dip_segments(xs_win, ys_win)
-        if len(segments) >= self.expected_dips:
+        # Shape-aware dip detection using double-monotonic analysis
+        background = float(np.percentile(ys_win, 75))
+        dip_depth = background - float(np.min(ys_win))
+        threshold_drop = 0.2 * dip_depth
+        if self.noise_std is not None and self.noise_std > 0:
+            threshold_drop = max(threshold_drop, 3.0 * self.noise_std)
+        noise_threshold = background - threshold_drop
+
+        dips = _refocus_detect_dips(xs_win, ys_win, noise_threshold=noise_threshold)
+        if len(dips) >= self.expected_dips:
             self._done = True
 
     @staticmethod
@@ -588,9 +578,10 @@ class StagedSobolSweepLocator(Locator):
         self._signal_found = False
         self._true_signal = None
 
-        # Track initial sweep steps for Observer phase coloring
+        # Track stage boundaries for Observer phase coloring
         self._initial_sweep_steps = 0
         self._stage1_end_step = 0
+        self._stage2_end_step = 0
 
         self._stage1 = Stage1SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
         self._stage2: Stage2SobolLocator | None = None
@@ -637,7 +628,7 @@ class StagedSobolSweepLocator(Locator):
             self._transition_to_stage3()
 
     def _transition_to_stage3(self) -> None:
-        self._initial_sweep_steps = self._stage1_end_step
+        self._stage2_end_step = self.step_count
         inner = getattr(self.signal_model, "inner", self.signal_model)
         expected_dips = inner.expected_dip_count()
         self._stage3 = Stage3SobolLocator(
@@ -648,23 +639,21 @@ class StagedSobolSweepLocator(Locator):
         self._signal_found = True
 
     def effective_initial_sweep_steps(self) -> int:
-        """Return number of steps in Stage 1 (coarse phase).
-
-        Called by the Observer to determine how many measurements belong to
-        the 'coarse' phase for plot coloring.
-        """
+        """Return number of steps in Stage 1 (coarse phase)."""
         if self._stage1_end_step > 0:
             return self._stage1_end_step
-        # If we never reached Stage 2, all completed steps were Stage 1
         return self.step_count
 
     def secondary_sweep_count(self) -> int:
-        """Return number of steps in Stage 2 (secondary phase).
+        """Return number of steps in Stage 2 (secondary phase)."""
+        if self._stage2_end_step > 0:
+            return self._stage2_end_step - self._stage1_end_step
+        return 0
 
-        Called by the Observer for secondary phase coloring.
-        """
-        if self._initial_sweep_steps > 0:
-            return self._initial_sweep_steps - self._stage1_end_step
+    def tertiary_sweep_count(self) -> int:
+        """Return number of steps in Stage 3 (focused sweep phase)."""
+        if self._stage2_end_step > 0:
+            return self.step_count - self._stage2_end_step
         return 0
 
     def finalize(self) -> None:
@@ -698,15 +687,25 @@ class StagedSobolSweepLocator(Locator):
         xs = self.history.xs
         ys = self.history.ys
         order = np.argsort(xs)
-        segments = self._detect_dip_segments(
-            xs[order], ys[order], noise_std=self.noise_std
-        )
-        if len(segments) < 2:
+        xs_s = xs[order]
+        ys_s = ys[order]
+
+        # Compute noise threshold matching old _detect_dip_segments logic
+        background = float(np.percentile(ys_s, 95))
+        dip_depth = background - float(np.min(ys_s))
+        threshold_drop = 0.2 * dip_depth
+        if self.noise_std is not None and self.noise_std > 0:
+            threshold_drop = max(threshold_drop, 3.0 * self.noise_std)
+        noise_threshold = background - threshold_drop
+
+        # Shape-aware dip detection (double-monotonic)
+        dips = _refocus_detect_dips(xs_s, ys_s, noise_threshold=noise_threshold)
+        if len(dips) < 2:
             return None
         domain_width = self.domain_hi - self.domain_lo
         pad = 0.01 * domain_width
         windows: list[tuple[float, float]] = []
-        for lo, hi in segments:
+        for lo, hi in dips:
             windows.append((max(self.domain_lo, lo - pad), min(self.domain_hi, hi + pad)))
         return windows
 
@@ -877,7 +876,20 @@ class StagedSobolSweepLocator(Locator):
         xs = self.history.xs[:init_steps]
         ys = self.history.ys[:init_steps]
         order = np.argsort(xs)
-        segments = self._detect_dip_segments(xs[order], ys[order], noise_std=self.noise_std)
+        xs_s = xs[order]
+        ys_s = ys[order]
+
+        # Compute noise threshold matching the old _detect_dip_segments logic
+        background = float(np.percentile(ys_s, 95))
+        dip_depth = background - float(np.min(ys_s))
+        threshold_drop = 0.2 * dip_depth
+        if self.noise_std is not None and self.noise_std > 0:
+            threshold_drop = max(threshold_drop, 3.0 * self.noise_std)
+        noise_threshold = background - threshold_drop
+
+        # Shape-aware dip detection (double-monotonic)
+        dips = _refocus_detect_dips(xs_s, ys_s, noise_threshold=noise_threshold)
+        segments = [(lo, hi) for lo, hi in dips]
 
         # Prefer actual ground-truth dip count when available
         true_dip_count = self._true_signal_dip_count()
@@ -928,5 +940,11 @@ class StagedSobolSweepLocator(Locator):
             "signal_found": self._signal_found,
             "completed_at_step": self.step_count,
         }
+        # Expose per-stage step counts for UI phase breakdown
+        if self._stage1_end_step > 0:
+            result["stage1_steps"] = self._stage1_end_step
+            if self._stage2_end_step > 0:
+                result["stage2_steps"] = self._stage2_end_step - self._stage1_end_step
+                result["stage3_steps"] = self.step_count - self._stage2_end_step
         result.update(self._compute_sweep_metrics())
         return result

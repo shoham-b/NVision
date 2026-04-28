@@ -6,23 +6,20 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "bayesian-optimization>=1.5.0",
     "polars>=1.35.1",
-    "typer>=0.12.0",
-    "matplotlib>=3.7",
-    "scipy>=1.16.3",
+    "typer>=0.12.1",
+    "matplotlib>=3.10.9",
+    "scipy>=1.17.1",
     "plotly>=6.4.0",
     "rich>=13.0",
-    "numba>=0.62.1",
-    "jax>=0.9.1",
-    "tzdata>=2025.3",
+    "numba>=0.65.1",
+    "tzdata>=2026.2",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "scipy-stubs==1.16.3.0",
+    "scipy>=1.17.1",
     "pytest-cov>=7.0.0",
     "pytest>=8.0",
-    "pytest-cov>=4.1",
-    "pytest-xdist>=3.5",
     "hypothesis>=6.147.0",
     "ruff==0.14.4",
     "pre-commit==4.3.0",
@@ -80,11 +77,10 @@ filterwarnings = [
     "ignore:.*is_in.*collection.*ambiguous:DeprecationWarning",
 ]
 
-[tool.setuptools]
-package-dir = {"" = "."}
-
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["nvision*"]
+exclude = ["tests*", "scripts*"]
 
 [build-system]
 requires = ["setuptools>=61.0"]

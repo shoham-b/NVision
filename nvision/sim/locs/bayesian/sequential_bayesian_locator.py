@@ -12,10 +12,8 @@ from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribut
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
-from nvision.sim.locs.coarse.sobol_locator import (
-    StagedSobolSweepLocator,
-    _infer_tight_focus_window,
-)
+from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
+from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
 
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
@@ -547,8 +545,16 @@ class SequentialBayesianLocator(Locator):
         # If neither the staged sobol nor the cached acquisition bounds narrowed
         # the window, infer directly from the sweep history.
         if (hi - lo) >= (shi - slo) * (1.0 - 1e-9):
-            lo, hi = _infer_tight_focus_window(
-                self._staged_sobol.history, slo, shi
+            # Compute noise threshold consistent with legacy _infer_tight_focus_window
+            ys = self._staged_sobol.history.ys
+            p30 = float(np.percentile(ys, 30))
+            noise_pts = ys[ys >= p30]
+            noise_med = float(np.median(noise_pts))
+            min_y = float(np.min(ys))
+            dip_depth = noise_med - min_y
+            noise_threshold = noise_med - 0.5 * dip_depth
+            lo, hi = _refocus_infer_focus_window(
+                self._staged_sobol.history, slo, shi, noise_threshold=noise_threshold
             )
 
         if not (np.isfinite(lo) and np.isfinite(hi) and np.isfinite(slo) and np.isfinite(shi)):

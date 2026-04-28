@@ -17,7 +17,7 @@ from nvision.cache import CacheBridge
 from nvision.cli.app_instance import app
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner.cache import restore_graphs, strip_heavy_fields
-from nvision.sim import cases as sim_cases
+from nvision.sim import presets as sim_presets, run_groups as sim_run_groups
 from nvision.sim.combinations import CombinationGrid
 from nvision.tools.artifacts import (
     ensure_plot_manifest_non_empty,
@@ -310,22 +310,12 @@ def _apply_default_filters(
     if all_experiments:
         return filter_category, filter_strategy
 
-    default_case = sim_cases.default_run_case()
-    default_category = default_case.filter_category.value if default_case.filter_category is not None else None
-    default_strategy = default_case.filter_strategy.value if default_case.filter_strategy is not None else None
+    default_category = "NVCenter"  # old default_run_case was nvcenter
 
     if filter_category is None:
         filter_category = default_category
         if filter_category is not None:
             log.info("Defaulting to category %r. Use --all to render everything.", filter_category)
-
-    if filter_strategy is None and filter_category == default_category and default_strategy is not None:
-        filter_strategy = default_strategy
-        log.info(
-            "Defaulting to strategy %r for %s. Use --all or --filter-strategy to change.",
-            filter_strategy,
-            filter_category,
-        )
 
     return filter_category, filter_strategy
 
@@ -457,7 +447,7 @@ def render(
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
-    ] = sim_cases.DEFAULT_LOC_MAX_STEPS,
+    ] = sim_presets.DEFAULT_LOC_MAX_STEPS,
     loc_timeout_s: Annotated[
         int,
         typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),

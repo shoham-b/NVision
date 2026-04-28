@@ -62,6 +62,7 @@ class RunResult:
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
     sweep_steps: int = 0
     secondary_sweep_steps: int = 0
+    tertiary_sweep_steps: int = 0
 
     def uncertainty_trajectory(self, param: str) -> list[float]:
         """Get uncertainty (std) trajectory for parameter.
@@ -256,6 +257,7 @@ class Observer:
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
         sweep_steps = 0
         secondary_sweep_steps = 0
+        tertiary_sweep_steps = 0
         if last_locator is not None:
             # Use duck typing with hasattr for optional locator capabilities
             if hasattr(last_locator, "bayesian_focus_window"):
@@ -281,6 +283,8 @@ class Observer:
             )
             if hasattr(last_locator, "secondary_sweep_count"):
                 secondary_sweep_steps = last_locator.secondary_sweep_count()
+            if hasattr(last_locator, "tertiary_sweep_count"):
+                tertiary_sweep_steps = last_locator.tertiary_sweep_count()
 
         return RunResult(
             snapshots=self.snapshots,
@@ -290,4 +294,5 @@ class Observer:
             narrowed_param_bounds=narrowed_param_bounds,
             sweep_steps=sweep_steps,
             secondary_sweep_steps=secondary_sweep_steps,
+            tertiary_sweep_steps=tertiary_sweep_steps,
         )

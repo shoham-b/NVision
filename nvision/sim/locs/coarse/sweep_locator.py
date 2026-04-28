@@ -10,90 +10,12 @@ import numpy as np
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
+from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
+from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
     pass
-
-
-def _infer_focus_window(
-    history: ObservationHistory,
-    domain_lo: float,
-    domain_hi: float,
-) -> tuple[float, float]:
-    """Infer a focused sampling window from dip observations in history.
-
-    Uses a noise threshold to separate signal dips from background, then
-    clusters the dip points by spatial proximity.  The window is bounded by
-    the nearest background measurements flanking the largest dip cluster.
-
-    Steps:
-      1. Estimate noise level from the upper 70% of y-values (above the 30th
-         percentile).  Use 3σ below the noise median as the dip threshold so
-         random noise fluctuations (~0.3% tail) are almost never misclassified.
-      2. Find x-positions whose y falls below that threshold.
-      3. Cluster those positions by sorting them and splitting at gaps larger
-         than 5% of the domain width.  Keep the cluster with the most points
-         (the real signal dip region).
-      4. Bound the window using the nearest background (above-threshold) points
-         on each side of the cluster — if a sampled point is background, the
-         signal cannot extend past it.
-    """
-    ys_valid = history.ys
-    xs_valid = history.xs
-    if len(ys_valid) == 0:
-        return domain_lo, domain_hi
-
-    # --- noise estimation ---
-    p30_val = float(np.percentile(ys_valid, 30))
-    noise_points = ys_valid[ys_valid >= p30_val]
-    if len(noise_points) == 0:
-        return domain_lo, domain_hi
-
-    noise_median = float(np.median(noise_points))
-    noise_std = float(np.std(noise_points))
-    # 3σ: ~0.3% false-positive rate per point (vs ~5% at 2σ)
-    noise_threshold = noise_median - 3.0 * noise_std
-
-    below_idx = np.where(ys_valid < noise_threshold)[0]
-    if len(below_idx) < 2:
-        return domain_lo, domain_hi
-
-    # --- convert to physical x if stored as normalised [0, 1] ---
-    domain_width = domain_hi - domain_lo
-    if domain_width > 0 and float(np.max(xs_valid)) <= 1.0001 and float(np.min(xs_valid)) >= -0.0001:
-        xs_valid = domain_lo + xs_valid * domain_width
-
-    dip_xs = xs_valid[below_idx]
-
-    # --- cluster dip points by proximity ---
-    sorted_dip_xs = np.sort(dip_xs)
-    gap_threshold = 0.05 * domain_width  # split clusters at 5% domain gaps
-    gaps = np.diff(sorted_dip_xs)
-    split_points = np.where(gaps > gap_threshold)[0]
-
-    # Build clusters as slices of sorted_dip_xs
-    cluster_starts = np.concatenate([[0], split_points + 1])
-    cluster_ends = np.concatenate([split_points + 1, [len(sorted_dip_xs)]])
-
-    # Pick the cluster with the most points (the real signal region)
-    best_cluster_idx = int(np.argmax(cluster_ends - cluster_starts))
-    cluster_xs = sorted_dip_xs[cluster_starts[best_cluster_idx] : cluster_ends[best_cluster_idx]]
-
-    x_min = float(cluster_xs[0])
-    x_max = float(cluster_xs[-1])
-
-    # --- bound by nearest background points ---
-    bg_mask = ys_valid >= noise_threshold
-    bg_xs = xs_valid[bg_mask]
-
-    left_bgs = bg_xs[bg_xs < x_min]
-    right_bgs = bg_xs[bg_xs > x_max]
-
-    best_left = float(np.max(left_bgs)) if len(left_bgs) > 0 else domain_lo
-    best_right = float(np.min(right_bgs)) if len(right_bgs) > 0 else domain_hi
-
-    return max(domain_lo, best_left), min(domain_hi, best_right)
 
 
 class SweepingLocator(Locator):
@@ -326,40 +248,27 @@ class SweepingLocator(Locator):
 
         self._signal_found = True
 
-        # Calculate window half-width based on observed signal extent in data
-        # Find where signal drops significantly below background (dip region)
-        half_depth = (background_est + min_signal) / 2.0  # Midpoint between background and dip
-        signal_indices = np.where(ys < half_depth)[0]
+        # Compute noise threshold for the refocus package
+        noise_threshold = background_est - dip_threshold
 
-        # Domain width needed for coordinate conversions
+        lo, hi = _refocus_infer_focus_window(
+            self.history,
+            self._domain_lo,
+            self._domain_hi,
+            expected_dips=self._expected_dip_count_from_model() or 1,
+            noise_threshold=noise_threshold,
+        )
+
         domain_width = self._domain_hi - self._domain_lo
-
-        if len(signal_indices) >= 2:
-            # Signal width from data: distance from min to furthest significant point
-            signal_xs = xs[signal_indices]
-            left_extent = best_point_norm - float(np.min(signal_xs))
-            right_extent = float(np.max(signal_xs)) - best_point_norm
-            # Half-width includes observed extent plus 50% margin on each side
-            half_w = max(left_extent, right_extent) * 1.5
-        else:
-            # Fallback: use model guidance or reasonable default
-            max_span = self._signal_max_span if self._signal_max_span is not None else self._model_signal_max_span()
-            half_w = (
-                float(max_span / 2.0 / domain_width) if max_span is not None and domain_width > 0 else 0.15
-            )  # 15% default
-
-        # Clamp to reasonable bounds: at least 5% of domain, at most 40%
-        half_w = float(np.clip(half_w, 0.05, 0.40))
+        lo_norm = (lo - self._domain_lo) / domain_width if domain_width > 0 else 0.0
+        hi_norm = (hi - self._domain_lo) / domain_width if domain_width > 0 else 1.0
 
         # Ensure we don't exceed domain boundaries
-        left_space = best_point_norm
-        right_space = 1.0 - best_point_norm
-        half_w = min(half_w, left_space, right_space)
-        lo_norm = best_point_norm - half_w
-        hi_norm = best_point_norm + half_w
+        lo_norm = max(0.0, lo_norm)
+        hi_norm = min(1.0, hi_norm)
 
-        self._acquisition_lo = self._domain_lo + lo_norm * domain_width
-        self._acquisition_hi = self._domain_lo + hi_norm * domain_width
+        self._acquisition_lo = lo
+        self._acquisition_hi = hi
 
         # Delegate to subclass for point regeneration
         self._regenerate_points(refocus_step, lo_norm, hi_norm)
@@ -546,7 +455,7 @@ class SweepingLocator(Locator):
         estimated expected measurement counts based on dip size and number.
         """
         metrics: dict[str, float | int] = {
-            "measurements_done": self.step_count,
+            "measurements_done": self.effective_step_count(),
             "dips_detected": 0,
             "total_dip_width": 0.0,
             "min_dip_width": 0.0,
@@ -566,10 +475,18 @@ class SweepingLocator(Locator):
         xs = self.history.xs[:init_steps]
         ys = self.history.ys[:init_steps]
 
-        segments = self._dip_segments(
-            xs, ys, min_points=3, min_width=0.005, background_pct=95.0, threshold_frac=0.2, noise_std=self.noise_std
-        )
-        num_dips = len(segments)
+        # Compute the same noise threshold the old _dip_segments used
+        background = float(np.percentile(ys, 95))
+        dip_depth = background - float(np.min(ys))
+        threshold_drop = 0.2 * dip_depth
+        if self.noise_std is not None and self.noise_std > 0:
+            threshold_drop = max(threshold_drop, 3.0 * self.noise_std)
+        noise_threshold = background - threshold_drop
+
+        # Shape-aware dip detection (double-monotonic)
+        dips = _refocus_detect_dips(xs, ys, noise_threshold=noise_threshold)
+        num_dips = len(dips)
+        segments = [(lo, hi) for lo, hi in dips]
 
         # Model-based expected measurements (robust even if observation-based
         # detection fails with sparse Stage 1 sampling for narrow dips)

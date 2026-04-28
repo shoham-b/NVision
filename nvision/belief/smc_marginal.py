@@ -115,6 +115,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     a_param: float = 0.98
     scale: bool = True
 
+    # Use Fisher-information-based weighting during Bayesian updates.
+    # The paper (Eq. S3) updates weights by likelihood only.  Default True
+    # preserves backward compatibility; set False to match the paper.
+    use_information_weights: bool = True
+
     # Annealed jitter: continuous particle movement every update
     annealed_jitter: bool = False
     annealed_jitter_initial: float = 0.02
@@ -165,12 +170,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 2. Compute information-based weights from Fisher Information
         # Particles suggesting measurements at informative regions (high gradient,
         # strong cross-parameter sensitivity) get higher weight
-        info_weights = self._compute_information_weights(obs.x, predicted, noise_std, obs.frequency_noise_model)
-
-        # 3. Update weights combining likelihood AND information content
-        # This ensures particles that both fit the data AND carry parameter
-        # information are preserved, accounting for cross-parameter correlations
-        self._weights *= likelihoods * info_weights
+        # 3. Update weights
+        if self.use_information_weights:
+            # Compute information-based weights from Fisher Information.
+            # This is a heuristic extension not present in the paper (Eq. S3).
+            info_weights = self._compute_information_weights(obs.x, predicted, noise_std, obs.frequency_noise_model)
+            self._weights *= likelihoods * info_weights
+        else:
+            # Paper-compliant: likelihood only.
+            self._weights *= likelihoods
 
         # 4. Normalize weights
         weight_sum = np.sum(self._weights)
@@ -224,11 +232,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 frequency_noise_model=obs.frequency_noise_model,
             )
 
-            # 2. Compute information-based weights (batched across particles)
-            info_weights = self._compute_information_weights_batch(obs.x, n_particles, noise_std)
-
-            # 3. Update weights (no normalization between observations)
-            self._weights *= likelihoods * info_weights
+            # 2. Update weights
+            if self.use_information_weights:
+                info_weights = self._compute_information_weights_batch(obs.x, n_particles, noise_std)
+                self._weights *= likelihoods * info_weights
+            else:
+                self._weights *= likelihoods
 
         # 4. Final normalization after all observations
         weight_sum = np.sum(self._weights)
@@ -388,9 +397,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles = self._particles[all_indices]
         self._weights = np.ones(self.num_particles) / self.num_particles
 
-        # Apply jitter only to resampled particles (not elite)
+        # Apply nudging / contraction to all particles (paper-compliant)
         if self.use_full_covariance:
-            self._resample_nist_style_elitist(n_elite)
+            self._resample_nist_style()
         else:
             # Add jitter only to non-elite (resampled) particles
             for j, name in enumerate(self._param_names):
@@ -591,6 +600,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             annealed_jitter_min=self.annealed_jitter_min,
             annealed_jitter_decay=self.annealed_jitter_decay,
             elitism_ratio=self.elitism_ratio,
+            use_information_weights=self.use_information_weights,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()

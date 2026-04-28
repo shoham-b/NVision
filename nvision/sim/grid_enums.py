@@ -1,4 +1,4 @@
-"""Enums for combination-grid filters (no imports from :mod:`cases` or heavy sim graph — avoids cycles)."""
+"""Enums for combination-grid filters (no imports from :mod:`presets` or heavy sim graph — avoids cycles)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class StrategyFilter(StrEnum):
 
 
 class GeneratorName(StrEnum):
-    """Registered generator keys from :func:`nvision.sim.cases.generators_basic`."""
+    """Registered generator keys from :func:`nvision.sim.presets.generators_basic`."""
 
     NVCENTER_LORENTZIAN = "NVCenter-lorentzian"
     NVCENTER_VOIGT = "NVCenter-voigt"

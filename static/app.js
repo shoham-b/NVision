@@ -305,10 +305,18 @@ function main() {
             }
 
             if (!selectedPlot) {
-                bayesInteractiveSection.hidden = true;
+                bayesInteractiveSection.dataset.available = 'false';
                 bayesInteractiveIframe.src = '';
-                bayesConvergenceSection.hidden = true;
+                bayesConvergenceSection.dataset.available = 'false';
                 bayesConvergenceIframe.src = '';
+                bayesFisherSection.dataset.available = 'false';
+                bayesFisherIframe.src = '';
+                bayesFisherPairsSection.dataset.available = 'false';
+                bayesFisherPairsIframe.src = '';
+                bayesConvMetricsSection.dataset.available = 'false';
+                bayesConvMetricsIframe.src = '';
+                bayesEllipseSection.dataset.available = 'false';
+                bayesEllipseIframe.src = '';
                 return;
             }
 
@@ -322,14 +330,13 @@ function main() {
 
             if (interactivePlot) {
                 bayesInteractiveIframe.src = interactivePlot.path;
-                // Dynamic height: max(260, 180 * param_count) + padding for controls (~100px)
                 const paramCount = interactivePlot.param_count || 1;
                 const plotHeight = Math.max(260, 180 * paramCount);
-                const totalHeight = plotHeight + 120;  // Add space for title, controls, slider
+                const totalHeight = plotHeight + 120;
                 bayesInteractiveIframe.style.height = totalHeight + 'px';
-                bayesInteractiveSection.hidden = false;
+                bayesInteractiveSection.dataset.available = 'true';
             } else {
-                bayesInteractiveSection.hidden = true;
+                bayesInteractiveSection.dataset.available = 'false';
                 bayesInteractiveIframe.src = '';
                 bayesInteractiveIframe.style.height = '';
             }
@@ -345,9 +352,9 @@ function main() {
 
             if (convergencePlot) {
                 bayesConvergenceIframe.src = convergencePlot.path;
-                bayesConvergenceSection.hidden = false;
+                bayesConvergenceSection.dataset.available = 'true';
             } else {
-                bayesConvergenceSection.hidden = true;
+                bayesConvergenceSection.dataset.available = 'false';
                 bayesConvergenceIframe.src = '';
             }
 
@@ -362,9 +369,9 @@ function main() {
 
             if (fisherPlot) {
                 bayesFisherIframe.src = fisherPlot.path;
-                bayesFisherSection.hidden = false;
+                bayesFisherSection.dataset.available = 'true';
             } else {
-                bayesFisherSection.hidden = true;
+                bayesFisherSection.dataset.available = 'false';
                 bayesFisherIframe.src = '';
             }
 
@@ -379,9 +386,9 @@ function main() {
 
             if (fisherPairsPlot) {
                 bayesFisherPairsIframe.src = fisherPairsPlot.path;
-                bayesFisherPairsSection.hidden = false;
+                bayesFisherPairsSection.dataset.available = 'true';
             } else {
-                bayesFisherPairsSection.hidden = true;
+                bayesFisherPairsSection.dataset.available = 'false';
                 bayesFisherPairsIframe.src = '';
             }
 
@@ -396,9 +403,9 @@ function main() {
 
             if (convMetricsPlot) {
                 bayesConvMetricsIframe.src = convMetricsPlot.path;
-                bayesConvMetricsSection.hidden = false;
+                bayesConvMetricsSection.dataset.available = 'true';
             } else {
-                bayesConvMetricsSection.hidden = true;
+                bayesConvMetricsSection.dataset.available = 'false';
                 bayesConvMetricsIframe.src = '';
             }
 
@@ -413,9 +420,9 @@ function main() {
 
             if (ellipsePlot) {
                 bayesEllipseIframe.src = ellipsePlot.path;
-                bayesEllipseSection.hidden = false;
+                bayesEllipseSection.dataset.available = 'true';
             } else {
-                bayesEllipseSection.hidden = true;
+                bayesEllipseSection.dataset.available = 'false';
                 bayesEllipseIframe.src = '';
             }
         }
@@ -426,7 +433,7 @@ function main() {
             }
 
             if (!selectedPlot) {
-                bayesStatsSection.hidden = true;
+                bayesStatsSection.dataset.available = 'false';
                 return;
             }
 
@@ -463,10 +470,70 @@ function main() {
             }
 
             if (posteriorPlot || convergencePlot) {
-                bayesStatsSection.hidden = false;
+                bayesStatsSection.dataset.available = 'true';
             } else {
-                bayesStatsSection.hidden = true;
+                bayesStatsSection.dataset.available = 'false';
             }
+        }
+
+        function updateBayesTabs() {
+            const tabBar = document.getElementById('bayes-tab-bar');
+            if (!tabBar) return;
+
+            const sections = [
+                { id: 'bayes-interactive-section', label: 'Posterior Evolution' },
+                { id: 'bayes-convergence-section', label: 'Parameter Convergence' },
+                { id: 'bayes-conv-metrics-section', label: 'Convergence Metrics' },
+                { id: 'bayes-fisher-section', label: 'Fisher Bounds' },
+                { id: 'bayes-fisher-pairs-section', label: 'CRLB Pairs' },
+                { id: 'bayes-ellipse-section', label: 'Covariance Ellipses' },
+                { id: 'bayes-stats-section', label: 'Statistics' },
+            ];
+
+            const available = sections.filter((s) => {
+                const el = document.getElementById(s.id);
+                return el && el.dataset.available === 'true';
+            });
+
+            if (available.length === 0) {
+                tabBar.style.display = 'none';
+                sections.forEach((s) => {
+                    const el = document.getElementById(s.id);
+                    if (el) el.classList.remove('is-active');
+                });
+                return;
+            }
+
+            tabBar.style.display = 'flex';
+
+            const currentActive = tabBar.querySelector('.bayes-tab-button.is-active');
+            let activeId = currentActive ? currentActive.dataset.tab : null;
+            if (!available.some((s) => s.id === activeId)) {
+                activeId = available[0].id;
+            }
+
+            tabBar.innerHTML = '';
+            for (const s of available) {
+                const btn = document.createElement('button');
+                btn.className = 'bayes-tab-button' + (s.id === activeId ? ' is-active' : '');
+                btn.type = 'button';
+                btn.textContent = s.label;
+                btn.dataset.tab = s.id;
+                btn.addEventListener('click', () => {
+                    tabBar.querySelectorAll('.bayes-tab-button').forEach((b) => b.classList.remove('is-active'));
+                    btn.classList.add('is-active');
+                    sections.forEach((sec) => {
+                        const el = document.getElementById(sec.id);
+                        if (el) el.classList.toggle('is-active', sec.id === s.id);
+                    });
+                });
+                tabBar.appendChild(btn);
+            }
+
+            sections.forEach((s) => {
+                const el = document.getElementById(s.id);
+                if (el) el.classList.toggle('is-active', s.id === activeId);
+            });
         }
 
         const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
@@ -627,7 +694,6 @@ function main() {
                 { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatFrequency },
                 { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatFrequency },
                 { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the signal with 2 samples across the effective span.', fmt: formatCount },
-                { key: 'expected_focused_points', label: 'Exp. focused', tip: 'Focused points needed: 5 per detected dip plus a 20-point baseline.', fmt: formatCount },
                 { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
                 { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function(v){ return v; } },
             ];
@@ -661,8 +727,6 @@ function main() {
                     } else {
                         formula = '<div class="metric-formula">dip too narrow to resolve</div>';
                     }
-                } else if (it.key === 'expected_focused_points' && metrics.dips_detected != null) {
-                    formula = '<div class="metric-formula">' + formatCount(metrics.dips_detected) + ' dips × 5 pts/dip + 20 baseline = ' + it.fmt(val) + ' focused pts</div>';
                 } else if (it.key === 'sweep_efficiency' && metrics.expected_uniform_points != null && metrics.measurements_done != null) {
                     formula = '<div class="metric-formula">' + formatCount(metrics.expected_uniform_points) + ' expected / ' + formatCount(metrics.measurements_done) + ' actual = ' + it.fmt(val) + '×</div>';
                 }
@@ -1268,24 +1332,44 @@ function main() {
                         const attemptLabel = repeatTotal
                             ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
                             : 'Attempt ' + plot.repeat;
+                        // For sweep-only runs, phaseData.measurements is the authoritative total.
                         const phaseMeasurements = phaseData.measurements != null ? phaseData.measurements : totalMeasurements;
-                        let sweepStr = '—';
-                        let locStr = '—';
-                        if (phaseData.sweep_steps != null || phaseData.locator_steps != null) {
-                            if (phaseMeasurements != null && phaseMeasurements > 0) {
-                                sweepStr = phaseData.sweep_steps != null ? phaseData.sweep_steps + '/' + phaseMeasurements : '—';
-                                locStr = phaseData.locator_steps != null ? phaseData.locator_steps + '/' + phaseMeasurements : '—';
-                            } else {
-                                sweepStr = phaseData.sweep_steps != null ? String(phaseData.sweep_steps) : '—';
-                                locStr = phaseData.locator_steps != null ? String(phaseData.locator_steps) : '—';
-                            }
-                        }
                         const items = [
                             { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to.' },
                             { label: 'Measurements', val: formatCount(phaseMeasurements), tip: 'Total number of measurements (sweep + acquisition) taken in this repeat.' },
-                            { label: 'Sweep steps', val: sweepStr, tip: 'Measurements spent in the initial coarse/focused sweep phase.' },
-                            { label: 'Locator steps', val: locStr, tip: 'Measurements spent in the active acquisition / inference phase.' },
                         ];
+                        // Per-stage breakdown for StagedSobolSweepLocator
+                        const stage1 = phaseData.stage1_steps;
+                        const stage2 = phaseData.stage2_steps;
+                        const stage3 = phaseData.stage3_steps;
+                        const hasStages = stage1 != null && stage1 > 0;
+                        if (hasStages) {
+                            if (stage1 != null && stage1 > 0) {
+                                items.push({ label: 'Stage 1 (coarse)', val: formatCount(stage1), tip: 'Initial coarse sweep steps.' });
+                            }
+                            if (stage2 != null && stage2 > 0) {
+                                items.push({ label: 'Stage 2 (focus)', val: formatCount(stage2), tip: 'Secondary focused sweep steps.' });
+                            }
+                            if (stage3 != null && stage3 > 0) {
+                                items.push({ label: 'Stage 3 (refine)', val: formatCount(stage3), tip: 'Tertiary refinement sweep steps.' });
+                            }
+                        } else {
+                            // Simple sweep / locator breakdown for non-staged strategies
+                            const sweepSteps = phaseData.sweep_steps;
+                            const locSteps = phaseData.locator_steps;
+                            if (sweepSteps != null && sweepSteps > 0) {
+                                const sweepStr = phaseMeasurements != null && phaseMeasurements > 0
+                                    ? sweepSteps + '/' + phaseMeasurements
+                                    : String(sweepSteps);
+                                items.push({ label: 'Sweep steps', val: sweepStr, tip: 'Measurements spent in the initial coarse/focused sweep phase.' });
+                            }
+                            if (locSteps != null && locSteps > 0) {
+                                const locStr = phaseMeasurements != null && phaseMeasurements > 0
+                                    ? locSteps + '/' + phaseMeasurements
+                                    : String(locSteps);
+                                items.push({ label: 'Locator steps', val: locStr, tip: 'Measurements spent in the active acquisition / inference phase.' });
+                            }
+                        }
                         if (phaseData.duration_ms != null) {
                             items.push({ label: 'Duration', val: formatDuration(phaseData.duration_ms), tip: 'Wall-clock time for this repeat.' });
                         }
@@ -1329,6 +1413,7 @@ function main() {
                     updateBayesView(plot);
                     updateBayesStatsView(plot);
                     updateBayesInteractiveView(plot);
+                    updateBayesTabs();
                 } else {
                     scanIframe.src = '';
                     scanMetrics.className = '';
@@ -1337,6 +1422,7 @@ function main() {
                     updateBayesView(null);
                     updateBayesStatsView(null);
                     updateBayesInteractiveView(null);
+                    updateBayesTabs();
                 }
             } else {
                 scanIframe.src = '';
@@ -1345,6 +1431,7 @@ function main() {
                 updateBayesView(null);
                 updateBayesStatsView(null);
                 updateBayesInteractiveView(null);
+                updateBayesTabs();
             }
         }
 

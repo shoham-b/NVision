@@ -196,6 +196,10 @@ def nv_center_smc_belief(
     num_particles: int = 5000,
     jitter_scale: float = 0.05,
     ess_threshold: float = 0.5,
+    use_full_covariance: bool = False,
+    a_param: float = 0.98,
+    scale: bool = True,
+    use_information_weights: bool = True,
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model."""
@@ -236,6 +240,10 @@ def nv_center_smc_belief(
         num_particles=num_particles,
         jitter_scale=jitter_scale,
         ess_threshold=ess_threshold,
+        use_full_covariance=use_full_covariance,
+        a_param=a_param,
+        scale=scale,
+        use_information_weights=use_information_weights,
         physical_param_bounds=merged_bounds,
         physical_x_bounds=x_phys,
     )

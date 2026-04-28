@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nvision.models.noise import CompositeNoise
-from nvision.sim import cases as sim_cases
+from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.acquisition_locators import (
     MaximumLikelihoodLocator,
     SequentialBayesianExperimentDesignLocator,
@@ -37,12 +37,13 @@ class Combination:
 
 _NV_SMC: dict[str, object] = {
     "builder": nv_center_smc_belief,
-    "num_particles": 5000,
+    "num_particles": 10000,
     "jitter_scale": 0.05,
     "ess_threshold": 0.5,
     "use_full_covariance": True,  # NIST-style robust resampling (Dushenko et al.)
     "a_param": 0.98,
     "scale": True,
+    "use_information_weights": False,  # paper Eq. S3: likelihood only
 }
 
 
@@ -66,9 +67,13 @@ class CombinationGrid:
     """
 
     def __init__(self) -> None:
-        self._generators: dict[str, object] = dict(sim_cases.generators_basic())
+        self._generators: dict[str, object] = dict(
+            sim_presets.generators_basic() + sim_presets.generators_narrow()
+        )
         self._noises: dict[str, CompositeNoise | None] = dict(
-            sim_cases.noises_none() + sim_cases.noises_single_each() + sim_cases.noises_complex()
+            sim_presets.noises_none()
+            + sim_presets.noises_single_each()
+            + sim_presets.noises_complex()
         )
 
     @property
@@ -117,6 +122,36 @@ class CombinationGrid:
                     },
                 ),
                 (
+                    "Bayesian-SBED-NoSweep",
+                    {
+                        "class": SequentialBayesianExperimentDesignLocator,
+                        "config": {"max_steps": 200, "initial_sweep_steps": 0, **_NV_SMC},
+                    },
+                ),
+                (
+                    "Bayesian-MaximumLikelihood-NoSweep",
+                    {
+                        "class": MaximumLikelihoodLocator,
+                        "config": {"max_steps": 200, "initial_sweep_steps": 0, **_NV_SMC},
+                    },
+                ),
+                (
+                    "Bayesian-UtilitySampling-NoSweep",
+                    {
+                        "class": UtilitySamplingLocator,
+                        "config": {
+                            "max_steps": 200,
+                            "initial_sweep_steps": 0,
+                            **_NV_SMC,
+                            "pickiness": 4.0,
+                            "noise_std": 0.02,
+                            "cost": 1.0,
+                            "n_mc_samples": 64,
+                            "n_candidates": 64,
+                        },
+                    },
+                ),
+                (
                     "StudentsTApproximation",
                     {"class": StudentsTLocator, "config": {"max_steps": 200, "df": 3.0}},
                 ),
@@ -130,7 +165,7 @@ class CombinationGrid:
 
     def __iter__(self) -> Iterator[Combination]:
         """Iterate all combinations (no filtering, no dedup)."""
-        return self.iter(filter_category=None, filter_strategy=None, filter_generator=None, filter_noise=None)
+        return self.all_combinations()
 
     def iter(  # noqa: C901
         self,
@@ -140,7 +175,12 @@ class CombinationGrid:
         filter_noise: str | None = None,
         filter_signal: str | None = None,
     ) -> Iterator[Combination]:
-        """Yield every matching combination, deduplicating automatically."""
+        """Yield every matching combination, deduplicating automatically.
+
+        .. deprecated::
+            Filtering via ``iter()`` is kept for backward compatibility.
+            Prefer :meth:`all_combinations` or :meth:`resolve`.
+        """
         seen: set[tuple[str, str, str]] = set()
 
         for gen_name, gen_obj in self._generators.items():
@@ -177,3 +217,48 @@ class CombinationGrid:
                         strategy_name=strat_name,
                         strategy=strat_obj,
                     )
+
+    def all_combinations(self) -> Iterator[Combination]:
+        """Yield every registered combination (full Cartesian product)."""
+        seen: set[tuple[str, str, str]] = set()
+        for gen_name, gen_obj in self._generators.items():
+            for strat_name, strat_obj in self.strategies_for(gen_name):
+                for noise_name, noise_obj in self._noises.items():
+                    key = (gen_name, noise_name, strat_name)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    yield Combination(
+                        generator_name=gen_name,
+                        generator=gen_obj,
+                        noise_name=noise_name,
+                        noise=noise_obj,
+                        strategy_name=strat_name,
+                        strategy=strat_obj,
+                    )
+
+    def resolve(
+        self, gen_name: str, noise_name: str, strat_name: str
+    ) -> Combination | None:
+        """Resolve three preset names to a single :class:`Combination`.
+
+        Returns ``None`` if any name is not registered or the strategy is
+        not valid for the generator.
+        """
+        gen_obj = self._generators.get(gen_name)
+        if gen_obj is None:
+            return None
+        noise_obj = self._noises.get(noise_name)
+        if noise_obj is None and noise_name not in self._noises:
+            return None
+        for s_name, s_obj in self.strategies_for(gen_name):
+            if s_name == strat_name:
+                return Combination(
+                    generator_name=gen_name,
+                    generator=gen_obj,
+                    noise_name=noise_name,
+                    noise=noise_obj,
+                    strategy_name=strat_name,
+                    strategy=s_obj,
+                )
+        return None

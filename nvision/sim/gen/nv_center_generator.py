@@ -61,6 +61,7 @@ class NVCenterCoreGenerator:
     x_min: float = DEFAULT_NV_CENTER_FREQ_X_MIN  # 2.6 GHz
     x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
+    center_freq_fraction: float | None = None  # if set, constrain center_freq to middle fraction of domain
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate NV center ODMR signal.
@@ -80,7 +81,15 @@ class NVCenterCoreGenerator:
         # For hyperfine-split case, need room for side peaks
         # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
         split = rng.uniform(2.0e6, 3.5e6)
-        center_freq = rng.uniform(self.x_min + split + 0.05 * width, self.x_max - split - 0.05 * width)
+        usable_lo = self.x_min + split + 0.05 * width
+        usable_hi = self.x_max - split - 0.05 * width
+        if self.center_freq_fraction is not None:
+            frac = max(0.0, min(1.0, self.center_freq_fraction))
+            mid = (usable_lo + usable_hi) / 2.0
+            half_span = (usable_hi - usable_lo) * frac / 2.0
+            center_freq = rng.uniform(mid - half_span, mid + half_span)
+        else:
+            center_freq = rng.uniform(usable_lo, usable_hi)
 
         # Random linewidth (HWHM for Lorentzian)
         # To ensure the dip strongly returns before the next hyperfine peak,
