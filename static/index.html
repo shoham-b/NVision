@@ -12,7 +12,7 @@
 <p><a download href="locator_results.csv">Download locator_results.csv</a></p>
 <div class="tab-bar"></div>
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
-    <h2>Scan measurements</h2>
+    <h2>Scan measurements <span class="help-icon-visible" title="Individual scan showing measured points (colored by phase) and the inferred signal location.">?</span></h2>
     <div class="scan-controls-split">
         <div class="panel panel-signal">
             <h3 class="panel-title">Signal</h3>
@@ -43,44 +43,44 @@
             </div>
         </div>
     </div>
-    <p class="metrics" id="scan-metrics"></p>
+    <div class="metrics" id="scan-metrics"></div>
     <div class="sweep-metrics-panel" hidden id="scan-sweep-metrics"></div>
     <div class="narrowed-bounds-panel" hidden id="narrowed-bounds-panel"></div>
     <iframe id="scan-iframe"></iframe>
     <div id="bayes-section-container" style="margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em;">
-        <h2>Bayesian Analysis</h2>
+        <h2>Bayesian Analysis <span class="help-icon-visible" title="Bayesian inference visualizations showing how beliefs evolve as measurements accumulate.">?</span></h2>
         <div hidden id="bayes-interactive-section">
-            <h3>Posterior Evolution</h3>
+            <h3>Posterior Evolution <span class="help-icon-visible" title="Animated heatmap showing how the Bayesian posterior distribution updates as each new measurement is taken.">?</span></h3>
             <iframe id="bayes-interactive-iframe"></iframe>
         </div>
         <div hidden id="bayes-convergence-section">
-            <h3>Parameter Convergence</h3>
+            <h3>Parameter Convergence <span class="help-icon-visible" title="How parameter uncertainties shrink over inference steps. Lower is better.">?</span></h3>
             <iframe id="bayes-convergence-iframe"></iframe>
         </div>
         <div hidden id="bayes-conv-metrics-section">
-            <h3>Convergence Metrics</h3>
+            <h3>Convergence Metrics <span class="help-icon-visible" title="Per-parameter convergence status and consecutive converged-steps streak. A streak reaching the patience threshold triggers stopping.">?</span></h3>
             <iframe id="bayes-conv-metrics-iframe"></iframe>
         </div>
         <div hidden id="bayes-fisher-section">
-            <h3>Fisher Information Bounds</h3>
+            <h3>Fisher Information Bounds <span class="help-icon-visible" title="Theoretical minimum uncertainty (Cramer-Rao Lower Bound) from Fisher Information vs actual inference uncertainty. Closer is better.">?</span></h3>
             <iframe id="bayes-fisher-iframe"></iframe>
         </div>
         <div hidden id="bayes-fisher-pairs-section">
-            <h3>Fisher CRLB Parameter Correlations</h3>
+            <h3>Fisher CRLB Parameter Correlations <span class="help-icon-visible" title="2D joint uncertainty ellipses derived from the Fisher Information Matrix. Tight circles = uncorrelated, well-constrained parameters; elongated ellipses = strong correlations.">?</span></h3>
             <iframe id="bayes-fisher-pairs-iframe"></iframe>
         </div>
         <div hidden id="bayes-ellipse-section">
-            <h3>Covariance Ellipses</h3>
+            <h3>Covariance Ellipses <span class="help-icon-visible" title="Animated 2D covariance ellipses showing how uncertainty regions shrink toward the true parameter values as more measurements are collected.">?</span></h3>
             <iframe id="bayes-ellipse-iframe"></iframe>
         </div>
         <div hidden id="bayes-stats-section">
-            <h3>Bayesian Inference Statistics</h3>
+            <h3>Bayesian Inference Statistics <span class="help-icon-visible" title="Static summary plots capturing posterior and convergence history at key inference steps.">?</span></h3>
             <div>
-                <h4>Posterior History</h4>
+                <h4>Posterior History <span class="help-icon-visible" title="Snapshot images of the posterior distribution at selected inference steps.">?</span></h4>
                 <img alt="Posterior history plot" hidden id="posterior-history-image">
             </div>
             <div>
-                <h4>Convergence Stats</h4>
+                <h4>Convergence Stats <span class="help-icon-visible" title="Snapshot images of convergence statistics at selected inference steps.">?</span></h4>
                 <img alt="Convergence stats plot" hidden id="convergence-stats-image">
             </div>
             <img alt="Bayesian optimization visualization" hidden id="bayes-image">
@@ -88,7 +88,7 @@
     </div>
 </div>
 <div aria-labelledby="tab-scan-comparison" class="section tab-panel is-hidden" id="scan-comparison-section" role="tabpanel">
-    <h2>Head to head</h2>
+    <h2>Head to head <span class="help-icon-visible" title="Side-by-side comparison of two locators on the exact same generated signal and noise realization.">?</span></h2>
     <div class="comparison-shared-signal">
         <h3 class="comparison-subheading">Signal</h3>
         <div class="control-row">
@@ -128,7 +128,7 @@
     <div aria-label="Combined head to head scan plot" class="head-to-head-plot" id="head-to-head-plot" role="img"></div>
 </div>
 <div aria-labelledby="tab-model-comparison" class="section tab-panel is-hidden" id="strategy-comparison-section" role="tabpanel">
-    <h2>Strategy Comparison</h2>
+    <h2>Strategy Comparison <span class="help-icon-visible" title="Aggregated performance comparison across all strategies, repeats, and signal configurations.">?</span></h2>
     <div class="control-row">
         <span class="control-label">Generator:</span>
         <div aria-label="Comparison generator" class="segmented-control" id="comp-generator" role="radiogroup"></div>
@@ -139,15 +139,15 @@
     </div>
     <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
         <div style="flex: 1; min-width: 400px;">
-            <h3>Absolute Frequency Error</h3>
+            <h3>Absolute Frequency Error <span class="help-icon-visible" title="Distribution of absolute frequency estimation errors across all repeats. Lower and tighter is better.">?</span></h3>
             <iframe id="comp-iframe-abs-err" style="height: 500px;"></iframe>
         </div>
         <div style="flex: 1; min-width: 400px;">
-            <h3>Measurements</h3>
+            <h3>Measurements <span class="help-icon-visible" title="Number of measurements each strategy required to reach its stopping criterion. Fewer is better (more efficient).">?</span></h3>
             <iframe id="comp-iframe-measurements" style="height: 500px;"></iframe>
         </div>
         <div style="flex: 1; min-width: 400px;">
-            <h3>Duration</h3>
+            <h3>Duration <span class="help-icon-visible" title="Wall-clock computation time per strategy across all repeats. Lower is better.">?</span></h3>
             <iframe id="comp-iframe-duration" style="height: 500px;"></iframe>
         </div>
     </div>

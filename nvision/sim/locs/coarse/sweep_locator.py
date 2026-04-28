@@ -520,10 +520,7 @@ class SweepingLocator(Locator):
 
         n = 5000
         xs_phys = np.linspace(self._domain_lo, self._domain_hi, n)
-        try:
-            ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
-        except Exception:
-            return None
+        ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
 
         xs_norm = (xs_phys - self._domain_lo) / domain_width
         segments = self._dip_segments(

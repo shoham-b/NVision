@@ -574,6 +574,13 @@ function main() {
             return 'N/A';
         }
 
+        function escapeHtml(text) {
+            if (typeof text !== 'string') return '';
+            return text.replace(/[&<>"']/g, function (m) {
+                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]);
+            });
+        }
+
         function formatFrequency(value) {
             if (typeof value === 'number' && Number.isFinite(value)) {
                 const scaled = value / 1e9;
@@ -1256,40 +1263,68 @@ function main() {
                 );
                 scanIframe.src = plot ? plot.path : '';
                 if (plot) {
-                    const absErr = formatFrequency(plot.abs_err_x);
-                    const uncertainty = formatFrequency(plot.uncert);
-                    const measurements = formatCount(plot.measurements);
-                    const duration = formatDuration(plot.duration_ms);
-                    const repeatTotal = plot.repeat_total ?? null;
-                    const attemptLabel = repeatTotal
-                        ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
-                        : 'Attempt ' + plot.repeat;
-                    let sweepStr = '—';
-                    let locStr = '—';
-                    if (plot.sweep_steps != null || plot.locator_steps != null) {
-                        sweepStr = plot.sweep_steps != null ? String(plot.sweep_steps) : '—';
-                        locStr = plot.locator_steps != null ? String(plot.locator_steps) : '—';
+                    function buildScanItems(phaseData, isOverall, totalMeasurements) {
+                        const repeatTotal = plot.repeat_total ?? null;
+                        const attemptLabel = repeatTotal
+                            ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
+                            : 'Attempt ' + plot.repeat;
+                        const phaseMeasurements = phaseData.measurements != null ? phaseData.measurements : totalMeasurements;
+                        let sweepStr = '—';
+                        let locStr = '—';
+                        if (phaseData.sweep_steps != null || phaseData.locator_steps != null) {
+                            if (phaseMeasurements != null && phaseMeasurements > 0) {
+                                sweepStr = phaseData.sweep_steps != null ? phaseData.sweep_steps + '/' + phaseMeasurements : '—';
+                                locStr = phaseData.locator_steps != null ? phaseData.locator_steps + '/' + phaseMeasurements : '—';
+                            } else {
+                                sweepStr = phaseData.sweep_steps != null ? String(phaseData.sweep_steps) : '—';
+                                locStr = phaseData.locator_steps != null ? String(phaseData.locator_steps) : '—';
+                            }
+                        }
+                        const items = [
+                            { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to.' },
+                            { label: 'Measurements', val: formatCount(phaseMeasurements), tip: 'Total number of measurements (sweep + acquisition) taken in this repeat.' },
+                            { label: 'Sweep steps', val: sweepStr, tip: 'Measurements spent in the initial coarse/focused sweep phase.' },
+                            { label: 'Locator steps', val: locStr, tip: 'Measurements spent in the active acquisition / inference phase.' },
+                        ];
+                        if (phaseData.duration_ms != null) {
+                            items.push({ label: 'Duration', val: formatDuration(phaseData.duration_ms), tip: 'Wall-clock time for this repeat.' });
+                        }
+                        if (phaseData.abs_err_x != null) {
+                            items.push({ label: 'Abs error', val: formatFrequency(phaseData.abs_err_x), tip: 'Absolute frequency error vs ground truth. Lower is better.' });
+                        }
+                        if (phaseData.uncert != null) {
+                            items.push({ label: 'Uncertainty', val: formatFrequency(phaseData.uncert), tip: 'Final estimated standard deviation of the frequency estimate. Lower is better.' });
+                        }
+                        const expUniform = isOverall && plot.metrics && plot.metrics.expected_uniform_points;
+                        if (expUniform != null && Number.isFinite(expUniform)) {
+                            items.push({ label: 'Exp. uniform', val: formatCount(expUniform), tip: 'Uniform points needed to resolve the signal with 2 samples per dip width.' });
+                        }
+                        return items;
                     }
-                    const scanItems = [
-                        { label: 'Attempt', val: attemptLabel },
-                        { label: 'Measurements', val: measurements },
-                        { label: 'Sweep steps', val: sweepStr },
-                        { label: 'Locator steps', val: locStr },
-                        { label: 'Duration', val: duration },
-                        { label: 'Abs error', val: absErr },
-                        { label: 'Uncertainty', val: uncertainty },
-                    ];
-                    const expUniform = plot.metrics && plot.metrics.expected_uniform_points;
-                    if (expUniform != null && Number.isFinite(expUniform)) {
-                        scanItems.push({ label: 'Exp. uniform', val: formatCount(expUniform) });
+
+                    function renderItemsToHtml(items) {
+                        return items.map(it => {
+                            const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
+                            const icon = it.tip ? '<span class="help-icon"' + tipAttr + '>?</span>' : '';
+                            return '<div class="metric-item">' +
+                                '<div class="metric-label">' + it.label + icon + '</div>' +
+                                '<div class="metric-value">' + it.val + '</div>' +
+                                '</div>';
+                        }).join('');
                     }
-                    scanMetrics.className = 'scan-metrics-panel';
-                    scanMetrics.innerHTML = scanItems.map(it =>
-                        '<div class="metric-item">' +
-                        '<div class="metric-label">' + it.label + '</div>' +
-                        '<div class="metric-value">' + it.val + '</div>' +
-                        '</div>'
-                    ).join('');
+
+                    if (plot.coarse && plot.fine) {
+                        const totalMeasurements = plot.measurements || (plot.coarse.measurements + plot.fine.measurements);
+                        scanMetrics.className = 'scan-metrics-wrapper';
+                        scanMetrics.innerHTML =
+                            '<div style="margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.coarse.label) + '</div>' +
+                            '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.coarse, false, totalMeasurements)) + '</div>' +
+                            '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.fine.label) + '</div>' +
+                            '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
+                    } else {
+                        scanMetrics.className = 'scan-metrics-panel';
+                        scanMetrics.innerHTML = renderItemsToHtml(buildScanItems(plot, true));
+                    }
                     renderSweepMetricsPanel(scanSweepMetrics, plot.metrics || {});
                     updateBayesView(plot);
                     updateBayesStatsView(plot);

@@ -1,8 +1,8 @@
 """Sobol-based coarse search locator with 3 stages.
 
-1. 255 points (7th Sobol stage)
-2. Further Sobol points monitoring for 2 dips using dynamic noise thresholding.
-3. Windowed Sobol focusing on inferred target dips.
+1. Collect just enough points to understand the noise deviation.
+2. Find 2 dips that are about that deviation of noise.
+3. Take a finer look at a window around the found dips.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
-from nvision.sim.locs.coarse.sweep_locator import SweepingLocator, _infer_focus_window
+from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
@@ -42,6 +42,59 @@ def sobol_1d_sequence(n: int, *, offset: float = 0.0) -> NDArray[np.float64]:
     if offset != 0.0:
         points = (points + offset) % 1.0
     return points
+
+
+def _infer_tight_focus_window(
+    history: ObservationHistory,
+    domain_lo: float,
+    domain_hi: float,
+    *,
+    min_depth_sigma: float = 2.5,
+    depth_fraction: float = 0.5,
+    pad_fraction: float = 0.005,
+) -> tuple[float, float]:
+    """Infer a tight focus window around the deepest dip.
+
+    Only narrows when a dip is clearly significant (at least ``min_depth_sigma``
+    below the noise median).  The window is drawn around the points that lie
+    within ``depth_fraction`` of the dip bottom, with only ``pad_fraction``
+    padding on each side.
+    """
+    ys = history.ys
+    xs = history.xs
+    if len(ys) < 20:
+        return domain_lo, domain_hi
+
+    # Noise estimate from upper 70%
+    p30 = float(np.percentile(ys, 30))
+    noise_pts = ys[ys >= p30]
+    noise_med = float(np.median(noise_pts))
+    noise_std = float(np.std(noise_pts))
+
+    # Check for a significant dip
+    min_y = float(np.min(ys))
+    dip_depth = noise_med - min_y
+    if dip_depth < min_depth_sigma * max(noise_std, 1e-12):
+        return domain_lo, domain_hi
+
+    # Tight threshold: only points deep in the dip
+    threshold = noise_med - depth_fraction * dip_depth
+    dip_mask = ys < threshold
+
+    n_dip = int(np.sum(dip_mask))
+    if n_dip < 1:
+        return domain_lo, domain_hi
+
+    dip_xs = xs[dip_mask]
+
+    # Small padding (2% of domain by default)
+    domain_width = domain_hi - domain_lo
+    pad = pad_fraction * domain_width
+
+    lo = float(np.min(dip_xs)) - pad
+    hi = float(np.max(dip_xs)) + pad
+
+    return max(domain_lo, lo), min(domain_hi, hi)
 
 
 def vdc_generator(base: int = 2) -> Iterator[float]:
@@ -158,13 +211,28 @@ class SobolSweepLocator(SweepingLocator):
 
 
 class Stage1SobolLocator:
-    """Stage 1: Collect exactly 255 points to establish a robust noise baseline."""
+    """Stage 1: Collect points until the noise baseline is stable, then continue."""
 
-    def __init__(self, sobol_gen: Iterator[float], domain_lo: float, domain_hi: float):
+    def __init__(
+        self,
+        sobol_gen: Iterator[float],
+        domain_lo: float,
+        domain_hi: float,
+        history: ObservationHistory,
+        min_points: int = 255,
+        max_points: int = 511,
+        check_interval: int = 32,
+    ):
         self._sobol_gen = sobol_gen
         self.domain_lo = domain_lo
         self.domain_hi = domain_hi
+        self.history = history
+        self.min_points = min_points
+        self.max_points = max_points
+        self.check_interval = check_interval
         self.points_collected = 0
+        self._last_noise_std: float | None = None
+        self._stable_count: int = 0
 
     def next(self) -> float:
         u = next(self._sobol_gen)
@@ -174,7 +242,37 @@ class Stage1SobolLocator:
         self.points_collected += 1
 
     def done(self) -> bool:
-        return self.points_collected >= 255
+        if self.points_collected < self.min_points:
+            return False
+        if self.points_collected >= self.max_points:
+            return True
+        # Check stability every check_interval points after min_points
+        if (self.points_collected - self.min_points) % self.check_interval == 0:
+            return self._noise_estimate_stable()
+        return False
+
+    def _noise_estimate_stable(self) -> bool:
+        if self.history.count == 0:
+            return False
+        ys = self.history.ys
+        # Use upper 70% (above 30th percentile) as noise proxy
+        p30_val = float(np.percentile(ys, 30))
+        noise_points = ys[ys >= p30_val]
+        if len(noise_points) < 10:
+            self._stable_count = 0
+            return False
+        noise_std = float(np.std(noise_points))
+        if self._last_noise_std is None:
+            self._last_noise_std = noise_std
+            self._stable_count = 0
+            return False
+        rel_change = abs(noise_std - self._last_noise_std) / max(self._last_noise_std, 1e-12)
+        self._last_noise_std = noise_std
+        if rel_change < 0.15:
+            self._stable_count += 1
+            return self._stable_count >= 2  # Require 2 consecutive stable checks
+        self._stable_count = 0
+        return False
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Return None — simple sweep locators do not narrow the window."""
@@ -183,7 +281,7 @@ class Stage1SobolLocator:
 
 
 class Stage2SobolLocator:
-    """Stage 2: Continue scanning within narrowed window. Stop upon finding 2 dip points."""
+    """Stage 2: Find 2 dips that are about the noise deviation established in Stage 1."""
 
     def __init__(
         self,
@@ -206,7 +304,7 @@ class Stage2SobolLocator:
         self._noise_threshold = -float("inf")
         self._done = False
 
-        # Initialize threshold using the 255 observations inherited from Stage 1
+        # Initialize threshold using observations inherited from Stage 1
         self._update_noise_threshold()
         self._check_for_dips()
 
@@ -240,24 +338,72 @@ class Stage2SobolLocator:
         self._noise_threshold = noise_median - 3.0 * noise_std
 
     def _check_for_dips(self) -> None:
-        ys_valid = self.history.ys
+        if self.history.count < 10:
+            return
 
-        below_idx = np.where(ys_valid < self._noise_threshold)[0]
-        if len(below_idx) >= 2:
+        xs = self.history.xs
+        ys = self.history.ys
+
+        # Only consider points that fall inside Stage 2's window
+        in_window = (xs >= self.window_lo) & (xs <= self.window_hi)
+        if np.sum(in_window) < 10:
+            return
+
+        xs_win = xs[in_window]
+        ys_win = ys[in_window]
+
+        # Sort by x for contiguous segment detection
+        order = np.argsort(xs_win)
+        xs_sorted = xs_win[order]
+        ys_sorted = ys_win[order]
+
+        below = ys_sorted < self._noise_threshold
+        if not np.any(below):
+            return
+
+        changes = np.diff(below.astype(int))
+        starts = np.where(changes == 1)[0] + 1
+        ends = np.where(changes == -1)[0] + 1
+        if below[0]:
+            starts = np.concatenate([[0], starts])
+        if below[-1]:
+            ends = np.concatenate([ends, [len(below)]])
+
+        # Require at least 2 valid contiguous dip segments
+        valid_segments = 0
+        for s, e in zip(starts, ends, strict=False):
+            if e - s >= 3:
+                width = float(xs_sorted[e - 1]) - float(xs_sorted[s])
+                if width >= 0.005:
+                    valid_segments += 1
+
+        if valid_segments >= 2:
             self._done = True
 
 
 class Stage3SobolLocator:
-    """Stage 3: Infer structural bounds and exclusively generate points inside them."""
+    """Stage 3: Look inside the focus window to find the rest of the dips."""
 
-    def __init__(self, sobol_gen: Iterator[float], domain_lo: float, domain_hi: float, history: ObservationHistory):
+    def __init__(
+        self,
+        sobol_gen: Iterator[float],
+        domain_lo: float,
+        domain_hi: float,
+        history: ObservationHistory,
+        expected_dips: int = 1,
+        noise_std: float = 0.01,
+    ):
         self._sobol_gen = sobol_gen
         self.domain_lo = domain_lo
         self.domain_hi = domain_hi
         self.history = history
+        self.expected_dips = expected_dips
+        self.noise_std = noise_std
 
         self.window_lo = domain_lo
         self.window_hi = domain_hi
+        self._done = False
+        self._last_checked_count = 0
 
         # Calculate exact bounds securely bypassing noise logic issues
         self._infer_bounds()
@@ -273,18 +419,103 @@ class Stage3SobolLocator:
         return self.window_lo + u * (self.window_hi - self.window_lo)
 
     def observe(self, obs: Observation) -> None:
-        pass
+        # Check for dips every 16 new observations in Stage 3
+        if self.history.count - self._last_checked_count >= 16:
+            self._last_checked_count = self.history.count
+            self._check_for_remaining_dips()
 
     def done(self) -> bool:
-        # When used inside SequentialBayesianLocator, the parent checks this and
-        # takes over. When used standalone (StagedSobolSweepLocator), we continue
-        # generating focused points; the parent handles max_steps via step_count.
-        return False
+        return self._done
 
     def _infer_bounds(self) -> None:
-        self.window_lo, self.window_hi = _infer_focus_window(
+        self.window_lo, self.window_hi = _infer_tight_focus_window(
             self.history, self.domain_lo, self.domain_hi
         )
+
+    def _check_for_remaining_dips(self) -> None:
+        if self.history.count < 6:
+            return
+
+        xs = self.history.xs
+        ys = self.history.ys
+
+        # Only consider points that fall inside the focus window
+        in_window = (xs >= self.window_lo) & (xs <= self.window_hi)
+        if np.sum(in_window) < 6:
+            return
+
+        xs_win = xs[in_window]
+        ys_win = ys[in_window]
+
+        segments = self._dip_segments(xs_win, ys_win)
+        if len(segments) >= self.expected_dips:
+            self._done = True
+
+    @staticmethod
+    def _dip_segments(
+        xs: np.ndarray,
+        ys: np.ndarray,
+        *,
+        min_points: int = 1,
+        min_width: float = 0.0,
+        max_gap: float = 0.02,
+        background_pct: float = 75.0,
+        threshold_frac: float = 0.2,
+        noise_std: float = 0.01,
+    ) -> list[tuple[float, float]]:
+        """Return contiguous dip segments as (lo, hi) for each detected dip."""
+        if len(xs) < 3 or len(ys) < 3:
+            return []
+
+        order = np.argsort(xs)
+        xs_sorted = xs[order]
+        ys_sorted = ys[order]
+
+        background = float(np.percentile(ys_sorted, background_pct))
+        dip_depth = background - float(np.min(ys_sorted))
+
+        if dip_depth <= 0:
+            return []
+
+        threshold_drop = threshold_frac * dip_depth
+        if noise_std is not None and noise_std > 0:
+            threshold_drop = max(threshold_drop, 3.0 * noise_std)
+        threshold = background - threshold_drop
+        below = ys_sorted < threshold
+
+        if not np.any(below):
+            return []
+
+        changes = np.diff(below.astype(int))
+        starts = np.where(changes == 1)[0] + 1
+        ends = np.where(changes == -1)[0] + 1
+
+        if below[0]:
+            starts = np.concatenate([[0], starts])
+        if below[-1]:
+            ends = np.concatenate([ends, [len(below)]])
+
+        segments: list[tuple[float, float]] = []
+        for s, e in zip(starts, ends, strict=False):
+            if e > s and (e - s) >= min_points:
+                width = float(xs_sorted[e - 1]) - float(xs_sorted[s])
+                if width >= min_width:
+                    segments.append((float(xs_sorted[s]), float(xs_sorted[e - 1])))
+
+        return Stage3SobolLocator._merge_segments(segments, max_gap)
+
+    @staticmethod
+    def _merge_segments(segments: list[tuple[float, float]], max_gap: float) -> list[tuple[float, float]]:
+        """Merge segments separated by gaps smaller than max_gap."""
+        if len(segments) <= 1:
+            return segments
+        merged: list[tuple[float, float]] = [segments[0]]
+        for lo, hi in segments[1:]:
+            if lo - merged[-1][1] <= max_gap:
+                merged[-1] = (merged[-1][0], hi)
+            else:
+                merged.append((lo, hi))
+        return merged
 
 
 class StagedSobolSweepLocator(Locator):
@@ -361,7 +592,7 @@ class StagedSobolSweepLocator(Locator):
         self._initial_sweep_steps = 0
         self._stage1_end_step = 0
 
-        self._stage1 = Stage1SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi)
+        self._stage1 = Stage1SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
         self._stage2: Stage2SobolLocator | None = None
         self._stage3: Stage3SobolLocator | None = None
 
@@ -391,7 +622,7 @@ class StagedSobolSweepLocator(Locator):
 
         if self._active_locator is self._stage1 and self._active_locator.done():
             self._stage1_end_step = self.step_count
-            win_lo, win_hi = _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
+            win_lo, win_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
             self._stage2 = Stage2SobolLocator(
                 self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
                 window_lo=win_lo, window_hi=win_hi,
@@ -407,7 +638,12 @@ class StagedSobolSweepLocator(Locator):
 
     def _transition_to_stage3(self) -> None:
         self._initial_sweep_steps = self._stage1_end_step
-        self._stage3 = Stage3SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
+        inner = getattr(self.signal_model, "inner", self.signal_model)
+        expected_dips = inner.expected_dip_count()
+        self._stage3 = Stage3SobolLocator(
+            self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
+            expected_dips=expected_dips, noise_std=self.noise_std,
+        )
         self._active_locator = self._stage3
         self._signal_found = True
 
@@ -434,7 +670,7 @@ class StagedSobolSweepLocator(Locator):
     def finalize(self) -> None:
         """Infer the focus window from collected data if stages didn't complete."""
         if self._stage3 is None and self.history.count > 0:
-            lo, hi = _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
+            lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
             if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
                 self._signal_found = True
                 self._inferred_lo = lo
@@ -442,18 +678,45 @@ class StagedSobolSweepLocator(Locator):
 
     def acquisition_window(self) -> tuple[float, float]:
         if self._stage3 is not None:
+            if self._stage3.done():
+                lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
+                if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
+                    return (lo, hi)
             return (self._stage3.window_lo, self._stage3.window_hi)
         # Fall back to inference from collected data (set by finalize or observe)
         if hasattr(self, "_inferred_lo"):
             return (self._inferred_lo, self._inferred_hi)
         # Last resort: infer directly from history
         if self.history.count > 0:
-            return _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
+            return _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
         return (self.domain_lo, self.domain_hi)
+
+    def per_dip_windows(self) -> list[tuple[float, float]] | None:
+        """Return individual focus windows around each detected dip, or None."""
+        if self.history.count < 6:
+            return None
+        xs = self.history.xs
+        ys = self.history.ys
+        order = np.argsort(xs)
+        segments = self._detect_dip_segments(
+            xs[order], ys[order], noise_std=self.noise_std
+        )
+        if len(segments) < 2:
+            return None
+        domain_width = self.domain_hi - self.domain_lo
+        pad = 0.01 * domain_width
+        windows: list[tuple[float, float]] = []
+        for lo, hi in segments:
+            windows.append((max(self.domain_lo, lo - pad), min(self.domain_hi, hi + pad)))
+        return windows
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Return the narrowed focus window from any available stage or inference."""
         if self._stage3 is not None:
+            if self._stage3.done():
+                lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
+                if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
+                    return (lo, hi)
             return (self._stage3.window_lo, self._stage3.window_hi)
         if self._stage2 is not None:
             return (self._stage2.window_lo, self._stage2.window_hi)
@@ -461,7 +724,7 @@ class StagedSobolSweepLocator(Locator):
             return (self._inferred_lo, self._inferred_hi)
         # Infer from history if we have data
         if self.history.count > 0:
-            lo, hi = _infer_focus_window(self.history, self.domain_lo, self.domain_hi)
+            lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
             if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
                 return (lo, hi)
         return None
@@ -541,12 +804,9 @@ class StagedSobolSweepLocator(Locator):
         domain_width = self.domain_hi - self.domain_lo
         if domain_width <= 0:
             return None
-        n = 5000
+        n = 20000
         xs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
-        try:
-            ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
-        except Exception:
-            return None
+        ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
         xs_norm = (xs_phys - self.domain_lo) / domain_width
         return self._detect_dip_segments(xs_norm, ys, noise_std=1e-6, min_width=0.0)
 

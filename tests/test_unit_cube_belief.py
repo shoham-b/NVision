@@ -70,6 +70,7 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         "max_steps": 80,
         "convergence_threshold": 0.15,
         "parameter_bounds": pb,
+        "noise_std": 0.05,
         "n_grid_freq": 48,
         "n_grid_linewidth": 24,
         "n_grid_split": 24,

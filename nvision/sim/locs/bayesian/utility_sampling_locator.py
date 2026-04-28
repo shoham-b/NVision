@@ -8,6 +8,7 @@ import numpy as np
 from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.grid_marginal import ParameterValues
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -95,7 +96,16 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
 
     def _acquire(self) -> float:
         candidates = self._generate_candidates(self.n_candidates)
-        sampled = self.belief.sample(self.n_mc_samples)
+
+        # For SMC beliefs, use all particles directly instead of Monte-Carlo subsampling.
+        # This removes sampling noise and gives a deterministic, exact acquisition.
+        if hasattr(self.belief, "_particles") and hasattr(self.belief, "_param_names"):
+            all_particles = self.belief._particles
+            param_names = self.belief._param_names
+            data = {name: all_particles[:, i] for i, name in enumerate(param_names)}
+            sampled = ParameterValues.from_mapping(param_names, data)
+        else:
+            sampled = self.belief.sample(self.n_mc_samples)
 
         noise_var = self.noise_std**2
         model = self.belief.model
@@ -104,7 +114,9 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
             mu_preds = model.compute_vectorized_many(candidates, sampled)
         except AttributeError:
             # Compatibility path for models exposing only scalar-vectorized prediction.
-            mu_preds = np.empty((len(candidates), self.n_mc_samples), dtype=float)
+            # Infer sample count from the first parameter array in sampled.
+            n_samples = len(next(iter(sampled.__dict__.values())))
+            mu_preds = np.empty((len(candidates), n_samples), dtype=float)
             for i, x_setting in enumerate(candidates):
                 mu_preds[i, :] = model.compute_vectorized(float(x_setting), sampled)
 

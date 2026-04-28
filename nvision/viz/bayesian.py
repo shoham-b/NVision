@@ -1148,6 +1148,13 @@ class BayesianMixin:
         n_steps = len(fisher_bounds_hist)
         n_params = len(param_names)
 
+        # Guard against degenerate FIM (all NaN or all zero -> nothing to plot)
+        if n_steps == 0 or n_params == 0:
+            return
+        bounds_stack = np.vstack(fisher_bounds_hist)
+        if np.all(np.isnan(bounds_stack)) or np.all(bounds_stack == 0):
+            return
+
         # Create subplots - one per parameter
         fig = make_subplots(
             rows=(n_params + 1) // 2,
@@ -1251,6 +1258,10 @@ class BayesianMixin:
             return
 
         n_steps = len(fisher_hist)
+
+        # Guard against degenerate FIM (all zero matrices -> nothing useful to plot)
+        if n_steps == 0 or all(np.all(f == 0) for f in fisher_hist):
+            return
 
         # Subsample if too many steps for performance
         step_indices = list(range(n_steps))

@@ -67,6 +67,26 @@ def _row_col(has_metrics: bool) -> tuple[int | None, int | None]:
     return (1, 1) if has_metrics else (None, None)
 
 
+def _noise_scale_for_scan(scan: Any, over_frequency_noise: CompositeOverFrequencyNoise | None) -> float:
+    """Return noise scale so max noise deviation never exceeds the signal's smallest dip.
+
+    Mirrors the scaling logic in :meth:`~nvision.models.experiment.CoreExperiment.measure`.
+    """
+    if over_frequency_noise is None:
+        return 1.0
+    true_signal = getattr(scan, "true_signal", None)
+    if true_signal is None:
+        return 1.0
+    min_dip = true_signal.min_dip_amplitude()
+    if min_dip is None:
+        return 1.0
+    max_allowed_std = min_dip / 5.0
+    current_std = over_frequency_noise.noise_std()
+    if current_std > max_allowed_std:
+        return max_allowed_std / current_std
+    return 1.0
+
+
 def _add_true_and_noisy_traces(
     fig: go.Figure,
     *,
@@ -76,6 +96,7 @@ def _add_true_and_noisy_traces(
     over_frequency_noise: CompositeOverFrequencyNoise | None,
     measurement_xs: list[float] | None = None,
     measurement_ys: list[float] | None = None,
+    noise_scale: float = 1.0,
 ) -> None:
     row, col = _row_col(has_metrics)
     fig.add_trace(
@@ -87,7 +108,15 @@ def _add_true_and_noisy_traces(
         return
     dense_batch = DataBatch.from_arrays(xs, ys, meta={})
     noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
-    noisy_values = [float(v) for v in noisy_batch.signal_values]
+    noisy_values: list[float] = []
+    for i, v in enumerate(noisy_batch.signal_values):
+        fv = float(v)
+        if np.isnan(fv) or np.isinf(fv):
+            noisy_values.append(ys[i])
+        elif noise_scale != 1.0:
+            noisy_values.append(ys[i] + (fv - ys[i]) * noise_scale)
+        else:
+            noisy_values.append(fv)
     # UI expectation: noisy curve should visually pass through the sampled measurement points.
     # We "splice" the noisy curve values at the measurement x locations.
     if measurement_xs and measurement_ys and len(measurement_xs) == len(measurement_ys):
@@ -606,6 +635,7 @@ def _compute_noisy_dense_values(
     xs: np.ndarray,
     ys: list[float],
     over_frequency_noise: CompositeOverFrequencyNoise,
+    noise_scale: float = 1.0,
 ) -> list[float]:
     dense_batch = DataBatch.from_arrays(xs, ys, meta={})
     noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
@@ -614,6 +644,8 @@ def _compute_noisy_dense_values(
         fv = float(v)
         if np.isnan(fv) or np.isinf(fv):
             noisy_vals.append(ys[i])
+        elif noise_scale != 1.0:
+            noisy_vals.append(ys[i] + (fv - ys[i]) * noise_scale)
         else:
             noisy_vals.append(fv)
     return noisy_vals
@@ -702,7 +734,8 @@ def compute_scan_plot_data(
         if y_mode is not None and len(y_mode) == len(xs):
             out["y_dense_mode"] = y_mode
     if over_frequency_noise is not None:
-        noisy_vals = _compute_noisy_dense_values(xs, ys, over_frequency_noise)
+        noise_scale = _noise_scale_for_scan(scan, over_frequency_noise)
+        noisy_vals = _compute_noisy_dense_values(xs, ys, over_frequency_noise, noise_scale)
         _splice_noisy_dense_at_measurements(xs, noisy_vals, history_xs_s, history_ys_s)
         out["y_dense_noisy"] = noisy_vals
 
@@ -984,6 +1017,7 @@ class MeasurementsMixin:
         )
 
         fig = _make_scan_figure(has_metrics)
+        noise_scale = _noise_scale_for_scan(scan, over_frequency_noise)
         _add_true_and_noisy_traces(
             fig,
             xs=xs,
@@ -992,6 +1026,7 @@ class MeasurementsMixin:
             over_frequency_noise=over_frequency_noise,
             measurement_xs=measurement_xs if measurement_xs else None,
             measurement_ys=measurement_ys if measurement_ys else None,
+            noise_scale=noise_scale,
         )
         _add_measurement_distribution_trace(fig, history=history, xs_dense=xs, ys_dense=ys, has_metrics=has_metrics)
         _add_history_traces(fig, history, has_metrics)

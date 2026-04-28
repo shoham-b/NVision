@@ -337,7 +337,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             fisher_bounds_hist.append(single_shot_marginal_stds_from_fim(cum_fim, n_params))
             actual_uncertainty_hist.append(s.belief.uncertainty().as_dict())
 
-        if fisher_hist and len(param_names) >= 2:
+        # Skip Fisher plots if no model supports gradients (cum_fim stayed zero)
+        fim_is_degenerate = not np.any(cum_fim != 0)
+        if fisher_hist and len(param_names) >= 2 and not fim_is_degenerate:
             # Fisher bounds vs actual uncertainty plot (marginals)
             fisher_path = bayes_dir / f"{attempt_slug}_fisher_bounds.html"
             viz.plot_fisher_vs_crlb(
@@ -513,6 +515,28 @@ def generate_attempt_plots(
     scan_entry["type"] = "scan"
     scan_entry["path"] = out_path.relative_to(out_dir).as_posix()
     # plot_data is loaded on-demand by UI from scan HTML to keep manifest small
+
+    # Add per-phase breakdown for Bayesian runs with a preliminary sweep
+    if _is_bayesian_run(strat_name, strat_obj):
+        sweep_steps = scan_entry.get("sweep_steps") or 0
+        locator_steps = scan_entry.get("locator_steps") or 0
+        if sweep_steps and locator_steps:
+            scan_entry["coarse"] = {
+                "label": "Preliminary (Sobol)",
+                "measurements": sweep_steps,
+                "sweep_steps": sweep_steps,
+                "locator_steps": 0,
+            }
+            scan_entry["fine"] = {
+                "label": "Bayesian inference",
+                "measurements": locator_steps,
+                "sweep_steps": 0,
+                "locator_steps": locator_steps,
+                "abs_err_x": scan_entry.get("abs_err_x"),
+                "uncert": scan_entry.get("uncert"),
+                "duration_ms": scan_entry.get("duration_ms"),
+            }
+
     entries: list[dict[str, Any]] = [scan_entry]
 
     if run_result is not None and _is_bayesian_run(strat_name, strat_obj):

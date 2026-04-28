@@ -379,8 +379,8 @@ body {
         }
 
         .sweep-metrics-panel .help-icon {
-            visibility: hidden;
-            opacity: 0;
+            visibility: visible;
+            opacity: 1;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -396,12 +396,53 @@ body {
             transition: all 0.15s ease;
         }
 
-        .sweep-metrics-panel .metric-item:hover .help-icon {
-            visibility: visible;
-            opacity: 1;
+        .sweep-metrics-panel .help-icon:hover {
+            background: #3b82f6;
+            color: #fff;
         }
 
-        .sweep-metrics-panel .help-icon:hover {
+        /* ---- Reusable visible help icon for headings ---- */
+        .help-icon-visible {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.2em;
+            height: 1.2em;
+            border-radius: 50%;
+            background: #e2e8f0;
+            color: #64748b;
+            font-size: 0.65em;
+            font-weight: 700;
+            cursor: help;
+            margin-left: 0.4em;
+            vertical-align: middle;
+            transition: all 0.15s ease;
+        }
+
+        .help-icon-visible:hover {
+            background: #3b82f6;
+            color: #fff;
+        }
+
+        .scan-metrics-panel .help-icon {
+            visibility: visible;
+            opacity: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.1em;
+            height: 1.1em;
+            border-radius: 50%;
+            background: #e2e8f0;
+            color: #64748b;
+            font-size: 0.65em;
+            font-weight: 700;
+            cursor: help;
+            margin-left: 0.3em;
+            transition: all 0.15s ease;
+        }
+
+        .scan-metrics-panel .help-icon:hover {
             background: #3b82f6;
             color: #fff;
         }
