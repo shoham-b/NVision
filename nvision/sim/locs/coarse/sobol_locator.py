@@ -17,7 +17,7 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
-from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
+from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
 from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
 from nvision.spectra.signal import SignalModel
 
@@ -59,9 +59,9 @@ def _infer_tight_focus_window(
 
     Delegates to :func:`nvision.sim.locs.refocus.infer_focus_window`.
     """
-    # Compute noise threshold the same way the old implementation did
     ys = history.ys
-    if len(ys) < 20:
+    if len(ys) < 3:
+        # Not enough data – no signal can be inferred
         return domain_lo, domain_hi
 
     p30 = float(np.percentile(ys, 30))
@@ -71,12 +71,14 @@ def _infer_tight_focus_window(
     min_y = float(np.min(ys))
     dip_depth = noise_med - min_y
     if dip_depth < min_depth_sigma * max(noise_std, 1e-12):
+        # No detectable dip – this is expected for peak-only or flat signals
         return domain_lo, domain_hi
 
     noise_threshold = noise_med - depth_fraction * dip_depth
-    return _refocus_infer_focus_window(
+    lo, hi = _refocus_infer_focus_window(
         history, domain_lo, domain_hi, noise_threshold=noise_threshold
     )
+    return lo, hi
 
 
 def vdc_generator(base: int = 2) -> Iterator[float]:
@@ -95,12 +97,13 @@ def vdc_generator(base: int = 2) -> Iterator[float]:
 
 
 class SobolSweepLocator(SweepingLocator):
-    """Simple Sobol-based sweep locator without refocusing.
+    """Simple Sobol-based sweep locator with mid-sweep refocusing.
 
     Generates a van der Corput (Sobol-like) low-discrepancy sequence over the
-    full domain, detects signal dips from the sweep data, and sets an
-    acquisition window. Unlike ``StagedSobolSweepLocator``, there is no Stage 2
-    thresholding or Stage 3 focused sampling — just a single sweep with
+    full domain, detects signal dips from the sweep data, refocuses the
+    remaining points into the detected window, and sets an acquisition window.
+    Unlike ``StagedSobolSweepLocator``, there is no Stage 2 thresholding or
+    Stage 3 focused sampling — just a single sweep with mid-sweep refocus and
     signal detection handled by the inherited ``finalize()``.
     """
 
@@ -351,7 +354,7 @@ class Stage2SobolLocator:
         if below[-1]:
             ends = np.concatenate([ends, [len(below)]])
 
-        # Require at least 2 valid contiguous dip segments
+        # Require at least 1 valid contiguous dip segment
         valid_segments = 0
         for s, e in zip(starts, ends, strict=False):
             if e - s >= 3:
@@ -359,7 +362,7 @@ class Stage2SobolLocator:
                 if width >= 0.005:
                     valid_segments += 1
 
-        if valid_segments >= 2:
+        if valid_segments >= 1:
             self._done = True
 
 
@@ -429,15 +432,13 @@ class Stage3SobolLocator:
         xs_win = xs[in_window]
         ys_win = ys[in_window]
 
-        # Shape-aware dip detection using double-monotonic analysis
-        background = float(np.percentile(ys_win, 75))
-        dip_depth = background - float(np.min(ys_win))
-        threshold_drop = 0.2 * dip_depth
-        if self.noise_std is not None and self.noise_std > 0:
-            threshold_drop = max(threshold_drop, 3.0 * self.noise_std)
-        noise_threshold = background - threshold_drop
-
-        dips = _refocus_detect_dips(xs_win, ys_win, noise_threshold=noise_threshold)
+        # Use the more lenient segment-based detector (min_points=1) so that
+        # narrow dips are counted even when only 1-2 samples fall inside them.
+        dips = self._dip_segments(
+            xs_win, ys_win,
+            min_points=1,
+            noise_std=self.noise_std or 0.01,
+        )
         if len(dips) >= self.expected_dips:
             self._done = True
 
@@ -671,7 +672,15 @@ class StagedSobolSweepLocator(Locator):
                 lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
                 if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
                     return (lo, hi)
-            return (self._stage3.window_lo, self._stage3.window_hi)
+            # Guard against stage3 having been seeded with the full domain
+            lo3, hi3 = self._stage3.window_lo, self._stage3.window_hi
+            domain_width = self.domain_hi - self.domain_lo
+            if hi3 - lo3 < domain_width * (1.0 - 1e-9):
+                return (lo3, hi3)
+            # stage3 window is full domain; fall back to inference from history
+            lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
+            if hi > lo and (hi - lo) < domain_width:
+                return (lo, hi)
         # Fall back to inference from collected data (set by finalize or observe)
         if hasattr(self, "_inferred_lo"):
             return (self._inferred_lo, self._inferred_hi)
@@ -940,11 +949,5 @@ class StagedSobolSweepLocator(Locator):
             "signal_found": self._signal_found,
             "completed_at_step": self.step_count,
         }
-        # Expose per-stage step counts for UI phase breakdown
-        if self._stage1_end_step > 0:
-            result["stage1_steps"] = self._stage1_end_step
-            if self._stage2_end_step > 0:
-                result["stage2_steps"] = self._stage2_end_step - self._stage1_end_step
-                result["stage3_steps"] = self.step_count - self._stage2_end_step
         result.update(self._compute_sweep_metrics())
         return result

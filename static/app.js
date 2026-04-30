@@ -172,7 +172,7 @@ window.NVISION_BOOTSTRAP = (async () => {
             }
             lastStatus = data.status;
             renderRunStatusBanner(data);
-            if (data.status !== 'running') {
+            if (data.status !== 'running' && data.status !== 'scheduled') {
                 clearInterval(interval);
             }
         }, 3000);
@@ -181,13 +181,13 @@ window.NVISION_BOOTSTRAP = (async () => {
     function initRunStatusBanner() {
         const inlineStatus = window.RUN_STATUS || null;
         renderRunStatusBanner(inlineStatus);
-        const isRunning = inlineStatus && inlineStatus.status === 'running';
-        if (isRunning || !inlineStatus) {
+        const shouldPoll = inlineStatus && (inlineStatus.status === 'running' || inlineStatus.status === 'scheduled');
+        if (shouldPoll || !inlineStatus) {
             // Also fetch fresh status in case the inlined one is stale
             fetchRunStatus().then((fresh) => {
                 if (fresh) {
                     renderRunStatusBanner(fresh);
-                    if (fresh.status === 'running') {
+                    if (fresh.status === 'running' || fresh.status === 'scheduled') {
                         startRunStatusPolling();
                     }
                 }
@@ -1338,37 +1338,20 @@ function main() {
                             { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to.' },
                             { label: 'Measurements', val: formatCount(phaseMeasurements), tip: 'Total number of measurements (sweep + acquisition) taken in this repeat.' },
                         ];
-                        // Per-stage breakdown for StagedSobolSweepLocator
-                        const stage1 = phaseData.stage1_steps;
-                        const stage2 = phaseData.stage2_steps;
-                        const stage3 = phaseData.stage3_steps;
-                        const hasStages = stage1 != null && stage1 > 0;
-                        if (hasStages) {
-                            if (stage1 != null && stage1 > 0) {
-                                items.push({ label: 'Stage 1 (coarse)', val: formatCount(stage1), tip: 'Initial coarse sweep steps.' });
-                            }
-                            if (stage2 != null && stage2 > 0) {
-                                items.push({ label: 'Stage 2 (focus)', val: formatCount(stage2), tip: 'Secondary focused sweep steps.' });
-                            }
-                            if (stage3 != null && stage3 > 0) {
-                                items.push({ label: 'Stage 3 (refine)', val: formatCount(stage3), tip: 'Tertiary refinement sweep steps.' });
-                            }
-                        } else {
-                            // Simple sweep / locator breakdown for non-staged strategies
-                            const sweepSteps = phaseData.sweep_steps;
-                            const locSteps = phaseData.locator_steps;
-                            if (sweepSteps != null && sweepSteps > 0) {
-                                const sweepStr = phaseMeasurements != null && phaseMeasurements > 0
-                                    ? sweepSteps + '/' + phaseMeasurements
-                                    : String(sweepSteps);
-                                items.push({ label: 'Sweep steps', val: sweepStr, tip: 'Measurements spent in the initial coarse/focused sweep phase.' });
-                            }
-                            if (locSteps != null && locSteps > 0) {
-                                const locStr = phaseMeasurements != null && phaseMeasurements > 0
-                                    ? locSteps + '/' + phaseMeasurements
-                                    : String(locSteps);
-                                items.push({ label: 'Locator steps', val: locStr, tip: 'Measurements spent in the active acquisition / inference phase.' });
-                            }
+                        // Show total sweep steps and locator steps (if any)
+                        const sweepSteps = phaseData.sweep_steps;
+                        const locSteps = phaseData.locator_steps;
+                        if (sweepSteps != null && sweepSteps > 0) {
+                            const sweepStr = phaseMeasurements != null && phaseMeasurements > 0
+                                ? sweepSteps + '/' + phaseMeasurements
+                                : String(sweepSteps);
+                            items.push({ label: 'Sweep steps', val: sweepStr, tip: 'Measurements spent in the initial coarse/focused sweep phase.' });
+                        }
+                        if (locSteps != null && locSteps > 0) {
+                            const locStr = phaseMeasurements != null && phaseMeasurements > 0
+                                ? locSteps + '/' + phaseMeasurements
+                                : String(locSteps);
+                            items.push({ label: 'Locator steps', val: locStr, tip: 'Measurements spent in the active acquisition / inference phase.' });
                         }
                         if (phaseData.duration_ms != null) {
                             items.push({ label: 'Duration', val: formatDuration(phaseData.duration_ms), tip: 'Wall-clock time for this repeat.' });

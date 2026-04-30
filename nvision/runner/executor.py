@@ -235,11 +235,15 @@ def run_loop(
         # Use cached observation if in sweep phase and cache available
         if cached_sweep is not None and step <= len(cached_sweep):
             cached_obs = cached_sweep[step - 1]
-            # Create a new observation with the current x but cached signal value
-            # The signal_value was measured at this x during precompute, but we
-            # need to ensure the x matches what the locator expects now.
+            # Create a new observation with the current x but cached signal value.
+            # SweepingLocator subclasses (e.g. SobolSweep, StagedSobol) receive
+            # physical x from next() but experiment.measure() always stores
+            # normalized x.  Normalise here so the locator history stays consistent.
+            cached_x = cached_obs.x
+            if x_current < 0.0 or x_current > 1.0:
+                cached_x = experiment.normalize_x(x_current)
             obs = Observation(
-                x=x_current,
+                x=cached_x,
                 signal_value=cached_obs.signal_value,
                 noise_std=cached_obs.noise_std,
                 frequency_noise_model=cached_obs.frequency_noise_model,
@@ -765,12 +769,11 @@ class _TaskRunner:
                 f"[STEP DEBUG] rid={rid} init_sweep={init_sweep_steps} eff_sweep={eff_sweep_steps} "
                 f"step_count={step_count} inf_steps={inf_steps} max_steps={max_steps}"
             )
+            # For sweep-only runs (no inference phase), all steps are sweep steps.
+            if inf_steps == 0 and step_count > (eff_sweep_steps or 0):
+                eff_sweep_steps = step_count
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
-            # Forward per-stage step counts for StagedSobolSweepLocator UI breakdown
-            for stage_key in ("stage1_steps", "stage2_steps", "stage3_steps"):
-                if stage_key in locator_final_result:
-                    finalize_record[stage_key] = int(locator_final_result[stage_key] or 0)
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

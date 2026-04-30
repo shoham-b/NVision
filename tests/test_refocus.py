@@ -181,7 +181,7 @@ class TestInferFocusWindow:
         assert hi > 0.70
 
     def test_fallback_when_no_dips(self):
-        """When no dips detected, return full domain."""
+        """When no dips detected, fail fast with ValueError instead of silently returning the full domain."""
         x = np.linspace(0, 1, 200)
         y = np.ones_like(x)
 
@@ -191,9 +191,8 @@ class TestInferFocusWindow:
                 self.ys = ys
 
         history = FakeHistory(x, y)
-        lo, hi = infer_focus_window(history, 0.2, 0.8, expected_dips=1, noise_threshold=0.5)
-        assert lo == 0.2
-        assert hi == 0.8
+        with pytest.raises(ValueError, match="No dips detected"):
+            infer_focus_window(history, 0.2, 0.8, expected_dips=1, noise_threshold=0.5)
 
 
 class TestInferMaxDipWidth:

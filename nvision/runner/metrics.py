@@ -133,12 +133,6 @@ def generate_attempt_metrics(  # noqa: C901
         "locator_steps": locator_steps,
         "metrics": metrics_serialized,
     }
-    # Forward per-stage step counts for StagedSobolSweepLocator UI breakdown
-    for stage_key in ("stage1_steps", "stage2_steps", "stage3_steps"):
-        if not finalize_row.is_empty() and stage_key in finalize_row.columns:
-            val = finalize_row.get_column(stage_key)[0]
-            if val is not None:
-                entry_base[stage_key] = int(val)
 
     return entry_base, main_result_row, current_history_df
 

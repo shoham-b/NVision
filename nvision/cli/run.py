@@ -16,11 +16,11 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
-from nvision.cli.app_instance import app
+from nvision.cli import defaults as cli_defaults
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
-from nvision.sim import presets as sim_presets, run_groups as sim_run_groups
+from nvision.sim import run_groups as sim_run_groups
 from nvision.sim.grid_enums import GeneratorName, NoiseName
 from nvision.tools.artifacts import (
     ensure_plot_manifest_non_empty,
@@ -193,11 +193,11 @@ def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
 
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = None,
-    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
+    repeats: int = cli_defaults.DEFAULT_REPEATS,
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps for Bayesian locator measurement loop"),
-    ] = sim_presets.DEFAULT_LOC_MAX_STEPS,
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     sweep_max_steps: Annotated[
         int | None,
         typer.Option(
@@ -208,7 +208,7 @@ def run(  # noqa: C901
     loc_timeout_s: Annotated[
         int,
         typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
-    ] = 1500,
+    ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache", help="Disable caching for this run"),
@@ -259,7 +259,7 @@ def run(  # noqa: C901
     all_experiments: Annotated[
         bool,
         typer.Option("--all", help="Run all experiments (disables default filtering)"),
-    ] = False,
+    ] = cli_defaults.DEFAULT_RUN_ALL,
     log_level: Annotated[
         str,
         typer.Option(

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from nvision.models.observation import ObservationHistory
+from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.refocus.strategies import detect_dips, infer_dip_widths
 
 
@@ -32,7 +32,8 @@ def infer_focus_window(
     4. Compute an aggregate window covering ``expected_dips * max_dip_width``
        plus observed inter-dip gaps, centred on the observed dip span.
 
-    If detection fails, falls back to the full ``[domain_lo, domain_hi]``.
+    If detection fails, raises ValueError so the caller knows the threshold
+    or data is wrong rather than silently guessing a window.
 
     Parameters
     ----------
@@ -51,20 +52,34 @@ def infer_focus_window(
     -------
     tuple[float, float]
         ``(lo, hi)`` in physical units.
+
+    Raises
+    ------
+    ValueError
+        If ``history`` has fewer than 3 points or no dips are detected at the
+        given ``noise_threshold``.
     """
     xs = history.xs
     ys = history.ys
 
     if len(xs) < 3:
-        return domain_lo, domain_hi
+        raise ValueError(
+            f"infer_focus_window needs at least 3 observations, got {len(xs)}"
+        )
 
     dips = detect_dips(xs, ys, noise_threshold=noise_threshold)
     if not dips:
-        return domain_lo, domain_hi
+        raise ValueError(
+            f"No dips detected with noise_threshold={noise_threshold} "
+            f"on {len(xs)} observations (y range {float(np.min(ys)):.4f}..{float(np.max(ys)):.4f})"
+        )
 
     widths = infer_dip_widths(xs, ys, dips, noise_threshold=noise_threshold)
     if not widths:
-        return domain_lo, domain_hi
+        raise ValueError(
+            f"Dips were detected but infer_dip_widths returned no widths "
+            f"on {len(xs)} observations"
+        )
 
     # Tightest upper bound: the smallest detected width (all true dips
     # share the same width in the signal model)
@@ -97,19 +112,92 @@ def infer_focus_window(
     lo = max(domain_lo, lo)
     hi = min(domain_hi, hi)
 
-    # Sanity: don't expand if we already have a tighter window from the dips themselves
+    # Ensure the window covers all detected dips plus padding (expand if needed)
     dip_lo = min(lo for lo, _ in dips)
     dip_hi = max(hi for _, hi in dips)
     lo = min(lo, dip_lo - padding)
     hi = max(hi, dip_hi + padding)
 
+    # Also include any isolated deep points that fell below the threshold but
+    # did not form a contiguous dip segment (e.g. a narrow dip hit by only 1-2
+    # samples).  This prevents the focus window from missing dips that were
+    # actually measured.
+    deep_mask = ys < noise_threshold
+    if np.any(deep_mask):
+        deep_lo = float(np.min(xs[deep_mask]))
+        deep_hi = float(np.max(xs[deep_mask]))
+        lo = min(lo, deep_lo - padding)
+        hi = max(hi, deep_hi + padding)
+
     lo = max(domain_lo, lo)
     hi = min(domain_hi, hi)
 
     if lo >= hi:
-        return domain_lo, domain_hi
+        raise ValueError(
+            f"Inferred focus window collapsed (lo={lo:.6f} >= hi={hi:.6f}). "
+            f"Dip span {dip_lo:.6f}..{dip_hi:.6f} with padding {padding:.6f} is too narrow."
+        )
 
     return lo, hi
+
+
+def infer_focus_window_physical(
+    history: ObservationHistory,
+    domain_lo: float,
+    domain_hi: float,
+    *,
+    expected_dips: int = 1,
+    signal_model: object | None = None,
+    noise_threshold: float,
+) -> tuple[float, float]:
+    """Infer focus window in physical units.
+
+    Works whether ``history.xs`` is already normalized ``[0,1]`` or physical.
+    Internally normalises coordinates, runs :func:`infer_focus_window`, then
+    denormalises the result.
+    """
+    xs = history.xs
+    ys = history.ys
+    domain_width = domain_hi - domain_lo
+
+    if domain_width <= 0 or len(xs) < 3:
+        return domain_lo, domain_hi
+
+    # Detect whether history.xs is already normalized [0,1] (as returned by
+    # experiment.measure) or physical (as returned by locator.next).
+    # Real physical domains in this codebase are >> 1 Hz, so any xs span ≤ 1.5
+    # with values inside [-0.5, 1.5] is treated as already normalized.
+    xs_range = float(np.max(xs) - np.min(xs))
+    xs_look_normalized = (
+        xs_range <= 1.5
+        and float(np.min(xs)) >= -0.5
+        and float(np.max(xs)) <= 1.5
+    )
+
+    if xs_look_normalized:
+        lo_norm, hi_norm = infer_focus_window(
+            history,
+            0.0,
+            1.0,
+            expected_dips=expected_dips,
+            signal_model=signal_model,
+            noise_threshold=noise_threshold,
+        )
+    else:
+        # history.xs is physical; normalise to [0,1] before inference
+        xs_norm = (xs - domain_lo) / domain_width
+        temp_history = ObservationHistory(history.max_steps)
+        for x_norm, y in zip(xs_norm, ys):
+            temp_history.append(Observation(x=float(x_norm), signal_value=float(y)))
+        lo_norm, hi_norm = infer_focus_window(
+            temp_history,
+            0.0,
+            1.0,
+            expected_dips=expected_dips,
+            signal_model=signal_model,
+            noise_threshold=noise_threshold,
+        )
+    return (domain_lo + lo_norm * domain_width, domain_lo + hi_norm * domain_width)
 
 
 def infer_max_dip_width(

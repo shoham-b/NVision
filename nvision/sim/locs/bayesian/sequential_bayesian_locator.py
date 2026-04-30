@@ -13,7 +13,7 @@ from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistributio
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
-from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
+from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
 
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
@@ -531,7 +531,7 @@ class SequentialBayesianLocator(Locator):
         the sweep locator exposes its own ``bayesian_focus_window`` method.
         """
         # Sweep must have produced enough observations for reliable inference.
-        if self._staged_sobol.history.count < 20:
+        if self._staged_sobol.history.count < 6:
             return None
 
         lo, hi = self._acquisition_lo, self._acquisition_hi

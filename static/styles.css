@@ -650,3 +650,8 @@ body {
         .bayes-tab-panel.is-active {
             display: block;
         }
+
+        .bayes-tab-panel iframe {
+            height: 85vh;
+            min-height: 600px;
+        }

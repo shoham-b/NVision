@@ -14,10 +14,10 @@ from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from nvision.cache import CacheBridge
+from nvision.cli import defaults as cli_defaults
 from nvision.cli.app_instance import app
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner.cache import restore_graphs, strip_heavy_fields
-from nvision.sim import presets as sim_presets, run_groups as sim_run_groups
 from nvision.sim.combinations import CombinationGrid
 from nvision.tools.artifacts import (
     ensure_plot_manifest_non_empty,
@@ -443,15 +443,21 @@ def render(
         Path,
         typer.Option("--out", help="Output directory (must match the run that wrote cache)"),
     ] = ARTIFACTS_ROOT,
-    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats per scenario")] = 5,
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps for locator measurement loop"),
-    ] = sim_presets.DEFAULT_LOC_MAX_STEPS,
-    loc_timeout_s: Annotated[
-        int,
-        typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
-    ] = 1500,
+    repeats: int = typer.Option(
+        cli_defaults.DEFAULT_REPEATS,
+        "--repeats",
+        help="Number of repeats per scenario",
+    ),
+    loc_max_steps: int = typer.Option(
+        cli_defaults.DEFAULT_LOC_MAX_STEPS,
+        "--loc-max-steps",
+        help="Max steps for Bayesian locator measurement loop",
+    ),
+    loc_timeout_s: int = typer.Option(
+        cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+        "--loc-timeout",
+        help="Timeout in seconds for a single locator run",
+    ),
     filter_category: Annotated[
         str | None,
         typer.Option(

@@ -10,10 +10,11 @@ Public API
 from __future__ import annotations
 
 from nvision.sim.locs.refocus.strategies import detect_dips, infer_dip_widths
-from nvision.sim.locs.refocus.window import infer_focus_window
+from nvision.sim.locs.refocus.window import infer_focus_window, infer_focus_window_physical
 
 __all__ = [
     "detect_dips",
     "infer_dip_widths",
     "infer_focus_window",
+    "infer_focus_window_physical",
 ]

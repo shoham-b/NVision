@@ -107,6 +107,19 @@ def _group_sweep_then_bayesian() -> RunGroup:
     )
 
 
+def _group_demo() -> RunGroup:
+    gens = _nv_generators()
+    noises = _all_noise_names()
+    strats = _sweep_strategy_names() + _bayesian_strategy_names()
+    return RunGroup(
+        name="demo",
+        description="Quick demo: sweep + Bayesian on standard NV generators with all noises.",
+        generator_names=gens,
+        noise_names=noises,
+        strategy_names=strats,
+    )
+
+
 def _group_bayesian_only() -> RunGroup:
     gens = _nv_narrow_generators()
     noises = _all_noise_names()
@@ -152,6 +165,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_all(),
         _group_sweep_only(),
         _group_sweep_then_bayesian(),
+        _group_demo(),
         _group_bayesian_only(),
         _group_bayesian_clean(),
         _group_smc_only(),

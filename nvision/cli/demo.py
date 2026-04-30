@@ -25,9 +25,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from nvision.cli import defaults as cli_defaults
 from nvision.cli.app_instance import app
 from nvision.cli.run import run
-from nvision.tools.paths import ensure_out_dir, PROJECT_ROOT
+from nvision.tools.paths import PROJECT_ROOT, ensure_out_dir
 
 log = logging.getLogger("nvision")
 console = Console()
@@ -55,11 +56,11 @@ def demo(
     repeats: Annotated[
         int,
         typer.Option("--repeats", help="Number of repeats (default: 3 for speed)"),
-    ] = 3,
+    ] = cli_defaults.DEMO_REPEATS,
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps per run (default: 50)"),
-    ] = 60,
+    ] = cli_defaults.DEMO_LOC_MAX_STEPS,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache/--cache", help="Disable cache for fresh run"),
@@ -68,22 +69,10 @@ def demo(
         bool,
         typer.Option("--open/--no-open", help="Open results in browser after run"),
     ] = True,
-    compare: Annotated[
-        bool,
-        typer.Option("--compare/--no-compare", help="Compare Bayesian vs SimpleSweep"),
-    ] = False,
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
-    ] = 8,
-    filter_generator: Annotated[
-        str,
-        typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-lorentzian')"),
-    ] = "NVCenter-lorentzian",
-    filter_noise: Annotated[
-        str | None,
-        typer.Option("--filter-noise", help="Filter to specific noise (e.g., 'NoNoise', 'Gauss')"),
-    ] = None,
+    ] = cli_defaults.DEMO_RUNNERS,
     out: Annotated[
         Path | None,
         typer.Option("--out", help="Output directory for demo artifacts (default: demo_artifacts)"),
@@ -91,82 +80,38 @@ def demo(
 ) -> int:
     """Quick demo to validate improvements - fast, focused, visual.
 
-    Runs a lightweight NV-center scenario with reduced repeats/steps for quick
+    Runs the built-in ``demo`` run group with reduced repeats/steps for quick
     feedback. Ideal for testing code changes before full benchmark runs.
     """
-    # Set up artifact directories based on CLI option
     demo_artifacts_root = out if out is not None else PROJECT_ROOT / "demo_artifacts"
     demo_logs_root = demo_artifacts_root / "logs"
 
     console.print("[bold cyan]NVision Quick Demo[/bold cyan]")
     console.print(f"Repeats: {repeats}, Steps: {loc_max_steps}, Cache: {not no_cache}")
     console.print(f"Artifacts: {demo_artifacts_root}")
-    if filter_generator:
-        console.print(f"Generator filter: {filter_generator}")
-    if filter_noise:
-        console.print(f"Noise filter: {filter_noise}")
     console.print()
 
     # Clear old demo artifacts to ensure only latest run is shown
     _clear_demo_artifacts(demo_artifacts_root, keep_logs=True)
-
-    # Ensure demo artifacts directory exists
     ensure_out_dir(demo_artifacts_root)
 
     start_time = time.time()
 
-    # Run all Bayesian strategies (SBED + MaximumLikelihood) in single run
-    console.print("[bold]Running Bayesian strategies (SBED + MaximumLikelihood) on NV center variants...[/bold]")
     result = run(
         out=demo_artifacts_root,
         repeats=repeats,
         loc_max_steps=loc_max_steps,
-        sweep_max_steps=loc_max_steps,  # Use same value for demo
-        loc_timeout_s=300,
+        sweep_max_steps=loc_max_steps,
+        loc_timeout_s=cli_defaults.DEMO_LOC_TIMEOUT_S,
+        run_group="demo",
         no_cache=no_cache,
-        ignore_cache_strategy=None,
-        filter_category="NVCenter",
-        filter_strategy="Bayesian",  # Matches both SBED and MaximumLikelihood
-        filter_generator=filter_generator,
-        filter_noise=filter_noise,
-        filter_target=None,
-        all_experiments=False,
-        no_progress=False,  # Show unified progress bar
-        require_cache=False,
-        log_level="INFO",
         runners=runners,
         logs_root=demo_logs_root,
+        open_browser=False,
     )
     if result != 0:
         console.print("[bold red]Demo failed![/bold red]")
         return result
-
-    # Optionally run SimpleSweep comparison
-    if compare:
-        console.print()
-        console.print("[bold]Running SimpleSweep baseline for comparison...[/bold]")
-        result = run(
-            out=demo_artifacts_root,
-            repeats=repeats,
-            loc_max_steps=loc_max_steps,
-            sweep_max_steps=loc_max_steps,
-            loc_timeout_s=300,
-            no_cache=no_cache,
-            ignore_cache_strategy=None,
-            filter_category="NVCenter",
-            filter_strategy="SimpleSweep",
-            filter_generator=filter_generator,
-            filter_noise=filter_noise,
-            filter_target=None,
-            all_experiments=False,
-            no_progress=False,  # Show unified progress bar
-            require_cache=False,
-            log_level="INFO",
-            runners=runners,
-            logs_root=demo_logs_root,
-        )
-        if result != 0:
-            console.print("[yellow]Warning: Baseline run failed[/yellow]")
 
     elapsed = time.time() - start_time
     console.print()
@@ -233,35 +178,23 @@ def beta(
     repeats: Annotated[
         int,
         typer.Option("--repeats", help="Number of repeats (default: 3 for speed)"),
-    ] = 3,
+    ] = cli_defaults.DEMO_REPEATS,
     loc_max_steps: Annotated[
         int,
         typer.Option("--loc-max-steps", help="Max steps per run (default: 50)"),
-    ] = 60,
+    ] = cli_defaults.DEMO_LOC_MAX_STEPS,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache/--cache", help="Disable cache for fresh run"),
-    ] = False,
+    ] = True,
     open_browser: Annotated[
         bool,
         typer.Option("--open/--no-open", help="Open results in browser after run"),
     ] = True,
-    compare: Annotated[
-        bool,
-        typer.Option("--compare/--no-compare", help="Compare Bayesian vs SimpleSweep"),
-    ] = False,
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
-    ] = 8,
-    filter_generator: Annotated[
-        str,
-        typer.Option("--filter-generator", help="Filter to specific generator (e.g., 'NVCenter-lorentzian')"),
-    ] = "NVCenter-lorentzian",
-    filter_noise: Annotated[
-        str | None,
-        typer.Option("--filter-noise", help="Filter to specific noise (e.g., 'NoNoise', 'Gauss')"),
-    ] = None,
+    ] = cli_defaults.DEMO_RUNNERS,
     out: Annotated[
         Path | None,
         typer.Option("--out", help="Output directory for beta artifacts (default: beta_artifacts)"),
@@ -278,10 +211,7 @@ def beta(
         loc_max_steps=loc_max_steps,
         no_cache=no_cache,
         open_browser=open_browser,
-        compare=compare,
         runners=runners,
-        filter_generator=filter_generator,
-        filter_noise=filter_noise,
         out=out if out is not None else PROJECT_ROOT / "beta_artifacts",
     )
 

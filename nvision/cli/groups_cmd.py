@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from nvision.cli import defaults as cli_defaults
 from nvision.cli.app_instance import app
 from nvision.cli.run import run
 from nvision.sim import run_groups as sim_run_groups
@@ -24,7 +25,7 @@ def _run_named_group(
     all_experiments: bool = False,
     repeats_override: int | None = None,
     no_cache: bool = False,
-    runners: int = 4,
+    runners: int = cli_defaults.DEFAULT_RUNNERS,
     open_browser: bool = False,
 ) -> None:
     """Execute a named :class:`~nvision.sim.run_groups.RunGroup` via :func:`nvision.cli.run.run`."""
@@ -101,20 +102,20 @@ def run_preset(
 
 @app.command()
 def run_all(
-    repeats: int = typer.Option(5, "--repeats", help="Number of repeats per scenario"),
+    repeats: int = typer.Option(cli_defaults.DEFAULT_REPEATS, "--repeats", help="Number of repeats per scenario"),
     loc_max_steps: int = typer.Option(
-        1500,
+        cli_defaults.DEFAULT_LOC_MAX_STEPS,
         "--loc-max-steps",
         help="Max steps for Bayesian locator measurement loop",
     ),
     loc_timeout_s: int = typer.Option(
-        1500,
+        cli_defaults.DEFAULT_LOC_TIMEOUT_S,
         "--loc-timeout",
         help="Timeout in seconds for a single locator run",
     ),
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
     runners: int = typer.Option(
-        8,
+        cli_defaults.DEFAULT_RUNNERS_ALL,
         "--runners",
         min=1,
         help="Number of runner processes (use 1 for sequential execution).",
@@ -145,52 +146,87 @@ def run_all(
 def sweep_only(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
     """Alias for ``groups run sweep_only``."""
-    _run_named_group("sweep_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
+    _run_named_group(
+        "sweep_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+    )
 
 
 @groups_app.command("sweep-then-bayesian")
 def sweep_then_bayesian(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
-    """Alias for ``groups run sweep_then_bayesian``."""
-    _run_named_group("sweep_then_bayesian", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
+    """Alias for ``groups run sweep-then-bayesian``."""
+    _run_named_group(
+        "sweep_then_bayesian", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+    )
 
 
 @groups_app.command("bayesian-only")
 def bayesian_only(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
-    """Alias for ``groups run bayesian_only``."""
-    _run_named_group("bayesian_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
+    """Alias for ``groups run bayesian-only``."""
+    _run_named_group(
+        "bayesian_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+    )
 
 
 @groups_app.command("bayesian-clean")
 def bayesian_clean(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
-    """Alias for ``groups run bayesian_clean``."""
-    _run_named_group("bayesian_clean", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
+    """Alias for ``groups run bayesian-clean``."""
+    _run_named_group(
+        "bayesian_clean", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+    )
+
+
+@groups_app.command("demo")
+def demo_group(
+    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+) -> None:
+    """Alias for ``groups run demo``."""
+    _run_named_group(
+        "demo", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+    )
 
 
 @groups_app.command("smc-only")
 def smc_only(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
-    """Alias for ``groups run smc_only``."""
-    _run_named_group("smc_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
+    """Alias for ``groups run smc-only``."""
+    _run_named_group(
+        "smc_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+    )

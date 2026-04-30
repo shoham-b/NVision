@@ -10,7 +10,7 @@ import numpy as np
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
-from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
+from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
 from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
 from nvision.spectra.signal import SignalModel
 
@@ -208,6 +208,10 @@ class SweepingLocator(Locator):
 
     def acquisition_window(self) -> tuple[float, float]:
         """Return the acquisition window bounds (lo, hi) in physical units."""
+        # Compute on demand if the sweep finished but _set_acquisition_window was
+        # never triggered (e.g. caller stopped exactly at max_steps).
+        if not self._signal_found and self.history.count >= 3:
+            self._set_acquisition_window()
         return (self._acquisition_lo, self._acquisition_hi)
 
     def bayesian_focus_window(self) -> tuple[float, float]:
@@ -236,12 +240,13 @@ class SweepingLocator(Locator):
         min_signal = float(ys[min_idx])
 
         background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)) :]))
+        signal_span = float(np.max(ys) - np.min(ys))
         if self._noise_max_dev is not None:
-            dip_threshold = max(self._noise_max_dev, 0.04)
+            dip_threshold = max(self._noise_max_dev, 0.02 * signal_span)
         else:
             iqr = float(np.percentile(ys, 75) - np.percentile(ys, 25))
             data_noise_scale = max(iqr / 1.35, self._noise_std, 1e-6)
-            dip_threshold = max(2.5 * data_noise_scale, 0.04)
+            dip_threshold = max(2.5 * data_noise_scale, 0.02 * signal_span)
 
         if background_est - min_signal < dip_threshold:
             return
@@ -587,9 +592,16 @@ class SweepingLocator(Locator):
         return inner.expected_dip_count()
 
     def _set_acquisition_window(self) -> None:
-        """Set acquisition window from sweep observations."""
+        """Set acquisition window from sweep observations.
+
+        Uses the same shape-aware ``_refocus_infer_focus_window`` path that
+        ``_maybe_refocus`` already uses mid-sweep.  The old ``_detect_signal_span``
+        path is removed because it silently returned the full domain when it
+        failed, hiding bugs.
+        """
         if self.history.count < 3:
-            # No signal found - check if we should do fallback sweep
+            # Not enough data – trigger fallback sweep once, otherwise leave
+            # window at the full domain (no signal was ever found).
             if not self._fallback_done and self.max_steps > 0:
                 self._fallback_done = True
                 self._sweep_points = self._generate_fallback_points(self.max_steps)
@@ -599,35 +611,40 @@ class SweepingLocator(Locator):
                 self._completed_at_step = self.max_steps
                 return  # Will restart sweep on next call
 
-            # No fallback or already done
             self._acquisition_lo = self._domain_lo
             self._acquisition_hi = self._domain_hi
             return
 
-        # Try to detect signal region
-        xs = self.history.xs
+        # Compute noise threshold exactly as _maybe_refocus does
         ys = self.history.ys
+        min_idx = int(np.argmin(ys))
+        min_signal = float(ys[min_idx])
+        background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)) :]))
+        signal_span = float(np.max(ys) - np.min(ys))
+        if self._noise_max_dev is not None:
+            dip_threshold = max(self._noise_max_dev, 0.02 * signal_span)
+        else:
+            iqr = float(np.percentile(ys, 75) - np.percentile(ys, 25))
+            data_noise_scale = max(iqr / 1.35, self._noise_std, 1e-6)
+            dip_threshold = max(2.5 * data_noise_scale, 0.02 * signal_span)
 
-        span = self._detect_signal_span(xs, ys)
-        if span is None:
-            if not self._fallback_done and self.max_steps > 0:
-                self._fallback_done = True
-                self._sweep_points = self._generate_fallback_points(self.max_steps)
-                self.history = ObservationHistory(self.max_steps)
-                self.step_count = 0
-                self._last_refocus_step = 0
-                self._completed_at_step = self.max_steps
-                return
-
+        if background_est - min_signal < dip_threshold:
+            # No discernible dip – no signal found
             self._acquisition_lo = self._domain_lo
             self._acquisition_hi = self._domain_hi
             return
 
-        lo_norm, hi_norm = span
-        domain_width = self._domain_hi - self._domain_lo
-        self._acquisition_lo = self._domain_lo + lo_norm * domain_width
-        self._acquisition_hi = self._domain_lo + hi_norm * domain_width
         self._signal_found = True
+        noise_threshold = background_est - dip_threshold
+        lo, hi = _refocus_infer_focus_window(
+            self.history,
+            self._domain_lo,
+            self._domain_hi,
+            expected_dips=self._expected_dip_count_from_model() or 1,
+            noise_threshold=noise_threshold,
+        )
+        self._acquisition_lo = lo
+        self._acquisition_hi = hi
 
     def _generate_fallback_points(self, n: int) -> np.ndarray:
         """Generate fallback sweep points with offset. Subclasses may override."""
