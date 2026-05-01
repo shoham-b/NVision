@@ -412,7 +412,7 @@ def _add_per_dip_windows_overlay(
         )
 
 
-def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:
+def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:  # noqa: C901
     """Detect dip segments from dense signal evaluation using percentile thresholding."""
     xs = np.asarray(xs)
     ys = np.asarray(ys)
@@ -482,7 +482,7 @@ def _add_dip_boundary_lines(
         return
     row, col = _row_col(has_metrics)
     boundary_colors = [
-        "rgba(231, 76, 60, 0.85)",   # Red
+        "rgba(231, 76, 60, 0.85)",  # Red
         "rgba(46, 204, 113, 0.85)",  # Green
         "rgba(155, 89, 182, 0.85)",  # Purple
     ]

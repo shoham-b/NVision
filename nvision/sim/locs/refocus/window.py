@@ -63,9 +63,7 @@ def infer_focus_window(
     ys = history.ys
 
     if len(xs) < 3:
-        raise ValueError(
-            f"infer_focus_window needs at least 3 observations, got {len(xs)}"
-        )
+        raise ValueError(f"infer_focus_window needs at least 3 observations, got {len(xs)}")
 
     dips = detect_dips(xs, ys, noise_threshold=noise_threshold)
     if not dips:
@@ -76,10 +74,7 @@ def infer_focus_window(
 
     widths = infer_dip_widths(xs, ys, dips, noise_threshold=noise_threshold)
     if not widths:
-        raise ValueError(
-            f"Dips were detected but infer_dip_widths returned no widths "
-            f"on {len(xs)} observations"
-        )
+        raise ValueError(f"Dips were detected but infer_dip_widths returned no widths on {len(xs)} observations")
 
     # Tightest upper bound: the smallest detected width (all true dips
     # share the same width in the signal model)
@@ -165,11 +160,7 @@ def infer_focus_window_physical(
     # Real physical domains in this codebase are >> 1 Hz, so any xs span ≤ 1.5
     # with values inside [-0.5, 1.5] is treated as already normalized.
     xs_range = float(np.max(xs) - np.min(xs))
-    xs_look_normalized = (
-        xs_range <= 1.5
-        and float(np.min(xs)) >= -0.5
-        and float(np.max(xs)) <= 1.5
-    )
+    xs_look_normalized = xs_range <= 1.5 and float(np.min(xs)) >= -0.5 and float(np.max(xs)) <= 1.5
 
     if xs_look_normalized:
         lo_norm, hi_norm = infer_focus_window(

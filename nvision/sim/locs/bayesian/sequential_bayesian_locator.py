@@ -222,7 +222,7 @@ class SequentialBayesianLocator(Locator):
         """Return the next measurement point during the initial sweep phase."""
         return self._staged_sobol.next()
 
-    def _on_sweep_complete(self) -> None:
+    def _on_sweep_complete(self) -> None:  # noqa: C901
         """Hook called once when the initial sweep phase finishes.
 
         Default implementation finalizes the staged locator, performs a batch
@@ -274,18 +274,13 @@ class SequentialBayesianLocator(Locator):
                     split_lo, split_hi = phys_bounds["split"]
                     new_split_hi = min(float(split_hi), max_split)
                     if new_split_hi > float(split_lo):
-                        self.belief.narrow_scan_parameter_physical_bounds(
-                            "split", float(split_lo), new_split_hi
-                        )
+                        self.belief.narrow_scan_parameter_physical_bounds("split", float(split_lo), new_split_hi)
 
             self._narrowed_param_bounds = {
-                name: (float(lo), float(hi))
-                for name, (lo, hi) in self.belief.physical_param_bounds.items()
+                name: (float(lo), float(hi)) for name, (lo, hi) in self.belief.physical_param_bounds.items()
             }
 
-    def _native_scan_candidates(
-        self, lo: float, hi: float
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _native_scan_candidates(self, lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
         """Return (candidates, probabilities) from the belief's native discretization.
 
         - Grid beliefs: grid points of the scan parameter within [lo, hi],
@@ -500,7 +495,6 @@ class SequentialBayesianLocator(Locator):
         lo, hi = self._get_current_acquisition_bounds()
         return (min(lo, hi), max(lo, hi))
 
-
     def _get_current_acquisition_bounds(self) -> tuple[float, float]:
         """Return the current acquisition window bounds.
 
@@ -552,9 +546,7 @@ class SequentialBayesianLocator(Locator):
             min_y = float(np.min(ys))
             dip_depth = noise_med - min_y
             noise_threshold = noise_med - 0.5 * dip_depth
-            lo, hi = _refocus_infer_focus_window(
-                self._staged_sobol.history, slo, shi, noise_threshold=noise_threshold
-            )
+            lo, hi = _refocus_infer_focus_window(self._staged_sobol.history, slo, shi, noise_threshold=noise_threshold)
 
         if not (np.isfinite(lo) and np.isfinite(hi) and np.isfinite(slo) and np.isfinite(shi)):
             return None
@@ -696,4 +688,3 @@ class SequentialBayesianLocator(Locator):
         """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""
         lo, hi = self._full_domain_lo, self._full_domain_hi
         return float(np.clip((physical_value - lo) / (hi - lo), 0.0, 1.0))
-
