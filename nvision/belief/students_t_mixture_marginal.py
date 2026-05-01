@@ -130,7 +130,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         stds = np.sqrt(np.maximum(np.diag(self.covariances[0]), 0.0))
         return ParameterValues.from_mapping(
-
             self._param_names, {name: float(stds[i]) for i, name in enumerate(self._param_names)}
         )
 
@@ -162,6 +161,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         # (could use multivariate t here)
         samples = np.random.multivariate_normal(self.means[0], self.covariances[0], size=n)
         return ParameterValues.from_mapping(
+
             self._param_names, {name: samples[:, i] for i, name in enumerate(self._param_names)}
         )
 
