@@ -603,7 +603,6 @@ class _TaskRunner:
         if self.task.sweep_max_steps is not None:
             return self.task.sweep_max_steps
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
-
         return compute_sweep_max_steps(
             experiment.true_signal.model,
             float(experiment.x_min),

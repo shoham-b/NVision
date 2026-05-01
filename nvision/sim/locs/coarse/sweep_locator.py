@@ -236,7 +236,6 @@ class SweepingLocator(Locator):
         ys = self.history.ys
 
         min_idx = int(np.argmin(ys))
-        float(xs[min_idx])
         min_signal = float(ys[min_idx])
 
         background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)) :]))
@@ -478,6 +477,7 @@ class SweepingLocator(Locator):
         # which biases background estimation and creates noise segments.
         init_steps = self.effective_initial_sweep_steps()
         xs = self.history.xs[:init_steps]
+        xs = self.history.xs
         ys = self.history.ys[:init_steps]
 
         # Compute the same noise threshold the old _dip_segments used
@@ -616,6 +616,7 @@ class SweepingLocator(Locator):
             return
 
         # Compute noise threshold exactly as _maybe_refocus does
+        xs = self.history.xs
         ys = self.history.ys
         min_idx = int(np.argmin(ys))
         min_signal = float(ys[min_idx])

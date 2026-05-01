@@ -85,7 +85,11 @@ class StudentsTLocator(Locator):
                 raise ValueError("StudentsTLocator requires either signal_model or a builder.")
 
         bounds = dict(parameter_bounds) if parameter_bounds else {}
-        belief = StudentsTMixtureMarginalDistribution(model=model, _physical_param_bounds=bounds, dfs=np.array([df]))
+        belief = StudentsTMixtureMarginalDistribution(
+            model=model,
+            _physical_param_bounds=bounds,
+            dfs=np.array([df])
+        )
 
         return cls(
             belief=belief,

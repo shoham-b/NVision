@@ -75,7 +75,9 @@ def _infer_tight_focus_window(
         return domain_lo, domain_hi
 
     noise_threshold = noise_med - depth_fraction * dip_depth
-    lo, hi = _refocus_infer_focus_window(history, domain_lo, domain_hi, noise_threshold=noise_threshold)
+    lo, hi = _refocus_infer_focus_window(
+        history, domain_lo, domain_hi, noise_threshold=noise_threshold
+    )
     return lo, hi
 
 
@@ -262,6 +264,7 @@ class Stage1SobolLocator:
         return None
 
 
+
 class Stage2SobolLocator:
     """Stage 2: Find 2 dips that are about the noise deviation established in Stage 1."""
 
@@ -410,7 +413,9 @@ class Stage3SobolLocator:
         return self._done
 
     def _infer_bounds(self) -> None:
-        self.window_lo, self.window_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
+        self.window_lo, self.window_hi = _infer_tight_focus_window(
+            self.history, self.domain_lo, self.domain_hi
+        )
 
     def _check_for_remaining_dips(self) -> None:
         if self.history.count < 6:
@@ -430,8 +435,7 @@ class Stage3SobolLocator:
         # Use the more lenient segment-based detector (min_points=1) so that
         # narrow dips are counted even when only 1-2 samples fall inside them.
         dips = self._dip_segments(
-            xs_win,
-            ys_win,
+            xs_win, ys_win,
             min_points=1,
             noise_std=self.noise_std or 0.01,
         )
@@ -612,12 +616,8 @@ class StagedSobolSweepLocator(Locator):
             self._stage1_end_step = self.step_count
             win_lo, win_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
             self._stage2 = Stage2SobolLocator(
-                self._sobol_gen,
-                self.domain_lo,
-                self.domain_hi,
-                self.history,
-                window_lo=win_lo,
-                window_hi=win_hi,
+                self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
+                window_lo=win_lo, window_hi=win_hi,
             )
             self._active_locator = self._stage2
 
@@ -633,12 +633,8 @@ class StagedSobolSweepLocator(Locator):
         inner = getattr(self.signal_model, "inner", self.signal_model)
         expected_dips = inner.expected_dip_count()
         self._stage3 = Stage3SobolLocator(
-            self._sobol_gen,
-            self.domain_lo,
-            self.domain_hi,
-            self.history,
-            expected_dips=expected_dips,
-            noise_std=self.noise_std,
+            self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
+            expected_dips=expected_dips, noise_std=self.noise_std,
         )
         self._active_locator = self._stage3
         self._signal_found = True
@@ -906,10 +902,8 @@ class StagedSobolSweepLocator(Locator):
 
         # Prefer actual ground-truth dip count when available
         true_dip_count = self._true_signal_dip_count()
-        expected_dips = (
-            true_dip_count
-            if true_dip_count is not None
-            else (self.signal_model.expected_dip_count() or (len(segments) if segments else 1))
+        expected_dips = true_dip_count if true_dip_count is not None else (
+            self.signal_model.expected_dip_count() or (len(segments) if segments else 1)
         )
         domain_width = self.domain_hi - self.domain_lo
         min_span = self.signal_model.signal_min_span(domain_width)

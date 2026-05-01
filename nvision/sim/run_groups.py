@@ -68,7 +68,6 @@ def _nv_narrow_generators() -> list[str]:
 # Registry
 # ---------------------------------------------------------------------------
 
-
 def _group_all() -> RunGroup:
     gens = _all_generator_names()
     noises = _all_noise_names()

@@ -67,9 +67,13 @@ class CombinationGrid:
     """
 
     def __init__(self) -> None:
-        self._generators: dict[str, object] = dict(sim_presets.generators_basic() + sim_presets.generators_narrow())
+        self._generators: dict[str, object] = dict(
+            sim_presets.generators_basic() + sim_presets.generators_narrow()
+        )
         self._noises: dict[str, CompositeNoise | None] = dict(
-            sim_presets.noises_none() + sim_presets.noises_single_each() + sim_presets.noises_complex()
+            sim_presets.noises_none()
+            + sim_presets.noises_single_each()
+            + sim_presets.noises_complex()
         )
 
     @property
@@ -90,7 +94,6 @@ class CombinationGrid:
         """Return the locator strategies appropriate for *generator_name*."""
         if generator_name.startswith("NVCenter-"):
             from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
-
             return [
                 ("GenericSweep", GenericSweepLocator),
                 ("SobolSweep", SobolSweepLocator),
@@ -234,7 +237,9 @@ class CombinationGrid:
                         strategy=strat_obj,
                     )
 
-    def resolve(self, gen_name: str, noise_name: str, strat_name: str) -> Combination | None:
+    def resolve(
+        self, gen_name: str, noise_name: str, strat_name: str
+    ) -> Combination | None:
         """Resolve three preset names to a single :class:`Combination`.
 
         Returns ``None`` if any name is not registered or the strategy is
