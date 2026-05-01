@@ -194,7 +194,7 @@ type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]
 
 
-def run_loop(
+def run_loop(  # noqa: C901
     locator_class: type[Locator],
     experiment: CoreExperiment,
     rng: random.Random,
@@ -603,6 +603,7 @@ class _TaskRunner:
         if self.task.sweep_max_steps is not None:
             return self.task.sweep_max_steps
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
+
         return compute_sweep_max_steps(
             experiment.true_signal.model,
             float(experiment.x_min),
