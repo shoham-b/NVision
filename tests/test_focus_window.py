@@ -71,7 +71,6 @@ class TestSweepingLocatorFocusWindow:
         from nvision.models.experiment import Observation
         from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
 
-
         # Dummy model with a single expected dip
         class DummyModel:
             inner = property(lambda self: self)
