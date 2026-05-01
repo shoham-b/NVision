@@ -63,4 +63,3 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
             convergence_patience_steps=convergence_patience_steps,
             noise_std=noise_std,
         )
-
