@@ -335,30 +335,33 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         sigma_sq = sigma * sigma
 
         # Extract gradient arrays into matrix (n_particles, n_params)
-        grad_matrix = np.empty((n_particles, n_params), dtype=np.float64)
-        for j, name in enumerate(self._param_names):
-            grad_matrix[:, j] = grad_dict[name]
+        grad_matrix = np.column_stack([grad_dict[name] for name in self._param_names])
+
+        # Compute FIM trace: sum(g**2) / sigma_sq
+        traces = np.sum(grad_matrix**2, axis=1) / sigma_sq
+
+        # Compute FIM = (1/sigma^2) * g * g^T using broadcasting
+        fim = (grad_matrix[:, :, np.newaxis] * grad_matrix[:, np.newaxis, :]) / sigma_sq
+
+        # Add regularization directly
+        idx = np.arange(n_params)
+        fim[:, idx, idx] += 1e-6
+
+        # Vectorized slogdet
+        sign, logdet = np.linalg.slogdet(fim)
 
         # Compute information scores for all particles
-        info_scores = np.zeros(n_particles)
-        for i in range(n_particles):
-            grad_vec = grad_matrix[i, :]
-            # FIM = (1/sigma^2) * g * g^T
-            fim = np.outer(grad_vec, grad_vec) / sigma_sq
-            fim_reg = fim + np.eye(n_params) * 1e-6
+        info_scores = np.empty(n_particles)
 
-            try:
-                sign, logdet = np.linalg.slogdet(fim_reg)
-                if sign > 0 and np.isfinite(logdet):
-                    half_logdet = logdet * 0.5
-                    if half_logdet > 10:
-                        info_scores[i] = half_logdet
-                    else:
-                        info_scores[i] = np.log1p(np.exp(half_logdet))
-                else:
-                    info_scores[i] = max(1e-6, np.trace(fim))
-            except Exception:
-                info_scores[i] = max(1e-6, np.trace(fim))
+        valid = (sign > 0) & np.isfinite(logdet)
+        invalid = ~valid
+
+        if np.any(valid):
+            half_logdet = logdet[valid] * 0.5
+            info_scores[valid] = np.where(half_logdet > 10, half_logdet, np.log1p(np.exp(half_logdet)))
+
+        if np.any(invalid):
+            info_scores[invalid] = np.maximum(1e-6, traces[invalid])
 
         # Clip and normalize
         clipped_scores = np.clip(info_scores, 0.1, 10.0)
