@@ -381,7 +381,7 @@ class SequentialBayesianLocator(Locator):
             value = self._sweep_next()
             if self._staged_sobol.done() and self._initial_sweep_completed_at_step == 0:
                 self._on_sweep_complete()
-            return self._to_experiment_normalized(value)
+            return value
 
         # Sweep already finished before we could record it
         if self._initial_sweep_completed_at_step == 0:

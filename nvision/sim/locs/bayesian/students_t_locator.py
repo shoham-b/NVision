@@ -109,11 +109,10 @@ class StudentsTLocator(Locator):
                 sweep_points = self._initial_sweep_builder(self.initial_sweep_steps)
                 return float(sweep_points[self.step_count - 1])
 
-            # Default fallback sweep: uniform grid
-            lo, hi = self.belief.physical_param_bounds.get(self._scan_param, (0.0, 1.0))
+            # Default fallback sweep: uniform grid (already normalized)
             if self.initial_sweep_steps <= 1:
-                return (lo + hi) / 2.0
-            return float(lo + (hi - lo) * (self.step_count - 1) / (self.initial_sweep_steps - 1))
+                return 0.5
+            return float((self.step_count - 1) / (self.initial_sweep_steps - 1))
 
         # 2. Acquisition Phase (using the parametric belief's uncertainty)
         # "the students t is just for acquire"

@@ -535,8 +535,8 @@ def _add_dip_boundary_lines(
         fig.add_annotation(
             x=mid_x,
             y=0.9,
-            yref=f"y{row} domain" if row > 1 else "y domain",
-            xref=f"x{col}" if col > 1 else "x",
+            yref=f"y{row} domain" if row is not None and row > 1 else "y domain",
+            xref=f"x{col}" if col is not None and col > 1 else "x",
             text=f"↔ {w_str}",
             showarrow=False,
             font=dict(size=11, color=color),
