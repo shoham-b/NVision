@@ -103,6 +103,8 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         if len(param_arrays) == 1:
             try:  # noqa: SIM105
                 param_arrays = param_arrays[0].arrays_in_order()  # type: ignore[union-attr]
+            except AttributeError:
+                pass
         if len(param_arrays) != len(names):
             raise ValueError(f"{type(self).__name__}: expected {len(names)} param arrays but got {len(param_arrays)}")
 

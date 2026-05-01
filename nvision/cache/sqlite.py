@@ -9,19 +9,25 @@ from pathlib import Path
 
 def _init_schema_with_recovery(db_path: Path, schema_sql: str) -> None:
     """Initialize SQLite schema and recover from invalid DB files."""
+    conn: sqlite3.Connection | None = None
     try:
-        with sqlite3.connect(db_path) as conn:
+        conn = sqlite3.connect(db_path)
+        with conn:
             conn.execute(schema_sql)
             conn.commit()
     except sqlite3.DatabaseError as exc:
         if "file is not a database" not in str(exc).lower():
+            if conn is not None:
+                conn.close()
             raise
         # Corrupted/invalid file at this path; reset it so cache can recover.
+        if conn is not None:
+            conn.close()
         with suppress(FileNotFoundError):
             db_path.unlink()
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(schema_sql)
-            conn.commit()
+        with sqlite3.connect(db_path) as conn2:
+            conn2.execute(schema_sql)
+            conn2.commit()
 
 
 class SqliteCache:
