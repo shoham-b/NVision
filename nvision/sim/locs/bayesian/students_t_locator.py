@@ -7,9 +7,9 @@ from collections.abc import Callable, Mapping, Sequence
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
 
 
 class StudentsTLocator(Locator):

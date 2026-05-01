@@ -11,7 +11,7 @@ import pytest
 
 from nvision.sim.locs.refocus import detect_dips, infer_focus_window
 from nvision.sim.locs.refocus.strategies import infer_dip_widths
-from nvision.sim.locs.refocus.window import infer_max_dip_width, aggregate_window
+from nvision.sim.locs.refocus.window import aggregate_window, infer_max_dip_width
 
 
 def _gaussian_dip(x: np.ndarray, center: float, width: float, depth: float) -> np.ndarray:
