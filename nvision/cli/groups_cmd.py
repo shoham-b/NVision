@@ -100,6 +100,7 @@ def run_preset(
 
 # --- Top-level ``nvision run`` alias ------------------------------------------
 
+
 @app.command()
 def run_all(
     repeats: int = typer.Option(cli_defaults.DEFAULT_REPEATS, "--repeats", help="Number of repeats per scenario"),
@@ -212,9 +213,7 @@ def demo_group(
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
     """Alias for ``groups run demo``."""
-    _run_named_group(
-        "demo", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
-    )
+    _run_named_group("demo", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
 
 
 @groups_app.command("smc-only")
