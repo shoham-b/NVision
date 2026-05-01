@@ -21,14 +21,11 @@ import pytest
 
 from nvision import (
     CoreExperiment,
-    GaussianModel,
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
-    Observer,
     run_loop,
 )
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
-from nvision.models.experiment import Observation
 from nvision.models.locator import Locator
 from nvision.sim.locs.bayesian.belief_builders import (
     nv_center_belief,
@@ -213,7 +210,12 @@ class TestSingleStepOnePeak:
 # Overall run benchmarks
 # ---------------------------------------------------------------------------
 
-def _overall_run_ms(locator_class: type[Locator], experiment: CoreExperiment, max_steps: int = 20, **config: Any) -> float:
+def _overall_run_ms(
+    locator_class: type[Locator],
+    experiment: CoreExperiment,
+    max_steps: int = 20,
+    **config: Any,
+) -> float:
     rng = random.Random(2)
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
     if needs_belief:
