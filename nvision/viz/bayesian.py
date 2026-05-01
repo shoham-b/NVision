@@ -645,7 +645,7 @@ class BayesianMixin:
         def play_pause_button(is_play: bool) -> dict:
             if is_play:
                 return dict(
-                    label="▶ Play",
+                    label="<b>▶ Play</b>",
                     method="animate",
                     args=[
                         None,
@@ -659,7 +659,7 @@ class BayesianMixin:
                 )
             else:
                 return dict(
-                    label="⏸ Pause",
+                    label="<b>⏸ Pause</b>",
                     method="animate",
                     args=[
                         [None],
@@ -707,6 +707,10 @@ class BayesianMixin:
                     yanchor="top",
                     showactive=False,
                     pad={"r": 10, "t": 0},
+                    bgcolor="#e6f2ff",
+                    bordercolor="#1e90ff",
+                    borderwidth=2,
+                    font=dict(size=14, color="#005b96"),
                     buttons=[
                         play_pause_button(True),
                         play_pause_button(False),
@@ -1278,13 +1282,18 @@ class BayesianMixin:
 
         from plotly.subplots import make_subplots
 
-        # Create a full matrix layout: n_params x n_params grid
-        # Diagonal will be empty, off-diagonal shows parameter pairs
+        # Create a compact grid layout: n_rows x n_cols
+        n_cols = min(3, n_pairs)
+        n_rows = (n_pairs + n_cols - 1) // n_cols
+
+        subplot_titles = [f"{param_names[j]} vs {param_names[i]}" for i, j in pairs]
+
         fig = make_subplots(
-            rows=n_params,
-            cols=n_params,
-            vertical_spacing=0.02,
-            horizontal_spacing=0.02,
+            rows=n_rows,
+            cols=n_cols,
+            subplot_titles=subplot_titles,
+            vertical_spacing=0.1,
+            horizontal_spacing=0.1,
         )
 
         # Chi-squared scale factor for confidence ellipse
@@ -1296,17 +1305,18 @@ class BayesianMixin:
         # Build animation frames showing ellipse evolution over time
         # Each subplot needs axis references: xaxis="x", xaxis2, etc.
         def get_axis_refs(row, col):
-            xaxis = f"x{col}" if col > 1 else "x"
-            yaxis = f"y{row}" if row > 1 else "y"
+            plot_idx = (row - 1) * n_cols + col
+            xaxis = f"x{plot_idx}" if plot_idx > 1 else "x"
+            yaxis = f"y{plot_idx}" if plot_idx > 1 else "y"
             return xaxis, yaxis
 
         frames = []
         for step_idx in range(n_steps):
             frame_data = []
 
-            for i, j in pairs:
-                row = i + 1
-                col = j + 1
+            for pair_idx, (i, j) in enumerate(pairs):
+                row = (pair_idx // n_cols) + 1
+                col = (pair_idx % n_cols) + 1
                 xaxis, yaxis = get_axis_refs(row, col)
 
                 fim = fisher_hist[step_idx]
@@ -1381,9 +1391,9 @@ class BayesianMixin:
         # Add initial frame data to proper subplots
         if frames:
             trace_idx = 0
-            for i, j in pairs:
-                row = i + 1
-                col = j + 1
+            for pair_idx, (i, j) in enumerate(pairs):
+                row = (pair_idx // n_cols) + 1
+                col = (pair_idx % n_cols) + 1
                 # Add ellipse trace
                 if trace_idx < len(frames[0].data):
                     fig.add_trace(frames[0].data[trace_idx], row=row, col=col)
@@ -1396,24 +1406,16 @@ class BayesianMixin:
                             fig.add_trace(frames[0].data[trace_idx], row=row, col=col)
                             trace_idx += 1
 
-        # Table-style labels: show parameter names only on edges (first row/column)
-        # Enable autorange so axes zoom to fit the ellipse data
-        for i, j in pairs:
-            row = i + 1
-            col = j + 1
-            # Only show x-axis title on first row (top edge = column header)
-            if row == 1:
-                fig.update_xaxes(title_text=param_names[j], autorange=True, row=row, col=col)
-            else:
-                fig.update_xaxes(showticklabels=False, autorange=True, row=row, col=col)
-            # Only show y-axis title on first column (left edge = row header)
-            if col == 1:
-                fig.update_yaxes(title_text=param_names[i], autorange=True, row=row, col=col)
-            else:
-                fig.update_yaxes(showticklabels=False, autorange=True, row=row, col=col)
+        # Set axis titles per subplot
+        for pair_idx, (i, j) in enumerate(pairs):
+            row = (pair_idx // n_cols) + 1
+            col = (pair_idx % n_cols) + 1
+            fig.update_xaxes(title_text=param_names[j], autorange=True, row=row, col=col)
+            fig.update_yaxes(title_text=param_names[i], autorange=True, row=row, col=col)
 
         # Layout with animation controls - autosize to avoid scrollbars
         fig.update_layout(
+            height=max(400, 300 * n_rows),
             autosize=True,
             template="plotly_white",
             showlegend=True,
