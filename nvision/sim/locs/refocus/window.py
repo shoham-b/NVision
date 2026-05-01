@@ -84,8 +84,6 @@ def infer_focus_window(
     dip_centers = [(lo + hi) / 2.0 for lo, hi in dips]
     dip_centers.sort()
 
-    # Observed span from first to last detected dip
-
     # Inter-dip gaps (observed)
     gaps = [dip_centers[i + 1] - dip_centers[i] for i in range(len(dip_centers) - 1)]
     total_gap = sum(gaps)

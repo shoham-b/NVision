@@ -52,10 +52,14 @@ def _systematic_resample_indices(cumulative_sum: np.ndarray, positions: np.ndarr
     j = 0
     m = cumulative_sum.shape[0]
     while i < n:
-        while j < m and positions[i] >= cumulative_sum[j]:
+        if j >= m - 1:
+            indices[i] = m - 1
+            i += 1
+        elif positions[i] < cumulative_sum[j]:
+            indices[i] = j
+            i += 1
+        else:
             j += 1
-        indices[i] = min(j, m - 1)
-        i += 1
     return indices
 
 
