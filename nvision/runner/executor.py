@@ -192,7 +192,7 @@ type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]
 
 
-def run_loop(  # noqa: C901
+def run_loop(
     locator_class: type[Locator],
     experiment: CoreExperiment,
     rng: random.Random,
