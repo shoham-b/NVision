@@ -707,3 +707,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         cdf = np.cumsum(sorted_weights)
         return np.interp(x, sorted_samples, cdf, left=0.0, right=1.0)
+
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        pass

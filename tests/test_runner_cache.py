@@ -1,8 +1,8 @@
 import logging
-import pytest
 from pathlib import Path
 
-from nvision.runner.cache import embed_graph_content, _decompress_content
+from nvision.runner.cache import _decompress_content, embed_graph_content
+
 
 def test_embed_graph_content_happy_path(tmp_path: Path):
     """Test that existing files are read and compressed into the content key."""
