@@ -70,7 +70,7 @@ def _unit_cube_belief_from_specs(
     return UnitCubeGridMarginalDistribution(
         model=wrapped,
         parameters=parameters,
-        physical_param_bounds=phys,
+        _physical_param_bounds=phys,
         physical_x_bounds=x_phys,
     )
 
@@ -244,6 +244,6 @@ def nv_center_smc_belief(
         a_param=a_param,
         scale=scale,
         use_information_weights=use_information_weights,
-        physical_param_bounds=merged_bounds,
+        _physical_param_bounds=merged_bounds,
         physical_x_bounds=x_phys,
     )

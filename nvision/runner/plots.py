@@ -464,20 +464,16 @@ def generate_attempt_plots(
         f"height={current_history_df.height}"
     )
     if "step" in current_history_df.columns and sweep_steps > 0:
-        tertiary_sweep_steps = run_result.tertiary_sweep_steps if run_result is not None else 0
         total_sweep_end = sweep_steps + secondary_sweep_steps
-        total_tertiary_end = total_sweep_end + tertiary_sweep_steps
         log.info(
-            f"[PHASE DEBUG] total_sweep_end={total_sweep_end}, total_tertiary_end={total_tertiary_end}, "
-            f"coarse: step < {sweep_steps}, secondary: step < {total_sweep_end}, tertiary: step < {total_tertiary_end}"
+            f"[PHASE DEBUG] total_sweep_end={total_sweep_end}, "
+            f"coarse: step < {sweep_steps}, secondary: step < {total_sweep_end}"
         )
         history_with_phase = current_history_df.with_columns(
             pl.when(pl.col("step") < sweep_steps)
             .then(pl.lit("coarse"))
             .when(pl.col("step") < total_sweep_end)
             .then(pl.lit("secondary"))
-            .when(pl.col("step") < total_tertiary_end)
-            .then(pl.lit("tertiary"))
             .otherwise(pl.lit("fine"))
             .alias("phase")
         )

@@ -2,21 +2,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-
-
-@dataclass(frozen=True)
-class SubplotOptions:
-    row: int
-    col: int
-    annotation_text: str = "acquisition window"
-    zoom_to_window: bool = False
 
 
 def _get_signal_formula(model: Any) -> str:
@@ -105,9 +96,12 @@ def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> Non
 def _add_acquisition_window_subplot(
     fig: go.Figure,
     *,
+    row: int,
+    col: int,
     window: tuple[float, float],
     full_domain: tuple[float, float] | None,
-    opts: SubplotOptions,
+    annotation_text: str = "acquisition window",
+    zoom_to_window: bool = False,
 ) -> None:
     """Shade the acquisition interval on one marginal."""
     x0, x1 = float(window[0]), float(window[1])
@@ -120,21 +114,21 @@ def _add_acquisition_window_subplot(
         line_width=1,
         line_color="rgba(46, 204, 113, 0.75)",
         layer="below",
-        annotation_text=opts.annotation_text,
+        annotation_text=annotation_text,
         annotation_position="top left",
-        row=opts.row,
-        col=opts.col,
+        row=row,
+        col=col,
     )
-    if opts.zoom_to_window:
+    if zoom_to_window:
         # Focus only on the acquisition window with 10% padding
         pad = (x1 - x0) * 0.1
-        fig.update_xaxes(range=[x0 - pad, x1 + pad], row=opts.row, col=opts.col)
+        fig.update_xaxes(range=[x0 - pad, x1 + pad], row=row, col=col)
     elif full_domain is not None:
         flo, fhi = float(full_domain[0]), float(full_domain[1])
         if math.isfinite(flo) and math.isfinite(fhi) and fhi > flo:
             lo = min(flo, x0)
             hi = max(fhi, x1)
-            fig.update_xaxes(range=[lo, hi], row=opts.row, col=opts.col)
+            fig.update_xaxes(range=[lo, hi], row=row, col=col)
 
 
 def _add_acquisition_window_single(
@@ -622,17 +616,14 @@ class BayesianMixin:
         # Initial acquisition window for frequency (will be overridden per-step)
         if acquisition_window is not None and acquisition_param and acquisition_param in posterior_inputs_by_param:
             row_ap = param_names.index(acquisition_param) + 1
-            opts = SubplotOptions(
-                row=row_ap,
-                col=1,
-                annotation_text="post-sweep acquisition",
-                zoom_to_window=True,
-            )
             _add_acquisition_window_subplot(
                 fig,
+                row=row_ap,
+                col=1,
                 window=acquisition_window,
                 full_domain=experiment_domain,
-                opts=opts,
+                annotation_text="post-sweep acquisition",
+                zoom_to_window=True,
             )
 
         _add_true_vline_subplots(fig, param_names, true_params)
@@ -654,7 +645,7 @@ class BayesianMixin:
         def play_pause_button(is_play: bool) -> dict:
             if is_play:
                 return dict(
-                    label="<b>▶ Play</b>",
+                    label="▶ Play",
                     method="animate",
                     args=[
                         None,
@@ -668,7 +659,7 @@ class BayesianMixin:
                 )
             else:
                 return dict(
-                    label="<b>⏸ Pause</b>",
+                    label="⏸ Pause",
                     method="animate",
                     args=[
                         [None],
@@ -716,10 +707,6 @@ class BayesianMixin:
                     yanchor="top",
                     showactive=False,
                     pad={"r": 10, "t": 0},
-                    bgcolor="#e6f2ff",
-                    bordercolor="#1e90ff",
-                    borderwidth=2,
-                    font=dict(size=14, color="#005b96"),
                     buttons=[
                         play_pause_button(True),
                         play_pause_button(False),
@@ -1291,18 +1278,13 @@ class BayesianMixin:
 
         from plotly.subplots import make_subplots
 
-        # Create a compact grid layout: n_rows x n_cols
-        n_cols = min(3, n_pairs)
-        n_rows = (n_pairs + n_cols - 1) // n_cols
-
-        subplot_titles = [f"{param_names[j]} vs {param_names[i]}" for i, j in pairs]
-
+        # Create a full matrix layout: n_params x n_params grid
+        # Diagonal will be empty, off-diagonal shows parameter pairs
         fig = make_subplots(
-            rows=n_rows,
-            cols=n_cols,
-            subplot_titles=subplot_titles,
-            vertical_spacing=0.1,
-            horizontal_spacing=0.1,
+            rows=n_params,
+            cols=n_params,
+            vertical_spacing=0.02,
+            horizontal_spacing=0.02,
         )
 
         # Chi-squared scale factor for confidence ellipse
@@ -1314,18 +1296,17 @@ class BayesianMixin:
         # Build animation frames showing ellipse evolution over time
         # Each subplot needs axis references: xaxis="x", xaxis2, etc.
         def get_axis_refs(row, col):
-            plot_idx = (row - 1) * n_cols + col
-            xaxis = f"x{plot_idx}" if plot_idx > 1 else "x"
-            yaxis = f"y{plot_idx}" if plot_idx > 1 else "y"
+            xaxis = f"x{col}" if col > 1 else "x"
+            yaxis = f"y{row}" if row > 1 else "y"
             return xaxis, yaxis
 
         frames = []
         for step_idx in range(n_steps):
             frame_data = []
 
-            for pair_idx, (i, j) in enumerate(pairs):
-                row = (pair_idx // n_cols) + 1
-                col = (pair_idx % n_cols) + 1
+            for i, j in pairs:
+                row = i + 1
+                col = j + 1
                 xaxis, yaxis = get_axis_refs(row, col)
 
                 fim = fisher_hist[step_idx]
@@ -1400,9 +1381,9 @@ class BayesianMixin:
         # Add initial frame data to proper subplots
         if frames:
             trace_idx = 0
-            for pair_idx, (i, j) in enumerate(pairs):
-                row = (pair_idx // n_cols) + 1
-                col = (pair_idx % n_cols) + 1
+            for i, j in pairs:
+                row = i + 1
+                col = j + 1
                 # Add ellipse trace
                 if trace_idx < len(frames[0].data):
                     fig.add_trace(frames[0].data[trace_idx], row=row, col=col)
@@ -1415,16 +1396,24 @@ class BayesianMixin:
                             fig.add_trace(frames[0].data[trace_idx], row=row, col=col)
                             trace_idx += 1
 
-        # Set axis titles per subplot
-        for pair_idx, (i, j) in enumerate(pairs):
-            row = (pair_idx // n_cols) + 1
-            col = (pair_idx % n_cols) + 1
-            fig.update_xaxes(title_text=param_names[j], autorange=True, row=row, col=col)
-            fig.update_yaxes(title_text=param_names[i], autorange=True, row=row, col=col)
+        # Table-style labels: show parameter names only on edges (first row/column)
+        # Enable autorange so axes zoom to fit the ellipse data
+        for i, j in pairs:
+            row = i + 1
+            col = j + 1
+            # Only show x-axis title on first row (top edge = column header)
+            if row == 1:
+                fig.update_xaxes(title_text=param_names[j], autorange=True, row=row, col=col)
+            else:
+                fig.update_xaxes(showticklabels=False, autorange=True, row=row, col=col)
+            # Only show y-axis title on first column (left edge = row header)
+            if col == 1:
+                fig.update_yaxes(title_text=param_names[i], autorange=True, row=row, col=col)
+            else:
+                fig.update_yaxes(showticklabels=False, autorange=True, row=row, col=col)
 
         # Layout with animation controls - autosize to avoid scrollbars
         fig.update_layout(
-            height=max(400, 300 * n_rows),
             autosize=True,
             template="plotly_white",
             showlegend=True,

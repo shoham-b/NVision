@@ -51,11 +51,15 @@ def generators_narrow() -> list[tuple[str, object]]:
     return [
         (
             "NVCenter-lorentzian-narrow",
-            NVCenterCoreGenerator(x_min=2.87e9, x_max=2.93e9, variant="lorentzian", center_freq_fraction=0.1),
+            NVCenterCoreGenerator(
+                x_min=2.87e9, x_max=2.93e9, variant="lorentzian", center_freq_fraction=0.1
+            ),
         ),
         (
             "NVCenter-voigt-narrow",
-            NVCenterCoreGenerator(x_min=2.87e9, x_max=2.93e9, variant="voigt", center_freq_fraction=0.1),
+            NVCenterCoreGenerator(
+                x_min=2.87e9, x_max=2.93e9, variant="voigt", center_freq_fraction=0.1
+            ),
         ),
     ]
 

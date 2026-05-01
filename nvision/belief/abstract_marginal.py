@@ -206,6 +206,8 @@ class AbstractMarginalDistribution(ABC):
             CDF values corresponding to x.
         """
 
+    from collections.abc import Sequence
+
     def batch_update(self, observations: Sequence[Observation]) -> None:
         """Update belief from a sequence of observations.
 
@@ -220,6 +222,7 @@ class AbstractMarginalDistribution(ABC):
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
         """Physical bounds for each parameter (same as ``parameter_bounds`` for non-unit-cube beliefs)."""
 
+    @abstractmethod
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
         """Shrink physical bounds for ``param_name`` after a coarse sweep.
 

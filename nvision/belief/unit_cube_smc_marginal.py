@@ -24,11 +24,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
     metrics, plotting, and comparison.
     """
 
-    physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
+    _physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     physical_x_bounds: tuple[float, float] = (0.0, 1.0)
 
     @property
-    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:  # type: ignore[override]
+    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
         if hasattr(self, "_physical_param_bounds"):
             return self._physical_param_bounds
         return {}
@@ -122,7 +122,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             annealed_jitter_decay=self.annealed_jitter_decay,
             elitism_ratio=self.elitism_ratio,
             use_information_weights=self.use_information_weights,
-            physical_param_bounds=dict(self.physical_param_bounds),
+            _physical_param_bounds=dict(self.physical_param_bounds),
             physical_x_bounds=self.physical_x_bounds,
         )
         dist._param_names = self._param_names.copy()

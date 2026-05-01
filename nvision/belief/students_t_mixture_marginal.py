@@ -43,10 +43,15 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
                 if name in self._physical_param_bounds:
                     lo, hi = self._physical_param_bounds[name]
                     self.means[0, i] = (lo + hi) / 2.0
-                    self.covariances[0, i, i] = ((hi - lo) / 4.0) ** 2
+                    self.covariances[0, i, i] = ((hi - lo) / 4.0)**2
 
     @property
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
+        return self.parameter_bounds
+
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        pass
+
         return self._physical_param_bounds
 
     def update(self, obs: Observation) -> None:
@@ -110,13 +115,12 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
                 return 1e9
 
         x0 = self.means[0]
-        res = scipy.optimize.minimize(nll, x0, method="L-BFGS-B")
+        res = scipy.optimize.minimize(nll, x0, method='L-BFGS-B')
         self.means[0] = res.x
 
         try:
             # Requires numdifftools, if not present fallback to identity or previous
             import numdifftools as nd
-
             hess = nd.Hessian(nll)(res.x)
             eigvals, eigvecs = np.linalg.eigh(hess)
             eigvals = np.maximum(eigvals, 1e-6)
@@ -150,7 +154,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             covariances=self.covariances.copy(),
             dfs=self.dfs.copy(),
             _physical_param_bounds=self._physical_param_bounds.copy(),
-            last_obs=self.last_obs,
+            last_obs=self.last_obs
         )
         dist._xs = self._xs.copy()
         dist._ys = self._ys.copy()
@@ -162,13 +166,12 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         # (could use multivariate t here)
         samples = np.random.multivariate_normal(self.means[0], self.covariances[0], size=n)
         return ParameterValues.from_mapping(
-
-            self._param_names, {name: samples[:, i] for i, name in enumerate(self._param_names)}
+            self._param_names,
+            {name: samples[:, i] for i, name in enumerate(self._param_names)}
         )
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import t
-
         idx = self._param_names.index(param_name)
         mu = self.means[0, idx]
         sigma = np.sqrt(max(self.covariances[0, idx, idx], 1e-12))
@@ -176,7 +179,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import t
-
         idx = self._param_names.index(param_name)
         mu = self.means[0, idx]
         sigma = np.sqrt(max(self.covariances[0, idx, idx], 1e-12))

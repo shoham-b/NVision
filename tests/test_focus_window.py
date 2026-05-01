@@ -10,7 +10,7 @@ shown in the UI:
     post-sweep focus band drawn on Bayesian plots.
 
 All synthetic signals contain a clear dip so *any* of the above paths that
-returns the full ``[0, 1]`` domain is considered a failure.
+returns the full ``[0, 1]`` domain is a bug.
 """
 
 from __future__ import annotations
@@ -39,13 +39,16 @@ class TestInferFocusWindowFallbacks:
             y -= 0.9 * np.exp(-0.5 * ((x - centre) / 0.025) ** 2)
 
         from nvision.models.observation import ObservationHistory
-
         hist = ObservationHistory(500)
         for xi, yi in zip(x, y, strict=False):
             hist.append(_observation(float(xi), float(yi)))
 
-        lo, hi = infer_focus_window(hist, 0.0, 1.0, expected_dips=3, noise_threshold=0.5)
-        assert hi - lo < 0.9, f"infer_focus_window returned too-wide window ({lo}, {hi})"
+        lo, hi = infer_focus_window(
+            hist, 0.0, 1.0, expected_dips=3, noise_threshold=0.5
+        )
+        assert hi - lo < 0.9, (
+            f"infer_focus_window returned too-wide window ({lo}, {hi})"
+        )
 
     def test_refocus_infer_focus_window_no_false_full_domain(self):
         """``_refocus_infer_focus_window`` alias must also narrow."""
@@ -53,13 +56,14 @@ class TestInferFocusWindowFallbacks:
         y = np.ones_like(x)
         y -= 0.8 * np.exp(-0.5 * ((x - 0.5) / 0.03) ** 2)
         from nvision.models.observation import ObservationHistory
-
         hist = ObservationHistory(300)
         for xi, yi in zip(x, y, strict=False):
             hist.append(_observation(float(xi), float(yi)))
 
         lo, hi = _refocus_infer_focus_window(hist, 0.0, 1.0, noise_threshold=0.5)
-        assert hi - lo < 0.5, f"_refocus_infer_focus_window returned too-wide window ({lo}, {hi})"
+        assert hi - lo < 0.5, (
+            f"_refocus_infer_focus_window returned too-wide window ({lo}, {hi})"
+        )
 
 
 class TestSweepingLocatorFocusWindow:
@@ -73,27 +77,26 @@ class TestSweepingLocatorFocusWindow:
         from nvision.models.experiment import Observation
         from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
 
+        random.Random(42)
 
         # Dummy model with a single expected dip
         class DummyModel:
             inner = property(lambda self: self)
-
             def parameter_names(self):
                 return ["frequency"]
-
             def expected_dip_count(self):
                 return 1
-
             def signal_min_span(self, domain_width):
                 return domain_width * 0.01
-
             def signal_max_span(self, domain_width):
                 return domain_width * 0.1
 
         def _dummy_belief():
             grid = np.linspace(0.0, 1.0, 64)
             posterior = np.ones(64) / 64
-            parameters = [GridParameter(name="frequency", bounds=(0.0, 1.0), grid=grid, posterior=posterior)]
+            parameters = [
+                GridParameter(name="frequency", bounds=(0.0, 1.0), grid=grid, posterior=posterior)
+            ]
             return GridMarginalDistribution(model=DummyModel(), parameters=parameters)
 
         locator = SobolSweepLocator.create(
@@ -117,4 +120,6 @@ class TestSweepingLocatorFocusWindow:
 
         lo, hi = locator.acquisition_window()
         assert locator._signal_found, "_signal_found should be True for a clear dip"
-        assert hi - lo < 0.9, f"SobolSweepLocator window ({lo}, {hi}) is essentially the full domain"
+        assert hi - lo < 0.9, (
+            f"SobolSweepLocator window ({lo}, {hi}) is essentially the full domain"
+        )
