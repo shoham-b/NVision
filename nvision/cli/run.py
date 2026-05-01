@@ -292,6 +292,14 @@ def run(  # noqa: C901
         Path | None,
         typer.Option("--logs-root", help="Custom logs directory (default: logs/ under out)"),
     ] = None,
+    gcp: Annotated[
+        bool,
+        typer.Option("--gcp", help="Upload results to GCP"),
+    ] = False,
+    gcp_bucket: Annotated[
+        str | None,
+        typer.Option("--gcp-bucket", help="GCP bucket to upload results to"),
+    ] = None,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -613,6 +621,21 @@ def run(  # noqa: C901
     except Exception as exc:
         log.warning(f"Failed to build HTML index: {exc}")
 
+    if gcp and not gcp_bucket:
+        console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket to be specified")
+        raise typer.Exit(1)
+
     log.info(f"Wrote locator results to: {out_dir}")
     log.info(f"View results: uv run python -m nvision serve --dir {out_dir}")
+
+    if gcp and gcp_bucket:
+        from nvision.tools.gcp import get_public_url, upload_artifacts
+
+        try:
+            upload_artifacts(out_dir, gcp_bucket)
+            public_url = get_public_url(gcp_bucket, out_dir.name)
+            console.print(f"\n[bold green]Uploaded to GCP:[/bold green] {public_url}")
+        except Exception as exc:
+            log.warning(f"Failed to upload to GCP: {exc}")
+
     return 0
