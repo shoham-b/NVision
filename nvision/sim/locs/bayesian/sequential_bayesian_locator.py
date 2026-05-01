@@ -222,7 +222,7 @@ class SequentialBayesianLocator(Locator):
         """Return the next measurement point during the initial sweep phase."""
         return self._staged_sobol.next()
 
-    def _on_sweep_complete(self) -> None:
+    def _on_sweep_complete(self) -> None:  # noqa: C901
         """Hook called once when the initial sweep phase finishes.
 
         Default implementation finalizes the staged locator, performs a batch

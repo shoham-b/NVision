@@ -23,25 +23,10 @@ def _gaussian_likelihood_jit(obs_y: float, predicted: np.ndarray, sigma: float) 
 
 @njit(cache=True)
 def _poisson_likelihood_jit(k: int, predicted: np.ndarray, scale: float) -> np.ndarray:
-    n = predicted.shape[0]
-    log_p = np.empty(n, dtype=np.float64)
-    max_log_p = -1e300
+    lam = np.maximum(predicted * scale, 1e-12)
     lgamma_k = math.lgamma(k + 1.0)
-    min_lam = 1e-12
-
-    for i in range(n):
-        lam = predicted[i] * scale
-        if lam < min_lam:
-            lam = min_lam
-        lp = k * math.log(lam) - lam - lgamma_k
-        log_p[i] = lp
-        if lp > max_log_p:
-            max_log_p = lp
-
-    out = np.empty(n, dtype=np.float64)
-    for i in range(n):
-        out[i] = math.exp(log_p[i] - max_log_p)
-    return out
+    log_p = k * np.log(lam) - lam - lgamma_k
+    return np.exp(log_p - np.max(log_p))
 
 
 def _gaussian_likelihood(obs_y: float, predicted: np.ndarray, sigma: float) -> np.ndarray:
