@@ -752,7 +752,7 @@ class StagedSobolSweepLocator(Locator):
             else:
                 expected_uniform = float(self.max_steps)
         expected_focused = num_dips * 5.0 + 20.0 if num_dips > 0 else expected_uniform
-        measurements_done = min(int(round(expected_uniform)), self.max_steps)
+        measurements_done = min(round(expected_uniform), self.max_steps)
         efficiency = expected_uniform / max(measurements_done, 1)
         return {
             "measurements_done": measurements_done,
