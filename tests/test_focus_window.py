@@ -10,7 +10,7 @@ shown in the UI:
     post-sweep focus band drawn on Bayesian plots.
 
 All synthetic signals contain a clear dip so *any* of the above paths that
-returns the full ``[0, 1]`` domain is a bug.
+returns the full ``[0, 1]`` domain is considered a failure.
 """
 
 from __future__ import annotations
@@ -77,7 +77,8 @@ class TestSweepingLocatorFocusWindow:
         from nvision.models.experiment import Observation
         from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
 
-        random.Random(42)
+
+        rng = random.Random(42)
 
         # Dummy model with a single expected dip
         class DummyModel:
