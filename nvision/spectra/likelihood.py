@@ -11,10 +11,14 @@ from numba import njit
 
 @njit(cache=True)
 def _gaussian_likelihood_jit(obs_y: float, predicted: np.ndarray, sigma: float) -> np.ndarray:
+    n = predicted.shape[0]
+    out = np.empty(n, dtype=np.float64)
     sigma = max(float(sigma), 1e-9)
     inv_sigma = 1.0 / sigma
-    z = (obs_y - predicted) * inv_sigma
-    return np.exp(-0.5 * z * z)
+    for i in range(n):
+        z = (obs_y - predicted[i]) * inv_sigma
+        out[i] = math.exp(-0.5 * z * z)
+    return out
 
 
 @njit(cache=True)
