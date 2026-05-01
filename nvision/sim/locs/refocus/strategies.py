@@ -136,7 +136,7 @@ def _merge_dips(dips: list[tuple[float, float]]) -> list[tuple[float, float]]:
     return merged
 
 
-def infer_dip_widths(
+def infer_dip_widths(  # noqa: C901
     xs: np.ndarray,
     ys: np.ndarray,
     dips: list[tuple[float, float]],

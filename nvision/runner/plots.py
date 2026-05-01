@@ -427,7 +427,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     return extra
 
 
-def generate_attempt_plots(
+def generate_attempt_plots(  # noqa: C901
     viz: Viz,
     entry_base: dict[str, Any],
     attempt_idx_in_combo: int,
