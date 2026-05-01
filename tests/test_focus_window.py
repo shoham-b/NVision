@@ -16,12 +16,10 @@ returns the full ``[0, 1]`` domain is a bug.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from nvision.models.observation import Observation
-from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-from nvision.sim.locs.refocus.window import infer_focus_window
 from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
+from nvision.sim.locs.refocus.window import infer_focus_window
 
 
 def _observation(x: float, y: float) -> Observation:
@@ -41,16 +39,13 @@ class TestInferFocusWindowFallbacks:
             y -= 0.9 * np.exp(-0.5 * ((x - centre) / 0.025) ** 2)
 
         from nvision.models.observation import ObservationHistory
+
         hist = ObservationHistory(500)
-        for xi, yi in zip(x, y):
+        for xi, yi in zip(x, y, strict=False):
             hist.append(_observation(float(xi), float(yi)))
 
-        lo, hi = infer_focus_window(
-            hist, 0.0, 1.0, expected_dips=3, noise_threshold=0.5
-        )
-        assert hi - lo < 0.9, (
-            f"infer_focus_window returned too-wide window ({lo}, {hi})"
-        )
+        lo, hi = infer_focus_window(hist, 0.0, 1.0, expected_dips=3, noise_threshold=0.5)
+        assert hi - lo < 0.9, f"infer_focus_window returned too-wide window ({lo}, {hi})"
 
     def test_refocus_infer_focus_window_no_false_full_domain(self):
         """``_refocus_infer_focus_window`` alias must also narrow."""
@@ -58,14 +53,13 @@ class TestInferFocusWindowFallbacks:
         y = np.ones_like(x)
         y -= 0.8 * np.exp(-0.5 * ((x - 0.5) / 0.03) ** 2)
         from nvision.models.observation import ObservationHistory
+
         hist = ObservationHistory(300)
-        for xi, yi in zip(x, y):
+        for xi, yi in zip(x, y, strict=False):
             hist.append(_observation(float(xi), float(yi)))
 
         lo, hi = _refocus_infer_focus_window(hist, 0.0, 1.0, noise_threshold=0.5)
-        assert hi - lo < 0.5, (
-            f"_refocus_infer_focus_window returned too-wide window ({lo}, {hi})"
-        )
+        assert hi - lo < 0.5, f"_refocus_infer_focus_window returned too-wide window ({lo}, {hi})"
 
 
 class TestSweepingLocatorFocusWindow:
@@ -73,31 +67,34 @@ class TestSweepingLocatorFocusWindow:
 
     def test_sweep_locator_narrows_window(self):
         """A single deep dip in history must make _set_acquisition_window narrow."""
-        from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
-        from nvision.models.experiment import Observation
-        from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
         import random
 
-        rng = random.Random(42)
+        from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
+        from nvision.models.experiment import Observation
+        from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
+
+        random.Random(42)
 
         # Dummy model with a single expected dip
         class DummyModel:
             inner = property(lambda self: self)
+
             def parameter_names(self):
                 return ["frequency"]
+
             def expected_dip_count(self):
                 return 1
+
             def signal_min_span(self, domain_width):
                 return domain_width * 0.01
+
             def signal_max_span(self, domain_width):
                 return domain_width * 0.1
 
         def _dummy_belief():
             grid = np.linspace(0.0, 1.0, 64)
             posterior = np.ones(64) / 64
-            parameters = [
-                GridParameter(name="frequency", bounds=(0.0, 1.0), grid=grid, posterior=posterior)
-            ]
+            parameters = [GridParameter(name="frequency", bounds=(0.0, 1.0), grid=grid, posterior=posterior)]
             return GridMarginalDistribution(model=DummyModel(), parameters=parameters)
 
         locator = SobolSweepLocator.create(
@@ -112,7 +109,7 @@ class TestSweepingLocatorFocusWindow:
         # Populate history with a clear dip at x=0.5 (depth 50 %)
         xs = np.linspace(0, 1, 60)
         ys = 1.0 - 0.5 * np.exp(-0.5 * ((xs - 0.5) / 0.05) ** 2)
-        for x, y in zip(xs, ys):
+        for x, y in zip(xs, ys, strict=False):
             locator.history.append(Observation(x=x, signal_value=y))
             locator.step_count += 1
 
@@ -121,6 +118,4 @@ class TestSweepingLocatorFocusWindow:
 
         lo, hi = locator.acquisition_window()
         assert locator._signal_found, "_signal_found should be True for a clear dip"
-        assert hi - lo < 0.9, (
-            f"SobolSweepLocator window ({lo}, {hi}) is essentially the full domain"
-        )
+        assert hi - lo < 0.9, f"SobolSweepLocator window ({lo}, {hi}) is essentially the full domain"

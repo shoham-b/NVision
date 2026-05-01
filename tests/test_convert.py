@@ -1,5 +1,3 @@
-import pytest
-
 from nvision.runner.convert import extract_peak_estimates
 
 

@@ -306,10 +306,7 @@ def run(  # noqa: C901
         group = sim_run_groups.get_run_group(run_group)
         # Cartesian product of the group's explicit name lists
         combination_names = [
-            (g, n, s)
-            for g in group.generator_names
-            for n in group.noise_names
-            for s in group.strategy_names
+            (g, n, s) for g in group.generator_names for n in group.noise_names for s in group.strategy_names
         ]
     elif not all_experiments:
         # Backward-compatible default: NVCenter category (old default_run_case behaviour)
