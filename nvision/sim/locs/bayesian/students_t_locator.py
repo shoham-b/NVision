@@ -14,8 +14,8 @@ from nvision.models.observation import Observation
 
 class StudentsTLocator(Locator):
     """Parametric Bayesian Locator using Student's t approximations.
-    
-    Performs fully analytical Bayesian back inference using MAP optimization 
+
+    Performs fully analytical Bayesian back inference using MAP optimization
     and Laplace approximation (inverse Hessian) to update belief parameters,
     bypassing SMC particles or discrete grids.
     """
@@ -85,11 +85,7 @@ class StudentsTLocator(Locator):
                 raise ValueError("StudentsTLocator requires either signal_model or a builder.")
 
         bounds = dict(parameter_bounds) if parameter_bounds else {}
-        belief = StudentsTMixtureMarginalDistribution(
-            model=model,
-            _physical_param_bounds=bounds,
-            dfs=np.array([df])
-        )
+        belief = StudentsTMixtureMarginalDistribution(model=model, _physical_param_bounds=bounds, dfs=np.array([df]))
 
         return cls(
             belief=belief,
