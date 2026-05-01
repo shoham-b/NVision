@@ -206,7 +206,7 @@ class AbstractMarginalDistribution(ABC):
             CDF values corresponding to x.
         """
 
-    def batch_update(self, observations: Sequence[Observation]) -> None:  # noqa: F821
+    def batch_update(self, observations: Sequence[Observation]) -> None:
         """Update belief from a sequence of observations.
 
         Default implementation loops over :meth:`update`.  Subclasses may
