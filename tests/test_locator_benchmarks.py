@@ -21,14 +21,11 @@ import pytest
 
 from nvision import (
     CoreExperiment,
-    GaussianModel,
     MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
-    Observer,
     run_loop,
 )
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
-from nvision.models.experiment import Observation
 from nvision.models.locator import Locator
 from nvision.sim.locs.bayesian.belief_builders import (
     nv_center_belief,

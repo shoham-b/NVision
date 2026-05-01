@@ -16,12 +16,10 @@ returns the full ``[0, 1]`` domain is a bug.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from nvision.models.observation import Observation
-from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-from nvision.sim.locs.refocus.window import infer_focus_window
 from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_window
+from nvision.sim.locs.refocus.window import infer_focus_window
 
 
 def _observation(x: float, y: float) -> Observation:
@@ -73,10 +71,11 @@ class TestSweepingLocatorFocusWindow:
 
     def test_sweep_locator_narrows_window(self):
         """A single deep dip in history must make _set_acquisition_window narrow."""
-        from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
-        from nvision.models.experiment import Observation
-        from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
         import random
+
+        from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
+        from nvision.models.experiment import Observation
+        from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
 
         rng = random.Random(42)
 
