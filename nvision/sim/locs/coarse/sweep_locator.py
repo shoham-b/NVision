@@ -236,7 +236,7 @@ class SweepingLocator(Locator):
         ys = self.history.ys
 
         min_idx = int(np.argmin(ys))
-        best_point_norm = float(xs[min_idx])
+        float(xs[min_idx])
         min_signal = float(ys[min_idx])
 
         background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)) :]))
@@ -519,7 +519,7 @@ class SweepingLocator(Locator):
         else:
             expected_uniform = float(self.max_steps)
         metrics["expected_uniform_points"] = expected_uniform
-        metrics["measurements_done"] = min(int(round(expected_uniform)), self.max_steps)
+        metrics["measurements_done"] = min(round(expected_uniform), self.max_steps)
         efficiency = expected_uniform / max(metrics["measurements_done"], 1)
         metrics["sweep_efficiency"] = efficiency
         return metrics

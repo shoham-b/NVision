@@ -10,7 +10,7 @@ shown in the UI:
     post-sweep focus band drawn on Bayesian plots.
 
 All synthetic signals contain a clear dip so *any* of the above paths that
-returns the full ``[0, 1]`` domain is a bug.
+returns the full ``[0, 1]`` domain is considered a failure.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class TestInferFocusWindowFallbacks:
         from nvision.models.observation import ObservationHistory
 
         hist = ObservationHistory(500)
-        for xi, yi in zip(x, y):
+        for xi, yi in zip(x, y, strict=False):
             hist.append(_observation(float(xi), float(yi)))
 
         lo, hi = infer_focus_window(hist, 0.0, 1.0, expected_dips=3, noise_threshold=0.5)
@@ -55,7 +55,7 @@ class TestInferFocusWindowFallbacks:
         from nvision.models.observation import ObservationHistory
 
         hist = ObservationHistory(300)
-        for xi, yi in zip(x, y):
+        for xi, yi in zip(x, y, strict=False):
             hist.append(_observation(float(xi), float(yi)))
 
         lo, hi = _refocus_infer_focus_window(hist, 0.0, 1.0, noise_threshold=0.5)
@@ -73,7 +73,6 @@ class TestSweepingLocatorFocusWindow:
         from nvision.models.experiment import Observation
         from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
 
-        rng = random.Random(42)
 
         # Dummy model with a single expected dip
         class DummyModel:
@@ -109,7 +108,7 @@ class TestSweepingLocatorFocusWindow:
         # Populate history with a clear dip at x=0.5 (depth 50 %)
         xs = np.linspace(0, 1, 60)
         ys = 1.0 - 0.5 * np.exp(-0.5 * ((xs - 0.5) / 0.05) ** 2)
-        for x, y in zip(xs, ys):
+        for x, y in zip(xs, ys, strict=False):
             locator.history.append(Observation(x=x, signal_value=y))
             locator.step_count += 1
 

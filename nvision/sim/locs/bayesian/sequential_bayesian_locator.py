@@ -113,7 +113,7 @@ class SequentialBayesianLocator(Locator):
         self._convergence_streak = 0
         # Stored for noise-aware dip detection during sweep refocus.
         if noise_std is None or float(noise_std) <= 0:
-            raise ValueError("noise_std must be a positive float; got %r" % noise_std)
+            raise ValueError(f"noise_std must be a positive float; got {noise_std!r}")
         self._noise_std: float = float(noise_std)
         # Pre-computed maximum expected noise deviation for mid-sweep threshold.
         # When provided by the executor (via CompositeNoise.estimated_max_noise_deviation),
