@@ -85,7 +85,7 @@ def infer_focus_window(
     dip_centers.sort()
 
     # Observed span from first to last detected dip
-    observed_span = dip_centers[-1] - dip_centers[0] if len(dip_centers) > 1 else max_dip_width
+    dip_centers[-1] - dip_centers[0] if len(dip_centers) > 1 else max_dip_width
 
     # Inter-dip gaps (observed)
     gaps = [dip_centers[i + 1] - dip_centers[i] for i in range(len(dip_centers) - 1)]
@@ -178,7 +178,7 @@ def infer_focus_window_physical(
         # history.xs is physical; normalise to [0,1] before inference
         xs_norm = (xs - domain_lo) / domain_width
         temp_history = ObservationHistory(history.max_steps)
-        for x_norm, y in zip(xs_norm, ys):
+        for x_norm, y in zip(xs_norm, ys, strict=False):
             temp_history.append(Observation(x=float(x_norm), signal_value=float(y)))
         lo_norm, hi_norm = infer_focus_window(
             temp_history,
