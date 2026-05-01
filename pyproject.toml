@@ -13,6 +13,7 @@ dependencies = [
     "rich>=13.0",
     "numba>=0.65.1",
     "tzdata>=2026.2",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
