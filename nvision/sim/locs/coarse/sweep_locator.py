@@ -232,7 +232,6 @@ class SweepingLocator(Locator):
         if self.history.count < 5:
             return
 
-        xs = self.history.xs
         ys = self.history.ys
 
         min_idx = int(np.argmin(ys))

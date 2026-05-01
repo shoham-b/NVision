@@ -75,8 +75,7 @@ def _dummy_belief(model) -> GridMarginalDistribution:
     grid = np.linspace(0.0, 1.0, 64)
     posterior = np.ones(64) / 64
     parameters = [
-        GridParameter(name=name, bounds=(0.0, 1.0), grid=grid, posterior=posterior)
-        for name in model.parameter_names()
+        GridParameter(name=name, bounds=(0.0, 1.0), grid=grid, posterior=posterior) for name in model.parameter_names()
     ]
     return GridMarginalDistribution(model=model, parameters=parameters)
 
@@ -95,6 +94,7 @@ def _measure(fn: Any, repeats: int = _BENCHMARK_REPEATS) -> float:
 # ---------------------------------------------------------------------------
 # Single-step benchmarks
 # ---------------------------------------------------------------------------
+
 
 class _StepTimer:
     """Helper to warm up a locator and time one step."""
@@ -170,7 +170,6 @@ class TestSingleStepOnePeak:
         ms = _sweep_step_ms(StagedSobolSweepLocator, exp, max_steps=30, domain_lo=exp.x_min, domain_hi=exp.x_max)
         print(f"StagedSobolSweepLocator one-step: {ms:.3f} ms")
 
-
     def test_maximum_likelihood(self):
         exp = _one_peak_experiment()
         ms = _bayesian_step_ms(
@@ -210,7 +209,10 @@ class TestSingleStepOnePeak:
 # Overall run benchmarks
 # ---------------------------------------------------------------------------
 
-def _overall_run_ms(locator_class: type[Locator], experiment: CoreExperiment, max_steps: int = 20, **config: Any) -> float:
+
+def _overall_run_ms(
+    locator_class: type[Locator], experiment: CoreExperiment, max_steps: int = 20, **config: Any
+) -> float:
     rng = random.Random(2)
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
     if needs_belief:
@@ -262,7 +264,6 @@ class TestOverallOnePeak:
         exp = _one_peak_experiment()
         ms = _overall_run_ms(StagedSobolSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
         print(f"StagedSobolSweepLocator overall: {ms:.1f} ms")
-
 
     def test_maximum_likelihood(self):
         exp = _one_peak_experiment()

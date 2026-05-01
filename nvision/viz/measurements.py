@@ -262,10 +262,13 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
         coarse_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "coarse"]
         secondary_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "secondary"]
         secondary_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "secondary"]
+        tertiary_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "tertiary"]
+        tertiary_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "tertiary"]
         fine_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "fine"]
         fine_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "fine"]
         coarse_depth = [depth_percent(y) for y in coarse_y]
         secondary_depth = [depth_percent(y) for y in secondary_y]
+        tertiary_depth = [depth_percent(y) for y in tertiary_y]
         fine_depth = [depth_percent(y) for y in fine_y]
 
         if coarse_x:
@@ -292,6 +295,21 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
                     name="measurements (secondary)",
                     marker=dict(size=7, color="rgba(255,127,14,0.9)", line=dict(width=0.6, color="#8B4513")),
                     customdata=secondary_depth,
+                    hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
+                ),
+                row=row,
+                col=col,
+            )
+
+        if tertiary_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=tertiary_x,
+                    y=tertiary_y,
+                    mode="markers",
+                    name="measurements (tertiary)",
+                    marker=dict(size=7, color="rgba(148,0,211,0.9)", line=dict(width=0.6, color="#4B0082")),
+                    customdata=tertiary_depth,
                     hovertemplate="x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
                 ),
                 row=row,
@@ -412,7 +430,7 @@ def _add_per_dip_windows_overlay(
         )
 
 
-def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:
+def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:  # noqa: C901
     """Detect dip segments from dense signal evaluation using percentile thresholding."""
     xs = np.asarray(xs)
     ys = np.asarray(ys)
@@ -482,10 +500,14 @@ def _add_dip_boundary_lines(
         return
     row, col = _row_col(has_metrics)
     boundary_colors = [
-        "rgba(231, 76, 60, 0.85)",   # Red
+        "rgba(231, 76, 60, 0.85)",  # Red
         "rgba(46, 204, 113, 0.85)",  # Green
         "rgba(155, 89, 182, 0.85)",  # Purple
     ]
+
+    # We want annotations to appear around the middle/top
+    # Let's find the maximum Y value so we can place an annotation near the top, or just use paper coords
+
     for i, (lo, hi) in enumerate(segments):
         color = boundary_colors[i % len(boundary_colors)]
         for xb, side in ((lo, "start"), (hi, "end")):
@@ -502,6 +524,29 @@ def _add_dip_boundary_lines(
                 row=row,
                 col=col,
             )
+
+        # Add a width annotation in the middle of the dip
+        width = hi - lo
+        mid_x = (lo + hi) / 2.0
+
+        # Format width: use scientific notation if very small, otherwise precision 3
+        w_str = f"w={width:.2e}" if width < 0.0001 else f"w={width:.3g}"
+
+        fig.add_annotation(
+            x=mid_x,
+            y=0.9,
+            yref=f"y{row} domain" if row > 1 else "y domain",
+            xref=f"x{col}" if col > 1 else "x",
+            text=f"↔ {w_str}",
+            showarrow=False,
+            font=dict(size=11, color=color),
+            bgcolor="rgba(255, 255, 255, 0.7)",
+            bordercolor=color,
+            borderwidth=1,
+            borderpad=3,
+            row=row,
+            col=col,
+        )
 
 
 def _add_metric_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool) -> None:
@@ -681,6 +726,10 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
         ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
         coarse_x: list[float] = []
         coarse_y: list[float | None] = []
+        secondary_x: list[float] = []
+        secondary_y: list[float | None] = []
+        tertiary_x: list[float] = []
+        tertiary_y: list[float | None] = []
         fine_x: list[float] = []
         fine_y: list[float | None] = []
         fine_step: list[int] = []
@@ -688,6 +737,12 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
             if p == "coarse":
                 coarse_x.append(float(x))
                 coarse_y.append(_json_safe_float(y))
+            elif p == "secondary":
+                secondary_x.append(float(x))
+                secondary_y.append(_json_safe_float(y))
+            elif p == "tertiary":
+                tertiary_x.append(float(x))
+                tertiary_y.append(_json_safe_float(y))
             elif p == "fine":
                 fine_x.append(float(x))
                 fine_y.append(_json_safe_float(y))
@@ -696,6 +751,10 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
             "mode": "phases",
             "coarse_x": coarse_x,
             "coarse_y": coarse_y,
+            "secondary_x": secondary_x,
+            "secondary_y": secondary_y,
+            "tertiary_x": tertiary_x,
+            "tertiary_y": tertiary_y,
             "fine_x": fine_x,
             "fine_y": fine_y,
             "fine_step": fine_step,
