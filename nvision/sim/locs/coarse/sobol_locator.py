@@ -431,7 +431,9 @@ class Stage3SobolLocator:
         # Re-infer focus window from the full history with a more inclusive
         # threshold so that shallow dips are captured and the window can expand.
         new_lo, new_hi = _infer_tight_focus_window(
-            self.history, self.domain_lo, self.domain_hi,
+            self.history,
+            self.domain_lo,
+            self.domain_hi,
             depth_fraction=0.25,
         )
         # If the inference widened the window, expand our sampling bounds so
@@ -666,8 +668,12 @@ class StagedSobolSweepLocator(Locator):
         domain_width = self.domain_hi - self.domain_lo
         expected_window_width = inner.signal_max_span(domain_width)
         self._stage3 = Stage3SobolLocator(
-            self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
-            expected_dips=expected_dips, noise_std=self.noise_std,
+            self._sobol_gen,
+            self.domain_lo,
+            self.domain_hi,
+            self.history,
+            expected_dips=expected_dips,
+            noise_std=self.noise_std,
             expected_window_width=expected_window_width,
         )
         self._active_locator = self._stage3

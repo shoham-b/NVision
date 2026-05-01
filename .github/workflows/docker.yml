@@ -18,6 +18,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [serve, worker]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,7 +28,7 @@ jobs:
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: Dockerfile
+          dockerfile: docker/${{ matrix.image }}/Dockerfile
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -34,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}-${{ matrix.image }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=tag
@@ -52,7 +55,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ./docker/${{ matrix.image }}/Dockerfile
           target: runtime
           push: ${{ github.event_name == 'push' }}
           load: ${{ github.event_name != 'push' }}
@@ -71,7 +74,13 @@ jobs:
           TAGS: ${{ steps.meta.outputs.tags }}
 
       - name: Smoke test container (PRs)
-        if: github.event_name != 'push'
-        run: docker run --rm "$IMAGE" run-all --repeats 1 --loc-max-steps 25
+        if: github.event_name != 'push' && matrix.image == 'worker'
+        run: docker run --rm "$IMAGE" all --repeats 1
+        env:
+          IMAGE: ${{ steps.pick.outputs.tag }}
+
+      - name: Smoke test container (PRs)
+        if: github.event_name != 'push' && matrix.image == 'serve'
+        run: docker run -d --name serve_test "$IMAGE" && docker stop serve_test
         env:
           IMAGE: ${{ steps.pick.outputs.tag }}
