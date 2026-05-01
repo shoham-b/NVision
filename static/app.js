@@ -650,11 +650,20 @@ function main() {
 
         function formatFrequency(value) {
             if (typeof value === 'number' && Number.isFinite(value)) {
-                const scaled = value / 1e9;
-                if (Math.abs(scaled) >= 0.01) {
-                    return scaled.toFixed(2) + ' B';
+                const absVal = Math.abs(value);
+                if (absVal >= 1e9) {
+                    return (value / 1e9).toFixed(2) + ' GHz';
+                } else if (absVal >= 1e6) {
+                    return (value / 1e6).toFixed(2) + ' MHz';
+                } else if (absVal >= 1e3) {
+                    return (value / 1e3).toFixed(2) + ' kHz';
+                } else {
+                    if (absVal >= 0.01 || absVal === 0) {
+                        return value.toFixed(2) + ' Hz';
+                    } else {
+                        return value.toPrecision(3) + ' Hz';
+                    }
                 }
-                return scaled.toPrecision(3) + ' B';
             }
             return 'N/A';
         }

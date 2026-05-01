@@ -13,14 +13,11 @@ def test_gaussian_fisher_matrix_1d() -> None:
     result = gaussian_fisher_matrix(grad, sigma)
 
     # Expected: outer(g, g) / (sigma^2)
-    expected_outer = np.array([
-        [1.0, 2.0, 3.0],
-        [2.0, 4.0, 6.0],
-        [3.0, 6.0, 9.0]
-    ])
+    expected_outer = np.array([[1.0, 2.0, 3.0], [2.0, 4.0, 6.0], [3.0, 6.0, 9.0]])
     expected = expected_outer / 4.0
 
     np.testing.assert_allclose(result, expected)
+
 
 def test_gaussian_fisher_matrix_2d() -> None:
     grad = np.array([[1.0, 2.0], [3.0, 4.0]])
@@ -34,6 +31,7 @@ def test_gaussian_fisher_matrix_2d() -> None:
 
     np.testing.assert_allclose(result, expected)
 
+
 def test_gaussian_fisher_matrix_zero_sigma() -> None:
     grad = np.array([1.0, 2.0, 3.0])
     sigma = 0.0
@@ -43,6 +41,7 @@ def test_gaussian_fisher_matrix_zero_sigma() -> None:
 
     assert np.all(np.isinf(result))
 
+
 def test_gaussian_fisher_matrix_type_handling() -> None:
     # Test with list input
     grad = [1.0, 2.0, 3.0]
@@ -50,11 +49,7 @@ def test_gaussian_fisher_matrix_type_handling() -> None:
 
     result = gaussian_fisher_matrix(grad, sigma)
 
-    expected_outer = np.array([
-        [1.0, 2.0, 3.0],
-        [2.0, 4.0, 6.0],
-        [3.0, 6.0, 9.0]
-    ])
+    expected_outer = np.array([[1.0, 2.0, 3.0], [2.0, 4.0, 6.0], [3.0, 6.0, 9.0]])
     expected = expected_outer / 4.0
 
     np.testing.assert_allclose(result, expected)

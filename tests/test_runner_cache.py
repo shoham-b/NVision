@@ -1,8 +1,8 @@
 import logging
-import pytest
 from pathlib import Path
 
-from nvision.runner.cache import embed_graph_content, _decompress_content
+from nvision.runner.cache import _decompress_content, embed_graph_content
+
 
 def test_embed_graph_content_happy_path(tmp_path: Path):
     """Test that existing files are read and compressed into the content key."""
@@ -29,6 +29,7 @@ def test_embed_graph_content_happy_path(tmp_path: Path):
     # Original should be untouched
     assert "content" not in entries[0]
 
+
 def test_embed_graph_content_missing_file(tmp_path: Path):
     """Test that missing files are gracefully skipped without error."""
     # Setup
@@ -42,6 +43,7 @@ def test_embed_graph_content_missing_file(tmp_path: Path):
     assert "content" not in result[0]
     assert result[0]["path"] == "missing_file.txt"
 
+
 def test_embed_graph_content_no_path_key(tmp_path: Path):
     """Test that entries without a path key are skipped."""
     # Setup
@@ -54,6 +56,7 @@ def test_embed_graph_content_no_path_key(tmp_path: Path):
     assert len(result) == 1
     assert "content" not in result[0]
     assert result[0]["no_path"] == "here"
+
 
 def test_embed_graph_content_read_exception(tmp_path: Path, caplog, monkeypatch):
     """Test that file read exceptions are caught and logged as warnings."""
