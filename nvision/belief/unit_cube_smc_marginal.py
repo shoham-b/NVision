@@ -28,7 +28,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
     physical_x_bounds: tuple[float, float] = (0.0, 1.0)
 
     @property
-    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:  # noqa: F811
+    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:  # type: ignore[override]  # noqa: F811
         if hasattr(self, "_physical_param_bounds"):
             return self._physical_param_bounds
         return {}

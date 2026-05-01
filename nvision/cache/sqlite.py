@@ -355,7 +355,7 @@ class ShardedSqliteCache:
         try:
             conn = self._get_index_conn()
             cur = conn.execute("SELECT key FROM cache_index")
-            for (k,) in cur.fetchall():
+            for (k,) in cur:
                 if isinstance(k, str) and k not in yielded:
                     yielded.add(k)
                     yield k
@@ -368,7 +368,7 @@ class ShardedSqliteCache:
                 conn = self._get_conn_for_path(self._legacy_path)
                 self._ensure_cache_table(conn)
                 cur = conn.execute("SELECT key FROM cache")
-                for (k,) in cur.fetchall():
+                for (k,) in cur:
                     if isinstance(k, str) and k not in yielded:
                         yield k
             except Exception:
