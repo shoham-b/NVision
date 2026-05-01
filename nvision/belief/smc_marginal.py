@@ -37,21 +37,10 @@ def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, flo
 @njit(cache=True)
 def _weighted_mean_axis0(particles: np.ndarray, weights: np.ndarray) -> np.ndarray:
     """Column-wise weighted means for ``particles`` shaped ``(n, d)``."""
-    n, d = particles.shape
-    means = np.empty(d, dtype=np.float64)
-    sw = 0.0
-    for i in range(n):
-        sw += weights[i]
+    sw = np.sum(weights)
     if sw <= 0.0:
-        for j in range(d):
-            means[j] = 0.0
-        return means
-    for j in range(d):
-        m = 0.0
-        for i in range(n):
-            m += weights[i] * particles[i, j]
-        means[j] = m / sw
-    return means
+        return np.zeros(particles.shape[1], dtype=np.float64)
+    return np.dot(weights, particles) / sw
 
 
 @njit(cache=True)
