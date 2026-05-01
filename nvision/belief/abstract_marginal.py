@@ -206,7 +206,7 @@ class AbstractMarginalDistribution(ABC):
             CDF values corresponding to x.
         """
 
-    def batch_update(self, observations: Sequence[Observation]) -> None:
+    def batch_update(self, observations: Sequence[Observation]) -> None:  # noqa: F821
         """Update belief from a sequence of observations.
 
         Default implementation loops over :meth:`update`.  Subclasses may
@@ -220,7 +220,7 @@ class AbstractMarginalDistribution(ABC):
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
         """Physical bounds for each parameter (same as ``parameter_bounds`` for non-unit-cube beliefs)."""
 
-    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:  # noqa: B027
         """Shrink physical bounds for ``param_name`` after a coarse sweep.
 
         Default is a no-op for beliefs that operate directly in physical space.
