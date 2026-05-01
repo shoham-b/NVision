@@ -1,24 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import plotly.graph_objects as go
 import polars as pl
-
-
-@dataclass
-class ComparisonPlotConfig:
-    """Configuration for a comparison plot between strategies."""
-
-    df: pl.DataFrame
-    gen: str
-    noise: str
-    metric: str
-    title_metric: str
-    y_axis_title: str
-    manifest_entries: list[dict[str, Any]]
 
 
 class ComparisonsMixin:
@@ -72,43 +58,37 @@ class ComparisonsMixin:
                 if error_source_col != "abs_err_x":
                     metric_df = sub_df.with_columns(pl.col(error_source_col).alias("abs_err_x"))
                 self._create_comparison_plot(
-                    ComparisonPlotConfig(
-                        df=metric_df,
-                        gen=gen,
-                        noise=noise,
-                        metric="abs_err_x",
-                        title_metric="Absolute Frequency Error",
-                        y_axis_title="Error (Hz)",
-                        manifest_entries=manifest_entries,
-                    )
+                    metric_df,
+                    gen,
+                    noise,
+                    metric="abs_err_x",
+                    title_metric="Absolute Frequency Error",
+                    y_axis_title="Error (Hz)",
+                    manifest_entries=manifest_entries,
                 )
 
             # Metric 2: Measurements
             if "measurements" in sub_df.columns:
                 self._create_comparison_plot(
-                    ComparisonPlotConfig(
-                        df=sub_df,
-                        gen=gen,
-                        noise=noise,
-                        metric="measurements",
-                        title_metric="Measurements Count",
-                        y_axis_title="Count",
-                        manifest_entries=manifest_entries,
-                    )
+                    sub_df,
+                    gen,
+                    noise,
+                    metric="measurements",
+                    title_metric="Measurements Count",
+                    y_axis_title="Count",
+                    manifest_entries=manifest_entries,
                 )
 
             # Metric 3: Duration
             if "duration_ms" in sub_df.columns:
                 self._create_comparison_plot(
-                    ComparisonPlotConfig(
-                        df=sub_df,
-                        gen=gen,
-                        noise=noise,
-                        metric="duration_ms",
-                        title_metric="Duration",
-                        y_axis_title="Time (ms)",
-                        manifest_entries=manifest_entries,
-                    )
+                    sub_df,
+                    gen,
+                    noise,
+                    metric="duration_ms",
+                    title_metric="Duration",
+                    y_axis_title="Time (ms)",
+                    manifest_entries=manifest_entries,
                 )
 
         return manifest_entries
@@ -141,17 +121,26 @@ class ComparisonsMixin:
         # Plotly supports <br> in tick/category labels.
         return "<br>".join(parts)
 
-    def _create_comparison_plot(self, config: ComparisonPlotConfig) -> None:
+    def _create_comparison_plot(
+        self,
+        df: pl.DataFrame,
+        gen: str,
+        noise: str,
+        metric: str,
+        title_metric: str,
+        y_axis_title: str,
+        manifest_entries: list[dict[str, Any]],
+    ) -> None:
         """Create and save a box plot comparing strategies for a specific metric."""
         fig = go.Figure()
 
-        strategies = config.df.select("strategy").unique().to_series().to_list()
+        strategies = df.select("strategy").unique().to_series().to_list()
         # Sort strategies for consistent order
         strategies.sort()
 
         for strat in strategies:
-            strat_data = config.df.filter(pl.col("strategy") == strat)
-            vals = strat_data.get_column(config.metric).to_list()
+            strat_data = df.filter(pl.col("strategy") == strat)
+            vals = strat_data.get_column(metric).to_list()
             display_name = self._strategy_display_name(strat)
             tick_label = self._strategy_tick_label(display_name)
 
@@ -165,10 +154,10 @@ class ComparisonsMixin:
                 )
             )
 
-        title = f"Model Comparison: {config.title_metric}<br>Generator: {config.gen} | Noise: {config.noise}"
+        title = f"Model Comparison: {title_metric}<br>Generator: {gen} | Noise: {noise}"
         fig.update_layout(
             title=title,
-            yaxis_title=config.y_axis_title,
+            yaxis_title=y_axis_title,
             xaxis=dict(
                 tickangle=-25,
                 automargin=True,
@@ -178,7 +167,7 @@ class ComparisonsMixin:
             margin=dict(t=80, b=120, l=50, r=50),
         )
 
-        filename = f"comparison_{config.gen}_{config.noise}_{config.metric}.html"
+        filename = f"comparison_{gen}_{noise}_{metric}.html"
         # Sanitize filename
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
@@ -187,13 +176,13 @@ class ComparisonsMixin:
         fig.write_html(out_path)
 
         # Add entry to manifest list
-        config.manifest_entries.append(
+        manifest_entries.append(
             {
                 "type": "model_comparison",
-                "metric": config.metric,
-                "generator": config.gen,
-                "noise": config.noise,
+                "metric": metric,
+                "generator": gen,
+                "noise": noise,
                 "path": out_path.as_posix(),
-                "title": f"Comparison: {config.title_metric}",
+                "title": f"Comparison: {title_metric}",
             }
         )
