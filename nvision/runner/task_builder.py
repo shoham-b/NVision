@@ -65,13 +65,15 @@ def build_task_list(
             if combo is not None:
                 combos.append(combo)
     else:
-        combos = list(grid.iter(
-            config.filter_category,
-            config.filter_strategy,
-            config.filter_generator,
-            config.filter_noise,
-            config.filter_signal,
-        ))
+        combos = list(
+            grid.iter(
+                config.filter_category,
+                config.filter_strategy,
+                config.filter_generator,
+                config.filter_noise,
+                config.filter_signal,
+            )
+        )
 
     for combo in combos:
         slug_base = "_".join(slugify(p) for p in (combo.generator_name, combo.noise_name, combo.strategy_name))
