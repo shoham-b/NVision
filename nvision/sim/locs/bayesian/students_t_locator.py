@@ -14,8 +14,8 @@ from nvision.models.observation import Observation
 
 class StudentsTLocator(Locator):
     """Parametric Bayesian Locator using Student's t approximations.
-    
-    Performs fully analytical Bayesian back inference using MAP optimization 
+
+    Performs fully analytical Bayesian back inference using MAP optimization
     and Laplace approximation (inverse Hessian) to update belief parameters,
     bypassing SMC particles or discrete grids.
     """

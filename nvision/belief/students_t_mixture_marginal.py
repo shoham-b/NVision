@@ -14,8 +14,8 @@ from nvision.models.observation import Observation
 @dataclass
 class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     """Parametric belief tracking the posterior as a Student's t Mixture.
-    
-    Performs analytical Bayesian back inference (MAP + Laplace approximation) 
+
+    Performs analytical Bayesian back inference (MAP + Laplace approximation)
     using the observed points directly, bypassing any grids or particles.
     """
 

@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+
+@dataclass(frozen=True)
+class SubplotOptions:
+    row: int
+    col: int
+    annotation_text: str = "acquisition window"
+    zoom_to_window: bool = False
 
 
 def _get_signal_formula(model: Any) -> str:
@@ -96,12 +105,9 @@ def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> Non
 def _add_acquisition_window_subplot(
     fig: go.Figure,
     *,
-    row: int,
-    col: int,
     window: tuple[float, float],
     full_domain: tuple[float, float] | None,
-    annotation_text: str = "acquisition window",
-    zoom_to_window: bool = False,
+    opts: SubplotOptions,
 ) -> None:
     """Shade the acquisition interval on one marginal."""
     x0, x1 = float(window[0]), float(window[1])
@@ -114,21 +120,21 @@ def _add_acquisition_window_subplot(
         line_width=1,
         line_color="rgba(46, 204, 113, 0.75)",
         layer="below",
-        annotation_text=annotation_text,
+        annotation_text=opts.annotation_text,
         annotation_position="top left",
-        row=row,
-        col=col,
+        row=opts.row,
+        col=opts.col,
     )
-    if zoom_to_window:
+    if opts.zoom_to_window:
         # Focus only on the acquisition window with 10% padding
         pad = (x1 - x0) * 0.1
-        fig.update_xaxes(range=[x0 - pad, x1 + pad], row=row, col=col)
+        fig.update_xaxes(range=[x0 - pad, x1 + pad], row=opts.row, col=opts.col)
     elif full_domain is not None:
         flo, fhi = float(full_domain[0]), float(full_domain[1])
         if math.isfinite(flo) and math.isfinite(fhi) and fhi > flo:
             lo = min(flo, x0)
             hi = max(fhi, x1)
-            fig.update_xaxes(range=[lo, hi], row=row, col=col)
+            fig.update_xaxes(range=[lo, hi], row=opts.row, col=opts.col)
 
 
 def _add_acquisition_window_single(
@@ -616,14 +622,17 @@ class BayesianMixin:
         # Initial acquisition window for frequency (will be overridden per-step)
         if acquisition_window is not None and acquisition_param and acquisition_param in posterior_inputs_by_param:
             row_ap = param_names.index(acquisition_param) + 1
-            _add_acquisition_window_subplot(
-                fig,
+            opts = SubplotOptions(
                 row=row_ap,
                 col=1,
-                window=acquisition_window,
-                full_domain=experiment_domain,
                 annotation_text="post-sweep acquisition",
                 zoom_to_window=True,
+            )
+            _add_acquisition_window_subplot(
+                fig,
+                window=acquisition_window,
+                full_domain=experiment_domain,
+                opts=opts,
             )
 
         _add_true_vline_subplots(fig, param_names, true_params)
