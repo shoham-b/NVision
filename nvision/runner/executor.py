@@ -158,10 +158,8 @@ def precompute_sweep(
     step = 0
     while not locator.done() and step < sweep_steps:
         step += 1
-        x_physical = locator.next()
-        # SweepingLocator returns physical x, but experiment.measure() expects normalized [0,1]
-        x_normalized = experiment.normalize_x(x_physical)
-        obs = experiment.measure(x_normalized, rng)
+        x_current = locator.next()
+        obs = experiment.measure(x_current, rng)
         locator.observe(obs)
         observations.append(obs)
 
@@ -235,27 +233,14 @@ def run_loop(
         # Use cached observation if in sweep phase and cache available
         if cached_sweep is not None and step <= len(cached_sweep):
             cached_obs = cached_sweep[step - 1]
-            # Create a new observation with the current x but cached signal value.
-            # SweepingLocator subclasses (e.g. SobolSweep, StagedSobol) receive
-            # physical x from next() but experiment.measure() always stores
-            # normalized x.  Normalise here so the locator history stays consistent.
-            cached_x = cached_obs.x
-            if x_current < 0.0 or x_current > 1.0:
-                cached_x = experiment.normalize_x(x_current)
             obs = Observation(
-                x=cached_x,
+                x=x_current,
                 signal_value=cached_obs.signal_value,
                 noise_std=cached_obs.noise_std,
                 frequency_noise_model=cached_obs.frequency_noise_model,
             )
         else:
-            # Some locators (SweepingLocator, StagedSobolSweepLocator) return physical x,
-            # while others return normalized [0,1]. Normalize when x looks physical.
-            if x_current < 0.0 or x_current > 1.0:
-                x_norm = experiment.normalize_x(x_current)
-                obs = experiment.measure(x_norm, rng)
-            else:
-                obs = experiment.measure(x_current, rng)
+            obs = experiment.measure(x_current, rng)
 
         locator.observe(obs)
         yield locator
@@ -603,6 +588,7 @@ class _TaskRunner:
         if self.task.sweep_max_steps is not None:
             return self.task.sweep_max_steps
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
+
         return compute_sweep_max_steps(
             experiment.true_signal.model,
             float(experiment.x_min),

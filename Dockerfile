@@ -26,4 +26,4 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY nvision ./nvision
 
-ENTRYPOINT ["python", "-m", "nvision", "run"]
+ENTRYPOINT ["python", "-m", "nvision", "run-all"]

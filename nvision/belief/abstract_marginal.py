@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -219,13 +219,15 @@ class AbstractMarginalDistribution(ABC):
     @abstractmethod
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
         """Physical bounds for each parameter (same as ``parameter_bounds`` for non-unit-cube beliefs)."""
+        pass
 
-    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:  # noqa: B027
         """Shrink physical bounds for ``param_name`` after a coarse sweep.
 
         Default is a no-op for beliefs that operate directly in physical space.
         Unit-cube beliefs override to remap their internal normalized coordinates.
         """
+        pass
 
     def normalized_uncertainties(self) -> ParameterValues[float]:
         """Return uncertainties in normalized [0, 1] space (for convergence checking).

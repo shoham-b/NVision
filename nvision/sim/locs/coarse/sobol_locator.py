@@ -75,9 +75,7 @@ def _infer_tight_focus_window(
         return domain_lo, domain_hi
 
     noise_threshold = noise_med - depth_fraction * dip_depth
-    lo, hi = _refocus_infer_focus_window(
-        history, domain_lo, domain_hi, noise_threshold=noise_threshold
-    )
+    lo, hi = _refocus_infer_focus_window(history, domain_lo, domain_hi, noise_threshold=noise_threshold)
     return lo, hi
 
 
@@ -221,7 +219,7 @@ class Stage1SobolLocator:
 
     def next(self) -> float:
         u = next(self._sobol_gen)
-        return self.domain_lo + u * (self.domain_hi - self.domain_lo)
+        return u
 
     def observe(self, obs: Observation) -> None:
         self.points_collected += 1
@@ -264,7 +262,6 @@ class Stage1SobolLocator:
         return None
 
 
-
 class Stage2SobolLocator:
     """Stage 2: Find 2 dips that are about the noise deviation established in Stage 1."""
 
@@ -295,7 +292,11 @@ class Stage2SobolLocator:
 
     def next(self) -> float:
         u = next(self._sobol_gen)
-        return self.window_lo + u * (self.window_hi - self.window_lo)
+        domain_width = self.domain_hi - self.domain_lo
+        if domain_width > 0:
+            phys = self.window_lo + u * (self.window_hi - self.window_lo)
+            return (phys - self.domain_lo) / domain_width
+        return u
 
     def observe(self, obs: Observation) -> None:
         # Update dynamically every 128 new scans in Stage 2
@@ -377,6 +378,7 @@ class Stage3SobolLocator:
         history: ObservationHistory,
         expected_dips: int = 1,
         noise_std: float = 0.01,
+        expected_window_width: float | None = None,
     ):
         self._sobol_gen = sobol_gen
         self.domain_lo = domain_lo
@@ -384,11 +386,13 @@ class Stage3SobolLocator:
         self.history = history
         self.expected_dips = expected_dips
         self.noise_std = noise_std
+        self.expected_window_width = expected_window_width
 
         self.window_lo = domain_lo
         self.window_hi = domain_hi
         self._done = False
         self._last_checked_count = 0
+        self.points_collected = 0
 
         # Calculate exact bounds securely bypassing noise logic issues
         self._infer_bounds()
@@ -400,8 +404,13 @@ class Stage3SobolLocator:
         of [0, 1]; scaling it linearly to ``[window_lo, window_hi]`` preserves
         that property inside the window without expensive rejection sampling.
         """
+        self.points_collected += 1
         u = next(self._sobol_gen)
-        return self.window_lo + u * (self.window_hi - self.window_lo)
+        domain_width = self.domain_hi - self.domain_lo
+        if domain_width > 0:
+            phys = self.window_lo + u * (self.window_hi - self.window_lo)
+            return (phys - self.domain_lo) / domain_width
+        return u
 
     def observe(self, obs: Observation) -> None:
         # Check for dips every 16 new observations in Stage 3
@@ -413,18 +422,35 @@ class Stage3SobolLocator:
         return self._done
 
     def _infer_bounds(self) -> None:
-        self.window_lo, self.window_hi = _infer_tight_focus_window(
-            self.history, self.domain_lo, self.domain_hi
-        )
+        self.window_lo, self.window_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
 
     def _check_for_remaining_dips(self) -> None:
         if self.history.count < 6:
             return
 
+        # Re-infer focus window from the full history with a more inclusive
+        # threshold so that shallow dips are captured and the window can expand.
+        new_lo, new_hi = _infer_tight_focus_window(
+            self.history, self.domain_lo, self.domain_hi,
+            depth_fraction=0.25,
+        )
+        # If the inference widened the window, expand our sampling bounds so
+        # subsequent Sobol points can reach newly discovered dips.
+        if new_hi - new_lo > self.window_hi - self.window_lo:
+            self.window_lo, self.window_hi = new_lo, new_hi
+
+        # If the inferred window already covers the expected signal span,
+        # there is no need to keep measuring — we have a good coarse window.
+        if self.expected_window_width is not None:
+            inferred_width = self.window_hi - self.window_lo
+            if inferred_width >= self.expected_window_width * 0.8:
+                self._done = True
+                return
+
         xs = self.history.xs
         ys = self.history.ys
 
-        # Only consider points that fall inside the focus window
+        # Only consider points that fall inside the (possibly expanded) window
         in_window = (xs >= self.window_lo) & (xs <= self.window_hi)
         if np.sum(in_window) < 6:
             return
@@ -435,7 +461,8 @@ class Stage3SobolLocator:
         # Use the more lenient segment-based detector (min_points=1) so that
         # narrow dips are counted even when only 1-2 samples fall inside them.
         dips = self._dip_segments(
-            xs_win, ys_win,
+            xs_win,
+            ys_win,
             min_points=1,
             noise_std=self.noise_std or 0.01,
         )
@@ -594,7 +621,7 @@ class StagedSobolSweepLocator(Locator):
         self.step_count += 1
 
         if self.done():
-            return (self.domain_lo + self.domain_hi) / 2.0
+            return 0.5
 
         return self._active_locator.next()
 
@@ -616,8 +643,12 @@ class StagedSobolSweepLocator(Locator):
             self._stage1_end_step = self.step_count
             win_lo, win_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
             self._stage2 = Stage2SobolLocator(
-                self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
-                window_lo=win_lo, window_hi=win_hi,
+                self._sobol_gen,
+                self.domain_lo,
+                self.domain_hi,
+                self.history,
+                window_lo=win_lo,
+                window_hi=win_hi,
             )
             self._active_locator = self._stage2
 
@@ -632,9 +663,12 @@ class StagedSobolSweepLocator(Locator):
         self._stage2_end_step = self.step_count
         inner = getattr(self.signal_model, "inner", self.signal_model)
         expected_dips = inner.expected_dip_count()
+        domain_width = self.domain_hi - self.domain_lo
+        expected_window_width = inner.signal_max_span(domain_width)
         self._stage3 = Stage3SobolLocator(
             self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
             expected_dips=expected_dips, noise_std=self.noise_std,
+            expected_window_width=expected_window_width,
         )
         self._active_locator = self._stage3
         self._signal_found = True
@@ -752,7 +786,7 @@ class StagedSobolSweepLocator(Locator):
             else:
                 expected_uniform = float(self.max_steps)
         expected_focused = num_dips * 5.0 + 20.0 if num_dips > 0 else expected_uniform
-        measurements_done = min(int(round(expected_uniform)), self.max_steps)
+        measurements_done = min(round(expected_uniform), self.max_steps)
         efficiency = expected_uniform / max(measurements_done, 1)
         return {
             "measurements_done": measurements_done,
@@ -902,8 +936,10 @@ class StagedSobolSweepLocator(Locator):
 
         # Prefer actual ground-truth dip count when available
         true_dip_count = self._true_signal_dip_count()
-        expected_dips = true_dip_count if true_dip_count is not None else (
-            self.signal_model.expected_dip_count() or (len(segments) if segments else 1)
+        expected_dips = (
+            true_dip_count
+            if true_dip_count is not None
+            else (self.signal_model.expected_dip_count() or (len(segments) if segments else 1))
         )
         domain_width = self.domain_hi - self.domain_lo
         min_span = self.signal_model.signal_min_span(domain_width)

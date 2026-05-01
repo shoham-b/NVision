@@ -159,13 +159,13 @@ class SweepingLocator(Locator):
                 self._set_acquisition_window()
 
             u = float(self._sweep_points[self.step_count - 1])
-            return self._domain_lo + u * (self._domain_hi - self._domain_lo)
+            return u
 
         # Sweep complete - set acquisition window if not already set
         if not self._signal_found and not self._early_stopped:
             self._set_acquisition_window()
 
-        return (self._domain_lo + self._domain_hi) / 2.0
+        return 0.5
 
     def done(self) -> bool:
         """Return True when sweep is complete (including early stopping)."""
@@ -232,11 +232,9 @@ class SweepingLocator(Locator):
         if self.history.count < 5:
             return
 
-        xs = self.history.xs
         ys = self.history.ys
 
         min_idx = int(np.argmin(ys))
-        best_point_norm = float(xs[min_idx])
         min_signal = float(ys[min_idx])
 
         background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)) :]))
@@ -295,7 +293,7 @@ class SweepingLocator(Locator):
             return False
 
         min_x = float(xs[min_idx])
-        bracket_threshold = 0.02 * (self._domain_hi - self._domain_lo)
+        bracket_threshold = 0.02
         has_left = np.any(xs < min_x - bracket_threshold)
         has_right = np.any(xs > min_x + bracket_threshold)
 
@@ -478,6 +476,7 @@ class SweepingLocator(Locator):
         # which biases background estimation and creates noise segments.
         init_steps = self.effective_initial_sweep_steps()
         xs = self.history.xs[:init_steps]
+        xs = self.history.xs
         ys = self.history.ys[:init_steps]
 
         # Compute the same noise threshold the old _dip_segments used
@@ -519,7 +518,7 @@ class SweepingLocator(Locator):
         else:
             expected_uniform = float(self.max_steps)
         metrics["expected_uniform_points"] = expected_uniform
-        metrics["measurements_done"] = min(int(round(expected_uniform)), self.max_steps)
+        metrics["measurements_done"] = min(round(expected_uniform), self.max_steps)
         efficiency = expected_uniform / max(metrics["measurements_done"], 1)
         metrics["sweep_efficiency"] = efficiency
         return metrics
@@ -681,59 +680,59 @@ class SweepingLocator(Locator):
         if not np.any(below):
             return
 
-        # Coordinates in the observations are physical
+        # Coordinates in the observations are normalized [0,1]
         xs_below = xs[below]
         obs_min_x = float(np.min(xs_below))
         obs_max_x = float(np.max(xs_below))
-        span_phys = obs_max_x - obs_min_x
+        span_norm = obs_max_x - obs_min_x
 
         max_model_span = self._model_signal_max_span()
+        domain_width = self._domain_hi - self._domain_lo
         if max_model_span is None or max_model_span <= 0:
-            domain_width = self._domain_hi - self._domain_lo
             max_model_span = max(0.05 * domain_width, 1e-6) if domain_width > 0 else 1e-6
+        max_model_span_norm = max_model_span / domain_width if domain_width > 0 else 0.05
 
-        # Ensure padding scales to the actual physical footprint of the observed cluster!
-        # This completely prevents bloating boundaries around narrowly merged dips.
-        pad_phys = max(0.1 * span_phys, 1e-6)
-        min_cluster_width = 0.1 * max_model_span
+        # Ensure padding scales to the actual footprint of the observed cluster!
+        pad_norm = max(0.1 * span_norm, 1e-6)
+        min_cluster_width_norm = 0.1 * max_model_span_norm
 
-        if span_phys < min_cluster_width:
+        if span_norm < min_cluster_width_norm:
             # Merged spikes, severely restrict bounds tight to the observed trace
-            lo = obs_min_x - pad_phys
-            hi = obs_max_x + pad_phys
+            lo_norm = obs_min_x - pad_norm
+            hi_norm = obs_max_x + pad_norm
         else:
             mid = (obs_min_x + obs_max_x) / 2.0
-            mask_mid = np.abs(xs - mid) < max(0.05 * span_phys, 0.05 * max_model_span)
+            mask_mid = np.abs(xs - mid) < max(0.05 * span_norm, 0.05 * max_model_span_norm)
             has_mid = np.any(ys[mask_mid] < strict_threshold) if np.any(mask_mid) else False
 
             if has_mid:
-                lo = obs_min_x - pad_phys
-                hi = obs_max_x + pad_phys
+                lo_norm = obs_min_x - pad_norm
+                hi_norm = obs_max_x + pad_norm
             else:
-                mask_l = np.abs(xs - (obs_min_x - span_phys)) < max(0.2 * span_phys, 0.05 * max_model_span)
-                mask_r = np.abs(xs - (obs_max_x + span_phys)) < max(0.2 * span_phys, 0.05 * max_model_span)
+                mask_l = np.abs(xs - (obs_min_x - span_norm)) < max(0.2 * span_norm, 0.05 * max_model_span_norm)
+                mask_r = np.abs(xs - (obs_max_x + span_norm)) < max(0.2 * span_norm, 0.05 * max_model_span_norm)
 
                 has_l = np.any(ys[mask_l] < strict_threshold) if np.any(mask_l) else False
                 has_r = np.any(ys[mask_r] < strict_threshold) if np.any(mask_r) else False
 
                 if has_l and not has_r:
-                    lo = obs_min_x - span_phys - pad_phys
-                    hi = obs_max_x + pad_phys
+                    lo_norm = obs_min_x - span_norm - pad_norm
+                    hi_norm = obs_max_x + pad_norm
                 elif has_r and not has_l:
-                    lo = obs_min_x - pad_phys
-                    hi = obs_max_x + span_phys + pad_phys
+                    lo_norm = obs_min_x - pad_norm
+                    hi_norm = obs_max_x + span_norm + pad_norm
                 else:
                     # Ambiguous, fallback tightly
-                    lo = obs_min_x - span_phys - pad_phys
-                    hi = obs_max_x + span_phys + pad_phys
+                    lo_norm = obs_min_x - span_norm - pad_norm
+                    hi_norm = obs_max_x + span_norm + pad_norm
 
-        # Enforce domain bounds
-        lo = max(self._domain_lo, float(lo))
-        hi = min(self._domain_hi, float(hi))
+        # Enforce normalized domain bounds and convert back to physical
+        lo_norm = max(0.0, float(lo_norm))
+        hi_norm = min(1.0, float(hi_norm))
 
-        if lo < hi:
-            self._acquisition_lo = lo
-            self._acquisition_hi = hi
+        if lo_norm < hi_norm and domain_width > 0:
+            self._acquisition_lo = self._domain_lo + lo_norm * domain_width
+            self._acquisition_hi = self._domain_lo + hi_norm * domain_width
 
     def _detect_signal_span(  # noqa: C901
         self, xs: np.ndarray, ys: np.ndarray
