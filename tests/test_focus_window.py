@@ -67,8 +67,6 @@ class TestSweepingLocatorFocusWindow:
 
     def test_sweep_locator_narrows_window(self):
         """A single deep dip in history must make _set_acquisition_window narrow."""
-        import random
-
         from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
         from nvision.models.experiment import Observation
         from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator
