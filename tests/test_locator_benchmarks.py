@@ -210,7 +210,7 @@ class TestSingleStepOnePeak:
 # Overall run benchmarks
 # ---------------------------------------------------------------------------
 
-def _overall_run_ms(locator_class: type[Locator], experiment: CoreExperiment, max_steps: int = 20, **config: Any) -> float:
+def _overall_run_ms(locator_class: type[Locator], experiment: CoreExperiment, max_steps: int = 20, **config: Any) -> float:  # noqa: E501
     rng = random.Random(2)
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
     if needs_belief:

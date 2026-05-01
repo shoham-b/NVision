@@ -412,7 +412,7 @@ def _add_per_dip_windows_overlay(
         )
 
 
-def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:
+def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:  # noqa: C901
     """Detect dip segments from dense signal evaluation using percentile thresholding."""
     xs = np.asarray(xs)
     ys = np.asarray(ys)
