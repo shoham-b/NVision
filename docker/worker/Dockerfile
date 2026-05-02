@@ -20,10 +20,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV PYTHONPATH=/app
+ENV RUN_GROUP="all"
 
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY nvision ./nvision
 
-ENTRYPOINT ["python", "-m", "nvision", "groups", "run"]
+ENTRYPOINT ["sh", "-c", "python -m nvision groups run $RUN_GROUP \"$@\"", "--"]
