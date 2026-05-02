@@ -70,7 +70,7 @@ def generate_attempt_metrics(  # noqa: C901
         measurements = 0
     else:
         estimate_dict = finalize_row.drop("repeat_id").row(0, named=True)
-        estimate = {k: float(v) for k, v in estimate_dict.items() if isinstance(v, (int, float))}
+        estimate = {k: float(v) for k, v in estimate_dict.items() if isinstance(v, int | float)}
         measurements = current_history_df.height
 
     attempt_metrics = _scan_attempt_metrics(_truth_positions(current_scan), estimate)
@@ -145,7 +145,7 @@ def _scan_attempt_metrics(truth_positions: Sequence[float], estimate: dict[str, 
         x_hat = _first_finite(estimate, ("x1_hat", "x_hat", "peak_x", "frequency"))
         if x_hat is not None:
             metrics["abs_err_x"] = abs(x_hat - truth[0])
-    else:
+    elif len(truth) == 2:
         x1_hat = _maybe_finite(estimate.get("x1_hat"))
         x2_hat = _maybe_finite(estimate.get("x2_hat"))
         if x1_hat is not None and x2_hat is not None:

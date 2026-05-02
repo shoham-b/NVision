@@ -129,7 +129,7 @@ class SequentialBayesianLocator(Locator):
 
         # Set domain bounds for sweep and acquisition
         # For UnitCube beliefs, use physical_param_bounds; for Grid beliefs, use parameter_bounds
-        if isinstance(self.belief, (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution)):
+        if isinstance(self.belief, UnitCubeGridMarginalDistribution | UnitCubeSMCMarginalDistribution):
             self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._scan_param]
         else:
             self._scan_lo, self._scan_hi = self.belief.parameter_bounds[self._scan_param]
@@ -257,7 +257,7 @@ class SequentialBayesianLocator(Locator):
         # Narrow belief scan bounds
         if isinstance(
             self.belief,
-            (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution),
+            UnitCubeGridMarginalDistribution | UnitCubeSMCMarginalDistribution,
         ):
             self.belief.narrow_scan_parameter_physical_bounds(
                 self._scan_param, self._acquisition_lo, self._acquisition_hi

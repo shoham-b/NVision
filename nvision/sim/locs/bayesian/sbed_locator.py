@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import abc
 import math
+import os
+import time
 
 import numpy as np
 import polars as pl
@@ -85,6 +87,7 @@ def _sbed_eig_utilities_from_mu_and_noise(
 
     log_eps = math.log(eps)
     utilities = np.empty(m, dtype=np.float64)
+    buffer = np.empty(n_particles, dtype=np.float64)
 
     for i in range(m):
         acc_entropy = 0.0
@@ -94,29 +97,28 @@ def _sbed_eig_utilities_from_mu_and_noise(
         for o in range(n_outcomes):
             y = mu_preds[i, o] + noise_chunk[i, o]
             inv_sigma = inv_noise_std[i, o]
+            inv_var_half = -0.5 * inv_sigma * inv_sigma
 
             # Stable normalization: subtract max log-likelihood over particles.
             max_log_lik = -1e300
             for p in range(n_particles):
                 diff = y - mu_preds[i, p]
-                log_lik = -0.5 * (diff * inv_sigma) * (diff * inv_sigma)
-                if log_lik > max_log_lik:
-                    max_log_lik = log_lik
+                ll = (diff * diff) * inv_var_half
+                buffer[p] = ll
+                if ll > max_log_lik:
+                    max_log_lik = ll
 
             sum_exp = 0.0
             for p in range(n_particles):
-                diff = y - mu_preds[i, p]
-                log_lik = -0.5 * (diff * inv_sigma) * (diff * inv_sigma)
-                sum_exp += math.exp(log_lik - max_log_lik)
+                e = math.exp(buffer[p] - max_log_lik)
+                buffer[p] = e
+                sum_exp += e
 
             inv_sum_exp = 1.0 / (sum_exp + 1e-300)
             entropy = 0.0
 
             for p in range(n_particles):
-                diff = y - mu_preds[i, p]
-                log_lik = -0.5 * (diff * inv_sigma) * (diff * inv_sigma)
-                e = math.exp(log_lik - max_log_lik)
-                w = e * inv_sum_exp
+                w = buffer[p] * inv_sum_exp
 
                 # Match np.log(np.clip(weights, eps, None)) semantics.
                 if w < eps:
@@ -179,11 +181,22 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         )
 
     def _acquire(self) -> float:
+        debug_timing = os.environ.get("DEBUG_SBED_TIMING") == "1"
+
+        if debug_timing:
+            t_start = time.perf_counter()
+
         candidates = self._generate_candidates(self.n_candidates)
+
+        if debug_timing:
+            t_cand = time.perf_counter()
 
         num_samples = self.n_draws
         candidates_arr = np.asarray(candidates)
         sampled = self.belief.select_max_information_gain(candidates_arr, num_samples)
+
+        if debug_timing:
+            t_sample = time.perf_counter()
 
         noise_strategy = NoiseModelFactory.create(self.belief.last_obs, 0.05)
         model = self.belief.model
@@ -192,12 +205,25 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         utilities = np.zeros(len(candidates), dtype=float)
         eps = 1e-12
 
+        time_model = 0.0
+        time_eig = 0.0
+
         for start in range(0, len(candidates), chunk_size):
             end = min(len(candidates), start + chunk_size)
             xs = candidates[start:end]
+
+            if debug_timing:
+                t0 = time.perf_counter()
+
             mu_preds = model.compute_vectorized_many(xs, sampled)
 
+            if debug_timing:
+                time_model += time.perf_counter() - t0
+
             noise_chunk, inv_noise_std_arr = noise_strategy.generate_noise_chunk(mu_preds, num_samples)
+
+            if debug_timing:
+                t0 = time.perf_counter()
 
             utilities[start:end] = _sbed_eig_utilities_from_mu_and_noise(
                 mu_preds=mu_preds,
@@ -206,5 +232,18 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 eps=eps,
             )
 
+            if debug_timing:
+                time_eig += time.perf_counter() - t0
+
         best_idx = int(pl.Series(utilities).arg_max())
+
+        if debug_timing:
+            total = time.perf_counter() - t_start
+            print("\nSBED Timing Breakdown:")
+            print(f"  Generate Candidates: {t_cand - t_start:.4f}s")
+            print(f"  Sample Particles:    {t_sample - t_cand:.4f}s")
+            print(f"  Model Evaluations:   {time_model:.4f}s")
+            print(f"  EIG/Entropy Calc:    {time_eig:.4f}s")
+            print(f"  Total _acquire:      {total:.4f}s")
+
         return float(candidates[best_idx])
