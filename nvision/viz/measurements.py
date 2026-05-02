@@ -900,7 +900,7 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
             mk = getattr(tr, "marker", None)
             if mk is not None:
                 c = getattr(mk, "color", None)
-                if c is not None and hasattr(c, "__iter__") and not isinstance(c, (str, bytes)):
+                if c is not None and hasattr(c, "__iter__") and not isinstance(c, str | bytes):
                     fine_step = [float(v) for v in c]
             continue
         if name == "measurements (noisy)":
@@ -908,7 +908,7 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
             mk = getattr(tr, "marker", None)
             if mk is not None:
                 c = getattr(mk, "color", None)
-                if c is not None and hasattr(c, "__iter__") and not isinstance(c, (str, bytes)):
+                if c is not None and hasattr(c, "__iter__") and not isinstance(c, str | bytes):
                     step_idx = [float(v) for v in c]
             continue
 

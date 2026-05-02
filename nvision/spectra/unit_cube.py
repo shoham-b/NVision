@@ -131,7 +131,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         try:
             param_arrays = samples.arrays_in_order()  # type: ignore[union-attr]
         except AttributeError:
-            if not isinstance(samples, (tuple, list)):
+            if not isinstance(samples, tuple | list):
                 raise TypeError("samples must provide arrays_in_order() or be parameter arrays") from None
             param_arrays = samples  # type: ignore[assignment]
 
