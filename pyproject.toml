@@ -39,6 +39,7 @@ exclude = [
     ".mypy_cache",
     "build",
     "dist",
+    "README.md",
 ]
 
 [tool.ruff.lint]
