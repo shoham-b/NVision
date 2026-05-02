@@ -267,10 +267,19 @@ def serve(  # noqa: C901
         console.print("[dim]Run 'nvision run' or 'nvision demo' first to generate results.[/dim]")
         raise typer.Exit(1)
 
-    if port is None:
-        port = _default_port_for_dir(directory)
+    import os
 
-    url = f"http://localhost:{port}"
+    is_render = os.environ.get("RENDER") == "true"
+    if is_render:
+        no_open = True
+
+    if port is None:
+        port = int(os.environ["PORT"]) if is_render and "PORT" in os.environ else _default_port_for_dir(directory)
+
+    if is_render and "RENDER_EXTERNAL_URL" in os.environ:
+        url = os.environ["RENDER_EXTERNAL_URL"]
+    else:
+        url = f"http://localhost:{port}"
 
     # If port is already in use, assume existing server — just open browser
     if _port_is_open(port):
@@ -301,9 +310,11 @@ def serve(  # noqa: C901
 
     def _run_server() -> None:
         global _server_instance
+        is_render = os.environ.get("RENDER") == "true"
         try:
             os.chdir(directory)
-            with _ReuseAddrTCPServer(("", port), _APIHandler) as httpd:
+            host = "0.0.0.0" if is_render else ""
+            with _ReuseAddrTCPServer((host, port), _APIHandler) as httpd:
                 _server_instance = httpd
                 httpd.serve_forever(poll_interval=0.1)
         except OSError as e:
@@ -354,10 +365,17 @@ def serve_stop(
     Sends a shutdown signal to the server on the specified port.
     If port is not provided, auto-detects based on the directory.
     """
-    if port is None:
-        port = _default_port_for_dir(directory)
+    import os
 
-    url = f"http://localhost:{port}"
+    is_render = os.environ.get("RENDER") == "true"
+
+    if port is None:
+        port = int(os.environ["PORT"]) if is_render and "PORT" in os.environ else _default_port_for_dir(directory)
+
+    if is_render and "RENDER_EXTERNAL_URL" in os.environ:
+        url = os.environ["RENDER_EXTERNAL_URL"]
+    else:
+        url = f"http://localhost:{port}"
 
     if not _port_is_open(port):
         console.print(f"[yellow]No server running on port {port}[/yellow]")
