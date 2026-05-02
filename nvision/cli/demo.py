@@ -72,7 +72,7 @@ def demo(
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
-    ] = cli_defaults.DEMO_RUNNERS,
+    ] = cli_defaults.DEFAULT_RUNNERS,
     out: Annotated[
         Path | None,
         typer.Option("--out", help="Output directory for demo artifacts (default: demo_artifacts)"),
@@ -194,7 +194,7 @@ def beta(
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
-    ] = cli_defaults.DEMO_RUNNERS,
+    ] = cli_defaults.DEFAULT_RUNNERS,
     out: Annotated[
         Path | None,
         typer.Option("--out", help="Output directory for beta artifacts (default: beta_artifacts)"),

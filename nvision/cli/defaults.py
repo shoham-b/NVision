@@ -13,12 +13,10 @@ load_dotenv()
 
 DEFAULT_REPEATS: int = int(os.getenv("NVISION_DEFAULT_REPEATS", "5"))
 DEFAULT_RUNNERS: int = int(os.getenv("NVISION_DEFAULT_RUNNERS", "4"))
-DEFAULT_RUNNERS_ALL: int = int(os.getenv("NVISION_DEFAULT_RUNNERS_ALL", "8"))
 DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", str(sim_presets.DEFAULT_LOC_MAX_STEPS)))
 DEFAULT_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEFAULT_LOC_TIMEOUT_S", "1500"))
 DEFAULT_RUN_ALL: bool = os.getenv("NVISION_DEFAULT_RUN_ALL", "False").lower() in ("true", "1", "yes")
 
 DEMO_REPEATS: int = int(os.getenv("NVISION_DEMO_REPEATS", "3"))
 DEMO_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEMO_LOC_MAX_STEPS", "60"))
-DEMO_RUNNERS: int = int(os.getenv("NVISION_DEMO_RUNNERS", "8"))
 DEMO_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEMO_LOC_TIMEOUT_S", "300"))

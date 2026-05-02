@@ -116,7 +116,7 @@ def run_all(
     ),
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
     runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS_ALL,
+        cli_defaults.DEFAULT_RUNNERS,
         "--runners",
         min=1,
         help="Number of runner processes (use 1 for sequential execution).",
