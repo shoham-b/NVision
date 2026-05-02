@@ -250,3 +250,6 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
         p = self.get_grid_param(param_name)
         cdf = np.cumsum(p.posterior)
         return np.interp(x, p.grid, cdf, left=0.0, right=1.0)
+
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        """No-op for physical beliefs."""

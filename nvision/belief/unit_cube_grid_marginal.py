@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -24,7 +24,6 @@ class UnitCubeGridMarginalDistribution(GridMarginalDistribution):
     metrics, plotting, and comparison to :class:`~nvision.spectra.signal.TrueSignal`.
     """
 
-    physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     physical_x_bounds: tuple[float, float] = (0.0, 1.0)
 
     @property

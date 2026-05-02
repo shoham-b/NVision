@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -220,6 +220,7 @@ class AbstractMarginalDistribution(ABC):
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
         """Physical bounds for each parameter (same as ``parameter_bounds`` for non-unit-cube beliefs)."""
 
+    @abstractmethod
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
         """Shrink physical bounds for ``param_name`` after a coarse sweep.
 
