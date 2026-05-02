@@ -182,15 +182,21 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
     def _acquire(self) -> float:
         debug_timing = os.environ.get("DEBUG_SBED_TIMING") == "1"
-        t_start = time.perf_counter()
+
+        if debug_timing:
+            t_start = time.perf_counter()
 
         candidates = self._generate_candidates(self.n_candidates)
-        t_cand = time.perf_counter()
+
+        if debug_timing:
+            t_cand = time.perf_counter()
 
         num_samples = self.n_draws
         candidates_arr = np.asarray(candidates)
         sampled = self.belief.select_max_information_gain(candidates_arr, num_samples)
-        t_sample = time.perf_counter()
+
+        if debug_timing:
+            t_sample = time.perf_counter()
 
         noise_strategy = NoiseModelFactory.create(self.belief.last_obs, 0.05)
         model = self.belief.model
@@ -206,20 +212,28 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             end = min(len(candidates), start + chunk_size)
             xs = candidates[start:end]
 
-            t0 = time.perf_counter()
+            if debug_timing:
+                t0 = time.perf_counter()
+
             mu_preds = model.compute_vectorized_many(xs, sampled)
-            time_model += time.perf_counter() - t0
+
+            if debug_timing:
+                time_model += time.perf_counter() - t0
 
             noise_chunk, inv_noise_std_arr = noise_strategy.generate_noise_chunk(mu_preds, num_samples)
 
-            t0 = time.perf_counter()
+            if debug_timing:
+                t0 = time.perf_counter()
+
             utilities[start:end] = _sbed_eig_utilities_from_mu_and_noise(
                 mu_preds=mu_preds,
                 noise_chunk=noise_chunk,
                 inv_noise_std=inv_noise_std_arr,
                 eps=eps,
             )
-            time_eig += time.perf_counter() - t0
+
+            if debug_timing:
+                time_eig += time.perf_counter() - t0
 
         best_idx = int(pl.Series(utilities).arg_max())
 
