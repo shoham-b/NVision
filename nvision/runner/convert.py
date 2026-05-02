@@ -75,7 +75,7 @@ def extract_peak_estimates(
     estimates: dict[str, float] = {}
 
     for key, value in locator_result.items():
-        if not isinstance(value, (int, float)):
+        if not isinstance(value, int | float):
             continue
         key_lc = key.lower()
         is_position = (
@@ -131,10 +131,10 @@ def belief_mode_estimates(belief: object) -> dict[str, float]:
     # Fallback for non-grid beliefs (e.g., SMC): use mode estimates if available, else posterior mean.
     if hasattr(belief, "mode_estimates") and callable(belief.mode_estimates):
         out = belief.mode_estimates()
-        return {k: float(v) for k, v in out.items() if isinstance(v, (int, float))}
+        return {k: float(v) for k, v in out.items() if isinstance(v, int | float)}
     if hasattr(belief, "estimates") and callable(belief.estimates):
         out = belief.estimates()
-        return {k: float(v) for k, v in out.items() if isinstance(v, (int, float))}
+        return {k: float(v) for k, v in out.items() if isinstance(v, int | float)}
     return {}
 
 

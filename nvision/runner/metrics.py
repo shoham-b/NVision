@@ -70,7 +70,7 @@ def generate_attempt_metrics(  # noqa: C901
         measurements = 0
     else:
         estimate_dict = finalize_row.drop("repeat_id").row(0, named=True)
-        estimate = {k: float(v) for k, v in estimate_dict.items() if isinstance(v, (int, float))}
+        estimate = {k: float(v) for k, v in estimate_dict.items() if isinstance(v, int | float)}
         measurements = current_history_df.height
 
     attempt_metrics = _scan_attempt_metrics(_truth_positions(current_scan), estimate)
