@@ -18,20 +18,22 @@ def _utility_from_mu_preds(mu_preds: np.ndarray, inv_noise_var: float, inv_cost:
     n_candidates, n_samples = mu_preds.shape
     out = np.empty(n_candidates, dtype=np.float64)
 
+    inv_n = 1.0 / n_samples
+    factor = inv_n * inv_noise_var * inv_cost
+
     for i in range(n_candidates):
         # Two-pass variance for numerical stability.
         mean = 0.0
         for j in range(n_samples):
             mean += mu_preds[i, j]
-        mean /= n_samples
+        mean *= inv_n
 
-        var = 0.0
+        var_sum = 0.0
         for j in range(n_samples):
             d = mu_preds[i, j] - mean
-            var += d * d
-        var /= n_samples
+            var_sum += d * d
 
-        u = var * inv_noise_var * inv_cost
+        u = var_sum * factor
         out[i] = u if u > 0.0 else 0.0
 
     return out

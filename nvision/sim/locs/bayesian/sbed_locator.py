@@ -85,6 +85,7 @@ def _sbed_eig_utilities_from_mu_and_noise(
 
     log_eps = math.log(eps)
     utilities = np.empty(m, dtype=np.float64)
+    buffer = np.empty(n_particles, dtype=np.float64)
 
     for i in range(m):
         acc_entropy = 0.0
@@ -94,29 +95,28 @@ def _sbed_eig_utilities_from_mu_and_noise(
         for o in range(n_outcomes):
             y = mu_preds[i, o] + noise_chunk[i, o]
             inv_sigma = inv_noise_std[i, o]
+            inv_var_half = -0.5 * inv_sigma * inv_sigma
 
             # Stable normalization: subtract max log-likelihood over particles.
             max_log_lik = -1e300
             for p in range(n_particles):
                 diff = y - mu_preds[i, p]
-                log_lik = -0.5 * (diff * inv_sigma) * (diff * inv_sigma)
-                if log_lik > max_log_lik:
-                    max_log_lik = log_lik
+                ll = (diff * diff) * inv_var_half
+                buffer[p] = ll
+                if ll > max_log_lik:
+                    max_log_lik = ll
 
             sum_exp = 0.0
             for p in range(n_particles):
-                diff = y - mu_preds[i, p]
-                log_lik = -0.5 * (diff * inv_sigma) * (diff * inv_sigma)
-                sum_exp += math.exp(log_lik - max_log_lik)
+                e = math.exp(buffer[p] - max_log_lik)
+                buffer[p] = e
+                sum_exp += e
 
             inv_sum_exp = 1.0 / (sum_exp + 1e-300)
             entropy = 0.0
 
             for p in range(n_particles):
-                diff = y - mu_preds[i, p]
-                log_lik = -0.5 * (diff * inv_sigma) * (diff * inv_sigma)
-                e = math.exp(log_lik - max_log_lik)
-                w = e * inv_sum_exp
+                w = buffer[p] * inv_sum_exp
 
                 # Match np.log(np.clip(weights, eps, None)) semantics.
                 if w < eps:
