@@ -212,6 +212,14 @@ def serve(  # noqa: C901
         bool,
         typer.Option("--background", help="Run server in background and exit immediately"),
     ] = False,
+    gcp: Annotated[
+        bool,
+        typer.Option("--gcp", help="Serve from GCP instead of local"),
+    ] = False,
+    gcp_bucket: Annotated[
+        str | None,
+        typer.Option("--gcp-bucket", help="GCP bucket to serve results from"),
+    ] = None,
 ) -> None:
     """Start a local HTTP server for viewing NVision results.
 
@@ -231,10 +239,22 @@ def serve(  # noqa: C901
         index = directory / "index.html"
         if not index.exists():
             console.print("[bold cyan]Running demo first...[/bold cyan]")
-            result = demo_cmd(open_browser=False)
+            result = demo_cmd(open_browser=False, gcp=gcp, gcp_bucket=gcp_bucket)
             if result != 0:
                 console.print("[bold red]Demo failed![/bold red]")
                 raise typer.Exit(result)
+
+    if gcp:
+        if not gcp_bucket:
+            console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket to be specified")
+            raise typer.Exit(1)
+        from nvision.tools.gcp import get_public_url
+
+        url = get_public_url(gcp_bucket, directory.resolve().name)
+        console.print(f"[bold cyan]Serving from GCP:[/bold cyan] {url}")
+        if not no_open:
+            webbrowser.open(url)
+        return
 
     directory = directory.resolve()
     if not directory.exists():
