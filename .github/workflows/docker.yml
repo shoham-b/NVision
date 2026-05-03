@@ -26,8 +26,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          node-version: 24
 
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
