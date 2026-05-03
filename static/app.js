@@ -1,4 +1,6 @@
-window.NVISION_ASSET_PREFIX = '';
+if (!window.NVISION_ASSET_PREFIX) {
+    window.NVISION_ASSET_PREFIX = '';
+}
 window.NVISION_BOOTSTRAP = (async () => {
     async function loadScript(candidates, onLoaded) {
         const cacheBust = `v=${Date.now()}`;

@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import logging
+import os
 import queue
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
@@ -52,7 +53,7 @@ def _run_tasks_process_pool(  # noqa: C901
     monitor: ProgressMonitor | None = None,
     out_dir: Path | None = None,
     started_at: str | None = None,
-) -> tuple[list[dict[str, object]], list[dict], list[Exception]]:
+) -> tuple[list[dict[str, object]], list[dict], list[Exception], int]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
     Workers should have `log_queue=None` and `progress_queue=None` so they don't attempt
@@ -156,7 +157,7 @@ def _run_tasks_process_pool(  # noqa: C901
         except Exception:
             pass  # Best effort cleanup
 
-    return plot_manifest, df_rows, errors
+    return plot_manifest, df_rows, errors, completed_count
 
 
 def _prune_run_logs(logs_dir: Path, *, max_runs: int = 2) -> None:
@@ -502,7 +503,7 @@ def run(  # noqa: C901
                 _update_run_status("running")
                 if runners > 1:
                     log.info("Parallel execution enabled with %s runner(s).", runners)
-                    plot_manifest, df_rows, errors = _run_tasks_process_pool(
+                    plot_manifest, df_rows, errors, completed_tasks = _run_tasks_process_pool(
                         tasks,
                         runners=runners,
                         cache_bridge=cache_bridge,
@@ -621,19 +622,20 @@ def run(  # noqa: C901
     except Exception as exc:
         log.warning(f"Failed to build HTML index: {exc}")
 
-    if gcp and not gcp_bucket:
-        console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket to be specified")
+    effective_bucket = gcp_bucket or os.getenv("NVISION_GCP_BUCKET")
+    if gcp and not effective_bucket:
+        console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket or NVISION_GCP_BUCKET env var")
         raise typer.Exit(1)
 
     log.info(f"Wrote locator results to: {out_dir}")
     log.info(f"View results: uv run python -m nvision serve --dir {out_dir}")
 
-    if gcp and gcp_bucket:
+    if gcp and effective_bucket:
         from nvision.tools.gcp import get_public_url, upload_artifacts
 
         try:
-            upload_artifacts(out_dir, gcp_bucket)
-            public_url = get_public_url(gcp_bucket, out_dir.name)
+            upload_artifacts(out_dir, effective_bucket)
+            public_url = get_public_url(effective_bucket, out_dir.name)
             console.print(f"\n[bold green]Uploaded to GCP:[/bold green] {public_url}")
         except Exception as exc:
             log.warning(f"Failed to upload to GCP: {exc}")
