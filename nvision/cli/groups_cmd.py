@@ -19,6 +19,41 @@ groups_app = typer.Typer(
 app.add_typer(groups_app, name="groups")
 
 
+@app.command("run-single")
+def run_single(
+    generator: Annotated[str, typer.Argument(help="Generator name (e.g. NVCenter-lorentzian)")],
+    noise: Annotated[str, typer.Argument(help="Noise name (e.g. NoNoise, Gauss(0.01))")],
+    strategy: Annotated[str, typer.Argument(help="Strategy name (e.g. Bayesian-SBED-NoSweep)")],
+    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats")] = 1,
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps for Bayesian locator measurement loop"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    loc_timeout_s: Annotated[
+        int,
+        typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
+    ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes."
+    ),
+    open_browser: bool = typer.Option(
+        False, "--open/--no-open", help="Open results in browser after run"
+    ),
+) -> int:
+    """Run a single (generator, noise, strategy) combination."""
+    return run(
+        out=ARTIFACTS_ROOT,
+        repeats=repeats,
+        loc_max_steps=loc_max_steps,
+        loc_timeout_s=loc_timeout_s,
+        combination_names=[(generator, noise, strategy)],
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+    )
+
+
 def _run_named_group(
     group_name: str,
     *,

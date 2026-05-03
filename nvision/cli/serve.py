@@ -22,12 +22,12 @@ import sys
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import typer
 from rich.console import Console
 
-from nvision.cli import ClassVar, defaults
+from nvision.cli import defaults
 from nvision.cli.app_instance import app
 from nvision.tools.paths import ARTIFACTS_ROOT
 
