@@ -193,7 +193,9 @@ def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
 
 
 def run(  # noqa: C901
-    out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = None,
+    out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)
+    if cli_defaults.DEFAULT_OUT
+    else None,
     repeats: int = cli_defaults.DEFAULT_REPEATS,
     loc_max_steps: Annotated[
         int,
@@ -268,7 +270,7 @@ def run(  # noqa: C901
             help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
             case_sensitive=False,
         ),
-    ] = "INFO",
+    ] = cli_defaults.DEFAULT_LOG_LEVEL,
     no_progress: Annotated[
         bool,
         typer.Option("--no-progress", help="Disable progress bars"),
@@ -288,11 +290,11 @@ def run(  # noqa: C901
     open_browser: Annotated[
         bool,
         typer.Option("--open/--no-open", help="Open results in browser after run"),
-    ] = False,
+    ] = cli_defaults.DEFAULT_OPEN_BROWSER,
     logs_root: Annotated[
         Path | None,
         typer.Option("--logs-root", help="Custom logs directory (default: logs/ under out)"),
-    ] = None,
+    ] = Path(cli_defaults.DEFAULT_LOGS_ROOT) if cli_defaults.DEFAULT_LOGS_ROOT else None,
     gcp: Annotated[
         bool,
         typer.Option("--gcp", help="Upload results to GCP"),

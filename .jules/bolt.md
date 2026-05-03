@@ -1,0 +1,3 @@
+## 2024-05-30 - [Numba optimizations for weighted arrays]
+**Learning:** In Numba @njit blocks, using `np.dot(w, x)` or `np.dot(x, x)` is significantly faster than manual `for` loops that sum over array elements, because `np.dot` delegates to highly optimized internal routines. However, vectorized operations that create new intermediate arrays (like `var = np.average((x - mean)**2, weights=w)`) should still be avoided inside tight loops in favor of manual scalar loops to prevent dynamic memory allocation overhead.
+**Action:** Use `np.dot` and `np.sum` for vector reductions within Numba, while keeping operations that would result in intermediate array allocations as scalar loops.
