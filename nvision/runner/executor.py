@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import random
 import threading
 import time
-import dataclasses
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any

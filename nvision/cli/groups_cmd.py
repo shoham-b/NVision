@@ -91,11 +91,10 @@ def list_groups(
 ) -> None:
     """List preset group names (from :func:`~nvision.sim.run_groups.run_groups`)."""
     for group in sim_run_groups.run_groups():
-        group_cmd_name = group.name.replace("_", "-")
         if verbose and group.description:
-            typer.echo(f"{group_cmd_name}\t{group.description}")
+            typer.echo(f"{group.name}\t{group.description}")
         else:
-            typer.echo(group_cmd_name)
+            typer.echo(group.name)
 
 
 @groups_app.command("run")

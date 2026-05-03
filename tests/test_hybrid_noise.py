@@ -1,17 +1,18 @@
 """Tests for Hybrid Noise-Aware Signal Modeling."""
 
 import numpy as np
-import pytest
+
+from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.models.observation import Observation
 from nvision.spectra.noise_model import (
+    CompositeNoiseSignalModel,
+    DriftNoiseSignalModel,
     GaussianNoiseSignalModel,
     PoissonNoiseSignalModel,
-    DriftNoiseSignalModel,
-    CompositeNoiseSignalModel
 )
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.models.observation import Observation
+
 
 def test_gaussian_noise_likelihood():
     """Verify Gaussian noise likelihood with epistemic broadening."""
@@ -37,6 +38,7 @@ def test_gaussian_noise_likelihood():
     ll_broad_large = model.composite_log_likelihood(predicted, residuals_large, noise_params, sigma_epistemic=0.5)
     assert ll_broad_large[1] > ll_pure_large[1]  # Large residuals become "less unlikely"
 
+
 def test_poisson_noise_likelihood():
     """Verify Poisson scale-based likelihood."""
     model = PoissonNoiseSignalModel(prior_bounds={"poisson_scale": (10, 1000)})
@@ -50,6 +52,7 @@ def test_poisson_noise_likelihood():
     ll = model.composite_log_likelihood(predicted, residuals, noise_params, sigma_epistemic=0.0)
     assert not np.isnan(ll).any()
     assert ll[0] == ll[1]
+
 
 def test_composite_noise_model():
     """Verify combining multiple noise sources."""
@@ -68,9 +71,11 @@ def test_composite_noise_model():
     ll = comp.composite_log_likelihood(predicted, residuals, noise_params, sigma_epistemic=0.0)
     assert len(ll) == 1
 
+
 def test_smc_joint_parameter_tracking():
     """Integration test: Verify SMC tracks joint parameters correctly."""
     from nvision.spectra.nv_center import nv_center_lorentzian_bounds_for_domain
+
     sig_model = NVCenterLorentzianModel()
     noise_model = GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (0.01, 0.1)})
 
@@ -86,7 +91,7 @@ def test_smc_joint_parameter_tracking():
         noise_model=noise_model,
         parameter_bounds={name: (0.0, 1.0) for name in bounds},
         physical_param_bounds=bounds,
-        num_particles=100
+        num_particles=100,
     )
 
     assert "noise_sigma" in belief._param_names
@@ -101,4 +106,4 @@ def test_smc_joint_parameter_tracking():
 
     # Check that particles evolved
     assert belief._particles.shape == (100, len(belief._param_names))
-    assert not np.allclose(belief._particles, 0.5) # Assuming they jittered
+    assert not np.allclose(belief._particles, 0.5)  # Assuming they jittered
