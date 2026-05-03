@@ -1,4 +1,4 @@
-    """Task-list builder — creates runnable LocatorTask objects."""
+"""Task-list builder — creates runnable LocatorTask objects."""
 
 from __future__ import annotations
 

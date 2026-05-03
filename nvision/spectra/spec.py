@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
@@ -41,7 +41,7 @@ class ParamSpec(Protocol[ParamsT, SampleParamsT, UncertaintyT]):
 
 class BasicParamSpec:
     """Simple ParamSpec that doesn't use typed bundles (uses tuples/dicts)."""
-    
+
     def __init__(self, names: list[str], bounds: dict[str, tuple[float, float]]):
         self._names = tuple(names)
         self._bounds = bounds
@@ -79,7 +79,7 @@ class BasicParamSpec:
 
 class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
     """Auto-implement ParamSpec methods using dataclass field introspection."""
-    
+
     params_cls: type[ParamsT]
     samples_cls: type[SampleParamsT]
     uncertainty_cls: type[UncertaintyT]
@@ -87,6 +87,7 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
     @property
     def names(self) -> tuple[str, ...]:
         from dataclasses import fields
+
         return tuple(f.name for f in fields(self.params_cls))
 
     @property
@@ -107,18 +108,20 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
 
     def unpack_samples(self, arrays_in_order: Sequence[np.ndarray]) -> SampleParamsT:
         from nvision.spectra.dtypes import FLOAT_DTYPE
+
         return self.samples_cls(
             **{name: np.asarray(arr, dtype=FLOAT_DTYPE) for name, arr in zip(self.names, arrays_in_order, strict=True)}
         )
 
     def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]:
         from nvision.spectra.dtypes import FLOAT_DTYPE
+
         return tuple(np.asarray(getattr(samples, name), dtype=FLOAT_DTYPE) for name in self.names)
 
 
 class SignalParamSpec(ParamSpec):
     """Refined protocol for signal models (backward compat)."""
-    
+
     @property
     def bounds(self) -> dict[str, tuple[float, float]]: ...
 
