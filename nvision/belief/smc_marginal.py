@@ -118,7 +118,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _current_annealed_jitter_scale: float = field(init=False, repr=False, default=0.0)
 
     def __post_init__(self) -> None:
-        self._param_names = self.model.parameter_names()
+        self._param_names = list(self.model.parameter_names())
+        if self.noise_model is not None:
+            # Append noise parameters to the state space
+            for name in self.noise_model.spec.names:
+                if name not in self._param_names:
+                    self._param_names.append(name)
+        
         self._current_annealed_jitter_scale = self.annealed_jitter_initial
 
         # Initialize particles uniformly within bounds
@@ -153,7 +159,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Epistemic uncertainty: spread of ALL predictions at this x
         sigma_epistemic = float(np.std(predicted))
-
+        noise_std = float(obs.noise_std)
         if self.noise_model is not None and self._noise_param_slice is not None:
             noise_arrays = [self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)]
             residuals = obs.signal_value - predicted
