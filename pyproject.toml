@@ -62,6 +62,9 @@ ignore = [
     "RUF001", # ambiguous unicode in strings
     "RUF002", # ambiguous unicode in docstrings
     "RUF003", # ambiguous unicode in comments
+    "UP038",
+    "N802",
+    "PT009",
 ]
 
 [tool.ruff.format]

@@ -62,6 +62,7 @@ mock_math._first_finite = _first_finite
 mock_math._promote_uncert = _promote_uncert
 sys.modules["nvision.tools.math"] = mock_math
 
+
 spec = importlib.util.spec_from_file_location("nvision.runner.metrics", "nvision/runner/metrics.py")
 metrics_module = importlib.util.module_from_spec(spec)
 sys.modules["nvision.runner.metrics"] = metrics_module
@@ -93,10 +94,10 @@ class TestMetricsEdgeCases(unittest.TestCase):
         truth = [1.0, 2.0]
         estimate = {"x1_hat": 1.1, "x2_hat": 2.1, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        assert math.isclose(result.get("abs_err_x1"), 0.1)
-        assert math.isclose(result.get("abs_err_x2"), 0.1)
-        assert math.isclose(result.get("pair_rmse"), 0.1)
-        assert result.get("uncert") == 0.1
+        assert math.isclose(result["abs_err_x1"], 0.1)
+        assert math.isclose(result["abs_err_x2"], 0.1)
+        assert math.isclose(result["pair_rmse"], 0.1)
+        assert result["uncert"] == 0.1
 
     def test_three_truth_positions(self):
         """Verify that pair metrics are NOT calculated when there are more than 2 truth positions."""
