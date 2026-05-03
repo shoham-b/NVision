@@ -28,6 +28,9 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-test-windows:
     name: Test (windows-latest, py${{ matrix.python-version }})
