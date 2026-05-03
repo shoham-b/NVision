@@ -4,6 +4,7 @@ from __future__ import annotations
 # Imported for side-effects only.
 from nvision.cli import cache_cmd as _cache_cmd  # noqa: F401
 from nvision.cli import demo as _demo  # noqa: F401
+from nvision.cli import gcp_cmd as _gcp_cmd  # noqa: F401
 from nvision.cli import groups_cmd as _groups_cmd  # noqa: F401
 from nvision.cli import render as _render  # noqa: F401
 from nvision.cli import run as _run  # noqa: F401
@@ -13,6 +14,10 @@ from nvision.cli.main import app
 
 def main() -> None:
     """Run the Typer CLI."""
+    from dotenv import load_dotenv
+
+    # Load environment variables from .env (e.g. GOOGLE_APPLICATION_CREDENTIALS)
+    load_dotenv()
     app()
 
 

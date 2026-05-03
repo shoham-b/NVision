@@ -23,7 +23,7 @@ sys.modules["nvision.models.experiment"] = MagicMock()
 
 
 def _maybe_finite(value: object) -> float | None:
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         value_float = float(value)
         if math.isfinite(value_float):
             return value_float
@@ -86,8 +86,8 @@ class TestMetricsEdgeCases(unittest.TestCase):
         truth = [1.0]
         estimate = {"x_hat": 1.1, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        assert math.isclose(result["abs_err_x"], 0.1)
-        assert result["uncert"] == 0.1
+        assert math.isclose(result.get("abs_err_x"), 0.1)
+        assert result.get("uncert") == 0.1
 
     def test_two_truth_happy_path(self):
         """Verify pair metrics calculation for two peaks."""

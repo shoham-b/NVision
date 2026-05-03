@@ -26,7 +26,6 @@ from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
 from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
 from nvision.runner.signal_cache import get_shared_core_experiment
-from nvision.sim import presets as sim_presets
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
@@ -310,11 +309,17 @@ class _TaskRunner:
         # Use effective max_steps: CLI value overrides strategy default, but strategy
         # config may have its own default that differs from DEFAULT_LOC_MAX_STEPS.
         # We must match the actual value used in _run_single_repeat for cache hits.
-        strategy_default_max_steps = self.task.strategy_spec.locator_config.get("max_steps")
-        effective_max_steps = self.task.loc_max_steps
-        if strategy_default_max_steps is not None and self.task.loc_max_steps == sim_presets.DEFAULT_LOC_MAX_STEPS:
-            # User didn't override --loc-max-steps, use strategy's default for cache key
-            effective_max_steps = strategy_default_max_steps
+        # Replicate the logic used to determine `max_steps` during `_run_single_repeat`.
+        # Sweep locators use a dynamic step count if --sweep-max-steps is not set.
+        locator_class = self.task.strategy_spec.locator_class
+        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+
+        if uses_sweep_max_steps:
+            # Reconstruct the experiment to compute the dynamic step count
+            experiment = self._build_experiment(self._rng_for_measurement(0))
+            effective_max_steps = self._resolve_sweep_max_steps(experiment)
+        else:
+            effective_max_steps = self.task.loc_max_steps
         return {
             "generator": self.generator_name,
             "noise": self.noise_name,

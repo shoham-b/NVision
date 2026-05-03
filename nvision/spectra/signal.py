@@ -147,7 +147,7 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         try:
             param_arrays = samples.arrays_in_order()  # type: ignore[union-attr]
         except AttributeError:
-            if isinstance(samples, (tuple, list)):
+            if isinstance(samples, tuple | list):
                 param_arrays = samples  # type: ignore[assignment]
             else:
                 return np.stack([self.compute_vectorized_samples(float(x), samples) for x in xs], axis=0)
