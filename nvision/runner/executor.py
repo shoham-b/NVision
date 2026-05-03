@@ -539,6 +539,16 @@ class _TaskRunner:
         if x_min is None or x_max is None:
             raise ValueError("TrueSignal must expose x_min/x_max parameters or frequency bounds")
 
+        # Attach noise model (Bayesian inference dual of the physical noise)
+        if self.task.noise is not None:
+            noise_sig_model = self.task.noise.to_noise_signal_model()
+            noise_bounds = noise_sig_model.spec.bounds if noise_sig_model else {}
+            true_signal = dataclasses.replace(
+                true_signal,
+                noise_model=noise_sig_model,
+                noise_bounds=noise_bounds,
+            )
+
         return CoreExperiment(true_signal=true_signal, noise=self.task.noise, x_min=x_min, x_max=x_max)
 
     @staticmethod
@@ -641,6 +651,7 @@ class _TaskRunner:
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": noise_std,
+            "noise_model": experiment.true_signal.noise_model,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_min_span is None else {"signal_min_span": signal_min_span}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
@@ -769,7 +780,7 @@ class _TaskRunner:
 
     @staticmethod
     def _injected_parameter_bounds(experiment: CoreExperiment) -> dict[str, tuple[float, float]]:
-        """Extract valid `(lo, hi)` bounds with noise-aware amplitude floor.
+        """Consolidate all parameter bounds for the locator.
 
         Any amplitude-like parameter is clamped so its lower bound is at least
         the estimated measurement-noise standard deviation (when feasible).
@@ -778,6 +789,7 @@ class _TaskRunner:
         noise_std = 0.05
         if experiment.noise is not None:
             noise_std = float(experiment.noise.estimated_noise_std())
+
         for name, (lo_raw, hi_raw) in experiment.true_signal.bounds.items():
             lo, hi = float(lo_raw), float(hi_raw)
             if hi > lo:
@@ -785,6 +797,11 @@ class _TaskRunner:
                 if ("amplitude" in name_lc or "depth" in name_lc) and hi > noise_std:
                     lo = max(lo, noise_std)
                     if lo >= hi:
-                        lo = hi * 0.999
-                bounds[name] = (lo, hi)
+                        lo = float(lo_raw)  # Fallback if noise too high
+            bounds[name] = (lo, hi)
+
+        # Merge noise bounds (no clamping needed for these)
+        if experiment.true_signal.noise_bounds:
+            bounds.update(experiment.true_signal.noise_bounds)
+
         return bounds

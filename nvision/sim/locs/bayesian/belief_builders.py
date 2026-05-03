@@ -24,6 +24,7 @@ import numpy as np
 from nvision.belief.grid_marginal import GridParameter
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.sim.gen.nv_center_generator import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
@@ -200,6 +201,7 @@ def nv_center_smc_belief(
     a_param: float = 0.98,
     scale: bool = True,
     use_information_weights: bool = True,
+    noise_model: NoiseSignalModel | None = None,
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model."""
@@ -231,6 +233,15 @@ def nv_center_smc_belief(
         d_lo, d_hi = merged_bounds["dip_depth"]
         merged_bounds["dip_depth"] = (max(float(d_lo), 0.05), float(d_hi))
 
+    # Merge noise parameter bounds
+    if noise_model is not None:
+        noise_spec = noise_model.spec
+        for name in noise_spec.names:
+            if parameter_bounds and name in parameter_bounds:
+                merged_bounds[name] = parameter_bounds[name]
+            else:
+                merged_bounds[name] = noise_spec.bounds[name]
+
     x_phys = merged_bounds["frequency"]
     wrapped = UnitCubeSignalModel(model, merged_bounds, x_phys)
 
@@ -244,6 +255,7 @@ def nv_center_smc_belief(
         a_param=a_param,
         scale=scale,
         use_information_weights=use_information_weights,
+        noise_model=noise_model,
         physical_param_bounds=merged_bounds,
         physical_x_bounds=x_phys,
     )

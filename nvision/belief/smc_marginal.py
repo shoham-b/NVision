@@ -11,6 +11,7 @@ from numba import njit
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
 from nvision.spectra.likelihood import likelihood_from_observation_model
+from nvision.spectra.noise_model import NoiseSignalModel
 
 # --- Numba helpers (particle weights / resampling) ----------------------------
 
@@ -108,10 +109,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     # Elitist resampling: survival of the fittest
     elitism_ratio: float = 0.2  # Top 20% particles survive intact
+    noise_model: NoiseSignalModel | None = None
 
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
     _param_names: list[str] = field(init=False, repr=False)
+    _noise_param_slice: slice | None = field(init=False, repr=False, default=None)
     _current_annealed_jitter_scale: float = field(init=False, repr=False, default=0.0)
 
     def __post_init__(self) -> None:
@@ -130,22 +133,46 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self._weights = np.ones(self.num_particles) / self.num_particles
 
+        # Detect noise param dimensions
+        if self.noise_model is not None:
+            noise_names = set(self.noise_model.spec.names)
+            indices = [i for i, name in enumerate(self._param_names) if name in noise_names]
+            if indices:
+                self._noise_param_slice = slice(min(indices), max(indices) + 1)
+
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
 
         # 1. Compute likelihood for all particles (vectorized model evaluation)
-        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
+        d_signal = self._particles.shape[1]
+        if self._noise_param_slice is not None:
+            d_signal = self._noise_param_slice.start
+
+        arrays_in_order = [self._particles[:, j] for j in range(d_signal)]
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
-        # Adaptive noise based on current uncertainty (similar to grid)
-        # In a rigorous SMC, this should ideally be a fixed measurement noise
-        noise_std = obs.noise_std
-        likelihoods = likelihood_from_observation_model(
-            obs_y=obs.signal_value,
-            predicted=predicted,
-            noise_std=noise_std,
-            frequency_noise_model=obs.frequency_noise_model,
-        )
+        # Epistemic uncertainty: spread of ALL predictions at this x
+        sigma_epistemic = float(np.std(predicted))
+
+        if self.noise_model is not None and self._noise_param_slice is not None:
+            noise_arrays = [self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)]
+            residuals = obs.signal_value - predicted
+            log_liks = self.noise_model.composite_log_likelihood(
+                predicted, residuals, noise_arrays, sigma_epistemic
+            )
+            # Numerically stable exponentiation
+            log_liks -= np.max(log_liks)
+            likelihoods = np.exp(log_liks)
+        else:
+            # Fallback: original path with epistemic tempering
+            sigma_eff = float(np.sqrt(obs.noise_std**2 + sigma_epistemic**2))
+            likelihoods = likelihood_from_observation_model(
+                obs_y=obs.signal_value,
+                predicted=predicted,
+                noise_std=sigma_eff,
+                frequency_noise_model=obs.frequency_noise_model,
+                tempering_factor=1.0,
+            )
 
         # 2. Compute information-based weights from Fisher Information
         # Particles suggesting measurements at informative regions (high gradient,

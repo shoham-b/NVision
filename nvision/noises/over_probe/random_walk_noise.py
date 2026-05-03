@@ -4,6 +4,7 @@ import random
 from dataclasses import dataclass
 
 from nvision.sim import OverProbeNoise
+from nvision.spectra.noise_model import NoiseSignalModel
 
 
 @dataclass
@@ -37,3 +38,10 @@ class OverProbeRandomWalkNoise(OverProbeNoise):
 
         offset = self.initial_offset + rng.gauss(0.0, self.step_sigma)
         return signal_value + offset * (signal_value - baseline)
+
+    def to_noise_signal_model(self) -> NoiseSignalModel:
+        """Create the Bayesian counterpart with latent parameter priors."""
+        from nvision.spectra.noise_model import GaussianNoiseSignalModel
+
+        # Random walk step size prior (mapped to an effective per-step Gaussian sigma)
+        return GaussianNoiseSignalModel(prior_bounds={"walk_sigma": (0.0, self.step_sigma * 5.0)})

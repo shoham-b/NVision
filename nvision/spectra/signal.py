@@ -4,90 +4,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
-ParamsT = TypeVar("ParamsT")
-SampleParamsT = TypeVar("SampleParamsT")
-UncertaintyT = TypeVar("UncertaintyT")
+from nvision.spectra.spec import GenericParamSpec, NoiseSignalModel, ParamsT, ParamSpec, SampleParamsT, UncertaintyT
 
 
-class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
-    """Auto-implement ParamSpec methods using dataclass field introspection.
-
-    Subclasses must define three class attributes:
-        params_cls: type[ParamsT]          # frozen dataclass with fields
-        samples_cls: type[SampleParamsT]  # frozen dataclass with np.ndarray fields
-        uncertainty_cls: type[UncertaintyT]  # frozen dataclass with fields
-
-    The ``names`` property is derived from ``params_cls`` field names.
-    All pack/unpack methods work by iterating fields in declaration order.
-    """
-
-    params_cls: type[ParamsT]
-    samples_cls: type[SampleParamsT]
-    uncertainty_cls: type[UncertaintyT]
-
-    @property
-    def names(self) -> tuple[str, ...]:
-        return tuple(f.name for f in fields(self.params_cls))
-
-    @property
-    def dim(self) -> int:
-        return len(self.names)
-
-    def unpack_params(self, values: Sequence[float]) -> ParamsT:
-        return self.params_cls(**dict(zip(self.names, values, strict=False)))
-
-    def pack_params(self, params: ParamsT) -> tuple[float, ...]:
-        return tuple(getattr(params, name) for name in self.names)
-
-    def unpack_uncertainty(self, values: Sequence[float]) -> UncertaintyT:
-        return self.uncertainty_cls(**dict(zip(self.names, values, strict=False)))
-
-    def pack_uncertainty(self, u: UncertaintyT) -> tuple[float, ...]:
-        return tuple(getattr(u, name) for name in self.names)
-
-    def unpack_samples(self, arrays_in_order: Sequence[np.ndarray]) -> SampleParamsT:
-        from nvision.spectra.dtypes import FLOAT_DTYPE
-
-        return self.samples_cls(
-            **{name: np.asarray(arr, dtype=FLOAT_DTYPE) for name, arr in zip(self.names, arrays_in_order, strict=True)}
-        )
-
-    def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]:
-        from nvision.spectra.dtypes import FLOAT_DTYPE
-
-        return tuple(np.asarray(getattr(samples, name), dtype=FLOAT_DTYPE) for name in self.names)
-
-
-@runtime_checkable
-class ParamSpec(Protocol[ParamsT, SampleParamsT, UncertaintyT]):
-    """Adapter that lets generic beliefs work with typed parameter bundles.
-
-    Beliefs operate on numeric vectors / arrays; models operate on typed bundles.
-    This spec defines the mapping between those representations.
-    """
-
-    @property
-    def names(self) -> tuple[str, ...]: ...
-
-    @property
-    def dim(self) -> int: ...
-
-    def unpack_params(self, values: Sequence[float]) -> ParamsT: ...
-
-    def pack_params(self, params: ParamsT) -> tuple[float, ...]: ...
-
-    def unpack_uncertainty(self, values: Sequence[float]) -> UncertaintyT: ...
-
-    def pack_uncertainty(self, u: UncertaintyT) -> tuple[float, ...]: ...
-
-    def unpack_samples(self, arrays_in_order: Sequence[np.ndarray]) -> SampleParamsT: ...
-
-    def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]: ...
 
 
 @runtime_checkable
@@ -301,6 +225,8 @@ class TrueSignal[ParamsT]:
     model: SignalModel[ParamsT, Any, Any]
     typed_parameters: ParamsT
     bounds: Mapping[str, tuple[float, float]]
+    noise_model: NoiseSignalModel | None = None
+    noise_bounds: Mapping[str, tuple[float, float]] = field(default_factory=dict)
 
     def __call__(self, x: float) -> float:
         return float(self.model.compute(float(x), self.typed_parameters))
@@ -351,6 +277,10 @@ class TrueSignal[ParamsT]:
             return None
         # For 3-dip Zeeman splitting, smallest dip is left dip: dip_depth / k_np^2
         return dip_depth / (k_np**2)
+
+    def all_bounds(self) -> dict[str, tuple[float, float]]:
+        """Merge signal and noise bounds for joint Bayesian inference."""
+        return {**self.bounds, **self.noise_bounds}
 
     @classmethod
     def from_typed(

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nvision.sim.batch import DataBatch, OverFrequencyNoise, OverProbeNoise
+from nvision.spectra.noise_model import NoiseSignalModel
 
 
 class CompositeOverFrequencyNoise(OverFrequencyNoise):
@@ -135,3 +136,19 @@ class CompositeNoise:
             std = self.estimated_noise_std()
             return std * math.sqrt(2.0 * math.log(max(n_samples, 2)))
         return self.over_frequency_noise.max_noise_deviation(n_samples)
+
+    def to_noise_signal_model(self) -> NoiseSignalModel | None:
+        """Create the Bayesian counterpart with joint latent parameters."""
+        from nvision.spectra.noise_model import CompositeNoiseSignalModel
+
+        models = []
+        if self.over_frequency_noise is not None:
+            for p in self.over_frequency_noise._parts:
+                if hasattr(p, "to_noise_signal_model"):
+                    models.append(p.to_noise_signal_model())
+        if self.over_probe_noise is not None:
+            for p in self.over_probe_noise._parts:
+                if hasattr(p, "to_noise_signal_model"):
+                    models.append(p.to_noise_signal_model())
+
+        return CompositeNoiseSignalModel(models) if models else None

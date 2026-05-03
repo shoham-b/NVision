@@ -8,6 +8,7 @@ import polars as pl
 
 from nvision.sim import OverFrequencyNoise
 from nvision.sim.batch import DataBatch
+from nvision.spectra.noise_model import NoiseSignalModel
 
 
 @dataclass
@@ -57,6 +58,15 @@ class OverFrequencyPoissonNoise(OverFrequencyNoise):
         # For Poisson(λ) noise with λ = v·scale, std(k/scale) = √v/√scale.
         # Evaluated at background level v=1.0 → std = 1/√scale.
         return 1.0 / math.sqrt(max(self.scale, 1e-12))
+
+    def to_noise_signal_model(self) -> NoiseSignalModel:
+        """Create the Bayesian counterpart with latent parameter priors."""
+        from nvision.spectra.noise_model import PoissonNoiseSignalModel
+
+        # Uncertainty window around the nominal scale
+        prior_lo = self.scale * 0.5
+        prior_hi = self.scale * 2.0
+        return PoissonNoiseSignalModel(prior_bounds={"poisson_scale": (prior_lo, prior_hi)})
 
     def max_noise_deviation(self, n_samples: int = 20) -> float:
         # EVT maximum for n i.i.d. Poisson samples at signal level v=1.0.

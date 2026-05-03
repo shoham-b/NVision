@@ -35,7 +35,10 @@ def run_single(
     ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
     runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes."
+        1, "--runners", min=1, help="Number of runner processes. 1 = live logs/progress in main thread; >1 = subprocesses with reliable Ctrl-C but silent until done."
+    ),
+    no_progress: bool = typer.Option(
+        False, "--no-progress", help="Disable Rich progress UI; print plain logs to terminal"
     ),
     open_browser: bool = typer.Option(
         False, "--open/--no-open", help="Open results in browser after run"
@@ -47,9 +50,13 @@ def run_single(
         repeats=repeats,
         loc_max_steps=loc_max_steps,
         loc_timeout_s=loc_timeout_s,
-        combination_names=[(generator, noise, strategy)],
+        filter_generator=generator,
+        filter_noise=noise,
+        filter_strategy=strategy,
+        all_experiments=True,
         no_cache=no_cache,
         runners=runners,
+        no_progress=no_progress,
         open_browser=open_browser,
     )
 

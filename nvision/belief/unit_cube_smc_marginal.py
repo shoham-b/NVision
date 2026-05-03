@@ -122,6 +122,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             annealed_jitter_decay=self.annealed_jitter_decay,
             elitism_ratio=self.elitism_ratio,
             use_information_weights=self.use_information_weights,
+            noise_model=self.noise_model,
             physical_param_bounds=dict(self.physical_param_bounds),
             physical_x_bounds=self.physical_x_bounds,
         )

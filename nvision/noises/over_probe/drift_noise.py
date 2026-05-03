@@ -4,6 +4,7 @@ import random
 from dataclasses import dataclass
 
 from nvision.sim import OverProbeNoise
+from nvision.spectra.noise_model import NoiseSignalModel
 
 
 @dataclass
@@ -40,3 +41,10 @@ class OverProbeDriftNoise(OverProbeNoise):
             return signal_value
         offset = rng.uniform(-0.5 * span, 0.5 * span)
         return signal_value + offset * (signal_value - baseline)
+
+    def to_noise_signal_model(self) -> NoiseSignalModel:
+        """Create the Bayesian counterpart with latent parameter priors."""
+        from nvision.spectra.noise_model import DriftNoiseSignalModel
+
+        # Drift rate prior
+        return DriftNoiseSignalModel(prior_bounds={"drift_rate": (0.0, self.drift_per_unit * 10.0)})

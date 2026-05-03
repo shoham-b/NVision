@@ -7,6 +7,7 @@ import polars as pl
 
 from nvision.sim import OverFrequencyNoise
 from nvision.sim.batch import DataBatch
+from nvision.spectra.noise_model import NoiseSignalModel
 
 
 @dataclass
@@ -33,3 +34,12 @@ class OverFrequencyGaussianNoise(OverFrequencyNoise):
 
     def noise_std(self) -> float:
         return self.sigma
+
+    def to_noise_signal_model(self) -> NoiseSignalModel:
+        """Create the Bayesian counterpart with latent parameter priors."""
+        from nvision.spectra.noise_model import GaussianNoiseSignalModel
+
+        # Uncertainty window around the nominal sigma (±5x)
+        prior_lo = self.sigma * 0.2
+        prior_hi = self.sigma * 5.0
+        return GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (prior_lo, prior_hi)})

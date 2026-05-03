@@ -8,10 +8,10 @@ import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.signal import (
-    ParamSpec,
     SignalModel,
     VectorizedManySamplesInput,
 )
+from nvision.spectra.spec import ParamSpec
 
 _FI = np.finfo(np.dtype(FLOAT_DTYPE))
 # ~sqrt(machine epsilon): a few ULPs around 0 and 1 before clipping unit parameters.
