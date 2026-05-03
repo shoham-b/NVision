@@ -9,6 +9,7 @@ from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.grid_marginal import ParameterValues
+from nvision.models.locator import LocatorConfig
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -48,18 +49,16 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
     def __init__(
         self,
         belief: AbstractMarginalDistribution,
-        max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        config: LocatorConfig,
         scan_param: str | None = None,
         pickiness: float = 4.0,
-        noise_std: float = 0.02,
         cost: float = 1.0,
         n_mc_samples: int = 64,
         n_candidates: int = 64,
     ) -> None:
-        super().__init__(belief, max_steps, convergence_threshold, scan_param, noise_std=noise_std)
+        super().__init__(belief, config=config, scan_param=scan_param)
         self.pickiness = float(max(0.0, pickiness))
-        self.noise_std = float(max(1e-9, noise_std))
+        self.noise_std = float(max(1e-9, config.noise_std if config.noise_std is not None else 0.02))
         self.cost = float(max(1e-9, cost))
         self.n_mc_samples = int(max(8, n_mc_samples))
         self.n_candidates = int(max(8, n_candidates))
@@ -67,13 +66,11 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
     @classmethod
     def create(
         cls,
+        config: LocatorConfig,
         builder: Callable[..., AbstractMarginalDistribution],
-        max_steps: int = 150,
-        convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         pickiness: float = 4.0,
-        noise_std: float = 0.02,
         cost: float = 1.0,
         n_mc_samples: int = 64,
         n_candidates: int = 64,
@@ -84,11 +81,9 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         belief = builder(parameter_bounds, **grid_config)
         return cls(
             belief,
-            max_steps=max_steps,
-            convergence_threshold=convergence_threshold,
+            config=config,
             scan_param=scan_param,
             pickiness=pickiness,
-            noise_std=noise_std,
             cost=cost,
             n_mc_samples=n_mc_samples,
             n_candidates=n_candidates,

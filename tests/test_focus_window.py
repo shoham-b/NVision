@@ -1,3 +1,5 @@
+from __future__ import annotations
+from nvision.models.locator import LocatorConfig, ConvergenceConfig
 """Tests ensuring focus-window narrowing never falls back to the full domain.
 
 These tests exercise the three critical code paths that compute the focus window
@@ -13,7 +15,6 @@ All synthetic signals contain a clear dip so *any* of the above paths that
 returns the full ``[0, 1]`` domain is a bug.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -101,10 +102,9 @@ class TestSweepingLocatorFocusWindow:
             return GridMarginalDistribution(model=DummyModel(), parameters=parameters)
 
         locator = SobolSweepLocator.create(
+            config=LocatorConfig(max_steps=60, noise_std=0.001),
             belief=_dummy_belief(),
             signal_model=DummyModel(),
-            max_steps=60,
-            noise_std=0.001,
             domain_lo=0.0,
             domain_hi=1.0,
         )

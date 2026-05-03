@@ -8,6 +8,7 @@ import numpy as np
 import polars as pl
 from numba import njit
 
+from nvision.models.locator import LocatorConfig
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -93,15 +94,13 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     def __init__(
         self,
         belief,
-        max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        config: LocatorConfig,
         scan_param: str | None = None,
-        noise_std: float = 0.02,
         utility_method: str = "variance_approx",
         n_candidates: int = 200,
         n_draws: int = 100,
     ) -> None:
-        super().__init__(belief, max_steps, convergence_threshold, scan_param, noise_std=noise_std)
+        super().__init__(belief, config=config, scan_param=scan_param)
         self.utility_method = utility_method
         self.n_candidates = int(n_candidates)
         self.n_draws = int(n_draws)
@@ -109,12 +108,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     @classmethod
     def create(
         cls,
+        config: LocatorConfig,
         builder=None,
-        max_steps: int = 150,
-        convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         parameter_bounds=None,
-        noise_std: float | None = None,
         utility_method: str = "variance_approx",
         n_candidates: int = 200,
         n_draws: int = 100,
@@ -125,10 +122,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         belief = builder(parameter_bounds, **grid_config)
         return cls(
             belief,
-            max_steps=max_steps,
-            convergence_threshold=convergence_threshold,
+            config=config,
             scan_param=scan_param,
-            noise_std=noise_std,
             utility_method=utility_method,
             n_candidates=n_candidates,
             n_draws=n_draws,

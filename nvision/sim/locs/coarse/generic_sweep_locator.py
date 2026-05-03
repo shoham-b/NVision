@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.models.locator import LocatorConfig
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.spectra.signal import SignalModel
 
@@ -49,11 +50,10 @@ class GenericSweepLocator(SweepingLocator):
     @classmethod
     def create(
         cls,
+        config: LocatorConfig,
         belief: AbstractMarginalDistribution,
         signal_model: SignalModel,
-        max_steps: int,
         *,
-        noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
@@ -61,6 +61,7 @@ class GenericSweepLocator(SweepingLocator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
+        **kwargs: object,
     ) -> GenericSweepLocator:
         """Factory method for creating a GenericSweepLocator.
 
@@ -103,9 +104,8 @@ class GenericSweepLocator(SweepingLocator):
 
         return cls(
             belief=belief,
+            config=config,
             signal_model=signal_model,
-            max_steps=max_steps,
-            noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
@@ -117,10 +117,9 @@ class GenericSweepLocator(SweepingLocator):
     def __init__(
         self,
         belief: AbstractMarginalDistribution,
+        config: LocatorConfig,
         signal_model: SignalModel,
-        max_steps: int,
         *,
-        noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
@@ -130,9 +129,8 @@ class GenericSweepLocator(SweepingLocator):
     ):
         super().__init__(
             belief=belief,
+            config=config,
             signal_model=signal_model,
-            max_steps=max_steps,
-            noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
@@ -143,10 +141,10 @@ class GenericSweepLocator(SweepingLocator):
 
         # Refocus configuration: refocus at half the sweep to focus remaining
         # points around any detected signal.
-        self._refocus_at = max(20, max_steps // 2)
+        self._refocus_at = max(20, int(config.max_steps) // 2)
 
         # Generate initial sweep points
-        self._sweep_points = self._generate_sweep_points(max_steps)
+        self._sweep_points = self._generate_sweep_points(int(config.max_steps))
 
     def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
         """Generate n uniformly spaced sweep points in [0, 1].

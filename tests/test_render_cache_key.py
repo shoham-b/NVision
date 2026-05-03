@@ -1,6 +1,6 @@
+from __future__ import annotations
 """``nvision render`` must use the same SQLite cache key as the executor."""
 
-from __future__ import annotations
 
 from nvision import LocatorResultsRepository, locator_combination_cache_config, stable_config_hash
 

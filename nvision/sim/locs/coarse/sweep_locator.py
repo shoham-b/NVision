@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
-from nvision.models.locator import Locator
+from nvision.models.locator import Locator, LocatorConfig
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
 from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
@@ -47,10 +47,9 @@ class SweepingLocator(Locator):
     def __init__(
         self,
         belief: AbstractMarginalDistribution,
+        config: LocatorConfig,
         signal_model: SignalModel,
-        max_steps: int,
         *,
-        noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
@@ -59,10 +58,12 @@ class SweepingLocator(Locator):
         domain_hi: float = 1.0,
     ):
         super().__init__(belief)
+        self.config = config
         # Signal model is independent of belief - used for sweep detection
         self.signal_model = signal_model
-        self.max_steps = max_steps
+        self.max_steps = int(config.max_steps)
         self.step_count = 0
+        noise_std = config.noise_std if config.noise_std is not None else 0.01
         self.noise_std = noise_std
         self._noise_std = noise_std
         self._noise_max_dev = noise_max_dev
@@ -74,7 +75,7 @@ class SweepingLocator(Locator):
 
         # Generate initial sweep points (subclass provides method)
         self._sweep_points: np.ndarray = np.empty(0, dtype=float)
-        self.history = ObservationHistory(max_steps)
+        self.history = ObservationHistory(self.max_steps)
 
         # Sweep state
         self._last_refocus_step = 0
@@ -236,7 +237,7 @@ class SweepingLocator(Locator):
         ys = self.history.ys
 
         min_idx = int(np.argmin(ys))
-        best_point_norm = float(xs[min_idx])
+        float(xs[min_idx])
         min_signal = float(ys[min_idx])
 
         background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)) :]))
@@ -519,7 +520,7 @@ class SweepingLocator(Locator):
         else:
             expected_uniform = float(self.max_steps)
         metrics["expected_uniform_points"] = expected_uniform
-        metrics["measurements_done"] = min(int(round(expected_uniform)), self.max_steps)
+        metrics["measurements_done"] = min(round(expected_uniform), self.max_steps)
         efficiency = expected_uniform / max(metrics["measurements_done"], 1)
         metrics["sweep_efficiency"] = efficiency
         return metrics

@@ -17,7 +17,7 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 from nvision.cache import CacheBridge
 from nvision.models.experiment import CoreExperiment, Observation
-from nvision.models.locator import Locator
+from nvision.models.locator import ConvergenceConfig, Locator, LocatorConfig
 from nvision.models.observer import Observer, RunResult
 from nvision.models.task import LocatorTask
 from nvision.runner.cache import embed_graph_content, restore_graphs, strip_heavy_fields
@@ -141,7 +141,19 @@ def precompute_sweep(
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.model)
 
-    locator = locator_class.create(**locator_config)
+    conv_cfg = ConvergenceConfig(
+        threshold=locator_config.pop("convergence_threshold", 0.01),
+        patience_steps=locator_config.pop("convergence_patience_steps", 8),
+        params=locator_config.pop("convergence_params", None),
+    )
+    loc_cfg = LocatorConfig(
+        max_steps=locator_config.pop("max_steps", 150),
+        noise_std=locator_config.pop("noise_std", None),
+        initial_sweep_steps=locator_config.pop("initial_sweep_steps", None),
+        convergence=conv_cfg,
+    )
+
+    locator = locator_class.create(config=loc_cfg, **locator_config)
 
     # For Bayesian: use initial_sweep_steps; for sweep: use max_steps (full sweep)
     sweep_steps = getattr(locator, "initial_sweep_steps", 0) if is_bayesian else getattr(locator, "max_steps", 0)
@@ -213,7 +225,19 @@ def run_loop(
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.model)
 
-    locator = locator_class.create(**locator_config)
+    conv_cfg = ConvergenceConfig(
+        threshold=locator_config.pop("convergence_threshold", 0.01),
+        patience_steps=locator_config.pop("convergence_patience_steps", 8),
+        params=locator_config.pop("convergence_params", None),
+    )
+    loc_cfg = LocatorConfig(
+        max_steps=locator_config.pop("max_steps", 150),
+        noise_std=locator_config.pop("noise_std", None),
+        initial_sweep_steps=locator_config.pop("initial_sweep_steps", None),
+        convergence=conv_cfg,
+    )
+
+    locator = locator_class.create(config=loc_cfg, **locator_config)
 
     # Check if we can use cached sweep for Bayesian locators or sweep locators
     cached_sweep: list[Observation] | None = None
@@ -603,6 +627,7 @@ class _TaskRunner:
         if self.task.sweep_max_steps is not None:
             return self.task.sweep_max_steps
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
+
         return compute_sweep_max_steps(
             experiment.true_signal.model,
             float(experiment.x_min),
@@ -740,7 +765,18 @@ class _TaskRunner:
         if last_loc is not None:
             locator_instance = last_loc
         else:
-            locator_instance = locator_class.create(**cfg)
+            conv_cfg = ConvergenceConfig(
+                threshold=cfg.pop("convergence_threshold", 0.01),
+                patience_steps=cfg.pop("convergence_patience_steps", 8),
+                params=cfg.pop("convergence_params", None),
+            )
+            loc_cfg = LocatorConfig(
+                max_steps=cfg.pop("max_steps", 150),
+                noise_std=cfg.pop("noise_std", None),
+                initial_sweep_steps=cfg.pop("initial_sweep_steps", None),
+                convergence=conv_cfg,
+            )
+            locator_instance = locator_class.create(config=loc_cfg, **cfg)
             if result.snapshots:
                 locator_instance.belief = result.snapshots[-1].belief
         # Provide the ground-truth signal so sweep locators can compute the

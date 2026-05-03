@@ -1,6 +1,7 @@
+from __future__ import annotations
+from nvision.models.locator import LocatorConfig
 """Tests for core locator architecture."""
 
-from __future__ import annotations
 
 import math
 import random
@@ -56,7 +57,7 @@ def test_simple_sweep_locator_is_core_locator():
 def test_simple_sweep_create_returns_instance():
     model = GaussianModel()
     belief = _dummy_belief(model)
-    loc = SimpleSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
+    loc = SimpleSweepLocator.create(config=LocatorConfig(max_steps=10), belief=belief, signal_model=model)
     assert isinstance(loc, SimpleSweepLocator)
 
 

@@ -14,7 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
-from nvision.models.locator import Locator
+from nvision.models.locator import Locator, LocatorConfig
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
@@ -75,9 +75,7 @@ def _infer_tight_focus_window(
         return domain_lo, domain_hi
 
     noise_threshold = noise_med - depth_fraction * dip_depth
-    lo, hi = _refocus_infer_focus_window(
-        history, domain_lo, domain_hi, noise_threshold=noise_threshold
-    )
+    lo, hi = _refocus_infer_focus_window(history, domain_lo, domain_hi, noise_threshold=noise_threshold)
     return lo, hi
 
 
@@ -110,11 +108,10 @@ class SobolSweepLocator(SweepingLocator):
     @classmethod
     def create(
         cls,
+        config: LocatorConfig,
         belief: AbstractMarginalDistribution,
         signal_model: SignalModel,
-        max_steps: int,
         *,
-        noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
@@ -122,6 +119,7 @@ class SobolSweepLocator(SweepingLocator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
+        **kwargs: object,
     ) -> SobolSweepLocator:
         """Factory method for creating a SobolSweepLocator."""
         if parameter_bounds is not None:
@@ -133,9 +131,8 @@ class SobolSweepLocator(SweepingLocator):
 
         return cls(
             belief=belief,
+            config=config,
             signal_model=signal_model,
-            max_steps=max_steps,
-            noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
@@ -147,10 +144,9 @@ class SobolSweepLocator(SweepingLocator):
     def __init__(
         self,
         belief: AbstractMarginalDistribution,
+        config: LocatorConfig,
         signal_model: SignalModel,
-        max_steps: int,
         *,
-        noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
@@ -160,9 +156,8 @@ class SobolSweepLocator(SweepingLocator):
     ):
         super().__init__(
             belief=belief,
+            config=config,
             signal_model=signal_model,
-            max_steps=max_steps,
-            noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
@@ -172,7 +167,7 @@ class SobolSweepLocator(SweepingLocator):
         )
         # Refocusing disabled — single sweep over full domain
         self._refocus_at = None
-        self._sweep_points = self._generate_sweep_points(max_steps)
+        self._sweep_points = self._generate_sweep_points(int(config.max_steps))
 
     def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
         """Generate n Sobol sequence points in [0, 1]."""
@@ -262,7 +257,6 @@ class Stage1SobolLocator:
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Return None — simple sweep locators do not narrow the window."""
         return None
-
 
 
 class Stage2SobolLocator:
@@ -413,9 +407,7 @@ class Stage3SobolLocator:
         return self._done
 
     def _infer_bounds(self) -> None:
-        self.window_lo, self.window_hi = _infer_tight_focus_window(
-            self.history, self.domain_lo, self.domain_hi
-        )
+        self.window_lo, self.window_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
 
     def _check_for_remaining_dips(self) -> None:
         if self.history.count < 6:
@@ -435,7 +427,8 @@ class Stage3SobolLocator:
         # Use the more lenient segment-based detector (min_points=1) so that
         # narrow dips are counted even when only 1-2 samples fall inside them.
         dips = self._dip_segments(
-            xs_win, ys_win,
+            xs_win,
+            ys_win,
             min_points=1,
             noise_std=self.noise_std or 0.01,
         )
@@ -518,11 +511,10 @@ class StagedSobolSweepLocator(Locator):
     @classmethod
     def create(
         cls,
+        config: LocatorConfig,
         belief: AbstractMarginalDistribution,
         signal_model: SignalModel,
-        max_steps: int = 300,
         *,
-        noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
@@ -530,6 +522,7 @@ class StagedSobolSweepLocator(Locator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
+        **kwargs: object,
     ) -> StagedSobolSweepLocator:
         if parameter_bounds is not None:
             param_name = scan_param or (
@@ -540,11 +533,10 @@ class StagedSobolSweepLocator(Locator):
 
         return cls(
             belief=belief,
+            config=config,
             signal_model=signal_model,
-            max_steps=max_steps,
             domain_lo=domain_lo,
             domain_hi=domain_hi,
-            noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
             scan_param=scan_param,
@@ -553,22 +545,22 @@ class StagedSobolSweepLocator(Locator):
     def __init__(
         self,
         belief: AbstractMarginalDistribution,
+        config: LocatorConfig,
         signal_model: SignalModel,
-        max_steps: int,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         *,
-        noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
         scan_param: str | None = None,
     ):
         super().__init__(belief)
+        self.config = config
         self.signal_model = signal_model
-        self.max_steps = max_steps
+        self.max_steps = int(config.max_steps)
         self.domain_lo = domain_lo
         self.domain_hi = domain_hi
-        self.noise_std = noise_std
+        self.noise_std = float(config.noise_std if config.noise_std is not None else 0.01)
         self.noise_max_dev = noise_max_dev
         self.signal_max_span = signal_max_span
         self.scan_param = scan_param
@@ -616,8 +608,12 @@ class StagedSobolSweepLocator(Locator):
             self._stage1_end_step = self.step_count
             win_lo, win_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
             self._stage2 = Stage2SobolLocator(
-                self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
-                window_lo=win_lo, window_hi=win_hi,
+                self._sobol_gen,
+                self.domain_lo,
+                self.domain_hi,
+                self.history,
+                window_lo=win_lo,
+                window_hi=win_hi,
             )
             self._active_locator = self._stage2
 
@@ -633,8 +629,12 @@ class StagedSobolSweepLocator(Locator):
         inner = getattr(self.signal_model, "inner", self.signal_model)
         expected_dips = inner.expected_dip_count()
         self._stage3 = Stage3SobolLocator(
-            self._sobol_gen, self.domain_lo, self.domain_hi, self.history,
-            expected_dips=expected_dips, noise_std=self.noise_std,
+            self._sobol_gen,
+            self.domain_lo,
+            self.domain_hi,
+            self.history,
+            expected_dips=expected_dips,
+            noise_std=self.noise_std,
         )
         self._active_locator = self._stage3
         self._signal_found = True
@@ -752,7 +752,7 @@ class StagedSobolSweepLocator(Locator):
             else:
                 expected_uniform = float(self.max_steps)
         expected_focused = num_dips * 5.0 + 20.0 if num_dips > 0 else expected_uniform
-        measurements_done = min(int(round(expected_uniform)), self.max_steps)
+        measurements_done = min(round(expected_uniform), self.max_steps)
         efficiency = expected_uniform / max(measurements_done, 1)
         return {
             "measurements_done": measurements_done,
@@ -902,8 +902,10 @@ class StagedSobolSweepLocator(Locator):
 
         # Prefer actual ground-truth dip count when available
         true_dip_count = self._true_signal_dip_count()
-        expected_dips = true_dip_count if true_dip_count is not None else (
-            self.signal_model.expected_dip_count() or (len(segments) if segments else 1)
+        expected_dips = (
+            true_dip_count
+            if true_dip_count is not None
+            else (self.signal_model.expected_dip_count() or (len(segments) if segments else 1))
         )
         domain_width = self.domain_hi - self.domain_lo
         min_span = self.signal_model.signal_min_span(domain_width)

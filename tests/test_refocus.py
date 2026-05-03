@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Tests for nvision.sim.locs.refocus shape-aware dip detection and window inference.
 
 All signals are synthetic, deterministic, and exercise multi-dip edge cases
 that match the NV-center codebase.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

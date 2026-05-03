@@ -1,3 +1,5 @@
+from __future__ import annotations
+from nvision.models.locator import LocatorConfig
 """Benchmarks for locator single-step and overall run performance.
 
 Run with::
@@ -9,7 +11,6 @@ Or with extra repeats for stable averages::
     uv run --no-sync pytest tests/test_locator_benchmarks.py -v --benchmark-repeats=10
 """
 
-from __future__ import annotations
 
 import random
 import statistics
@@ -126,7 +127,7 @@ def _sweep_step_ms(locator_class: type[Locator], experiment: CoreExperiment, **c
     if needs_belief:
         config.setdefault("belief", _dummy_belief(experiment.true_signal.model))
         config.setdefault("signal_model", experiment.true_signal.model)
-    loc = locator_class.create(**config)
+    loc = locator_class.create(config=LocatorConfig(), **config)
     timer = _StepTimer(loc, experiment, rng)
     return _measure(timer.step)
 
@@ -139,11 +140,9 @@ def _bayesian_step_ms(
 ) -> float:
     rng = random.Random(1)
     loc = locator_class.create(
+        config=LocatorConfig(max_steps=12, initial_sweep_steps=4, noise_std=0.02),
         builder=builder,
         parameter_bounds=None,
-        max_steps=12,
-        initial_sweep_steps=4,
-        noise_std=0.02,
         n_grid_freq=16,
         n_grid_width=8,
         n_grid_depth=8,

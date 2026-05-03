@@ -1,6 +1,7 @@
+from __future__ import annotations
+from nvision.models.locator import LocatorConfig, ConvergenceConfig
 """Unit-cube NV belief: normalized parameter grids, physical signal values."""
 
-from __future__ import annotations
 
 import random
 

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.models.locator import Locator
+from nvision.models.locator import Locator, LocatorConfig
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
@@ -86,21 +85,17 @@ class SequentialBayesianLocator(Locator):
     def __init__(
         self,
         belief: AbstractMarginalDistribution,
-        max_steps: int = 450,
-        convergence_threshold: float = 0.01,
+        config: LocatorConfig,
         scan_param: str | None = None,
-        initial_sweep_steps: int | None = None,
-        convergence_params: Sequence[str] | None = None,
-        convergence_patience_steps: int = 8,
-        noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
     ) -> None:
         super().__init__(belief)
-        self.max_steps = int(max_steps)
+        self.config = config
+        self.max_steps = int(config.max_steps)
         if self.max_steps <= 0:
             raise ValueError("max_steps must be positive")
-        self.convergence_threshold = convergence_threshold
+        self.convergence_threshold = config.convergence.threshold
         # Total measurement count (includes initial sweep + Bayesian steps).
         self.step_count: int = 0
         # Bayesian acquisition count only (excludes initial sweep).
@@ -108,14 +103,16 @@ class SequentialBayesianLocator(Locator):
         self._scan_param = scan_param or belief.model.parameter_names()[0]
         # Default convergence target is all model parameters.
         self._convergence_params: tuple[str, ...] = (
-            tuple(convergence_params) if convergence_params is not None else tuple(self.belief.model.parameter_names())
+            tuple(config.convergence.params)
+            if config.convergence.params is not None
+            else tuple(self.belief.model.parameter_names())
         )
-        self._convergence_patience_steps = max(1, int(convergence_patience_steps))
+        self._convergence_patience_steps = max(1, int(config.convergence.patience_steps))
         self._convergence_streak = 0
         # Stored for noise-aware dip detection during sweep refocus.
-        if noise_std is None or float(noise_std) <= 0:
-            raise ValueError("noise_std must be a positive float; got %r" % noise_std)
-        self._noise_std: float = float(noise_std)
+        if config.noise_std is None or float(config.noise_std) <= 0:
+            raise ValueError(f"noise_std must be a positive float; got {config.noise_std!r}")
+        self._noise_std: float = float(config.noise_std)
         # Pre-computed maximum expected noise deviation for mid-sweep threshold.
         # When provided by the executor (via CompositeNoise.estimated_max_noise_deviation),
         # this is used directly as the dip threshold, bypassing the IQR fallback.
@@ -128,33 +125,32 @@ class SequentialBayesianLocator(Locator):
             float(signal_max_span) if (signal_max_span is not None and signal_max_span > 0) else None
         )
 
-        # Set domain bounds for sweep and acquisition
-        # For UnitCube beliefs, use physical_param_bounds; for Grid beliefs, use parameter_bounds
-        if isinstance(self.belief, (UnitCubeGridMarginalDistribution, UnitCubeSMCMarginalDistribution)):
-            self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._scan_param]
+        bounds = getattr(belief, "physical_param_bounds", None)
+        if bounds is not None and self._scan_param in bounds:
+            self._scan_lo, self._scan_hi = bounds[self._scan_param]
         else:
-            self._scan_lo, self._scan_hi = self.belief.parameter_bounds[self._scan_param]
-        # Full scan axis for :class:`~nvision.models.experiment.CoreExperiment` (never narrowed).
+            self._scan_lo, self._scan_hi = 0.0, 1.0
+
+        # Maintain the full physical domain mapping for the observer.
         # Returned ``x`` must stay normalized to this full range so ``measure()`` probes
         # the intended frequency, even when the belief is narrowed after the sweep.
         self._full_domain_lo, self._full_domain_hi = float(self._scan_lo), float(self._scan_hi)
 
-        # StagedSobolSweepLocator already performs its own signal-span detection
-        # and stage transitions (1/2/3).  We let it run until it reports done()
-        # rather than pre-computing a sweep length here.
-        if initial_sweep_steps is None:
-            self.initial_sweep_steps = self.max_steps
+        # --------------------------------------------------------------
+        # Configuration for the initial coarse sweep
+        # --------------------------------------------------------------
+        if config.initial_sweep_steps is None:
+            self.initial_sweep_steps = self.DEFAULT_INITIAL_SWEEP_STEPS
         else:
-            self.initial_sweep_steps = max(0, int(initial_sweep_steps))
+            self.initial_sweep_steps = max(0, int(config.initial_sweep_steps))
 
         # Create staged Sobol locator for initial sweep phase
         # belief is passed to satisfy Locator parent class
         # signal_model (belief.model) is used for sweep detection
         self._staged_sobol = StagedSobolSweepLocator(
             belief=self.belief,
+            config=config,
             signal_model=self.belief.model,
-            max_steps=self.max_steps,
-            noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
             scan_param=self._scan_param,
@@ -164,30 +160,26 @@ class SequentialBayesianLocator(Locator):
 
         # Post-sweep interval in physical units where _acquire may search; starts at full scan.
         self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
-        # Non-scan parameter bounds narrowed after the sweep (empty = not yet set).
+
+        # Initial sweep narrows parameter bounds physically without remapping to unit cube
         self._narrowed_param_bounds: dict[str, tuple[float, float]] = {}
-        # Track actual step count when initial sweep completed (including any fallback)
-        self._initial_sweep_completed_at_step: int = 0
-        # Per-dip focus windows: list of (lo, hi) tuples for individual dip targeting
+
+        # Round-robin support for multi-dip narrowing
         self._per_dip_windows: list[tuple[float, float]] | None = None
-        # Current dip window index for round-robin acquisition across multiple dips
         self._current_dip_window_idx: int = 0
-        # Buffer for sweep observations - batch update belief after sweep completes.
-        # Capacity must cover the full staged-sobol budget, which is now max_steps.
-        self._sweep_buffer = ObservationHistory(self.max_steps)
+
+        self._initial_sweep_completed_at_step: int = 0
+
+        # Buffer for observations that arrive while the sweep locator is active
+        self._sweep_buffer: list[Observation] = []
 
     @classmethod
     def create(
         cls,
+        config: LocatorConfig,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
-        max_steps: int = 150,
-        convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
-        initial_sweep_steps: int | None = None,
-        convergence_params: Sequence[str] | None = None,
-        convergence_patience_steps: int = 8,
-        noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
         **grid_config: object,
@@ -204,13 +196,8 @@ class SequentialBayesianLocator(Locator):
         belief = builder(parameter_bounds, **grid_config)
         return cls(
             belief,
-            max_steps=max_steps,
-            convergence_threshold=convergence_threshold,
+            config=config,
             scan_param=scan_param,
-            initial_sweep_steps=initial_sweep_steps,
-            convergence_params=convergence_params,
-            convergence_patience_steps=convergence_patience_steps,
-            noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
         )
@@ -238,11 +225,11 @@ class SequentialBayesianLocator(Locator):
             self._staged_sobol.finalize()
 
         # Batch update belief with all sweep observations at once
-        if self._sweep_buffer.count > 0:
+        if len(self._sweep_buffer) > 0:
             if hasattr(self.belief, "batch_update"):
-                self.belief.batch_update(self._sweep_buffer.observations)
+                self.belief.batch_update(self._sweep_buffer)
             else:
-                for obs in self._sweep_buffer.observations:
+                for obs in self._sweep_buffer:
                     self.belief.update(obs)
             self._sweep_buffer = ObservationHistory(self.max_steps)
 
@@ -275,18 +262,13 @@ class SequentialBayesianLocator(Locator):
                     split_lo, split_hi = phys_bounds["split"]
                     new_split_hi = min(float(split_hi), max_split)
                     if new_split_hi > float(split_lo):
-                        self.belief.narrow_scan_parameter_physical_bounds(
-                            "split", float(split_lo), new_split_hi
-                        )
+                        self.belief.narrow_scan_parameter_physical_bounds("split", float(split_lo), new_split_hi)
 
             self._narrowed_param_bounds = {
-                name: (float(lo), float(hi))
-                for name, (lo, hi) in self.belief.physical_param_bounds.items()
+                name: (float(lo), float(hi)) for name, (lo, hi) in self.belief.physical_param_bounds.items()
             }
 
-    def _native_scan_candidates(
-        self, lo: float, hi: float
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _native_scan_candidates(self, lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
         """Return (candidates, probabilities) from the belief's native discretization.
 
         - Grid beliefs: grid points of the scan parameter within [lo, hi],
@@ -501,7 +483,6 @@ class SequentialBayesianLocator(Locator):
         lo, hi = self._get_current_acquisition_bounds()
         return (min(lo, hi), max(lo, hi))
 
-
     def _get_current_acquisition_bounds(self) -> tuple[float, float]:
         """Return the current acquisition window bounds.
 
@@ -553,9 +534,7 @@ class SequentialBayesianLocator(Locator):
             min_y = float(np.min(ys))
             dip_depth = noise_med - min_y
             noise_threshold = noise_med - 0.5 * dip_depth
-            lo, hi = _refocus_infer_focus_window(
-                self._staged_sobol.history, slo, shi, noise_threshold=noise_threshold
-            )
+            lo, hi = _refocus_infer_focus_window(self._staged_sobol.history, slo, shi, noise_threshold=noise_threshold)
 
         if not (np.isfinite(lo) and np.isfinite(hi) and np.isfinite(slo) and np.isfinite(shi)):
             return None
@@ -697,4 +676,3 @@ class SequentialBayesianLocator(Locator):
         """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""
         lo, hi = self._full_domain_lo, self._full_domain_hi
         return float(np.clip((physical_value - lo) / (hi - lo), 0.0, 1.0))
-

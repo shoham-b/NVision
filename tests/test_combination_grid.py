@@ -1,6 +1,6 @@
+from __future__ import annotations
 """CombinationGrid exposes Bayesian strategies for multiple true signals."""
 
-from __future__ import annotations
 
 from nvision import CombinationGrid
 

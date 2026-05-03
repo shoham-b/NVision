@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Manifest ``plot_data`` for static head-to-head must be strict JSON."""
 
-from __future__ import annotations
 
 import json
 

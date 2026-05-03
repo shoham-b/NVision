@@ -1,9 +1,30 @@
 """Abstract locator interface for Bayesian localization."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.observation import Observation
+
+
+@dataclass
+class ConvergenceConfig:
+    """Convergence parameters for Locators."""
+
+    threshold: float = 0.01
+    patience_steps: int = 8
+    params: Sequence[str] | None = None
+
+
+@dataclass
+class LocatorConfig:
+    """Configuration bundle for Locators."""
+
+    max_steps: int = 150
+    noise_std: float | None = None
+    initial_sweep_steps: int | None = None
+    convergence: ConvergenceConfig = field(default_factory=ConvergenceConfig)
 
 
 class Locator(ABC):
@@ -32,7 +53,7 @@ class Locator(ABC):
 
     @classmethod
     @abstractmethod
-    def create(cls, **config):
+    def create(cls, config: LocatorConfig, **kwargs):
         """Create a fresh locator instance with fresh BeliefSignal.
 
         This is the factory method that subclasses implement to create
@@ -41,9 +62,10 @@ class Locator(ABC):
 
         Parameters
         ----------
-        **config
-            Configuration parameters (max_steps, convergence_threshold, etc)
-            Specific to each locator subclass.
+        config : LocatorConfig
+            Configuration bundle for the locator.
+        **kwargs
+            Additional parameters specific to each locator subclass.
 
         Returns
         -------
@@ -52,12 +74,10 @@ class Locator(ABC):
 
         Examples
         --------
-        >>> locator = SimpleSweepLocator.create(max_steps=50)
-        >>> locator = BayesianLocator.create(
-        ...     acquisition="eig",
-        ...     max_steps=150,
-        ...     convergence_threshold=0.01
-        ... )
+        >>> cfg = LocatorConfig(max_steps=50)
+        >>> locator = SimpleSweepLocator.create(config=cfg)
+        >>> cfg2 = LocatorConfig(max_steps=150, convergence=ConvergenceConfig(threshold=0.01))
+        >>> locator = BayesianLocator.create(config=cfg2, acquisition="eig")
         """
         pass
 

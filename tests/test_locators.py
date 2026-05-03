@@ -1,4 +1,5 @@
 from __future__ import annotations
+from nvision.models.locator import LocatorConfig
 
 import random
 
@@ -49,7 +50,7 @@ def _dummy_belief(model):
 def test_simple_sweep_create_classmethod():
     model = GaussianModel()
     belief = _dummy_belief(model)
-    loc = SimpleSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
+    loc = SimpleSweepLocator.create(config=LocatorConfig(max_steps=10), belief=belief, signal_model=model)
     assert isinstance(loc, SimpleSweepLocator)
 
 
