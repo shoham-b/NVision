@@ -1291,10 +1291,11 @@ function main() {
         /** Right column: strategies available for selected generator. */
         function updateScanStrategyControl() {
             const selectedScanGenerator = controlValue(scanGenerator);
+            const selectedScanNoise = controlValue(scanNoise);
             const scanStrategyItems = [
                 ...new Set(
                     scanPlots
-                        .filter((p) => p.generator === selectedScanGenerator)
+                        .filter((p) => p.generator === selectedScanGenerator && p.noise === selectedScanNoise)
                         .map((p) => p.strategy)
                 ),
             ];
@@ -1686,8 +1687,9 @@ function main() {
 
             function updateCmpStrategyControls() {
                 const selGen = controlValue(cmpGen);
+                const selNoise = controlValue(cmpNoise);
                 const stratItems = [
-                    ...new Set(scanPlots.filter((p) => p.generator === selGen).map((p) => p.strategy)),
+                    ...new Set(scanPlots.filter((p) => p.generator === selGen && p.noise === selNoise).map((p) => p.strategy)),
                 ];
                 renderSegmentedControl(leftStrat, stratItems, controlValue(leftStrat));
                 renderSegmentedControl(rightStrat, stratItems, controlValue(rightStrat));
@@ -1878,7 +1880,7 @@ function main() {
                 cmpRepeat.dataset.value =
                     scanDefault.repeat === undefined ? '' : String(scanDefault.repeat);
                 const strats = [
-                    ...new Set(scanPlots.filter((p) => p.generator === scanDefault.generator).map((p) => p.strategy)),
+                    ...new Set(scanPlots.filter((p) => p.generator === scanDefault.generator && p.noise === scanDefault.noise).map((p) => p.strategy)),
                 ].sort();
                 if (strats.length >= 2) {
                     leftStrat.dataset.value = strats[0];
