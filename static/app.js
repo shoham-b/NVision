@@ -161,7 +161,7 @@ window.NVISION_BOOTSTRAP = (async () => {
             if (!data) {
                 // If we previously saw a running status and now the file is gone,
                 // assume the run finished and suggest a refresh.
-                if (lastStatus === 'running') {
+                if (lastStatus === 'running' || lastStatus === 'scheduled') {
                     clearInterval(interval);
                     const banner = document.getElementById('run-status-banner');
                     if (banner) {
