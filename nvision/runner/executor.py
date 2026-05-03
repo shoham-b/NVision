@@ -6,6 +6,7 @@ import logging
 import random
 import threading
 import time
+import dataclasses
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -651,7 +652,7 @@ class _TaskRunner:
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": noise_std,
-            "noise_model": experiment.true_signal.noise_model,
+            **({"noise_model": experiment.true_signal.noise_model} if requires_belief else {}),
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_min_span is None else {"signal_min_span": signal_min_span}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),

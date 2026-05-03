@@ -17,6 +17,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
+from nvision.cli.app_instance import app
 from nvision.cli import defaults as cli_defaults
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
@@ -191,7 +192,7 @@ def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
         tracebacks_suppress=tuple(suppress),
     )
 
-
+@app.command()
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)
     if cli_defaults.DEFAULT_OUT

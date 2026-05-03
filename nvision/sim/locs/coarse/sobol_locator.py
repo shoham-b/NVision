@@ -120,6 +120,7 @@ class SobolSweepLocator(SweepingLocator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
+        **kwargs: Any,
     ) -> SobolSweepLocator:
         """Factory method for creating a SobolSweepLocator."""
         if parameter_bounds is not None:
@@ -559,6 +560,7 @@ class StagedSobolSweepLocator(Locator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
+        **kwargs: Any,
     ) -> StagedSobolSweepLocator:
         if parameter_bounds is not None:
             param_name = scan_param or (

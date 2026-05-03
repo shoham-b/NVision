@@ -61,6 +61,7 @@ class GenericSweepLocator(SweepingLocator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
+        **kwargs: Any,
     ) -> GenericSweepLocator:
         """Factory method for creating a GenericSweepLocator.
 
