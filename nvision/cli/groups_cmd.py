@@ -35,14 +35,15 @@ def run_single(
     ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
     runners: int = typer.Option(
-        1, "--runners", min=1, help="Number of runner processes. 1 = live logs/progress in main thread; >1 = subprocesses with reliable Ctrl-C but silent until done."
+        1,
+        "--runners",
+        min=1,
+        help="Number of runner processes. 1 = live logs/progress in main thread; >1 = silent until done.",
     ),
     no_progress: bool = typer.Option(
         False, "--no-progress", help="Disable Rich progress UI; print plain logs to terminal"
     ),
-    open_browser: bool = typer.Option(
-        False, "--open/--no-open", help="Open results in browser after run"
-    ),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> int:
     """Run a single (generator, noise, strategy) combination."""
     return run(
@@ -90,10 +91,11 @@ def list_groups(
 ) -> None:
     """List preset group names (from :func:`~nvision.sim.run_groups.run_groups`)."""
     for group in sim_run_groups.run_groups():
+        group_cmd_name = group.name.replace("_", "-")
         if verbose and group.description:
-            typer.echo(f"{group.name}\t{group.description}")
+            typer.echo(f"{group_cmd_name}\t{group.description}")
         else:
-            typer.echo(group.name)
+            typer.echo(group_cmd_name)
 
 
 @groups_app.command("run")
