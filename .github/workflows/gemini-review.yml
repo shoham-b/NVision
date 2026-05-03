@@ -19,6 +19,8 @@ defaults:
 jobs:
   review:
     runs-on: 'ubuntu-latest'
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 7
     permissions:
       contents: 'read'

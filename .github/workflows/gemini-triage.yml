@@ -19,6 +19,8 @@ defaults:
 jobs:
   triage:
     runs-on: 'ubuntu-latest'
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 7
     outputs:
       available_labels: '${{ steps.get_labels.outputs.available_labels }}'
@@ -145,6 +147,8 @@ jobs:
 
   label:
     runs-on: 'ubuntu-latest'
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     needs:
       - 'triage'
     if: |-

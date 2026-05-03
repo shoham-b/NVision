@@ -88,6 +88,8 @@ jobs:
   build-test-unix:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 30
     needs: build-test-windows
     strategy:
