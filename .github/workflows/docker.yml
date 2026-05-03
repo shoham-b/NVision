@@ -69,7 +69,7 @@ jobs:
         if: github.event_name != 'push'
         id: pick
         run: |
-          echo "tag=$(echo \"$TAGS\" | head -n1)" >> "$GITHUB_OUTPUT"
+          echo "tag=$(echo "$TAGS" | head -n1)" >> $GITHUB_OUTPUT
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
 
