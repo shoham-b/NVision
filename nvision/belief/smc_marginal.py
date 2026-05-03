@@ -18,20 +18,17 @@ from nvision.spectra.likelihood import likelihood_from_observation_model
 @njit(cache=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
     """Weighted mean and variance of ``x`` with weights ``w`` (not assumed normalized)."""
-    n = x.shape[0]
-    s = 0.0
-    for i in range(n):
-        s += w[i]
+    s = np.sum(w)
     if s <= 0.0:
         return 0.0, 0.0
-    mean = 0.0
-    for i in range(n):
-        mean += (w[i] / s) * x[i]
-    var = 0.0
-    for i in range(n):
+    # Use np.dot for optimized mean calculation (avoid loop overhead)
+    mean = np.dot(w, x) / s
+    # Calculate variance without creating intermediate arrays to avoid dynamic allocation overhead
+    var_sum = 0.0
+    for i in range(x.shape[0]):
         d = x[i] - mean
-        var += (w[i] / s) * d * d
-    return mean, var
+        var_sum += w[i] * d * d
+    return mean, var_sum / s
 
 
 @njit(cache=True)
@@ -62,10 +59,8 @@ def _systematic_resample_indices(cumulative_sum: np.ndarray, positions: np.ndarr
 @njit(cache=True)
 def _inverse_sum_squares(weights: np.ndarray) -> float:
     """Return ``1 / sum(w**2)`` (ESS denominator for normalized weights)."""
-    s = 0.0
-    for i in range(weights.shape[0]):
-        w = weights[i]
-        s += w * w
+    # np.dot is significantly faster than a manual loop for this
+    s = np.dot(weights, weights)
     if s <= 0.0:
         return 0.0
     return 1.0 / s
