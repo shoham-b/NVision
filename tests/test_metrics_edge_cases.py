@@ -1,6 +1,7 @@
+import importlib.util
+import math
 import sys
 import unittest
-import math
 from unittest.mock import MagicMock
 
 # Extensive mocking to bypass missing dependencies in the restricted environment
@@ -20,6 +21,7 @@ sys.modules["nvision.models.experiment"] = MagicMock()
 # we'll use the faithful reproduction of the math tools for the test environment
 # but the CORE logic being tested is the function from metrics.py.
 
+
 def _maybe_finite(value: object) -> float | None:
     if isinstance(value, (int, float)):
         value_float = float(value)
@@ -27,12 +29,14 @@ def _maybe_finite(value: object) -> float | None:
             return value_float
     return None
 
+
 def _first_finite(estimate: dict, keys) -> float | None:
     for key in keys:
         value = _maybe_finite(estimate.get(key))
         if value is not None:
             return value
     return None
+
 
 def _promote_uncert(estimate, metrics):
     if "uncert" in metrics:
@@ -51,18 +55,20 @@ def _promote_uncert(estimate, metrics):
                 metrics["uncert"] = value
                 return
 
+
 mock_math = MagicMock()
 mock_math._maybe_finite = _maybe_finite
 mock_math._first_finite = _first_finite
 mock_math._promote_uncert = _promote_uncert
 sys.modules["nvision.tools.math"] = mock_math
 
-import importlib.util
+
 spec = importlib.util.spec_from_file_location("nvision.runner.metrics", "nvision/runner/metrics.py")
 metrics_module = importlib.util.module_from_spec(spec)
 sys.modules["nvision.runner.metrics"] = metrics_module
 spec.loader.exec_module(metrics_module)
 _scan_attempt_metrics = metrics_module._scan_attempt_metrics
+
 
 class TestMetricsEdgeCases(unittest.TestCase):
     def test_empty_truth(self):
@@ -70,49 +76,50 @@ class TestMetricsEdgeCases(unittest.TestCase):
         truth = []
         estimate = {"x1_hat": 1.0, "x2_hat": 2.0, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        self.assertEqual(result.get("uncert"), 0.1)
-        self.assertNotIn("abs_err_x1", result)
-        self.assertNotIn("abs_err_x2", result)
-        self.assertNotIn("pair_rmse", result)
+        assert result.get("uncert") == 0.1
+        assert "abs_err_x1" not in result
+        assert "abs_err_x2" not in result
+        assert "pair_rmse" not in result
 
     def test_single_truth(self):
         """Verify metric calculation for a single peak."""
         truth = [1.0]
         estimate = {"x_hat": 1.1, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        self.assertAlmostEqual(result["abs_err_x"], 0.1)
-        self.assertEqual(result["uncert"], 0.1)
+        assert math.isclose(result["abs_err_x"], 0.1)
+        assert result["uncert"] == 0.1
 
     def test_two_truth_happy_path(self):
         """Verify pair metrics calculation for two peaks."""
         truth = [1.0, 2.0]
         estimate = {"x1_hat": 1.1, "x2_hat": 2.1, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        self.assertAlmostEqual(result["abs_err_x1"], 0.1)
-        self.assertAlmostEqual(result["abs_err_x2"], 0.1)
-        self.assertAlmostEqual(result["pair_rmse"], 0.1)
-        self.assertEqual(result["uncert"], 0.1)
+        assert math.isclose(result["abs_err_x1"], 0.1)
+        assert math.isclose(result["abs_err_x2"], 0.1)
+        assert math.isclose(result["pair_rmse"], 0.1)
+        assert result["uncert"] == 0.1
 
     def test_three_truth_positions(self):
         """Verify that pair metrics are NOT calculated when there are more than 2 truth positions."""
         truth = [1.0, 2.0, 3.0]
         estimate = {"x1_hat": 1.1, "x2_hat": 2.1, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        self.assertEqual(result, {"uncert": 0.1})
+        assert result == {"uncert": 0.1}
 
     def test_uncert_promotion_integration(self):
         """Verify that uncertainty promotion works."""
         truth = [1.0]
         estimate = {"x_hat": 1.1, "uncert_frequency": 0.05}
         result = _scan_attempt_metrics(truth, estimate)
-        self.assertEqual(result["uncert"], 0.05)
+        assert result["uncert"] == 0.05
 
     def test_entropy_fallback(self):
         """Verify entropy fallback logic."""
         truth = [1.0]
         estimate = {"x_hat": 1.1, "entropy": -2.5}
         result = _scan_attempt_metrics(truth, estimate)
-        self.assertEqual(result["final_entropy"], -2.5)
+        assert result["final_entropy"] == -2.5
+
 
 if __name__ == "__main__":
     unittest.main()
