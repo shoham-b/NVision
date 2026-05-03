@@ -68,7 +68,7 @@ def demo(
     open_browser: Annotated[
         bool,
         typer.Option("--open/--no-open", help="Open results in browser after run"),
-    ] = True,
+    ] = cli_defaults.DEFAULT_OPEN_BROWSER,
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
@@ -76,7 +76,7 @@ def demo(
     out: Annotated[
         Path | None,
         typer.Option("--out", help="Output directory for demo artifacts (default: demo_artifacts)"),
-    ] = None,
+    ] = Path(cli_defaults.DEMO_OUT) if cli_defaults.DEMO_OUT else None,
     gcp: Annotated[
         bool,
         typer.Option("--gcp", help="Upload results to GCP"),
@@ -92,7 +92,7 @@ def demo(
     feedback. Ideal for testing code changes before full benchmark runs.
     """
     demo_artifacts_root = out if out is not None else PROJECT_ROOT / "demo_artifacts"
-    demo_logs_root = demo_artifacts_root / "logs"
+    demo_logs_root = Path(cli_defaults.DEMO_LOGS_ROOT) if cli_defaults.DEMO_LOGS_ROOT else demo_artifacts_root / "logs"
 
     console.print("[bold cyan]NVision Quick Demo[/bold cyan]")
     console.print(f"Repeats: {repeats}, Steps: {loc_max_steps}, Cache: {not no_cache}")
@@ -200,7 +200,7 @@ def beta(
     open_browser: Annotated[
         bool,
         typer.Option("--open/--no-open", help="Open results in browser after run"),
-    ] = True,
+    ] = cli_defaults.DEFAULT_OPEN_BROWSER,
     runners: Annotated[
         int,
         typer.Option("--runners", min=1, help="Parallel runner processes"),
@@ -208,7 +208,7 @@ def beta(
     out: Annotated[
         Path | None,
         typer.Option("--out", help="Output directory for beta artifacts (default: beta_artifacts)"),
-    ] = None,
+    ] = Path(cli_defaults.BETA_OUT) if cli_defaults.BETA_OUT else None,
 ) -> int:
     """Beta testing command - runs like demo but uses beta_artifacts by default.
 
