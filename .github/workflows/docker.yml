@@ -18,12 +18,16 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       matrix:
         image: [serve, worker]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          node-version: 24
 
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
