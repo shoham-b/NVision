@@ -57,7 +57,7 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         pass
 
-    def do_GET(self) -> None:
+    def do_GET(self) -> None:  # noqa: N802
         """Handle GET requests - check for API endpoints first."""
         if self.path == "/api/status":
             self._send_json(
@@ -70,7 +70,7 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
         # Fall through to static file serving
         super().do_GET()
 
-    def do_POST(self) -> None:
+    def do_POST(self) -> None:  # noqa: N802
         """Handle POST requests for API endpoints."""
         if self.path == "/api/reload":
             self._handle_reload()

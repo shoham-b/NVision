@@ -13,6 +13,7 @@ import numpy as np
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import nv_center_lorentzian_eval
 from nvision.spectra.signal import GenericParamSpec, SignalModel
+from nvision.spectra.spec import ParamSpec
 
 # Legacy scale factor (no longer used by :class:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator`;
 # Lorentzian NV uses ``amplitude ≈ dip_depth * linewidth²`` in Hz², matching :class:`LorentzianModel`).
@@ -597,23 +598,19 @@ def nv_center_lorentzian_bounds_for_domain(
     if narrow:
         # Tighter bounds for "narrow" variant
         linewidth_bounds = (1e3, 0.2e6)  # 1 kHz to 200 kHz
-        split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
+        split_bounds = (0.1e6, 2.0e6)    # 0.1 MHz to 2 MHz
         max_span = 5.0e6
 
         if true_params is not None:
-
             def _pm10(v, lo=None, hi=None):
                 l, r = float(v) * 0.9, float(v) * 1.1
-                if lo is not None:
-                    l = max(l, float(lo))
-                if hi is not None:
-                    r = min(r, float(hi))
+                if lo is not None: l = max(l, float(lo))
+                if hi is not None: r = min(r, float(hi))
                 return (float(l), float(r))
 
             # Helper to get attribute or dict key
             def _val(k):
-                if isinstance(true_params, dict):
-                    return true_params.get(k)
+                if isinstance(true_params, dict): return true_params.get(k)
                 return getattr(true_params, k, None)
 
             f_true = _val("frequency")
@@ -792,23 +789,19 @@ def nv_center_voigt_bounds_for_domain(
     if narrow:
         # Tighter bounds for "narrow" variant
         fwhm_total_bounds = (2e3, 0.4e6)  # 2 kHz to 400 kHz
-        split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
+        split_bounds = (0.1e6, 2.0e6)     # 0.1 MHz to 2 MHz
         max_span = 5.0e6
 
         if true_params is not None:
-
             def _pm10(v, lo=None, hi=None):
                 l, r = float(v) * 0.9, float(v) * 1.1
-                if lo is not None:
-                    l = max(l, float(lo))
-                if hi is not None:
-                    r = min(r, float(hi))
+                if lo is not None: l = max(l, float(lo))
+                if hi is not None: r = min(r, float(hi))
                 return (float(l), float(r))
 
             # Helper to get attribute or dict key
             def _val(k):
-                if isinstance(true_params, dict):
-                    return true_params.get(k)
+                if isinstance(true_params, dict): return true_params.get(k)
                 return getattr(true_params, k, None)
 
             f_true = _val("frequency")

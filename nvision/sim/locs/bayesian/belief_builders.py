@@ -24,12 +24,12 @@ import numpy as np
 from nvision.belief.grid_marginal import GridParameter
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.sim.gen.nv_center_generator import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
 )
 from nvision.spectra import CompositePeakModel, GaussianModel, LorentzianModel
-from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
