@@ -10,6 +10,7 @@ import abc
 import math
 from collections.abc import Sequence
 
+
 import numpy as np
 from numba import njit
 
