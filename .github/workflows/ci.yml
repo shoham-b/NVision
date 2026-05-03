@@ -28,12 +28,13 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-test-windows:
     name: Test (windows-latest, py${{ matrix.python-version }})
     runs-on: windows-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -88,8 +89,6 @@ jobs:
   build-test-unix:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 30
     needs: build-test-windows
     strategy:
@@ -146,8 +145,6 @@ jobs:
   coverage-aggregate:
     name: Coverage Aggregate
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 30
     needs: [ build-test-windows, build-test-unix ]
     steps:
@@ -191,8 +188,6 @@ jobs:
     name: Deploy to GitHub Pages
     needs: coverage-aggregate
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 10
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     environment:

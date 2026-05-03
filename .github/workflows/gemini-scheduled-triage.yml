@@ -25,11 +25,12 @@ defaults:
   run:
     shell: 'bash'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   triage:
     runs-on: 'ubuntu-latest'
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 7
     permissions:
       contents: 'read'
@@ -236,8 +237,6 @@ jobs:
 
   label:
     runs-on: 'ubuntu-latest'
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     needs:
       - 'triage'
     if: |-
