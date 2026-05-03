@@ -587,20 +587,59 @@ class NVCenterVoigtModel(
 def nv_center_lorentzian_bounds_for_domain(
     x_min: float,
     x_max: float,
+    narrow: bool = False,
+    true_params: NVCenterLorentzianSpectrum | dict | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``."""
     width = float(x_max - x_min)
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
+    if narrow:
+        # Tighter bounds for "narrow" variant
+        linewidth_bounds = (1e3, 0.2e6)  # 1 kHz to 200 kHz
+        split_bounds = (0.1e6, 2.0e6)    # 0.1 MHz to 2 MHz
+        max_span = 5.0e6
+
+        if true_params is not None:
+            def _pm10(v, lo=None, hi=None):
+                l, r = float(v) * 0.9, float(v) * 1.1
+                if lo is not None: l = max(l, float(lo))
+                if hi is not None: r = min(r, float(hi))
+                return (float(l), float(r))
+
+            # Helper to get attribute or dict key
+            def _val(k):
+                if isinstance(true_params, dict): return true_params.get(k)
+                return getattr(true_params, k, None)
+
+            f_true = _val("frequency")
+            # For frequency, use +-10% of domain width if available
+            f_win = 0.1 * width
+            f_bounds = (float(f_true - f_win), float(f_true + f_win))
+
+            return {
+                "frequency": f_bounds,
+                "linewidth": _pm10(_val("linewidth")),
+                "split": _pm10(_val("split")),
+                "k_np": _pm10(_val("k_np"), lo=MIN_K_NP, hi=MAX_K_NP),
+                "dip_depth": _pm10(_val("dip_depth"), lo=0.01, hi=1.0),
+                "background": _pm10(_val("background"), lo=0.5, hi=1.5),
+                "_signal_max_span": (0.0, max_span),
+            }
+    else:
+        linewidth_bounds = (width * 0.001, width * 0.05)
+        split_bounds = (width * 0.005, width * 0.02)
+        max_span = width * 0.1
+
     return {
         "frequency": (float(x_min), float(x_max)),
-        "linewidth": (width * 0.001, width * 0.05),
-        "split": (width * 0.005, width * 0.02),
+        "linewidth": linewidth_bounds,
+        "split": split_bounds,
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.1, 1.0),
         "background": (0.5, 1.5),
-        "_signal_max_span": (0.0, width * 0.1),
+        "_signal_max_span": (0.0, max_span),
     }
 
 
@@ -739,20 +778,59 @@ def nv_center_one_peak_lorentzian_bounds_for_domain(
 def nv_center_voigt_bounds_for_domain(
     x_min: float,
     x_max: float,
+    narrow: bool = False,
+    true_params: NVCenterVoigtSpectrum | dict | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Voigt signals over ``[x_min, x_max]``."""
     width = float(x_max - x_min)
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
-    split_hi = 5.0e6
-    fwhm_total_hi = 2.8e6
-    max_span = 2.0 * split_hi + 2.0 * fwhm_total_hi
+    if narrow:
+        # Tighter bounds for "narrow" variant
+        fwhm_total_bounds = (2e3, 0.4e6)  # 2 kHz to 400 kHz
+        split_bounds = (0.1e6, 2.0e6)     # 0.1 MHz to 2 MHz
+        max_span = 5.0e6
+
+        if true_params is not None:
+            def _pm10(v, lo=None, hi=None):
+                l, r = float(v) * 0.9, float(v) * 1.1
+                if lo is not None: l = max(l, float(lo))
+                if hi is not None: r = min(r, float(hi))
+                return (float(l), float(r))
+
+            # Helper to get attribute or dict key
+            def _val(k):
+                if isinstance(true_params, dict): return true_params.get(k)
+                return getattr(true_params, k, None)
+
+            f_true = _val("frequency")
+            # For frequency, use +-10% of domain width if available
+            f_win = 0.1 * width
+            f_bounds = (float(f_true - f_win), float(f_true + f_win))
+
+            return {
+                "frequency": f_bounds,
+                "fwhm_total": _pm10(_val("fwhm_total")),
+                "lorentz_frac": _pm10(_val("lorentz_frac"), lo=0.01, hi=0.99),
+                "split": _pm10(_val("split")),
+                "k_np": _pm10(_val("k_np"), lo=MIN_K_NP, hi=MAX_K_NP),
+                "dip_depth": _pm10(_val("dip_depth"), lo=0.01, hi=1.0),
+                "background": _pm10(_val("background"), lo=0.5, hi=1.5),
+                "_signal_max_span": (0.0, max_span),
+            }
+    else:
+        split_hi = 5.0e6
+        fwhm_total_hi = 2.8e6
+        fwhm_total_bounds = (70e3, fwhm_total_hi)
+        split_bounds = (0.0, split_hi)
+        max_span = 2.0 * split_hi + 2.0 * fwhm_total_hi
+
     return {
         "frequency": (float(x_min), float(x_max)),
-        "fwhm_total": (70e3, fwhm_total_hi),
+        "fwhm_total": fwhm_total_bounds,
         "lorentz_frac": (0.05, 0.98),
-        "split": (0.0, split_hi),
+        "split": split_bounds,
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.001, 1.0),
         "background": (0.95, 1.05),

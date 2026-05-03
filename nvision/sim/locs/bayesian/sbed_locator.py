@@ -146,11 +146,19 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         max_steps: int = 150,
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
+        initial_sweep_steps: int | None = None,
         noise_std: float = 0.02,
         n_candidates: int = 200,
         n_draws: int = 100,
     ) -> None:
-        super().__init__(belief, max_steps, convergence_threshold, scan_param, noise_std=noise_std)
+        super().__init__(
+            belief,
+            max_steps,
+            convergence_threshold,
+            scan_param,
+            initial_sweep_steps=initial_sweep_steps,
+            noise_std=noise_std,
+        )
         self.n_candidates = int(n_candidates)
         self.n_draws = int(n_draws)
 
@@ -162,6 +170,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         parameter_bounds=None,
+        initial_sweep_steps: int | None = None,
         noise_std: float | None = None,
         n_candidates: int = 200,
         n_draws: int = 100,
@@ -175,6 +184,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
+            initial_sweep_steps=initial_sweep_steps,
             noise_std=noise_std,
             n_candidates=n_candidates,
             n_draws=n_draws,

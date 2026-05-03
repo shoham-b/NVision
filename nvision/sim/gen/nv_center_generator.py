@@ -17,38 +17,11 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtModel,
     NVCenterVoigtSpectrum,
     NVCenterVoigtSpectrumSamples,
+    nv_center_lorentzian_bounds_for_domain,
+    nv_center_voigt_bounds_for_domain,
 )
 
 from .peak_spec import _true_signal_from_typed
-
-
-def nv_center_lorentzian_bounds_for_domain(x_min: float, x_max: float) -> dict[str, tuple[float, float]]:
-    """Return NV Center Lorentzian parameter bounds for domain [x_min, x_max]."""
-    width = x_max - x_min
-    return {
-        "frequency": (x_min, x_max),
-        "linewidth": (width * 0.001, width * 0.05),
-        "split": (width * 0.005, width * 0.02),
-        "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.1, 1.0),
-        "background": (0.5, 1.5),
-        "_signal_max_span": (0.0, width * 0.1),
-    }
-
-
-def nv_center_voigt_bounds_for_domain(x_min: float, x_max: float) -> dict[str, tuple[float, float]]:
-    """Return NV Center Voigt parameter bounds for domain [x_min, x_max]."""
-    width = x_max - x_min
-    return {
-        "frequency": (x_min, x_max),
-        "fwhm_total": (width * 0.001, width * 0.05),
-        "lorentz_frac": (0.1, 0.9),
-        "split": (width * 0.005, width * 0.02),
-        "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.1, 1.0),
-        "background": (0.5, 1.5),
-        "_signal_max_span": (0.0, width * 0.1),
-    }
 
 
 @dataclass
@@ -62,6 +35,7 @@ class NVCenterCoreGenerator:
     x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
     center_freq_fraction: float | None = None  # if set, constrain center_freq to middle fraction of domain
+    narrow_signal: bool = False  # if True, use exceptionally narrow linewidths and splitting
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate NV center ODMR signal.
@@ -80,7 +54,11 @@ class NVCenterCoreGenerator:
 
         # For hyperfine-split case, need room for side peaks
         # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
-        split = rng.uniform(2.0e6, 3.5e6)
+        if self.narrow_signal:
+            split = rng.uniform(0.5e6, 1.2e6)
+        else:
+            split = rng.uniform(2.0e6, 3.5e6)
+
         usable_lo = self.x_min + split + 0.05 * width
         usable_hi = self.x_max - split - 0.05 * width
         if self.center_freq_fraction is not None:
@@ -92,9 +70,12 @@ class NVCenterCoreGenerator:
             center_freq = rng.uniform(usable_lo, usable_hi)
 
         # Random linewidth (HWHM for Lorentzian)
-        # To ensure the dip strongly returns before the next hyperfine peak,
-        # we generate exceptionally sharp lines (50 kHz to 400 kHz HWHM).
-        linewidth = rng.uniform(0.05e6, 0.4e6)
+        if self.narrow_signal:
+            # Extremely sharp lines for testing Bayesian limits (10 kHz to 50 kHz HWHM)
+            linewidth = rng.uniform(0.01e6, 0.05e6)
+        else:
+            # Standard sharp lines (50 kHz to 400 kHz HWHM).
+            linewidth = rng.uniform(0.05e6, 0.4e6)
 
         # Random k_np (non-polarization factor)
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
@@ -122,7 +103,9 @@ class NVCenterCoreGenerator:
                 dip_depth=dip_depth,
                 background=background,
             )
-            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
+            bounds = nv_center_lorentzian_bounds_for_domain(
+                self.x_min, self.x_max, narrow=self.narrow_signal, true_params=typed_params
+            )
         else:  # voigt
             lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
             lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
@@ -153,6 +136,8 @@ class NVCenterCoreGenerator:
                 dip_depth=dip_depth,
                 background=background,
             )
-            bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
+            bounds = nv_center_voigt_bounds_for_domain(
+                self.x_min, self.x_max, narrow=self.narrow_signal, true_params=typed_params
+            )
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)

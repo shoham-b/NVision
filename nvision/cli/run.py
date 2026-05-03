@@ -402,6 +402,10 @@ def run(  # noqa: C901
             handlers=[_queue_handler],
             force=True,
         )
+        # Silence verbose third-party loggers when root is at DEBUG
+        for noisy_logger in ["numba", "llvmlite", "matplotlib"]:
+            logging.getLogger(noisy_logger).setLevel(logging.INFO)
+
         logging.getLogger("nvision").setLevel(logging.DEBUG)  # File handler always gets debug
         log.info("Session log: %s (up to two run logs kept under logs/)", run_log_path.resolve())
 

@@ -152,7 +152,7 @@ class SequentialBayesianLocator(Locator):
         self._staged_sobol = StagedSobolSweepLocator(
             belief=self.belief,
             signal_model=self.belief.model,
-            max_steps=self.max_steps,
+            max_steps=self.initial_sweep_steps,
             noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
@@ -166,7 +166,7 @@ class SequentialBayesianLocator(Locator):
         # Non-scan parameter bounds narrowed after the sweep (empty = not yet set).
         self._narrowed_param_bounds: dict[str, tuple[float, float]] = {}
         # Track actual step count when initial sweep completed (including any fallback)
-        self._initial_sweep_completed_at_step: int = 0
+        self._initial_sweep_completed_at_step: int | None = None
         # Per-dip focus windows: list of (lo, hi) tuples for individual dip targeting
         self._per_dip_windows: list[tuple[float, float]] | None = None
         # Current dip window index for round-robin acquisition across multiple dips
@@ -229,8 +229,8 @@ class SequentialBayesianLocator(Locator):
         belief update with all sweep observations, narrows the scan parameter
         bounds, and extracts per-dip windows if available.
         """
-        if self._initial_sweep_completed_at_step == 0:
-            self._initial_sweep_completed_at_step = self.step_count
+        if self._initial_sweep_completed_at_step is None:
+            self._initial_sweep_completed_at_step = self._staged_sobol.step_count
 
         # Finalize the sweep (rigorously trims baseline tails for multi-dip)
         if hasattr(self._staged_sobol, "finalize"):
@@ -379,12 +379,12 @@ class SequentialBayesianLocator(Locator):
 
         if not self._staged_sobol.done():
             value = self._sweep_next()
-            if self._staged_sobol.done() and self._initial_sweep_completed_at_step == 0:
+            if self._staged_sobol.done() and self._initial_sweep_completed_at_step is None:
                 self._on_sweep_complete()
             return value
 
         # Sweep already finished before we could record it
-        if self._initial_sweep_completed_at_step == 0:
+        if self._initial_sweep_completed_at_step is None:
             self._on_sweep_complete()
 
         self.inference_step_count += 1
@@ -511,9 +511,9 @@ class SequentialBayesianLocator(Locator):
 
     def effective_initial_sweep_steps(self) -> int:
         """Effective initial sweep step count including any fallback sweep."""
-        if self._initial_sweep_completed_at_step > 0:
-            return self._initial_sweep_completed_at_step
-        return self.step_count
+        if self._initial_sweep_completed_at_step is None:
+            return self.step_count
+        return self._initial_sweep_completed_at_step
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         """Return the tight focus window inferred after the staged initial sweep.

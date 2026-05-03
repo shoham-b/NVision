@@ -16,8 +16,8 @@ from nvision.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
-    OverProbeDriftNoise,
 )
+from nvision.noises.over_probe.drift_noise import OverProbeDriftNoise
 
 from .gen.nv_center_generator import NVCenterCoreGenerator
 
@@ -44,18 +44,23 @@ def generators_basic() -> list[tuple[str, object]]:
 def generators_narrow() -> list[tuple[str, object]]:
     """Narrow-domain generators for bayesian_only group.
 
-    The domain is 60 MHz wide (2.87–2.93 GHz) and the center frequency
+    The domain is 20 MHz wide (2.86–2.88 GHz) and the center frequency
     is constrained to the middle 10 % so the signal occupies ~10 %
-    of the smaller range, making sweeping unnecessary.
+    of the smaller range, making sweeping unnecessary. Signals use
+    exceptionally narrow linewidths and splitting.
     """
     return [
         (
             "NVCenter-lorentzian-narrow",
-            NVCenterCoreGenerator(x_min=2.87e9, x_max=2.93e9, variant="lorentzian", center_freq_fraction=0.1),
+            NVCenterCoreGenerator(
+                x_min=2.86e9, x_max=2.88e9, variant="lorentzian", center_freq_fraction=0.1, narrow_signal=True
+            ),
         ),
         (
             "NVCenter-voigt-narrow",
-            NVCenterCoreGenerator(x_min=2.87e9, x_max=2.93e9, variant="voigt", center_freq_fraction=0.1),
+            NVCenterCoreGenerator(
+                x_min=2.86e9, x_max=2.88e9, variant="voigt", center_freq_fraction=0.1, narrow_signal=True
+            ),
         ),
     ]
 

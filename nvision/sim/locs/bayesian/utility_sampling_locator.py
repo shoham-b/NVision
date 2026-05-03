@@ -53,13 +53,21 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         max_steps: int = 150,
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
+        initial_sweep_steps: int | None = None,
         pickiness: float = 4.0,
         noise_std: float = 0.02,
         cost: float = 1.0,
         n_mc_samples: int = 64,
         n_candidates: int = 64,
     ) -> None:
-        super().__init__(belief, max_steps, convergence_threshold, scan_param, noise_std=noise_std)
+        super().__init__(
+            belief,
+            max_steps,
+            convergence_threshold,
+            scan_param,
+            initial_sweep_steps=initial_sweep_steps,
+            noise_std=noise_std,
+        )
         self.pickiness = float(max(0.0, pickiness))
         self.noise_std = float(max(1e-9, noise_std))
         self.cost = float(max(1e-9, cost))
@@ -74,6 +82,7 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
+        initial_sweep_steps: int | None = None,
         pickiness: float = 4.0,
         noise_std: float = 0.02,
         cost: float = 1.0,
@@ -89,6 +98,7 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
+            initial_sweep_steps=initial_sweep_steps,
             pickiness=pickiness,
             noise_std=noise_std,
             cost=cost,

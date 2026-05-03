@@ -451,8 +451,13 @@ def generate_attempt_plots(  # noqa: C901
     # Use actual sweep_steps from run_result if available (captured from locator).
     sweep_steps = run_result.sweep_steps if run_result is not None else 0
     secondary_sweep_steps = run_result.secondary_sweep_steps if run_result is not None else 0
-    if sweep_steps == 0:
-        sweep_steps = entry_base.get("sweep_steps") or _initial_sweep_steps_from_strategy(strat_obj)
+    
+    # Only fall back to strategy defaults if we don't have a reliable count from run_result
+    # and it's not explicitly a NoSweep strategy.
+    if sweep_steps == 0 and run_result is None:
+        strat_name = str(entry_base.get("strategy", ""))
+        if "NoSweep" not in strat_name:
+            sweep_steps = entry_base.get("sweep_steps") or _initial_sweep_steps_from_strategy(strat_obj)
     # DEBUG: Log phase assignment values
     import logging
 
