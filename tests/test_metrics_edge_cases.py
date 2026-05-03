@@ -1,6 +1,6 @@
+import math
 import sys
 import unittest
-import math
 from unittest.mock import MagicMock
 
 # Extensive mocking to bypass missing dependencies in the restricted environment
@@ -20,6 +20,7 @@ sys.modules["nvision.models.experiment"] = MagicMock()
 # we'll use the faithful reproduction of the math tools for the test environment
 # but the CORE logic being tested is the function from metrics.py.
 
+
 def _maybe_finite(value: object) -> float | None:
     if isinstance(value, (int, float)):
         value_float = float(value)
@@ -27,12 +28,14 @@ def _maybe_finite(value: object) -> float | None:
             return value_float
     return None
 
+
 def _first_finite(estimate: dict, keys) -> float | None:
     for key in keys:
         value = _maybe_finite(estimate.get(key))
         if value is not None:
             return value
     return None
+
 
 def _promote_uncert(estimate, metrics):
     if "uncert" in metrics:
@@ -51,6 +54,7 @@ def _promote_uncert(estimate, metrics):
                 metrics["uncert"] = value
                 return
 
+
 mock_math = MagicMock()
 mock_math._maybe_finite = _maybe_finite
 mock_math._first_finite = _first_finite
@@ -58,11 +62,13 @@ mock_math._promote_uncert = _promote_uncert
 sys.modules["nvision.tools.math"] = mock_math
 
 import importlib.util
+
 spec = importlib.util.spec_from_file_location("nvision.runner.metrics", "nvision/runner/metrics.py")
 metrics_module = importlib.util.module_from_spec(spec)
 sys.modules["nvision.runner.metrics"] = metrics_module
 spec.loader.exec_module(metrics_module)
 _scan_attempt_metrics = metrics_module._scan_attempt_metrics
+
 
 class TestMetricsEdgeCases(unittest.TestCase):
     def test_empty_truth(self):
@@ -113,6 +119,7 @@ class TestMetricsEdgeCases(unittest.TestCase):
         estimate = {"x_hat": 1.1, "entropy": -2.5}
         result = _scan_attempt_metrics(truth, estimate)
         self.assertEqual(result["final_entropy"], -2.5)
+
 
 if __name__ == "__main__":
     unittest.main()
