@@ -295,11 +295,11 @@ def run(  # noqa: C901
     gcp: Annotated[
         bool,
         typer.Option("--gcp", help="Upload results to GCP"),
-    ] = False,
+    ] = cli_defaults.DEFAULT_GCP,
     gcp_bucket: Annotated[
         str | None,
         typer.Option("--gcp-bucket", help="GCP bucket to upload results to"),
-    ] = None,
+    ] = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()

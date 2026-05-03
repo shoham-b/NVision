@@ -22,11 +22,12 @@ import sys
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 import typer
 from rich.console import Console
 
+from nvision.cli import ClassVar, defaults
 from nvision.cli.app_instance import app
 from nvision.tools.paths import ARTIFACTS_ROOT
 
@@ -215,11 +216,11 @@ def serve(  # noqa: C901
     gcp: Annotated[
         bool,
         typer.Option("--gcp", help="Serve from GCP instead of local"),
-    ] = False,
+    ] = defaults.DEFAULT_GCP,
     gcp_bucket: Annotated[
         str | None,
         typer.Option("--gcp-bucket", help="GCP bucket to serve results from"),
-    ] = None,
+    ] = defaults.DEFAULT_GCP_BUCKET,
 ) -> None:
     """Start a local HTTP server for viewing NVision results.
 

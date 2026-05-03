@@ -1,3 +1,4 @@
+import importlib.util
 import math
 import sys
 import unittest
@@ -61,7 +62,6 @@ mock_math._first_finite = _first_finite
 mock_math._promote_uncert = _promote_uncert
 sys.modules["nvision.tools.math"] = mock_math
 
-import importlib.util  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("nvision.runner.metrics", "nvision/runner/metrics.py")
 metrics_module = importlib.util.module_from_spec(spec)
