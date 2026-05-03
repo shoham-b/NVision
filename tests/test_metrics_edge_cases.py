@@ -86,18 +86,18 @@ class TestMetricsEdgeCases(unittest.TestCase):
         truth = [1.0]
         estimate = {"x_hat": 1.1, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        assert abs(result["abs_err_x"] - 0.1) < 1e-7
-        assert result["uncert"] == 0.1
+        assert math.isclose(result.get("abs_err_x"), 0.1)
+        assert result.get("uncert") == 0.1
 
     def test_two_truth_happy_path(self):
         """Verify pair metrics calculation for two peaks."""
         truth = [1.0, 2.0]
         estimate = {"x1_hat": 1.1, "x2_hat": 2.1, "uncert": 0.1}
         result = _scan_attempt_metrics(truth, estimate)
-        assert abs(result["abs_err_x1"] - 0.1) < 1e-7
-        assert abs(result["abs_err_x2"] - 0.1) < 1e-7
-        assert abs(result["pair_rmse"] - 0.1) < 1e-7
-        assert result["uncert"] == 0.1
+        assert math.isclose(result.get("abs_err_x1"), 0.1)
+        assert math.isclose(result.get("abs_err_x2"), 0.1)
+        assert math.isclose(result.get("pair_rmse"), 0.1)
+        assert result.get("uncert") == 0.1
 
     def test_three_truth_positions(self):
         """Verify that pair metrics are NOT calculated when there are more than 2 truth positions."""
