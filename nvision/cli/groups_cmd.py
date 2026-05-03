@@ -35,7 +35,13 @@ def run_single(
     ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
     runners: int = typer.Option(
-        1, "--runners", min=1, help="Number of runner processes. 1 = live logs/progress in main thread; >1 = subprocesses with reliable Ctrl-C but silent until done."
+        1,
+        "--runners",
+        min=1,
+        help=(
+            "Number of runner processes. 1 = live logs/progress in main thread; "
+            ">1 = subprocesses with reliable Ctrl-C but silent until done."
+        ),
     ),
     no_progress: bool = typer.Option(
         False, "--no-progress", help="Disable Rich progress UI; print plain logs to terminal"
