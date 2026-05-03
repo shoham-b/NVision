@@ -20,3 +20,6 @@ DEFAULT_RUN_ALL: bool = os.getenv("NVISION_DEFAULT_RUN_ALL", "False").lower() in
 DEMO_REPEATS: int = int(os.getenv("NVISION_DEMO_REPEATS", "3"))
 DEMO_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEMO_LOC_MAX_STEPS", "60"))
 DEMO_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEMO_LOC_TIMEOUT_S", "300"))
+
+DEFAULT_GCP: bool = os.getenv("NVISION_GCP_ENABLED", "False").lower() in ("true", "1", "yes")
+DEFAULT_GCP_BUCKET: str | None = os.getenv("NVISION_GCP_BUCKET")
