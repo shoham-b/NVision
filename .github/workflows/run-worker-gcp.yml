@@ -1,0 +1,94 @@
+name: Run Worker on GCP
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_group:
+        description: "Run group"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - sweep_only
+          - sweep_then_bayesian
+          - bayesian_only
+          - bayesian_clean
+          - demo
+          - narrow_only
+          - smc_only
+      repeats:
+        description: "Repeats per scenario"
+        required: true
+        default: "5"
+        type: string
+      gcp_bucket:
+        description: "GCP bucket"
+        required: true
+        default: "nvision-artifacts-shoha"
+        type: string
+
+env:
+  PROJECT_ID: nvision-lab
+  REGION: us-central1
+
+jobs:
+  run-worker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GCP Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-docker.pkg.dev --quiet
+
+      - name: Build & push worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/worker/Dockerfile
+          target: runtime
+          push: true
+          tags: us-docker.pkg.dev/${{ env.PROJECT_ID }}/nvision/worker:${{ github.sha }}
+
+      - name: Deploy Cloud Run job
+        run: |
+          IMAGE="us-docker.pkg.dev/${{ env.PROJECT_ID }}/nvision/worker:${{ github.sha }}"
+          JOB_NAME=nvision-worker
+          REGION=${{ env.REGION }}
+
+          ENV_VARS="RUN_GROUP=${{ github.event.inputs.run_group }},NVISION_GCP=True,NVISION_GCP_BUCKET=${{ github.event.inputs.gcp_bucket }}"
+
+          # Explicitly check if job exists so we fail fast on real errors
+          if gcloud run jobs describe $JOB_NAME --region $REGION >/dev/null 2>&1; then
+            gcloud run jobs update $JOB_NAME \
+              --image $IMAGE \
+              --region $REGION \
+              --set-env-vars "$ENV_VARS" \
+              --max-retries=1
+          else
+            gcloud run jobs create $JOB_NAME \
+              --image $IMAGE \
+              --region $REGION \
+              --set-env-vars "$ENV_VARS" \
+              --max-retries=1
+          fi
+
+      - name: Execute Cloud Run job
+        run: |
+          gcloud run jobs execute nvision-worker \
+            --region ${{ env.REGION }} \
+            --wait \
+            --args="--repeats=${{ github.event.inputs.repeats }}"
