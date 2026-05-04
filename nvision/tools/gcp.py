@@ -15,21 +15,19 @@ def _credentials_file() -> str | None:
 def verify_credentials() -> str:
     """Verify GCP credentials are available and valid.
 
+    Supports either a service-account key (GOOGLE_APPLICATION_CREDENTIALS)
+    or Application Default Credentials from ``gcloud auth application-default login``.
+
     Returns a success message or raises RuntimeError with a clear diagnostic.
     """
     creds_path = _credentials_file()
-    if not creds_path:
-        raise RuntimeError(
-            "GOOGLE_APPLICATION_CREDENTIALS is not set.\n"
-            "  Set it to the path of your service-account JSON key file.\n"
-            "  Example: GOOGLE_APPLICATION_CREDENTIALS=C:/Users/me/keys/nvision-key.json"
-        )
-
-    creds_file = Path(creds_path)
-    if not creds_file.exists():
-        raise RuntimeError(
-            f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file:\n  {creds_path}\nCheck the path and try again."
-        )
+    if creds_path:
+        creds_file = Path(creds_path)
+        if not creds_file.exists():
+            raise RuntimeError(
+                f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file:\n  {creds_path}\n"
+                "Check the path and try again."
+            )
 
     try:
         from google.auth.exceptions import DefaultCredentialsError
@@ -40,14 +38,17 @@ def verify_credentials() -> str:
         list(client.list_buckets(max_results=1))
     except DefaultCredentialsError as exc:
         raise RuntimeError(
-            "GCP default credentials could not be determined.\n"
-            "  - Ensure the service account key is valid\n"
-            "  - Verify GOOGLE_APPLICATION_CREDENTIALS points to the correct JSON file"
+            "GCP credentials could not be determined.\n"
+            "  Options:\n"
+            "  1. Set GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON key file.\n"
+            "  2. Run: gcloud auth application-default login\n"
         ) from exc
     except Exception as exc:
         raise RuntimeError(f"GCP credentials test failed: {exc}") from exc
 
-    return f"Credentials OK ({creds_path})"
+    if creds_path:
+        return f"Credentials OK (service-account: {creds_path})"
+    return "Credentials OK (Application Default Credentials)"
 
 
 def verify_bucket(bucket_name: str) -> str:

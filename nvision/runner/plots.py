@@ -382,11 +382,21 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             belief = s.belief
             param_names = list(belief.model.parameter_names())
             uncertainties = belief.uncertainty().as_dict()
+            bounds = belief.physical_param_bounds
 
-            # Check which parameters are converged (uncertainty < threshold)
-            converged_params = {
-                name: float(uncertainties.get(name, float("inf"))) < convergence_threshold for name in param_names
-            }
+            # Check which parameters are converged (relative uncertainty < threshold)
+            relative_uncertainties: dict[str, float] = {}
+            converged_params: dict[str, bool] = {}
+            for name in param_names:
+                unc = float(uncertainties.get(name, float("inf")))
+                lo, hi = bounds.get(name, (0.0, 0.0))
+                bound_width = hi - lo
+                if bound_width > 0:
+                    rel_unc = unc / bound_width
+                else:
+                    rel_unc = float("inf")
+                relative_uncertainties[name] = rel_unc
+                converged_params[name] = rel_unc < convergence_threshold
 
             # Compute convergence streak (consecutive steps where all params converged)
             all_converged = all(converged_params.values())
@@ -394,7 +404,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             conv_metrics.append(
                 {
                     "step": i,
-                    "uncertainties": uncertainties,
+                    "uncertainties": relative_uncertainties,
                     "converged_params": converged_params,
                     "all_converged": all_converged,
                 }
@@ -410,6 +420,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             cm["convergence_streak"] = streak
             cm["convergence_achieved"] = streak >= convergence_patience
 
+        # Collect bound ranges from the first snapshot for display
+        param_bounds = dict(run_result.snapshots[0].belief.physical_param_bounds)
+
         conv_path = bayes_dir / f"{attempt_slug}_convergence_metrics.html"
         viz.plot_convergence_metrics(
             conv_metrics,
@@ -417,6 +430,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             convergence_threshold,
             convergence_patience,
             conv_path,
+            param_bounds=param_bounds,
         )
         if conv_path.exists():
             ce = entry_base.copy()
