@@ -113,4 +113,3 @@ class StudentsTLocator(SequentialBayesianLocator):
             candidate = np.random.uniform(lo, hi)
 
         return float(np.clip(candidate, lo, hi))
-
