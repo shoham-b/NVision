@@ -1,7 +1,8 @@
 
 import random
-import numpy as np
+
 from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
 
 def check_narrow():
     # Narrow variant parameters from updated presets.py

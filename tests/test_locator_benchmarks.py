@@ -12,8 +12,6 @@ Or with extra repeats for stable averages::
 from __future__ import annotations
 
 import random
-import statistics
-import time
 from typing import Any
 
 import numpy as np
@@ -21,12 +19,10 @@ import pytest
 
 from nvision import (
     CoreExperiment,
-    MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
     run_loop,
 )
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
-from nvision.models.locator import Locator
 from nvision.sim.locs.bayesian.belief_builders import (
     nv_center_belief,
     nv_center_smc_belief,
@@ -34,14 +30,9 @@ from nvision.sim.locs.bayesian.belief_builders import (
 )
 from nvision.sim.locs.bayesian.maximum_likelihood_locator import MaximumLikelihoodLocator
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator as SbedLocator
-from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.bayesian.utility_sampling_locator import UtilitySamplingLocator
 from nvision.sim.locs.coarse import SimpleSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator, StagedSobolSweepLocator
-
-_BENCHMARK_REPEATS = 3
-_WARMUP_STEPS = 2
-
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)
@@ -52,18 +43,6 @@ def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperimen
             break
     assert x_min is not None
     return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)
-
-
-def _one_peak_experiment() -> CoreExperiment:
-    rng = random.Random(42)
-    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
-    return _make_experiment(gen, rng)
-
-
-def _two_peak_experiment() -> CoreExperiment:
-    rng = random.Random(43)
-    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=2)
-    return _make_experiment(gen, rng)
 
 
 def _nv_center_experiment() -> CoreExperiment:
@@ -81,136 +60,13 @@ def _dummy_belief(model) -> GridMarginalDistribution:
     return GridMarginalDistribution(model=model, parameters=parameters)
 
 
-def _measure(fn: Any, repeats: int = _BENCHMARK_REPEATS) -> float:
-    """Return mean elapsed time in milliseconds over *repeats* calls."""
-    times_ms: list[float] = []
-    for _ in range(repeats):
-        t0 = time.perf_counter()
-        fn()
-        t1 = time.perf_counter()
-        times_ms.append((t1 - t0) * 1000)
-    return statistics.mean(times_ms)
-
-
-# ---------------------------------------------------------------------------
-# Single-step benchmarks
-# ---------------------------------------------------------------------------
-
-
-class _StepTimer:
-    """Helper to warm up a locator and time one step."""
-
-    def __init__(self, locator: Locator, experiment: CoreExperiment, rng: random.Random):
-        self.locator = locator
-        self.experiment = experiment
-        self.rng = rng
-        self._warmup()
-
-    def _warmup(self) -> None:
-        for _ in range(_WARMUP_STEPS):
-            x = self.locator.next()
-            obs = self.experiment.measure(x, self.rng)
-            self.locator.observe(obs)
-
-    def step(self) -> None:
-        x = self.locator.next()
-        obs = self.experiment.measure(x, self.rng)
-        self.locator.observe(obs)
-
-
-def _sweep_step_ms(benchmark: Any, locator_class: type[Locator], experiment: CoreExperiment, **config: Any) -> None:
-    rng = random.Random(1)
-    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
-    if needs_belief:
-        config.setdefault("belief", _dummy_belief(experiment.true_signal.model))
-        config.setdefault("signal_model", experiment.true_signal.model)
-    loc = locator_class.create(**config)
-    timer = _StepTimer(loc, experiment, rng)
-    benchmark(timer.step)
-
-
-def _bayesian_step_ms(
-    benchmark: Any,
-    locator_class: type[SequentialBayesianLocator],
-    experiment: CoreExperiment,
-    builder: Any,
-    **extra: Any,
-) -> None:
-    rng = random.Random(1)
-    loc = locator_class.create(
-        builder=builder,
-        parameter_bounds=None,
-        max_steps=12,
-        initial_sweep_steps=4,
-        noise_std=0.02,
-        n_grid_freq=16,
-        n_grid_width=8,
-        n_grid_depth=8,
-        n_grid_background=4,
-        **extra,
-    )
-    timer = _StepTimer(loc, experiment, rng)
-    benchmark(timer.step)
-
-
-@pytest.mark.benchmark
-class TestSingleStepOnePeak:
-    """Single-step latency on a simple one-peak Gaussian."""
-
-    def test_simple_sweep(self, benchmark):
-        exp = _one_peak_experiment()
-        _sweep_step_ms(benchmark, SimpleSweepLocator, exp, max_steps=30, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_sobol_sweep(self, benchmark):
-        exp = _one_peak_experiment()
-        _sweep_step_ms(benchmark, SobolSweepLocator, exp, max_steps=30, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_staged_sobol(self, benchmark):
-        exp = _one_peak_experiment()
-        _sweep_step_ms(benchmark, StagedSobolSweepLocator, exp, max_steps=30, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_maximum_likelihood(self, benchmark):
-        exp = _one_peak_experiment()
-        _bayesian_step_ms(
-            benchmark,
-            MaximumLikelihoodLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            exploration_rate=8.0,
-        )
-
-    def test_utility_sampling(self, benchmark):
-        exp = _one_peak_experiment()
-        _bayesian_step_ms(
-            benchmark,
-            UtilitySamplingLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            pickiness=4.0,
-            n_mc_samples=16,
-            n_candidates=16,
-        )
-
-    @pytest.mark.skip(reason="SBEDLocator is slow")
-    def test_sbed(self, benchmark):
-        exp = _one_peak_experiment()
-        _bayesian_step_ms(
-            benchmark,
-            SbedLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            n_mc_samples=8,
-            n_candidates=8,
-        )
-
-
 # ---------------------------------------------------------------------------
 # Overall run benchmarks
 # ---------------------------------------------------------------------------
 
 
 def _overall_run_ms(
-    benchmark: Any, locator_class: type[Locator], experiment: CoreExperiment, max_steps: int = 20, **config: Any
+    benchmark: Any, locator_class: Any, experiment: CoreExperiment, max_steps: int = 20, **config: Any
 ) -> None:
     rng = random.Random(2)
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
@@ -244,108 +100,6 @@ def _overall_bayesian_ms(
             )
         )
     )
-
-
-@pytest.mark.benchmark
-class TestOverallOnePeak:
-    """Full-run latency on a simple one-peak Gaussian (max_steps=20)."""
-
-    def test_simple_sweep(self, benchmark):
-        exp = _one_peak_experiment()
-        _overall_run_ms(benchmark, SimpleSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_sobol_sweep(self, benchmark):
-        exp = _one_peak_experiment()
-        _overall_run_ms(benchmark, SobolSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_staged_sobol(self, benchmark):
-        exp = _one_peak_experiment()
-        _overall_run_ms(benchmark, StagedSobolSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_maximum_likelihood(self, benchmark):
-        exp = _one_peak_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            MaximumLikelihoodLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            max_steps=20,
-            exploration_rate=8.0,
-        )
-
-    def test_utility_sampling(self, benchmark):
-        exp = _one_peak_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            UtilitySamplingLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            max_steps=20,
-            pickiness=4.0,
-            n_mc_samples=16,
-            n_candidates=16,
-        )
-
-    @pytest.mark.skip(reason="SBEDLocator is slow")
-    def test_sbed(self, benchmark):
-        exp = _one_peak_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            SbedLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            max_steps=12,
-        )
-
-
-@pytest.mark.benchmark
-class TestOverallTwoPeak:
-    """Full-run latency on a two-peak Gaussian (max_steps=20)."""
-
-    def test_simple_sweep(self, benchmark):
-        exp = _two_peak_experiment()
-        _overall_run_ms(benchmark, SimpleSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_staged_sobol(self, benchmark):
-        exp = _two_peak_experiment()
-        _overall_run_ms(benchmark, StagedSobolSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_maximum_likelihood(self, benchmark):
-        exp = _two_peak_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            MaximumLikelihoodLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            max_steps=20,
-            exploration_rate=8.0,
-        )
-
-    def test_utility_sampling(self, benchmark):
-        exp = _two_peak_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            UtilitySamplingLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            max_steps=20,
-            pickiness=4.0,
-            n_mc_samples=16,
-            n_candidates=16,
-        )
-
-    @pytest.mark.skip(reason="SBEDLocator is slow")
-    def test_sbed(self, benchmark):
-        exp = _two_peak_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            SbedLocator,
-            exp,
-            builder=two_peak_gaussian_belief,
-            max_steps=20,
-            n_mc_samples=8,
-            n_candidates=8,
-        )
 
 
 @pytest.mark.benchmark

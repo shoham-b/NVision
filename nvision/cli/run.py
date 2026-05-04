@@ -17,8 +17,8 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
-from nvision.cli.app_instance import app
 from nvision.cli import defaults as cli_defaults
+from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task

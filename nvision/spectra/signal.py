@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, fields
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
-from nvision.spectra.spec import GenericParamSpec, NoiseSignalModel, ParamsT, ParamSpec, SampleParamsT, UncertaintyT
-
-
+from nvision.spectra.spec import NoiseSignalModel, ParamSpec, ParamsT, SampleParamsT, UncertaintyT
 
 
 @runtime_checkable

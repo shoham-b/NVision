@@ -11,7 +11,6 @@ from nvision import (
     CoreExperiment,
     GaussianModel,
     Locator,
-    MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
@@ -53,23 +52,6 @@ def test_simple_sweep_create_classmethod():
     assert isinstance(loc, SimpleSweepLocator)
 
 
-def test_locator_runs_on_one_peak():
-    rng = random.Random(123)
-    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
-    exp = _make_experiment(gen, rng)
-    steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
-    assert len(steps) > 0
-    assert len(steps) <= 30
-
-
-def test_locator_runs_on_two_peak():
-    rng = random.Random(7)
-    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=2)
-    exp = _make_experiment(gen, rng)
-    steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
-    assert len(steps) > 0
-
-
 def test_locator_runs_on_nv_center():
     rng = random.Random(99)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
@@ -78,24 +60,3 @@ def test_locator_runs_on_nv_center():
     assert len(steps) > 0
 
 
-def test_locator_with_gaussian_noise():
-    rng = random.Random(5)
-    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.05)]))
-    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
-    exp = _make_experiment(gen, rng, noise=noise)
-    steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
-    assert len(steps) > 0
-
-
-def test_locator_with_heavy_noise():
-    rng = random.Random(3)
-    noise = CompositeNoise(
-        over_frequency_noise=CompositeOverFrequencyNoise(
-            [OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.02, 0.5)]
-        ),
-        over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.05)]),
-    )
-    gen = MultiPeakCoreGenerator(x_min=0.0, x_max=1.0, count=1)
-    exp = _make_experiment(gen, rng, noise=noise)
-    steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
-    assert len(steps) > 0

@@ -12,8 +12,8 @@ import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import nv_center_lorentzian_eval
-from nvision.spectra.signal import GenericParamSpec, SignalModel
-from nvision.spectra.spec import ParamSpec
+from nvision.spectra.spec import GenericParamSpec
+from nvision.spectra.signal import SignalModel
 
 # Legacy scale factor (no longer used by :class:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator`;
 # Lorentzian NV uses ``amplitude ≈ dip_depth * linewidth²`` in Hz², matching :class:`LorentzianModel`).
