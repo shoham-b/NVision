@@ -21,6 +21,9 @@ ENV PYTHONUNBUFFERED=1
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV PYTHONPATH=/app
 ENV RUN_GROUP="all"
+ENV NVISION_GCP_BUCKET=nvision-artifacts-shoha
+# Set NVISION_GCP=True at runtime to enable GCP upload
+ENV NVISION_GCP=False
 
 WORKDIR /app
 
