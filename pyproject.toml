@@ -41,6 +41,7 @@ exclude = [
     "build",
     "dist",
     "README.md",
+    "scratch"
 ]
 
 [tool.ruff.lint]
