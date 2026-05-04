@@ -26,13 +26,14 @@ from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 from nvision.sim.locs.bayesian.belief_builders import (
     nv_center_belief,
     nv_center_smc_belief,
-    two_peak_gaussian_belief,
 )
 from nvision.sim.locs.bayesian.maximum_likelihood_locator import MaximumLikelihoodLocator
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator as SbedLocator
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.bayesian.utility_sampling_locator import UtilitySamplingLocator
 from nvision.sim.locs.coarse import SimpleSweepLocator
-from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator, StagedSobolSweepLocator
+from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
+
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)

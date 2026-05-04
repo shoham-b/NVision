@@ -63,9 +63,8 @@ ignore = [
     "RUF001", # ambiguous unicode in strings
     "RUF002", # ambiguous unicode in docstrings
     "RUF003", # ambiguous unicode in comments
-    "UP038",
-    "N802",
-    "PT009",
+    "N802",    # allow camelCase / mixedCase function names matching project convention
+    "PT009",   # allow use of unittest.mock.patch in tests (project prefers explicit mocks)
 ]
 
 [tool.ruff.format]

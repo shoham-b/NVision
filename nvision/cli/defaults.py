@@ -38,5 +38,3 @@ DEMO_OUT: str | None = os.getenv("NVISION_DEMO_OUT", None)
 DEMO_LOGS_ROOT: str | None = os.getenv("NVISION_DEMO_LOGS_ROOT", None)
 BETA_OUT: str | None = os.getenv("NVISION_BETA_OUT", None)
 
-DEFAULT_GCP: bool = os.getenv("NVISION_GCP_ENABLED", "False").lower() in ("true", "1", "yes")
-DEFAULT_GCP_BUCKET: str | None = os.getenv("NVISION_GCP_BUCKET")

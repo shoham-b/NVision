@@ -56,6 +56,15 @@ def _bayesian_nosweep_strategy_names() -> list[str]:
     return ["Bayesian-SBED-NoSweep",  "Bayesian-UtilitySampling-NoSweep"]
 
 
+def _narrow_strategy_names() -> list[str]:
+    return [
+        "Bayesian-SBED-NoSweep",
+        "Bayesian-MaximumLikelihood-NoSweep",
+        "Bayesian-UtilitySampling-NoSweep",
+        "StudentsTApproximation",
+    ]
+
+
 def _nv_generators() -> list[str]:
     return ["NVCenter-lorentzian", "NVCenter-voigt"]
 
@@ -75,7 +84,7 @@ def _group_all() -> RunGroup:
     strats = [
         s
         for s in _all_strategy_names_for(gens)
-        if "MaximumLikelihood" not in s
+        if "MaximumLikelihood" not in s and "UtilitySampling" not in s
     ]
     return RunGroup(
         name="all",
@@ -151,6 +160,19 @@ def _group_bayesian_clean() -> RunGroup:
     )
 
 
+def _group_narrow_only() -> RunGroup:
+    gens = _nv_narrow_generators()
+    noises = _all_noise_names()
+    strats = _narrow_strategy_names()
+    return RunGroup(
+        name="narrow_only",
+        description="All narrow-domain (no-sweep) locators on narrow generators.",
+        generator_names=gens,
+        noise_names=noises,
+        strategy_names=strats,
+    )
+
+
 def _group_smc_only() -> RunGroup:
     gens = _nv_generators()
     noises = _all_noise_names()
@@ -173,6 +195,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_demo(),
         _group_bayesian_only(),
         _group_bayesian_clean(),
+        _group_narrow_only(),
         _group_smc_only(),
     )
 

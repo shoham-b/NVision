@@ -5,16 +5,10 @@ import random
 import numpy as np
 
 from nvision import (
-    CompositeNoise,
-    CompositeOverFrequencyNoise,
-    CompositeOverProbeNoise,
     CoreExperiment,
     GaussianModel,
     Locator,
     NVCenterCoreGenerator,
-    OverFrequencyGaussianNoise,
-    OverFrequencyOutlierSpikes,
-    OverProbeDriftNoise,
     SimpleSweepLocator,
     run_loop,
 )

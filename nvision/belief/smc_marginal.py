@@ -161,7 +161,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         sigma_epistemic = float(np.std(predicted))
         noise_std = float(obs.noise_std)
         if self.noise_model is not None and self._noise_param_slice is not None:
-            noise_arrays = [self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)]
+            noise_arrays = [
+                self._particles[:, j]
+                for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
+            ]
             residuals = obs.signal_value - predicted
             log_liks = self.noise_model.composite_log_likelihood(
                 predicted, residuals, noise_arrays, sigma_epistemic
