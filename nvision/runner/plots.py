@@ -295,9 +295,15 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     sweep_steps = run_result.sweep_steps
     bayesian_snapshots = run_result.snapshots[sweep_steps:] if sweep_steps > 0 else run_result.snapshots
     param_hist = [s.belief.uncertainty().as_dict() for s in bayesian_snapshots]
+    estimates_hist = [s.belief.estimates() for s in bayesian_snapshots]
     if param_hist:
         conv_path = bayes_dir / f"{attempt_slug}_param_convergence.html"
-        viz.plot_parameter_convergence(param_hist, conv_path)
+        viz.plot_parameter_convergence(
+            param_hist,
+            conv_path,
+            estimates_history=estimates_hist,
+            true_params=true_params,
+        )
         if conv_path.exists():
             ce = entry_base.copy()
             ce["type"] = "bayesian_parameter_convergence"

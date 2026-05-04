@@ -49,6 +49,11 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
         return self._physical_param_bounds
 
+    @property
+    def parameter_bounds(self) -> dict[str, tuple[float, float]]:
+        """Alias for ``physical_param_bounds`` — physical-space beliefs use the same bounds."""
+        return self._physical_param_bounds
+
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
         self._xs.append(obs.x)

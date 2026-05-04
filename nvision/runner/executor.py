@@ -713,6 +713,8 @@ class _TaskRunner:
             belief = _create_sweep_belief(experiment)
             cfg["belief"] = belief
             cfg["signal_model"] = experiment.true_signal.model
+            if experiment.true_signal.noise_model is not None:
+                cfg["noise_model"] = experiment.true_signal.noise_model
 
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
 

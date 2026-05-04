@@ -127,12 +127,11 @@ class SequentialBayesianLocator(Locator):
             float(signal_max_span) if (signal_max_span is not None and signal_max_span > 0) else None
         )
 
-        # Set domain bounds for sweep and acquisition
-        # For UnitCube beliefs, use physical_param_bounds; for Grid beliefs, use parameter_bounds
-        if isinstance(self.belief, UnitCubeGridMarginalDistribution | UnitCubeSMCMarginalDistribution):
-            self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._scan_param]
-        else:
-            self._scan_lo, self._scan_hi = self.belief.parameter_bounds[self._scan_param]
+        # Set domain bounds for sweep and acquisition.
+        # Beliefs that carry physical bounds separately (unit-cube variants) expose
+        # ``physical_param_bounds``; otherwise fall back to ``parameter_bounds``.
+        bounds = getattr(self.belief, "physical_param_bounds", self.belief.parameter_bounds)
+        self._scan_lo, self._scan_hi = bounds[self._scan_param]
         # Full scan axis for :class:`~nvision.models.experiment.CoreExperiment` (never narrowed).
         # Returned ``x`` must stay normalized to this full range so ``measure()`` probes
         # the intended frequency, even when the belief is narrowed after the sweep.

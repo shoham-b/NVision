@@ -90,7 +90,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     parameter_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     num_particles: int = 1000
-    jitter_scale: float = 0.05
+    jitter_scale: float = 0.1
     ess_threshold: float = 0.5
     use_full_covariance: bool = False
     a_param: float = 0.98
@@ -441,7 +441,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         cov = np.cov(self._particles, rowvar=False, aweights=self._weights)  # shape (d, d)
 
         if cov.ndim == 0:
-            cov = np.array([[cov]])
+            cov = np.array([[cov]]).
 
         # Nudge covariance: (1 - a_param^2) * cov
         # This ensures the nudge scale is small compared to distribution spread

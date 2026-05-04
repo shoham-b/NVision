@@ -55,18 +55,25 @@ def _run_tasks_process_pool(  # noqa: C901
     monitor: ProgressMonitor | None = None,
     out_dir: Path | None = None,
     started_at: str | None = None,
+    min_runners: int = 1,
 ) -> tuple[list[dict[str, object]], list[dict], list[Exception], int, bool]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
     Workers should have `log_queue=None` and `progress_queue=None` so they don't attempt
     to share Rich/UI queues.
+
+    If a task fails with ``MemoryError`` it is retried with one fewer runner.
+    The old pool is allowed to finish its remaining work before the new,
+    smaller pool is started.
     """
     plot_manifest: list[dict[str, object]] = []
     df_rows: list[dict] = []
     errors: list[Exception] = []
-    future_to_task: dict[concurrent.futures.Future, object] = {}
     completed_count = 0
     total_count = len(tasks)
+    pending_tasks = list(tasks)
+    current_runners = runners
+    interrupted = False
 
     def _update_status(status: str) -> None:
         if out_dir is not None:
@@ -79,93 +86,163 @@ def _run_tasks_process_pool(  # noqa: C901
                     started_at=started_at,
                 )
 
-    executor = concurrent.futures.ProcessPoolExecutor(max_workers=runners)
-    shutdown_called = False
-    try:
-        future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in tasks}
-        for future in concurrent.futures.as_completed(future_to_task):
-            # Check if user requested exit via 'q' key
-            if monitor is not None and monitor.exit_requested:
-                for pending_future in future_to_task:
-                    if not pending_future.done():
-                        pending_future.cancel()
-                if not shutdown_called:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    shutdown_called = True
-                return plot_manifest, df_rows, errors, completed_count, True
-            locator_task = future_to_task[future]
-            try:
-                results_for_task = future.result()
-                # Mark this task complete in the Rich UI once per task.
-                if getattr(locator_task, "task_id", None) is not None:
-                    progress_queue.put((locator_task.task_id, locator_task.repeats))
-                for entries, main_result_row in results_for_task:
-                    plot_manifest.extend(entries)
-                    df_rows.append(main_result_row)
-            except concurrent.futures.CancelledError:
-                # Expected during shutdown - don't log as error
-                pass
-            except KeyboardInterrupt:
-                raise  # Let outer handler deal with Ctrl+C
-            except Exception as exc:
-                # Still advance progress to keep the UI consistent.
-                if getattr(locator_task, "task_id", None) is not None:
-                    progress_queue.put((locator_task.task_id, locator_task.repeats))
-                # Log clean error to console (via monitor), full traceback to file only
-                log.error("Task failed with error (combination=%s): %s", locator_task.slug, type(exc).__name__)
-                log.debug("Task failed with error (combination=%s)", locator_task.slug, exc_info=True)
-                errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
-                if len(errors) > 5:
-                    log.error("Too many errors (>5), terminating...")
+    while pending_tasks and current_runners > 0:
+        executor = concurrent.futures.ProcessPoolExecutor(max_workers=current_runners)
+        future_to_task: dict[concurrent.futures.Future, object] = {}
+        retry_tasks: list[object] = []
+        shutdown_called = False
+
+        try:
+            future_to_task = {
+                executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks
+            }
+            pending_tasks = []
+
+            for future in concurrent.futures.as_completed(future_to_task):
+                # Check if user requested exit via 'q' key
+                if monitor is not None and monitor.exit_requested:
                     for pending_future in future_to_task:
-                        pending_future.cancel()
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    shutdown_called = True
+                        if not pending_future.done():
+                            pending_future.cancel()
+                    if not shutdown_called:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        shutdown_called = True
+                    return plot_manifest, df_rows, errors, completed_count, True
+
+                locator_task = future_to_task[future]
+                try:
+                    results_for_task = future.result()
+                    # Mark this task complete in the Rich UI once per task.
+                    if getattr(locator_task, "task_id", None) is not None:
+                        progress_queue.put((locator_task.task_id, locator_task.repeats))
+                    for entries, main_result_row in results_for_task:
+                        plot_manifest.extend(entries)
+                        df_rows.append(main_result_row)
+                except concurrent.futures.CancelledError:
+                    # Expected during shutdown - don't log as error
+                    pass
+                except KeyboardInterrupt:
+                    raise  # Let outer handler deal with Ctrl+C
+                except MemoryError:
+                    if current_runners > min_runners:
+                        log.warning(
+                            "MemoryError in task %s — will retry with fewer runners (%s -> %s)",
+                            locator_task.slug,
+                            current_runners,
+                            max(min_runners, current_runners - 1),
+                        )
+                        retry_tasks.append(locator_task)
+                    else:
+                        log.error(
+                            "MemoryError in task %s at minimum runner count (%s); failing permanently",
+                            locator_task.slug,
+                            current_runners,
+                        )
+                        errors.append(
+                            MemoryError(
+                                f"Task {locator_task.slug} failed with memory exhaustion at {current_runners} runner(s)"
+                            )
+                        )
+                except Exception as exc:
+                    # Still advance progress to keep the UI consistent.
+                    if getattr(locator_task, "task_id", None) is not None:
+                        progress_queue.put((locator_task.task_id, locator_task.repeats))
+                    # Log clean error to console (via monitor), full traceback to file only
+                    log.error(
+                        "Task failed with error (combination=%s): %s",
+                        locator_task.slug,
+                        type(exc).__name__,
+                    )
+                    log.debug(
+                        "Task failed with error (combination=%s)",
+                        locator_task.slug,
+                        exc_info=True,
+                    )
+                    errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
+                    if len(errors) > 5:
+                        log.error("Too many errors (>5), terminating...")
+                        for pending_future in future_to_task:
+                            pending_future.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        shutdown_called = True
+                        interrupted = True
+                        break
+                finally:
+                    completed_count += 1
+                    _update_status("running")
+
+                if interrupted:
                     break
-            finally:
-                completed_count += 1
-                _update_status("running")
-    except KeyboardInterrupt:
-        log.warning("Cancelling pending tasks due to interruption...")
-        # Cancel all pending futures first
-        for pending_future in future_to_task:
-            pending_future.cancel()
-        # Shutdown without waiting - terminate processes immediately
-        if not shutdown_called:
-            executor.shutdown(wait=False, cancel_futures=True)
-            shutdown_called = True
-        # On Windows, forcibly kill child processes if needed
-        try:
-            import psutil
 
-            parent = psutil.Process()
-            for child in parent.children(recursive=True):
-                with contextlib.suppress(psutil.NoSuchProcess):
-                    child.terminate()
-            # Give processes a moment to terminate gracefully
-            import time
-
-            time.sleep(0.5)
-            # Kill any remaining
-            for child in parent.children(recursive=True):
-                with contextlib.suppress(psutil.NoSuchProcess):
-                    child.kill()
-        except ImportError:
-            pass  # psutil not available
-        return plot_manifest, df_rows, errors, completed_count, True
-    finally:
-        # If we didn't terminate early, wait for workers to finish (with timeout to avoid stall).
-        try:
-            if not shutdown_called:
-                executor.shutdown(wait=True)
         except KeyboardInterrupt:
-            # User hit Ctrl+C again during shutdown - force terminate without waiting
-            with contextlib.suppress(Exception):
+            log.warning("Cancelling pending tasks due to interruption...")
+            # Cancel all pending futures first
+            for pending_future in future_to_task:
+                pending_future.cancel()
+            # Shutdown without waiting - terminate processes immediately
+            if not shutdown_called:
                 executor.shutdown(wait=False, cancel_futures=True)
-        except Exception:
-            pass  # Best effort cleanup
+                shutdown_called = True
+            # On Windows, forcibly kill child processes if needed
+            try:
+                import psutil
 
-    return plot_manifest, df_rows, errors, completed_count, False
+                parent = psutil.Process()
+                for child in parent.children(recursive=True):
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        child.terminate()
+                # Give processes a moment to terminate gracefully
+                import time
+
+                time.sleep(0.5)
+                # Kill any remaining
+                for child in parent.children(recursive=True):
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        child.kill()
+            except ImportError:
+                pass  # psutil not available
+            return plot_manifest, df_rows, errors, completed_count, True
+        finally:
+            # If we didn't terminate early, wait for workers to finish (with timeout to avoid stall).
+            try:
+                if not shutdown_called:
+                    executor.shutdown(wait=True)
+            except KeyboardInterrupt:
+                # User hit Ctrl+C again during shutdown - force terminate without waiting
+                with contextlib.suppress(Exception):
+                    executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass  # Best effort cleanup
+
+        if interrupted:
+            break
+
+        # If any tasks failed with MemoryError, reduce runners and retry them.
+        if retry_tasks:
+            current_runners = max(min_runners, current_runners - 1)
+            pending_tasks = retry_tasks
+            if pending_tasks and current_runners >= min_runners:
+                log.info(
+                    "Retrying %s task(s) with %s runner(s) after MemoryError",
+                    len(pending_tasks),
+                    current_runners,
+                )
+
+    # If we ran out of runners but still have pending tasks, record final errors.
+    if pending_tasks:
+        log.error(
+            "Could not complete %s task(s) due to repeated MemoryErrors (runners exhausted)",
+            len(pending_tasks),
+        )
+        for task in pending_tasks:
+            slug = getattr(task, "slug", str(task))
+            errors.append(MemoryError(f"Task {slug} failed repeatedly due to memory exhaustion"))
+            if getattr(task, "task_id", None) is not None:
+                progress_queue.put((task.task_id, task.repeats))
+            completed_count += 1
+            _update_status("running")
+
+    return plot_manifest, df_rows, errors, completed_count, interrupted
 
 
 def _stop_listener_with_timeout(listener: QueueListener, timeout: float = 3.0) -> None:
@@ -537,6 +614,7 @@ def run(  # noqa: C901
                         monitor=monitor,
                         out_dir=out_dir,
                         started_at=started_at,
+                        min_runners=cli_defaults.MIN_RUNNERS,
                     )
                     if _pool_interrupted:
                         raise KeyboardInterrupt("User requested exit")

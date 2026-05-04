@@ -759,13 +759,22 @@ class BayesianMixin:
         self,
         parameter_history: list[dict[str, float]],
         out_path: Path,
+        *,
+        estimates_history: list[dict[str, float]] | None = None,
+        true_params: Mapping[str, float] | None = None,
     ) -> None:
-        """Plot uncertainty trajectories over steps for Bayesian parameters."""
+        """Plot uncertainty trajectories over steps for Bayesian parameters.
+
+        When ``estimates_history`` is provided, dashed estimate traces are drawn
+        on a secondary y-axis so parameter values and their uncertainties can be
+        viewed together.  ``true_params`` adds horizontal dotted reference lines
+        for each known ground-truth value.
+        """
         if not parameter_history:
             return
 
         # Use all uncertainty keys provided by the belief implementation.
-        keys = []
+        keys: list[str] = []
         for step in parameter_history:
             for k in step:
                 if k not in keys:
@@ -786,15 +795,76 @@ class BayesianMixin:
             else:
                 norm_y.append([math.nan] * len(values))
 
+        def _is_noise_param(name: str) -> bool:
+            name_lc = name.lower()
+            return any(p in name_lc for p in ("noise", "poisson", "drift", "sigma", "scale"))
+
         fig = go.Figure()
 
         for key, y in zip(keys, raw_y, strict=True):
-            fig.add_trace(go.Scatter(x=steps, y=y, mode="lines", name=key))
+            color = "red" if _is_noise_param(key) else None
+            fig.add_trace(
+                go.Scatter(
+                    x=steps,
+                    y=y,
+                    mode="lines",
+                    name=f"{key} (unc)",
+                    line=dict(color=color),
+                    legendgroup=key,
+                )
+            )
+
+        # Estimate traces on secondary y-axis
+        est_raw_y: list[list[float]] = []
+        est_norm_y: list[list[float]] = []
+        if estimates_history:
+            for key in keys:
+                values = [step.get(key, math.nan) for step in estimates_history]
+                est_raw_y.append(values)
+                v0 = next((v for v in values if not math.isnan(v)), math.nan)
+                if not math.isnan(v0) and v0 != 0:
+                    est_norm_y.append([v / v0 if not math.isnan(v) else math.nan for v in values])
+                else:
+                    est_norm_y.append([math.nan] * len(values))
+            for key, y in zip(keys, est_raw_y, strict=True):
+                color = "red" if _is_noise_param(key) else None
+                fig.add_trace(
+                    go.Scatter(
+                        x=steps,
+                        y=y,
+                        mode="lines",
+                        name=f"{key} (est)",
+                        line=dict(dash="dash", color=color),
+                        yaxis="y2",
+                        legendgroup=key,
+                        visible="legendonly",
+                    )
+                )
+
+        # True-value horizontal lines
+        if true_params:
+            for key in keys:
+                tv = true_params.get(key)
+                if tv is not None and math.isfinite(float(tv)):
+                    fig.add_hline(
+                        y=float(tv),
+                        line_dash="dot",
+                        line_color="green",
+                        annotation_text=f"true {key}",
+                        annotation_position="right",
+                        yref="y2" if estimates_history else "y",
+                    )
 
         fig.update_layout(
-            title="Parameter Uncertainty Convergence",
+            title="Parameter Convergence",
             xaxis_title="Step",
             yaxis_title="Uncertainty (std dev)",
+            yaxis2=dict(
+                title="Parameter estimate",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+            ),
             template="plotly_white",
             updatemenus=[
                 dict(
@@ -811,9 +881,10 @@ class BayesianMixin:
                             label="Absolute",
                             method="update",
                             args=[
-                                {"y": raw_y},
+                                {"y": raw_y + est_raw_y},
                                 {
                                     "yaxis.title.text": "Uncertainty (std dev)",
+                                    "yaxis2.title.text": "Parameter estimate",
                                 },
                             ],
                         ),
@@ -821,9 +892,10 @@ class BayesianMixin:
                             label="Normalized (÷ initial)",
                             method="update",
                             args=[
-                                {"y": norm_y},
+                                {"y": norm_y + est_norm_y},
                                 {
                                     "yaxis.title.text": "Relative uncertainty (u / u₀)",
+                                    "yaxis2.title.text": "Relative estimate (val / val₀)",
                                 },
                             ],
                         ),

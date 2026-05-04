@@ -152,6 +152,10 @@ class CombinationGrid:
                     "StudentsTApproximation",
                     {"class": StudentsTLocator, "config": {"max_steps": 200, "df": 3.0}},
                 ),
+                (
+                    "StudentsTApproximation-NoSweep",
+                    {"class": StudentsTLocator, "config": {"max_steps": 200, "initial_sweep_steps": 0, "df": 3.0}},
+                ),
             ]
 
         return [

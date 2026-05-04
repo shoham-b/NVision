@@ -14,6 +14,7 @@ load_dotenv()
 # Core Execution Config
 DEFAULT_REPEATS: int = int(os.getenv("NVISION_DEFAULT_REPEATS", "5"))
 DEFAULT_RUNNERS: int = int(os.getenv("NVISION_DEFAULT_RUNNERS", "4"))
+MIN_RUNNERS: int = int(os.getenv("NVISION_MIN_RUNNERS", "1"))
 DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", str(sim_presets.DEFAULT_LOC_MAX_STEPS)))
 DEFAULT_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEFAULT_LOC_TIMEOUT_S", "1500"))
 DEFAULT_RUN_ALL: bool = os.getenv("NVISION_DEFAULT_RUN_ALL", "False").lower() in ("true", "1", "yes")
