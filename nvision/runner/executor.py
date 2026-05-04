@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import logging
 import random
 import threading
@@ -267,6 +268,7 @@ class _RepeatArtifacts:
     finalize_df: pl.DataFrame
     experiments: list[CoreExperiment]
     repeat_start_times: list[float]
+    repeat_timestamps: list[str]
     stop_reasons: list[str]
     run_results: list[RunResult]
 
@@ -432,6 +434,7 @@ class _TaskRunner:
         # Start times used for the `duration_ms` metadata stored in `locator_results.csv`.
         # These should align with when progress "advances" (i.e., right before each repeat begins).
         repeat_start_times: list[float] = [0.0] * self.repeats
+        repeat_timestamps: list[str] = [""] * self.repeats
         stop_reasons: list[str] = [""] * self.repeats
 
         for attempt_idx in range(self.repeats):
@@ -450,6 +453,7 @@ class _TaskRunner:
 
         for rid in range(self.repeats):
             repeat_start_times[rid] = time.perf_counter()
+            repeat_timestamps[rid] = datetime.datetime.now().isoformat()
             hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
@@ -478,6 +482,7 @@ class _TaskRunner:
             finalize_df=pl.DataFrame(finalize_records) if finalize_records else pl.DataFrame({"repeat_id": []}),
             experiments=experiments,
             repeat_start_times=repeat_start_times,
+            repeat_timestamps=repeat_timestamps,
             stop_reasons=stop_reasons,
             run_results=run_results,
         )
@@ -495,6 +500,7 @@ class _TaskRunner:
                 strat_name=self.strategy_name,
                 repeat_stop_reasons=artifacts.stop_reasons,
                 repeat_start_times=artifacts.repeat_start_times,
+                repeat_timestamps=artifacts.repeat_timestamps,
                 current_scan=artifacts.experiments[attempt_idx],
                 final_history_df=artifacts.history_df,
                 finalize_results=artifacts.finalize_df,

@@ -213,6 +213,34 @@ def _trace_one_marginal_posterior(
     )
 
 
+def _collect_param_keys(parameter_history: list[dict[str, float]]) -> list[str]:
+    keys: list[str] = []
+    for step in parameter_history:
+        for k in step:
+            if k not in keys:
+                keys.append(k)
+    return keys
+
+
+def _build_param_series(
+    keys: list[str],
+    history: list[dict[str, float]] | None,
+) -> tuple[list[list[float]], list[list[float]]]:
+    if not history:
+        return [], []
+    raw_y: list[list[float]] = []
+    norm_y: list[list[float]] = []
+    for key in keys:
+        values = [step.get(key, math.nan) for step in history]
+        raw_y.append(values)
+        v0 = next((v for v in values if not math.isnan(v)), math.nan)
+        if not math.isnan(v0) and v0 != 0:
+            norm_y.append([v / v0 if not math.isnan(v) else math.nan for v in values])
+        else:
+            norm_y.append([math.nan] * len(values))
+    return raw_y, norm_y
+
+
 class BayesianMixin:
     """Mixin for Bayesian visualization."""
 
@@ -773,27 +801,13 @@ class BayesianMixin:
         if not parameter_history:
             return
 
-        # Use all uncertainty keys provided by the belief implementation.
-        keys: list[str] = []
-        for step in parameter_history:
-            for k in step:
-                if k not in keys:
-                    keys.append(k)
+        keys = _collect_param_keys(parameter_history)
         if not keys:
             return
 
         steps = list(range(len(parameter_history)))
-
-        raw_y: list[list[float]] = []
-        norm_y: list[list[float]] = []
-        for key in keys:
-            values = [step.get(key, math.nan) for step in parameter_history]
-            raw_y.append(values)
-            v0 = next((v for v in values if not math.isnan(v)), math.nan)
-            if not math.isnan(v0) and v0 != 0:
-                norm_y.append([v / v0 if not math.isnan(v) else math.nan for v in values])
-            else:
-                norm_y.append([math.nan] * len(values))
+        raw_y, norm_y = _build_param_series(keys, parameter_history)
+        est_raw_y, est_norm_y = _build_param_series(keys, estimates_history)
 
         def _is_noise_param(name: str) -> bool:
             name_lc = name.lower()
@@ -815,31 +829,20 @@ class BayesianMixin:
             )
 
         # Estimate traces on secondary y-axis
-        est_raw_y: list[list[float]] = []
-        est_norm_y: list[list[float]] = []
-        if estimates_history:
-            for key in keys:
-                values = [step.get(key, math.nan) for step in estimates_history]
-                est_raw_y.append(values)
-                v0 = next((v for v in values if not math.isnan(v)), math.nan)
-                if not math.isnan(v0) and v0 != 0:
-                    est_norm_y.append([v / v0 if not math.isnan(v) else math.nan for v in values])
-                else:
-                    est_norm_y.append([math.nan] * len(values))
-            for key, y in zip(keys, est_raw_y, strict=True):
-                color = "red" if _is_noise_param(key) else None
-                fig.add_trace(
-                    go.Scatter(
-                        x=steps,
-                        y=y,
-                        mode="lines",
-                        name=f"{key} (est)",
-                        line=dict(dash="dash", color=color),
-                        yaxis="y2",
-                        legendgroup=key,
-                        visible="legendonly",
-                    )
+        for key, y in zip(keys, est_raw_y, strict=True):
+            color = "red" if _is_noise_param(key) else None
+            fig.add_trace(
+                go.Scatter(
+                    x=steps,
+                    y=y,
+                    mode="lines",
+                    name=f"{key} (est)",
+                    line=dict(dash="dash", color=color),
+                    yaxis="y2",
+                    legendgroup=key,
+                    visible="legendonly",
                 )
+            )
 
         # True-value horizontal lines
         if true_params:

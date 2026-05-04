@@ -14,129 +14,7 @@ from numba import njit, prange
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
-class INoiseModelStrategy(abc.ABC):
-    @abc.abstractmethod
-    def generate_noise_chunk(self, mu_preds: np.ndarray, num_samples: int) -> tuple[np.ndarray, np.ndarray]:
-        """Generate (noise_chunk, inv_noise_std_arr) given model predictions."""
-        pass
 
-
-class GaussianNoiseStrategy(INoiseModelStrategy):
-    def __init__(self, noise_std: float):
-        self.noise_std = noise_std
-
-    def generate_noise_chunk(self, mu_preds: np.ndarray, num_samples: int) -> tuple[np.ndarray, np.ndarray]:
-        m = mu_preds.shape[0]
-        noise_chunk = np.random.normal(0.0, self.noise_std, size=(m, num_samples))
-        inv_noise_std_arr = np.full((m, num_samples), 1.0 / self.noise_std)
-        return noise_chunk, inv_noise_std_arr
-
-
-class PoissonNoiseStrategy(INoiseModelStrategy):
-    def __init__(self, poisson_scale: float):
-        self.poisson_scale = poisson_scale
-
-    def generate_noise_chunk(self, mu_preds: np.ndarray, num_samples: int) -> tuple[np.ndarray, np.ndarray]:
-        m = mu_preds.shape[0]
-        lam = np.maximum(mu_preds, 1e-12) * self.poisson_scale
-        std_y = np.sqrt(lam) / self.poisson_scale
-        noise_chunk = np.random.normal(0.0, 1.0, size=(m, num_samples)) * std_y
-        inv_noise_std_arr = 1.0 / std_y
-        return noise_chunk, inv_noise_std_arr
-
-
-class NoiseModelFactory:
-    @staticmethod
-    def create(last_obs, default_noise_std: float) -> INoiseModelStrategy:
-        noise_std = last_obs.noise_std if last_obs is not None else default_noise_std
-        freq_model = getattr(last_obs, "frequency_noise_model", None) if last_obs is not None else None
-
-        use_poisson = bool(
-            freq_model
-            and len(freq_model) == 1
-            and freq_model[0].get("type") == "poisson"
-            and float(freq_model[0].get("scale", 0.0)) > 0.0
-        )
-
-        if use_poisson:
-            poisson_scale = float(freq_model[0]["scale"])
-            return PoissonNoiseStrategy(poisson_scale)
-        return GaussianNoiseStrategy(noise_std)
-
-
-@njit(cache=True, parallel=True)
-def _sbed_eig_utilities_from_mu_and_noise(
-    mu_preds: np.ndarray,
-    noise_chunk: np.ndarray,
-    inv_noise_std: np.ndarray,
-    eps: float,
-) -> np.ndarray:
-    """
-    Compute the SBED utility for a chunk of candidates.
-
-    ``inv_noise_std`` is a 2-D array (m, n_outcomes) so that heteroscedastic
-    noise (e.g. Poisson) can use the correct per-outcome precision.
-
-    Notes
-    -----
-    This mirrors the original NumPy tensor math but avoids materializing the
-    full (m, n_outcomes, n_particles) intermediate via explicit loops.
-    """
-    m, n_particles = mu_preds.shape
-    _, n_outcomes = noise_chunk.shape
-
-    log_eps = math.log(eps)
-    utilities = np.empty(m, dtype=np.float64)
-
-    for i in prange(m):
-        acc_entropy = 0.0
-        # Thread-local buffers for parallel execution
-        buffer = np.empty(n_particles, dtype=np.float64)
-        ll_buffer = np.empty(n_particles, dtype=np.float64)
-
-        # For each hypothetical outcome o, form the discrete posterior over
-        # particles and compute its Shannon entropy.
-        for o in range(n_outcomes):
-            y = mu_preds[i, o] + noise_chunk[i, o]
-            inv_sigma = inv_noise_std[i, o]
-            inv_var_half = -0.5 * inv_sigma * inv_sigma
-
-            # Stable normalization: subtract max log-likelihood over particles.
-            max_log_lik = -1e300
-            for p in range(n_particles):
-                diff = y - mu_preds[i, p]
-                ll = (diff * diff) * inv_var_half
-                ll_buffer[p] = ll
-                if ll > max_log_lik:
-                    max_log_lik = ll
-
-            sum_exp = 0.0
-            for p in range(n_particles):
-                e = math.exp(ll_buffer[p] - max_log_lik)
-                buffer[p] = e
-                sum_exp += e
-
-            inv_sum_exp = 1.0 / (sum_exp + 1e-300)
-            log_sum_exp = math.log(sum_exp + 1e-300)
-            entropy = 0.0
-
-            for p in range(n_particles):
-                w = buffer[p] * inv_sum_exp
-
-                # Match np.log(np.clip(weights, eps, None)) semantics.
-                if w < eps:
-                    entropy += -w * log_eps
-                else:
-                    # Mathematical identity: w = exp(ll - max_log_lik) / sum_exp
-                    # log(w) = ll - max_log_lik - log(sum_exp)
-                    entropy += -w * (ll_buffer[p] - max_log_lik - log_sum_exp)
-
-            acc_entropy += entropy
-
-        # Utility is negative expected entropy (so argmax picks minimum entropy).
-        utilities[i] = -(acc_entropy / n_outcomes)
-
-    return utilities
 
 
 class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
@@ -206,49 +84,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if debug_timing:
             t_cand = time.perf_counter()
 
-        num_samples = self.n_draws
         candidates_arr = np.asarray(candidates)
-        sampled = self.belief.select_max_information_gain(candidates_arr, num_samples)
+        noise_std = self.belief.last_obs.noise_std if self.belief.last_obs is not None else self.noise_std
 
         if debug_timing:
-            t_sample = time.perf_counter()
+            t0 = time.perf_counter()
 
-        noise_strategy = NoiseModelFactory.create(self.belief.last_obs, 0.05)
-        model = self.belief.model
+        utilities = self.belief.expected_information_gain(candidates_arr, noise_std)
 
-        chunk_size = 64 if len(candidates) > 64 else len(candidates)
-        utilities = np.zeros(len(candidates), dtype=float)
-        eps = 1e-12
-
-        time_model = 0.0
-        time_eig = 0.0
-
-        for start in range(0, len(candidates), chunk_size):
-            end = min(len(candidates), start + chunk_size)
-            xs = candidates[start:end]
-
-            if debug_timing:
-                t0 = time.perf_counter()
-
-            mu_preds = model.compute_vectorized_many(xs, sampled)
-
-            if debug_timing:
-                time_model += time.perf_counter() - t0
-
-            noise_chunk, inv_noise_std_arr = noise_strategy.generate_noise_chunk(mu_preds, num_samples)
-
-            if debug_timing:
-                t0 = time.perf_counter()
-
-            utilities[start:end] = _sbed_eig_utilities_from_mu_and_noise(
-                mu_preds=mu_preds,
-                noise_chunk=noise_chunk,
-                inv_noise_std=inv_noise_std_arr,
-                eps=eps,
-            )
-
-            if debug_timing:
-                time_eig += time.perf_counter() - t0
+        if debug_timing:
+            time_eig = time.perf_counter() - t0
 
         best_idx = int(pl.Series(utilities).arg_max())
 
@@ -256,9 +101,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             total = time.perf_counter() - t_start
             print("\nSBED Timing Breakdown:")
             print(f"  Generate Candidates: {t_cand - t_start:.4f}s")
-            print(f"  Sample Particles:    {t_sample - t_cand:.4f}s")
-            print(f"  Model Evaluations:   {time_model:.4f}s")
-            print(f"  EIG/Entropy Calc:    {time_eig:.4f}s")
+            print(f"  EIG Calc:            {time_eig:.4f}s")
             print(f"  Total _acquire:      {total:.4f}s")
 
         return float(candidates[best_idx])
+

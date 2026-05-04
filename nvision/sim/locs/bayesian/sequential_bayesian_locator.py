@@ -7,8 +7,6 @@ from collections.abc import Callable, Mapping, Sequence
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
-from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
@@ -20,13 +18,13 @@ _POSTERIOR_MIN_NARROWING_FRACTION: float = 0.05
 
 
 def _posterior_credible_interval(
-    belief: UnitCubeSMCMarginalDistribution,
+    belief: AbstractMarginalDistribution,
     param_name: str,
     level: float = _POSTERIOR_CREDIBLE_LEVEL,
 ) -> tuple[float, float] | None:
     """Return a ``level``-credible interval in physical units for ``param_name``.
 
-    Uses weighted SMC particle quantiles. Returns ``None`` if the interval
+    Uses weighted SMC particle quantiles when available. Returns ``None`` if the interval
     cannot be computed or is degenerate.
     """
     tail = (1.0 - level) / 2.0
@@ -34,8 +32,13 @@ def _posterior_credible_interval(
     if hi_phys <= lo_phys:
         return None
 
-    j = belief._param_names.index(param_name)
-    u_vals = belief._particles[:, j]
+    particles = getattr(belief, "_particles", None)
+    param_names = getattr(belief, "_param_names", None)
+    if particles is None or param_names is None:
+        return None
+
+    j = param_names.index(param_name)
+    u_vals = particles[:, j]
     u_lo = float(np.quantile(u_vals, tail))
     u_hi = float(np.quantile(u_vals, 1.0 - tail))
     return (lo_phys + u_lo * (hi_phys - lo_phys), lo_phys + u_hi * (hi_phys - lo_phys))
@@ -253,31 +256,27 @@ class SequentialBayesianLocator(Locator):
             if pdw is not None:
                 self._per_dip_windows = pdw
 
-        # Narrow belief scan bounds
-        if isinstance(
-            self.belief,
-            UnitCubeGridMarginalDistribution | UnitCubeSMCMarginalDistribution,
-        ):
-            self.belief.narrow_scan_parameter_physical_bounds(
-                self._scan_param, self._acquisition_lo, self._acquisition_hi
-            )
-            phys_bounds = self.belief.physical_param_bounds
-            slo, shi = phys_bounds[self._scan_param]
-            self._acquisition_lo = min(slo, shi)
-            self._acquisition_hi = max(slo, shi)
+        # Narrow belief scan bounds (no-op for physical-space beliefs)
+        self.belief.narrow_scan_parameter_physical_bounds(
+            self._scan_param, self._acquisition_lo, self._acquisition_hi
+        )
+        phys_bounds = self.belief.physical_param_bounds
+        slo, shi = phys_bounds[self._scan_param]
+        self._acquisition_lo = min(slo, shi)
+        self._acquisition_hi = max(slo, shi)
 
-            if "split" in phys_bounds:
-                window_width = self._acquisition_hi - self._acquisition_lo
-                if window_width > 0:
-                    max_split = window_width / 2.0
-                    split_lo, split_hi = phys_bounds["split"]
-                    new_split_hi = min(float(split_hi), max_split)
-                    if new_split_hi > float(split_lo):
-                        self.belief.narrow_scan_parameter_physical_bounds("split", float(split_lo), new_split_hi)
+        if "split" in phys_bounds:
+            window_width = self._acquisition_hi - self._acquisition_lo
+            if window_width > 0:
+                max_split = window_width / 2.0
+                split_lo, split_hi = phys_bounds["split"]
+                new_split_hi = min(float(split_hi), max_split)
+                if new_split_hi > float(split_lo):
+                    self.belief.narrow_scan_parameter_physical_bounds("split", float(split_lo), new_split_hi)
 
-            self._narrowed_param_bounds = {
-                name: (float(lo), float(hi)) for name, (lo, hi) in self.belief.physical_param_bounds.items()
-            }
+        self._narrowed_param_bounds = {
+            name: (float(lo), float(hi)) for name, (lo, hi) in self.belief.physical_param_bounds.items()
+        }
 
     def _native_scan_candidates(self, lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
         """Return (candidates, probabilities) from the belief's native discretization.
@@ -399,7 +398,7 @@ class SequentialBayesianLocator(Locator):
         Only narrows by at least :data:`_POSTERIOR_MIN_NARROWING_FRACTION` of the
         current prior width — never widens.
         """
-        if not isinstance(self.belief, UnitCubeSMCMarginalDistribution):
+        if not hasattr(self.belief, "_particles"):
             return
         param_names = list(self.belief.model.parameter_names())
         for param in param_names:

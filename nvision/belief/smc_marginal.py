@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
+
+from dotenv import load_dotenv
 
 import numpy as np
 from numba import njit
@@ -12,6 +15,23 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution, Param
 from nvision.models.observation import Observation
 from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.noise_model import NoiseSignalModel
+
+# --- Environment-driven defaults ---------------------------------------------
+
+load_dotenv()
+
+NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
+NVISION_SMC_JITTER_SCALE: float = float(os.getenv("NVISION_SMC_JITTER_SCALE", "0.1"))
+NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.5"))
+NVISION_SMC_USE_FULL_COVARIANCE: bool = os.getenv("NVISION_SMC_USE_FULL_COVARIANCE", "False").lower() in ("true", "1", "yes")
+NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
+NVISION_SMC_SCALE: bool = os.getenv("NVISION_SMC_SCALE", "True").lower() in ("true", "1", "yes")
+NVISION_SMC_USE_INFORMATION_WEIGHTS: bool = os.getenv("NVISION_SMC_USE_INFORMATION_WEIGHTS", "True").lower() in ("true", "1", "yes")
+NVISION_SMC_ANNEALED_JITTER: bool = os.getenv("NVISION_SMC_ANNEALED_JITTER", "False").lower() in ("true", "1", "yes")
+NVISION_SMC_ANNEALED_JITTER_INITIAL: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_INITIAL", "0.02"))
+NVISION_SMC_ANNEALED_JITTER_MIN: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_MIN", "0.001"))
+NVISION_SMC_ANNEALED_JITTER_DECAY: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_DECAY", "0.995"))
+NVISION_SMC_ELITISM_RATIO: float = float(os.getenv("NVISION_SMC_ELITISM_RATIO", "0.2"))
 
 # --- Numba helpers (particle weights / resampling) ----------------------------
 
@@ -89,26 +109,26 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     """
 
     parameter_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
-    num_particles: int = 1000
-    jitter_scale: float = 0.1
-    ess_threshold: float = 0.5
-    use_full_covariance: bool = False
-    a_param: float = 0.98
-    scale: bool = True
+    num_particles: int = NVISION_SMC_NUM_PARTICLES
+    jitter_scale: float = NVISION_SMC_JITTER_SCALE
+    ess_threshold: float = NVISION_SMC_ESS_THRESHOLD
+    use_full_covariance: bool = NVISION_SMC_USE_FULL_COVARIANCE
+    a_param: float = NVISION_SMC_A_PARAM
+    scale: bool = NVISION_SMC_SCALE
 
     # Use Fisher-information-based weighting during Bayesian updates.
     # The paper (Eq. S3) updates weights by likelihood only.  Default True
     # preserves backward compatibility; set False to match the paper.
-    use_information_weights: bool = True
+    use_information_weights: bool = NVISION_SMC_USE_INFORMATION_WEIGHTS
 
     # Annealed jitter: continuous particle movement every update
-    annealed_jitter: bool = False
-    annealed_jitter_initial: float = 0.02
-    annealed_jitter_min: float = 0.001
-    annealed_jitter_decay: float = 0.995
+    annealed_jitter: bool = NVISION_SMC_ANNEALED_JITTER
+    annealed_jitter_initial: float = NVISION_SMC_ANNEALED_JITTER_INITIAL
+    annealed_jitter_min: float = NVISION_SMC_ANNEALED_JITTER_MIN
+    annealed_jitter_decay: float = NVISION_SMC_ANNEALED_JITTER_DECAY
 
     # Elitist resampling: survival of the fittest
-    elitism_ratio: float = 0.2  # Top 20% particles survive intact
+    elitism_ratio: float = NVISION_SMC_ELITISM_RATIO  # Top 20% particles survive intact
     noise_model: NoiseSignalModel | None = None
 
     _particles: np.ndarray = field(init=False, repr=False)
@@ -441,7 +461,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         cov = np.cov(self._particles, rowvar=False, aweights=self._weights)  # shape (d, d)
 
         if cov.ndim == 0:
-            cov = np.array([[cov]]).
+            cov = np.array([[cov]])
 
         # Nudge covariance: (1 - a_param^2) * cov
         # This ensures the nudge scale is small compared to distribution spread
@@ -692,6 +712,28 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         samples = self._particles[top_indices]
         data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, data)
+
+    def expected_information_gain(self, candidates: np.ndarray, noise_std: float) -> np.ndarray:
+        """Compute the approximate expected information gain for candidate locations.
+
+        Uses the approximation:
+        H(y|d) ≈ 1/2 * ln(sigma_eta^2 + sigma_theta^2)
+        where sigma_eta^2 is the measurement noise variance and sigma_theta^2 is the prediction variance
+        (disagreement for that frequency across particles).
+        """
+        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
+        # shape: (n_candidates, n_particles)
+        predictions = self.model.compute_vectorized_many(candidates, arrays_in_order)
+        
+        # Calculate weighted variance of predictions across particles for each candidate
+        mean_pred = np.average(predictions, axis=1, weights=self._weights)
+        var_pred = np.average((predictions - mean_pred[:, np.newaxis])**2, axis=1, weights=self._weights)
+        
+        sigma_eta_sq = float(noise_std) ** 2
+        sigma_theta_sq = var_pred
+        
+        # Return approximate information gain
+        return 0.5 * np.log(sigma_eta_sq + sigma_theta_sq)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import gaussian_kde, norm

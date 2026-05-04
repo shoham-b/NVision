@@ -30,6 +30,7 @@ def generate_attempt_metrics(  # noqa: C901
     strat_name: str,
     repeat_stop_reasons: list[str],
     repeat_start_times: list[float],
+    repeat_timestamps: list[str],
     current_scan: CoreExperiment,
     final_history_df: pl.DataFrame,
     finalize_results: pl.DataFrame,

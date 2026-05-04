@@ -29,6 +29,7 @@ dev = [
 
 [project.scripts]
 nvision = "nvision.__main__:main"
+nv = "nvision.__main__:main"
 
 [tool.ruff]
 line-length = 120
