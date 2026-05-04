@@ -183,31 +183,3 @@ jobs:
             coverage.xml
             htmlcov
           if-no-files-found: warn
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: coverage-aggregate
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Assemble site from repo
-        shell: bash
-        run: |
-          mkdir -p site
-          cp -R static/. site/
-          cp -R artifacts/. site/
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
