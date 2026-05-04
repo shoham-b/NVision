@@ -208,6 +208,7 @@ def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
         tracebacks_suppress=tuple(suppress),
     )
 
+
 @app.command()
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)

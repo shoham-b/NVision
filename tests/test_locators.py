@@ -52,5 +52,3 @@ def test_locator_runs_on_nv_center():
     exp = _make_experiment(gen, rng)
     steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
     assert len(steps) > 0
-
-

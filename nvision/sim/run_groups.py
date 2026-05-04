@@ -53,7 +53,7 @@ def _bayesian_strategy_names() -> list[str]:
 
 
 def _bayesian_nosweep_strategy_names() -> list[str]:
-    return ["Bayesian-SBED-NoSweep",  "Bayesian-UtilitySampling-NoSweep"]
+    return ["Bayesian-SBED-NoSweep", "Bayesian-UtilitySampling-NoSweep"]
 
 
 def _narrow_strategy_names() -> list[str]:
@@ -81,11 +81,7 @@ def _nv_narrow_generators() -> list[str]:
 def _group_all() -> RunGroup:
     gens = _all_generator_names()
     noises = _all_noise_names()
-    strats = [
-        s
-        for s in _all_strategy_names_for(gens)
-        if "MaximumLikelihood" not in s and "UtilitySampling" not in s
-    ]
+    strats = [s for s in _all_strategy_names_for(gens) if "MaximumLikelihood" not in s and "UtilitySampling" not in s]
     return RunGroup(
         name="all",
         description="All generators, noises, and strategies.",

@@ -29,5 +29,3 @@ def test_nv_center_voigt_has_different_params_than_lorentzian():
     names_v = set(sig_v.parameter_names)
     # Voigt model should have additional broadening parameters not in Lorentzian
     assert names_v != names_l, "Voigt and Lorentzian should have different parameter sets"
-
-

@@ -87,6 +87,7 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
     @property
     def names(self) -> tuple[str, ...]:
         from dataclasses import fields
+
         return tuple(f.name for f in fields(self.params_cls))
 
     @property
@@ -107,12 +108,14 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
 
     def unpack_samples(self, arrays_in_order: Sequence[np.ndarray]) -> SampleParamsT:
         from nvision.spectra.dtypes import FLOAT_DTYPE
+
         return self.samples_cls(
             **{name: np.asarray(arr, dtype=FLOAT_DTYPE) for name, arr in zip(self.names, arrays_in_order, strict=True)}
         )
 
     def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]:
         from nvision.spectra.dtypes import FLOAT_DTYPE
+
         return tuple(np.asarray(getattr(samples, name), dtype=FLOAT_DTYPE) for name in self.names)
 
 

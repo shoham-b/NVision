@@ -37,4 +37,3 @@ DEMO_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEMO_LOC_TIMEOUT_S", "300"))
 DEMO_OUT: str | None = os.getenv("NVISION_DEMO_OUT", None)
 DEMO_LOGS_ROOT: str | None = os.getenv("NVISION_DEMO_LOGS_ROOT", None)
 BETA_OUT: str | None = os.getenv("NVISION_BETA_OUT", None)
-

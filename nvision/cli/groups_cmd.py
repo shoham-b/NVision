@@ -47,9 +47,7 @@ def run_single(
     no_progress: bool = typer.Option(
         False, "--no-progress", help="Disable Rich progress UI; print plain logs to terminal"
     ),
-    open_browser: bool = typer.Option(
-        False, "--open/--no-open", help="Open results in browser after run"
-    ),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> int:
     """Run a single (generator, noise, strategy) combination."""
     return run(

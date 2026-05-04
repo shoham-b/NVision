@@ -598,10 +598,11 @@ def nv_center_lorentzian_bounds_for_domain(
     if narrow:
         # Tighter bounds for "narrow" variant
         linewidth_bounds = (1e3, 0.2e6)  # 1 kHz to 200 kHz
-        split_bounds = (0.1e6, 2.0e6)    # 0.1 MHz to 2 MHz
+        split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
         max_span = 5.0e6
 
         if true_params is not None:
+
             def _pm10(v, lo=None, hi=None):
                 left, right = float(v) * 0.9, float(v) * 1.1
                 if lo is not None:
@@ -792,10 +793,11 @@ def nv_center_voigt_bounds_for_domain(
     if narrow:
         # Tighter bounds for "narrow" variant
         fwhm_total_bounds = (2e3, 0.4e6)  # 2 kHz to 400 kHz
-        split_bounds = (0.1e6, 2.0e6)     # 0.1 MHz to 2 MHz
+        split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
         max_span = 5.0e6
 
         if true_params is not None:
+
             def _pm10(v, lo=None, hi=None):
                 left, right = float(v) * 0.9, float(v) * 1.1
                 if lo is not None:
