@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 import polars as pl
-from numba import njit
+from numba import njit, prange
 
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
@@ -64,7 +64,7 @@ class NoiseModelFactory:
         return GaussianNoiseStrategy(noise_std)
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def _sbed_eig_utilities_from_mu_and_noise(
     mu_preds: np.ndarray,
     noise_chunk: np.ndarray,
@@ -87,10 +87,12 @@ def _sbed_eig_utilities_from_mu_and_noise(
 
     log_eps = math.log(eps)
     utilities = np.empty(m, dtype=np.float64)
-    buffer = np.empty(n_particles, dtype=np.float64)
 
-    for i in range(m):
+    for i in prange(m):
         acc_entropy = 0.0
+        # Thread-local buffers for parallel execution
+        buffer = np.empty(n_particles, dtype=np.float64)
+        ll_buffer = np.empty(n_particles, dtype=np.float64)
 
         # For each hypothetical outcome o, form the discrete posterior over
         # particles and compute its Shannon entropy.
@@ -104,17 +106,18 @@ def _sbed_eig_utilities_from_mu_and_noise(
             for p in range(n_particles):
                 diff = y - mu_preds[i, p]
                 ll = (diff * diff) * inv_var_half
-                buffer[p] = ll
+                ll_buffer[p] = ll
                 if ll > max_log_lik:
                     max_log_lik = ll
 
             sum_exp = 0.0
             for p in range(n_particles):
-                e = math.exp(buffer[p] - max_log_lik)
+                e = math.exp(ll_buffer[p] - max_log_lik)
                 buffer[p] = e
                 sum_exp += e
 
             inv_sum_exp = 1.0 / (sum_exp + 1e-300)
+            log_sum_exp = math.log(sum_exp + 1e-300)
             entropy = 0.0
 
             for p in range(n_particles):
@@ -124,7 +127,9 @@ def _sbed_eig_utilities_from_mu_and_noise(
                 if w < eps:
                     entropy += -w * log_eps
                 else:
-                    entropy += -w * math.log(w)
+                    # Mathematical identity: w = exp(ll - max_log_lik) / sum_exp
+                    # log(w) = ll - max_log_lik - log(sum_exp)
+                    entropy += -w * (ll_buffer[p] - max_log_lik - log_sum_exp)
 
             acc_entropy += entropy
 

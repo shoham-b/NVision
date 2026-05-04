@@ -391,10 +391,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
                 unc = float(uncertainties.get(name, float("inf")))
                 lo, hi = bounds.get(name, (0.0, 0.0))
                 bound_width = hi - lo
-                if bound_width > 0:
-                    rel_unc = unc / bound_width
-                else:
-                    rel_unc = float("inf")
+                rel_unc = unc / bound_width if bound_width > 0 else float("inf")
                 relative_uncertainties[name] = rel_unc
                 converged_params[name] = rel_unc < convergence_threshold
 
