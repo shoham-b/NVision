@@ -183,7 +183,7 @@ def _run_group_by_normalized_name() -> dict[str, RunGroup]:
 
 
 def get_run_group(name: str) -> RunGroup:
-    key = name.strip().lower()
+    key = name.strip().lower().replace("-", "_")
     try:
         return _run_group_by_normalized_name()[key]
     except KeyError:

@@ -41,7 +41,7 @@ class ParamSpec(Protocol[ParamsT, SampleParamsT, UncertaintyT]):
 
 class BasicParamSpec:
     """Simple ParamSpec that doesn't use typed bundles (uses tuples/dicts)."""
-    
+
     def __init__(self, names: list[str], bounds: dict[str, tuple[float, float]]):
         self._names = tuple(names)
         self._bounds = bounds
@@ -79,7 +79,7 @@ class BasicParamSpec:
 
 class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
     """Auto-implement ParamSpec methods using dataclass field introspection."""
-    
+
     params_cls: type[ParamsT]
     samples_cls: type[SampleParamsT]
     uncertainty_cls: type[UncertaintyT]
@@ -118,7 +118,7 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
 
 class SignalParamSpec(ParamSpec):
     """Refined protocol for signal models (backward compat)."""
-    
+
     @property
     def bounds(self) -> dict[str, tuple[float, float]]: ...
 

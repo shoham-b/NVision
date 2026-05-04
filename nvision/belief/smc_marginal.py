@@ -124,7 +124,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             for name in self.noise_model.spec.names:
                 if name not in self._param_names:
                     self._param_names.append(name)
-        
+
         self._current_annealed_jitter_scale = self.annealed_jitter_initial
 
         # Initialize particles uniformly within bounds
