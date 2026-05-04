@@ -38,7 +38,7 @@ def run_single(
         1,
         "--runners",
         min=1,
-        help="Number of runner processes. 1 = live logs/progress in main thread; >1 = subprocesses with reliable Ctrl-C but silent until done.",
+        help="Number of runner processes. 1 = live logs/progress in main thread; >1=subprocess",
     ),
     no_progress: bool = typer.Option(
         False, "--no-progress", help="Disable Rich progress UI; print plain logs to terminal"

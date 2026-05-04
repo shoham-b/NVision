@@ -54,10 +54,7 @@ class NVCenterCoreGenerator:
 
         # For hyperfine-split case, need room for side peaks
         # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
-        if self.narrow_signal:
-            split = rng.uniform(0.5e6, 1.2e6)
-        else:
-            split = rng.uniform(2.0e6, 3.5e6)
+        split = rng.uniform(500000.0, 1200000.0) if self.narrow_signal else rng.uniform(2000000.0, 3500000.0)
 
         usable_lo = self.x_min + split + 0.05 * width
         usable_hi = self.x_max - split - 0.05 * width
@@ -70,12 +67,9 @@ class NVCenterCoreGenerator:
             center_freq = rng.uniform(usable_lo, usable_hi)
 
         # Random linewidth (HWHM for Lorentzian)
-        if self.narrow_signal:
-            # Extremely sharp lines for testing Bayesian limits (10 kHz to 50 kHz HWHM)
-            linewidth = rng.uniform(0.01e6, 0.05e6)
-        else:
-            # Standard sharp lines (50 kHz to 400 kHz HWHM).
-            linewidth = rng.uniform(0.05e6, 0.4e6)
+        # Extremely sharp lines for testing Bayesian limits (10 kHz to 50 kHz HWHM)
+        # Standard sharp lines (50 kHz to 400 kHz HWHM).
+        linewidth = rng.uniform(10000.0, 50000.0) if self.narrow_signal else rng.uniform(50000.0, 400000.0)
 
         # Random k_np (non-polarization factor)
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)

@@ -9,7 +9,8 @@ import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import gaussian_peak_value
-from nvision.spectra.signal import GenericParamSpec, SignalModel
+from nvision.spectra.signal import SignalModel
+from nvision.spectra.spec import GenericParamSpec
 
 
 @dataclass(frozen=True)
