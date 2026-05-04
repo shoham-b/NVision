@@ -41,6 +41,7 @@ exclude = [
     "build",
     "dist",
     "README.md",
+    "scratch"
 ]
 
 [tool.ruff.lint]
@@ -62,9 +63,8 @@ ignore = [
     "RUF001", # ambiguous unicode in strings
     "RUF002", # ambiguous unicode in docstrings
     "RUF003", # ambiguous unicode in comments
-    "UP038",
-    "N802",
-    "PT009",
+    "N802",    # allow camelCase / mixedCase function names matching project convention
+    "PT009",   # allow use of unittest.mock.patch in tests (project prefers explicit mocks)
 ]
 
 [tool.ruff.format]
@@ -76,6 +76,10 @@ line-ending = "lf"
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra -q --cov=nvision --cov-report=xml --cov-report=term-missing --cov-report=html --timeout=60"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "benchmark: marks tests that use pytest-benchmark",
+]
 testpaths = ["tests"]
 pythonpath = ["."]
 filterwarnings = [

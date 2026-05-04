@@ -142,25 +142,37 @@ class StudentsTLocator(Locator):
             self.inference_step_count += 1
 
     def _target_params_converged(self) -> bool:
-        if not self.convergence_params:
-            return self.belief.converged(self.convergence_threshold)
+        """Check convergence on configured target parameters.
 
-        stds = self.belief._empirical_uncertainty()
-        param_uncertainties: dict[str, float] = {}
-        for p in self.convergence_params:
-            if p in stds:
-                param_uncertainties[p] = stds[p]
+        Convergence requires the uncertainty of each target parameter to be
+        below ``convergence_threshold`` as a fraction of its physical bound
+        width (e.g. ``0.01`` = 1 %).  The overall (RMS) relative uncertainty
+        across all target parameters must also be below the same threshold.
+        """
+        target_params = list(self.convergence_params) if self.convergence_params else list(self.belief.model.parameter_names())
+        physical_uncertainties = self.belief.uncertainty()
 
-        if not param_uncertainties:
-            return self.belief.converged(self.convergence_threshold)
+        relative_uncertainties: dict[str, float] = {}
+        for name in target_params:
+            if name not in physical_uncertainties:
+                continue
+            unc = float(physical_uncertainties[name])
+            lo, hi = self.belief.physical_param_bounds.get(name, (0.0, 0.0))
+            bound_width = hi - lo
+            if bound_width <= 0:
+                return False
+            relative_uncertainties[name] = unc / bound_width
+
+        if not relative_uncertainties:
+            return False
 
         # Check 1: Each individual parameter must be below threshold
-        individual_converged = all(u < self.convergence_threshold for u in param_uncertainties.values())
+        individual_converged = all(u < self.convergence_threshold for u in relative_uncertainties.values())
         if not individual_converged:
             return False
 
-        # Check 2: Overall (RMS) uncertainty must also be below threshold
-        uncertainties_array = np.array(list(param_uncertainties.values()))
+        # Check 2: Overall (RMS) relative uncertainty must also be below threshold
+        uncertainties_array = np.array(list(relative_uncertainties.values()))
         rms_uncertainty = float(np.sqrt(np.mean(uncertainties_array**2)))
         overall_converged = rms_uncertainty < self.convergence_threshold
 

@@ -70,8 +70,8 @@ class SequentialBayesianLocator(Locator):
     max_steps : int
         Hard upper bound on Bayesian inference steps (excludes initial sweep).
     convergence_threshold : float
-        Posterior-uncertainty threshold below which we consider all parameters
-        converged and stop early.
+        Relative uncertainty threshold (fraction of bound width) below which
+        we consider parameters converged and stop early.  Default ``0.01`` = 1 %.
     scan_param : str | None
         The parameter we are proposing measurements along. Defaults to the
         first parameter in the belief.
@@ -440,43 +440,35 @@ class SequentialBayesianLocator(Locator):
     def _target_params_converged(self) -> bool:
         """Check convergence on configured target parameters.
 
-        We use normalized uncertainties when available to keep thresholds like
-        `0.01` meaningful across differently-scaled physical parameters.
-
-        Convergence requires BOTH:
-        1. Each target parameter's uncertainty is below threshold
-        2. The overall (RMS) uncertainty across all target parameters is below threshold
+        Convergence requires the uncertainty of each target parameter to be
+        below ``convergence_threshold`` as a fraction of its physical bound
+        width (e.g. ``0.01`` = 1 %).  The overall (RMS) relative uncertainty
+        across all target parameters must also be below the same threshold.
         """
-        if not self._convergence_params:
-            return self.belief.converged(self.convergence_threshold)
+        target_params = list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
+        physical_uncertainties = self.belief.uncertainty()
 
-        param_uncertainties: dict[str, float] = {}
+        relative_uncertainties: dict[str, float] = {}
+        for name in target_params:
+            if name not in physical_uncertainties:
+                continue
+            unc = float(physical_uncertainties[name])
+            lo, hi = self.belief.physical_param_bounds.get(name, (0.0, 0.0))
+            bound_width = hi - lo
+            if bound_width <= 0:
+                return False
+            relative_uncertainties[name] = unc / bound_width
 
-        # Grid-style beliefs expose internal normalized marginals via `parameters`.
-        if hasattr(self.belief, "parameters"):
-            params = self.belief.parameters
-            by_name = {getattr(p, "name", ""): p for p in params}
-            if all(name in by_name for name in self._convergence_params):
-                for name in self._convergence_params:
-                    param_uncertainties[name] = float(by_name[name].uncertainty())
-
-        # SMC-style beliefs expose normalized per-dimension std via `_marginal_std`.
-        elif hasattr(self.belief, "_param_names") and hasattr(self.belief, "_marginal_std"):
-            names = list(self.belief._param_names)
-            if all(name in names for name in self._convergence_params):
-                for name in self._convergence_params:
-                    param_uncertainties[name] = float(self.belief._marginal_std(names.index(name)))
-
-        if not param_uncertainties:
-            return self.belief.converged(self.convergence_threshold)
+        if not relative_uncertainties:
+            return False
 
         # Check 1: Each individual parameter must be below threshold
-        individual_converged = all(u < self.convergence_threshold for u in param_uncertainties.values())
+        individual_converged = all(u < self.convergence_threshold for u in relative_uncertainties.values())
         if not individual_converged:
             return False
 
-        # Check 2: Overall (RMS) uncertainty must also be below threshold
-        uncertainties_array = np.array(list(param_uncertainties.values()))
+        # Check 2: Overall (RMS) relative uncertainty must also be below threshold
+        uncertainties_array = np.array(list(relative_uncertainties.values()))
         rms_uncertainty = float(np.sqrt(np.mean(uncertainties_array**2)))
         overall_converged = rms_uncertainty < self.convergence_threshold
 

@@ -38,7 +38,11 @@ def run_single(
         1,
         "--runners",
         min=1,
-        help="Number of runner processes. 1 = live logs/progress in main thread; >1 = subprocesses with reliable Ctrl-C but silent until done.",
+        help=(
+            "Number of runner processes. "
+            "1 = live logs/progress in main thread; "
+            ">1 = subprocesses with reliable Ctrl-C but silent until done."
+        ),
     ),
     no_progress: bool = typer.Option(
         False, "--no-progress", help="Disable Rich progress UI; print plain logs to terminal"
@@ -91,10 +95,11 @@ def list_groups(
 ) -> None:
     """List preset group names (from :func:`~nvision.sim.run_groups.run_groups`)."""
     for group in sim_run_groups.run_groups():
+        group_cmd_name = group.name.replace("_", "-")
         if verbose and group.description:
-            typer.echo(f"{group.name}\t{group.description}")
+            typer.echo(f"{group_cmd_name}\t{group.description}")
         else:
-            typer.echo(group.name)
+            typer.echo(group_cmd_name)
 
 
 @groups_app.command("run")
@@ -257,6 +262,21 @@ def demo_group(
 ) -> None:
     """Alias for ``groups run demo``."""
     _run_named_group("demo", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
+
+
+@groups_app.command("narrow-only")
+def narrow_only(
+    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+) -> None:
+    """Alias for ``groups run narrow_only``."""
+    _run_named_group(
+        "narrow_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+    )
 
 
 @groups_app.command("smc-only")

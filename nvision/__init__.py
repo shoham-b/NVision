@@ -30,10 +30,8 @@ from nvision.sim.gen import (
     DEFAULT_NV_CENTER_FREQ_X_MIN,
     GAUSSIAN,
     LORENTZIAN,
-    MultiPeakCoreGenerator,
     NVCenterCoreGenerator,
     PeakSpec,
-    SymmetricTwoPeakCoreGenerator,
     nv_center_lorentzian_bounds_for_domain,
 )
 from nvision.sim.locs.bayesian import nv_center_belief
@@ -95,7 +93,6 @@ __all__ = [
     "LorentzianModel",
     "LorentzianSpectrum",
     # Generators
-    "MultiPeakCoreGenerator",
     "NVCenterCoreGenerator",
     "Observer",
     "OverFrequencyGaussianNoise",
@@ -111,7 +108,6 @@ __all__ = [
     "RunResult",
     "SimpleSweepLocator",
     "StagedSobolSweepLocator",
-    "SymmetricTwoPeakCoreGenerator",
     "TrueSignal",
     # Belief
     "UnitCubeGridMarginalDistribution",

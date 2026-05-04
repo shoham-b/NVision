@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 import queue
+import sys
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -54,7 +55,7 @@ def _run_tasks_process_pool(  # noqa: C901
     monitor: ProgressMonitor | None = None,
     out_dir: Path | None = None,
     started_at: str | None = None,
-) -> tuple[list[dict[str, object]], list[dict], list[Exception], int]:
+) -> tuple[list[dict[str, object]], list[dict], list[Exception], int, bool]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
     Workers should have `log_queue=None` and `progress_queue=None` so they don't attempt
@@ -85,7 +86,13 @@ def _run_tasks_process_pool(  # noqa: C901
         for future in concurrent.futures.as_completed(future_to_task):
             # Check if user requested exit via 'q' key
             if monitor is not None and monitor.exit_requested:
-                raise KeyboardInterrupt("User requested exit")
+                for pending_future in future_to_task:
+                    if not pending_future.done():
+                        pending_future.cancel()
+                if not shutdown_called:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    shutdown_called = True
+                return plot_manifest, df_rows, errors, completed_count, True
             locator_task = future_to_task[future]
             try:
                 results_for_task = future.result()
@@ -145,7 +152,7 @@ def _run_tasks_process_pool(  # noqa: C901
                     child.kill()
         except ImportError:
             pass  # psutil not available
-        raise  # Re-raise to let the caller handle it
+        return plot_manifest, df_rows, errors, completed_count, True
     finally:
         # If we didn't terminate early, wait for workers to finish (with timeout to avoid stall).
         try:
@@ -158,7 +165,16 @@ def _run_tasks_process_pool(  # noqa: C901
         except Exception:
             pass  # Best effort cleanup
 
-    return plot_manifest, df_rows, errors, completed_count
+    return plot_manifest, df_rows, errors, completed_count, False
+
+
+def _stop_listener_with_timeout(listener: QueueListener, timeout: float = 3.0) -> None:
+    """Call listener.stop() without blocking the main thread forever."""
+    import threading
+
+    t = threading.Thread(target=listener.stop, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
 
 
 def _prune_run_logs(logs_dir: Path, *, max_runs: int = 2) -> None:
@@ -511,7 +527,7 @@ def run(  # noqa: C901
                 _update_run_status("running")
                 if runners > 1:
                     log.info("Parallel execution enabled with %s runner(s).", runners)
-                    plot_manifest, df_rows, errors, completed_tasks = _run_tasks_process_pool(
+                    plot_manifest, df_rows, errors, completed_tasks, _pool_interrupted = _run_tasks_process_pool(
                         tasks,
                         runners=runners,
                         cache_bridge=cache_bridge,
@@ -522,6 +538,8 @@ def run(  # noqa: C901
                         out_dir=out_dir,
                         started_at=started_at,
                     )
+                    if _pool_interrupted:
+                        raise KeyboardInterrupt("User requested exit")
                 else:
                     for locator_task in tasks:
                         # Check if user requested exit via 'q' key
@@ -573,7 +591,7 @@ def run(  # noqa: C901
                     break
         except Exception:
             pass
-        listener.stop()
+        _stop_listener_with_timeout(listener, timeout=3.0)
 
     # Skip UI generation if there are hard errors (not just interruption)
     if errors and not interrupted:
@@ -647,5 +665,11 @@ def run(  # noqa: C901
             console.print(f"\n[bold green]Uploaded to GCP:[/bold green] {public_url}")
         except Exception as exc:
             log.warning(f"Failed to upload to GCP: {exc}")
+
+    # On Windows, ProcessPoolExecutor may leave non-daemon multiprocessing threads
+    # alive after abrupt child-process kills, preventing clean process exit. Force
+    # exit only after all meaningful cleanup (UI generation, cache, logs) is done.
+    if interrupted and runners > 1 and sys.platform == "win32":
+        os._exit(0)
 
     return 0

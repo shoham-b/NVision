@@ -1510,6 +1510,7 @@ class BayesianMixin:
         convergence_threshold: float,
         convergence_patience: int,
         out_path: Path,
+        param_bounds: dict[str, tuple[float, float]] | None = None,
     ) -> None:
         """Plot convergence metrics showing per-parameter uncertainty vs threshold.
 
@@ -1517,15 +1518,23 @@ class BayesianMixin:
         - Per-parameter uncertainty evolution with threshold line
         - Convergence streak counter
         - Convergence achieved indicator
+        - Parameter bounds (if provided) shown in subplot titles
         """
         n_steps = len(conv_metrics)
         n_params = len(param_names)
+
+        def _subplot_title(p: str) -> str:
+            base = f"{p} (relative uncertainty)"
+            if param_bounds and p in param_bounds:
+                lo, hi = param_bounds[p]
+                base += f"<br><sup>bounds: [{lo:.4g}, {hi:.4g}] (width={hi-lo:.4g})</sup>"
+            return base
 
         # Create subplots - one row per parameter, plus one for convergence streak
         fig = make_subplots(
             rows=n_params + 1,
             cols=1,
-            subplot_titles=[f"{p} (normalized σ)" for p in param_names] + ["Convergence Streak"],
+            subplot_titles=[_subplot_title(p) for p in param_names] + ["Convergence Streak"],
             vertical_spacing=0.08,
             shared_xaxes=True,
         )
@@ -1555,6 +1564,16 @@ class BayesianMixin:
                 y=convergence_threshold,
                 line=dict(color="red", dash="dash", width=1.5),
                 annotation_text=f"threshold ({convergence_threshold})",
+                row=row,
+                col=1,
+            )
+
+            # Reference line at y=1.0: uncertainty equal to full bound width
+            fig.add_hline(
+                y=1.0,
+                line=dict(color="gray", dash="dot", width=1),
+                annotation_text="100 % of bound",
+                annotation_font_color="gray",
                 row=row,
                 col=1,
             )

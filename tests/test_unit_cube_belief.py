@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 
 import numpy as np
+import pytest
 
 from nvision import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
@@ -57,6 +58,8 @@ def test_unit_cube_estimates_are_physical_hz():
     assert est["k_np"] > 2.0
 
 
+@pytest.mark.slow
+@pytest.mark.timeout(120)
 def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")

@@ -49,11 +49,20 @@ def _sweep_strategy_names() -> list[str]:
 
 
 def _bayesian_strategy_names() -> list[str]:
-    return ["Bayesian-SBED", "Bayesian-MaximumLikelihood", "Bayesian-UtilitySampling"]
+    return ["Bayesian-SBED", "Bayesian-UtilitySampling"]
 
 
 def _bayesian_nosweep_strategy_names() -> list[str]:
-    return ["Bayesian-SBED-NoSweep", "Bayesian-MaximumLikelihood-NoSweep", "Bayesian-UtilitySampling-NoSweep"]
+    return ["Bayesian-SBED-NoSweep", "Bayesian-UtilitySampling-NoSweep"]
+
+
+def _narrow_strategy_names() -> list[str]:
+    return [
+        "Bayesian-SBED-NoSweep",
+        "Bayesian-MaximumLikelihood-NoSweep",
+        "Bayesian-UtilitySampling-NoSweep",
+        "StudentsTApproximation",
+    ]
 
 
 def _nv_generators() -> list[str]:
@@ -72,7 +81,7 @@ def _nv_narrow_generators() -> list[str]:
 def _group_all() -> RunGroup:
     gens = _all_generator_names()
     noises = _all_noise_names()
-    strats = _all_strategy_names_for(gens)
+    strats = [s for s in _all_strategy_names_for(gens) if "MaximumLikelihood" not in s and "UtilitySampling" not in s]
     return RunGroup(
         name="all",
         description="All generators, noises, and strategies.",
@@ -147,13 +156,26 @@ def _group_bayesian_clean() -> RunGroup:
     )
 
 
+def _group_narrow_only() -> RunGroup:
+    gens = _nv_narrow_generators()
+    noises = _all_noise_names()
+    strats = _narrow_strategy_names()
+    return RunGroup(
+        name="narrow_only",
+        description="All narrow-domain (no-sweep) locators on narrow generators.",
+        generator_names=gens,
+        noise_names=noises,
+        strategy_names=strats,
+    )
+
+
 def _group_smc_only() -> RunGroup:
     gens = _nv_generators()
     noises = _all_noise_names()
     strats = _bayesian_strategy_names()
     return RunGroup(
         name="smc_only",
-        description="SMC-based Bayesian locators (SBED, MaximumLikelihood, UtilitySampling).",
+        description="SMC-based Bayesian locators (SBED, UtilitySampling).",
         generator_names=gens,
         noise_names=noises,
         strategy_names=strats,
@@ -169,6 +191,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_demo(),
         _group_bayesian_only(),
         _group_bayesian_clean(),
+        _group_narrow_only(),
         _group_smc_only(),
     )
 
@@ -183,7 +206,7 @@ def _run_group_by_normalized_name() -> dict[str, RunGroup]:
 
 
 def get_run_group(name: str) -> RunGroup:
-    key = name.strip().lower()
+    key = name.strip().lower().replace("-", "_")
     try:
         return _run_group_by_normalized_name()[key]
     except KeyError:

@@ -12,7 +12,7 @@ def check_narrow_voigt():
     rng = random.Random(42)
     signal = gen.generate(rng)
 
-    print(f"Domain width: {(x_max - x_min) / 1e6} MHz")
+    print(f"Domain width: {(x_max - x_min)/1e6} MHz")
     print(f"Generated params: {signal.typed_parameters}")
 
     for param, (lo, hi) in signal.bounds.items():
