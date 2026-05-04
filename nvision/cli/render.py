@@ -57,6 +57,7 @@ def _collect_cache_results(
     out_dir,
     progress,
     task_id,
+    recalculate: bool = False,
 ):
     df_rows = []
     plot_manifest = []
@@ -91,6 +92,13 @@ def _collect_cache_results(
             )
             restore_graphs(cached_results, out_dir)
             for entries, main_result_row in cached_results:
+                if recalculate:
+                    from nvision.runner.metrics import recalculate_cached_metrics
+
+                    recalculate_cached_metrics(main_result_row)
+                    for entry in entries:
+                        if "metrics" in entry and isinstance(entry["metrics"], dict):
+                            recalculate_cached_metrics(entry["metrics"])
                 # Strip content field (used for cache storage only) to keep manifest small
                 cleaned_entries = [{k: v for k, v in entry.items() if k != "content"} for entry in entries]
                 plot_manifest.extend(cleaned_entries)
@@ -213,12 +221,13 @@ def _config_matches_run_params(
     )
 
 
-def _collect_cache_results_from_configs(
+def _collect_cache_results_from_configs(  # noqa: C901
     bridge: CacheBridge,
     discovered_configs: list[tuple[str, dict[str, object]]],
     out_dir: Path,
     progress,
     task_id,
+    recalculate: bool = False,
 ) -> tuple[list[dict], list[dict[str, object]], int]:
     """Hydrate results from discovered cache configs."""
     df_rows: list[dict] = []
@@ -241,6 +250,13 @@ def _collect_cache_results_from_configs(
         hits += 1
         restore_graphs(cached_results, out_dir)
         for entries, main_result_row in cached_results:
+            if recalculate:
+                from nvision.runner.metrics import recalculate_cached_metrics
+
+                recalculate_cached_metrics(main_result_row)
+                for entry in entries:
+                    if "metrics" in entry and isinstance(entry["metrics"], dict):
+                        recalculate_cached_metrics(entry["metrics"])
             # Strip heavy fields (content, plot_data) to keep manifest small
             cleaned_entries = []
             for entry in entries:
@@ -361,6 +377,7 @@ def _load_cache_rows_for_render(
     repeats: int,
     loc_max_steps: int,
     loc_timeout_s: int,
+    recalculate: bool = False,
 ) -> tuple[list[dict], list[dict[str, object]]]:
     with Progress(
         SpinnerColumn(),
@@ -387,6 +404,7 @@ def _load_cache_rows_for_render(
                 out_dir,
                 progress,
                 task_id,
+                recalculate=recalculate,
             )
             log.info("Loaded %s combination(s) from cache metadata.", combo_hits)
             return df_rows, plot_manifest
@@ -416,6 +434,7 @@ def _load_cache_rows_for_render(
                 out_dir,
                 progress,
                 task_id,
+                recalculate=recalculate,
             )
             log.info("Loaded %s combination(s) from relaxed cache metadata lookup.", combo_hits)
             return df_rows, plot_manifest
@@ -434,7 +453,98 @@ def _load_cache_rows_for_render(
             out_dir,
             progress,
             task_id,
+            recalculate=recalculate,
         )
+
+
+def _run_render_pipeline(
+    out_dir: Path,
+    repeats: int,
+    loc_max_steps: int,
+    loc_timeout_s: int,
+    filter_category: str | None,
+    filter_strategy: str | None,
+    filter_generator: str | None,
+    all_experiments: bool,
+    log_level: str,
+    recalculate: bool,
+) -> int:
+    filter_category, filter_strategy = _apply_default_filters(
+        filter_category=filter_category,
+        filter_strategy=filter_strategy,
+        all_experiments=all_experiments,
+    )
+    _configure_render_logging(log_level)
+    tree = prepare_artifact_tree(out_dir)
+
+    log.info("Starting report generation from cache...")
+
+    grid = CombinationGrid()
+    bridge = CacheBridge(tree.cache_dir)
+    try:
+        df_rows, plot_manifest = _load_cache_rows_for_render(
+            bridge,
+            out_dir,
+            grid,
+            filter_category=filter_category,
+            filter_strategy=filter_strategy,
+            filter_generator=filter_generator,
+            repeats=repeats,
+            loc_max_steps=loc_max_steps,
+            loc_timeout_s=loc_timeout_s,
+            recalculate=recalculate,
+        )
+    finally:
+        bridge.close()
+
+    df_loc = pl.DataFrame(df_rows)
+    df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
+    if df_loc.is_empty():
+        recovered_rows = _rows_from_existing_manifest(out_dir)
+        if recovered_rows:
+            df_loc = pl.DataFrame(recovered_rows)
+            log.info(
+                "Recovered %s locator result row(s) from existing plots_manifest.json.",
+                len(recovered_rows),
+            )
+    if df_loc.is_empty():
+        log.warning("No results found in cache or existing artifacts. The report will be empty.")
+
+    out_path = write_locator_results_csv(df_loc, out_dir)
+    log.info(f"Wrote locator results to: {out_path}")
+
+    viz = Viz(tree.graphs_dir)
+    summary_plots_meta: list[dict[str, object]] = []
+    try:
+        summary_plots_meta = viz.plot_locator_summary(df_loc) or []
+        relativize_summary_plot_paths(summary_plots_meta, out_dir)
+        log.info(f"Saved {len(summary_plots_meta)} summary plots")
+    except Exception as exc:
+        log.warning(f"Plotting failed: {exc}")
+
+    merge_run_plot_manifest_with_existing_on_disk(plot_manifest, out_dir, log)
+    # Keep summary rows fresh for the rendered dataset; keep all non-summary entries (scan, bayesian_interactive, etc.)
+    plot_manifest = [
+        entry
+        for entry in plot_manifest
+        if entry.get("type") != "summary"
+        and not (entry.get("type") == "scan" and entry.get("generator") == "Dummy-Generator" and not entry.get("path"))
+    ]
+    plot_manifest.extend(summary_plots_meta)
+    _postprocess_manifest_entries(plot_manifest, out_dir)
+
+    ensure_plot_manifest_non_empty(plot_manifest, log)
+    manifest_path = write_plots_manifest(plot_manifest, out_dir)
+    log.info("Wrote manifest with %s entries to: %s", len(plot_manifest), manifest_path)
+
+    try:
+        ui_entrypoint = prepare_static_ui_data(out_dir)
+        log.info(f"Prepared static UI data. Open: {ui_entrypoint.absolute().as_uri()}")
+    except Exception as exc:
+        log.warning(f"Failed to build HTML index: {exc}")
+
+    log.info(f"Render complete. Results in: {out_dir}")
+    return 0
 
 
 @app.command()
@@ -493,80 +603,85 @@ def render(
     ] = "INFO",
 ) -> int:
     """Render reports and graphs from cache without running simulations."""
-    filter_category, filter_strategy = _apply_default_filters(
+    return _run_render_pipeline(
+        out_dir=out,
+        repeats=repeats,
+        loc_max_steps=loc_max_steps,
+        loc_timeout_s=loc_timeout_s,
         filter_category=filter_category,
         filter_strategy=filter_strategy,
+        filter_generator=filter_generator,
         all_experiments=all_experiments,
+        log_level=log_level,
+        recalculate=False,
     )
-    _configure_render_logging(log_level)
 
-    out_dir: Path = out
-    tree = prepare_artifact_tree(out_dir)
 
-    log.info("Starting report generation from cache...")
-
-    grid = CombinationGrid()
-    bridge = CacheBridge(tree.cache_dir)
-    try:
-        df_rows, plot_manifest = _load_cache_rows_for_render(
-            bridge,
-            out_dir,
-            grid,
-            filter_category=filter_category,
-            filter_strategy=filter_strategy,
-            filter_generator=filter_generator,
-            repeats=repeats,
-            loc_max_steps=loc_max_steps,
-            loc_timeout_s=loc_timeout_s,
-        )
-    finally:
-        bridge.close()
-
-    df_loc = pl.DataFrame(df_rows)
-    df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
-    if df_loc.is_empty():
-        recovered_rows = _rows_from_existing_manifest(out_dir)
-        if recovered_rows:
-            df_loc = pl.DataFrame(recovered_rows)
-            log.info(
-                "Recovered %s locator result row(s) from existing plots_manifest.json.",
-                len(recovered_rows),
-            )
-    if df_loc.is_empty():
-        log.warning("No results found in cache or existing artifacts. The report will be empty.")
-
-    out_path = write_locator_results_csv(df_loc, out_dir)
-    log.info(f"Wrote locator results to: {out_path}")
-
-    viz = Viz(tree.graphs_dir)
-    summary_plots_meta: list[dict[str, object]] = []
-    try:
-        summary_plots_meta = viz.plot_locator_summary(df_loc) or []
-        relativize_summary_plot_paths(summary_plots_meta, out_dir)
-        log.info(f"Saved {len(summary_plots_meta)} summary plots")
-    except Exception as exc:
-        log.warning(f"Plotting failed: {exc}")
-
-    merge_run_plot_manifest_with_existing_on_disk(plot_manifest, out_dir, log)
-    # Keep summary rows fresh for the rendered dataset; keep all non-summary entries (scan, bayesian_interactive, etc.)
-    plot_manifest = [
-        entry
-        for entry in plot_manifest
-        if entry.get("type") != "summary"
-        and not (entry.get("type") == "scan" and entry.get("generator") == "Dummy-Generator" and not entry.get("path"))
-    ]
-    plot_manifest.extend(summary_plots_meta)
-    _postprocess_manifest_entries(plot_manifest, out_dir)
-
-    ensure_plot_manifest_non_empty(plot_manifest, log)
-    manifest_path = write_plots_manifest(plot_manifest, out_dir)
-    log.info("Wrote manifest with %s entries to: %s", len(plot_manifest), manifest_path)
-
-    try:
-        ui_entrypoint = prepare_static_ui_data(out_dir)
-        log.info(f"Prepared static UI data. Open: {ui_entrypoint.absolute().as_uri()}")
-    except Exception as exc:
-        log.warning(f"Failed to build HTML index: {exc}")
-
-    log.info(f"Render complete. Results in: {out_dir}")
-    return 0
+@app.command(name="recalculate")
+def recalculate_cmd(
+    out: Annotated[
+        Path,
+        typer.Option("--out", help="Output directory (must match the run that wrote cache)"),
+    ] = ARTIFACTS_ROOT,
+    repeats: int = typer.Option(
+        cli_defaults.DEFAULT_REPEATS,
+        "--repeats",
+        help="Number of repeats per scenario",
+    ),
+    loc_max_steps: int = typer.Option(
+        cli_defaults.DEFAULT_LOC_MAX_STEPS,
+        "--loc-max-steps",
+        help="Max steps for Bayesian locator measurement loop",
+    ),
+    loc_timeout_s: int = typer.Option(
+        cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+        "--loc-timeout",
+        help="Timeout in seconds for a single locator run",
+    ),
+    filter_category: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-category",
+            help="Filter by generator category (e.g., 'NVCenter')",
+        ),
+    ] = None,
+    filter_strategy: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-strategy",
+            help="Filter by locator strategy (e.g., 'Bayesian')",
+        ),
+    ] = None,
+    filter_generator: Annotated[
+        str | None,
+        typer.Option(
+            "--filter-generator",
+            help="Restrict to one generator name (optional).",
+        ),
+    ] = None,
+    all_experiments: Annotated[
+        bool,
+        typer.Option("--all", help="Include all experiments (disables default filtering)"),
+    ] = False,
+    log_level: Annotated[
+        str,
+        typer.Option(
+            "--log-level",
+            help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+            case_sensitive=False,
+        ),
+    ] = "INFO",
+) -> int:
+    """Recalculate metrics from cache data and render reports."""
+    return _run_render_pipeline(
+        out_dir=out,
+        repeats=repeats,
+        loc_max_steps=loc_max_steps,
+        loc_timeout_s=loc_timeout_s,
+        filter_category=filter_category,
+        filter_strategy=filter_strategy,
+        filter_generator=filter_generator,
+        all_experiments=all_experiments,
+        log_level=log_level,
+        recalculate=True,
+    )

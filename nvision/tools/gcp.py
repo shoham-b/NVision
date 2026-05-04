@@ -28,8 +28,7 @@ def verify_credentials() -> str:
     creds_file = Path(creds_path)
     if not creds_file.exists():
         raise RuntimeError(
-            f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file:\n  {creds_path}\n"
-            "Check the path and try again."
+            f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file:\n  {creds_path}\nCheck the path and try again."
         )
 
     try:
@@ -71,8 +70,7 @@ def verify_bucket(bucket_name: str) -> str:
         ) from None
     except Forbidden as _exc:
         raise RuntimeError(
-            f"Access denied to gs://{bucket_name}.\n"
-            "  - Check IAM permissions on the service account."
+            f"Access denied to gs://{bucket_name}.\n  - Check IAM permissions on the service account."
         ) from None
 
 
