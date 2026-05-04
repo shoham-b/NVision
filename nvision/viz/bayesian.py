@@ -1503,7 +1503,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
 
-    def plot_convergence_metrics(
+    def plot_convergence_metrics(  # noqa: C901
         self,
         conv_metrics: list[dict],
         param_names: list[str],
