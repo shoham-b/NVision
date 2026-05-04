@@ -325,7 +325,7 @@ class BayesianMixin:
                     nbinsx=50,
                 )
             ]
-            yaxis_layout = dict(title="Probability Density")
+            yaxis_layout = dict(title="Probability Density", automargin=True)
         else:
             initial_data = [
                 go.Scatter(
@@ -336,7 +336,7 @@ class BayesianMixin:
                     line=dict(color="blue"),
                 )
             ]
-            yaxis_layout = dict(title="Probability Density", range=[0, max_prob * 1.1])
+            yaxis_layout = dict(title="Probability Density", automargin=True, range=[0, max_prob * 1.1])
 
         # Speed multipliers for single parameter animation
         speed_options_single = [
@@ -368,6 +368,7 @@ class BayesianMixin:
             layout=go.Layout(
                 xaxis=dict(title="Frequency / Parameter"),
                 yaxis=yaxis_layout,
+                margin=dict(l=80, r=40, t=80, b=80),
                 title="Posterior Evolution",
                 updatemenus=[
                     # Play/Pause toggle - positioned below slider
@@ -505,7 +506,7 @@ class BayesianMixin:
         for i, tr in enumerate(traces_for_step(step_indices[0]), start=1):
             fig.add_trace(tr, row=i, col=1)
         for i, name in enumerate(param_names, start=1):
-            fig.update_yaxes(title_text="density", row=i, col=1)
+            fig.update_yaxes(title_text="density", automargin=True, row=i, col=1)
             fig.update_xaxes(title_text=name, row=i, col=1)
 
         frames = []
@@ -704,7 +705,8 @@ class BayesianMixin:
             title_y=0.98,
             title_yanchor="top",
             template="plotly_white",
-            height=max(300, 180 * n),
+            height=max(400, 200 * n),
+            margin=dict(l=90, r=40, t=110, b=110),
             updatemenus=[
                 # Play/Pause toggle button - positioned below slider, left side
                 dict(
