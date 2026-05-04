@@ -445,7 +445,9 @@ class SequentialBayesianLocator(Locator):
         width (e.g. ``0.01`` = 1 %).  The overall (RMS) relative uncertainty
         across all target parameters must also be below the same threshold.
         """
-        target_params = list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
+        target_params = (
+            list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
+        )
         physical_uncertainties = self.belief.uncertainty()
 
         relative_uncertainties: dict[str, float] = {}

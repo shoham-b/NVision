@@ -102,6 +102,32 @@ def upload_artifacts(directory: Path, bucket_name: str) -> None:
     log.info(f"Successfully uploaded {count} files to GCP bucket {bucket_name}.")
 
 
+def download_artifacts(directory: Path, bucket_name: str) -> None:
+    """Download artifacts from a GCP bucket to a local directory."""
+    verify_credentials()
+    verify_bucket(bucket_name)
+
+    from google.cloud import storage
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+
+    prefix = f"{directory.name}/"
+    blobs = list(bucket.list_blobs(prefix=prefix))
+
+    log.info("Downloading %s files from gs://%s/%s to %s...", len(blobs), bucket_name, prefix, directory)
+
+    count = 0
+    for blob in blobs:
+        relative_path = blob.name[len(prefix) :]
+        local_path = directory / relative_path
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        blob.download_to_filename(str(local_path))
+        count += 1
+
+    log.info("Downloaded %s files to %s.", count, directory)
+
+
 def get_public_url(bucket_name: str, directory_name: str) -> str:
     """Get the base public URL for a directory in a GCP bucket."""
     return f"https://storage.googleapis.com/{bucket_name}/{directory_name}/index.html"

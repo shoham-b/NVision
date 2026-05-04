@@ -249,13 +249,11 @@ def serve(  # noqa: C901
         if not gcp_bucket:
             console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket to be specified")
             raise typer.Exit(1)
-        from nvision.tools.gcp import get_public_url
+        from nvision.tools.gcp import download_artifacts
 
-        url = get_public_url(gcp_bucket, directory.resolve().name)
-        console.print(f"[bold cyan]Serving from GCP:[/bold cyan] {url}")
-        if not no_open:
-            webbrowser.open(url)
-        return
+        directory.mkdir(parents=True, exist_ok=True)
+        download_artifacts(directory, gcp_bucket)
+        # Fall through to local serving below
 
     directory = directory.resolve()
     if not directory.exists():

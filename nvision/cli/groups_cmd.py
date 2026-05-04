@@ -74,6 +74,8 @@ def _run_named_group(
     no_cache: bool = False,
     runners: int = cli_defaults.DEFAULT_RUNNERS,
     open_browser: bool = False,
+    gcp: bool = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: str | None = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> None:
     """Execute a named :class:`~nvision.sim.run_groups.RunGroup` via :func:`nvision.cli.run.run`."""
     group = sim_run_groups.get_run_group(group_name)
@@ -86,6 +88,8 @@ def _run_named_group(
         all_experiments=all_experiments,
         runners=runners,
         open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -133,6 +137,16 @@ def run_preset(
         "--open/--no-open",
         help="Open results in browser after run",
     ),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Run any registered preset group by name (single entry point for all groups)."""
     effective_no_cache = (group_name != "all") if no_cache is None else no_cache
@@ -143,6 +157,8 @@ def run_preset(
         no_cache=effective_no_cache,
         runners=runners,
         open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -174,6 +190,16 @@ def run_all(
         "--open/--no-open",
         help="Open results in browser after run",
     ),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> int:
     """Run all experiments (alias for ``nvision groups run all``)."""
     return run(
@@ -185,6 +211,8 @@ def run_all(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -199,10 +227,26 @@ def sweep_only(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Alias for ``groups run sweep_only``."""
     _run_named_group(
-        "sweep_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+        "sweep_only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -214,10 +258,26 @@ def sweep_then_bayesian(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Alias for ``groups run sweep-then-bayesian``."""
     _run_named_group(
-        "sweep_then_bayesian", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+        "sweep_then_bayesian",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -229,10 +289,26 @@ def bayesian_only(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Alias for ``groups run bayesian-only``."""
     _run_named_group(
-        "bayesian_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+        "bayesian_only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -244,10 +320,26 @@ def bayesian_clean(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Alias for ``groups run bayesian-clean``."""
     _run_named_group(
-        "bayesian_clean", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+        "bayesian_clean",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -259,9 +351,27 @@ def demo_group(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Alias for ``groups run demo``."""
-    _run_named_group("demo", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser)
+    _run_named_group(
+        "demo",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+    )
 
 
 @groups_app.command("narrow-only")
@@ -272,10 +382,26 @@ def narrow_only(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Alias for ``groups run narrow_only``."""
     _run_named_group(
-        "narrow_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+        "narrow_only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -287,8 +413,24 @@ def smc_only(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
 ) -> None:
     """Alias for ``groups run smc-only``."""
     _run_named_group(
-        "smc_only", repeats_override=repeats, no_cache=no_cache, runners=runners, open_browser=open_browser
+        "smc_only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )

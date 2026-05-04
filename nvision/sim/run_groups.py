@@ -49,18 +49,16 @@ def _sweep_strategy_names() -> list[str]:
 
 
 def _bayesian_strategy_names() -> list[str]:
-    return ["Bayesian-SBED", "Bayesian-UtilitySampling"]
+    return ["Bayesian-SBED"]
 
 
 def _bayesian_nosweep_strategy_names() -> list[str]:
-    return ["Bayesian-SBED-NoSweep", "Bayesian-UtilitySampling-NoSweep"]
+    return ["Bayesian-SBED-NoSweep"]
 
 
 def _narrow_strategy_names() -> list[str]:
     return [
         "Bayesian-SBED-NoSweep",
-        "Bayesian-MaximumLikelihood-NoSweep",
-        "Bayesian-UtilitySampling-NoSweep",
         "StudentsTApproximation",
     ]
 
@@ -73,6 +71,14 @@ def _nv_narrow_generators() -> list[str]:
     return ["NVCenter-lorentzian-narrow", "NVCenter-voigt-narrow"]
 
 
+def _default_noise_names() -> list[str]:
+    return [n for n in _all_noise_names() if n != "OverProbeDrift(0.001)"]
+
+
+def _default_strategy_names(gens: list[str]) -> list[str]:
+    return [s for s in _all_strategy_names_for(gens) if "MaximumLikelihood" not in s and "UtilitySampling" not in s]
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -80,8 +86,8 @@ def _nv_narrow_generators() -> list[str]:
 
 def _group_all() -> RunGroup:
     gens = _all_generator_names()
-    noises = _all_noise_names()
-    strats = [s for s in _all_strategy_names_for(gens) if "MaximumLikelihood" not in s and "UtilitySampling" not in s]
+    noises = _default_noise_names()
+    strats = _default_strategy_names(gens)
     return RunGroup(
         name="all",
         description="All generators, noises, and strategies.",
@@ -93,7 +99,7 @@ def _group_all() -> RunGroup:
 
 def _group_sweep_only() -> RunGroup:
     gens = _nv_generators()
-    noises = _all_noise_names()
+    noises = _default_noise_names()
     strats = _sweep_strategy_names()
     return RunGroup(
         name="sweep_only",
@@ -106,7 +112,7 @@ def _group_sweep_only() -> RunGroup:
 
 def _group_sweep_then_bayesian() -> RunGroup:
     gens = _nv_generators()
-    noises = _all_noise_names()
+    noises = _default_noise_names()
     strats = _sweep_strategy_names() + _bayesian_strategy_names()
     return RunGroup(
         name="sweep_then_bayesian",
@@ -119,7 +125,7 @@ def _group_sweep_then_bayesian() -> RunGroup:
 
 def _group_demo() -> RunGroup:
     gens = _nv_generators()
-    noises = _all_noise_names()
+    noises = _default_noise_names()
     strats = _sweep_strategy_names() + _bayesian_strategy_names()
     return RunGroup(
         name="demo",
@@ -132,7 +138,7 @@ def _group_demo() -> RunGroup:
 
 def _group_bayesian_only() -> RunGroup:
     gens = _nv_narrow_generators()
-    noises = _all_noise_names()
+    noises = _default_noise_names()
     strats = _bayesian_nosweep_strategy_names()
     return RunGroup(
         name="bayesian_only",
@@ -158,7 +164,7 @@ def _group_bayesian_clean() -> RunGroup:
 
 def _group_narrow_only() -> RunGroup:
     gens = _nv_narrow_generators()
-    noises = _all_noise_names()
+    noises = _default_noise_names()
     strats = _narrow_strategy_names()
     return RunGroup(
         name="narrow_only",
@@ -171,11 +177,11 @@ def _group_narrow_only() -> RunGroup:
 
 def _group_smc_only() -> RunGroup:
     gens = _nv_generators()
-    noises = _all_noise_names()
+    noises = _default_noise_names()
     strats = _bayesian_strategy_names()
     return RunGroup(
         name="smc_only",
-        description="SMC-based Bayesian locators (SBED, UtilitySampling).",
+        description="SMC-based Bayesian locators (SBED).",
         generator_names=gens,
         noise_names=noises,
         strategy_names=strats,

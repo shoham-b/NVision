@@ -491,6 +491,14 @@ def render(
             case_sensitive=False,
         ),
     ] = "INFO",
+    gcp: Annotated[
+        bool,
+        typer.Option("--gcp", help="Upload rendered results to GCP"),
+    ] = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: Annotated[
+        str | None,
+        typer.Option("--gcp-bucket", help="GCP bucket to upload rendered results to"),
+    ] = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> int:
     """Render reports and graphs from cache without running simulations."""
     filter_category, filter_strategy = _apply_default_filters(
@@ -569,4 +577,20 @@ def render(
         log.warning(f"Failed to build HTML index: {exc}")
 
     log.info(f"Render complete. Results in: {out_dir}")
+
+    effective_bucket = gcp_bucket or os.getenv("NVISION_GCP_BUCKET")
+    if gcp and not effective_bucket:
+        console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket or NVISION_GCP_BUCKET env var")
+        raise typer.Exit(1)
+
+    if gcp and effective_bucket:
+        from nvision.tools.gcp import get_public_url, upload_artifacts
+
+        try:
+            upload_artifacts(out_dir, effective_bucket)
+            public_url = get_public_url(effective_bucket, out_dir.name)
+            console.print(f"\n[bold green]Uploaded to GCP:[/bold green] {public_url}")
+        except Exception as exc:
+            log.warning(f"Failed to upload to GCP: {exc}")
+
     return 0

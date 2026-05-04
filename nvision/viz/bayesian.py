@@ -1527,7 +1527,7 @@ class BayesianMixin:
             base = f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
-                base += f"<br><sup>bounds: [{lo:.4g}, {hi:.4g}] (width={hi-lo:.4g})</sup>"
+                base += f"<br><sup>bounds: [{lo:.4g}, {hi:.4g}] (width={hi - lo:.4g})</sup>"
             return base
 
         # Create subplots - one row per parameter, plus one for convergence streak
