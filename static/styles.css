@@ -14,6 +14,14 @@ body {
             margin-top: 1em;
         }
 
+        button:focus-visible,
+        select:focus-visible,
+        input:focus-visible,
+        a:focus-visible {
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
+        }
+
         .last-run {
             color: #666;
             font-size: 0.9em;
