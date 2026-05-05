@@ -6,9 +6,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from dotenv import load_dotenv
-
+import jax
+import jax.numpy as jnp
 import numpy as np
+from dotenv import load_dotenv
 from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
@@ -58,7 +59,7 @@ def _weighted_mean_axis0(particles: np.ndarray, weights: np.ndarray) -> np.ndarr
     """Column-wise weighted means for ``particles`` shaped ``(n, d)``."""
     sw = np.sum(weights)
     if sw <= 0.0:
-        return np.zeros(particles.shape[1], dtype=np.float64)
+        return np.zeros(particles.shape[1], dtype=particles.dtype)
     return np.dot(weights, particles) / sw
 
 
@@ -285,6 +286,37 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if ess < self.ess_threshold * self.num_particles:
             self._resample()
 
+    def _jax_info_scores(self, grad_matrix: np.ndarray, noise_std: float) -> np.ndarray:
+        """Vectorized info-score computation using JAX.
+
+        Computes Fisher Information Matrix log-determinant scores for all
+        particles in parallel via ``jax.vmap`` over the particle dimension.
+        """
+        grad_matrix = jnp.asarray(grad_matrix, dtype=jnp.float32)
+        n_particles, n_params = grad_matrix.shape
+        sigma = max(float(noise_std), 1e-9)
+        sigma_sq = sigma * sigma
+
+        # FIMs: (n_particles, n_params, n_params)
+        fims = jnp.einsum("ni,nj->nij", grad_matrix, grad_matrix) / sigma_sq
+        fims = fims + 1e-6 * jnp.eye(n_params)[None, :, :]
+
+        def _score_particle(fim: jnp.ndarray) -> jnp.ndarray:
+            sign, logdet = jnp.linalg.slogdet(fim)
+            half_logdet = logdet * 0.5
+            score = jnp.where(
+                (sign > 0) & jnp.isfinite(logdet),
+                jax.nn.softplus(half_logdet),
+                jnp.maximum(1e-6, jnp.trace(fim)),
+            )
+            return score
+
+        info_scores = jax.vmap(_score_particle)(fims)
+        clipped_scores = jnp.clip(info_scores, 0.1, 10.0)
+        mean_score = jnp.mean(clipped_scores)
+        result = jnp.where(mean_score > 0, clipped_scores / mean_score, jnp.ones(n_particles))
+        return np.asarray(result, dtype=FLOAT_DTYPE)
+
     def _compute_information_weights(
         self,
         x: float,
@@ -294,55 +326,29 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     ) -> np.ndarray:
         """Compute per-particle weights based on Fisher information content.
 
-        Returns weights proportional to the generalized variance (determinant of FIM)
-        which captures both individual parameter sensitivity AND cross-parameter
-        correlations. Higher = more informative about the joint parameter distribution.
+        Uses ``model.gradient_vectorized`` when available and delegates the
+        FIM/log-determinant scoring to :meth:`_jax_info_scores` for JAX
+        vectorized evaluation across all particles.
         """
         n_particles = self._particles.shape[0]
-        info_scores = np.zeros(n_particles)
 
-        for i in range(n_particles):
-            # Extract particle parameters
-            particle_params = {name: float(self._particles[i, j]) for j, name in enumerate(self._param_names)}
-            typed_params = self.model.spec.unpack_params([particle_params[n] for n in self._param_names])
+        # Fast path: check whether the model provides gradients at all
+        particle_params = {name: float(self._particles[0, j]) for j, name in enumerate(self._param_names)}
+        typed_params = self.model.spec.unpack_params([particle_params[n] for n in self._param_names])
+        if self.model.gradient(float(x), typed_params) is None:
+            return np.ones(n_particles, dtype=FLOAT_DTYPE)
 
-            # Compute gradients at this particle's parameter set
-            grads = self.model.gradient(x, typed_params)
-            if grads is None:
-                info_scores[i] = 1.0  # Neutral if no gradients available
-                continue
+        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
+        grad_dict = self.model.gradient_vectorized(x, *arrays_in_order)
+        if grad_dict is None:
+            return np.ones(n_particles, dtype=FLOAT_DTYPE)
 
-            grad_vec = np.array([grads[name] for name in self._param_names], dtype=np.float64)
+        n_params = len(self._param_names)
+        grad_matrix = np.empty((n_particles, n_params), dtype=np.float64)
+        for j, name in enumerate(self._param_names):
+            grad_matrix[:, j] = grad_dict[name]
 
-            # Build Fisher Information Matrix: FIM = (1/sigma^2) * g * g^T for Gaussian
-            # This captures cross-parameter correlations via outer product structure
-            sigma = max(float(noise_std), 1e-9)
-            fim = np.outer(grad_vec, grad_vec) / (sigma * sigma)
-
-            # Use log-determinant as information score (generalized variance)
-            # Higher determinant = more total information about parameters jointly
-            sign, logdet = np.linalg.slogdet(fim + np.eye(len(self._param_names)) * 1e-6)
-            if sign > 0 and np.isfinite(logdet):
-                # Use softplus-like transformation: log(1 + exp(logdet/2)) to avoid overflow
-                # This maps [-inf, +inf] -> [0, +inf] smoothly with saturation
-                half_logdet = logdet * 0.5
-                if half_logdet > 10:  # exp(10) ≈ 22026, start softening here
-                    info_scores[i] = half_logdet  # Linear growth for large values
-                else:
-                    info_scores[i] = np.log1p(np.exp(half_logdet))
-            else:
-                # Fall back to trace (sum of eigenvalues) if determinant numerically unstable
-                info_scores[i] = max(1e-6, np.trace(fim))
-
-        # Clip to prevent overwhelming the likelihoods (0.1 = 10x less weight, 10 = 10x more weight)
-        # This keeps information weights as a gentle nudge rather than a hard filter
-        clipped_scores = np.clip(info_scores, 0.1, 10.0)
-
-        # Normalize to mean 1.0 so likelihood remains primary driver
-        mean_score = np.mean(clipped_scores)
-        if mean_score > 0:
-            return (clipped_scores / mean_score).astype(FLOAT_DTYPE, copy=False)
-        return np.ones(n_particles, dtype=FLOAT_DTYPE)
+        return self._jax_info_scores(grad_matrix, noise_std)
 
     def _compute_information_weights_batch(
         self,
@@ -353,53 +359,21 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Compute per-particle information weights for batch updates (optimized version).
 
         Uses model.gradient_vectorized() for fully vectorized gradient computation
-        across all particles, eliminating the Python loop entirely for models that
-        implement vectorized gradients.
+        across all particles, and delegates the FIM/log-determinant scoring to
+        :meth:`_jax_info_scores` for JAX vectorized evaluation.
         """
-        # Try vectorized gradient computation first
         arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
         grad_dict = self.model.gradient_vectorized(x, *arrays_in_order)
 
         if grad_dict is None:
-            # Model doesn't support gradients - return neutral weights
             return np.ones(n_particles)
 
         n_params = len(self._param_names)
-        sigma = max(float(noise_std), 1e-9)
-        sigma_sq = sigma * sigma
-
-        # Extract gradient arrays into matrix (n_particles, n_params)
         grad_matrix = np.empty((n_particles, n_params), dtype=np.float64)
         for j, name in enumerate(self._param_names):
             grad_matrix[:, j] = grad_dict[name]
 
-        # Compute information scores for all particles
-        info_scores = np.zeros(n_particles)
-        for i in range(n_particles):
-            grad_vec = grad_matrix[i, :]
-            # FIM = (1/sigma^2) * g * g^T
-            fim = np.outer(grad_vec, grad_vec) / sigma_sq
-            fim_reg = fim + np.eye(n_params) * 1e-6
-
-            try:
-                sign, logdet = np.linalg.slogdet(fim_reg)
-                if sign > 0 and np.isfinite(logdet):
-                    half_logdet = logdet * 0.5
-                    if half_logdet > 10:
-                        info_scores[i] = half_logdet
-                    else:
-                        info_scores[i] = np.log1p(np.exp(half_logdet))
-                else:
-                    info_scores[i] = max(1e-6, np.trace(fim))
-            except Exception:
-                info_scores[i] = max(1e-6, np.trace(fim))
-
-        # Clip and normalize
-        clipped_scores = np.clip(info_scores, 0.1, 10.0)
-        mean_score = np.mean(clipped_scores)
-        if mean_score > 0:
-            return clipped_scores / mean_score
-        return np.ones(n_particles)
+        return self._jax_info_scores(grad_matrix, noise_std)
 
     def _resample(self) -> None:
         """Elitist systematic resampling - survival of the fittest.
@@ -725,14 +699,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
         # shape: (n_candidates, n_particles)
         predictions = self.model.compute_vectorized_many(candidates, arrays_in_order)
-        
+
         # Calculate weighted variance of predictions across particles for each candidate
         mean_pred = np.average(predictions, axis=1, weights=self._weights)
         var_pred = np.average(np.abs(predictions - mean_pred[:, np.newaxis]), axis=1, weights=self._weights)
-        
+
         sigma_eta_sq = float(noise_std) ** 2
         sigma_theta_sq = var_pred
-        
+
         # Return approximate information gain
         return 0.5 * np.log(sigma_eta_sq + sigma_theta_sq)
 

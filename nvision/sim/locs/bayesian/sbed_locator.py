@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import abc
 import math
 import os
 import time
 
+import jax
+import jax.numpy as jnp
 import numpy as np
-import polars as pl
-from numba import njit, prange
 
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-
-
-
 
 
 class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
@@ -33,6 +29,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         noise_std: float = 0.02,
         n_candidates: int | None = None,
         n_draws: int = 100,
+        n_restarts: int = 8,
+        n_opt_steps: int = 30,
     ) -> None:
         super().__init__(
             belief,
@@ -44,6 +42,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         )
         self.n_candidates = int(n_candidates) if n_candidates is not None else None
         self.n_draws = int(n_draws)
+        self.n_restarts = int(n_restarts)
+        self.n_opt_steps = int(n_opt_steps)
 
     @classmethod
     def create(
@@ -57,6 +57,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         noise_std: float | None = None,
         n_candidates: int | None = None,
         n_draws: int = 100,
+        n_restarts: int = 8,
+        n_opt_steps: int = 30,
         **grid_config,
     ):
         if builder is None:
@@ -71,6 +73,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             noise_std=noise_std,
             n_candidates=n_candidates,
             n_draws=n_draws,
+            n_restarts=n_restarts,
+            n_opt_steps=n_opt_steps,
         )
 
     def _generate_candidates(self, num_candidates: int | None = None) -> np.ndarray:
@@ -88,7 +92,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             else:
                 magnitude = math.floor(math.log10(range_val))
                 resolution = 10 ** (magnitude - 2)
-                num_candidates = max(1, int(math.ceil(range_val / resolution))) + 1
+                num_candidates = max(1, math.ceil(range_val / resolution)) + 1
         return super()._generate_candidates(num_candidates)
 
     def _acquire(self) -> float:
@@ -97,29 +101,61 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if debug_timing:
             t_start = time.perf_counter()
 
-        candidates = self._generate_candidates(self.n_candidates)
+        result = self._acquire_jax()
 
         if debug_timing:
-            t_cand = time.perf_counter()
+            print(f"\nSBED Timing (_acquire JAX): {time.perf_counter() - t_start:.4f}s")
 
-        candidates_arr = np.asarray(candidates)
-        
-        if debug_timing:
-            t0 = time.perf_counter()
+        return result
 
-        utilities = self.belief.expected_information_gain(candidates_arr, self._noise_std)
+    def _acquire_jax(self) -> float:
+        """Find maximum EIG via JAX multirestart gradient ascent."""
+        lo, hi = self._acquisition_bounds()
+        if hi <= lo:
+            return float(lo)
 
-        if debug_timing:
-            time_eig = time.perf_counter() - t0
+        n_restarts = max(1, self.n_restarts)
+        n_steps = max(0, self.n_opt_steps)
+        step_size = (hi - lo) * 0.02
+        h = max(1e-12, (hi - lo) * 1e-3)
 
-        best_idx = int(pl.Series(utilities).arg_max())
+        belief = self.belief
+        noise_std = self._noise_std
 
-        if debug_timing:
-            total = time.perf_counter() - t_start
-            print("\nSBED Timing Breakdown:")
-            print(f"  Generate Candidates: {t_cand - t_start:.4f}s")
-            print(f"  EIG Calc:            {time_eig:.4f}s")
-            print(f"  Total _acquire:      {total:.4f}s")
+        def _numpy_eig(x: object) -> object:
+            x_arr = np.asarray(x)
+            if x_arr.ndim == 0:
+                return float(belief.expected_information_gain(np.array([float(x_arr)]), noise_std)[0])
+            return belief.expected_information_gain(x_arr, noise_std)
 
-        return float(candidates[best_idx])
+        def _eig_fn(x):
+            return jax.pure_callback(
+                _numpy_eig,
+                jax.ShapeDtypeStruct((), jnp.float32),
+                x,
+                vmap_method="expand_dims",
+            )
+
+        def _grad_fn(x):
+            return (_eig_fn(x + h) - _eig_fn(x - h)) / (2 * h)
+
+        def _step(carry, _):
+            x = carry
+            g = _grad_fn(x)
+            x_new = jnp.clip(x + step_size * g, lo, hi)
+            return x_new, None
+
+        key = jax.random.PRNGKey(self.inference_step_count)
+        x0s = jax.random.uniform(key, shape=(n_restarts,), minval=lo, maxval=hi)
+
+        def _optimize(x0):
+            return jax.lax.scan(_step, x0, None, length=n_steps)[0]
+
+        x_finals = jax.vmap(_optimize)(x0s)
+
+        # Evaluate EIG at restarts, final points, and bounds
+        x_eval = jnp.concatenate([x0s, x_finals, jnp.array([lo, hi])])
+        eigs_eval = jax.vmap(_eig_fn)(x_eval)
+        best_idx = int(jnp.argmax(eigs_eval))
+        return float(x_eval[best_idx])
 

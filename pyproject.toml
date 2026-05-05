@@ -5,6 +5,7 @@ description = "NVision: project scaffold with tests, ruff, CI, and fuzzing"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "bayesian-optimization>=1.5.0",
+    "jax[cpu]>=0.4.35",
     "polars>=1.35.1",
     "typer>=0.12.1",
     "matplotlib>=3.10.9",
