@@ -1564,6 +1564,10 @@ function main() {
                 button.className = 'tab-button';
                 button.textContent = 'Scan measurements';
                 button.dataset.tab = 'scan-section';
+                button.setAttribute('role', 'tab');
+                button.setAttribute('id', 'tab-scan');
+                button.setAttribute('aria-controls', 'scan-section');
+                button.setAttribute('aria-selected', 'false');
                 tabBar.appendChild(button);
             }
 
@@ -1572,6 +1576,10 @@ function main() {
                 button.className = 'tab-button';
                 button.textContent = 'Head to head';
                 button.dataset.tab = 'scan-comparison-section';
+                button.setAttribute('role', 'tab');
+                button.setAttribute('id', 'tab-scan-comparison');
+                button.setAttribute('aria-controls', 'scan-comparison-section');
+                button.setAttribute('aria-selected', 'false');
                 tabBar.appendChild(button);
             }
 
@@ -1579,11 +1587,16 @@ function main() {
             strategyButton.className = 'tab-button';
             strategyButton.textContent = 'Strategy metrics';
             strategyButton.dataset.tab = 'strategy-comparison-section';
+            strategyButton.setAttribute('role', 'tab');
+            strategyButton.setAttribute('id', 'tab-model-comparison');
+            strategyButton.setAttribute('aria-controls', 'strategy-comparison-section');
+            strategyButton.setAttribute('aria-selected', 'false');
             tabBar.appendChild(strategyButton);
 
             const tabButtons = tabBar.querySelectorAll('.tab-button');
             if (tabButtons.length > 0) {
                 tabButtons[0].classList.add('is-active');
+                tabButtons[0].setAttribute('aria-selected', 'true');
                 const initialTabId = tabButtons[0].dataset.tab;
                 tabPanels.forEach(panel => {
                     if (panel.id === initialTabId) {
@@ -1602,8 +1615,12 @@ function main() {
                     return;
                 }
 
-                tabButtons.forEach(button => button.classList.remove('is-active'));
+                tabButtons.forEach(button => {
+                    button.classList.remove('is-active');
+                    button.setAttribute('aria-selected', 'false');
+                });
                 target.classList.add('is-active');
+                target.setAttribute('aria-selected', 'true');
 
                 tabPanels.forEach(panel => {
                     if (panel.id === target.dataset.tab) {
