@@ -561,6 +561,7 @@ def generate_attempt_plots(  # noqa: C901
                 "measurements": sweep_steps,
                 "sweep_steps": sweep_steps,
                 "locator_steps": 0,
+                "last_run": scan_entry.get("last_run"),
             }
             scan_entry["fine"] = {
                 "label": "Bayesian inference",
@@ -570,6 +571,7 @@ def generate_attempt_plots(  # noqa: C901
                 "abs_err_x": scan_entry.get("abs_err_x"),
                 "uncert": scan_entry.get("uncert"),
                 "duration_ms": scan_entry.get("duration_ms"),
+                "last_run": scan_entry.get("last_run"),
             }
 
     entries: list[dict[str, Any]] = [scan_entry]

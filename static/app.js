@@ -684,6 +684,21 @@ function main() {
             return 'N/A';
         }
 
+        function formatTimestamp(isoString) {
+            if (!isoString || typeof isoString !== 'string') {
+                return 'N/A';
+            }
+            try {
+                const d = new Date(isoString);
+                if (Number.isNaN(d.getTime())) {
+                    return isoString;
+                }
+                return d.toLocaleString();
+            } catch (e) {
+                return isoString;
+            }
+        }
+
         function renderSweepMetricsPanel(container, metrics) {
             if (!container) return;
             container.innerHTML = '';
@@ -1388,6 +1403,9 @@ function main() {
                         }
                         if (phaseData.duration_ms != null) {
                             items.push({ label: 'Duration', val: formatDuration(phaseData.duration_ms), tip: 'Wall-clock time for this repeat.' });
+                        }
+                        if (phaseData.last_run != null) {
+                            items.push({ label: 'Last run', val: formatTimestamp(phaseData.last_run), tip: 'Timestamp when this repeat was executed.' });
                         }
                         if (phaseData.abs_err_x != null) {
                             items.push({ label: 'Abs error', val: formatFrequency(phaseData.abs_err_x), tip: 'Absolute frequency error vs ground truth. Lower is better.' });

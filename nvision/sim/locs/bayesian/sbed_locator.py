@@ -31,7 +31,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         scan_param: str | None = None,
         initial_sweep_steps: int | None = None,
         noise_std: float = 0.02,
-        n_candidates: int = 200,
+        n_candidates: int | None = None,
         n_draws: int = 100,
     ) -> None:
         super().__init__(
@@ -42,7 +42,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             initial_sweep_steps=initial_sweep_steps,
             noise_std=noise_std,
         )
-        self.n_candidates = int(n_candidates)
+        self.n_candidates = int(n_candidates) if n_candidates is not None else None
         self.n_draws = int(n_draws)
 
     @classmethod
@@ -55,7 +55,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         parameter_bounds=None,
         initial_sweep_steps: int | None = None,
         noise_std: float | None = None,
-        n_candidates: int = 200,
+        n_candidates: int | None = None,
         n_draws: int = 100,
         **grid_config,
     ):
@@ -73,6 +73,24 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             n_draws=n_draws,
         )
 
+    def _generate_candidates(self, num_candidates: int | None = None) -> np.ndarray:
+        """Generate candidates spanning the whole frequency spectrum.
+
+        When ``num_candidates`` is not provided, compute it dynamically from
+        the acquisition bounds so that the step resolution is two decimal
+        places finer than the order of magnitude of the range.
+        """
+        if num_candidates is None:
+            lo, hi = self._acquisition_bounds()
+            range_val = float(hi - lo)
+            if range_val <= 0:
+                num_candidates = 1
+            else:
+                magnitude = math.floor(math.log10(range_val))
+                resolution = 10 ** (magnitude - 2)
+                num_candidates = max(1, int(math.ceil(range_val / resolution))) + 1
+        return super()._generate_candidates(num_candidates)
+
     def _acquire(self) -> float:
         debug_timing = os.environ.get("DEBUG_SBED_TIMING") == "1"
 
@@ -85,12 +103,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             t_cand = time.perf_counter()
 
         candidates_arr = np.asarray(candidates)
-        noise_std = self.belief.last_obs.noise_std if self.belief.last_obs is not None else self.noise_std
-
+        
         if debug_timing:
             t0 = time.perf_counter()
 
-        utilities = self.belief.expected_information_gain(candidates_arr, noise_std)
+        utilities = self.belief.expected_information_gain(candidates_arr, self._noise_std)
 
         if debug_timing:
             time_eig = time.perf_counter() - t0

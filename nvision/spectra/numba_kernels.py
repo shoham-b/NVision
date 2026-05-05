@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import math
 
-from numba import njit
+import numpy as np
+from numba import njit, prange
 
 
 @njit(cache=True)
@@ -63,3 +64,113 @@ def gaussian_peak_value(
     """``background + amplitude * exp(-0.5 * ((x - freq) / sigma)²)`` — scalar ``math.exp``."""
     z = (x - freq) / sigma
     return background + amplitude * math.exp(-0.5 * z * z)
+
+
+@njit(cache=True, parallel=True)
+def nv_center_lorentzian_vectorized_many(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    linewidth: np.ndarray,
+    split: np.ndarray,
+    k_np: np.ndarray,
+    dip_depth: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Triple-Lorentzian ODMR for many probe positions and many particles.
+
+    Writes into ``out`` which must have shape ``(len(xs), len(freq))``.
+    """
+    m = xs.shape[0]
+    n = freq.shape[0]
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            lw = linewidth[j]
+            lw2 = lw * lw
+            f = freq[j]
+            s = split[j]
+            k = k_np[j]
+            d = dip_depth[j]
+            bg = background[j]
+
+            actual_depth = d / k
+            denom_l = (x - (f - s)) * (x - (f - s)) + lw2
+            denom_c = (x - f) * (x - f) + lw2
+            denom_r = (x - (f + s)) * (x - (f + s)) + lw2
+
+            amp_l = actual_depth * lw2 / k
+            amp_c = actual_depth * lw2
+            amp_r = actual_depth * lw2 * k
+
+            out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
+
+
+_SQRT2PI = math.sqrt(2.0 * math.pi)
+_SQRT2 = math.sqrt(2.0)
+_SQRT2LOG2 = math.sqrt(2.0 * math.log(2.0))
+
+
+@njit(cache=True, parallel=True)
+def nv_center_pseudo_voigt_vectorized_many(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    split: np.ndarray,
+    k_np: np.ndarray,
+    dip_depth: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Triple pseudo-Voigt ODMR for many probe positions and many particles.
+
+    Writes into ``out`` which must have shape ``(len(xs), len(freq))``.
+    """
+    m = xs.shape[0]
+    n = freq.shape[0]
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            fwhm = fwhm_total[j]
+            lf = lorentz_frac[j]
+            fwhm_l = lf * fwhm
+            fwhm_g = (1.0 - lf) * fwhm
+            f = freq[j]
+            s = split[j]
+            k = k_np[j]
+            d = dip_depth[j]
+            bg = background[j]
+
+            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+            gamma = fwhm_l / 2.0
+            ratio = fwhm_l / (fwhm_l + fwhm_g)
+            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+            lorentz_center = 1.0 / gamma if abs(gamma) > 1e-12 else 0.0
+            gauss_center = 1.0 / (sigma * _SQRT2PI) if abs(sigma) > 1e-12 else 0.0
+            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+
+            actual_depth = d / k
+
+            # Helper to compute pseudo-Voigt profile at x, centered at c
+            def _profile(xv: float, c: float) -> float:
+                dx = xv - c
+                lorentz = gamma / (dx * dx + gamma * gamma) if abs(gamma) > 1e-12 else 0.0
+                if abs(sigma) > 1e-12:
+                    z = dx / sigma
+                    gauss = math.exp(-0.5 * z * z) / (sigma * _SQRT2PI)
+                else:
+                    gauss = 0.0
+                return (eta * lorentz + (1.0 - eta) * gauss) * inv_center_height
+
+            pc = _profile(x, f)
+            if s < 1e-10:
+                out[i, j] = bg - actual_depth * pc
+            else:
+                pl = _profile(x, f - s)
+                pr = _profile(x, f + s)
+                left_dip = (actual_depth / k) * pl
+                center_dip = actual_depth * pc
+                right_dip = (actual_depth * k) * pr
+                out[i, j] = bg - (left_dip + center_dip + right_dip)

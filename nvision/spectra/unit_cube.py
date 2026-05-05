@@ -15,8 +15,8 @@ from nvision.spectra.spec import ParamSpec
 
 _FI = np.finfo(np.dtype(FLOAT_DTYPE))
 # ~sqrt(machine epsilon): a few ULPs around 0 and 1 before clipping unit parameters.
-_UNIT_INTERVAL_SLACK = np.sqrt(np.float64(_FI.eps))
-_ONE_PLUS_SLACK = np.float64(1.0) + _UNIT_INTERVAL_SLACK
+_UNIT_INTERVAL_SLACK = np.sqrt(np.float32(_FI.eps))
+_ONE_PLUS_SLACK = np.float32(1.0) + _UNIT_INTERVAL_SLACK
 
 
 def _unit_interval_to_physical(u_raw: np.ndarray, lo: float, hi: float, param_name: str) -> np.ndarray:
@@ -26,11 +26,11 @@ def _unit_interval_to_physical(u_raw: np.ndarray, lo: float, hi: float, param_na
             f"Parameter {param_name} unit values must lie in [0, 1]; got min {float(np.min(u_raw))}, "
             f"max {float(np.max(u_raw))}"
         )
-    u = np.clip(u_raw, np.float64(0.0), np.float64(1.0))
-    lo64 = np.float64(lo)
-    hi64 = np.float64(hi)
-    v = lo64 + u.astype(np.float64, copy=False) * (hi64 - lo64)
-    return np.clip(v, lo64, hi64).astype(FLOAT_DTYPE, copy=False)
+    u = np.clip(u_raw, np.float32(0.0), np.float32(1.0))
+    lo32 = np.float32(lo)
+    hi32 = np.float32(hi)
+    v = lo32 + u * (hi32 - lo32)
+    return np.clip(v, lo32, hi32)
 
 
 class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[ParamsT, SampleParamsT, UncertaintyT]):

@@ -130,6 +130,7 @@ def generate_attempt_metrics(  # noqa: C901
         "uncert": metrics_serialized.get("uncert"),
         "measurements": metrics_serialized.get("measurements"),
         "duration_ms": metrics_serialized.get("duration_ms"),
+        "last_run": repeat_timestamps[attempt_idx_in_combo] if attempt_idx_in_combo < len(repeat_timestamps) else None,
         "sweep_steps": sweep_steps,
         "locator_steps": locator_steps,
         "metrics": metrics_serialized,

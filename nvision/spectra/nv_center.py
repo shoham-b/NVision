@@ -11,7 +11,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
-from nvision.spectra.numba_kernels import nv_center_lorentzian_eval
+from nvision.spectra.numba_kernels import (
+    nv_center_lorentzian_eval,
+    nv_center_lorentzian_vectorized_many,
+    nv_center_pseudo_voigt_vectorized_many,
+)
 from nvision.spectra.signal import SignalModel
 from nvision.spectra.spec import GenericParamSpec
 
@@ -135,12 +139,12 @@ class NVCenterLorentzianModel(
     ) -> np.ndarray:
         """Vectorized triple-Lorentzian NV evaluation for one probe location."""
         x_f = float(x)
-        freq = np.asarray(frequency, dtype=np.float64)
-        linewidth_arr = np.asarray(linewidth, dtype=np.float64)
-        split_arr = np.asarray(split, dtype=np.float64)
-        k_np_arr = np.asarray(k_np, dtype=np.float64)
-        depth = np.asarray(dip_depth, dtype=np.float64)
-        bg = np.asarray(background, dtype=np.float64)
+        freq = np.asarray(frequency, dtype=FLOAT_DTYPE)
+        linewidth_arr = np.asarray(linewidth, dtype=FLOAT_DTYPE)
+        split_arr = np.asarray(split, dtype=FLOAT_DTYPE)
+        k_np_arr = np.asarray(k_np, dtype=FLOAT_DTYPE)
+        depth = np.asarray(dip_depth, dtype=FLOAT_DTYPE)
+        bg = np.asarray(background, dtype=FLOAT_DTYPE)
 
         denom_l = (x_f - (freq - split_arr)) * (x_f - (freq - split_arr)) + linewidth_arr * linewidth_arr
         denom_c = (x_f - freq) * (x_f - freq) + linewidth_arr * linewidth_arr
@@ -188,7 +192,7 @@ class NVCenterLorentzianModel(
         )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
-        actual_depth = np.asarray(samples.dip_depth, dtype=np.float64) / np.asarray(samples.k_np, dtype=np.float64)
+        actual_depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE) / np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
         out = self.compute_nvcenter_lorentzian_model_vectorized(
             x,
             samples.frequency,
@@ -207,29 +211,24 @@ class NVCenterLorentzianModel(
             # Accept raw arrays / sample containers via the generic base fallback.
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
-        xs = np.asarray(x_array, dtype=np.float64)
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
-        freq = np.asarray(samples.frequency, dtype=np.float64)
-        linewidth_arr = np.asarray(samples.linewidth, dtype=np.float64)
-        split_arr = np.asarray(samples.split, dtype=np.float64)
-        k_np_arr = np.asarray(samples.k_np, dtype=np.float64)
-        depth = np.asarray(samples.dip_depth, dtype=np.float64)
-        bg = np.asarray(samples.background, dtype=np.float64)
-        actual_depth = depth / k_np_arr
 
-        x2d = xs[:, None]
-        lw2 = linewidth_arr[None, :] ** 2
-        denom_l = (x2d - (freq[None, :] - split_arr[None, :])) ** 2 + lw2
-        denom_c = (x2d - freq[None, :]) ** 2 + lw2
-        denom_r = (x2d - (freq[None, :] + split_arr[None, :])) ** 2 + lw2
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
 
-        amp_l = (actual_depth[None, :] * lw2) / k_np_arr[None, :]
-        amp_c = actual_depth[None, :] * lw2
-        amp_r = actual_depth[None, :] * lw2 * k_np_arr[None, :]
-
-        out = bg[None, :] - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
-        return np.asarray(out, dtype=FLOAT_DTYPE)
+        nv_center_lorentzian_vectorized_many(
+            xs,
+            freq,
+            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
+            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+            out,
+        )
+        return out
 
 
 @dataclass(frozen=True)
@@ -452,16 +451,16 @@ class NVCenterVoigtModel(
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
         x_f = float(x)
-        freq = np.asarray(samples.frequency, dtype=np.float64)
-        fwhm_total = np.asarray(samples.fwhm_total, dtype=np.float64)
-        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=np.float64)
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        fwhm_total = np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE)
+        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE)
         fwhm_l = lorentz_frac * fwhm_total
         fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-        split = np.asarray(samples.split, dtype=np.float64)
-        k_np = np.asarray(samples.k_np, dtype=np.float64)
-        depth = np.asarray(samples.dip_depth, dtype=np.float64)
+        split = np.asarray(samples.split, dtype=FLOAT_DTYPE)
+        k_np = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
+        depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
         actual_depth = depth / k_np
-        bg = np.asarray(samples.background, dtype=np.float64)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
 
         sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
         gamma = fwhm_l / 2
@@ -519,61 +518,59 @@ class NVCenterVoigtModel(
             # Accept raw arrays / sample containers via the generic base fallback.
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
-        xs = np.asarray(x_array, dtype=np.float64)
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
-        freq = np.asarray(samples.frequency, dtype=np.float64)
-        fwhm_total = np.asarray(samples.fwhm_total, dtype=np.float64)
-        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=np.float64)
+
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+
+        if self.wofz is None:
+            # Fast pseudo-Voigt path via fused Numba kernel.
+            out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
+            nv_center_pseudo_voigt_vectorized_many(
+                xs,
+                freq,
+                np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
+                np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
+                np.asarray(samples.split, dtype=FLOAT_DTYPE),
+                np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+                np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
+                np.asarray(samples.background, dtype=FLOAT_DTYPE),
+                out,
+            )
+            return out
+
+        # Exact wofz path – keep vectorised SciPy/JAX calls but reduce temporaries.
+        fwhm_total = np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE)
+        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE)
         fwhm_l = lorentz_frac * fwhm_total
         fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-        split = np.asarray(samples.split, dtype=np.float64)
-        k_np = np.asarray(samples.k_np, dtype=np.float64)
-        depth = np.asarray(samples.dip_depth, dtype=np.float64)
+        split = np.asarray(samples.split, dtype=FLOAT_DTYPE)
+        k_np = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
+        depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
         actual_depth = depth / k_np
-        bg = np.asarray(samples.background, dtype=np.float64)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
 
         sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
         gamma = fwhm_l / 2
         x2d = xs[:, None]
 
-        # Compute center height (peak value) for normalization to unit peak
-        if self.wofz is not None:
-            z_center = (0.0 + 1j * gamma) / (sigma * np.sqrt(2))
-            w_center = self.wofz(z_center)
-            center_height = w_center.real / (sigma * np.sqrt(2 * np.pi))
-        else:
-            eta = (
-                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-            )
-            lorentz_center = 1.0 / gamma
-            gauss_center = 1.0 / (sigma * np.sqrt(2 * np.pi))
-            center_height = eta * lorentz_center + (1 - eta) * gauss_center
+        # Center height (peak value) for normalization
+        z_center = (0.0 + 1j * gamma) / (sigma * np.sqrt(2))
+        w_center = self.wofz(z_center)
+        center_height = w_center.real / (sigma * np.sqrt(2 * np.pi))
 
-        # Profile at center(s) - normalized to unit peak
-        def profile_at(center: np.ndarray) -> np.ndarray:
+        def _wofz_profile_at(center: np.ndarray) -> np.ndarray:
             center2d = center[None, :]
-            if self.wofz is not None:
-                z = ((x2d - center2d) + 1j * gamma[None, :]) / (sigma[None, :] * np.sqrt(2))
-                w = self.wofz(z)
-                profile = w.real / (sigma[None, :] * np.sqrt(2 * np.pi))
-            else:
-                eta = (
-                    1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                    - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                    + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-                )
-                lorentz = gamma[None, :] / ((x2d - center2d) ** 2 + gamma[None, :] ** 2)
-                gauss = np.exp(-0.5 * ((x2d - center2d) / sigma[None, :]) ** 2) / (sigma[None, :] * np.sqrt(2 * np.pi))
-                profile = eta[None, :] * lorentz + (1 - eta)[None, :] * gauss
+            z = ((x2d - center2d) + 1j * gamma[None, :]) / (sigma[None, :] * np.sqrt(2))
+            w = self.wofz(z)
+            profile = w.real / (sigma[None, :] * np.sqrt(2 * np.pi))
             return profile / center_height[None, :]
 
-        profile_c = profile_at(freq)
+        profile_c = _wofz_profile_at(freq)
         split_mask = split < 1e-10
-        profile_l = profile_at(freq - split)
-        profile_r = profile_at(freq + split)
+        profile_l = _wofz_profile_at(freq - split)
+        profile_r = _wofz_profile_at(freq + split)
 
         center_dip = actual_depth[None, :] * profile_c
         left_dip = (actual_depth[None, :] / k_np[None, :]) * profile_l
@@ -735,10 +732,10 @@ class NVCenterOnePeakLorentzianModel(
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
         x_f = float(x)
-        freq = np.asarray(samples.frequency, dtype=np.float64)
-        lw = np.asarray(samples.linewidth, dtype=np.float64)
-        depth = np.asarray(samples.dip_depth, dtype=np.float64)
-        bg = np.asarray(samples.background, dtype=np.float64)
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
+        depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
         lw2 = lw**2
         denom = (x_f - freq) ** 2 + lw2
         return (bg - depth * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
@@ -748,13 +745,13 @@ class NVCenterOnePeakLorentzianModel(
     ) -> np.ndarray:
         if not hasattr(samples, "frequency"):
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
-        xs = np.asarray(x_array, dtype=np.float64)
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
-        freq = np.asarray(samples.frequency, dtype=np.float64)
-        lw = np.asarray(samples.linewidth, dtype=np.float64)
-        depth = np.asarray(samples.dip_depth, dtype=np.float64)
-        bg = np.asarray(samples.background, dtype=np.float64)
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
+        depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
+        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
         x2d = xs[:, None]
         lw2 = lw[None, :] ** 2
         denom = (x2d - freq[None, :]) ** 2 + lw2

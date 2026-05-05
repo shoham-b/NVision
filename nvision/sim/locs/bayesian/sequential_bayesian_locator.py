@@ -335,7 +335,7 @@ class SequentialBayesianLocator(Locator):
         lo, hi = self._acquisition_bounds()
         candidates, probs = self._native_scan_candidates(lo, hi)
         if len(candidates) == 0:
-            candidates = self._generate_candidates()
+            candidates = self._generate_candidates(2000)
             pdf = self.belief.marginal_pdf(self._scan_param, candidates)
             pdf = np.asarray(pdf, dtype=float)
             total = float(np.sum(pdf))
@@ -577,7 +577,7 @@ class SequentialBayesianLocator(Locator):
     # Utility helpers available to all acquisition implementations
     # ------------------------------------------------------------------
 
-    def _generate_candidates(self, num_candidates: int = 2000) -> np.ndarray:
+    def _generate_candidates(self, num_candidates: int) -> np.ndarray:
         """Generate grid from acquisition bounds (log-uniform for scale params)."""
         lo, hi = self._acquisition_bounds()
         is_scale = getattr(self.belief.model, "is_scale_parameter", lambda name: False)(self._scan_param)

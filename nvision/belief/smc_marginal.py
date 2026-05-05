@@ -13,6 +13,7 @@ from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
+from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.noise_model import NoiseSignalModel
 
@@ -149,7 +150,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Initialize particles uniformly within bounds
         d_dim = len(self._param_names)
-        self._particles = np.zeros((self.num_particles, d_dim))
+        self._particles = np.zeros((self.num_particles, d_dim), dtype=FLOAT_DTYPE)
 
         for i, name in enumerate(self._param_names):
             if name not in self.parameter_bounds:
@@ -157,7 +158,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             lo, hi = self.parameter_bounds[name]
             self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
-        self._weights = np.ones(self.num_particles) / self.num_particles
+        self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -188,7 +189,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             log_liks = self.noise_model.composite_log_likelihood(predicted, residuals, noise_arrays, sigma_epistemic)
             # Numerically stable exponentiation
             log_liks -= np.max(log_liks)
-            likelihoods = np.exp(log_liks)
+            likelihoods = np.exp(log_liks).astype(FLOAT_DTYPE, copy=False)
         else:
             # Fallback: original path with epistemic tempering
             sigma_eff = float(np.sqrt(obs.noise_std**2 + sigma_epistemic**2))
@@ -198,7 +199,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 noise_std=sigma_eff,
                 frequency_noise_model=obs.frequency_noise_model,
                 tempering_factor=1.0,
-            )
+            ).astype(FLOAT_DTYPE, copy=False)
 
         # 2. Compute information-based weights from Fisher Information
         # Particles suggesting measurements at informative regions (high gradient,
@@ -207,7 +208,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if self.use_information_weights:
             # Compute information-based weights from Fisher Information.
             # This is a heuristic extension not present in the paper (Eq. S3).
-            info_weights = self._compute_information_weights(obs.x, predicted, noise_std, obs.frequency_noise_model)
+            info_weights = self._compute_information_weights(obs.x, predicted, noise_std, obs.frequency_noise_model).astype(FLOAT_DTYPE, copy=False)
             self._weights *= likelihoods * info_weights
         else:
             # Paper-compliant: likelihood only.
@@ -219,7 +220,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._weights /= weight_sum
         else:
             # If all particles have 0 likelihood, reset to uniform (should rarely happen)
-            self._weights = np.ones(self.num_particles) / self.num_particles
+            self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
 
         # 5. Apply annealed jitter (continuous particle movement every update)
         if self.annealed_jitter:
@@ -263,11 +264,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 predicted=predicted,
                 noise_std=noise_std,
                 frequency_noise_model=obs.frequency_noise_model,
-            )
+            ).astype(FLOAT_DTYPE, copy=False)
 
             # 2. Update weights
             if self.use_information_weights:
-                info_weights = self._compute_information_weights_batch(obs.x, n_particles, noise_std)
+                info_weights = self._compute_information_weights_batch(obs.x, n_particles, noise_std).astype(FLOAT_DTYPE, copy=False)
                 self._weights *= likelihoods * info_weights
             else:
                 self._weights *= likelihoods
@@ -277,7 +278,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if weight_sum > 1e-10:
             self._weights /= weight_sum
         else:
-            self._weights = np.ones(self.num_particles) / self.num_particles
+            self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
 
         # 5. Single resampling step after all updates
         ess = _inverse_sum_squares(self._weights)
@@ -340,8 +341,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Normalize to mean 1.0 so likelihood remains primary driver
         mean_score = np.mean(clipped_scores)
         if mean_score > 0:
-            return clipped_scores / mean_score
-        return np.ones(n_particles)
+            return (clipped_scores / mean_score).astype(FLOAT_DTYPE, copy=False)
+        return np.ones(n_particles, dtype=FLOAT_DTYPE)
 
     def _compute_information_weights_batch(
         self,
@@ -428,7 +429,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Construct new particle set: elite intact + resampled from elite
         all_indices = np.concatenate([elite_indices, new_indices])
         self._particles = self._particles[all_indices]
-        self._weights = np.ones(self.num_particles) / self.num_particles
+        self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
 
         # Apply nudging / contraction to all particles (paper-compliant)
         if self.use_full_covariance:
@@ -439,7 +440,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 lo, hi = self.parameter_bounds[name]
                 std = np.std(self._particles[:, j])
                 # Jitter for resampled particles only
-                jitter = np.random.normal(0, std * self.jitter_scale, n_resample)
+                jitter = np.random.normal(0, std * self.jitter_scale, n_resample).astype(FLOAT_DTYPE, copy=False)
                 self._particles[n_elite:, j] = np.clip(self._particles[n_elite:, j] + jitter, lo, hi)
 
     def _resample_nist_style(self) -> None:
@@ -458,7 +459,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Compute mean and full covariance of current particles
         mean = _weighted_mean_axis0(self._particles, self._weights)  # shape (d,)
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights)  # shape (d, d)
+        cov = np.cov(self._particles, rowvar=False, aweights=self._weights).astype(FLOAT_DTYPE, copy=False)  # shape (d, d)
 
         if cov.ndim == 0:
             cov = np.array([[cov]])
@@ -470,12 +471,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Ensure nudge_cov is positive semi-definite for numerical stability
         try:
             nudges = np.random.multivariate_normal(
-                np.zeros(d_dim), nudge_cov, self.num_particles
-            )  # shape (n_particles, d)
+                np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles
+            ).astype(FLOAT_DTYPE, copy=False)  # shape (n_particles, d)
         except np.linalg.LinAlgError:
             # Fall back to diagonal covariance if full covariance is singular
             diag_cov = np.diag(np.diag(nudge_cov))
-            nudges = np.random.multivariate_normal(np.zeros(d_dim), diag_cov, self.num_particles)
+            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, self.num_particles).astype(FLOAT_DTYPE, copy=False)
 
         # Apply nudges
         self._particles = self._particles + nudges
@@ -483,7 +484,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Shrinkage/contraction toward mean if enabled
         if self.scale:
             old_center = mean.reshape(1, -1)  # shape (1, d)
-            self._particles = self._particles * self.a_param + old_center * (1 - self.a_param)
+            self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(FLOAT_DTYPE, copy=False)
 
         # Clip to bounds
         for j, name in enumerate(self._param_names):
@@ -501,7 +502,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Compute mean and covariance from entire particle set (for proper nudging)
         mean = _weighted_mean_axis0(self._particles, self._weights)
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights)
+        cov = np.cov(self._particles, rowvar=False, aweights=self._weights).astype(FLOAT_DTYPE, copy=False)
         if cov.ndim == 0:
             cov = np.array([[cov]])
 
@@ -510,10 +511,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Generate nudges only for resampled particles
         try:
-            nudges = np.random.multivariate_normal(np.zeros(d_dim), nudge_cov, n_resample)
+            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, n_resample).astype(FLOAT_DTYPE, copy=False)
         except np.linalg.LinAlgError:
             diag_cov = np.diag(np.diag(nudge_cov))
-            nudges = np.random.multivariate_normal(np.zeros(d_dim), diag_cov, n_resample)
+            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, n_resample).astype(FLOAT_DTYPE, copy=False)
 
         # Apply nudges only to non-elite particles
         self._particles[n_elite:] = self._particles[n_elite:] + nudges
@@ -521,7 +522,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Shrinkage toward mean only for non-elite particles
         if self.scale:
             old_center = mean.reshape(1, -1)
-            self._particles[n_elite:] = self._particles[n_elite:] * self.a_param + old_center * (1 - self.a_param)
+            self._particles[n_elite:] = (self._particles[n_elite:] * self.a_param + old_center * (1 - self.a_param)).astype(FLOAT_DTYPE, copy=False)
 
         # Clip all particles to bounds
         for j, name in enumerate(self._param_names):
@@ -543,7 +544,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             lo, hi = self.parameter_bounds[name]
             std = np.std(self._particles[:, j])
             # Scale jitter by current scale and local std
-            jitter = np.random.normal(0, std * effective_scale, self.num_particles)
+            jitter = np.random.normal(0, std * effective_scale, self.num_particles).astype(FLOAT_DTYPE, copy=False)
             self._particles[:, j] = np.clip(self._particles[:, j] + jitter, lo, hi)
 
         # Decay the jitter scale for next update
@@ -727,7 +728,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         
         # Calculate weighted variance of predictions across particles for each candidate
         mean_pred = np.average(predictions, axis=1, weights=self._weights)
-        var_pred = np.average((predictions - mean_pred[:, np.newaxis])**2, axis=1, weights=self._weights)
+        var_pred = np.average(np.abs(predictions - mean_pred[:, np.newaxis]), axis=1, weights=self._weights)
         
         sigma_eta_sq = float(noise_std) ** 2
         sigma_theta_sq = var_pred
