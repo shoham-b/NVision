@@ -121,7 +121,7 @@ class StudentsTLocator(SequentialBayesianLocator):
         if hi <= lo:
             return float(lo)
 
-        # Sample parameters from the belief (float32)
+        # Sample parameters from the belief (float32) - captured for numpy callback
         sampled = self.belief.sample(self.n_mc_samples)
         sample_arrays = tuple(
             np.asarray(arr, dtype=np.float32) for arr in sampled.arrays_in_order()
@@ -157,11 +157,11 @@ class StudentsTLocator(SequentialBayesianLocator):
             x_new = jnp.clip(x + step_size * g, lo, hi)
             return x_new, None
 
-        key = jax.random.PRNGKey(self.inference_step_count)
-        x0s = jax.random.uniform(key, shape=(n_restarts,), minval=lo, maxval=hi)
-
         def _optimize(x0):
             return jax.lax.scan(_step, x0, None, length=n_steps)[0]
+
+        key = jax.random.PRNGKey(self.inference_step_count)
+        x0s = jax.random.uniform(key, shape=(n_restarts,), minval=lo, maxval=hi)
 
         x_finals = jax.vmap(_optimize)(x0s)
 

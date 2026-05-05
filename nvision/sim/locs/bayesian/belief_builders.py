@@ -22,7 +22,30 @@ from collections.abc import Mapping
 import numpy as np
 
 from nvision.belief.grid_marginal import GridParameter
+from nvision.belief.smc_marginal import (
+    NVISION_SMC_A_PARAM,
+    NVISION_SMC_ESS_THRESHOLD,
+    NVISION_SMC_JITTER_SCALE,
+    NVISION_SMC_NUM_PARTICLES,
+    NVISION_SMC_SCALE,
+    NVISION_SMC_USE_FULL_COVARIANCE,
+    NVISION_SMC_USE_INFORMATION_WEIGHTS,
+)
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
+from nvision.sim.defaults import (
+    NVISION_GRID_BACKGROUND,
+    NVISION_GRID_DEPTH,
+    NVISION_GRID_FREQ,
+    NVISION_GRID_WIDTH,
+    NVISION_NV_GRID_BACKGROUND,
+    NVISION_NV_GRID_DEPTH,
+    NVISION_NV_GRID_FREQ,
+    NVISION_NV_GRID_FWHM_TOTAL,
+    NVISION_NV_GRID_K_NP,
+    NVISION_NV_GRID_LINEWIDTH,
+    NVISION_NV_GRID_LORENTZ_FRAC,
+    NVISION_NV_GRID_SPLIT,
+)
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.sim.gen.nv_center_generator import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
@@ -79,10 +102,10 @@ def _unit_cube_belief_from_specs(
 def two_peak_gaussian_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
-    n_grid_freq: int = 96,
-    n_grid_width: int = 64,
-    n_grid_depth: int = 48,
-    n_grid_background: int = 48,
+    n_grid_freq: int = NVISION_GRID_FREQ,
+    n_grid_width: int = NVISION_GRID_WIDTH,
+    n_grid_depth: int = NVISION_GRID_DEPTH,
+    n_grid_background: int = NVISION_GRID_BACKGROUND,
     **_extra: object,
 ) -> UnitCubeGridMarginalDistribution:
     model = CompositePeakModel([("peak1", GaussianModel()), ("peak2", GaussianModel())])
@@ -107,10 +130,10 @@ def two_peak_gaussian_belief(
 def two_peak_lorentzian_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
-    n_grid_freq: int = 96,
-    n_grid_width: int = 64,
-    n_grid_depth: int = 48,
-    n_grid_background: int = 48,
+    n_grid_freq: int = NVISION_GRID_FREQ,
+    n_grid_width: int = NVISION_GRID_WIDTH,
+    n_grid_depth: int = NVISION_GRID_DEPTH,
+    n_grid_background: int = NVISION_GRID_BACKGROUND,
     **_extra: object,
 ) -> UnitCubeGridMarginalDistribution:
     model = CompositePeakModel([("peak1", LorentzianModel()), ("peak2", LorentzianModel())])
@@ -135,14 +158,14 @@ def two_peak_lorentzian_belief(
 def nv_center_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
-    n_grid_freq: int = 500,
-    n_grid_linewidth: int = 80,
-    n_grid_fwhm_total: int = 80,
-    n_grid_lorentz_frac: int = 60,
-    n_grid_split: int = 80,
-    n_grid_k_np: int = 60,
-    n_grid_depth: int = 100,
-    n_grid_background: int = 60,
+    n_grid_freq: int = NVISION_NV_GRID_FREQ,
+    n_grid_linewidth: int = NVISION_NV_GRID_LINEWIDTH,
+    n_grid_fwhm_total: int = NVISION_NV_GRID_FWHM_TOTAL,
+    n_grid_lorentz_frac: int = NVISION_NV_GRID_LORENTZ_FRAC,
+    n_grid_split: int = NVISION_NV_GRID_SPLIT,
+    n_grid_k_np: int = NVISION_NV_GRID_K_NP,
+    n_grid_depth: int = NVISION_NV_GRID_DEPTH,
+    n_grid_background: int = NVISION_NV_GRID_BACKGROUND,
     **_extra: object,
 ) -> UnitCubeGridMarginalDistribution:
     """NV-center belief: **unit** parameter grids, **physical** signal model.
@@ -194,13 +217,13 @@ def nv_center_belief(
 def nv_center_smc_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
-    num_particles: int = 5000,
-    jitter_scale: float = 0.05,
-    ess_threshold: float = 0.5,
-    use_full_covariance: bool = False,
-    a_param: float = 0.98,
-    scale: bool = True,
-    use_information_weights: bool = True,
+    num_particles: int = NVISION_SMC_NUM_PARTICLES,
+    jitter_scale: float = NVISION_SMC_JITTER_SCALE,
+    ess_threshold: float = NVISION_SMC_ESS_THRESHOLD,
+    use_full_covariance: bool = NVISION_SMC_USE_FULL_COVARIANCE,
+    a_param: float = NVISION_SMC_A_PARAM,
+    scale: bool = NVISION_SMC_SCALE,
+    use_information_weights: bool = NVISION_SMC_USE_INFORMATION_WEIGHTS,
     noise_model: NoiseSignalModel | None = None,
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:

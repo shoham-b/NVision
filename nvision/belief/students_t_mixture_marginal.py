@@ -118,16 +118,13 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         res = scipy.optimize.minimize(nll, x0, method="L-BFGS-B")
         self.means[0] = res.x
 
-        try:
-            # Requires numdifftools, if not present fallback to identity or previous
-            import numdifftools as nd
+        # Compute covariance from Hessian at MAP estimate
+        import numdifftools as nd
 
-            hess = nd.Hessian(nll)(res.x)
-            eigvals, eigvecs = np.linalg.eigh(hess)
-            eigvals = np.maximum(eigvals, 1e-6)
-            self.covariances[0] = eigvecs @ np.diag(1.0 / eigvals) @ eigvecs.T
-        except Exception:
-            pass
+        hess = nd.Hessian(nll)(res.x)
+        eigvals, eigvecs = np.linalg.eigh(hess)
+        eigvals = np.maximum(eigvals, 1e-6)
+        self.covariances[0] = eigvecs @ np.diag(1.0 / eigvals) @ eigvecs.T
 
     def estimates(self) -> dict[str, float]:
         return {name: float(self.means[0, i]) for i, name in enumerate(self._param_names)}

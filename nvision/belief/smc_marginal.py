@@ -286,15 +286,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if ess < self.ess_threshold * self.num_particles:
             self._resample()
 
-    def _jax_info_scores(self, grad_matrix: np.ndarray, noise_std: float) -> np.ndarray:
-        """Vectorized info-score computation using JAX.
+    @staticmethod
+    @jax.jit
+    def _jax_info_scores_jit(grad_matrix: jnp.ndarray, noise_std: float) -> jnp.ndarray:
+        """JIT-compiled info-score computation using JAX.
 
         Computes Fisher Information Matrix log-determinant scores for all
         particles in parallel via ``jax.vmap`` over the particle dimension.
         """
-        grad_matrix = jnp.asarray(grad_matrix, dtype=jnp.float32)
         n_particles, n_params = grad_matrix.shape
-        sigma = max(float(noise_std), 1e-9)
+        sigma = jnp.maximum(noise_std, 1e-9)
         sigma_sq = sigma * sigma
 
         # FIMs: (n_particles, n_params, n_params)
@@ -315,6 +316,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         clipped_scores = jnp.clip(info_scores, 0.1, 10.0)
         mean_score = jnp.mean(clipped_scores)
         result = jnp.where(mean_score > 0, clipped_scores / mean_score, jnp.ones(n_particles))
+        return result
+
+    def _jax_info_scores(self, grad_matrix: np.ndarray, noise_std: float) -> np.ndarray:
+        """Vectorized info-score computation using JAX (calls JIT'd version)."""
+        grad_matrix_jax = jnp.asarray(grad_matrix, dtype=jnp.float32)
+        result = self._jax_info_scores_jit(grad_matrix_jax, float(noise_std))
         return np.asarray(result, dtype=FLOAT_DTYPE)
 
     def _compute_information_weights(

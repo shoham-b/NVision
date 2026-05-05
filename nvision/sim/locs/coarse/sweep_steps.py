@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nvision.sim.defaults import (
+    NVISION_SWEEP_COVERAGE_FACTOR,
+    NVISION_SWEEP_MAX_STEPS,
+    NVISION_SWEEP_MIN_STEPS,
+)
+
 if TYPE_CHECKING:
     from nvision.spectra.signal import SignalModel
 
@@ -13,9 +19,9 @@ def compute_sweep_max_steps(
     domain_lo: float,
     domain_hi: float,
     *,
-    coverage_factor: float = 3.0,
-    min_steps: int = 50,
-    max_steps: int = 500,
+    coverage_factor: float = NVISION_SWEEP_COVERAGE_FACTOR,
+    min_steps: int = NVISION_SWEEP_MIN_STEPS,
+    max_steps: int = NVISION_SWEEP_MAX_STEPS,
 ) -> int:
     """Calculate a reasonable sweep step count from signal model dip properties.
 

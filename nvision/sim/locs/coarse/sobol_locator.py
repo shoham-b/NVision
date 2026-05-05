@@ -16,6 +16,14 @@ from numpy.typing import NDArray
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
+from nvision.sim.defaults import (
+    NVISION_SOBOL_CHECK_INTERVAL,
+    NVISION_SOBOL_DEPTH_FRACTION,
+    NVISION_SOBOL_MAX_POINTS,
+    NVISION_SOBOL_MIN_DEPTH_SIGMA,
+    NVISION_SOBOL_MIN_POINTS,
+    NVISION_SOBOL_PAD_FRACTION,
+)
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
 from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
@@ -51,9 +59,9 @@ def _infer_tight_focus_window(
     domain_lo: float,
     domain_hi: float,
     *,
-    min_depth_sigma: float = 2.5,
-    depth_fraction: float = 0.5,
-    pad_fraction: float = 0.005,
+    min_depth_sigma: float = NVISION_SOBOL_MIN_DEPTH_SIGMA,
+    depth_fraction: float = NVISION_SOBOL_DEPTH_FRACTION,
+    pad_fraction: float = NVISION_SOBOL_PAD_FRACTION,
 ) -> tuple[float, float]:
     """Infer a tight focus window around the deepest dip.
 
@@ -203,9 +211,9 @@ class Stage1SobolLocator:
         domain_lo: float,
         domain_hi: float,
         history: ObservationHistory,
-        min_points: int = 255,
-        max_points: int = 511,
-        check_interval: int = 32,
+        min_points: int = NVISION_SOBOL_MIN_POINTS,
+        max_points: int = NVISION_SOBOL_MAX_POINTS,
+        check_interval: int = NVISION_SOBOL_CHECK_INTERVAL,
     ):
         self._sobol_gen = sobol_gen
         self.domain_lo = domain_lo

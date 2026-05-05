@@ -18,11 +18,17 @@ from nvision.noises import (
     OverFrequencyPoissonNoise,
 )
 from nvision.noises.over_probe.drift_noise import OverProbeDriftNoise
+from nvision.sim.defaults import (
+    NVISION_DEFAULT_LOC_MAX_STEPS,
+    NVISION_NOISE_GAUSS,
+    NVISION_NOISE_POISSON,
+    NVISION_NOISE_OVER_PROBE,
+)
 
 from .gen.nv_center_generator import NVCenterCoreGenerator
 
 # Single source for ``nvision run`` / ``nvision render`` defaults.
-DEFAULT_LOC_MAX_STEPS = 1500
+DEFAULT_LOC_MAX_STEPS = NVISION_DEFAULT_LOC_MAX_STEPS
 
 
 # Generators: NV Center variants
@@ -73,23 +79,20 @@ def noises_none() -> list[tuple[str, CompositeNoise | None]]:
 
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
-    gauss_noise = 0.01
-    poisson_noise = 3000.0
-    over_probe_noise = 0.001
     return [
         (
-            f"Gauss({gauss_noise})",
-            CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(gauss_noise)])),
+            f"Gauss({NVISION_NOISE_GAUSS})",
+            CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NVISION_NOISE_GAUSS)])),
         ),
         (
-            f"Poisson({poisson_noise})",
+            f"Poisson({NVISION_NOISE_POISSON})",
             CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyPoissonNoise(scale=poisson_noise)])
+                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyPoissonNoise(scale=NVISION_NOISE_POISSON)])
             ),
         ),
         (
-            f"OverProbeDrift({over_probe_noise})",
-            CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(over_probe_noise)])),
+            f"OverProbeDrift({NVISION_NOISE_OVER_PROBE})",
+            CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(NVISION_NOISE_OVER_PROBE)])),
         ),
     ]
 

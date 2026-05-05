@@ -18,6 +18,15 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     SequentialBayesianExperimentDesignLocator,
     UtilitySamplingLocator,
 )
+from nvision.belief.smc_marginal import (
+    NVISION_SMC_A_PARAM,
+    NVISION_SMC_ESS_THRESHOLD,
+    NVISION_SMC_JITTER_SCALE,
+    NVISION_SMC_NUM_PARTICLES,
+    NVISION_SMC_SCALE,
+    NVISION_SMC_USE_FULL_COVARIANCE,
+    NVISION_SMC_USE_INFORMATION_WEIGHTS,
+)
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator, StagedSobolSweepLocator
@@ -37,13 +46,13 @@ class Combination:
 
 _NV_SMC: dict[str, object] = {
     "builder": nv_center_smc_belief,
-    "num_particles": 10000,
-    "jitter_scale": 0.05,
-    "ess_threshold": 0.5,
-    "use_full_covariance": True,  # NIST-style robust resampling (Dushenko et al.)
-    "a_param": 0.98,
-    "scale": True,
-    "use_information_weights": False,  # paper Eq. S3: likelihood only
+    "num_particles": NVISION_SMC_NUM_PARTICLES,
+    "jitter_scale": NVISION_SMC_JITTER_SCALE,
+    "ess_threshold": NVISION_SMC_ESS_THRESHOLD,
+    "use_full_covariance": NVISION_SMC_USE_FULL_COVARIANCE,
+    "a_param": NVISION_SMC_A_PARAM,
+    "scale": NVISION_SMC_SCALE,
+    "use_information_weights": NVISION_SMC_USE_INFORMATION_WEIGHTS,
 }
 
 

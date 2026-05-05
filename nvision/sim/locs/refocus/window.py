@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from nvision.models.observation import Observation, ObservationHistory
+from nvision.sim.defaults import NVISION_WINDOW_MIN_PADDING_FRAC, NVISION_WINDOW_PADDING_FRAC
 from nvision.sim.locs.refocus.strategies import detect_dips, infer_dip_widths
 
 
@@ -92,9 +93,9 @@ def infer_focus_window(
 
     # Aggregate width: num_dips × max_width + gaps, with small padding
     window_width = expected_dips * max_dip_width + total_gap
-    # Add a small fixed padding (5 % of window or 1 % of domain, whichever is larger)
+    # Add a small fixed padding (% of window or % of domain, whichever is larger)
     domain_width = domain_hi - domain_lo
-    padding = max(0.05 * window_width, 0.01 * domain_width)
+    padding = max(NVISION_WINDOW_PADDING_FRAC * window_width, NVISION_WINDOW_MIN_PADDING_FRAC * domain_width)
     window_width += 2.0 * padding
 
     # Centre on the observed dip span
@@ -240,7 +241,7 @@ def aggregate_window(
 
     domain_width = domain_hi - domain_lo
     window_width = expected_dips * max_dip_width + total_gap
-    padding = max(0.05 * window_width, 0.01 * domain_width)
+    padding = max(NVISION_WINDOW_PADDING_FRAC * window_width, NVISION_WINDOW_MIN_PADDING_FRAC * domain_width)
     window_width += 2.0 * padding
 
     mid = (dip_centers[0] + dip_centers[-1]) / 2.0 if len(dip_centers) > 1 else dip_centers[0]
