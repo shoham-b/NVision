@@ -158,4 +158,3 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         eigs_eval = jax.vmap(_eig_fn)(x_eval)
         best_idx = int(jnp.argmax(eigs_eval))
         return float(x_eval[best_idx])
-

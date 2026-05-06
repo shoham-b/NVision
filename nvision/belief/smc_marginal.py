@@ -25,10 +25,18 @@ load_dotenv()
 NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
 NVISION_SMC_JITTER_SCALE: float = float(os.getenv("NVISION_SMC_JITTER_SCALE", "0.1"))
 NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.5"))
-NVISION_SMC_USE_FULL_COVARIANCE: bool = os.getenv("NVISION_SMC_USE_FULL_COVARIANCE", "False").lower() in ("true", "1", "yes")
+NVISION_SMC_USE_FULL_COVARIANCE: bool = os.getenv("NVISION_SMC_USE_FULL_COVARIANCE", "False").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
 NVISION_SMC_SCALE: bool = os.getenv("NVISION_SMC_SCALE", "True").lower() in ("true", "1", "yes")
-NVISION_SMC_USE_INFORMATION_WEIGHTS: bool = os.getenv("NVISION_SMC_USE_INFORMATION_WEIGHTS", "True").lower() in ("true", "1", "yes")
+NVISION_SMC_USE_INFORMATION_WEIGHTS: bool = os.getenv("NVISION_SMC_USE_INFORMATION_WEIGHTS", "True").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 NVISION_SMC_ANNEALED_JITTER: bool = os.getenv("NVISION_SMC_ANNEALED_JITTER", "False").lower() in ("true", "1", "yes")
 NVISION_SMC_ANNEALED_JITTER_INITIAL: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_INITIAL", "0.02"))
 NVISION_SMC_ANNEALED_JITTER_MIN: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_MIN", "0.001"))
@@ -209,7 +217,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if self.use_information_weights:
             # Compute information-based weights from Fisher Information.
             # This is a heuristic extension not present in the paper (Eq. S3).
-            info_weights = self._compute_information_weights(obs.x, predicted, noise_std, obs.frequency_noise_model).astype(FLOAT_DTYPE, copy=False)
+            info_weights = self._compute_information_weights(
+                obs.x, predicted, noise_std, obs.frequency_noise_model
+            ).astype(FLOAT_DTYPE, copy=False)
             self._weights *= likelihoods * info_weights
         else:
             # Paper-compliant: likelihood only.
@@ -269,7 +279,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             # 2. Update weights
             if self.use_information_weights:
-                info_weights = self._compute_information_weights_batch(obs.x, n_particles, noise_std).astype(FLOAT_DTYPE, copy=False)
+                info_weights = self._compute_information_weights_batch(obs.x, n_particles, noise_std).astype(
+                    FLOAT_DTYPE, copy=False
+                )
                 self._weights *= likelihoods * info_weights
             else:
                 self._weights *= likelihoods
@@ -440,7 +452,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Compute mean and full covariance of current particles
         mean = _weighted_mean_axis0(self._particles, self._weights)  # shape (d,)
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights).astype(FLOAT_DTYPE, copy=False)  # shape (d, d)
+        cov = np.cov(self._particles, rowvar=False, aweights=self._weights).astype(
+            FLOAT_DTYPE, copy=False
+        )  # shape (d, d)
 
         if cov.ndim == 0:
             cov = np.array([[cov]])
@@ -457,7 +471,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         except np.linalg.LinAlgError:
             # Fall back to diagonal covariance if full covariance is singular
             diag_cov = np.diag(np.diag(nudge_cov))
-            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, self.num_particles).astype(FLOAT_DTYPE, copy=False)
+            nudges = np.random.multivariate_normal(
+                np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, self.num_particles
+            ).astype(FLOAT_DTYPE, copy=False)
 
         # Apply nudges
         self._particles = self._particles + nudges
@@ -465,7 +481,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Shrinkage/contraction toward mean if enabled
         if self.scale:
             old_center = mean.reshape(1, -1)  # shape (1, d)
-            self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(FLOAT_DTYPE, copy=False)
+            self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(
+                FLOAT_DTYPE, copy=False
+            )
 
         # Clip to bounds
         for j, name in enumerate(self._param_names):
@@ -492,10 +510,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Generate nudges only for resampled particles
         try:
-            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, n_resample).astype(FLOAT_DTYPE, copy=False)
+            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, n_resample).astype(
+                FLOAT_DTYPE, copy=False
+            )
         except np.linalg.LinAlgError:
             diag_cov = np.diag(np.diag(nudge_cov))
-            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, n_resample).astype(FLOAT_DTYPE, copy=False)
+            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, n_resample).astype(
+                FLOAT_DTYPE, copy=False
+            )
 
         # Apply nudges only to non-elite particles
         self._particles[n_elite:] = self._particles[n_elite:] + nudges
@@ -503,7 +525,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Shrinkage toward mean only for non-elite particles
         if self.scale:
             old_center = mean.reshape(1, -1)
-            self._particles[n_elite:] = (self._particles[n_elite:] * self.a_param + old_center * (1 - self.a_param)).astype(FLOAT_DTYPE, copy=False)
+            self._particles[n_elite:] = (
+                self._particles[n_elite:] * self.a_param + old_center * (1 - self.a_param)
+            ).astype(FLOAT_DTYPE, copy=False)
 
         # Clip all particles to bounds
         for j, name in enumerate(self._param_names):
