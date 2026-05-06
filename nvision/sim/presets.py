@@ -21,8 +21,8 @@ from nvision.noises.over_probe.drift_noise import OverProbeDriftNoise
 from nvision.sim.defaults import (
     NVISION_DEFAULT_LOC_MAX_STEPS,
     NVISION_NOISE_GAUSS,
-    NVISION_NOISE_POISSON,
     NVISION_NOISE_OVER_PROBE,
+    NVISION_NOISE_POISSON,
 )
 
 from .gen.nv_center_generator import NVCenterCoreGenerator
@@ -82,12 +82,16 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     return [
         (
             f"Gauss({NVISION_NOISE_GAUSS})",
-            CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NVISION_NOISE_GAUSS)])),
+            CompositeNoise(
+                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NVISION_NOISE_GAUSS)])
+            ),
         ),
         (
             f"Poisson({NVISION_NOISE_POISSON})",
             CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyPoissonNoise(scale=NVISION_NOISE_POISSON)])
+                over_frequency_noise=CompositeOverFrequencyNoise(
+                    [OverFrequencyPoissonNoise(scale=NVISION_NOISE_POISSON)]
+                )
             ),
         ),
         (

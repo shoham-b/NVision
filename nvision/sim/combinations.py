@@ -11,13 +11,6 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from nvision.models.noise import CompositeNoise
-from nvision.sim import presets as sim_presets
-from nvision.sim.locs.bayesian.acquisition_locators import (
-    MaximumLikelihoodLocator,
-    SequentialBayesianExperimentDesignLocator,
-    UtilitySamplingLocator,
-)
 from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
@@ -26,6 +19,13 @@ from nvision.belief.smc_marginal import (
     NVISION_SMC_SCALE,
     NVISION_SMC_USE_FULL_COVARIANCE,
     NVISION_SMC_USE_INFORMATION_WEIGHTS,
+)
+from nvision.models.noise import CompositeNoise
+from nvision.sim import presets as sim_presets
+from nvision.sim.locs.bayesian.acquisition_locators import (
+    MaximumLikelihoodLocator,
+    SequentialBayesianExperimentDesignLocator,
+    UtilitySamplingLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator

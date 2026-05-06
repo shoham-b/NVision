@@ -123,9 +123,7 @@ class StudentsTLocator(SequentialBayesianLocator):
 
         # Sample parameters from the belief (float32) - captured for numpy callback
         sampled = self.belief.sample(self.n_mc_samples)
-        sample_arrays = tuple(
-            np.asarray(arr, dtype=np.float32) for arr in sampled.arrays_in_order()
-        )
+        sample_arrays = tuple(np.asarray(arr, dtype=np.float32) for arr in sampled.arrays_in_order())
         model = self.belief.model
 
         def _numpy_pred_variance(x: object) -> object:
