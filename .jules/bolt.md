@@ -1,3 +1,6 @@
 ## YYYY-MM-DD - [Parallelize Numba SBED Entropy]
 **Learning:** Numba `prange` allows parallelizing outer candidate loops effectively, and thread-local scratchpad arrays like `buffer` must be allocated inside the `prange` loop to avoid race conditions. Additionally, expensive math operations like `math.log` inside tight inner loops over particles can be avoided via algebraic identities (e.g. `log(w) = ll - max_ll - log_sum_exp`).
 **Action:** Always look for nested loops with independent evaluations (e.g., candidate scoring) to parallelize with `@njit(parallel=True)` and `prange`, taking care to define buffers locally inside the loop. Avoid mathematically redundant slow math inside innermost loops.
+## $(date +%Y-%m-%d) - [Optimize np.average in SMC Marginal]
+**Learning:** `np.average` has significant Python overhead for validating shapes, summing weights, and dividing. In contexts like Sequential Monte Carlo (SMC) where weights are guaranteed to be normalized (summing to 1), calculating the weighted mean and variance using `np.dot` is mathematically identical but completely avoids the Python overhead, delegating the operation to heavily optimized C/BLAS routines.
+**Action:** Always prefer `np.dot` over `np.average` for calculating weighted means and variances when the weights array is already known to be normalized.

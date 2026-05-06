@@ -1,5 +1,8 @@
 FROM python:3.12-slim AS builder
 
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV UV_LINK_MODE=copy
@@ -16,6 +19,9 @@ RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim AS runtime
 
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/app/.venv/bin:${PATH}"
@@ -24,6 +30,9 @@ ENV RUN_GROUP="all"
 ENV NVISION_GCP_BUCKET=nvision-artifacts-shoha
 # Set NVISION_GCP=True at runtime to enable GCP upload
 ENV NVISION_GCP=False
+
+# Numba requirements
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

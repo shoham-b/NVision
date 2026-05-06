@@ -732,8 +732,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         predictions = self.model.compute_vectorized_many(candidates, arrays_in_order)
 
         # Calculate weighted variance of predictions across particles for each candidate
-        mean_pred = np.average(predictions, axis=1, weights=self._weights)
-        var_pred = np.average(np.abs(predictions - mean_pred[:, np.newaxis]), axis=1, weights=self._weights)
+        # Optimization: use np.dot instead of np.average since self._weights are normalized.
+        # This avoids the significant Python overhead in np.average.
+        mean_pred = np.dot(predictions, self._weights)
+        var_pred = np.dot(np.abs(predictions - mean_pred[:, np.newaxis]), self._weights)
 
         sigma_eta_sq = float(noise_std) ** 2
         sigma_theta_sq = var_pred

@@ -154,15 +154,22 @@ def nv_center_pseudo_voigt_vectorized_many(
             actual_depth = d / k
 
             # Helper to compute pseudo-Voigt profile at x, centered at c
-            def _profile(xv: float, c: float) -> float:
+            def _profile(
+                xv: float,
+                c: float,
+                gamma: float = gamma,
+                sigma: float = sigma,
+                eta: float = eta,
+                inv_center_height: float = inv_center_height,
+            ) -> float:
                 dx = xv - c
-                lorentz = gamma / (dx * dx + gamma * gamma) if abs(gamma) > 1e-12 else 0.0
+                lorentz_v = gamma / (dx * dx + gamma * gamma) if abs(gamma) > 1e-12 else 0.0
                 if abs(sigma) > 1e-12:
-                    z = dx / sigma
-                    gauss = math.exp(-0.5 * z * z) / (sigma * _SQRT2PI)
+                    z_v = dx / sigma
+                    gauss_v = math.exp(-0.5 * z_v * z_v) / (sigma * _SQRT2PI)
                 else:
-                    gauss = 0.0
-                return (eta * lorentz + (1.0 - eta) * gauss) * inv_center_height
+                    gauss_v = 0.0
+                return (eta * lorentz_v + (1.0 - eta) * gauss_v) * inv_center_height
 
             pc = _profile(x, f)
             if s < 1e-10:
