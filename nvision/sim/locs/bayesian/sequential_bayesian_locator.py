@@ -257,9 +257,7 @@ class SequentialBayesianLocator(Locator):
                 self._per_dip_windows = pdw
 
         # Narrow belief scan bounds (no-op for physical-space beliefs)
-        self.belief.narrow_scan_parameter_physical_bounds(
-            self._scan_param, self._acquisition_lo, self._acquisition_hi
-        )
+        self.belief.narrow_scan_parameter_physical_bounds(self._scan_param, self._acquisition_lo, self._acquisition_hi)
         phys_bounds = self.belief.physical_param_bounds
         slo, shi = phys_bounds[self._scan_param]
         self._acquisition_lo = min(slo, shi)

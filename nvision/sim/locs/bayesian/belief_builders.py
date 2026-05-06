@@ -32,6 +32,7 @@ from nvision.belief.smc_marginal import (
     NVISION_SMC_USE_INFORMATION_WEIGHTS,
 )
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
+from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.sim.defaults import (
     NVISION_GRID_BACKGROUND,
     NVISION_GRID_DEPTH,
@@ -46,7 +47,6 @@ from nvision.sim.defaults import (
     NVISION_NV_GRID_LORENTZ_FRAC,
     NVISION_NV_GRID_SPLIT,
 )
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.sim.gen.nv_center_generator import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,

@@ -520,9 +520,19 @@ function main() {
                 btn.className = 'bayes-tab-button' + (s.id === activeId ? ' is-active' : '');
                 btn.type = 'button';
                 btn.textContent = s.label;
+                btn.setAttribute("role", "tab");
+                btn.setAttribute("aria-selected", s.id === activeId ? "true" : "false");
+                btn.setAttribute("aria-controls", s.id);
+                btn.setAttribute("id", "tab-" + s.id);
+                const panel = document.getElementById(s.id);
+                if (panel) {
+                    panel.setAttribute("aria-labelledby", "tab-" + s.id);
+                }
                 btn.dataset.tab = s.id;
                 btn.addEventListener('click', () => {
                     tabBar.querySelectorAll('.bayes-tab-button').forEach((b) => b.classList.remove('is-active'));
+                    tabBar.querySelectorAll(".bayes-tab-button").forEach((b) => b.setAttribute("aria-selected", "false"));
+                    btn.setAttribute("aria-selected", "true");
                     btn.classList.add('is-active');
                     sections.forEach((sec) => {
                         const el = document.getElementById(sec.id);
