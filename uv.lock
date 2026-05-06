@@ -625,6 +625,19 @@ wheels = [
 ]
 
 [[package]]
+name = "numdifftools"
+version = "0.9.42"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/17/94/7c83677dddc78f93230f4c8a6a5faa06c92699a76eb019386a3aed8a9762/numdifftools-0.9.42.tar.gz", hash = "sha256:866675171f293c4bf2f1e1c5bf9b88a07d5396903e3b3e7fcc3879e2a01cfbc1", size = 79612, upload-time = "2025-12-11T12:06:10.54Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/60/c7504633e9fe53dc823db5d83dc15651c595cf35d668781832b4d2748272/numdifftools-0.9.42-py3-none-any.whl", hash = "sha256:22f926b8de24aa44f740bc26744a74555c1c80413068b1dee2edb3c3d10566f6", size = 94252, upload-time = "2025-12-11T12:06:09.322Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -675,6 +688,7 @@ dependencies = [
     { name = "jax" },
     { name = "matplotlib" },
     { name = "numba" },
+    { name = "numdifftools" },
     { name = "plotly" },
     { name = "polars" },
     { name = "python-dotenv" },
@@ -716,6 +730,7 @@ requires-dist = [
     { name = "jax", extras = ["cpu"], specifier = ">=0.4.35" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "numba", specifier = ">=0.65.1" },
+    { name = "numdifftools", specifier = ">=0.9.41" },
     { name = "plotly", specifier = ">=6.4.0" },
     { name = "polars", specifier = ">=1.35.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = "==4.3.0" },

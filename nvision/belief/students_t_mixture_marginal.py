@@ -119,9 +119,41 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         self.means[0] = res.x
 
         # Compute covariance from Hessian at MAP estimate
-        import numdifftools as nd
+        try:
+            import jax
+            import jax.numpy as jnp
 
-        hess = nd.Hessian(nll)(res.x)
+            def jax_nll(theta):
+                params = self.model.spec.unpack_params(theta)
+                # Predictions using JAX-compatible path
+                preds = jnp.array([self.model.compute_jax(float(x), params) for x in xs])
+
+                df = self.dfs[0]
+                sigma_sq = jnp.array(stds**2)
+                diff = jnp.array(ys) - preds
+
+                # Negative log likelihood kernel
+                ll = -0.5 * (df + 1.0) * jnp.sum(jnp.log(1.0 + (diff**2) / (df * sigma_sq)))
+
+                # Prior (weak Gaussian towards center of bounds)
+                prior = 0.0
+                for i, name in enumerate(self._param_names):
+                    if name in self._physical_param_bounds:
+                        lo, hi = self._physical_param_bounds[name]
+                        center = (lo + hi) / 2.0
+                        scale = (hi - lo) / 2.0
+                        z = (theta[i] - center) / scale
+                        prior += 0.5 * z**2
+                return -ll + prior
+
+            hess = jax.hessian(jax_nll)(jnp.array(res.x))
+            hess = np.array(hess)
+        except (ImportError, Exception):
+            # Fallback to numdifftools if JAX is missing or fails
+            import numdifftools as nd
+
+            hess = nd.Hessian(nll)(res.x)
+
         eigvals, eigvecs = np.linalg.eigh(hess)
         eigvals = np.maximum(eigvals, 1e-6)
         self.covariances[0] = eigvecs @ np.diag(1.0 / eigvals) @ eigvecs.T

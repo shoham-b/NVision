@@ -191,6 +191,27 @@ class NVCenterLorentzianModel(
             params.background,
         )
 
+    def compute_jax(self, x: float, params: NVCenterLorentzianSpectrum) -> Any:
+        """JAX-compatible triple-Lorentzian evaluation."""
+        import jax.numpy as jnp
+
+        f = params.frequency
+        lw = params.linewidth
+        s = params.split
+        k = params.k_np
+        d = params.dip_depth / params.k_np
+        bg = params.background
+
+        lw2 = lw**2
+
+        def dip(c, amp):
+            return (amp * lw2) / ((x - c) ** 2 + lw2)
+
+        left = dip(f - s, d / k)
+        center = dip(f, d)
+        right = dip(f + s, d * k)
+        return bg - (left + center + right)
+
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
         actual_depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE) / np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
         out = self.compute_nvcenter_lorentzian_model_vectorized(
@@ -448,6 +469,62 @@ class NVCenterVoigtModel(
             params.dip_depth,
             params.background,
         )
+
+    def compute_jax(self, x: float, params: NVCenterVoigtSpectrum) -> Any:
+        """JAX-compatible Voigt evaluation.
+
+        If JAX backend is available for wofz, this uses the exact Faddeeva
+        implementation. Otherwise falls back to pseudo-Voigt via jax.numpy.
+        """
+        import jax.numpy as jnp
+
+        f = params.frequency
+        fwhm = params.fwhm_total
+        lf = params.lorentz_frac
+        s = params.split
+        k = params.k_np
+        d = params.dip_depth
+        bg = params.background
+
+        fwhm_l = lf * fwhm
+        fwhm_g = (1.0 - lf) * fwhm
+        actual_depth = d / k
+
+        sigma = fwhm_g / (2 * jnp.sqrt(2 * jnp.log(2)))
+        gamma = fwhm_l / 2
+
+        def _profile(xv, center):
+            if self._backend == "jax.scipy.special.wofz" and self.wofz is not None:
+                z = ((xv - center) + 1j * gamma) / (sigma * jnp.sqrt(2))
+                w = self.wofz(z)
+                profile = w.real / (sigma * jnp.sqrt(2 * jnp.pi))
+                # Normalize to unit peak
+                z0 = (0.0 + 1j * gamma) / (sigma * jnp.sqrt(2))
+                peak = self.wofz(z0).real / (sigma * jnp.sqrt(2 * jnp.pi))
+                return profile / peak
+            else:
+                # JAX-friendly pseudo-Voigt
+                eta = (
+                    1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
+                    - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
+                    + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
+                )
+                dx = xv - center
+                lorentz_peak = 1.0 / gamma
+                lorentz = gamma / (dx**2 + gamma**2)
+                gauss_peak = 1.0 / (sigma * jnp.sqrt(2 * jnp.pi))
+                gauss = jnp.exp(-0.5 * (dx / sigma) ** 2) / (sigma * jnp.sqrt(2 * jnp.pi))
+                profile = eta * lorentz + (1 - eta) * gauss
+                peak = eta * lorentz_peak + (1 - eta) * gauss_peak
+                return profile / peak
+
+        pc = _profile(x, f)
+        if isinstance(s, float) and s < 1e-10:
+            return bg - actual_depth * pc
+
+        pl = _profile(x, f - s)
+        pr = _profile(x, f + s)
+        return bg - (actual_depth / k * pl + actual_depth * pc + actual_depth * k * pr)
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
         x_f = float(x)
@@ -729,6 +806,12 @@ class NVCenterOnePeakLorentzianModel(
         lw2 = params.linewidth**2
         denom = (float(x) - params.frequency) ** 2 + lw2
         return float(params.background - (params.dip_depth * lw2) / denom)
+
+    def compute_jax(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> Any:
+        import jax.numpy as jnp
+        lw2 = params.linewidth**2
+        denom = (x - params.frequency) ** 2 + lw2
+        return params.background - (params.dip_depth * lw2) / denom
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
         x_f = float(x)

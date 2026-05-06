@@ -136,10 +136,33 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
 
         return list(self.spec.names)
 
-    def gradient(self, x: float, params: ParamsT) -> dict[str, float] | None:
-        """Optional analytical gradient support (defaults to None)."""
+    def compute_jax(self, x: float, params: ParamsT) -> Any:
+        """JAX-compatible prediction at probe x.
 
-        return None
+        Defaults to calling compute(), but subclasses should override with
+        a jax.numpy implementation to support auto-differentiation.
+        """
+        return self.compute(x, params)
+
+    def gradient(self, x: float, params: ParamsT) -> dict[str, float] | None:
+        """Optional analytical gradient support.
+
+        If not overridden, attempts to use JAX auto-differentiation if
+        compute_jax is implemented and JAX is available.
+        """
+        try:
+            import jax
+            import jax.numpy as jnp
+
+            def f_scalar(theta_vec):
+                p = self.spec.unpack_params(theta_vec)
+                return self.compute_jax(x, p)
+
+            x0 = jnp.array(self.spec.pack_params(params))
+            grad_vec = jax.grad(f_scalar)(x0)
+            return dict(zip(self.parameter_names(), [float(v) for v in grad_vec], strict=True))
+        except (ImportError, Exception):
+            return None
 
     def gradient_vectorized(self, x: float, *param_arrays: object) -> dict[str, np.ndarray] | None:
         """Vectorized gradient computation for all particles at position x.
