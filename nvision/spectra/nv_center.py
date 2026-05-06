@@ -138,7 +138,7 @@ class NVCenterLorentzianModel(
         background: np.ndarray,
     ) -> np.ndarray:
         """Vectorized triple-Lorentzian NV evaluation for one probe location."""
-        x_f = float(x)
+        xs = np.array([float(x)], dtype=FLOAT_DTYPE)
         freq = np.asarray(frequency, dtype=FLOAT_DTYPE)
         linewidth_arr = np.asarray(linewidth, dtype=FLOAT_DTYPE)
         split_arr = np.asarray(split, dtype=FLOAT_DTYPE)
@@ -146,14 +146,11 @@ class NVCenterLorentzianModel(
         depth = np.asarray(dip_depth, dtype=FLOAT_DTYPE)
         bg = np.asarray(background, dtype=FLOAT_DTYPE)
 
-        denom_l = (x_f - (freq - split_arr)) * (x_f - (freq - split_arr)) + linewidth_arr * linewidth_arr
-        denom_c = (x_f - freq) * (x_f - freq) + linewidth_arr * linewidth_arr
-        denom_r = (x_f - (freq + split_arr)) * (x_f - (freq + split_arr)) + linewidth_arr * linewidth_arr
-        return bg - (
-            ((depth * linewidth_arr**2) / k_np_arr) / denom_l
-            + (depth * linewidth_arr**2) / denom_c
-            + (depth * linewidth_arr**2 * k_np_arr) / denom_r
+        out = np.empty((1, freq.shape[0]), dtype=FLOAT_DTYPE)
+        nv_center_lorentzian_vectorized_many(
+            xs, freq, linewidth_arr, split_arr, k_np_arr, depth, bg, out
         )
+        return out[0]
 
     _SPEC = _NVCenterLorentzianSpec()
 
@@ -213,7 +210,7 @@ class NVCenterLorentzianModel(
         return bg - (left + center + right)
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
-        actual_depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE) / np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
+        actual_depth = samples.dip_depth / samples.k_np
         out = self.compute_nvcenter_lorentzian_model_vectorized(
             x,
             samples.frequency,
@@ -223,7 +220,7 @@ class NVCenterLorentzianModel(
             actual_depth,
             samples.background,
         )
-        return np.asarray(out, dtype=FLOAT_DTYPE)
+        return out
 
     def compute_vectorized_many(
         self, x_array: Sequence[float], samples: NVCenterLorentzianSpectrumSamples

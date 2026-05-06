@@ -83,25 +83,29 @@ def nv_center_lorentzian_vectorized_many(
     """
     m = xs.shape[0]
     n = freq.shape[0]
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            lw = linewidth[j]
-            lw2 = lw * lw
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
+    for j in prange(n):
+        lw = linewidth[j]
+        lw2 = lw * lw
+        f = freq[j]
+        s = split[j]
+        k = k_np[j]
+        d = dip_depth[j]
+        bg = background[j]
 
-            actual_depth = d / k
-            denom_l = (x - (f - s)) * (x - (f - s)) + lw2
-            denom_c = (x - f) * (x - f) + lw2
-            denom_r = (x - (f + s)) * (x - (f + s)) + lw2
+        # Precompute particle-specific amplitude scaling
+        amp_c = (d / k) * lw2
+        amp_l = amp_c / k
+        amp_r = amp_c * k
 
-            amp_l = actual_depth * lw2 / k
-            amp_c = actual_depth * lw2
-            amp_r = actual_depth * lw2 * k
+        for i in range(m):
+            x = xs[i]
+            dx_c = x - f
+            dx_l = dx_c + s
+            dx_r = dx_c - s
+
+            denom_l = dx_l * dx_l + lw2
+            denom_c = dx_c * dx_c + lw2
+            denom_r = dx_r * dx_r + lw2
 
             out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
 

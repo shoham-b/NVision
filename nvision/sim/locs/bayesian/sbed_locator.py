@@ -125,8 +125,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         def _numpy_eig(x: object) -> object:
             x_arr = np.asarray(x)
             if x_arr.ndim == 0:
-                return float(belief.expected_information_gain(np.array([float(x_arr)]), noise_std)[0])
-            return belief.expected_information_gain(x_arr, noise_std)
+                return float(belief.expected_information_gain(np.array([float(x_arr)]))[0])
+            return belief.expected_information_gain(x_arr)
 
         def _eig_fn(x):
             return jax.pure_callback(

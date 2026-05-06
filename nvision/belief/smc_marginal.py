@@ -719,13 +719,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, data)
 
-    def expected_information_gain(self, candidates: np.ndarray, noise_std: float) -> np.ndarray:
+    def expected_information_gain(self, candidates: np.ndarray) -> np.ndarray:
         """Compute the approximate expected information gain for candidate locations.
 
         Uses the approximation:
-        H(y|d) ≈ 1/2 * ln(sigma_eta^2 + sigma_theta^2)
-        where sigma_eta^2 is the measurement noise variance and sigma_theta^2 is the prediction variance
-        (disagreement for that frequency across particles).
+        H(y|d) ≈ 1/2 * ln(epsilon + sigma_theta^2)
+        where sigma_theta^2 is the prediction variance (disagreement for that frequency across particles).
         """
         arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
         # shape: (n_candidates, n_particles)
@@ -733,13 +732,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Calculate weighted variance of predictions across particles for each candidate
         mean_pred = np.average(predictions, axis=1, weights=self._weights)
-        var_pred = np.average(np.abs(predictions - mean_pred[:, np.newaxis]), axis=1, weights=self._weights)
+        var_pred = np.average((predictions - mean_pred[:, np.newaxis]) ** 2, axis=1, weights=self._weights)
 
-        sigma_eta_sq = float(noise_std) ** 2
-        sigma_theta_sq = var_pred
-
-        # Return approximate information gain
-        return 0.5 * np.log(sigma_eta_sq + sigma_theta_sq)
+        # Return approximate information gain (using 1e-12 as epsilon)
+        return 0.5 * np.log(1e-12 + var_pred)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import gaussian_kde, norm
