@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -88,6 +89,25 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
 
     def compute_from_params(self, x: float, params: ParamsT) -> float:
         return self.compute(x, params)
+
+    def compute_jax(self, x: float, params: ParamsT) -> Any:
+        import jax.numpy as jnp
+
+        u_values = self.spec.pack_params(params)
+        names = self.parameter_names()
+        x_lo, x_hi = self.x_bounds_phys
+        x_phys = x_lo + x * (x_hi - x_lo)
+
+        phys_values = []
+        for name, u in zip(names, u_values, strict=True):
+            lo, hi = self.param_bounds_phys[name]
+            v = lo + u * (hi - lo)
+            # JAX-compatible clip (can't raise exceptions inside JAX trace)
+            v = jnp.clip(v, lo, hi)
+            phys_values.append(v)
+
+        phys_typed = self.inner.spec.unpack_params(phys_values)
+        return self.inner.compute_jax(x_phys, phys_typed)
 
     def compute_vectorized(self, x_unit: float, *param_arrays: object) -> np.ndarray:
         """Vectorized one-x evaluation over many unit-cube parameter samples.

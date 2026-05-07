@@ -120,24 +120,13 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         h = max(1e-12, (hi - lo) * 1e-3)
 
         belief = self.belief
-        noise_std = self._noise_std
-
-        def _numpy_eig(x: object) -> object:
-            x_arr = np.asarray(x)
-            if x_arr.ndim == 0:
-                return float(belief.expected_information_gain(np.array([float(x_arr)]))[0])
-            return belief.expected_information_gain(x_arr)
 
         def _eig_fn(x):
-            return jax.pure_callback(
-                _numpy_eig,
-                jax.ShapeDtypeStruct((), jnp.float32),
-                x,
-                vmap_method="expand_dims",
-            )
+            # x is scalar, expected_information_gain_jax expects a 1D array of candidates.
+            # Returns 1D array of gains, we take [0]
+            return belief.expected_information_gain_jax(jnp.array([x]))[0]
 
-        def _grad_fn(x):
-            return (_eig_fn(x + h) - _eig_fn(x - h)) / (2 * h)
+        _grad_fn = jax.grad(_eig_fn)
 
         def _step(carry, _):
             x = carry
@@ -145,8 +134,12 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             x_new = jnp.clip(x + step_size * g, lo, hi)
             return x_new, None
 
-        key = jax.random.PRNGKey(self.inference_step_count)
-        x0s = jax.random.uniform(key, shape=(n_restarts,), minval=lo, maxval=hi)
+        # Coarse utility evaluation to find good starting points
+        n_coarse = self.n_candidates if self.n_candidates is not None else max(100, n_restarts * 5)
+        coarse_candidates = jnp.array(self._generate_candidates(n_coarse))
+        coarse_eigs = jax.vmap(_eig_fn)(coarse_candidates)
+        top_indices = jnp.argsort(coarse_eigs)[-n_restarts:]
+        x0s = coarse_candidates[top_indices]
 
         def _optimize(x0):
             return jax.lax.scan(_step, x0, None, length=n_steps)[0]

@@ -737,6 +737,30 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Return approximate information gain (using 1e-12 as epsilon)
         return 0.5 * np.log(1e-12 + var_pred)
 
+    def expected_information_gain_jax(self, candidates: Any) -> Any:
+        """Compute the approximate expected information gain using JAX for auto-differentiation."""
+        import jax.numpy as jnp
+
+        # Broadcast candidates to shape (n_candidates, 1)
+        x_2d = jnp.atleast_1d(candidates)[:, None]
+
+        # Construct params with shape (1, n_particles)
+        data = {}
+        for i, name in enumerate(self._param_names):
+            data[name] = jnp.array(self._particles[:, i])[None, :]
+
+        params = self.model.spec.params_cls(**data)
+
+        # Evaluate model: predictions shape is (n_candidates, n_particles)
+        predictions = self.model.compute_jax(x_2d, params)
+
+        # Weighted variance
+        weights = jnp.array(self._weights)[None, :]
+        mean_pred = jnp.sum(predictions * weights, axis=1, keepdims=True)
+        var_pred = jnp.sum(((predictions - mean_pred) ** 2) * weights, axis=1)
+
+        return 0.5 * jnp.log(1e-12 + var_pred)
+
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import gaussian_kde, norm
 

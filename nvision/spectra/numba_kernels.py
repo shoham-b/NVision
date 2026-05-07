@@ -133,48 +133,130 @@ def nv_center_pseudo_voigt_vectorized_many(
     """
     m = xs.shape[0]
     n = freq.shape[0]
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            fwhm = fwhm_total[j]
-            lf = lorentz_frac[j]
-            fwhm_l = lf * fwhm
-            fwhm_g = (1.0 - lf) * fwhm
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
+    for j in prange(n):
+        fwhm = fwhm_total[j]
+        lf = lorentz_frac[j]
+        fwhm_l = lf * fwhm
+        fwhm_g = (1.0 - lf) * fwhm
+        f = freq[j]
+        s = split[j]
+        k = k_np[j]
+        d = dip_depth[j]
+        bg = background[j]
 
-            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-            gamma = fwhm_l / 2.0
-            ratio = fwhm_l / (fwhm_l + fwhm_g)
-            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-            lorentz_center = 1.0 / gamma if abs(gamma) > 1e-12 else 0.0
-            gauss_center = 1.0 / (sigma * _SQRT2PI) if abs(sigma) > 1e-12 else 0.0
-            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+        gamma = fwhm_l / 2.0
+        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+        
+        gamma2 = gamma * gamma
+        has_gamma = abs(gamma) > 1e-12
+        lorentz_center = 1.0 / gamma if has_gamma else 0.0
+        
+        has_sigma = abs(sigma) > 1e-12
+        if has_sigma:
+            gauss_center = 1.0 / (sigma * _SQRT2PI)
+            neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
+            eta_gauss_factor = (1.0 - eta) * gauss_center
+        else:
+            gauss_center = 0.0
+            neg_half_inv_sigma2 = 0.0
+            eta_gauss_factor = 0.0
+            
+        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
 
-            actual_depth = d / k
+        actual_depth = d / k
+        eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
+        eta_gauss_factor = eta_gauss_factor * inv_center_height
 
-            # Helper to compute pseudo-Voigt profile at x, centered at c
-            def _profile(xv: float, c: float) -> float:
-                dx = xv - c
-                lorentz = gamma / (dx * dx + gamma * gamma) if abs(gamma) > 1e-12 else 0.0
-                if abs(sigma) > 1e-12:
-                    z = dx / sigma
-                    gauss = math.exp(-0.5 * z * z) / (sigma * _SQRT2PI)
-                else:
-                    gauss = 0.0
-                return (eta * lorentz + (1.0 - eta) * gauss) * inv_center_height
+        amp_c = actual_depth
+        amp_l = amp_c / k
+        amp_r = amp_c * k
+        
+        has_split = s >= 1e-10
 
-            pc = _profile(x, f)
-            if s < 1e-10:
-                out[i, j] = bg - actual_depth * pc
-            else:
-                pl = _profile(x, f - s)
-                pr = _profile(x, f + s)
-                left_dip = (actual_depth / k) * pl
-                center_dip = actual_depth * pc
-                right_dip = (actual_depth * k) * pr
-                out[i, j] = bg - (left_dip + center_dip + right_dip)
+        if not has_split:
+            for i in range(m):
+                x = xs[i]
+                dx_c = x - f
+                dx_c2 = dx_c * dx_c
+                
+                lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
+                gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                pc = lorentz_c + gauss_c
+                
+                out[i, j] = bg - amp_c * pc
+        else:
+            for i in range(m):
+                x = xs[i]
+                dx_c = x - f
+                dx_c2 = dx_c * dx_c
+                
+                lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
+                gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                pc = lorentz_c + gauss_c
+
+                dx_l = dx_c + s
+                dx_l2 = dx_l * dx_l
+                lorentz_l = eta_lorentz_factor / (dx_l2 + gamma2) if has_gamma else 0.0
+                gauss_l = eta_gauss_factor * math.exp(dx_l2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                pl = lorentz_l + gauss_l
+                
+                dx_r = dx_c - s
+                dx_r2 = dx_r * dx_r
+                lorentz_r = eta_lorentz_factor / (dx_r2 + gamma2) if has_gamma else 0.0
+                gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                pr = lorentz_r + gauss_r
+                
+                out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
+@njit(cache=True)
+def nv_center_pseudo_voigt_eval(
+    x: float,
+    freq: float,
+    fwhm_total: float,
+    lorentz_frac: float,
+    split: float,
+    k_np: float,
+    dip_depth: float,
+    background: float,
+) -> float:
+    """NV triple pseudo-Voigt ODMR implementation."""
+    fwhm_l = lorentz_frac * fwhm_total
+    fwhm_g = (1.0 - lorentz_frac) * fwhm_total
+    sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+    gamma = fwhm_l / 2.0
+    
+    ratio = fwhm_l / (fwhm_l + fwhm_g)
+    eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+    
+    def _profile(xv, center):
+        dx = xv - center
+        dx2 = dx * dx
+        
+        # Heights for normalization
+        has_gamma = abs(gamma) > 1e-12
+        lorentz_peak = 1.0 / gamma if has_gamma else 0.0
+        
+        has_sigma = abs(sigma) > 1e-12
+        if has_sigma:
+            gauss_peak = 1.0 / (sigma * _SQRT2PI)
+            gauss = math.exp(-0.5 * (dx2 / (sigma * sigma))) / (sigma * _SQRT2PI)
+        else:
+            gauss_peak = 0.0
+            gauss = 0.0
+            
+        lorentz = gamma / (dx2 + gamma * gamma) if has_gamma else 0.0
+        peak = eta * lorentz_peak + (1.0 - eta) * gauss_peak
+        profile = eta * lorentz + (1.0 - eta) * gauss
+        return profile / peak if abs(peak) > 1e-12 else 0.0
+
+    pc = _profile(x, freq)
+    actual_depth = dip_depth / k_np
+    
+    if split < 1e-10:
+        return background - actual_depth * pc
+
+    pl = _profile(x, freq - split)
+    pr = _profile(x, freq + split)
+    return background - (actual_depth / k_np * pl + actual_depth * pc + actual_depth * k_np * pr)

@@ -7,13 +7,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
+from nvision.spectra.jax_kernels import nv_center_lorentzian_jax, nv_center_pseudo_voigt_jax
 from nvision.spectra.numba_kernels import (
     nv_center_lorentzian_eval,
     nv_center_lorentzian_vectorized_many,
+    nv_center_pseudo_voigt_eval,
     nv_center_pseudo_voigt_vectorized_many,
 )
 from nvision.spectra.signal import SignalModel
@@ -125,7 +128,15 @@ class NVCenterLorentzianModel(
         background: float,
     ) -> float:
         """Triple Lorentzian NV ODMR; parameter order matches :meth:`parameter_names`."""
-        return nv_center_lorentzian_eval(float(x), frequency, linewidth, split, k_np, dip_depth, background)
+        return nv_center_lorentzian_eval(
+            float(x),
+            float(frequency),
+            float(linewidth),
+            float(split),
+            float(k_np),
+            float(dip_depth),
+            float(background),
+        )
 
     def compute_nvcenter_lorentzian_model_vectorized(
         self,
@@ -147,9 +158,7 @@ class NVCenterLorentzianModel(
         bg = np.asarray(background, dtype=FLOAT_DTYPE)
 
         out = np.empty((1, freq.shape[0]), dtype=FLOAT_DTYPE)
-        nv_center_lorentzian_vectorized_many(
-            xs, freq, linewidth_arr, split_arr, k_np_arr, depth, bg, out
-        )
+        nv_center_lorentzian_vectorized_many(xs, freq, linewidth_arr, split_arr, k_np_arr, depth, bg, out)
         return out[0]
 
     _SPEC = _NVCenterLorentzianSpec()
@@ -189,25 +198,15 @@ class NVCenterLorentzianModel(
         )
 
     def compute_jax(self, x: float, params: NVCenterLorentzianSpectrum) -> Any:
-        """JAX-compatible triple-Lorentzian evaluation."""
-        import jax.numpy as jnp
-
-        f = params.frequency
-        lw = params.linewidth
-        s = params.split
-        k = params.k_np
-        d = params.dip_depth / params.k_np
-        bg = params.background
-
-        lw2 = lw**2
-
-        def dip(c, amp):
-            return (amp * lw2) / ((x - c) ** 2 + lw2)
-
-        left = dip(f - s, d / k)
-        center = dip(f, d)
-        right = dip(f + s, d * k)
-        return bg - (left + center + right)
+        return nv_center_lorentzian_jax(
+            x,
+            params.frequency,
+            params.linewidth,
+            params.split,
+            params.k_np,
+            params.dip_depth,
+            params.background,
+        )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
         actual_depth = samples.dip_depth / samples.k_np
@@ -329,74 +328,6 @@ class NVCenterVoigtModel(
         Background level
     """
 
-    def __init__(self):
-        self._backend = "pseudo_voigt"
-        try:
-            # Prefer JAX implementation when available.
-            from jax.scipy.special import wofz
-
-            self.wofz = wofz
-            self._backend = "jax.scipy.special.wofz"
-        except ImportError:
-            try:
-                from scipy.special import wofz
-
-                self.wofz = wofz
-                self._backend = "scipy.special.wofz"
-            except ImportError:
-                self.wofz = None
-        except Exception:
-            # Any runtime issue in JAX path falls back to SciPy/pseudo-Voigt.
-            try:
-                from scipy.special import wofz
-
-                self.wofz = wofz
-                self._backend = "scipy.special.wofz"
-            except ImportError:
-                self.wofz = None
-        if self.wofz is None:
-            self._backend = "pseudo_voigt"
-
-    def _voigt_profile(self, x: float, center: float, fwhm_l: float, fwhm_g: float) -> float:
-        """Compute Voigt profile at x.
-
-        Uses Faddeeva function for exact computation if JAX/SciPy are available,
-        otherwise falls back to pseudo-Voigt approximation.
-        """
-        if self.wofz is not None:
-            sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
-            gamma = fwhm_l / 2
-            z = ((x - center) + 1j * gamma) / (sigma * np.sqrt(2))
-            w = self.wofz(z)
-            return w.real / (sigma * np.sqrt(2 * np.pi))
-        else:
-            eta = (
-                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-            )
-            gamma = fwhm_l / 2
-            lorentz = gamma / ((x - center) ** 2 + gamma**2)
-            sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
-            gauss = np.exp(-0.5 * ((x - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
-            return eta * lorentz + (1 - eta) * gauss
-
-    def _voigt_center_height(self, fwhm_l: float, fwhm_g: float) -> float:
-        """Return Voigt profile value at its own center."""
-        return self._voigt_profile(0.0, 0.0, fwhm_l, fwhm_g)
-
-    def _voigt_profile_unit_peak(self, x: float, center: float, fwhm_l: float, fwhm_g: float) -> float:
-        """Voigt profile normalized so value at center is 1.
-
-        ``_voigt_profile`` returns an area-normalized PDF-like profile, whose peak
-        height changes with width parameters. Normalizing by the center value keeps
-        dip_depth semantics stable across linewidth/fwhm settings.
-        """
-        center_val = self._voigt_center_height(fwhm_l, fwhm_g)
-        if abs(center_val) < 1e-12:
-            return 0.0
-        return self._voigt_profile(x, center, fwhm_l, fwhm_g) / center_val
-
     def compute_nvcenter_voigt_model(
         self,
         x: float,
@@ -409,18 +340,16 @@ class NVCenterVoigtModel(
         background: float,
     ) -> float:
         """Triple Voigt NV ODMR; parameter order matches :meth:`parameter_names`."""
-        fwhm_l = lorentz_frac * fwhm_total
-        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-        actual_depth = dip_depth / k_np
-        if split < 1e-10:
-            # Zero-field: single combined dip with amplitude = actual_depth
-            return background - actual_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_l, fwhm_g)
-
-        left_dip = (actual_depth / k_np) * self._voigt_profile_unit_peak(x, frequency - split, fwhm_l, fwhm_g)
-        center_dip = actual_depth * self._voigt_profile_unit_peak(x, frequency, fwhm_l, fwhm_g)
-        right_dip = (actual_depth * k_np) * self._voigt_profile_unit_peak(x, frequency + split, fwhm_l, fwhm_g)
-
-        return background - (left_dip + center_dip + right_dip)
+        return nv_center_pseudo_voigt_eval(
+            float(x),
+            float(frequency),
+            float(fwhm_total),
+            float(lorentz_frac),
+            float(split),
+            float(k_np),
+            float(dip_depth),
+            float(background),
+        )
 
     _SPEC = _NVCenterVoigtSpec()
 
@@ -468,124 +397,19 @@ class NVCenterVoigtModel(
         )
 
     def compute_jax(self, x: float, params: NVCenterVoigtSpectrum) -> Any:
-        """JAX-compatible Voigt evaluation.
-
-        If JAX backend is available for wofz, this uses the exact Faddeeva
-        implementation. Otherwise falls back to pseudo-Voigt via jax.numpy.
-        """
-        import jax.numpy as jnp
-
-        f = params.frequency
-        fwhm = params.fwhm_total
-        lf = params.lorentz_frac
-        s = params.split
-        k = params.k_np
-        d = params.dip_depth
-        bg = params.background
-
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
-        actual_depth = d / k
-
-        sigma = fwhm_g / (2 * jnp.sqrt(2 * jnp.log(2)))
-        gamma = fwhm_l / 2
-
-        def _profile(xv, center):
-            if self._backend == "jax.scipy.special.wofz" and self.wofz is not None:
-                z = ((xv - center) + 1j * gamma) / (sigma * jnp.sqrt(2))
-                w = self.wofz(z)
-                profile = w.real / (sigma * jnp.sqrt(2 * jnp.pi))
-                # Normalize to unit peak
-                z0 = (0.0 + 1j * gamma) / (sigma * jnp.sqrt(2))
-                peak = self.wofz(z0).real / (sigma * jnp.sqrt(2 * jnp.pi))
-                return profile / peak
-            else:
-                # JAX-friendly pseudo-Voigt
-                eta = (
-                    1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                    - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                    + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-                )
-                dx = xv - center
-                lorentz_peak = 1.0 / gamma
-                lorentz = gamma / (dx**2 + gamma**2)
-                gauss_peak = 1.0 / (sigma * jnp.sqrt(2 * jnp.pi))
-                gauss = jnp.exp(-0.5 * (dx / sigma) ** 2) / (sigma * jnp.sqrt(2 * jnp.pi))
-                profile = eta * lorentz + (1 - eta) * gauss
-                peak = eta * lorentz_peak + (1 - eta) * gauss_peak
-                return profile / peak
-
-        pc = _profile(x, f)
-        if isinstance(s, float) and s < 1e-10:
-            return bg - actual_depth * pc
-
-        pl = _profile(x, f - s)
-        pr = _profile(x, f + s)
-        return bg - (actual_depth / k * pl + actual_depth * pc + actual_depth * k * pr)
+        return nv_center_pseudo_voigt_jax(
+            x,
+            params.frequency,
+            params.fwhm_total,
+            params.lorentz_frac,
+            params.split,
+            params.k_np,
+            params.dip_depth,
+            params.background,
+        )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
-        x_f = float(x)
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        fwhm_total = np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE)
-        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE)
-        fwhm_l = lorentz_frac * fwhm_total
-        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-        split = np.asarray(samples.split, dtype=FLOAT_DTYPE)
-        k_np = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
-        depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
-        actual_depth = depth / k_np
-        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
-
-        sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
-        gamma = fwhm_l / 2
-
-        # Compute center height (peak value) for normalization to unit peak
-        if self.wofz is not None:
-            z_center = (0.0 + 1j * gamma) / (sigma * np.sqrt(2))
-            w_center = self.wofz(z_center)
-            center_height = w_center.real / (sigma * np.sqrt(2 * np.pi))
-        else:
-            eta = (
-                1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-            )
-            lorentz_center = 1.0 / gamma
-            gauss_center = 1.0 / (sigma * np.sqrt(2 * np.pi))
-            center_height = eta * lorentz_center + (1 - eta) * gauss_center
-
-        # Profile at center(s) - normalized to unit peak
-        def profile_at(center: np.ndarray) -> np.ndarray:
-            if self.wofz is not None:
-                z = ((x_f - center) + 1j * gamma) / (sigma * np.sqrt(2))
-                w = self.wofz(z)
-                profile = w.real / (sigma * np.sqrt(2 * np.pi))
-            else:
-                eta = (
-                    1.36603 * (fwhm_l / (fwhm_l + fwhm_g))
-                    - 0.47719 * (fwhm_l / (fwhm_l + fwhm_g)) ** 2
-                    + 0.11116 * (fwhm_l / (fwhm_l + fwhm_g)) ** 3
-                )
-                lorentz = gamma / ((x_f - center) ** 2 + gamma**2)
-                gauss = np.exp(-0.5 * ((x_f - center) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
-                profile = eta * lorentz + (1 - eta) * gauss
-            return profile / center_height
-
-        profile_c = profile_at(freq)
-        split_mask = split < 1e-10
-
-        # Split case: left/right/center dips
-        profile_l = profile_at(freq - split)
-        profile_r = profile_at(freq + split)
-        center_dip = actual_depth * profile_c
-        left_dip = (actual_depth / k_np) * profile_l
-        right_dip = (actual_depth * k_np) * profile_r
-        pred_split = bg - (left_dip + center_dip + right_dip)
-
-        # No-split case: combined dip at center
-        pred_nosplit = bg - actual_depth * profile_c
-
-        return np.where(split_mask, pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)
+        return self.compute_vectorized_many([x], samples)[0]
 
     def compute_vectorized_many(self, x_array: Sequence[float], samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
         if not hasattr(samples, "frequency"):
@@ -597,62 +421,19 @@ class NVCenterVoigtModel(
             raise ValueError("x_array must be one-dimensional")
 
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-
-        if self.wofz is None:
-            # Fast pseudo-Voigt path via fused Numba kernel.
-            out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
-            nv_center_pseudo_voigt_vectorized_many(
-                xs,
-                freq,
-                np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
-                np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
-                np.asarray(samples.split, dtype=FLOAT_DTYPE),
-                np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-                np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-                np.asarray(samples.background, dtype=FLOAT_DTYPE),
-                out,
-            )
-            return out
-
-        # Exact wofz path – keep vectorised SciPy/JAX calls but reduce temporaries.
-        fwhm_total = np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE)
-        lorentz_frac = np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE)
-        fwhm_l = lorentz_frac * fwhm_total
-        fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-        split = np.asarray(samples.split, dtype=FLOAT_DTYPE)
-        k_np = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
-        depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
-        actual_depth = depth / k_np
-        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
-
-        sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))
-        gamma = fwhm_l / 2
-        x2d = xs[:, None]
-
-        # Center height (peak value) for normalization
-        z_center = (0.0 + 1j * gamma) / (sigma * np.sqrt(2))
-        w_center = self.wofz(z_center)
-        center_height = w_center.real / (sigma * np.sqrt(2 * np.pi))
-
-        def _wofz_profile_at(center: np.ndarray) -> np.ndarray:
-            center2d = center[None, :]
-            z = ((x2d - center2d) + 1j * gamma[None, :]) / (sigma[None, :] * np.sqrt(2))
-            w = self.wofz(z)
-            profile = w.real / (sigma[None, :] * np.sqrt(2 * np.pi))
-            return profile / center_height[None, :]
-
-        profile_c = _wofz_profile_at(freq)
-        split_mask = split < 1e-10
-        profile_l = _wofz_profile_at(freq - split)
-        profile_r = _wofz_profile_at(freq + split)
-
-        center_dip = actual_depth[None, :] * profile_c
-        left_dip = (actual_depth[None, :] / k_np[None, :]) * profile_l
-        right_dip = (actual_depth[None, :] * k_np[None, :]) * profile_r
-        pred_split = bg[None, :] - (left_dip + center_dip + right_dip)
-
-        pred_nosplit = bg[None, :] - actual_depth[None, :] * profile_c
-        return np.where(split_mask[None, :], pred_nosplit, pred_split).astype(FLOAT_DTYPE, copy=False)
+        out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
+        nv_center_pseudo_voigt_vectorized_many(
+            xs,
+            freq,
+            np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
+            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
+            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+            out,
+        )
+        return out
 
 
 def nv_center_lorentzian_bounds_for_domain(
@@ -806,6 +587,7 @@ class NVCenterOnePeakLorentzianModel(
 
     def compute_jax(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> Any:
         import jax.numpy as jnp
+
         lw2 = params.linewidth**2
         denom = (x - params.frequency) ** 2 + lw2
         return params.background - (params.dip_depth * lw2) / denom
