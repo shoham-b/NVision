@@ -723,6 +723,9 @@ class _TaskRunner:
                 cfg["noise_model"] = experiment.true_signal.noise_model
 
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
+        token = set_combination_log_initials(
+            self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid
+        )
 
         try:
             result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))
@@ -734,6 +737,8 @@ class _TaskRunner:
                 focus_window=None,
             )
             stop_reason = "repeat_timeout"
+        finally:
+            reset_combination_log_initials(token)
 
         # Populate sweep cache from this repeat's observations (for sharing with subsequent repeats)
         if observer.last_locator is not None:
@@ -775,11 +780,7 @@ class _TaskRunner:
             step_count = getattr(last_loc, "step_count", 0)
             inf_steps = getattr(last_loc, "inference_step_count", 0)
             max_steps = getattr(last_loc, "max_steps", 0)
-            log = logging.getLogger("nvision")
-            log.info(
-                f"[STEP DEBUG] rid={rid} init_sweep={init_sweep_steps} eff_sweep={eff_sweep_steps} "
-                f"step_count={step_count} inf_steps={inf_steps} max_steps={max_steps}"
-            )
+
             # For sweep-only runs (no inference phase), all steps are sweep steps.
             if inf_steps == 0 and step_count > (eff_sweep_steps or 0):
                 eff_sweep_steps = step_count

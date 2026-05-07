@@ -14,11 +14,8 @@ from typing import Any
 from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
-    NVISION_SMC_JITTER_SCALE,
     NVISION_SMC_NUM_PARTICLES,
     NVISION_SMC_SCALE,
-    NVISION_SMC_USE_FULL_COVARIANCE,
-    NVISION_SMC_USE_INFORMATION_WEIGHTS,
 )
 from nvision.models.noise import CompositeNoise
 from nvision.sim import presets as sim_presets
@@ -47,12 +44,9 @@ class Combination:
 _NV_SMC: dict[str, object] = {
     "builder": nv_center_smc_belief,
     "num_particles": NVISION_SMC_NUM_PARTICLES,
-    "jitter_scale": NVISION_SMC_JITTER_SCALE,
     "ess_threshold": NVISION_SMC_ESS_THRESHOLD,
-    "use_full_covariance": NVISION_SMC_USE_FULL_COVARIANCE,
     "a_param": NVISION_SMC_A_PARAM,
     "scale": NVISION_SMC_SCALE,
-    "use_information_weights": NVISION_SMC_USE_INFORMATION_WEIGHTS,
 }
 
 
@@ -100,17 +94,26 @@ class CombinationGrid:
         if generator_name.startswith("NVCenter-"):
             from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
 
-            return [
-                ("GenericSweep", GenericSweepLocator),
-                ("SobolSweep", SobolSweepLocator),
-                ("StagedSobolSweep", StagedSobolSweepLocator),
+            # Narrow-domain generators never use initial sweeps.
+            is_narrow = generator_name.endswith("-narrow")
+            default_sweep = 0 if is_narrow else None
+
+            strategies = []
+            if not is_narrow:
+                strategies.extend([
+                    ("GenericSweep", GenericSweepLocator),
+                    ("SobolSweep", SobolSweepLocator),
+                    ("StagedSobolSweep", StagedSobolSweepLocator),
+                ])
+
+            strategies.extend([
                 (
                     "Bayesian-SBED",
-                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, **_NV_SMC}},
+                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC}},
                 ),
                 (
                     "Bayesian-MaximumLikelihood",
-                    {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, **_NV_SMC}},
+                    {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC}},
                 ),
                 (
                     "Bayesian-UtilitySampling",
@@ -118,6 +121,7 @@ class CombinationGrid:
                         "class": UtilitySamplingLocator,
                         "config": {
                             "max_steps": 200,
+                            "initial_sweep_steps": default_sweep,
                             **_NV_SMC,
                             "pickiness": 4.0,
                             "noise_std": 0.02,
@@ -127,45 +131,15 @@ class CombinationGrid:
                         },
                     },
                 ),
-                (
-                    "Bayesian-SBED-NoSweep",
-                    {
-                        "class": SequentialBayesianExperimentDesignLocator,
-                        "config": {"max_steps": 200, "initial_sweep_steps": 0, **_NV_SMC},
-                    },
-                ),
-                (
-                    "Bayesian-MaximumLikelihood-NoSweep",
-                    {
-                        "class": MaximumLikelihoodLocator,
-                        "config": {"max_steps": 200, "initial_sweep_steps": 0, **_NV_SMC},
-                    },
-                ),
-                (
-                    "Bayesian-UtilitySampling-NoSweep",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {
-                            "max_steps": 200,
-                            "initial_sweep_steps": 0,
-                            **_NV_SMC,
-                            "pickiness": 4.0,
-                            "noise_std": 0.02,
-                            "cost": 1.0,
-                            "n_mc_samples": 64,
-                            "n_candidates": 64,
-                        },
-                    },
-                ),
-                (
+            ])
+
+            if "voigt" not in generator_name:
+                # Student's t always runs without a sweep as requested
+                strategies.append((
                     "StudentsTApproximation",
-                    {"class": StudentsTLocator, "config": {"max_steps": 200, "df": 3.0}},
-                ),
-                (
-                    "StudentsTApproximation-NoSweep",
                     {"class": StudentsTLocator, "config": {"max_steps": 200, "initial_sweep_steps": 0, "df": 3.0}},
-                ),
-            ]
+                ))
+            return strategies
 
         return [
             ("GenericSweep", GenericSweepLocator),

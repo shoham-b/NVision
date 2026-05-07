@@ -42,6 +42,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             raise TypeError("UnitCubeSMCMarginalDistribution requires a UnitCubeSignalModel")
         super().__post_init__()
 
+    def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
+        """Override to normalize physical candidates to [0, 1] for the UnitCube model."""
+        lo, hi = self.physical_x_bounds
+        unit_candidates = (candidates - lo) / (hi - lo)
+        return super().expected_information_gain(unit_candidates, noise_std=noise_std)
+
     def estimates(self) -> dict[str, float]:
         raw = super().estimates()
         return {k: self._to_physical(k, v) for k, v in raw.items()}
@@ -68,14 +74,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         return super().sample(n)
-
-    def select_maximum_likelihood(self, n: int) -> ParameterValues[np.ndarray]:
-        """Select top-n particles by posterior weight (physical scale)."""
-        return super().select_maximum_likelihood(n)
-
-    def select_max_information_gain(self, candidates: np.ndarray, n: int) -> ParameterValues[np.ndarray]:
-        """Select particles maximizing information gain at candidates (physical scale)."""
-        return super().select_max_information_gain(candidates, n)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
         """Shrink physical bounds for ``param_name`` and remap unit particles (see grid variant)."""
@@ -110,24 +108,17 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             model=self.model,
             parameter_bounds=self.parameter_bounds.copy(),
             num_particles=self.num_particles,
-            jitter_scale=self.jitter_scale,
             ess_threshold=self.ess_threshold,
-            use_full_covariance=self.use_full_covariance,
             a_param=self.a_param,
             scale=self.scale,
             last_obs=self.last_obs,
-            annealed_jitter=self.annealed_jitter,
-            annealed_jitter_initial=self.annealed_jitter_initial,
-            annealed_jitter_min=self.annealed_jitter_min,
-            annealed_jitter_decay=self.annealed_jitter_decay,
             elitism_ratio=self.elitism_ratio,
-            use_information_weights=self.use_information_weights,
             noise_model=self.noise_model,
+            auto_resample=self.auto_resample,
             physical_param_bounds=dict(self.physical_param_bounds),
             physical_x_bounds=self.physical_x_bounds,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
-        dist._current_annealed_jitter_scale = self._current_annealed_jitter_scale
         return dist

@@ -8,7 +8,9 @@ from contextvars import ContextVar, Token
 _combo_initials: ContextVar[str] = ContextVar("nvision_combo_initials", default="")
 
 
-def format_combination_log_initials(generator_name: str, noise_name: str, strategy_name: str) -> str:
+def format_combination_log_initials(
+    generator_name: str, noise_name: str, strategy_name: str, repeat_idx: int | None = None
+) -> str:
     """Short gen/noise/strategy initials for log lines (hyphen segment initials, up to two per field)."""
 
     def abbrev(label: str) -> str:
@@ -17,12 +19,17 @@ def format_combination_log_initials(generator_name: str, noise_name: str, strate
             return "?"
         return "".join(p[0].upper() for p in parts[:2])
 
-    return f"{abbrev(generator_name)}.{abbrev(noise_name)}.{abbrev(strategy_name)}"
+    tag = f"{abbrev(generator_name)}.{abbrev(noise_name)}.{abbrev(strategy_name)}"
+    if repeat_idx is not None:
+        tag = f"{tag}#{repeat_idx}"
+    return tag
 
 
-def set_combination_log_initials(generator_name: str, noise_name: str, strategy_name: str) -> Token[str]:
+def set_combination_log_initials(
+    generator_name: str, noise_name: str, strategy_name: str, repeat_idx: int | None = None
+) -> Token[str]:
     """Return a token for :func:`reset_combination_log_initials`."""
-    tag = format_combination_log_initials(generator_name, noise_name, strategy_name)
+    tag = format_combination_log_initials(generator_name, noise_name, strategy_name, repeat_idx=repeat_idx)
     return _combo_initials.set(tag)
 
 

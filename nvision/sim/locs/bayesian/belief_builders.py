@@ -25,11 +25,8 @@ from nvision.belief.grid_marginal import GridParameter
 from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
-    NVISION_SMC_JITTER_SCALE,
     NVISION_SMC_NUM_PARTICLES,
     NVISION_SMC_SCALE,
-    NVISION_SMC_USE_FULL_COVARIANCE,
-    NVISION_SMC_USE_INFORMATION_WEIGHTS,
 )
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
@@ -218,12 +215,9 @@ def nv_center_smc_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
     num_particles: int = NVISION_SMC_NUM_PARTICLES,
-    jitter_scale: float = NVISION_SMC_JITTER_SCALE,
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD,
-    use_full_covariance: bool = NVISION_SMC_USE_FULL_COVARIANCE,
     a_param: float = NVISION_SMC_A_PARAM,
     scale: bool = NVISION_SMC_SCALE,
-    use_information_weights: bool = NVISION_SMC_USE_INFORMATION_WEIGHTS,
     noise_model: NoiseSignalModel | None = None,
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
@@ -272,12 +266,9 @@ def nv_center_smc_belief(
         model=wrapped,
         parameter_bounds={name: (0.0, 1.0) for name in merged_bounds},
         num_particles=num_particles,
-        jitter_scale=jitter_scale,
         ess_threshold=ess_threshold,
-        use_full_covariance=use_full_covariance,
         a_param=a_param,
         scale=scale,
-        use_information_weights=use_information_weights,
         noise_model=noise_model,
         physical_param_bounds=merged_bounds,
         physical_x_bounds=x_phys,

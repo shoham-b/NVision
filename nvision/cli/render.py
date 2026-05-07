@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import fnmatch
 import json
 import logging
 import multiprocessing
@@ -193,11 +194,24 @@ def _config_matches_filters(
     strategy = str(cfg.get("strategy"))
     inferred_category = CombinationGrid.generator_category(generator)
 
+    # 1. Basic category/generator/strategy filters
     if filter_category and inferred_category != filter_category:
         return False
-    if filter_generator and generator != filter_generator:
+    if filter_generator and not fnmatch.fnmatch(generator, filter_generator):
         return False
-    return not (filter_strategy and filter_strategy not in strategy)
+    if filter_strategy:
+        patterns = [p.strip() for p in filter_strategy.split(",")]
+        if not any(fnmatch.fnmatch(strategy, p) for p in patterns):
+            return False
+
+    # 2. Grid validation: ensure the strategy is valid for this generator
+    # (e.g. narrow signals should not have sweep strategies)
+    grid = CombinationGrid()
+    valid_strategies = [name for name, _ in grid.strategies_for(generator)]
+    if strategy not in valid_strategies:
+        return False
+
+    return True
 
 
 def _config_matches_run_params(

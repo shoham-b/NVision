@@ -74,6 +74,7 @@ def _run_named_group(
     no_cache: bool = False,
     runners: int = cli_defaults.DEFAULT_RUNNERS,
     open_browser: bool = False,
+    loc_max_steps: int = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     gcp: bool = cli_defaults.DEFAULT_GCP,
     gcp_bucket: str | None = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> None:
@@ -84,6 +85,7 @@ def _run_named_group(
         repeats=repeats_override if repeats_override is not None else 5,
         run_group=group.name,
         no_cache=no_cache,
+        loc_max_steps=loc_max_steps,
         ignore_cache_strategy=None,
         all_experiments=all_experiments,
         runners=runners,
@@ -147,6 +149,10 @@ def run_preset(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Run any registered preset group by name (single entry point for all groups)."""
     effective_no_cache = (group_name != "all") if no_cache is None else no_cache
@@ -157,6 +163,7 @@ def run_preset(
         no_cache=effective_no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -237,6 +244,10 @@ def sweep_only(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Alias for ``groups run sweep_only``."""
     _run_named_group(
@@ -245,6 +256,7 @@ def sweep_only(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -268,6 +280,10 @@ def sweep_then_bayesian(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Alias for ``groups run sweep-then-bayesian``."""
     _run_named_group(
@@ -276,6 +292,7 @@ def sweep_then_bayesian(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -299,6 +316,10 @@ def bayesian_only(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Alias for ``groups run bayesian-only``."""
     _run_named_group(
@@ -307,6 +328,7 @@ def bayesian_only(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -330,6 +352,10 @@ def bayesian_clean(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Alias for ``groups run bayesian-clean``."""
     _run_named_group(
@@ -338,6 +364,7 @@ def bayesian_clean(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -361,6 +388,10 @@ def demo_group(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Alias for ``groups run demo``."""
     _run_named_group(
@@ -369,6 +400,7 @@ def demo_group(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -392,6 +424,10 @@ def narrow_only(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Alias for ``groups run narrow_only``."""
     _run_named_group(
@@ -400,6 +436,7 @@ def narrow_only(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -423,6 +460,10 @@ def smc_only(
         "--gcp-bucket",
         help="GCP bucket to upload results to",
     ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Alias for ``groups run smc-only``."""
     _run_named_group(
@@ -431,6 +472,43 @@ def smc_only(
         no_cache=no_cache,
         runners=runners,
         open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+    )
+
+
+@groups_app.command("narrow-sbed")
+def narrow_sbed(
+    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+) -> None:
+    """Alias for ``groups run narrow_sbed``."""
+    _run_named_group(
+        "narrow_sbed",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )

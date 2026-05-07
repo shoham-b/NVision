@@ -15,6 +15,7 @@ from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_inf
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
 _POSTERIOR_MIN_NARROWING_FRACTION: float = 0.05
+_CONVERGENCE_CHECK_INTERVAL: int = 100
 
 
 def _posterior_credible_interval(
@@ -317,12 +318,7 @@ class SequentialBayesianLocator(Locator):
         return np.array([]), np.array([])
 
     def _acquire(self) -> float:
-        """Default acquisition: measure where the marginal posterior is maximised.
-
-        Uses the belief's native discretization (grid or particles) when available,
-        otherwise falls back to a uniform candidate grid. Subclasses may override
-        this method entirely or override :meth:`_candidate_utilities` to keep the
-        same selection logic with different weights.
+        """Acquisition logic must be implemented by subclasses.
 
         Returns
         -------
@@ -330,17 +326,7 @@ class SequentialBayesianLocator(Locator):
             Position in **physical units** to measure next. The base class
             will automatically normalize this to [0, 1] for the experiment.
         """
-        lo, hi = self._acquisition_bounds()
-        candidates, probs = self._native_scan_candidates(lo, hi)
-        if len(candidates) == 0:
-            candidates = self._generate_candidates(2000)
-            pdf = self.belief.marginal_pdf(self._scan_param, candidates)
-            pdf = np.asarray(pdf, dtype=float)
-            total = float(np.sum(pdf))
-            if not np.isfinite(total) or total <= 0.0:
-                return float(np.random.choice(candidates))
-            probs = pdf / total
-        return float(candidates[int(np.argmax(probs))])
+        raise NotImplementedError("Subclasses must implement _acquire()")
 
     def _observe_sweep(self, obs: Observation) -> None:
         """Handle an observation arriving during the initial sweep phase."""
@@ -359,11 +345,8 @@ class SequentialBayesianLocator(Locator):
         """
         if self.inference_step_count >= self.max_steps:
             return True
-        if self._target_params_converged():
-            self._convergence_streak += 1
-        else:
-            self._convergence_streak = 0
-        return self._convergence_streak >= self._convergence_patience_steps
+            
+        return False
 
     # ------------------------------------------------------------------
     # Locator interface — thin orchestrators that delegate to hooks above

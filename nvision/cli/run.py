@@ -6,10 +6,11 @@ import logging
 import os
 import queue
 import sys
+import multiprocessing
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -44,12 +45,34 @@ log = logging.getLogger("nvision")
 console = Console()
 
 
+def _worker_init(log_queue: multiprocessing.Queue, log_level: int) -> None:
+    """Initialize worker process: set up logging to the shared queue."""
+    from nvision.tools.log_context import CombinationLogFilter
+
+    root = logging.getLogger()
+    root.setLevel(log_level)
+    # Clear any existing handlers inherited from the parent or defaults
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+
+    _combo_filter = CombinationLogFilter()
+    _queue_handler = QueueHandler(log_queue)
+    _queue_handler.addFilter(_combo_filter)
+    root.addHandler(_queue_handler)
+
+    # Silence verbose third-party loggers
+    for noisy_logger in ["numba", "llvmlite", "matplotlib"]:
+        logging.getLogger(noisy_logger).setLevel(logging.INFO)
+
+
 def _run_tasks_process_pool(  # noqa: C901
     tasks: list[object],
     *,
     runners: int,
     cache_bridge: CacheBridge | None,
-    progress_queue: queue.Queue,
+    progress_queue: Any,
+    log_queue: Any,
+    log_level: int,
     log: logging.Logger,
     run_log_path: Path,
     monitor: ProgressMonitor | None = None,
@@ -87,15 +110,17 @@ def _run_tasks_process_pool(  # noqa: C901
                 )
 
     while pending_tasks and current_runners > 0:
-        executor = concurrent.futures.ProcessPoolExecutor(max_workers=current_runners)
+        executor = concurrent.futures.ProcessPoolExecutor(
+            max_workers=current_runners,
+            initializer=_worker_init,
+            initargs=(log_queue, log_level),
+        )
         future_to_task: dict[concurrent.futures.Future, object] = {}
         retry_tasks: list[object] = []
         shutdown_called = False
 
         try:
-            future_to_task = {
-                executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks
-            }
+            future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks}
             pending_tasks = []
 
             for future in concurrent.futures.as_completed(future_to_task):
@@ -112,9 +137,8 @@ def _run_tasks_process_pool(  # noqa: C901
                 locator_task = future_to_task[future]
                 try:
                     results_for_task = future.result()
-                    # Mark this task complete in the Rich UI once per task.
-                    if getattr(locator_task, "task_id", None) is not None:
-                        progress_queue.put((locator_task.task_id, locator_task.repeats))
+                    # Progress is now handled by workers via the shared queue;
+                    # we only need to aggregate result rows here.
                     for entries, main_result_row in results_for_task:
                         plot_manifest.extend(entries)
                         df_rows.append(main_result_row)
@@ -144,9 +168,6 @@ def _run_tasks_process_pool(  # noqa: C901
                             )
                         )
                 except Exception as exc:
-                    # Still advance progress to keep the UI consistent.
-                    if getattr(locator_task, "task_id", None) is not None:
-                        progress_queue.put((locator_task.task_id, locator_task.repeats))
                     # Log clean error to console (via monitor), full traceback to file only
                     log.error(
                         "Task failed with error (combination=%s): %s",
@@ -237,8 +258,6 @@ def _run_tasks_process_pool(  # noqa: C901
         for task in pending_tasks:
             slug = getattr(task, "slug", str(task))
             errors.append(MemoryError(f"Task {slug} failed repeatedly due to memory exhaustion"))
-            if getattr(task, "task_id", None) is not None:
-                progress_queue.put((task.task_id, task.repeats))
             completed_count += 1
             _update_status("running")
 
@@ -431,7 +450,18 @@ def run(  # noqa: C901
     except ImportError:
         pass
 
-    progress_queue: queue.Queue = queue.Queue()
+    progress_queue: Any
+    log_queue: Any
+    manager: multiprocessing.Manager | None = None
+
+    if runners > 1:
+        manager = multiprocessing.Manager()
+        progress_queue = manager.Queue()
+        log_queue = manager.Queue(-1)
+    else:
+        progress_queue = queue.Queue()
+        log_queue = queue.Queue(-1)
+
     log_display_queue: queue.Queue = queue.Queue()
     error_display_queue: queue.Queue = queue.Queue()
     monitor = ProgressMonitor(
@@ -442,7 +472,6 @@ def run(  # noqa: C901
         live_mode=not no_progress,
     )
 
-    log_queue: queue.Queue = queue.Queue(-1)
     if no_progress:
         stream_handlers: list[logging.Handler] = [_rich_handler(console, suppress_list)]
     else:
@@ -542,8 +571,8 @@ def run(  # noqa: C901
 
         log.debug("Starting simulations...")
 
-        worker_log_queue = None if runners > 1 else log_queue
-        worker_progress_queue = None if runners > 1 else progress_queue
+        worker_log_queue = log_queue
+        worker_progress_queue = progress_queue
 
         tasks, _ = build_task_list(
             TaskListBuildConfig(
@@ -609,6 +638,8 @@ def run(  # noqa: C901
                         runners=runners,
                         cache_bridge=cache_bridge,
                         progress_queue=progress_queue,
+                        log_queue=log_queue,
+                        log_level=log_level_value,
                         log=log,
                         run_log_path=run_log_path,
                         monitor=monitor,
@@ -670,6 +701,8 @@ def run(  # noqa: C901
         except Exception:
             pass
         _stop_listener_with_timeout(listener, timeout=3.0)
+        if manager is not None:
+            manager.shutdown()
 
     # Skip UI generation if there are hard errors (not just interruption)
     if errors and not interrupted:
@@ -744,10 +777,9 @@ def run(  # noqa: C901
         except Exception as exc:
             log.warning(f"Failed to upload to GCP: {exc}")
 
-    # On Windows, ProcessPoolExecutor may leave non-daemon multiprocessing threads
-    # alive after abrupt child-process kills, preventing clean process exit. Force
-    # exit only after all meaningful cleanup (UI generation, cache, logs) is done.
-    if interrupted and runners > 1 and sys.platform == "win32":
+    # On Windows, ProcessPoolExecutor and multiprocessing.Manager may leave 
+    # threads alive that prevent clean process exit even after all work is done.
+    if runners > 1 and sys.platform == "win32":
         os._exit(0)
 
     return 0

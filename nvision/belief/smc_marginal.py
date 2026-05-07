@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from dotenv import load_dotenv
+import numba
 from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
@@ -23,71 +24,73 @@ from nvision.spectra.noise_model import NoiseSignalModel
 load_dotenv()
 
 NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
-NVISION_SMC_JITTER_SCALE: float = float(os.getenv("NVISION_SMC_JITTER_SCALE", "0.1"))
 NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.5"))
-NVISION_SMC_USE_FULL_COVARIANCE: bool = os.getenv("NVISION_SMC_USE_FULL_COVARIANCE", "False").lower() in (
-    "true",
-    "1",
-    "yes",
-)
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
 NVISION_SMC_SCALE: bool = os.getenv("NVISION_SMC_SCALE", "True").lower() in ("true", "1", "yes")
-NVISION_SMC_USE_INFORMATION_WEIGHTS: bool = os.getenv("NVISION_SMC_USE_INFORMATION_WEIGHTS", "True").lower() in (
-    "true",
-    "1",
-    "yes",
-)
-NVISION_SMC_ANNEALED_JITTER: bool = os.getenv("NVISION_SMC_ANNEALED_JITTER", "False").lower() in ("true", "1", "yes")
-NVISION_SMC_ANNEALED_JITTER_INITIAL: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_INITIAL", "0.02"))
-NVISION_SMC_ANNEALED_JITTER_MIN: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_MIN", "0.001"))
-NVISION_SMC_ANNEALED_JITTER_DECAY: float = float(os.getenv("NVISION_SMC_ANNEALED_JITTER_DECAY", "0.995"))
 NVISION_SMC_ELITISM_RATIO: float = float(os.getenv("NVISION_SMC_ELITISM_RATIO", "0.2"))
+
+_EIG_CHUNK_SIZE: int = 64
 
 # --- Numba helpers (particle weights / resampling) ----------------------------
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Weighted mean and variance of ``x`` with weights ``w`` (not assumed normalized)."""
-    s = np.sum(w)
+    """Weighted mean and variance of ``x`` with weights ``w`` (2-pass stable algorithm)."""
+    n = x.shape[0]
+    if n == 0:
+        return 0.0, 0.0
+
+    # Pass 1: Combined sum of weights and weighted sum for mean
+    s = 0.0
+    wx = 0.0
+    for i in range(n):
+        wi = w[i]
+        s += wi
+        wx += wi * x[i]
+
     if s <= 0.0:
         return 0.0, 0.0
-    # Use np.dot for optimized mean calculation (avoid loop overhead)
-    mean = np.dot(w, x) / s
-    # Calculate variance without creating intermediate arrays to avoid dynamic allocation overhead
+
+    mean = wx / s
+
+    # Pass 2: Weighted variance calculation
     var_sum = 0.0
-    for i in range(x.shape[0]):
+    for i in range(n):
         d = x[i] - mean
         var_sum += w[i] * d * d
+
     return mean, var_sum / s
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _weighted_mean_axis0(particles: np.ndarray, weights: np.ndarray) -> np.ndarray:
     """Column-wise weighted means for ``particles`` shaped ``(n, d)``."""
-    sw = np.sum(weights)
+    # Ensure weights are the same float type as particles for np.dot
+    w_typed = weights.astype(particles.dtype)
+    sw = np.sum(w_typed)
     if sw <= 0.0:
         return np.zeros(particles.shape[1], dtype=particles.dtype)
-    return np.dot(weights, particles) / sw
+    return np.dot(w_typed, particles) / sw
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _systematic_resample_indices(cumulative_sum: np.ndarray, positions: np.ndarray) -> np.ndarray:
     """Map systematic ``positions`` to indices along non-decreasing ``cumulative_sum``."""
     n = positions.shape[0]
-    indices = np.empty(n, dtype=np.int64)
-    i = 0
-    j = 0
     m = cumulative_sum.shape[0]
-    while i < n:
-        while j < m and positions[i] >= cumulative_sum[j]:
+    indices = np.empty(n, dtype=np.int64)
+    j = 0
+    for i in range(n):
+        pos = positions[i]
+        while j < m and pos >= cumulative_sum[j]:
             j += 1
-        indices[i] = min(j, m - 1)
-        i += 1
+        # positions[i] is in [0, 1), cumulative_sum[-1] is 1.0, so j < m usually holds.
+        indices[i] = j if j < m else m - 1
     return indices
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _inverse_sum_squares(weights: np.ndarray) -> float:
     """Return ``1 / sum(w**2)`` (ESS denominator for normalized weights)."""
     # np.dot is significantly faster than a manual loop for this
@@ -97,55 +100,130 @@ def _inverse_sum_squares(weights: np.ndarray) -> float:
     return 1.0 / s
 
 
+@njit(parallel=True, cache=True, fastmath=True)
+def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
+    """Find the argmax index within each chunk in parallel.
+
+    Args:
+        eig_scores: 1D array of EIG scores for all candidates.
+        chunk_size: Number of candidates per chunk.
+
+    Returns:
+        1D int64 array of length ``ceil(len(eig_scores) / chunk_size)`` where
+        each element is the *global* index of the argmax within that chunk.
+    """
+    n = eig_scores.shape[0]
+    n_chunks = (n + chunk_size - 1) // chunk_size
+    winners = np.empty(n_chunks, dtype=np.int64)
+    for c in numba.prange(n_chunks):
+        start = c * chunk_size
+        end = min(start + chunk_size, n)
+        best_idx = start
+        best_val = eig_scores[start]
+        for k in range(start + 1, end):
+            if eig_scores[k] > best_val:
+                best_val = eig_scores[k]
+                best_idx = k
+        winners[c] = best_idx
+    return winners
+
+
+@njit(parallel=True, cache=True, fastmath=True)
+def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """Weighted variance along axis 1 (particles) for many candidates in parallel.
+
+    Args:
+        x_2d: 2D array of predictions (n_candidates, n_particles).
+        w: 1D array of weights (n_particles).
+
+    Returns:
+        1D array of weighted variances (n_candidates).
+    """
+    n_rows, n_cols = x_2d.shape
+    vars_out = np.empty(n_rows, dtype=x_2d.dtype)
+
+    # Sum weights once
+    sw = np.sum(w)
+    if sw <= 0.0:
+        return np.zeros(n_rows, dtype=x_2d.dtype)
+
+    for i in numba.prange(n_rows):
+        # Pass 1: Mean
+        wx = 0.0
+        for j in range(n_cols):
+            wx += w[j] * x_2d[i, j]
+        mean = wx / sw
+
+        # Pass 2: Variance
+        wv = 0.0
+        for j in range(n_cols):
+            d = x_2d[i, j] - mean
+            wv += w[j] * d * d
+        vars_out[i] = wv / sw
+
+    return vars_out
+
+
+@njit(cache=True)
+def _weighted_cdf(samples: np.ndarray, weights: np.ndarray, x_query: np.ndarray) -> np.ndarray:
+    """Compute empirical weighted CDF using Numba for speed.
+
+    Args:
+        samples: 1D array of particle values.
+        weights: 1D array of normalized particle weights.
+        x_query: 1D array of values to evaluate the CDF at.
+
+    Returns:
+        1D array of CDF values in [0, 1].
+    """
+    sort_idx = np.argsort(samples)
+    sorted_samples = samples[sort_idx]
+    sorted_weights = weights[sort_idx]
+    cdf_vals = np.cumsum(sorted_weights)
+
+    # Use Numba-compatible interpolation
+    return np.interp(x_query, sorted_samples, cdf_vals)
+
+
 @dataclass
 class SMCMarginalDistribution(AbstractMarginalDistribution):
     """Belief distribution using Sequential Monte Carlo (Particle Filter).
 
     Maintains a joint posterior over parameters using a set of weighted particles.
+    Resampling uses the elitist NIST optbayesexpt-style algorithm (Dushenko et al. 2020):
+    elite particles survive intact while the remainder are resampled from them and nudged
+    with a multivariate Gaussian from the particle covariance.
 
     Parameters
     ----------
-    use_full_covariance : bool
-        If True, use NIST optbayesexpt-style resampling with full covariance
-        multivariate Gaussian nudging and contraction toward mean (a_param).
-        If False (default), use independent per-dimension jitter.
     a_param : float
-        Contraction parameter for full-covariance resampling. Particles are
-        contracted (1 - a_param) of the distance toward the mean after nudging.
-        Default 0.98 (as in NIST optbayesexpt).
+        Contraction parameter. After nudging, non-elite particles are contracted
+        (1 - a_param) of the distance toward the mean. Default 0.98 (NIST).
     scale : bool
-        If True and use_full_covariance=True, apply contraction toward mean.
-        Default True.
+        If True, apply contraction toward mean after nudging. Default True.
+    elitism_ratio : float
+        Fraction of top-weight particles that survive each resampling intact.
+        Default 0.2 (20 %).
+    auto_resample : bool
+        If True, resample automatically when ESS drops below threshold.
+        Set False to let the locator trigger resampling manually.
     """
 
     parameter_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     num_particles: int = NVISION_SMC_NUM_PARTICLES
-    jitter_scale: float = NVISION_SMC_JITTER_SCALE
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD
-    use_full_covariance: bool = NVISION_SMC_USE_FULL_COVARIANCE
     a_param: float = NVISION_SMC_A_PARAM
     scale: bool = NVISION_SMC_SCALE
-
-    # Use Fisher-information-based weighting during Bayesian updates.
-    # The paper (Eq. S3) updates weights by likelihood only.  Default True
-    # preserves backward compatibility; set False to match the paper.
-    use_information_weights: bool = NVISION_SMC_USE_INFORMATION_WEIGHTS
-
-    # Annealed jitter: continuous particle movement every update
-    annealed_jitter: bool = NVISION_SMC_ANNEALED_JITTER
-    annealed_jitter_initial: float = NVISION_SMC_ANNEALED_JITTER_INITIAL
-    annealed_jitter_min: float = NVISION_SMC_ANNEALED_JITTER_MIN
-    annealed_jitter_decay: float = NVISION_SMC_ANNEALED_JITTER_DECAY
-
-    # Elitist resampling: survival of the fittest
-    elitism_ratio: float = NVISION_SMC_ELITISM_RATIO  # Top 20% particles survive intact
+    elitism_ratio: float = NVISION_SMC_ELITISM_RATIO
     noise_model: NoiseSignalModel | None = None
+    auto_resample: bool = True
 
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
     _param_names: list[str] = field(init=False, repr=False)
     _noise_param_slice: slice | None = field(init=False, repr=False, default=None)
-    _current_annealed_jitter_scale: float = field(init=False, repr=False, default=0.0)
+    _current_candidates: np.ndarray = field(init=False, repr=False)
+    _global_grid: np.ndarray = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
@@ -154,8 +232,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             for name in self.noise_model.spec.names:
                 if name not in self._param_names:
                     self._param_names.append(name)
-
-        self._current_annealed_jitter_scale = self.annealed_jitter_initial
 
         # Initialize particles uniformly within bounds
         d_dim = len(self._param_names)
@@ -167,7 +243,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             lo, hi = self.parameter_bounds[name]
             self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
-        self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
+        self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -175,6 +251,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             indices = [i for i, name in enumerate(self._param_names) if name in noise_names]
             if indices:
                 self._noise_param_slice = slice(min(indices), max(indices) + 1)
+
+        # Initialize the first epoch-based candidate grid
+        f_lo, f_hi = self.parameter_bounds["frequency"]
+        self._global_grid = np.linspace(f_lo, f_hi, 2048).astype(np.float32)
+        self._generate_epoch_candidates()
 
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
@@ -210,36 +291,20 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 tempering_factor=1.0,
             ).astype(FLOAT_DTYPE, copy=False)
 
-        # 2. Compute information-based weights from Fisher Information
-        # Particles suggesting measurements at informative regions (high gradient,
-        # strong cross-parameter sensitivity) get higher weight
-        # 3. Update weights
-        if self.use_information_weights:
-            # Compute information-based weights from Fisher Information.
-            # This is a heuristic extension not present in the paper (Eq. S3).
-            info_weights = self._compute_information_weights(
-                obs.x, predicted, noise_std, obs.frequency_noise_model
-            ).astype(FLOAT_DTYPE, copy=False)
-            self._weights *= likelihoods * info_weights
-        else:
-            # Paper-compliant: likelihood only.
-            self._weights *= likelihoods
+        # 2. Update weights — paper-compliant likelihood only (Eq. S3)
+        self._weights *= likelihoods
 
-        # 4. Normalize weights
+        # 3. Normalize weights
         weight_sum = np.sum(self._weights)
-        if weight_sum > 1e-10:
+        if weight_sum > 1e-30:
             self._weights /= weight_sum
         else:
-            # If all particles have 0 likelihood, reset to uniform (should rarely happen)
-            self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
+            # Total filter collapse: likelihood was zero everywhere.
+            self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        # 5. Apply annealed jitter (continuous particle movement every update)
-        if self.annealed_jitter:
-            self._apply_annealed_jitter()
-
-        # 6. Resample if Effective Sample Size (ESS) is too low
+        # 4. Resample if Effective Sample Size (ESS) is too low
         ess = _inverse_sum_squares(self._weights)
-        if ess < self.ess_threshold * self.num_particles:
+        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
 
     def batch_update(self, observations: list[Observation]) -> None:
@@ -277,285 +342,150 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 frequency_noise_model=obs.frequency_noise_model,
             ).astype(FLOAT_DTYPE, copy=False)
 
-            # 2. Update weights
-            if self.use_information_weights:
-                info_weights = self._compute_information_weights_batch(obs.x, n_particles, noise_std).astype(
-                    FLOAT_DTYPE, copy=False
-                )
-                self._weights *= likelihoods * info_weights
-            else:
-                self._weights *= likelihoods
+            # 2. Update weights — likelihood only
+            self._weights *= likelihoods
 
-        # 4. Final normalization after all observations
+        # 3. Final normalization after all observations
         weight_sum = np.sum(self._weights)
-        if weight_sum > 1e-10:
+        if weight_sum > 1e-30:
             self._weights /= weight_sum
         else:
-            self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
+            self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        # 5. Single resampling step after all updates
+        # 4. Single resampling step after all updates
         ess = _inverse_sum_squares(self._weights)
-        if ess < self.ess_threshold * self.num_particles:
+        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
 
-    @staticmethod
-    @jax.jit
-    def _jax_info_scores_jit(grad_matrix: jnp.ndarray, noise_std: float) -> jnp.ndarray:
-        """JIT-compiled info-score computation using JAX.
+    def get_candidates(self) -> np.ndarray:
+        """Return the current epoch's slope-targeted candidate grid."""
+        return self._current_candidates
 
-        Computes Fisher Information Matrix log-determinant scores for all
-        particles in parallel via ``jax.vmap`` over the particle dimension.
+    def _generate_epoch_candidates(self) -> None:
+        """Generate a dense slope-targeted grid and cache it for the current epoch.
+
+        Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine
+        dips. Resolution and search windows scale with posterior uncertainty.
         """
-        n_particles, n_params = grad_matrix.shape
-        sigma = jnp.maximum(noise_std, 1e-9)
-        sigma_sq = sigma * sigma
+        estimates = self.estimates()
+        uncertainties = self.uncertainty()
 
-        # FIMs: (n_particles, n_params, n_params)
-        fims = jnp.einsum("ni,nj->nij", grad_matrix, grad_matrix) / sigma_sq
-        fims = fims + 1e-6 * jnp.eye(n_params)[None, :, :]
+        f_b = estimates["frequency"]
+        df_hf = estimates["split"]
 
-        def _score_particle(fim: jnp.ndarray) -> jnp.ndarray:
-            sign, logdet = jnp.linalg.slogdet(fim)
-            half_logdet = logdet * 0.5
-            score = jnp.where(
-                (sign > 0) & jnp.isfinite(logdet),
-                jax.nn.softplus(half_logdet),
-                jnp.maximum(1e-6, jnp.trace(fim)),
-            )
-            return score
+        # 1. Determine linewidth Omega (HWHM)
+        if "linewidth" in estimates:
+            omega = estimates["linewidth"]
+        elif "fwhm_total" in estimates:
+            omega = estimates["fwhm_total"] / 2.0
+        else:
+            raise KeyError("Linewidth parameter ('linewidth' or 'fwhm_total') not found in estimates")
 
-        info_scores = jax.vmap(_score_particle)(fims)
-        clipped_scores = jnp.clip(info_scores, 0.1, 10.0)
-        mean_score = jnp.mean(clipped_scores)
-        result = jnp.where(mean_score > 0, clipped_scores / mean_score, jnp.ones(n_particles))
-        return result
+        # 2. Extract uncertainties
+        sigma_f = uncertainties["frequency"]
+        if "linewidth" in uncertainties:
+            sigma_omega = uncertainties["linewidth"]
+        elif "fwhm_total" in uncertainties:
+            sigma_omega = uncertainties["fwhm_total"] / 2.0
+        else:
+            raise KeyError("Linewidth uncertainty ('linewidth' or 'fwhm_total') not found in uncertainties")
 
-    def _jax_info_scores(self, grad_matrix: np.ndarray, noise_std: float) -> np.ndarray:
-        """Vectorized info-score computation using JAX (calls JIT'd version)."""
-        grad_matrix_jax = jnp.asarray(grad_matrix, dtype=jnp.float32)
-        result = self._jax_info_scores_jit(grad_matrix_jax, float(noise_std))
-        return np.asarray(result, dtype=FLOAT_DTYPE)
+        # 3. Compute effective uncertainty and resolution
+        sigma_eff = np.sqrt(sigma_f**2 + sigma_omega**2)
+        # 0.01 MHz = 10 kHz minimum step
+        delta_d = max(sigma_eff / 30.0, 10000.0)
+        half_width = 3 * sigma_eff
 
-    def _compute_information_weights(
-        self,
-        x: float,
-        predicted: np.ndarray,
-        noise_std: float,
-        frequency_noise_model: tuple[Any, ...] | None,
-    ) -> np.ndarray:
-        """Compute per-particle weights based on Fisher information content.
+        # 4. Slope Targeting: 6 locations (2 per dip)
+        centers = [f_b - df_hf, f_b, f_b + df_hf]
+        slopes = []
+        for c in centers:
+            slopes.append(c - omega)
+            slopes.append(c + omega)
 
-        Uses ``model.gradient_vectorized`` when available and delegates the
-        FIM/log-determinant scoring to :meth:`_jax_info_scores` for JAX
-        vectorized evaluation across all particles.
-        """
-        n_particles = self._particles.shape[0]
+        local_grids = []
+        for s in slopes:
+            start = s - half_width
+            stop = s + half_width
+            # Generate local dense span
+            local_grids.append(np.arange(start, stop + delta_d, delta_d))
 
-        # Fast path: check whether the model provides gradients at all
-        particle_params = {name: float(self._particles[0, j]) for j, name in enumerate(self._param_names)}
-        typed_params = self.model.spec.unpack_params([particle_params[n] for n in self._param_names])
-        if self.model.gradient(float(x), typed_params) is None:
-            return np.ones(n_particles, dtype=FLOAT_DTYPE)
-
-        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
-        grad_dict = self.model.gradient_vectorized(x, *arrays_in_order)
-        if grad_dict is None:
-            return np.ones(n_particles, dtype=FLOAT_DTYPE)
-
-        n_params = len(self._param_names)
-        grad_matrix = np.empty((n_particles, n_params), dtype=np.float64)
-        for j, name in enumerate(self._param_names):
-            grad_matrix[:, j] = grad_dict[name]
-
-        return self._jax_info_scores(grad_matrix, noise_std)
-
-    def _compute_information_weights_batch(
-        self,
-        x: float,
-        n_particles: int,
-        noise_std: float,
-    ) -> np.ndarray:
-        """Compute per-particle information weights for batch updates (optimized version).
-
-        Uses model.gradient_vectorized() for fully vectorized gradient computation
-        across all particles, and delegates the FIM/log-determinant scoring to
-        :meth:`_jax_info_scores` for JAX vectorized evaluation.
-        """
-        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
-        grad_dict = self.model.gradient_vectorized(x, *arrays_in_order)
-
-        if grad_dict is None:
-            return np.ones(n_particles)
-
-        n_params = len(self._param_names)
-        grad_matrix = np.empty((n_particles, n_params), dtype=np.float64)
-        for j, name in enumerate(self._param_names):
-            grad_matrix[:, j] = grad_dict[name]
-
-        return self._jax_info_scores(grad_matrix, noise_std)
+        # 5. Merge with pre-computed global sparse grid
+        merged = np.concatenate(local_grids + [self._global_grid])
+        self._current_candidates = np.unique(merged).astype(np.float32)
 
     def _resample(self) -> None:
-        """Elitist systematic resampling - survival of the fittest.
+        """Elitist NIST-style resampling (Dushenko et al. 2020, Supp. S.3).
 
-        Top elitism_ratio particles survive intact. Only eliminated particles
-        are redistributed through resampling from the surviving elite.
+        Elite particles (top ``elitism_ratio`` by weight) survive intact.
+        The remainder are resampled from the elite via systematic resampling,
+        then nudged with a multivariate Gaussian of covariance
+        ``(1 - a_param**2) * particle_cov`` and optionally contracted toward
+        the mean by factor ``a_param`` (shrinkage).
         """
-        n_elite = int(self.num_particles * self.elitism_ratio)
-        n_elite = max(1, min(n_elite, self.num_particles - 1))
+        n_elite = max(1, min(int(self.num_particles * self.elitism_ratio), self.num_particles - 1))
+        n_resample = self.num_particles - n_elite
+        d_dim = len(self._param_names)
 
-        # Find elite particles (highest weights) - these survive intact
+        # 1. Select elite indices (highest weights)
         elite_indices = np.argsort(self._weights)[-n_elite:]
 
-        # Remaining slots to fill via resampling
-        n_resample = self.num_particles - n_elite
-
-        # Systematic resampling from elite particles only
+        # 2. Systematic resampling of non-elite slots from the elite
         elite_weights = self._weights[elite_indices]
-        elite_weights_sum = np.sum(elite_weights)
-        elite_weights = elite_weights / elite_weights_sum if elite_weights_sum > 1e-12 else np.ones(n_elite) / n_elite
-
-        cumulative_sum = np.cumsum(elite_weights)
+        w_sum = np.sum(elite_weights)
+        if w_sum > 1e-30:
+            elite_weights /= w_sum
+        else:
+            elite_weights = (np.ones(n_elite, dtype=FLOAT_DTYPE) / n_elite).astype(FLOAT_DTYPE)
         positions = (np.arange(n_resample) + np.random.random()) / n_resample
-        resample_indices = _systematic_resample_indices(cumulative_sum, positions)
+        resample_indices = _systematic_resample_indices(np.cumsum(elite_weights), positions)
         new_indices = elite_indices[resample_indices]
 
-        # Construct new particle set: elite intact + resampled from elite
-        all_indices = np.concatenate([elite_indices, new_indices])
-        self._particles = self._particles[all_indices]
-        self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
-
-        # Apply nudging / contraction to all particles (paper-compliant)
-        if self.use_full_covariance:
-            self._resample_nist_style()
-        else:
-            # Add jitter only to non-elite (resampled) particles
-            for j, name in enumerate(self._param_names):
-                lo, hi = self.parameter_bounds[name]
-                std = np.std(self._particles[:, j])
-                # Jitter for resampled particles only
-                jitter = np.random.normal(0, std * self.jitter_scale, n_resample).astype(FLOAT_DTYPE, copy=False)
-                self._particles[n_elite:, j] = np.clip(self._particles[n_elite:, j] + jitter, lo, hi)
-
-    def _resample_nist_style(self) -> None:
-        """NIST optbayesexpt-style resampling with full covariance nudging and contraction.
-
-        This implements the algorithm from Dushenko et al. (2020) as described in
-        the supplemental material Section S.3:
-        1. Particles are resampled with replacement (already done in _resample)
-        2. Each particle gets a random displacement (nudge) from a multivariate
-           Gaussian with covariance (1 - a_param^2) * particle_covariance
-        3. All particles are contracted toward the mean by factor a_param to
-           compensate for the diffusion from nudging
-        4. Weights are reset to uniform
-        """
-        d_dim = len(self._param_names)
-
-        # Compute mean and full covariance of current particles
-        mean = _weighted_mean_axis0(self._particles, self._weights)  # shape (d,)
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights).astype(
-            FLOAT_DTYPE, copy=False
-        )  # shape (d, d)
-
-        if cov.ndim == 0:
-            cov = np.array([[cov]])
-
-        # Nudge covariance: (1 - a_param^2) * cov
-        # This ensures the nudge scale is small compared to distribution spread
-        nudge_cov = (1 - self.a_param**2) * cov
-
-        # Ensure nudge_cov is positive semi-definite for numerical stability
-        try:
-            nudges = np.random.multivariate_normal(
-                np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles
-            ).astype(FLOAT_DTYPE, copy=False)  # shape (n_particles, d)
-        except np.linalg.LinAlgError:
-            # Fall back to diagonal covariance if full covariance is singular
-            diag_cov = np.diag(np.diag(nudge_cov))
-            nudges = np.random.multivariate_normal(
-                np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, self.num_particles
-            ).astype(FLOAT_DTYPE, copy=False)
-
-        # Apply nudges
-        self._particles = self._particles + nudges
-
-        # Shrinkage/contraction toward mean if enabled
-        if self.scale:
-            old_center = mean.reshape(1, -1)  # shape (1, d)
-            self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(
-                FLOAT_DTYPE, copy=False
-            )
-
-        # Clip to bounds
-        for j, name in enumerate(self._param_names):
-            lo, hi = self.parameter_bounds[name]
-            self._particles[:, j] = np.clip(self._particles[:, j], lo, hi)
-
-    def _resample_nist_style_elitist(self, n_elite: int) -> None:
-        """NIST-style resampling that only nudges non-elite particles.
-
-        Elite particles (first n_elite indices) remain intact.
-        Only resampled particles get the full covariance nudge + contraction.
-        """
-        d_dim = len(self._param_names)
-        n_resample = self.num_particles - n_elite
-
-        # Compute mean and covariance from entire particle set (for proper nudging)
+        # 3. Compute covariance from the pre-resample distribution for nudging.
+        # We MUST compute this before overwriting self._particles to avoid covariance collapse
+        # and ensure we use the full covariance of the original weighted distribution.
         mean = _weighted_mean_axis0(self._particles, self._weights)
         cov = np.cov(self._particles, rowvar=False, aweights=self._weights).astype(FLOAT_DTYPE, copy=False)
         if cov.ndim == 0:
-            cov = np.array([[cov]])
+            cov = np.array([[cov]], dtype=FLOAT_DTYPE)
 
-        # Nudge covariance
+        # 4. Assemble new particle array: [elite | resampled-from-elite]
+        all_indices = np.concatenate([elite_indices, new_indices])
+        self._particles = self._particles[all_indices]
+        self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
+
         nudge_cov = (1 - self.a_param**2) * cov
 
-        # Generate nudges only for resampled particles
-        try:
-            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, n_resample).astype(
-                FLOAT_DTYPE, copy=False
-            )
-        except np.linalg.LinAlgError:
-            diag_cov = np.diag(np.diag(nudge_cov))
-            nudges = np.random.multivariate_normal(np.zeros(d_dim, dtype=FLOAT_DTYPE), diag_cov, n_resample).astype(
-                FLOAT_DTYPE, copy=False
-            )
+        # 5. Regularize nudge covariance and sample for ALL particles
+        # Adding a tiny fraction of the trace ensures the matrix is positive-definite
+        # even if numerical precision or parameter collapse has occurred.
+        reg = 1e-9 * (np.trace(nudge_cov) / d_dim + 1e-12)
+        nudge_cov.flat[:: d_dim + 1] += reg
 
-        # Apply nudges only to non-elite particles
-        self._particles[n_elite:] = self._particles[n_elite:] + nudges
+        # Use Generator API for method='svd', which is robust to near-singular matrices
+        rng = np.random.default_rng()
+        nudges = rng.multivariate_normal(
+            np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
+        ).astype(FLOAT_DTYPE, copy=False)
 
-        # Shrinkage toward mean only for non-elite particles
+        self._particles += nudges
+
+        # 6. Shrinkage contraction toward mean (All particles)
+        # Applying shrinkage to all particles ensures the distribution preserves
+        # its moments after nudging, while allowing elite particles to explore locally.
         if self.scale:
             old_center = mean.reshape(1, -1)
-            self._particles[n_elite:] = (
-                self._particles[n_elite:] * self.a_param + old_center * (1 - self.a_param)
+            self._particles = (
+                self._particles * self.a_param + old_center * (1 - self.a_param)
             ).astype(FLOAT_DTYPE, copy=False)
 
-        # Clip all particles to bounds
+        # 7. Clip all particles to bounds
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
             self._particles[:, j] = np.clip(self._particles[:, j], lo, hi)
 
-    def _apply_annealed_jitter(self) -> None:
-        """Apply continuous particle movement with decaying jitter magnitude.
-
-        Jitter scale starts at annealed_jitter_initial and decays by
-        annealed_jitter_decay each update, down to annealed_jitter_min.
-        This prevents particle collapse early while allowing convergence later.
-        """
-        # Ensure we don't go below minimum jitter
-        effective_scale = max(self._current_annealed_jitter_scale, self.annealed_jitter_min)
-
-        # Apply independent per-dimension jitter (simpler than full covariance)
-        for j, name in enumerate(self._param_names):
-            lo, hi = self.parameter_bounds[name]
-            std = np.std(self._particles[:, j])
-            # Scale jitter by current scale and local std
-            jitter = np.random.normal(0, std * effective_scale, self.num_particles).astype(FLOAT_DTYPE, copy=False)
-            self._particles[:, j] = np.clip(self._particles[:, j] + jitter, lo, hi)
-
-        # Decay the jitter scale for next update
-        self._current_annealed_jitter_scale = max(
-            self._current_annealed_jitter_scale * self.annealed_jitter_decay, self.annealed_jitter_min
-        )
+        # 8. Update cached candidate grid for the next epoch
+        self._generate_epoch_candidates()
 
     def _marginal_std(self, dim_idx: int) -> float:
         _, var = _weighted_mean_variance_1d(self._particles[:, dim_idx], self._weights)
@@ -574,13 +504,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def entropy(self) -> float:
         # Simple Kozachenko-Leonenko nearest-neighbor entropy estimator could go here.
         # For now, approximate via a Gaussian assumption on the particles.
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights)
-        if cov.ndim == 0:
-            cov = np.array([[cov]])
-        sign, logdet = np.linalg.slogdet(cov)
-        if sign <= 0:
-            return 0.0
-        d_dim = len(self._param_names)
+        cov = self.covariance_matrix()
+        d_dim = cov.shape[0]
+
+        # Regularize to ensure valid log-determinant even if singular
+        reg = 1e-12 * (np.trace(cov) / d_dim + 1e-15)
+        cov.flat[:: d_dim + 1] += reg
+
+        _, logdet = np.linalg.slogdet(cov)
         return float(0.5 * logdet + 0.5 * d_dim * (1 + np.log(2 * np.pi)))
 
     def covariance_matrix(self) -> np.ndarray:
@@ -600,10 +531,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Diagonal entries are always 1.0.
         """
         cov = self.covariance_matrix()
+        d_dim = cov.shape[0]
+
+        # Regularize diagonal to avoid division by zero if variance is zero
+        cov.flat[:: d_dim + 1] += 1e-20
+
         stds = np.sqrt(np.diag(cov))
-        # Avoid division by zero
-        if np.any(stds < 1e-15):
-            stds = np.maximum(stds, 1e-15)
         corr = cov / np.outer(stds, stds)
         # Clip to handle numerical errors
         return np.clip(corr, -1.0, 1.0)
@@ -615,9 +548,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Smaller values indicate tighter posterior concentration.
         """
         cov = self.covariance_matrix()
-        sign, logdet = np.linalg.slogdet(cov)
-        if sign <= 0:
-            return 0.0
+        d_dim = cov.shape[0]
+
+        # Regularize to ensure valid log-determinant
+        reg = 1e-12 * (np.trace(cov) / d_dim + 1e-15)
+        cov.flat[:: d_dim + 1] += reg
+
+        _, logdet = np.linalg.slogdet(cov)
         return float(np.exp(logdet))
 
     def converged(self, threshold: float) -> bool:
@@ -628,23 +565,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             model=self.model,
             parameter_bounds=self.parameter_bounds.copy(),
             num_particles=self.num_particles,
-            jitter_scale=self.jitter_scale,
             ess_threshold=self.ess_threshold,
-            use_full_covariance=self.use_full_covariance,
             a_param=self.a_param,
             scale=self.scale,
             last_obs=self.last_obs,
-            annealed_jitter=self.annealed_jitter,
-            annealed_jitter_initial=self.annealed_jitter_initial,
-            annealed_jitter_min=self.annealed_jitter_min,
-            annealed_jitter_decay=self.annealed_jitter_decay,
             elitism_ratio=self.elitism_ratio,
-            use_information_weights=self.use_information_weights,
+            noise_model=self.noise_model,
+            auto_resample=self.auto_resample,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
-        dist._current_annealed_jitter_scale = self._current_annealed_jitter_scale
         return dist
 
     def _weighted_mean(self, name: str) -> float:
@@ -660,84 +591,72 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, data)
 
-    def select_maximum_likelihood(self, n: int) -> ParameterValues[np.ndarray]:
-        """Select top-n particles by posterior weight for MaximumLikelihoodLocator.
+    def select_max_information_gain(self, candidates: np.ndarray, n: int, noise_std: float = 0.02) -> np.ndarray:
+        """Select the top-n candidate locations by expected information gain.
 
-        Returns the n particles with highest weights (representing maximum likelihood
-        regions of the posterior), without random resampling.
+        Evaluates EIG across ``candidates`` in chunks of :data:`_EIG_CHUNK_SIZE`
+        using :meth:`expected_information_gain`, then uses a Numba parallel
+        ``prange`` helper to find each chunk's best candidate.
+
+        Args:
+            candidates: 1D array of candidate measurement locations.
+            n: Number of top candidates to return.
+            noise_std: Measurement noise floor for EIG calculation.
+
+        Returns:
+            1D numpy array of up to *n* candidate locations ranked by EIG
+            (highest first).
         """
-        n = min(n, self.num_particles)
-        # Get indices of top-n weights (descending order)
-        top_indices = np.argsort(self._weights)[-n:][::-1]
-        samples = self._particles[top_indices]
-        data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
-        return ParameterValues.from_mapping(self._param_names, data)
+        if len(candidates) == 0:
+            return candidates[:0]
 
-    def select_max_information_gain(self, candidates: np.ndarray, n: int) -> ParameterValues[np.ndarray]:
-        """Select particles maximizing information gain at candidate locations for SBED.
+        # Evaluate EIG for all candidates at once
+        eig_scores = self.expected_information_gain(candidates, noise_std=noise_std).astype(np.float64)
 
-        Scores particles by their prediction variance across candidates - particles
-        that predict very differently at different locations contribute most to
-        the entropy reduction computation in sequential Bayesian experiment design.
+        # Use Numba parallel prange to find per-chunk argmax indices
+        winner_indices = _chunk_argmax(eig_scores, _EIG_CHUNK_SIZE)
 
-        Parameters
-        ----------
-        candidates : np.ndarray
-            Array of candidate measurement locations.
-        n : int
-            Number of particles to select.
+        # To avoid being stuck at a single numerical noise peak (common in SMC),
+        # we use Boltzmann sampling (Softmax) over the chunk winners.
+        # Temperature T=0.01 ensures we are still very greedy but explore ties robustly.
+        temp = 0.01
+        winner_scores = eig_scores[winner_indices]
+        shifted_scores = (winner_scores - np.max(winner_scores)) / temp
+        # Use float64 for softmax to avoid overflow/underflow artifacts
+        probs = np.exp(shifted_scores.astype(np.float64))
+        probs /= np.sum(probs)
 
-        Returns
-        -------
-        ParameterValues[np.ndarray]
-            Selected particles that maximize expected information gain.
-        """
-        n = min(n, self.num_particles)
+        # Sample n indices without replacement based on EIG probabilities
+        best_chunk_order = np.random.choice(
+            len(winner_indices), size=min(n, len(winner_indices)), replace=False, p=probs
+        )
+        # Sort them by original score to maintain a stable order for the caller
+        best_chunk_order = best_chunk_order[np.argsort(winner_scores[best_chunk_order])][::-1]
+        best_indices = winner_indices[best_chunk_order]
 
-        # Compute predictions for all particles at all candidates
-        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
-        # Shape: (n_candidates, n_particles)
-        predictions = self.model.compute_vectorized_many(candidates, arrays_in_order)
+        return candidates[best_indices]
 
-        # Score each particle by weighted combination of:
-        # 1. Posterior weight (particles must represent posterior mass)
-        # 2. Prediction diversity (variance of predictions across candidates)
-        pred_variance = np.var(predictions, axis=0)  # variance across candidates
-
-        # Normalize variance to [0, 1] for combining with weights
-        var_max = np.max(pred_variance)
-        pred_variance_norm = pred_variance / var_max if var_max > 1e-12 else np.zeros_like(pred_variance)
-
-        # Combined score: weight * (1 + prediction_diversity)
-        # This ensures high-weight particles are preferred, but prediction
-        # diversity can boost lower-weight particles if they are informative
-        combined_scores = self._weights * (1.0 + pred_variance_norm)
-
-        # Select top-n by combined score
-        top_indices = np.argsort(combined_scores)[-n:][::-1]
-        samples = self._particles[top_indices]
-        data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
-        return ParameterValues.from_mapping(self._param_names, data)
-
-    def expected_information_gain(self, candidates: np.ndarray) -> np.ndarray:
+    def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
         """Compute the approximate expected information gain for candidate locations.
 
         Uses the approximation:
-        H(y|d) ≈ 1/2 * ln(epsilon + sigma_theta^2)
-        where sigma_theta^2 is the prediction variance (disagreement for that frequency across particles).
+        EIG(d) ≈ 1/2 * ln(1 + sigma_theta^2 / sigma_eta^2)
+        where sigma_theta^2 is the prediction variance (disagreement for that frequency across particles)
+        and sigma_eta^2 is the measurement noise variance.
         """
         arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
         # shape: (n_candidates, n_particles)
         predictions = self.model.compute_vectorized_many(candidates, arrays_in_order)
 
         # Calculate weighted variance of predictions across particles for each candidate
-        mean_pred = np.average(predictions, axis=1, weights=self._weights)
-        var_pred = np.average((predictions - mean_pred[:, np.newaxis]) ** 2, axis=1, weights=self._weights)
+        # Using optimized Numba helper to avoid large temporary array allocations
+        var_pred = _weighted_variance_axis1(predictions, self._weights)
 
-        # Return approximate information gain (using 1e-12 as epsilon)
-        return 0.5 * np.log(1e-12 + var_pred)
+        # Return approximate information gain using the noise floor sigma_eta^2
+        noise_var = noise_std**2
+        return 0.5 * np.log(1.0 + var_pred / (noise_var + 1e-15))
 
-    def expected_information_gain_jax(self, candidates: Any) -> Any:
+    def expected_information_gain_jax(self, candidates: Any, noise_std: float = 0.02) -> Any:
         """Compute the approximate expected information gain using JAX for auto-differentiation."""
         import jax.numpy as jnp
 
@@ -759,7 +678,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         mean_pred = jnp.sum(predictions * weights, axis=1, keepdims=True)
         var_pred = jnp.sum(((predictions - mean_pred) ** 2) * weights, axis=1)
 
-        return 0.5 * jnp.log(1e-12 + var_pred)
+        noise_var = noise_std**2
+        return 0.5 * jnp.log(1.0 + var_pred / (noise_var + 1e-12))
+
+    @property
+    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
+        """Physical bounds for each parameter (same as parameter_bounds)."""
+        return self.parameter_bounds
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import gaussian_kde, norm
@@ -767,8 +692,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         idx = self._param_names.index(param_name)
         samples = self._particles[:, idx]
 
-        # Fall back to a narrow Gaussian when particles have collapsed (zero variance)
-        if np.std(samples) < 1e-10:
+        # Use weighted variance (via existing Numba helper) for the collapse check
+        _, var = _weighted_mean_variance_1d(samples, self._weights)
+        if var < 1e-20:
             mean_val, _ = _weighted_mean_variance_1d(samples, self._weights)
             lo, hi = self.parameter_bounds[param_name]
             bw = (hi - lo) * 1e-3
@@ -778,13 +704,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return kde.evaluate(x)
 
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
-        # For 1D CDF, we can just sort the particles and compute the empirical CDF
+        """Evaluate the marginal Cumulative Distribution Function (CDF)."""
         idx = self._param_names.index(param_name)
         samples = self._particles[:, idx]
-
-        sort_idx = np.argsort(samples)
-        sorted_samples = samples[sort_idx]
-        sorted_weights = self._weights[sort_idx]
-
-        cdf = np.cumsum(sorted_weights)
-        return np.interp(x, sorted_samples, cdf, left=0.0, right=1.0)
+        return _weighted_cdf(samples, self._weights, x)

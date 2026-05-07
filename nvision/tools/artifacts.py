@@ -150,29 +150,57 @@ def merge_run_plot_manifest_with_existing_on_disk(
     out_dir: Path,
     log: logging.Logger,
 ) -> None:
-    """Replace prior scan rows for combos in this run and drop stale summary rows; keep other scans."""
+    """Merge new plots into the existing manifest while pruning stale/missing entries.
+
+    1. Identifies combinations (gen, noise, strat) in the new manifest and removes
+       ALL old entries matching those combinations.
+    2. Prunes any old entry whose referenced file ('path') no longer exists on disk.
+    3. Keeps summary plots fresh by excluding old summary rows.
+    """
     manifest_path = plots_manifest_path(out_dir)
     if not manifest_path.exists():
         return
+
     try:
         old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         # Strip heavy fields from old entries to prevent manifest bloat
         old_manifest = [_strip_heavy_fields(e) for e in old_manifest]
-        new_combos: set[tuple[object, object, object]] = set()
-        for entry in plot_manifest:
-            if entry.get("type") == "scan":
-                new_combos.add((entry.get("generator"), entry.get("noise"), entry.get("strategy")))
+
+        # Identify (generator, noise) pairs that are being updated.
+        # We replace ALL entries for these pairs to ensure that if a new run
+        # contains a subset of strategies (e.g. only SBED for narrow), the old ones are gone.
+        updated_gen_noise = {
+            (str(row.get("generator")), str(row.get("noise")))
+            for row in plot_manifest
+            if row.get("generator") and row.get("noise")
+        }
 
         filtered_old: list[dict[str, object]] = []
         for entry in old_manifest:
+            # Drop old summaries - they are rebuilt per run
             if entry.get("type") == "summary":
                 continue
-            if entry.get("type") == "scan":
-                combo = (entry.get("generator"), entry.get("noise"), entry.get("strategy"))
-                if combo in new_combos:
+
+            # Drop entries that are part of the NEW (generator, noise) pairs being merged
+            # This ensures that if we run a "narrow" batch, any old "sweeping" locators for those signals are removed.
+            g = entry.get("generator")
+            n = entry.get("noise")
+            if g and n and (str(g), str(n)) in updated_gen_noise:
+                continue
+
+            # 2. Aggressive pruning: check if file exists
+            path_str = entry.get("path")
+            if path_str:
+                file_path = out_dir / str(path_str)
+                if not file_path.exists():
                     continue
+            elif entry.get("type") == "scan" and entry.get("generator") != "Dummy-Generator":
+                # Scan entries without a path (and not the dummy) are invalid
+                continue
+
             filtered_old.append(entry)
 
+        # Prepend old entries so new ones are at the end (maintaining order)
         plot_manifest[:] = filtered_old + plot_manifest
     except Exception as e:
         log.warning("Could not merge with existing plots_manifest.json: %s", e)

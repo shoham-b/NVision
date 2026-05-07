@@ -188,6 +188,16 @@ def _group_smc_only() -> RunGroup:
     )
 
 
+def _group_narrow_sbed() -> RunGroup:
+    return RunGroup(
+        name="narrow_sbed",
+        description="SMC-based SBED (Bayesian-SBED-NoSweep) on narrow-domain generators.",
+        generator_names=_nv_narrow_generators(),
+        noise_names=_default_noise_names(),
+        strategy_names=["Bayesian-SBED-NoSweep"],
+    )
+
+
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
@@ -199,6 +209,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_bayesian_clean(),
         _group_narrow_only(),
         _group_smc_only(),
+        _group_narrow_sbed(),
     )
 
 

@@ -1946,11 +1946,11 @@ function main() {
 
 
         scanGenerator.addEventListener('controlchange', () => {
-            updateScanSignalControls();
-            updateScanRepeatControl();
+            updateAllScanControls();
             findAndDisplayPlot();
         });
         scanNoise.addEventListener('controlchange', () => {
+            updateScanStrategyControl();
             updateScanRepeatControl();
             findAndDisplayPlot();
         });

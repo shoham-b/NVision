@@ -215,6 +215,16 @@ class AbstractMarginalDistribution(ABC):
         for obs in observations:
             self.update(obs)
 
+    def get_candidates(self) -> np.ndarray:
+        """Return candidate measurement positions for acquisition selection.
+
+        Subclasses override this to implement custom grid generation logic (e.g.
+        epoch-based grids, slope-targeted grids, etc.). If not overridden,
+        returns a default linear grid based on model spans.
+        """
+        lo, hi = self.physical_param_bounds[self.model.parameter_names()[0]]
+        return np.linspace(lo, hi, 100)
+
     @property
     @abstractmethod
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:

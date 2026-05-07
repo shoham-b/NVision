@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
+import numpy as np
+
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
@@ -63,3 +65,17 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
             convergence_patience_steps=convergence_patience_steps,
             noise_std=noise_std,
         )
+
+    def _acquire(self) -> float:
+        """Measure where the marginal posterior is maximized (posterior mode)."""
+        lo, hi = self._acquisition_bounds()
+        candidates, probs = self._native_scan_candidates(lo, hi)
+        if len(candidates) == 0:
+            candidates = self._generate_candidates(2000)
+            pdf = self.belief.marginal_pdf(self._scan_param, candidates)
+            pdf = np.asarray(pdf, dtype=float)
+            total = float(np.sum(pdf))
+            if not np.isfinite(total) or total <= 0.0:
+                return float(np.random.choice(candidates))
+            probs = pdf / total
+        return float(candidates[int(np.argmax(probs))])
