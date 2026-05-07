@@ -22,12 +22,12 @@ from rich.text import Text
 
 from nvision.cli.progress_columns import DotsColumn, EstimatedTimeRemainingColumn
 
-ScrollFocus = Literal["logs", "errors", "locators"]
+ScrollFocus = Literal["logs", "errors", "locators", "completed"]
 
 _LOG_HISTORY_MAX = 8000
 _ERROR_HISTORY_MAX = 2000
 
-_FOCUS_ORDER: tuple[ScrollFocus, ...] = ("logs", "errors", "locators")
+_FOCUS_ORDER: tuple[ScrollFocus, ...] = ("logs", "errors", "locators", "completed")
 
 # Restored in `_keyboard_tty_exit` after Live monitor stops (POSIX arrow keys).
 _tty_attrs_saved: Any = None
@@ -261,9 +261,11 @@ class ProgressMonitor:
         self._log_scroll: int = 0
         self._err_scroll: int = 0
         self._loc_scroll: int = 0
+        self._comp_scroll: int = 0
         self._scroll_focus: ScrollFocus = "logs"
         self._log_panel = _LogPanel(self)
         self._error_panel = _ErrorPanel(self)
+        self._completed_rows: deque[str] = deque(maxlen=max_log_lines)
 
         self.main_progress = Progress(
             SpinnerColumn(),
@@ -279,6 +281,7 @@ class ProgressMonitor:
         )
 
         self._locator_panel = _LocatorPanel(self)
+        self._completed_panel = _CompletedPanel(self)
 
         self._live: Live | None = None
         self.main_task_id = self.main_progress.add_task("[cyan]Total progress", total=0)
@@ -291,21 +294,25 @@ class ProgressMonitor:
         return max(1, panel_height - 2)
 
     def _layout(self) -> Group:
-        if not self.live_mode:
-            return Group(self.main_progress, self.sub_progress)
         if self.error_incoming is not None:
             return Group(
                 self._log_panel,
                 self._error_panel,
                 self.main_progress,
                 self._locator_panel,
+                self._completed_panel,
             )
-        return Group(self._log_panel, self.main_progress, self._locator_panel)
+        return Group(
+            self._log_panel,
+            self.main_progress,
+            self._locator_panel,
+            self._completed_panel,
+        )
 
     def _focus_cycle(self) -> tuple[ScrollFocus, ...]:
         if self.error_incoming is not None:
             return _FOCUS_ORDER
-        return ("logs", "locators")
+        return ("logs", "locators", "completed")
 
     def set_total_weight(self, total: float) -> None:
         self.main_progress.update(self.main_task_id, total=total)
@@ -361,12 +368,15 @@ class ProgressMonitor:
         log_h = self._inner_height(self._log_panel_height)
         err_h = self._inner_height(self._error_panel_height)
         loc_h = self._inner_height(self._locator_panel_height)
+        comp_h = self._inner_height(self._locator_panel_height)
         if self._scroll_focus == "logs":
             self._log_scroll = _scroll_after_key(self._log_scroll, key, log_h, len(self._log_lines))
         elif self._scroll_focus == "errors":
             self._err_scroll = _scroll_after_key(self._err_scroll, key, err_h, len(self._error_lines))
-        else:
+        elif self._scroll_focus == "locators":
             self._loc_scroll = _scroll_after_key(self._loc_scroll, key, loc_h, len(self.sub_progress.tasks))
+        else:
+            self._comp_scroll = _scroll_after_key(self._comp_scroll, key, comp_h, len(self._completed_rows))
 
     def _poll_keys(self) -> None:
         key = _poll_scroll_key()
@@ -410,6 +420,15 @@ class ProgressMonitor:
 
             for task in self.sub_progress.tasks:
                 if task.id == tid and task.completed >= task.total:
+                    # Capture the final row markup before removing the task.
+                    row_markup = _locator_row_markup(task)
+                    self._completed_rows.append(row_markup)
+                    if self._comp_scroll != 0:
+                        comp_h = self._inner_height(self._locator_panel_height)
+                        self._comp_scroll = min(
+                            self._comp_scroll + 1,
+                            max(0, len(self._completed_rows) - comp_h),
+                        )
                     self.sub_progress.remove_task(tid)
                     break
 
@@ -601,5 +620,43 @@ class _LocatorPanel:
             title=title,
             subtitle=subtitle,
             border_style="cyan" if focused else "dim",
+            height=m._locator_panel_height,
+        )
+
+
+class _CompletedPanel:
+    __slots__ = ("_monitor",)
+
+    def __init__(self, monitor: ProgressMonitor) -> None:
+        self._monitor = monitor
+
+    def __rich__(self) -> RenderableType:
+        m = self._monitor
+        rows = list(m._completed_rows)
+        inner_h = m._inner_height(m._locator_panel_height)
+        focused = m._scroll_focus == "completed"
+        start = 0
+        window: list[str] = []
+
+        if not rows:
+            body: Text | str = Text("— none completed —", style="dim italic")
+        else:
+            total = len(rows)
+            max_scroll = max(0, total - inner_h)
+            m._comp_scroll = min(m._comp_scroll, max_scroll)
+            start = max(0, total - inner_h - m._comp_scroll)
+            window = rows[start : start + inner_h]
+            body = Text.from_markup("\n".join(window))
+
+        title = _panel_title("Completed", focused=focused)
+        subtitle = None
+        if rows and inner_h < len(rows) and window:
+            subtitle = f"[dim]{start + 1}-{start + len(window)} of {len(rows)}[/]"
+
+        return Panel(
+            body,
+            title=title,
+            subtitle=subtitle,
+            border_style="green" if focused else "dim green",
             height=m._locator_panel_height,
         )
