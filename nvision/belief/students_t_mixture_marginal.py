@@ -24,13 +24,22 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     """
 
     n_components: int = 3
-    
+
+    # --- Mode-protection parameters ---
+    # Minimum weight guaranteed to each component during the exploration phase.
+    # Set to 0.0 to disable.  A value of ~1/(2K) is a good starting point.
+    weight_floor: float = 0.05
+    # Number of update steps over which the floor linearly decays to zero.
+    # After this many observations the locator is free to collapse onto one mode.
+    weight_floor_steps: int = 30
+
     means: np.ndarray = field(init=False)         # (K, D)
     precisions: np.ndarray = field(init=False)    # (K, D, D)
     kappas: np.ndarray = field(init=False)        # (K,)
     nus: np.ndarray = field(init=False)           # (K,)
     weights: np.ndarray = field(init=False)       # (K,)
     _covariances: np.ndarray = field(init=False)  # (K, D, D)
+    _update_count: int = field(init=False)        # observations seen so far
 
     _physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     _param_names: list[str] = field(init=False)
@@ -58,6 +67,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         self.nus = np.ones(K, dtype=FLOAT_DTYPE) * (D + 2.0)
         self.weights = np.ones(K, dtype=FLOAT_DTYPE) / K
         self._covariances = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
+        self._update_count = 0
 
         # Derive a reference frequency range for heuristic scaling.
         freq_bounds = self._physical_param_bounds.get("frequency")
@@ -233,6 +243,17 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         else:
             self.weights = np.ones(K) / K
 
+        # Decaying weight floor: guarantee each component a minimum share during
+        # the exploration phase so that the weaker (but possibly correct) mode
+        # cannot be irreversibly eliminated before enough evidence is collected.
+        if self.weight_floor > 0.0 and self._update_count < self.weight_floor_steps:
+            t = self._update_count / max(self.weight_floor_steps, 1)
+            active_floor = self.weight_floor * (1.0 - t)
+            self.weights = np.maximum(self.weights, active_floor)
+            self.weights /= self.weights.sum()
+
+        self._update_count += 1
+
     def estimates(self) -> dict[str, float]:
         weighted_mean = np.sum(self.weights[:, None] * self.means, axis=0)
         return {name: float(weighted_mean[i]) for i, name in enumerate(self._param_names)}
@@ -262,11 +283,14 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         dist = StudentsTMixtureMarginalDistribution(
             model=self.model,
             n_components=self.n_components,
+            weight_floor=self.weight_floor,
+            weight_floor_steps=self.weight_floor_steps,
             _physical_param_bounds=self._physical_param_bounds.copy(),
         )
         dist.means, dist.precisions = self.means.copy(), self.precisions.copy()
         dist.kappas, dist.nus = self.kappas.copy(), self.nus.copy()
         dist.weights, dist._covariances = self.weights.copy(), self._covariances.copy()
+        dist._update_count = self._update_count
         dist.last_obs = self.last_obs
         return dist
 
