@@ -222,30 +222,52 @@ class NVCenterLorentzianModel(
         return out
 
     def compute_vectorized_many(
-        self, x_array: Sequence[float], samples: NVCenterLorentzianSpectrumSamples
+        self, x_phys_array: Sequence[float], samples_phys: NVCenterLorentzianSpectrumSamples
     ) -> np.ndarray:
-        if not hasattr(samples, "frequency"):
+        if not hasattr(samples_phys, "frequency"):
             # Accept raw arrays / sample containers via the generic base fallback.
-            return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
+            return super().compute_vectorized_many(x_phys_array, samples_phys)  # type: ignore[arg-type]
 
-        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
+        xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
-            raise ValueError("x_array must be one-dimensional")
+            raise ValueError("x_phys_array must be one-dimensional")
 
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
         out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
 
         nv_center_lorentzian_vectorized_many(
             xs,
             freq,
-            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.split, dtype=FLOAT_DTYPE),
-            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.dip_depth, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.background, dtype=FLOAT_DTYPE),
             out,
         )
         return out
+
+    def gradient_vectorized_many(
+        self, x_phys_array: Sequence[float], samples_phys: NVCenterLorentzianSpectrumSamples
+    ) -> np.ndarray:
+        """Analytical gradient evaluation at many physical x positions over physical samples."""
+        from nvision.spectra.numba_kernels import nv_center_lorentzian_gradient_vectorized_many
+
+        xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
+        freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
+        n_x, n_p = xs.shape[0], freq.shape[0]
+        grad_out = np.empty((n_x, n_p, 6), dtype=FLOAT_DTYPE)
+
+        nv_center_lorentzian_gradient_vectorized_many(
+            xs,
+            freq,
+            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.dip_depth, dtype=FLOAT_DTYPE),
+            grad_out,
+        )
+        return grad_out
 
 
 @dataclass(frozen=True)

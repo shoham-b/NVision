@@ -135,10 +135,9 @@ class CombinationGrid:
             ])
 
             if "voigt" not in generator_name:
-                # Student's t always runs without a sweep as requested
                 strategies.append((
-                    "StudentsTApproximation-NoSweep",
-                    {"class": StudentsTLocator, "config": {"max_steps": 200, "initial_sweep_steps": 0, "df": 3.0}},
+                    f"StudentsTApproximation{suffix}",
+                    {"class": StudentsTLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, "df": 3.0}},
                 ))
             return strategies
 

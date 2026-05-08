@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from numba import njit, prange
@@ -15,142 +15,12 @@ from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 
 
-@njit(cache=True, fastmath=True)
-def _nv_lorentzian_grad_scalar(
-    x: float,
-    f: float,
-    lw: float,
-    s: float,
-    k: float,
-    d: float,
-    grad: np.ndarray,
-) -> None:
-    """Analytical gradient of NV Lorentzian signal model (in-place).
-    
-    Order: frequency, linewidth, split, k_np, dip_depth, background
-    """
-    lw2 = lw * lw
-    
-    # Amplitudes
-    amp_r = d
-    amp_c = d / k
-    amp_l = d / (k * k)
-    
-    # Dip centers
-    fc, fl, fr = f, f - s, f + s
-    
-    # Center dip
-    dxc = x - fc
-    dxc2 = dxc * dxc
-    den_c = dxc2 + lw2
-    iden_c = 1.0 / den_c
-    iden_c2 = iden_c * iden_c
-    tc = lw2 * iden_c
-    dt_df_c = 2.0 * lw2 * dxc * iden_c2
-    dt_dlw_c = 2.0 * lw * dxc2 * iden_c2
-
-    # Left dip
-    dxl = x - fl
-    dxl2 = dxl * dxl
-    den_l = dxl2 + lw2
-    iden_l = 1.0 / den_l
-    iden_l2 = iden_l * iden_l
-    tl = lw2 * iden_l
-    dt_df_l = 2.0 * lw2 * dxl * iden_l2
-    dt_dlw_l = 2.0 * lw * dxl2 * iden_l2
-
-    # Right dip
-    dxr = x - fr
-    dxr2 = dxr * dxr
-    den_r = dxr2 + lw2
-    iden_r = 1.0 / den_r
-    iden_r2 = iden_r * iden_r
-    tr = lw2 * iden_r
-    dt_df_r = 2.0 * lw2 * dxr * iden_r2
-    dt_dlw_r = 2.0 * lw * dxr2 * iden_r2
-    
-    # dS/df
-    grad[0] = -(amp_l * dt_df_l + amp_c * dt_df_c + amp_r * dt_df_r)
-    # dS/dlw
-    grad[1] = -(amp_l * dt_dlw_l + amp_c * dt_dlw_c + amp_r * dt_dlw_r)
-    # dS/ds
-    grad[2] = amp_l * dt_df_l - amp_r * dt_df_r
-    # dS/dk
-    k2 = k * k
-    grad[3] = (2.0 * d / (k2 * k)) * tl + (d / k2) * tc
-    # dS/dd
-    grad[4] = -(tl / k2 + tc / k + tr)
-    # dS/dbg
-    grad[5] = 1.0
-
-
-@njit(cache=True, parallel=True, fastmath=True)
-def _eig_batch_jit(
-    xs: np.ndarray,
-    weights: np.ndarray,
-    means: np.ndarray,
-    covs: np.ndarray,
-    noise_var: float,
-) -> np.ndarray:
-    """Highly optimized Numba-accelerated EIG batch computation."""
-    n_x = xs.shape[0]
-    n_k = weights.shape[0]
-    dim = means.shape[1]
-    eigs = np.empty(n_x, dtype=np.float64)
-    
-    for i in prange(n_x):
-        x = xs[i]
-        
-        y_preds = np.empty(n_k)
-        # Avoid large allocations; since dim is fixed and small, this is okay
-        # but we can also use a flat array if needed.
-        grads = np.empty((n_k, 6))
-        
-        for k in range(n_k):
-            m = means[k]
-            f, lw, s, knp, d, bg = m[0], m[1], m[2], m[3], m[4], m[5]
-            
-            lw2 = lw * lw
-            fl, fc, fr = f - s, f, f + s
-            tl = lw2 / ((x - fl)**2 + lw2)
-            tc = lw2 / ((x - fc)**2 + lw2)
-            tr = lw2 / ((x - fr)**2 + lw2)
-            
-            y_preds[k] = bg - (d/(knp*knp)*tl + d/knp*tc + d*tr)
-            
-            # Inlined/Efficient gradient call
-            _nv_lorentzian_grad_scalar(x, f, lw, s, knp, d, grads[k])
-            
-        y_mix = 0.0
-        for k in range(n_k):
-            y_mix += weights[k] * y_preds[k]
-            
-        pred_var = 0.0
-        for k in range(n_k):
-            gk = grads[k]
-            ck = covs[k]
-            
-            # Manual dot product for speed (gT @ Σ @ g)
-            ev = 0.0
-            for r in range(6):
-                tmp = 0.0
-                for c in range(6):
-                    tmp += gk[c] * ck[r, c]
-                ev += tmp * gk[r]
-            
-            pred_var += weights[k] * (ev + (y_preds[k] - y_mix)**2)
-            
-        eigs[i] = 0.5 * math.log(1.0 + pred_var / (noise_var + 1e-12))
-        
-    return eigs
-
-
 @dataclass
 class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     """Parametric belief tracking the posterior as a Student's t Mixture.
 
     Uses a linearized conditionally conjugate Normal-Inverse-Wishart (NIW) update
-    with Student's t observation weighting for robustness. Optimized with Numba.
+    with Student's t observation weighting for robustness.
     """
 
     n_components: int = 3
@@ -166,11 +36,22 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     _param_names: list[str] = field(init=False)
     _dim: int = field(init=False)
 
+    # Heuristic default values for NV-center Lorentzian parameters when
+    # explicit bounds are absent.  These prevent the gradient from being
+    # identically zero on the very first update (which would freeze the belief).
+    _PARAM_DEFAULTS: ClassVar[dict[str, float]] = {
+        "linewidth": 1e6,      # 1 MHz – typical NV linewidth order of magnitude
+        "split":     5e6,      # 5 MHz – typical hyperfine splitting
+        "k_np":      1.5,      # asymmetry ratio
+        "dip_depth": 0.1,      # 10 % contrast
+        "background": 1.0,     # normalized baseline
+    }
+
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
         self._dim = len(self._param_names)
         K, D = self.n_components, self._dim
-        
+
         self.means = np.zeros((K, D), dtype=FLOAT_DTYPE)
         self.precisions = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
         self.kappas = np.ones(K, dtype=FLOAT_DTYPE) * 1.0
@@ -178,24 +59,57 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         self.weights = np.ones(K, dtype=FLOAT_DTYPE) / K
         self._covariances = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
 
-        if self._physical_param_bounds:
-            for i, name in enumerate(self._param_names):
-                if name in self._physical_param_bounds:
-                    lo, hi = self._physical_param_bounds[name]
-                    mid = (lo + hi) / 2.0
-                    width = hi - lo
-                    for k in range(K):
-                        self.means[k, i] = mid
-                        if name == "frequency" and K > 1:
-                            offset = (k - (K-1)/2.0) * (width * 0.1)
-                            self.means[k, i] = np.clip(mid + offset, lo, hi)
-                    var = (width / 4.0) ** 2
-                    for k in range(K):
-                        self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
+        # Derive a reference frequency range for heuristic scaling.
+        freq_bounds = self._physical_param_bounds.get("frequency")
+        if freq_bounds is not None:
+            freq_lo, freq_hi = freq_bounds
+            freq_width = max(freq_hi - freq_lo, 1.0)
         else:
+            freq_lo, freq_hi, freq_width = 2.87e9, 2.87e9, 1.0
+
+        from nvision.spectra.unit_cube import UnitCubeSignalModel
+        self._is_unit_cube = isinstance(self.model, UnitCubeSignalModel) or "UnitCube" in type(self.model).__name__
+
+        for i, name in enumerate(self._param_names):
+            if self._is_unit_cube:
+                # Unit cube: everything is [0, 1]. Default to midpoint.
+                mid = 0.5
+                for k in range(K):
+                    self.means[k, i] = mid
+                    if name == "frequency" and K > 1:
+                        offset = (k - (K - 1) / 2.0) * 0.1
+                        self.means[k, i] = float(np.clip(mid + offset, 0.0, 1.0))
+                var = (0.25) ** 2 # sigma = 0.25 (covers 0 to 1 in 4 sigma)
+                for k in range(K):
+                    self.precisions[k, i, i] = 1.0 / var
+            elif name in self._physical_param_bounds:
+                lo, hi = self._physical_param_bounds[name]
+                mid = (lo + hi) / 2.0
+                width = hi - lo
+                for k in range(K):
+                    self.means[k, i] = mid
+                    if name == "frequency" and K > 1:
+                        offset = (k - (K - 1) / 2.0) * (width * 0.1)
+                        self.means[k, i] = float(np.clip(mid + offset, lo, hi))
+                var = (width / 4.0) ** 2
+                for k in range(K):
+                    self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
+            else:
+                # No explicit bound supplied – use heuristic defaults
+                default = self._PARAM_DEFAULTS.get(name)
+                if default is None:
+                    default = freq_width * 1e-3
+                for k in range(K):
+                    self.means[k, i] = float(default)
+                var = (default * 2.0) ** 2
+                for k in range(K):
+                    self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
+
+        if not self._physical_param_bounds:
+            # Completely unconstrained: fall back to identity precision
             for k in range(K):
                 self.precisions[k] = np.eye(D)
-        
+
         self._recompute_covariances()
 
     def _recompute_covariances(self) -> None:
@@ -206,6 +120,33 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             c = inv(reg_prec)
             self._covariances[k] = (c + c.T) / 2.0
 
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        if param_name in self._physical_param_bounds:
+            old_lo, old_hi = self._physical_param_bounds[param_name]
+            lo, hi = max(old_lo, new_lo), min(old_hi, new_hi)
+            self._physical_param_bounds[param_name] = (lo, hi)
+            
+            # Re-spread current means across the new tightened window.
+            # This provides a better starting prior for the subsequent batch update
+            # from sweep data, preventing all components from being trapped at one edge.
+            if param_name in self._param_names:
+                idx = self._param_names.index(param_name)
+                width = hi - lo
+                mid = (lo + hi) / 2.0
+                K = self.n_components
+                for k in range(K):
+                    if K > 1:
+                        offset = (k - (K - 1) / 2.0) * (width * 0.1)
+                        self.means[k, idx] = float(np.clip(mid + offset, lo, hi))
+                    else:
+                        self.means[k, idx] = mid
+                
+                # Also tighten the prior precision to match the new window width
+                # if it was uninformatively large.
+                for k in range(K):
+                    var = (width / 4.0) ** 2
+                    self.precisions[k, idx, idx] = max(self.precisions[k, idx, idx], 1.0 / max(var, 1e-20))
+
     @property
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
         return self._physical_param_bounds
@@ -215,16 +156,21 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         return self._physical_param_bounds
 
     def update(self, obs: Observation) -> None:
+        """Update with an observation (units must match the model)."""
         self.last_obs = obs
         self._update_mixtures(obs.x, obs.signal_value, obs.noise_std)
         self._recompute_covariances()
 
     def batch_update(self, observations: list[Observation]) -> None:
+        """Batch update with observations (units must match the model)."""
+        if not observations:
+            return
         for obs in observations:
             self._update_mixtures(obs.x, obs.signal_value, obs.noise_std)
+        self.last_obs = observations[-1]
         self._recompute_covariances()
 
-    def _update_mixtures(self, x: float, y: float, sigma_eta: float) -> None:
+    def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
         """Perform linearized update with Student's t weighting."""
         K, D = self.n_components, self._dim
         sigma2 = sigma_eta**2
@@ -235,19 +181,16 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         new_precisions = np.zeros_like(self.precisions)
         responsibilities = np.zeros(K)
         
-        # Pre-allocate gradient workspace
-        J = np.zeros(D, dtype=np.float64)
+        # Vectorized evaluation over components
+        samples = self.model.spec.unpack_samples(tuple(self.means.T))
+        y_preds = self.model.compute_vectorized_samples(x_probe, samples)
+        J_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # (K, D)
 
         for k in range(K):
             m = self.means[k]
-            f, lw, s, knp, d, bg = m[0], m[1], m[2], m[3], m[4], m[5]
-            
-            # Prediction
-            y_pred = self.model.compute_nvcenter_lorentzian_model(x, f, lw, s, knp, d, bg)
-            r = y - y_pred
-            
-            # Gradient ∇_θ S(x; θ) in-place
-            _nv_lorentzian_grad_scalar(x, f, lw, s, knp, d, J)
+            y_pred = y_preds[k]
+            r = y_obs - y_pred
+            J = J_all[k]
             
             # Weighting
             w = (1.0 + (r**2) / (df_weight * sigma2)) ** (-(df_weight + 1.0) / 2.0)
@@ -259,13 +202,18 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             # Stable Mean update
             reg_new_prec = new_precisions[k] + epsilon * np.eye(D)
             rhs = (w / sigma2) * J * r
-            delta_mu = solve(reg_new_prec, rhs)
+            try:
+                delta_mu = solve(reg_new_prec, rhs)
+            except np.linalg.LinAlgError:
+                delta_mu = np.zeros(D)
             
             new_means[k] = m + delta_mu
             
             # Clip to bounds
             for i, name in enumerate(self._param_names):
-                if name in self._physical_param_bounds:
+                if self._is_unit_cube:
+                    new_means[k, i] = np.clip(new_means[k, i], 0.0, 1.0)
+                elif name in self._physical_param_bounds:
                     lo, hi = self._physical_param_bounds[name]
                     new_means[k, i] = np.clip(new_means[k, i], lo, hi)
             
@@ -336,12 +284,33 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             samples[mask] = self.means[k] + z / np.sqrt(u[:, None])
         return ParameterValues.from_mapping(self._param_names, {name: samples[:, i] for i, name in enumerate(self._param_names)})
 
-    def expected_information_gain(self, x: float) -> float:
-        return float(self.expected_information_gain_batch(np.array([x]))[0])
-
-    def expected_information_gain_batch(self, xs: np.ndarray) -> np.ndarray:
-        noise_var = (self.last_obs.noise_std**2) if self.last_obs else 0.01**2
-        return _eig_batch_jit(xs, self.weights, self.means, self._covariances, noise_var)
+    def expected_information_gain_batch(self, xs_phys: np.ndarray) -> np.ndarray:
+        """Calculate EIG in physical space."""
+        noise_var = (self.last_obs.noise_std**2) if self.last_obs else 0.05**2
+        
+        K, D = self.n_components, self._dim
+        n_x = xs_phys.shape[0]
+        
+        # Vectorized evaluation over components and x-positions
+        samples_phys = self.model.spec.unpack_samples(tuple(self.means.T))
+        # y_preds shape (n_x, K)
+        y_preds = self.model.compute_vectorized_many(xs_phys, samples_phys)
+        # J_phys shape (n_x, K, D)
+        J_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)
+        
+        y_mix = np.sum(self.weights * y_preds, axis=1) # (n_x,)
+        
+        eigs = np.zeros(n_x)
+        for i in range(n_x):
+            pred_var = 0.0
+            for k in range(K):
+                gk = J_phys[i, k]
+                ev = gk @ self._covariances[k] @ gk.T
+                pred_var += self.weights[k] * (ev + (y_preds[i, k] - y_mix[i])**2)
+            
+            eigs[i] = 0.5 * np.log(1.0 + pred_var / (noise_var + 1e-12))
+            
+        return eigs
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import t

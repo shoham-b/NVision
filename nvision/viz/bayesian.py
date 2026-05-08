@@ -193,24 +193,59 @@ def _trace_one_marginal_posterior(
     posterior: np.ndarray,
     grid: np.ndarray,
     param: str,
-) -> go.Histogram | go.Scatter:
+) -> list[go.Histogram | go.Scatter]:
     if posterior.ndim == 2:
-        return go.Histogram(
-            x=posterior[:, 0],
-            histnorm="probability density",
-            name=f"{param} (particles)",
-            opacity=0.75,
-            nbinsx=80,
+        # Check if particles (N, 1) or mixture (K+1, N_grid)
+        if posterior.shape[1] == 1:
+            return [
+                go.Histogram(
+                    x=posterior[:, 0],
+                    histnorm="probability density",
+                    name=f"{param} (particles)",
+                    opacity=0.75,
+                    nbinsx=80,
+                    showlegend=False,
+                )
+            ]
+        else:
+            # Mixture: each row is a component, last row is total
+            K_plus_1 = posterior.shape[0]
+            traces: list[go.Histogram | go.Scatter] = []
+            # Plot individual experts with dashed lines
+            for k in range(K_plus_1 - 1):
+                traces.append(
+                    go.Scatter(
+                        x=grid,
+                        y=posterior[k],
+                        mode="lines",
+                        name=f"{param} expert {k}",
+                        line=dict(dash="dash", width=1, color="rgba(0,0,255,0.4)"),
+                        showlegend=False,
+                    )
+                )
+            # Plot total mixture with solid blue line
+            traces.append(
+                go.Scatter(
+                    x=grid,
+                    y=posterior[-1],
+                    mode="lines",
+                    name=f"{param} (mixture)",
+                    line=dict(color="blue", width=2.5),
+                    showlegend=False,
+                )
+            )
+            return traces
+
+    return [
+        go.Scatter(
+            x=grid,
+            y=posterior,
+            mode="lines",
+            name=param,
+            line=dict(color="blue"),
             showlegend=False,
         )
-    return go.Scatter(
-        x=grid,
-        y=posterior,
-        mode="lines",
-        name=param,
-        line=dict(color="blue"),
-        showlegend=False,
-    )
+    ]
 
 
 def _collect_param_keys(parameter_history: list[dict[str, float]]) -> list[str]:
@@ -287,27 +322,7 @@ class BayesianMixin:
         for i in step_indices:
             posterior = posterior_history[i]
 
-            if is_particles:
-                data = [
-                    go.Histogram(
-                        x=posterior[:, 0],
-                        histnorm="probability density",
-                        name="Posterior Particles",
-                        marker_color="blue",
-                        opacity=0.7,
-                        nbinsx=50,
-                    )
-                ]
-            else:
-                data = [
-                    go.Scatter(
-                        x=freq_grid,
-                        y=posterior,
-                        mode="lines",
-                        name="Posterior",
-                        line=dict(color="blue"),
-                    )
-                ]
+            data = _trace_one_marginal_posterior(posterior, freq_grid, "Posterior")
 
             if model_history and i < len(model_history):
                 # Normalize model for visualization scale if needed, or plotting separately?
@@ -342,28 +357,10 @@ class BayesianMixin:
 
         # Initial plot
         initial_posterior = posterior_history[0]
+        initial_data = _trace_one_marginal_posterior(initial_posterior, freq_grid, "Posterior")
         if is_particles:
-            initial_data = [
-                go.Histogram(
-                    x=initial_posterior[:, 0],
-                    histnorm="probability density",
-                    name="Posterior Particles",
-                    marker_color="blue",
-                    opacity=0.7,
-                    nbinsx=50,
-                )
-            ]
             yaxis_layout = dict(title="Probability Density", automargin=True)
         else:
-            initial_data = [
-                go.Scatter(
-                    x=freq_grid,
-                    y=initial_posterior,
-                    mode="lines",
-                    name="Posterior",
-                    line=dict(color="blue"),
-                )
-            ]
             yaxis_layout = dict(title="Probability Density", automargin=True, range=[0, max_prob * 1.1])
 
         # Speed multipliers for single parameter animation
@@ -521,7 +518,7 @@ class BayesianMixin:
             for param in param_names:
                 posterior_history, grid = posterior_inputs_by_param[param]
                 posterior = posterior_history[-1] if step_idx >= len(posterior_history) else posterior_history[step_idx]
-                traces.append(_trace_one_marginal_posterior(posterior, grid, param))
+                traces.extend(_trace_one_marginal_posterior(posterior, grid, param))
             return traces
 
         subplot_titles = tuple(_build_subplot_title(p, param_descriptions) for p in param_names)
@@ -531,8 +528,11 @@ class BayesianMixin:
             subplot_titles=subplot_titles,
             vertical_spacing=min(0.15, 0.6 / max(n, 1)),  # slightly more spacing for rich titles
         )
-        for i, tr in enumerate(traces_for_step(step_indices[0]), start=1):
-            fig.add_trace(tr, row=i, col=1)
+        for param_idx, param in enumerate(param_names, start=1):
+            posterior_history, grid = posterior_inputs_by_param[param]
+            posterior = posterior_history[-1] if step_indices[0] >= len(posterior_history) else posterior_history[step_indices[0]]
+            for tr in _trace_one_marginal_posterior(posterior, grid, param):
+                fig.add_trace(tr, row=param_idx, col=1)
         for i, name in enumerate(param_names, start=1):
             fig.update_yaxes(title_text="density", automargin=True, row=i, col=1)
             fig.update_xaxes(title_text=name, row=i, col=1)

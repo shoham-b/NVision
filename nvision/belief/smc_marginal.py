@@ -330,10 +330,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def batch_update(self, observations: list[Observation]) -> None:
         """Update belief from multiple observations in a single batch.
 
-        This is more efficient than calling update() repeatedly for each observation,
-        especially during the initial sweep phase. Log-likelihoods are accumulated
-        before exponentiation to prevent catastrophic weight collapse from the product
-        of many small probabilities.
+        Log-likelihoods are accumulated before exponentiation to prevent underflow.
+        Each observation uses the same epistemic tempering as :meth:`update`:
+        the effective noise ``σ_eff = sqrt(σ_η² + σ_epistemic²)`` broadens the
+        likelihood by the current prediction spread across particles, preventing
+        catastrophic concentration when the prior is still diffuse.
 
         Parameters
         ----------
@@ -345,26 +346,46 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self.last_obs = observations[-1]
 
-        n_params = len(self._param_names)
-        arrays_in_order = [self._particles[:, j] for j in range(n_params)]
+        d_signal = self._particles.shape[1]
+        if self._noise_param_slice is not None:
+            d_signal = self._noise_param_slice.start
+        arrays_in_order = [self._particles[:, j] for j in range(d_signal)]
 
-        # Accumulate log-likelihoods across all observations before exponentiation.
-        # Multiplying many small probabilities leads to catastrophic underflow; summing
-        # log-probabilities is numerically stable and avoids premature weight collapse.
+        # Accumulate log-likelihoods with per-observation epistemic tempering.
+        # sigma_epistemic = std(predicted across particles) at each x broadens the
+        # likelihood proportionally to how much the particles disagree — identical to
+        # what update() does. Without this, batch processing 30+ sweep observations
+        # accumulates a product of sharp likelihoods and collapses the filter in ~16 steps.
         log_weights = np.zeros(self.num_particles, dtype=np.float64)
         for obs in observations:
             predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
-            likelihoods = likelihood_from_observation_model(
-                obs_y=obs.signal_value,
-                predicted=predicted,
-                noise_std=obs.noise_std,
-                frequency_noise_model=obs.frequency_noise_model,
-            ).astype(np.float64, copy=False)
-            # Clip to avoid log(0)
-            log_weights += np.log(np.clip(likelihoods, 1e-300, None))
+
+            if self.noise_model is not None and self._noise_param_slice is not None:
+                noise_arrays = [
+                    self._particles[:, j]
+                    for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
+                ]
+                sigma_epistemic = float(np.std(predicted))
+                residuals = obs.signal_value - predicted
+                log_liks = self.noise_model.composite_log_likelihood(
+                    predicted, residuals, noise_arrays, sigma_epistemic
+                )
+                log_liks -= np.max(log_liks)
+            else:
+                sigma_epistemic = float(np.std(predicted))
+                sigma_eff = float(np.sqrt(obs.noise_std**2 + sigma_epistemic**2))
+                likelihoods = likelihood_from_observation_model(
+                    obs_y=obs.signal_value,
+                    predicted=predicted,
+                    noise_std=sigma_eff,
+                    frequency_noise_model=obs.frequency_noise_model,
+                ).astype(np.float64, copy=False)
+                log_liks = np.log(np.clip(likelihoods, 1e-300, None))
+
+            log_weights += log_liks
 
         # Convert back to normalized weights
-        log_weights -= np.max(log_weights)  # numerical stability shift
+        log_weights -= np.max(log_weights)
         raw_weights = np.exp(log_weights) * self._weights.astype(np.float64)
         weight_sum = np.sum(raw_weights)
         if weight_sum > 1e-300:
@@ -376,6 +397,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         ess = _inverse_sum_squares(self._weights)
         if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
+
 
     def get_candidates(self) -> np.ndarray:
         """Return the current epoch's slope-targeted candidate grid."""
@@ -722,6 +744,28 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         noise_var = noise_std**2
         return 0.5 * jnp.log(1.0 + var_pred / (noise_var + 1e-12))
+
+    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
+        """Shrink physical bounds and clip particles into the new window."""
+        if param_name in self.parameter_bounds:
+            old_lo, old_hi = self.parameter_bounds[param_name]
+            lo, hi = max(old_lo, new_lo), min(old_hi, new_hi)
+            self.parameter_bounds[param_name] = (lo, hi)
+            
+            # Immediately snap particles into the new tighter bounds
+            if param_name in self._param_names:
+                idx = self._param_names.index(param_name)
+                self._particles[:, idx] = np.clip(self._particles[:, idx], lo, hi)
+                
+            # If the scan parameter was narrowed, update the global grid and candidates
+            if param_name == "frequency":
+                POINTS_PER_MIN_FEATURE: int = 5
+                domain_width = float(hi - lo)
+                min_span = self.model.signal_min_span(domain_width)
+                if min_span is not None and min_span > 0:
+                    n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
+                    self._global_grid = np.linspace(lo, hi, n_global).astype(np.float32)
+                self._generate_epoch_candidates()
 
     @property
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:

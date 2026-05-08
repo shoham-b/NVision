@@ -135,40 +135,72 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
 
         return self.inner.compute_vectorized(x_phys, *phys_arrays)
 
+    def _get_param_arrays_norm(self, samples_norm: VectorizedManySamplesInput[object]) -> Sequence[np.ndarray]:
+        """Convert samples_norm (dataclass, tuple, or list) into a sequence of parameter arrays."""
+        try:
+            return samples_norm.arrays_in_order()  # type: ignore[union-attr]
+        except AttributeError:
+            if not isinstance(samples_norm, tuple | list):
+                # If it's a dataclass/spec-unpackable but doesn't have arrays_in_order
+                return self.inner.spec.pack_samples(samples_norm)
+            return samples_norm  # type: ignore[return-value]
+
     def compute_vectorized_many(
         self,
-        x_array: Sequence[float],
-        samples: VectorizedManySamplesInput[object],
+        x_norm_array: Sequence[float],
+        samples_norm: VectorizedManySamplesInput[object],
     ) -> np.ndarray:
-        """Vectorized evaluation at many unit x positions over shared samples."""
-        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
-        if xs.ndim != 1:
-            raise ValueError("x_array must be one-dimensional")
-        if xs.size == 0:
-            return np.empty((0, 0), dtype=FLOAT_DTYPE)
-
+        """Vectorized signal evaluation at many unit x positions over unit samples."""
+        xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
+        param_arrays_norm = self._get_param_arrays_norm(samples_norm)
+        
         names = self.parameter_names()
-        try:
-            param_arrays = samples.arrays_in_order()  # type: ignore[union-attr]
-        except AttributeError:
-            if not isinstance(samples, tuple | list):
-                raise TypeError("samples must provide arrays_in_order() or be parameter arrays") from None
-            param_arrays = samples  # type: ignore[assignment]
-
-        if len(param_arrays) != len(names):
-            raise ValueError(f"{type(self).__name__}: expected {len(names)} param arrays but got {len(param_arrays)}")
+        if len(param_arrays_norm) != len(names):
+            raise ValueError(f"Expected {len(names)} parameter arrays, got {len(param_arrays_norm)}")
 
         phys_arrays: list[np.ndarray] = []
-        for name, u_arr in zip(names, param_arrays, strict=True):
+        for name, u_arr in zip(names, param_arrays_norm, strict=True):
             lo, hi = self.param_bounds_phys[name]
             u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
             phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
 
         x_lo, x_hi = self.x_bounds_phys
-        x_phys = x_lo + xs * (x_hi - x_lo)
+        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
 
-        typed_samples = self.inner.spec.unpack_samples(tuple(phys_arrays))
-        return self.inner.compute_vectorized_many(x_phys, typed_samples)
+        typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
+        return self.inner.compute_vectorized_many(xs_phys, typed_samples_phys)
+
+    def gradient_vectorized_many(
+        self,
+        x_norm_array: Sequence[float],
+        samples_norm: VectorizedManySamplesInput[object],
+    ) -> np.ndarray:
+        """Vectorized analytical gradient evaluation at many unit x positions over unit samples."""
+        xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
+        param_arrays_norm = self._get_param_arrays_norm(samples_norm)
+        
+        names = self.parameter_names()
+
+        phys_arrays: list[np.ndarray] = []
+        widths: list[float] = []
+        for name, u_arr in zip(names, param_arrays_norm, strict=True):
+            lo, hi = self.param_bounds_phys[name]
+            widths.append(hi - lo)
+            u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
+            phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
+
+        x_lo, x_hi = self.x_bounds_phys
+        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
+
+        typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
+        # grad_phys has shape (n_x, n_p, dim)
+        grad_phys = self.inner.gradient_vectorized_many(xs_phys, typed_samples_phys)
+        
+        # Chain rule: dS/du = dS/dv * dv/du = dS/dv * (hi - lo)
+        # We need to scale each parameter column by its width
+        widths_arr = np.array(widths, dtype=FLOAT_DTYPE)
+        # Broadcasting widths (dim,) across (n_x, n_p, dim)
+        return grad_phys * widths_arr
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

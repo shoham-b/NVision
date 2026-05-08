@@ -17,6 +17,13 @@ _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
 _POSTERIOR_MIN_NARROWING_FRACTION: float = 0.05
 _CONVERGENCE_CHECK_INTERVAL: int = 100
 
+# Number of Bayesian acquisitions to buffer before the first belief update.
+# Sequential w *= likelihood calls during warmup compound multiplicatively,
+# drifting weights far toward one mode before resampling can correct them.
+# Buffering and flushing as one batch_update (log-space, epistemically tempered)
+# gives the filter a gentler, more robust initial update.
+_WARMUP_BUFFER_SIZE: int = 5
+
 
 def _posterior_credible_interval(
     belief: AbstractMarginalDistribution,
@@ -177,6 +184,8 @@ class SequentialBayesianLocator(Locator):
         # Buffer for sweep observations - batch update belief after sweep completes.
         # Capacity must cover the full staged-sobol budget, which is now max_steps.
         self._sweep_buffer = ObservationHistory(self.max_steps)
+        # Buffer for the first _WARMUP_BUFFER_SIZE Bayesian observations (narrow mode only).
+        self._warmup_obs_buffer: list[Observation] = []
 
     @classmethod
     def create(
@@ -239,7 +248,19 @@ class SequentialBayesianLocator(Locator):
         if hasattr(self._staged_sobol, "finalize"):
             self._staged_sobol.finalize()
 
-        # Batch update belief with all sweep observations at once
+        # 1. Determine acquisition window and per-dip windows from sweep
+        self._acquisition_lo, self._acquisition_hi = self._staged_sobol.acquisition_window()
+        if hasattr(self._staged_sobol, "per_dip_windows"):
+            pdw = self._staged_sobol.per_dip_windows()
+            if pdw is not None:
+                self._per_dip_windows = pdw
+
+        # 2. Narrow belief bounds BEFORE batch update.
+        # This "snaps" particles/means into the focus window so the batch update
+        # starts from a much better prior distribution derived from the sweep.
+        self.belief.narrow_scan_parameter_physical_bounds(self._scan_param, self._acquisition_lo, self._acquisition_hi)
+
+        # 3. Batch update belief with all sweep observations at once
         if self._sweep_buffer.count > 0:
             if hasattr(self.belief, "batch_update"):
                 self.belief.batch_update(self._sweep_buffer.observations)
@@ -248,17 +269,7 @@ class SequentialBayesianLocator(Locator):
                     self.belief.update(obs)
             self._sweep_buffer = ObservationHistory(self.max_steps)
 
-        # Get acquisition window from staged Sobol locator
-        self._acquisition_lo, self._acquisition_hi = self._staged_sobol.acquisition_window()
-
-        # Propagate per-dip windows for UI overlay when available
-        if hasattr(self._staged_sobol, "per_dip_windows"):
-            pdw = self._staged_sobol.per_dip_windows()
-            if pdw is not None:
-                self._per_dip_windows = pdw
-
-        # Narrow belief scan bounds (no-op for physical-space beliefs)
-        self.belief.narrow_scan_parameter_physical_bounds(self._scan_param, self._acquisition_lo, self._acquisition_hi)
+        # 4. Finalize narrowed bounds for tracking
         phys_bounds = self.belief.physical_param_bounds
         slo, shi = phys_bounds[self._scan_param]
         self._acquisition_lo = min(slo, shi)
@@ -334,8 +345,35 @@ class SequentialBayesianLocator(Locator):
         self._staged_sobol.observe(obs)
 
     def _observe_acquisition(self, obs: Observation) -> None:
-        """Handle an observation arriving during the Bayesian acquisition phase."""
-        super().observe(obs)
+        """Route acquisition observations through the warmup buffer (narrow mode only).
+
+        When no initial sweep was configured (``initial_sweep_steps == 0``), the first
+        ``_WARMUP_BUFFER_SIZE`` Bayesian observations are buffered and applied as a
+        single :meth:`batch_update` (log-space + epistemic tempering). This prevents
+        sequential ``w *= likelihood`` calls from compounding multiplicatively and
+        drifting weights to a wrong mode before the first resample fires — the same
+        role the Sobol sweep plays in the non-narrow variant.
+
+        When a sweep was already run, ``batch_update`` already provided this warm start,
+        so observations are applied immediately as usual.
+        """
+        in_warmup = (
+            self.initial_sweep_steps == 0
+            and self.inference_step_count <= _WARMUP_BUFFER_SIZE
+        )
+        if in_warmup:
+            self._warmup_obs_buffer.append(obs)
+            if self.inference_step_count == _WARMUP_BUFFER_SIZE:
+                # Flush the warmup buffer as one tempered batch.
+                if hasattr(self.belief, "batch_update"):
+                    self.belief.batch_update(self._warmup_obs_buffer)
+                else:
+                    for o in self._warmup_obs_buffer:
+                        self.belief.update(o)
+                self._warmup_obs_buffer = []
+            # No update or resample during buffering — keep particles diverse.
+        else:
+            self.belief.update(obs)
 
     def _acquisition_done(self) -> bool:
         """Return whether the Bayesian acquisition phase should stop.
@@ -353,7 +391,12 @@ class SequentialBayesianLocator(Locator):
     # ------------------------------------------------------------------
 
     def next(self) -> float:
-        """Propose next measurement with staged initial-sweep warm-start."""
+        """Propose next measurement with staged initial-sweep warm-start.
+        
+        In narrow mode (initial_sweep_steps == 0), the first _WARMUP_BUFFER_SIZE
+        steps use a Sobol sequence to ensure diverse exploration of the domain
+        before the first belief update.
+        """
         self.step_count += 1
 
         if not self._staged_sobol.done():
@@ -367,6 +410,20 @@ class SequentialBayesianLocator(Locator):
             self._on_sweep_complete()
 
         self.inference_step_count += 1
+        
+        # Use Sobol sequence for proposals during the warmup phase (narrow mode only)
+        # to ensure we don't repeat the same non-informative measurement.
+        in_warmup = (
+            self.initial_sweep_steps == 0
+            and self.inference_step_count <= _WARMUP_BUFFER_SIZE
+        )
+        if in_warmup:
+            from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
+            # sobol_1d_sequence(n) returns n points. We take the last one.
+            val = float(sobol_1d_sequence(self.inference_step_count)[-1])
+            # val is in [0, 1]. We keep it normalized as per super().next() expectation
+            return val
+
         physical_value = self._acquire()
         return self._to_experiment_normalized(physical_value)
 

@@ -198,6 +198,16 @@ def _group_narrow_sbed() -> RunGroup:
     )
 
 
+def _group_student_t_only() -> RunGroup:
+    return RunGroup(
+        name="student_t_only",
+        description="Student's t mixture belief locator only (no-sweep, narrow Lorentzian).",
+        generator_names=["NVCenter-lorentzian-narrow"],
+        noise_names=_default_noise_names(),
+        strategy_names=["StudentsTApproximation-NoSweep"],
+    )
+
+
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
@@ -210,6 +220,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_narrow_only(),
         _group_smc_only(),
         _group_narrow_sbed(),
+        _group_student_t_only(),
     )
 
 

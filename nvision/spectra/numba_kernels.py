@@ -54,6 +54,74 @@ def nv_center_lorentzian_eval(
     return background - (left + center + right)
 
 
+@njit(cache=True, fastmath=True)
+def nv_center_lorentzian_gradient(
+    x_phys: float,
+    freq_phys: float,
+    lw_phys: float,
+    split_phys: float,
+    k_np: float,
+    dip_depth_phys: float,
+    grad_phys: np.ndarray,
+) -> None:
+    """Analytical gradient of NV Lorentzian signal model (in-place).
+    
+    Order: frequency, linewidth, split, k_np, dip_depth, background
+    """
+    lw2 = lw_phys * lw_phys
+    
+    # Amplitudes
+    amp_r = dip_depth_phys
+    amp_c = dip_depth_phys / k_np
+    amp_l = dip_depth_phys / (k_np * k_np)
+    
+    # Dip centers
+    fc, fl, fr = freq_phys, freq_phys - split_phys, freq_phys + split_phys
+    
+    # Center dip
+    dxc = x_phys - fc
+    dxc2 = dxc * dxc
+    den_c = dxc2 + lw2
+    iden_c = 1.0 / den_c
+    iden_c2 = iden_c * iden_c
+    dt_df_c = 2.0 * lw2 * dxc * iden_c2
+    dt_dlw_c = 2.0 * lw_phys * dxc2 * iden_c2
+
+    # Left dip
+    dxl = x_phys - fl
+    dxl2 = dxl * dxl
+    den_l = dxl2 + lw2
+    iden_l = 1.0 / den_l
+    iden_l2 = iden_l * iden_l
+    tl = lw2 * iden_l
+    dt_df_l = 2.0 * lw2 * dxl * iden_l2
+    dt_dlw_l = 2.0 * lw_phys * dxl2 * iden_l2
+
+    # Right dip
+    dxr = x_phys - fr
+    dxr2 = dxr * dxr
+    den_r = dxr2 + lw2
+    iden_r = 1.0 / den_r
+    iden_r2 = iden_r * iden_r
+    tr = lw2 * iden_r
+    dt_df_r = 2.0 * lw2 * dxr * iden_r2
+    dt_dlw_r = 2.0 * lw_phys * dxr2 * iden_r2
+    
+    # dS/df
+    grad_phys[0] = -(amp_l * dt_df_l + amp_c * dt_df_c + amp_r * dt_df_r)
+    # dS/dlw
+    grad_phys[1] = -(amp_l * dt_dlw_l + amp_c * dt_dlw_c + amp_r * dt_dlw_r)
+    # dS/ds
+    grad_phys[2] = amp_l * dt_df_l - amp_r * dt_df_r
+    # dS/dk
+    k2 = k_np * k_np
+    grad_phys[3] = (2.0 * dip_depth_phys / (k2 * k_np)) * tl + (dip_depth_phys / k2) * (lw2 * iden_c)
+    # dS/dd
+    grad_phys[4] = -(tl / k2 + (lw2 * iden_c) / k_np + tr)
+    # dS/dbg
+    grad_phys[5] = 1.0
+
+
 def gaussian_peak_value(
     x: float,
     freq: float,
@@ -108,6 +176,34 @@ def nv_center_lorentzian_vectorized_many(
             denom_r = dx_r * dx_r + lw2
 
             out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
+
+
+@njit(cache=True, parallel=True)
+def nv_center_lorentzian_gradient_vectorized_many(
+    x_phys_array: np.ndarray,
+    freq_phys: np.ndarray,
+    lw_phys: np.ndarray,
+    split_phys: np.ndarray,
+    k_np: np.ndarray,
+    dip_depth_phys: np.ndarray,
+    grad_phys_out: np.ndarray,
+) -> None:
+    """Vectorized analytical gradient for many probe positions and many parameter sets.
+    
+    Writes into ``grad_phys_out`` which must have shape ``(len(x_phys_array), len(freq_phys), 6)``.
+    """
+    m = x_phys_array.shape[0]
+    n = freq_phys.shape[0]
+    for j in prange(n):
+        f = freq_phys[j]
+        lw = lw_phys[j]
+        s = split_phys[j]
+        knp = k_np[j]
+        d = dip_depth_phys[j]
+        
+        for i in range(m):
+            x = x_phys_array[i]
+            nv_center_lorentzian_gradient(x, f, lw, s, knp, d, grad_phys_out[i, j])
 
 
 _SQRT2PI = math.sqrt(2.0 * math.pi)
