@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -112,7 +113,6 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             float(dip_depth),
             float(background),
         )
-
 
     _SPEC = _VoigtZeemanSpec()
 

@@ -15,8 +15,8 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 class StudentsTLocator(SequentialBayesianLocator):
     """Parametric Bayesian Locator using Student's t Mixture.
 
-    Performs online Bayesian updates using a linearized conditionally conjugate 
-    mixture-of-experts approach. Acquisition uses analytical EIG from the 
+    Performs online Bayesian updates using a linearized conditionally conjugate
+    mixture-of-experts approach. Acquisition uses analytical EIG from the
     mixture predictive variance.
     """
 
@@ -79,14 +79,13 @@ class StudentsTLocator(SequentialBayesianLocator):
 
         # Ensure we are only running on Lorentzian NV center as requested.
         from nvision.spectra.nv_center import NVCenterLorentzianModel
+
         if not isinstance(model, NVCenterLorentzianModel):
             raise ValueError(f"StudentsTLocator only supports NVCenterLorentzianModel, got {type(model).__name__}")
 
         bounds = dict(parameter_bounds) if parameter_bounds else {}
         belief = StudentsTMixtureMarginalDistribution(
-            model=model, 
-            _physical_param_bounds=bounds, 
-            n_components=n_components
+            model=model, _physical_param_bounds=bounds, n_components=n_components
         )
 
         return cls(
@@ -104,7 +103,7 @@ class StudentsTLocator(SequentialBayesianLocator):
 
     def _generate_candidates(self, num_candidates: int | None = None) -> np.ndarray:
         """Generate candidates spanning the acquisition window.
-        
+
         Resolution is chosen to be efficient while still sampling the dips.
         """
         if num_candidates is None:
@@ -114,16 +113,16 @@ class StudentsTLocator(SequentialBayesianLocator):
                 num_candidates = 1
             else:
                 # 250 kHz resolution for grid (max 2000 points)
-                resolution = 250000.0 
+                resolution = 250000.0
                 num_candidates = min(2000, max(100, math.ceil(range_val / resolution))) + 1
         return super()._generate_candidates(num_candidates)
 
     def _acquire(self) -> float:
         """Find next probe position by maximizing analytical EIG over a grid."""
         candidates = self._generate_candidates()
-        
+
         # Compute analytical EIG for all candidates in one vectorized call
         eigs = self.belief.expected_information_gain_batch(candidates)
-        
+
         best_idx = np.argmax(eigs)
         return float(candidates[best_idx])

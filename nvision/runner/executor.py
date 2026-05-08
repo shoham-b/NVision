@@ -453,7 +453,7 @@ class _TaskRunner:
 
         for rid in range(self.repeats):
             repeat_start_times[rid] = time.perf_counter()
-            repeat_timestamps[rid] = datetime.datetime.now().isoformat()
+            repeat_timestamps[rid] = datetime.datetime.now(datetime.UTC).isoformat()
             hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
@@ -723,9 +723,7 @@ class _TaskRunner:
                 cfg["noise_model"] = experiment.true_signal.noise_model
 
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
-        token = set_combination_log_initials(
-            self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid
-        )
+        token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
         try:
             result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))
@@ -776,7 +774,7 @@ class _TaskRunner:
         if last_loc is not None:
             # Use effective_initial_sweep_steps() to get actual steps taken (accounts for early stopping)
             eff_sweep_steps = getattr(last_loc, "effective_initial_sweep_steps", lambda: 0)()
-            init_sweep_steps = getattr(last_loc, "initial_sweep_steps", 0)
+            getattr(last_loc, "initial_sweep_steps", 0)
             step_count = getattr(last_loc, "step_count", 0)
             inf_steps = getattr(last_loc, "inference_step_count", 0)
             max_steps = getattr(last_loc, "max_steps", 0)

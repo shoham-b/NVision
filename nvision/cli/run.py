@@ -3,10 +3,10 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import logging
+import multiprocessing
 import os
 import queue
 import sys
-import multiprocessing
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -120,7 +120,9 @@ def _run_tasks_process_pool(  # noqa: C901
         shutdown_called = False
 
         try:
-            future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks}
+            future_to_task = {
+                executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks
+            }
             pending_tasks = []
 
             for future in concurrent.futures.as_completed(future_to_task):
@@ -777,7 +779,7 @@ def run(  # noqa: C901
         except Exception as exc:
             log.warning(f"Failed to upload to GCP: {exc}")
 
-    # On Windows, ProcessPoolExecutor and multiprocessing.Manager may leave 
+    # On Windows, ProcessPoolExecutor and multiprocessing.Manager may leave
     # threads alive that prevent clean process exit even after all work is done.
     if runners > 1 and sys.platform == "win32":
         os._exit(0)

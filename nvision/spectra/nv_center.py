@@ -586,8 +586,6 @@ class NVCenterOnePeakLorentzianModel(
         return float(params.background - (params.dip_depth * lw2) / denom)
 
     def compute_jax(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> Any:
-        import jax.numpy as jnp
-
         lw2 = params.linewidth**2
         denom = (x - params.frequency) ** 2 + lw2
         return params.background - (params.dip_depth * lw2) / denom

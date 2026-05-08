@@ -6,11 +6,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import jax
 import jax.numpy as jnp
+import numba
 import numpy as np
 from dotenv import load_dotenv
-import numba
 from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
@@ -258,9 +257,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # grids are focused on the wrong location.
         #
         # signal_min_span returns the minimum signal feature width (e.g. 4 × linewidth_min).
-        # We require POINTS_PER_MIN_FEATURE grid points within that span.
-        # Formula: n = ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE)
-        POINTS_PER_MIN_FEATURE: int = 5
+        # We require points_per_min_feature grid points within that span.
+        # Formula: n = ceil(domain_width / min_span * points_per_min_feature)
+        points_per_min_feature: int = 5
         f_lo, f_hi = self.parameter_bounds["frequency"]
         domain_width = float(f_hi - f_lo)
         min_span = self.model.signal_min_span(domain_width)
@@ -269,7 +268,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 f"{type(self.model).__name__}.signal_min_span({domain_width}) returned {min_span!r}. "
                 "Implement signal_min_span() to return the minimum signal feature width in Hz."
             )
-        n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
+        n_global = int(np.ceil(domain_width / min_span * points_per_min_feature))
         self._global_grid = np.linspace(f_lo, f_hi, n_global).astype(np.float32)
         self._generate_epoch_candidates()
 
@@ -286,7 +285,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Epistemic uncertainty: spread of ALL predictions at this x
         sigma_epistemic = float(np.std(predicted))
-        noise_std = float(obs.noise_std)
+        float(obs.noise_std)
         if self.noise_model is not None and self._noise_param_slice is not None:
             noise_arrays = [
                 self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
@@ -320,7 +319,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         else:
             # Total filter collapse: likelihood was zero everywhere.
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
-
 
         # 4. Resample if Effective Sample Size (ESS) is too low
         ess = _inverse_sum_squares(self._weights)
@@ -433,7 +431,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             local_grids.append(np.arange(start, stop + delta_d, delta_d))
 
         # 5. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
-        merged = np.concatenate(local_grids + [self._global_grid]) if local_grids else self._global_grid
+        merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
         self._current_candidates = np.unique(np.clip(merged, f_lo, f_hi)).astype(np.float32)
 
     def _resample(self) -> None:
@@ -492,10 +490,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # least MIN_FRAC of the prior width every resample step. With MIN_FRAC=0.002
         # (0.2%) and a 500 MHz frequency range, the minimum std is ~1 MHz — large
         # enough to escape local basins, small enough to not disrupt a truly converged filter.
-        MIN_EXPLORATION_FRAC: float = 0.002
+        min_exploration_frac: float = 0.002
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
-            min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
+            min_var = ((hi - lo) * min_exploration_frac) ** 2
             nudge_cov[j, j] = max(float(nudge_cov[j, j]), float(min_var))
 
         # Also add tiny numerical jitter to ensure strict positive-definiteness
@@ -700,7 +698,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     def expected_information_gain_jax(self, candidates: Any, noise_std: float = 0.02) -> Any:
         """Compute the approximate expected information gain using JAX for auto-differentiation."""
-        import jax.numpy as jnp
 
         # Broadcast candidates to shape (n_candidates, 1)
         x_2d = jnp.atleast_1d(candidates)[:, None]

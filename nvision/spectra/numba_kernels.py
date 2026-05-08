@@ -148,11 +148,11 @@ def nv_center_pseudo_voigt_vectorized_many(
         gamma = fwhm_l / 2.0
         ratio = fwhm_l / (fwhm_l + fwhm_g)
         eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-        
+
         gamma2 = gamma * gamma
         has_gamma = abs(gamma) > 1e-12
         lorentz_center = 1.0 / gamma if has_gamma else 0.0
-        
+
         has_sigma = abs(sigma) > 1e-12
         if has_sigma:
             gauss_center = 1.0 / (sigma * _SQRT2PI)
@@ -162,7 +162,7 @@ def nv_center_pseudo_voigt_vectorized_many(
             gauss_center = 0.0
             neg_half_inv_sigma2 = 0.0
             eta_gauss_factor = 0.0
-            
+
         center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
         inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
 
@@ -173,7 +173,7 @@ def nv_center_pseudo_voigt_vectorized_many(
         amp_c = actual_depth
         amp_l = amp_c / k
         amp_r = amp_c * k
-        
+
         has_split = s >= 1e-10
 
         if not has_split:
@@ -181,18 +181,18 @@ def nv_center_pseudo_voigt_vectorized_many(
                 x = xs[i]
                 dx_c = x - f
                 dx_c2 = dx_c * dx_c
-                
+
                 lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
                 gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pc = lorentz_c + gauss_c
-                
+
                 out[i, j] = bg - amp_c * pc
         else:
             for i in range(m):
                 x = xs[i]
                 dx_c = x - f
                 dx_c2 = dx_c * dx_c
-                
+
                 lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
                 gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pc = lorentz_c + gauss_c
@@ -202,14 +202,16 @@ def nv_center_pseudo_voigt_vectorized_many(
                 lorentz_l = eta_lorentz_factor / (dx_l2 + gamma2) if has_gamma else 0.0
                 gauss_l = eta_gauss_factor * math.exp(dx_l2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pl = lorentz_l + gauss_l
-                
+
                 dx_r = dx_c - s
                 dx_r2 = dx_r * dx_r
                 lorentz_r = eta_lorentz_factor / (dx_r2 + gamma2) if has_gamma else 0.0
                 gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pr = lorentz_r + gauss_r
-                
+
                 out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
+
+
 @njit(cache=True)
 def nv_center_pseudo_voigt_eval(
     x: float,
@@ -226,18 +228,18 @@ def nv_center_pseudo_voigt_eval(
     fwhm_g = (1.0 - lorentz_frac) * fwhm_total
     sigma = fwhm_g / (2.0 * _SQRT2LOG2)
     gamma = fwhm_l / 2.0
-    
+
     ratio = fwhm_l / (fwhm_l + fwhm_g)
     eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-    
+
     def _profile(xv, center):
         dx = xv - center
         dx2 = dx * dx
-        
+
         # Heights for normalization
         has_gamma = abs(gamma) > 1e-12
         lorentz_peak = 1.0 / gamma if has_gamma else 0.0
-        
+
         has_sigma = abs(sigma) > 1e-12
         if has_sigma:
             gauss_peak = 1.0 / (sigma * _SQRT2PI)
@@ -245,7 +247,7 @@ def nv_center_pseudo_voigt_eval(
         else:
             gauss_peak = 0.0
             gauss = 0.0
-            
+
         lorentz = gamma / (dx2 + gamma * gamma) if has_gamma else 0.0
         peak = eta * lorentz_peak + (1.0 - eta) * gauss_peak
         profile = eta * lorentz + (1.0 - eta) * gauss
@@ -253,7 +255,7 @@ def nv_center_pseudo_voigt_eval(
 
     pc = _profile(x, freq)
     actual_depth = dip_depth / k_np
-    
+
     if split < 1e-10:
         return background - actual_depth * pc
 

@@ -20,22 +20,22 @@ def nv_center_pseudo_voigt_jax(
     """Triple Voigt NV ODMR implementation in JAX, highly optimized for autodiff."""
     fwhm_l = lorentz_frac * fwhm_total
     fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-    
+
     # Pre-compute invariant parameters
     sigma = fwhm_g / jnp.float32(2.3548200450309493)  # 2 * sqrt(2 * ln(2))
     gamma = fwhm_l / jnp.float32(2.0)
     gamma2 = gamma * gamma
-    
+
     ratio = fwhm_l / fwhm_total
     eta = jnp.float32(1.36603) * ratio - jnp.float32(0.47719) * ratio**2 + jnp.float32(0.11116) * ratio**3
 
     lorentz_peak = jnp.float32(1.0) / gamma
     sigma_sqrt_2pi = sigma * jnp.float32(2.5066282746310002)  # sigma * sqrt(2 * pi)
     gauss_peak = jnp.float32(1.0) / sigma_sqrt_2pi
-    
+
     # Calculate unified profile peak to normalize to unit height
     inv_peak = jnp.float32(1.0) / (eta * lorentz_peak + (jnp.float32(1.0) - eta) * gauss_peak)
-    
+
     # Pre-multiply mixture factors with the normalization inverse
     eta_lorentz_factor = eta * gamma * inv_peak
     eta_gauss_factor = (jnp.float32(1.0) - eta) / sigma_sqrt_2pi * inv_peak
@@ -72,8 +72,8 @@ def nv_center_lorentzian_jax(
     background: Any,
 ) -> Any:
     """Triple Lorentzian NV ODMR implementation in JAX, highly optimized for autodiff."""
-    gamma2 = (linewidth / jnp.float32(2.0))**2
-    
+    gamma2 = (linewidth / jnp.float32(2.0)) ** 2
+
     actual_depth = dip_depth / k_np
     amp_c = actual_depth
     amp_l = actual_depth / k_np
@@ -81,10 +81,10 @@ def nv_center_lorentzian_jax(
 
     dx_c = x - frequency
     pc = gamma2 / (dx_c**2 + gamma2)
-    
+
     dx_l = dx_c + split
     pl = gamma2 / (dx_l**2 + gamma2)
-    
+
     dx_r = dx_c - split
     pr = gamma2 / (dx_r**2 + gamma2)
 
