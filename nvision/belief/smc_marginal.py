@@ -252,9 +252,25 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             if indices:
                 self._noise_param_slice = slice(min(indices), max(indices) + 1)
 
-        # Initialize the first epoch-based candidate grid
+        # Initialize the first epoch-based candidate grid.
+        # Spacing must resolve the narrowest possible signal feature so that EIG
+        # has a meaningful score at the true frequency even when the local slope
+        # grids are focused on the wrong location.
+        #
+        # signal_min_span returns the minimum signal feature width (e.g. 4 × linewidth_min).
+        # We require POINTS_PER_MIN_FEATURE grid points within that span.
+        # Formula: n = ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE)
+        POINTS_PER_MIN_FEATURE: int = 5
         f_lo, f_hi = self.parameter_bounds["frequency"]
-        self._global_grid = np.linspace(f_lo, f_hi, 2048).astype(np.float32)
+        domain_width = float(f_hi - f_lo)
+        min_span = self.model.signal_min_span(domain_width)
+        if min_span is None or min_span <= 0:
+            raise ValueError(
+                f"{type(self.model).__name__}.signal_min_span({domain_width}) returned {min_span!r}. "
+                "Implement signal_min_span() to return the minimum signal feature width in Hz."
+            )
+        n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
+        self._global_grid = np.linspace(f_lo, f_hi, n_global).astype(np.float32)
         self._generate_epoch_candidates()
 
     def update(self, obs: Observation) -> None:
@@ -295,12 +311,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._weights *= likelihoods
 
         # 3. Normalize weights
-        weight_sum = np.sum(self._weights)
-        if weight_sum > 1e-30:
-            self._weights /= weight_sum
+        # Use float64 for normalization to avoid precision issues that can lead to
+        # weights summing to > 1.0 or catastrophic precision loss in float32.
+        raw_weights = self._weights.astype(np.float64)
+        weight_sum = np.sum(raw_weights)
+        if weight_sum > 1e-100:
+            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE)
         else:
             # Total filter collapse: likelihood was zero everywhere.
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
+
 
         # 4. Resample if Effective Sample Size (ESS) is too low
         ess = _inverse_sum_squares(self._weights)
@@ -311,8 +331,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Update belief from multiple observations in a single batch.
 
         This is more efficient than calling update() repeatedly for each observation,
-        especially during the initial sweep phase. All observations are processed
-        together with a single resampling step at the end.
+        especially during the initial sweep phase. Log-likelihoods are accumulated
+        before exponentiation to prevent catastrophic weight collapse from the product
+        of many small probabilities.
 
         Parameters
         ----------
@@ -324,35 +345,34 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self.last_obs = observations[-1]
 
-        # Pre-extract particles array for efficiency
-        n_particles = self._particles.shape[0]
         n_params = len(self._param_names)
         arrays_in_order = [self._particles[:, j] for j in range(n_params)]
 
-        # Accumulate weight updates across all observations
+        # Accumulate log-likelihoods across all observations before exponentiation.
+        # Multiplying many small probabilities leads to catastrophic underflow; summing
+        # log-probabilities is numerically stable and avoids premature weight collapse.
+        log_weights = np.zeros(self.num_particles, dtype=np.float64)
         for obs in observations:
-            # 1. Compute likelihood for all particles (already vectorized)
             predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
-
-            noise_std = obs.noise_std
             likelihoods = likelihood_from_observation_model(
                 obs_y=obs.signal_value,
                 predicted=predicted,
-                noise_std=noise_std,
+                noise_std=obs.noise_std,
                 frequency_noise_model=obs.frequency_noise_model,
-            ).astype(FLOAT_DTYPE, copy=False)
+            ).astype(np.float64, copy=False)
+            # Clip to avoid log(0)
+            log_weights += np.log(np.clip(likelihoods, 1e-300, None))
 
-            # 2. Update weights — likelihood only
-            self._weights *= likelihoods
-
-        # 3. Final normalization after all observations
-        weight_sum = np.sum(self._weights)
-        if weight_sum > 1e-30:
-            self._weights /= weight_sum
+        # Convert back to normalized weights
+        log_weights -= np.max(log_weights)  # numerical stability shift
+        raw_weights = np.exp(log_weights) * self._weights.astype(np.float64)
+        weight_sum = np.sum(raw_weights)
+        if weight_sum > 1e-300:
+            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE)
         else:
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        # 4. Single resampling step after all updates
+        # Single resampling step after all updates
         ess = _inverse_sum_squares(self._weights)
         if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
@@ -404,15 +424,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             slopes.append(c + omega)
 
         local_grids = []
+        f_lo, f_hi = self.parameter_bounds["frequency"]
         for s in slopes:
-            start = s - half_width
-            stop = s + half_width
-            # Generate local dense span
+            start = max(s - half_width, f_lo)
+            stop = min(s + half_width, f_hi)
+            if start >= stop:
+                continue
             local_grids.append(np.arange(start, stop + delta_d, delta_d))
 
-        # 5. Merge with pre-computed global sparse grid
-        merged = np.concatenate(local_grids + [self._global_grid])
-        self._current_candidates = np.unique(merged).astype(np.float32)
+        # 5. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
+        merged = np.concatenate(local_grids + [self._global_grid]) if local_grids else self._global_grid
+        self._current_candidates = np.unique(np.clip(merged, f_lo, f_hi)).astype(np.float32)
 
     def _resample(self) -> None:
         """Elitist NIST-style resampling (Dushenko et al. 2020, Supp. S.3).
@@ -445,7 +467,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # We MUST compute this before overwriting self._particles to avoid covariance collapse
         # and ensure we use the full covariance of the original weighted distribution.
         mean = _weighted_mean_axis0(self._particles, self._weights)
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights).astype(FLOAT_DTYPE, copy=False)
+        # Use ddof=0 for weighted covariance to avoid NaN if the filter has collapsed
+        # to a single particle (where sum(w**2) == 1, making the ddof=1 denominator zero).
+        cov = np.cov(self._particles, rowvar=False, aweights=self._weights, ddof=0).astype(FLOAT_DTYPE, copy=False)
         if cov.ndim == 0:
             cov = np.array([[cov]], dtype=FLOAT_DTYPE)
 
@@ -456,11 +480,26 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         nudge_cov = (1 - self.a_param**2) * cov
 
-        # 5. Regularize nudge covariance and sample for ALL particles
-        # Adding a tiny fraction of the trace ensures the matrix is positive-definite
-        # even if numerical precision or parameter collapse has occurred.
-        reg = 1e-9 * (np.trace(nudge_cov) / d_dim + 1e-12)
-        nudge_cov.flat[:: d_dim + 1] += reg
+        # 5. Enforce minimum exploration variance based on parameter ranges.
+        #
+        # The core problem: when particles have already collapsed to a small cluster
+        # (e.g., all weight on 10 particles spanning 10 kHz), `cov` is tiny and
+        # `nudge_cov` is even smaller. The nudge kernel cannot move particles far enough
+        # to discover the true mode if it's ~500 kHz away.
+        #
+        # We enforce a minimum per-dimension variance = (range * MIN_FRAC)^2.
+        # This means even a fully collapsed filter will diffuse particles across at
+        # least MIN_FRAC of the prior width every resample step. With MIN_FRAC=0.002
+        # (0.2%) and a 500 MHz frequency range, the minimum std is ~1 MHz — large
+        # enough to escape local basins, small enough to not disrupt a truly converged filter.
+        MIN_EXPLORATION_FRAC: float = 0.002
+        for j, name in enumerate(self._param_names):
+            lo, hi = self.parameter_bounds[name]
+            min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
+            nudge_cov[j, j] = max(float(nudge_cov[j, j]), float(min_var))
+
+        # Also add tiny numerical jitter to ensure strict positive-definiteness
+        nudge_cov.flat[:: d_dim + 1] += 1e-12
 
         # Use Generator API for method='svd', which is robust to near-singular matrices
         rng = np.random.default_rng()
@@ -470,13 +509,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self._particles += nudges
 
-        # 6. Shrinkage contraction toward mean (All particles)
-        # Applying shrinkage to all particles ensures the distribution preserves
-        # its moments after nudging, while allowing elite particles to explore locally.
+        # 6. Shrinkage contraction toward mean (non-elite only)
+        # Elite particles must NOT be contracted toward the current (possibly wrong) mean.
+        # Shrinking elite particles toward the posterior mean would bias the filter toward
+        # whichever mode currently dominates, systematically eliminating the tails where
+        # the true value might still reside. Only the freshly-resampled non-elite particles
+        # receive shrinkage to conserve the Liu-West distribution moments.
         if self.scale:
             old_center = mean.reshape(1, -1)
-            self._particles = (
-                self._particles * self.a_param + old_center * (1 - self.a_param)
+            self._particles[n_elite:] = (
+                self._particles[n_elite:] * self.a_param + old_center * (1 - self.a_param)
             ).astype(FLOAT_DTYPE, copy=False)
 
         # 7. Clip all particles to bounds
@@ -519,7 +561,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         Returns a (d, d) array where d is the number of parameters.
         """
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights)
+        cov = np.cov(self._particles, rowvar=False, aweights=self._weights, ddof=0)
         if cov.ndim == 0:
             cov = np.array([[cov]])
         return cov

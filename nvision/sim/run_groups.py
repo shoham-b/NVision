@@ -59,7 +59,7 @@ def _bayesian_nosweep_strategy_names() -> list[str]:
 def _narrow_strategy_names() -> list[str]:
     return [
         "Bayesian-SBED-NoSweep",
-        "StudentsTApproximation",
+        "StudentsTApproximation-NoSweep",
     ]
 
 

@@ -48,6 +48,41 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         unit_candidates = (candidates - lo) / (hi - lo)
         return super().expected_information_gain(unit_candidates, noise_std=noise_std)
 
+    def get_candidates(self) -> np.ndarray:
+        """Return candidates in **physical** frequency space.
+
+        The base class stores candidates in unit [0, 1] space (matching internal
+        particles). The locator and ``expected_information_gain`` both operate in
+        physical space, so we convert here before returning.
+        """
+        lo, hi = self.physical_x_bounds
+        return lo + self._current_candidates.astype(np.float64) * (hi - lo)
+
+    def _generate_epoch_candidates(self) -> None:
+        """Generate slope-targeted candidates clipped to physical bounds, stored as unit.
+
+        Overrides the base to use physical parameter bounds for clipping (the base
+        clips to ``parameter_bounds['frequency']`` which is ``(0, 1)`` in unit space
+        but ``estimates()`` here returns physical frequencies, making the clipping
+        bounds inconsistent).
+        """
+        # Let the base class compute everything in physical space by temporarily
+        # exposing the physical bounds, then convert the result to unit space.
+        phys_lo, phys_hi = self.physical_param_bounds.get("frequency", self.physical_x_bounds)
+        saved_bounds = self.parameter_bounds.get("frequency")
+        # Temporarily patch so the base clips to physical bounds
+        self.parameter_bounds["frequency"] = (phys_lo, phys_hi)
+        try:
+            super()._generate_epoch_candidates()
+        finally:
+            if saved_bounds is not None:
+                self.parameter_bounds["frequency"] = saved_bounds
+
+        # Candidates are now physical frequencies; convert to unit [0,1] for storage
+        phys_candidates = self._current_candidates.astype(np.float64)
+        unit_candidates = (phys_candidates - phys_lo) / (phys_hi - phys_lo)
+        self._current_candidates = np.clip(unit_candidates, 0.0, 1.0).astype(np.float32)
+
     def estimates(self) -> dict[str, float]:
         raw = super().estimates()
         return {k: self._to_physical(k, v) for k, v in raw.items()}
