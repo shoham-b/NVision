@@ -1,3 +1,7 @@
 ## 2024-05-06 - Palette: Add ARIA roles to tab components
 **Learning:** Adding WAI-ARIA tab attributes (role="tablist", "tab", "tabpanel") to custom interactive UI elements significantly improves screen reader navigation and clearly defines structure. To test these dynamic properties in isolation, we can mock `window.NVISION_BOOTSTRAP = Promise.resolve();` and check the rendered `role` and `aria-selected` attributes using Playwright evaluation expressions (`page.evaluate`).
 **Action:** Always add appropriate roles and state-attributes to custom interactive components that emulate native form fields or layout controls (like tabs). When testing dynamic vanilla JS components that expect backend bootstrapped properties, create minimal mock HTML files that set those variables before the script runs.
+
+## 2024-05-08 - Palette: Add keyboard accessibility to help icons
+**Learning:** Tooltip icons that rely purely on hovering (`:hover`) are inaccessible to keyboard-only users. By giving them `tabindex="0"`, we make them focusable without altering the document tab order hierarchy, and users can rely on the browser's native `title` attribute for accessible descriptions when focused.
+**Action:** Always add `tabindex="0"` to non-interactive informative UI elements (like `?` tooltips) that reveal additional context or help text. Ensure they have appropriate `:focus-visible` styling (like an outline) so the user knows when the element has received focus.

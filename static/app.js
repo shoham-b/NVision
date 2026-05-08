@@ -769,7 +769,7 @@ function main() {
                 el.innerHTML =
                     '<div class="metric-header">' +
                     '<span class="metric-label">' + it.label + '</span>' +
-                    '<span class="help-icon" title="' + it.tip.replace(/"/g, '&quot;') + '">?</span>' +
+                    '<span class="help-icon" tabindex="0" title="' + it.tip.replace(/"/g, '&quot;') + '">?</span>' +
                     '</div>' +
                     '<div class="metric-value">' + it.fmt(val) + '</div>' + formula;
                 container.appendChild(el);
@@ -1433,7 +1433,7 @@ function main() {
                     function renderItemsToHtml(items) {
                         return items.map(it => {
                             const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
-                            const icon = it.tip ? '<span class="help-icon"' + tipAttr + '>?</span>' : '';
+                            const icon = it.tip ? '<span class="help-icon" tabindex="0"' + tipAttr + '>?</span>' : '';
                             return '<div class="metric-item">' +
                                 '<div class="metric-label">' + it.label + icon + '</div>' +
                                 '<div class="metric-value">' + it.val + '</div>' +
