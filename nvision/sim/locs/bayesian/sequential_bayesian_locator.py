@@ -345,7 +345,7 @@ class SequentialBayesianLocator(Locator):
         """
         if self.inference_step_count >= self.max_steps:
             return True
-            
+
         return False
 
     # ------------------------------------------------------------------

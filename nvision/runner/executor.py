@@ -723,9 +723,7 @@ class _TaskRunner:
                 cfg["noise_model"] = experiment.true_signal.noise_model
 
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
-        token = set_combination_log_initials(
-            self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid
-        )
+        token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
         try:
             result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))

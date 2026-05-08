@@ -100,46 +100,58 @@ class CombinationGrid:
 
             strategies = []
             if not is_narrow:
-                strategies.extend([
-                    ("GenericSweep", GenericSweepLocator),
-                    ("SobolSweep", SobolSweepLocator),
-                    ("StagedSobolSweep", StagedSobolSweepLocator),
-                ])
+                strategies.extend(
+                    [
+                        ("GenericSweep", GenericSweepLocator),
+                        ("SobolSweep", SobolSweepLocator),
+                        ("StagedSobolSweep", StagedSobolSweepLocator),
+                    ]
+                )
 
             suffix = "-NoSweep" if is_narrow else ""
-            strategies.extend([
-                (
-                    f"Bayesian-SBED{suffix}",
-                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC}},
-                ),
-                (
-                    f"Bayesian-MaximumLikelihood{suffix}",
-                    {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC}},
-                ),
-                (
-                    f"Bayesian-UtilitySampling{suffix}",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {
-                            "max_steps": 200,
-                            "initial_sweep_steps": default_sweep,
-                            **_NV_SMC,
-                            "pickiness": 4.0,
-                            "noise_std": 0.02,
-                            "cost": 1.0,
-                            "n_mc_samples": 64,
-                            "n_candidates": 64,
+            strategies.extend(
+                [
+                    (
+                        f"Bayesian-SBED{suffix}",
+                        {
+                            "class": SequentialBayesianExperimentDesignLocator,
+                            "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC},
                         },
-                    },
-                ),
-            ])
+                    ),
+                    (
+                        f"Bayesian-MaximumLikelihood{suffix}",
+                        {
+                            "class": MaximumLikelihoodLocator,
+                            "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC},
+                        },
+                    ),
+                    (
+                        f"Bayesian-UtilitySampling{suffix}",
+                        {
+                            "class": UtilitySamplingLocator,
+                            "config": {
+                                "max_steps": 200,
+                                "initial_sweep_steps": default_sweep,
+                                **_NV_SMC,
+                                "pickiness": 4.0,
+                                "noise_std": 0.02,
+                                "cost": 1.0,
+                                "n_mc_samples": 64,
+                                "n_candidates": 64,
+                            },
+                        },
+                    ),
+                ]
+            )
 
             if "voigt" not in generator_name:
                 # Student's t always runs without a sweep as requested
-                strategies.append((
-                    "StudentsTApproximation-NoSweep",
-                    {"class": StudentsTLocator, "config": {"max_steps": 200, "initial_sweep_steps": 0, "df": 3.0}},
-                ))
+                strategies.append(
+                    (
+                        "StudentsTApproximation-NoSweep",
+                        {"class": StudentsTLocator, "config": {"max_steps": 200, "initial_sweep_steps": 0, "df": 3.0}},
+                    )
+                )
             return strategies
 
         return [

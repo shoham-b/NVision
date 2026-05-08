@@ -242,7 +242,7 @@ def _add_mode_belief_trace(
     )
 
 
-def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool) -> None:
+def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool) -> None:  # noqa: C901
     if history.height == 0:
         return
     row, col = _row_col(has_metrics)
@@ -258,14 +258,23 @@ def _add_history_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool
 
     if "phase" in history.columns:
         phases = history.get_column("phase").to_list()
-        coarse_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "coarse"]
-        coarse_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "coarse"]
-        secondary_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "secondary"]
-        secondary_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "secondary"]
-        tertiary_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "tertiary"]
-        tertiary_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "tertiary"]
-        fine_x = [x for x, p in zip(xs_s, phases, strict=False) if p == "fine"]
-        fine_y = [y for y, p in zip(ys_s, phases, strict=False) if p == "fine"]
+        coarse_x, coarse_y = [], []
+        secondary_x, secondary_y = [], []
+        tertiary_x, tertiary_y = [], []
+        fine_x, fine_y = [], []
+        for x, y, p in zip(xs_s, ys_s, phases, strict=False):
+            if p == "coarse":
+                coarse_x.append(x)
+                coarse_y.append(y)
+            elif p == "secondary":
+                secondary_x.append(x)
+                secondary_y.append(y)
+            elif p == "tertiary":
+                tertiary_x.append(x)
+                tertiary_y.append(y)
+            elif p == "fine":
+                fine_x.append(x)
+                fine_y.append(y)
         coarse_depth = [depth_percent(y) for y in coarse_y]
         secondary_depth = [depth_percent(y) for y in secondary_y]
         tertiary_depth = [depth_percent(y) for y in tertiary_y]

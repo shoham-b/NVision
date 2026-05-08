@@ -6,11 +6,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import jax
 import jax.numpy as jnp
+import numba
 import numpy as np
 from dotenv import load_dotenv
-import numba
 from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
@@ -320,7 +319,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         else:
             # Total filter collapse: likelihood was zero everywhere.
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
-
 
         # 4. Resample if Effective Sample Size (ESS) is too low
         ess = _inverse_sum_squares(self._weights)
@@ -700,7 +698,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     def expected_information_gain_jax(self, candidates: Any, noise_std: float = 0.02) -> Any:
         """Compute the approximate expected information gain using JAX for auto-differentiation."""
-        import jax.numpy as jnp
 
         # Broadcast candidates to shape (n_candidates, 1)
         x_2d = jnp.atleast_1d(candidates)[:, None]
