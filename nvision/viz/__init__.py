@@ -5,9 +5,10 @@ from nvision.viz.bayesian import BayesianMixin
 from nvision.viz.comparisons import ComparisonsMixin
 from nvision.viz.experiments import ExperimentsMixin
 from nvision.viz.measurements import MeasurementsMixin
+from nvision.viz.metrics import MetricsVizMixin
 
 
-class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, ComparisonsMixin):
+class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, ComparisonsMixin, MetricsVizMixin):
     """Visualization facade combining all plotting capabilities."""
 
     pass

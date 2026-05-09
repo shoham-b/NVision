@@ -28,6 +28,7 @@ NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", 
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
 NVISION_SMC_SCALE: bool = os.getenv("NVISION_SMC_SCALE", "True").lower() in ("true", "1", "yes")
 NVISION_SMC_ELITISM_RATIO: float = float(os.getenv("NVISION_SMC_ELITISM_RATIO", "0.2"))
+NVISION_SMC_POINTS_PER_MIN_FEATURE: int = int(os.getenv("NVISION_SMC_POINTS_PER_MIN_FEATURE", "5"))
 
 _EIG_CHUNK_SIZE: int = 64
 
@@ -217,9 +218,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     elitism_ratio: float = NVISION_SMC_ELITISM_RATIO
     noise_model: NoiseSignalModel | None = None
     auto_resample: bool = True
+    resample_delay: int = 0
 
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
+    _step_count: int = field(init=False, repr=False, default=0)
     _param_names: list[str] = field(init=False, repr=False)
     _noise_param_slice: slice | None = field(init=False, repr=False, default=None)
     _current_candidates: np.ndarray = field(init=False, repr=False)
@@ -244,6 +247,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
+        self._step_count = 0
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -260,7 +264,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # signal_min_span returns the minimum signal feature width (e.g. 4 × linewidth_min).
         # We require POINTS_PER_MIN_FEATURE grid points within that span.
         # Formula: n = ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE)
-        POINTS_PER_MIN_FEATURE: int = 5
+        POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE
         f_lo, f_hi = self.parameter_bounds["frequency"]
         domain_width = float(f_hi - f_lo)
         min_span = self.model.signal_min_span(domain_width)
@@ -275,6 +279,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
+        self.resampled = False
 
         # 1. Compute likelihood for all particles (vectorized model evaluation)
         d_signal = self._particles.shape[1]
@@ -309,6 +314,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 2. Update weights — paper-compliant likelihood only (Eq. S3)
         self._weights *= likelihoods
+        self._step_count += 1
 
         # 3. Normalize weights
         # Use float64 for normalization to avoid precision issues that can lead to
@@ -324,7 +330,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 4. Resample if Effective Sample Size (ESS) is too low
         ess = _inverse_sum_squares(self._weights)
-        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
+        if (
+            self.auto_resample 
+            and ess < self.ess_threshold * self.num_particles 
+            and self._step_count >= self.resample_delay
+        ):
             self._resample()
 
     def batch_update(self, observations: list[Observation]) -> None:
@@ -345,6 +355,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             return
 
         self.last_obs = observations[-1]
+        self.resampled = False
 
         d_signal = self._particles.shape[1]
         if self._noise_param_slice is not None:
@@ -384,6 +395,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             log_weights += log_liks
 
+        self._step_count += len(observations)
+
         # Convert back to normalized weights
         log_weights -= np.max(log_weights)
         raw_weights = np.exp(log_weights) * self._weights.astype(np.float64)
@@ -395,7 +408,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Single resampling step after all updates
         ess = _inverse_sum_squares(self._weights)
-        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
+        if (
+            self.auto_resample 
+            and ess < self.ess_threshold * self.num_particles 
+            and self._step_count >= self.resample_delay
+        ):
             self._resample()
 
 
@@ -467,6 +484,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         ``(1 - a_param**2) * particle_cov`` and optionally contracted toward
         the mean by factor ``a_param`` (shrinkage).
         """
+        self.resampled = True
         n_elite = max(1, min(int(self.num_particles * self.elitism_ratio), self.num_particles - 1))
         n_resample = self.num_particles - n_elite
         d_dim = len(self._param_names)
@@ -514,7 +532,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # least MIN_FRAC of the prior width every resample step. With MIN_FRAC=0.002
         # (0.2%) and a 500 MHz frequency range, the minimum std is ~1 MHz — large
         # enough to escape local basins, small enough to not disrupt a truly converged filter.
-        MIN_EXPLORATION_FRAC: float = 0.002
+        MIN_EXPLORATION_FRAC: float = 0.0005
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
             min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
@@ -529,7 +547,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
         ).astype(FLOAT_DTYPE, copy=False)
 
-        self._particles += nudges
+        self._particles[n_elite:] += nudges[n_elite:]
 
         # 6. Shrinkage contraction toward mean (non-elite only)
         # Elite particles must NOT be contracted toward the current (possibly wrong) mean.
@@ -636,10 +654,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             elitism_ratio=self.elitism_ratio,
             noise_model=self.noise_model,
             auto_resample=self.auto_resample,
+            resample_delay=self.resample_delay,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
+        dist._step_count = self._step_count
+        dist.resampled = self.resampled
         return dist
 
     def _weighted_mean(self, name: str) -> float:
@@ -759,7 +780,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 
             # If the scan parameter was narrowed, update the global grid and candidates
             if param_name == "frequency":
-                POINTS_PER_MIN_FEATURE: int = 5
+                POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE
                 domain_width = float(hi - lo)
                 min_span = self.model.signal_min_span(domain_width)
                 if min_span is not None and min_span > 0:

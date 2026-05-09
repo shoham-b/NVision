@@ -312,6 +312,10 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         signal_model = run_result.true_signal.model
         param_descriptions = _get_nv_parameter_descriptions(signal_model)
         signal_formula = _get_signal_formula(signal_model)
+        
+        # Track which steps involved a resampling event
+        resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
+        
         viz.plot_posterior_animation_all_params(
             anim_all,
             interactive_path,
@@ -323,6 +327,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             per_step_narrowed_bounds=per_step_narrowed_bounds,
             param_descriptions=param_descriptions,
             signal_formula=signal_formula,
+            resampled_steps=resampled_steps,
         )
     else:
         anim_inputs = _posterior_animation_inputs(run_result, scan_param, start_idx=sweep_steps)
@@ -336,6 +341,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
                 true_value=float(true_one) if true_one is not None else None,
                 acquisition_window=run_result.focus_window,
                 experiment_domain=experiment_domain,
+                resampled_steps=resampled_steps,
             )
     if interactive_path.exists():
         ie = entry_base.copy()

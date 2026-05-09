@@ -4,12 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
+import os
 import numpy as np
+from dotenv import load_dotenv
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
 from nvision.belief.unit_cube_students_t_marginal import UnitCubeStudentsTMixtureMarginalDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
+
+# --- Environment-driven defaults ---------------------------------------------
+
+load_dotenv()
+
+NVISION_STUDENTS_T_NUM_EXPERTS: int = int(os.getenv("NVISION_STUDENTS_T_NUM_EXPERTS", "3"))
 
 
 class StudentsTLocator(SequentialBayesianLocator):
@@ -64,7 +73,7 @@ class StudentsTLocator(SequentialBayesianLocator):
         noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
-        n_components: int = 3,
+        n_components: int = NVISION_STUDENTS_T_NUM_EXPERTS,
         **grid_config: object,
     ) -> StudentsTLocator:
         # We enforce the parametric belief here, so we extract the model and use it

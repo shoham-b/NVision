@@ -6,13 +6,32 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+import os
 import numpy as np
+from dotenv import load_dotenv
 from numba import njit, prange
 from scipy.linalg import inv, solve
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
+
+
+# --- Environment-driven defaults ---------------------------------------------
+
+load_dotenv()
+
+NVISION_STUDENTS_T_NUM_EXPERTS: int = int(os.getenv("NVISION_STUDENTS_T_NUM_EXPERTS", "3"))
+NVISION_STUDENTS_T_WEIGHT_FLOOR: float = float(os.getenv("NVISION_STUDENTS_T_WEIGHT_FLOOR", "0.05"))
+NVISION_STUDENTS_T_WEIGHT_FLOOR_STEPS: int = int(os.getenv("NVISION_STUDENTS_T_WEIGHT_FLOOR_STEPS", "30"))
+NVISION_STUDENTS_T_DF_WEIGHT: float = float(os.getenv("NVISION_STUDENTS_T_DF_WEIGHT", "3.0"))
+NVISION_STUDENTS_T_EPSILON: float = float(os.getenv("NVISION_STUDENTS_T_EPSILON", "1e-8"))
+
+NVISION_STUDENTS_T_DEFAULT_LINEWIDTH: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_LINEWIDTH", "1e6"))
+NVISION_STUDENTS_T_DEFAULT_SPLIT: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_SPLIT", "5e6"))
+NVISION_STUDENTS_T_DEFAULT_K_NP: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_K_NP", "1.5"))
+NVISION_STUDENTS_T_DEFAULT_DIP_DEPTH: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_DIP_DEPTH", "0.1"))
+NVISION_STUDENTS_T_DEFAULT_BACKGROUND: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_BACKGROUND", "1.0"))
 
 
 @dataclass
@@ -23,15 +42,15 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     with Student's t observation weighting for robustness.
     """
 
-    n_components: int = 3
+    n_components: int = NVISION_STUDENTS_T_NUM_EXPERTS
 
     # --- Mode-protection parameters ---
     # Minimum weight guaranteed to each component during the exploration phase.
     # Set to 0.0 to disable.  A value of ~1/(2K) is a good starting point.
-    weight_floor: float = 0.05
+    weight_floor: float = NVISION_STUDENTS_T_WEIGHT_FLOOR
     # Number of update steps over which the floor linearly decays to zero.
     # After this many observations the locator is free to collapse onto one mode.
-    weight_floor_steps: int = 30
+    weight_floor_steps: int = NVISION_STUDENTS_T_WEIGHT_FLOOR_STEPS
 
     means: np.ndarray = field(init=False)         # (K, D)
     precisions: np.ndarray = field(init=False)    # (K, D, D)
@@ -49,11 +68,11 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     # explicit bounds are absent.  These prevent the gradient from being
     # identically zero on the very first update (which would freeze the belief).
     _PARAM_DEFAULTS: ClassVar[dict[str, float]] = {
-        "linewidth": 1e6,      # 1 MHz – typical NV linewidth order of magnitude
-        "split":     5e6,      # 5 MHz – typical hyperfine splitting
-        "k_np":      1.5,      # asymmetry ratio
-        "dip_depth": 0.1,      # 10 % contrast
-        "background": 1.0,     # normalized baseline
+        "linewidth": NVISION_STUDENTS_T_DEFAULT_LINEWIDTH,
+        "split":     NVISION_STUDENTS_T_DEFAULT_SPLIT,
+        "k_np":      NVISION_STUDENTS_T_DEFAULT_K_NP,
+        "dip_depth": NVISION_STUDENTS_T_DEFAULT_DIP_DEPTH,
+        "background": NVISION_STUDENTS_T_DEFAULT_BACKGROUND,
     }
 
     def __post_init__(self) -> None:
@@ -124,7 +143,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def _recompute_covariances(self) -> None:
         """Cache Σ = Λ⁻¹ for all components with ridge regularization."""
-        epsilon = 1e-8
+        epsilon = NVISION_STUDENTS_T_EPSILON
         for k in range(self.n_components):
             reg_prec = self.precisions[k] + epsilon * np.eye(self._dim)
             c = inv(reg_prec)
@@ -184,8 +203,8 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         """Perform linearized update with Student's t weighting."""
         K, D = self.n_components, self._dim
         sigma2 = sigma_eta**2
-        df_weight = 3.0
-        epsilon = 1e-8
+        df_weight = NVISION_STUDENTS_T_DF_WEIGHT
+        epsilon = NVISION_STUDENTS_T_EPSILON
 
         new_means = np.zeros_like(self.means)
         new_precisions = np.zeros_like(self.precisions)

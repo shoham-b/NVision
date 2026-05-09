@@ -72,6 +72,7 @@ class AbstractMarginalDistribution(ABC):
 
     model: SignalModel
     last_obs: Observation | None = None
+    resampled: bool = False  # Track if a resampling or major structural update happened
 
     @abstractmethod
     def update(self, obs: Observation) -> None:

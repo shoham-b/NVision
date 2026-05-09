@@ -292,6 +292,7 @@ class BayesianMixin:
         true_value: float | None = None,
         acquisition_window: tuple[float, float] | None = None,
         experiment_domain: tuple[float, float] | None = None,
+        resampled_steps: list[int] | None = None,
     ) -> None:
         """Create an interactive Plotly animation of the posterior distribution evolution.
 
@@ -319,6 +320,9 @@ class BayesianMixin:
                 if m > max_prob:
                     max_prob = m
 
+        resampled_set = set(resampled_steps) if resampled_steps else set()
+        resampling_indices = set()
+
         for i in step_indices:
             posterior = posterior_history[i]
 
@@ -331,11 +335,16 @@ class BayesianMixin:
                 # For simplicity, let's just plot posterior for now or scale model.
                 pass
 
+            title_text = f"Step {i + 1}/{total_steps}"
+            if i in resampled_set:
+                resampling_indices.add(i)
+                title_text += " [RESAMPLED] ↺"
+
             frames.append(
                 go.Frame(
                     data=data,
                     name=str(i),
-                    layout=go.Layout(title_text=f"Step {i + 1}/{total_steps}"),
+                    layout=go.Layout(title_text=title_text),
                 )
             )
 
@@ -349,7 +358,7 @@ class BayesianMixin:
                         "transition": {"duration": 0},
                     },
                 ],
-                "label": str(int(frame.name) + 1),
+                "label": f"{int(frame.name) + 1}↺" if int(frame.name) in resampling_indices else str(int(frame.name) + 1),
                 "method": "animate",
             }
             for frame in frames
@@ -480,6 +489,7 @@ class BayesianMixin:
         per_step_narrowed_bounds: list[dict[str, tuple[float, float]]] | None = None,
         param_descriptions: dict[str, str] | None = None,
         signal_formula: str | None = None,
+        resampled_steps: list[int] | None = None,
     ) -> None:
         """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
 
@@ -539,6 +549,11 @@ class BayesianMixin:
 
         frames = []
         refocusing_steps = set()  # Track steps where refocusing occurs
+        resampling_indices = set() # Track indices in frames where resampling happened
+        if resampled_steps:
+            resampled_set = set(resampled_steps)
+        else:
+            resampled_set = set()
 
         for si, step_idx in enumerate(step_indices):
             # Get narrowed bounds for this step if available
@@ -611,9 +626,15 @@ class BayesianMixin:
                         if step_idx >= 32 and (step_idx - 32) % 20 == 0:
                             refocusing_steps.add(si)
 
-            # Add refocusing indicator to title (LaTeX formulas render via $...$)
+            # Add indicators to title
             _formula_suffix = f"  {signal_formula}" if signal_formula else ""
             title_text = f"Posterior evolution (all parameters){_formula_suffix}<br>step {step_idx + 1}/{total_steps}"
+            
+            is_resampled = step_idx in resampled_set
+            if is_resampled:
+                resampling_indices.add(si)
+                title_text = title_text.replace("<br>", " [RESAMPLED] ↺<br>", 1)
+            
             if si in refocusing_steps:
                 title_text = title_text.replace("<br>", " [REFOCUSING]<br>", 1)
 
@@ -630,8 +651,14 @@ class BayesianMixin:
         slider_steps = []
         for si, frame in enumerate(frames):
             step_num = step_indices[si] + 1
-            # Highlight refocusing steps with brackets
-            label = f"[{step_num}]" if si in refocusing_steps else str(step_num)  # Brackets mark refocusing steps
+            # Highlight refocusing steps with brackets and resampling with a circular arrow
+            base_label = str(step_num)
+            if si in refocusing_steps:
+                base_label = f"[{base_label}]"
+            if si in resampling_indices:
+                base_label = f"{base_label}↺"
+            
+            label = base_label
 
             slider_steps.append(
                 {

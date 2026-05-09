@@ -31,6 +31,7 @@ class StepSnapshot:
     belief: AbstractMarginalDistribution
     true_signal: TrueSignal
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
+    resampled: bool = False
 
 
 @dataclass
@@ -248,6 +249,7 @@ class Observer:
                     belief=locator.belief.copy(),
                     true_signal=self.true_signal,
                     narrowed_param_bounds=current_bounds,
+                    resampled=locator.belief.resampled,
                 )
                 self.snapshots.append(snapshot)
 
