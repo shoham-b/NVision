@@ -6,11 +6,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import jax
 import jax.numpy as jnp
+import numba
 import numpy as np
 from dotenv import load_dotenv
-import numba
 from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
@@ -327,12 +326,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             # Total filter collapse: likelihood was zero everywhere.
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-
         # 4. Resample if Effective Sample Size (ESS) is too low
         ess = _inverse_sum_squares(self._weights)
         if (
-            self.auto_resample 
-            and ess < self.ess_threshold * self.num_particles 
+            self.auto_resample
+            and ess < self.ess_threshold * self.num_particles
             and self._step_count >= self.resample_delay
         ):
             self._resample()
@@ -373,8 +371,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             if self.noise_model is not None and self._noise_param_slice is not None:
                 noise_arrays = [
-                    self._particles[:, j]
-                    for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
+                    self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
                 ]
                 sigma_epistemic = float(np.std(predicted))
                 residuals = obs.signal_value - predicted
@@ -409,12 +406,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Single resampling step after all updates
         ess = _inverse_sum_squares(self._weights)
         if (
-            self.auto_resample 
-            and ess < self.ess_threshold * self.num_particles 
+            self.auto_resample
+            and ess < self.ess_threshold * self.num_particles
             and self._step_count >= self.resample_delay
         ):
             self._resample()
-
 
     def get_candidates(self) -> np.ndarray:
         """Return the current epoch's slope-targeted candidate grid."""
@@ -743,7 +739,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     def expected_information_gain_jax(self, candidates: Any, noise_std: float = 0.02) -> Any:
         """Compute the approximate expected information gain using JAX for auto-differentiation."""
-        import jax.numpy as jnp
 
         # Broadcast candidates to shape (n_candidates, 1)
         x_2d = jnp.atleast_1d(candidates)[:, None]
@@ -772,12 +767,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             old_lo, old_hi = self.parameter_bounds[param_name]
             lo, hi = max(old_lo, new_lo), min(old_hi, new_hi)
             self.parameter_bounds[param_name] = (lo, hi)
-            
+
             # Immediately snap particles into the new tighter bounds
             if param_name in self._param_names:
                 idx = self._param_names.index(param_name)
                 self._particles[:, idx] = np.clip(self._particles[:, idx], lo, hi)
-                
+
             # If the scan parameter was narrowed, update the global grid and candidates
             if param_name == "frequency":
                 POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE
