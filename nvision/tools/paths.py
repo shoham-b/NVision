@@ -24,7 +24,7 @@ def find_project_root() -> Path:
     """Find the project root by looking for a .git directory."""
     current = Path(__file__).resolve()
     for parent in current.parents:
-        if (parent / ".git").is_dir():
+        if (parent / "nvision").is_dir() or (parent / "pyproject.toml").is_file():
             return parent
     raise FileNotFoundError("Could not find the project root (no .git directory found).")
 
