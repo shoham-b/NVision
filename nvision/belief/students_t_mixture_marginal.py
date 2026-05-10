@@ -31,7 +31,6 @@ NVISION_STUDENTS_T_DEFAULT_LINEWIDTH: float = float(os.getenv("NVISION_STUDENTS_
 NVISION_STUDENTS_T_DEFAULT_SPLIT: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_SPLIT", "5e6"))
 NVISION_STUDENTS_T_DEFAULT_K_NP: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_K_NP", "1.5"))
 NVISION_STUDENTS_T_DEFAULT_DIP_DEPTH: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_DIP_DEPTH", "0.1"))
-NVISION_STUDENTS_T_DEFAULT_BACKGROUND: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_BACKGROUND", "1.0"))
 
 
 @dataclass
@@ -72,7 +71,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         "split":     NVISION_STUDENTS_T_DEFAULT_SPLIT,
         "k_np":      NVISION_STUDENTS_T_DEFAULT_K_NP,
         "dip_depth": NVISION_STUDENTS_T_DEFAULT_DIP_DEPTH,
-        "background": NVISION_STUDENTS_T_DEFAULT_BACKGROUND,
     }
 
     def __post_init__(self) -> None:

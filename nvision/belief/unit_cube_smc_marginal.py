@@ -40,6 +40,10 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
     def __post_init__(self) -> None:
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("UnitCubeSMCMarginalDistribution requires a UnitCubeSignalModel")
+
+        # Force parameter_bounds to unit space for internal SMC operations.
+        # This ensures super().__post_init__ initializes particles in [0, 1].
+        self.parameter_bounds = {name: (0.0, 1.0) for name in self.model.parameter_names()}
         super().__post_init__()
 
     def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
@@ -59,29 +63,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         return lo + self._current_candidates.astype(np.float64) * (hi - lo)
 
     def _generate_epoch_candidates(self) -> None:
-        """Generate slope-targeted candidates clipped to physical bounds, stored as unit.
-
-        Overrides the base to use physical parameter bounds for clipping (the base
-        clips to ``parameter_bounds['frequency']`` which is ``(0, 1)`` in unit space
-        but ``estimates()`` here returns physical frequencies, making the clipping
-        bounds inconsistent).
+        """Generate candidates in unit space.
+        
+        The base class now uses internal _estimates_unit() which correctly
+        returns [0, 1] values even for this subclass.
         """
-        # Let the base class compute everything in physical space by temporarily
-        # exposing the physical bounds, then convert the result to unit space.
-        phys_lo, phys_hi = self.physical_param_bounds.get("frequency", self.physical_x_bounds)
-        saved_bounds = self.parameter_bounds.get("frequency")
-        # Temporarily patch so the base clips to physical bounds
-        self.parameter_bounds["frequency"] = (phys_lo, phys_hi)
-        try:
-            super()._generate_epoch_candidates()
-        finally:
-            if saved_bounds is not None:
-                self.parameter_bounds["frequency"] = saved_bounds
-
-        # Candidates are now physical frequencies; convert to unit [0,1] for storage
-        phys_candidates = self._current_candidates.astype(np.float64)
-        unit_candidates = (phys_candidates - phys_lo) / (phys_hi - phys_lo)
-        self._current_candidates = np.clip(unit_candidates, 0.0, 1.0).astype(np.float32)
+        super()._generate_epoch_candidates()
 
     def estimates(self) -> dict[str, float]:
         raw = super().estimates()
@@ -145,9 +132,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             num_particles=self.num_particles,
             ess_threshold=self.ess_threshold,
             a_param=self.a_param,
-            scale=self.scale,
             last_obs=self.last_obs,
-            elitism_ratio=self.elitism_ratio,
             noise_model=self.noise_model,
             auto_resample=self.auto_resample,
             physical_param_bounds=dict(self.physical_param_bounds),

@@ -93,7 +93,6 @@ class NVCenterCoreGenerator:
                 split=split,
                 k_np=k_np,
                 dip_depth=dip_depth,
-                background=background,
             )
             bounds = nv_center_lorentzian_bounds_for_domain(
                 self.x_min, self.x_max, narrow=self.narrow_signal, true_params=typed_params
@@ -114,9 +113,8 @@ class NVCenterCoreGenerator:
                 split=np.array([split]),
                 k_np=np.array([k_np]),
                 dip_depth=np.array([1.0]),
-                background=np.array([0.0]),
             )
-            g_max = float(-np.min(model.compute_vectorized_many(xs, single)))
+            g_max = float(1.0 - np.min(model.compute_vectorized_many(xs, single)))
             dip_depth = unit_dip_depth / g_max if g_max > 1e-12 else unit_dip_depth
 
             typed_params = NVCenterVoigtSpectrum(
@@ -126,7 +124,6 @@ class NVCenterCoreGenerator:
                 split=split,
                 k_np=k_np,
                 dip_depth=dip_depth,
-                background=background,
             )
             bounds = nv_center_voigt_bounds_for_domain(
                 self.x_min, self.x_max, narrow=self.narrow_signal, true_params=typed_params

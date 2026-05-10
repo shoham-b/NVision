@@ -663,3 +663,27 @@ body {
             height: 85vh;
             min-height: 600px;
         }
+        
+        .resampling-summary {
+            margin-top: 1.5em;
+            padding: 1em 1.5em;
+            background: rgba(248, 250, 252, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            border-left: 4px solid #3b82f6;
+            border-radius: 12px;
+            color: #475569;
+            font-size: 0.95em;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            display: flex;
+            align-items: center;
+            gap: 0.75em;
+        }
+        
+        .resampling-summary::before {
+            content: '↺';
+            font-size: 1.2em;
+            color: #3b82f6;
+            font-weight: bold;
+        }

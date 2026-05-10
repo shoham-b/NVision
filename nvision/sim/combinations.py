@@ -15,11 +15,11 @@ from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
     NVISION_SMC_NUM_PARTICLES,
-    NVISION_SMC_SCALE,
 )
 from nvision.models.noise import CompositeNoise
 from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.acquisition_locators import (
+    EKFLocator,
     MaximumLikelihoodLocator,
     SequentialBayesianExperimentDesignLocator,
     UtilitySamplingLocator,
@@ -46,7 +46,6 @@ _NV_SMC: dict[str, object] = {
     "num_particles": NVISION_SMC_NUM_PARTICLES,
     "ess_threshold": NVISION_SMC_ESS_THRESHOLD,
     "a_param": NVISION_SMC_A_PARAM,
-    "scale": NVISION_SMC_SCALE,
 }
 
 
@@ -92,7 +91,6 @@ class CombinationGrid:
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
         if generator_name.startswith("NVCenter-"):
-            from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
 
             # Narrow-domain generators never use initial sweeps.
             is_narrow = generator_name.endswith("-narrow")
@@ -111,6 +109,10 @@ class CombinationGrid:
                 (
                     f"Bayesian-SBED{suffix}",
                     {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC}},
+                ),
+                (
+                    f"Bayesian-EKF{suffix}",
+                    {"class": EKFLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep}},
                 ),
                 (
                     f"Bayesian-MaximumLikelihood{suffix}",
@@ -134,11 +136,6 @@ class CombinationGrid:
                 ),
             ])
 
-            if "voigt" not in generator_name:
-                strategies.append((
-                    f"StudentsTApproximation{suffix}",
-                    {"class": StudentsTLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, "df": 3.0}},
-                ))
             return strategies
 
         return [

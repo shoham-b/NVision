@@ -49,17 +49,17 @@ def _sweep_strategy_names() -> list[str]:
 
 
 def _bayesian_strategy_names() -> list[str]:
-    return ["Bayesian-SBED"]
+    return ["Bayesian-SBED", "Bayesian-EKF"]
 
 
 def _bayesian_nosweep_strategy_names() -> list[str]:
-    return ["Bayesian-SBED-NoSweep"]
+    return ["Bayesian-SBED-NoSweep", "Bayesian-EKF-NoSweep"]
 
 
 def _narrow_strategy_names() -> list[str]:
     return [
         "Bayesian-SBED-NoSweep",
-        "StudentsTApproximation-NoSweep",
+        "Bayesian-EKF-NoSweep",
     ]
 
 
@@ -188,9 +188,9 @@ def _group_smc_only() -> RunGroup:
     )
 
 
-def _group_narrow_sbed() -> RunGroup:
+def _group_sbed_narrow() -> RunGroup:
     return RunGroup(
-        name="narrow_sbed",
+        name="sbed_narrow",
         description="SMC-based SBED (Bayesian-SBED-NoSweep) on narrow-domain generators.",
         generator_names=_nv_narrow_generators(),
         noise_names=_default_noise_names(),
@@ -198,14 +198,16 @@ def _group_narrow_sbed() -> RunGroup:
     )
 
 
-def _group_student_t_only() -> RunGroup:
+def _group_sbed_narrow_lorentzian() -> RunGroup:
     return RunGroup(
-        name="student_t_only",
-        description="Student's t mixture belief locator only (no-sweep, narrow Lorentzian).",
+        name="sbed_narrow_lorentzian",
+        description="SMC-based SBED (Bayesian-SBED-NoSweep) on narrow Lorentzian generator only.",
         generator_names=["NVCenter-lorentzian-narrow"],
         noise_names=_default_noise_names(),
-        strategy_names=["StudentsTApproximation-NoSweep"],
+        strategy_names=["Bayesian-SBED-NoSweep"],
     )
+
+
 
 
 @lru_cache(maxsize=1)
@@ -219,8 +221,8 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_bayesian_clean(),
         _group_narrow_only(),
         _group_smc_only(),
-        _group_narrow_sbed(),
-        _group_student_t_only(),
+        _group_sbed_narrow(),
+        _group_sbed_narrow_lorentzian(),
     )
 
 

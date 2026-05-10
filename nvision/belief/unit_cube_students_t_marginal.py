@@ -35,6 +35,9 @@ class UnitCubeStudentsTMixtureMarginalDistribution(StudentsTMixtureMarginalDistr
     def __post_init__(self) -> None:
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("UnitCubeStudentsTMixtureMarginalDistribution requires a UnitCubeSignalModel")
+        
+        # Ensure base class knows we are in unit cube mode for initialization
+        self._is_unit_cube = True
         super().__post_init__()
 
 

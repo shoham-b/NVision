@@ -39,7 +39,6 @@ class NVCenterLorentzianSpectrum:
     split: float
     k_np: float
     dip_depth: float
-    background: float
 
     @property
     def physical_amplitude(self) -> float:
@@ -54,7 +53,6 @@ class NVCenterLorentzianSpectrumSamples:
     split: np.ndarray
     k_np: np.ndarray
     dip_depth: np.ndarray
-    background: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -64,7 +62,6 @@ class NVCenterLorentzianSpectrumUncertainty:
     split: float
     k_np: float
     dip_depth: float
-    background: float
 
 
 class _NVCenterLorentzianSpec(
@@ -114,7 +111,7 @@ class NVCenterLorentzianModel(
     dip_depth : float
         Right (deepest) peak depth in [0, 1]. Center depth = dip_depth / k_np.
     background : float
-        Background level (typically 1.0 for normalized signal)
+        Background level (fixed to 1.0)
     """
 
     @staticmethod
@@ -125,7 +122,6 @@ class NVCenterLorentzianModel(
         split: float,
         k_np: float,
         dip_depth: float,
-        background: float,
     ) -> float:
         """Triple Lorentzian NV ODMR; parameter order matches :meth:`parameter_names`."""
         return nv_center_lorentzian_eval(
@@ -135,7 +131,7 @@ class NVCenterLorentzianModel(
             float(split),
             float(k_np),
             float(dip_depth),
-            float(background),
+            1.0,
         )
 
     def compute_nvcenter_lorentzian_model_vectorized(
@@ -146,7 +142,6 @@ class NVCenterLorentzianModel(
         split: np.ndarray,
         k_np: np.ndarray,
         dip_depth: np.ndarray,
-        background: np.ndarray,
     ) -> np.ndarray:
         """Vectorized triple-Lorentzian NV evaluation for one probe location."""
         xs = np.array([float(x)], dtype=FLOAT_DTYPE)
@@ -155,7 +150,7 @@ class NVCenterLorentzianModel(
         split_arr = np.asarray(split, dtype=FLOAT_DTYPE)
         k_np_arr = np.asarray(k_np, dtype=FLOAT_DTYPE)
         depth = np.asarray(dip_depth, dtype=FLOAT_DTYPE)
-        bg = np.asarray(background, dtype=FLOAT_DTYPE)
+        bg = np.ones(freq.shape[0], dtype=FLOAT_DTYPE)
 
         out = np.empty((1, freq.shape[0]), dtype=FLOAT_DTYPE)
         nv_center_lorentzian_vectorized_many(xs, freq, linewidth_arr, split_arr, k_np_arr, depth, bg, out)
@@ -171,7 +166,7 @@ class NVCenterLorentzianModel(
         return name in ("linewidth", "dip_depth")
 
     def parameter_weights(self) -> dict[str, float]:
-        return {"frequency": 2.0, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "dip_depth": 1.0, "background": 1.0}
+        return {"frequency": 2.0, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "dip_depth": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         linewidth_lo = domain_width * 0.0001
@@ -194,7 +189,6 @@ class NVCenterLorentzianModel(
             params.split,
             params.k_np,
             params.dip_depth / params.k_np,
-            params.background,
         )
 
     def compute_jax(self, x: float, params: NVCenterLorentzianSpectrum) -> Any:
@@ -205,7 +199,7 @@ class NVCenterLorentzianModel(
             params.split,
             params.k_np,
             params.dip_depth,
-            params.background,
+            1.0,
         )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
@@ -217,7 +211,6 @@ class NVCenterLorentzianModel(
             samples.split,
             samples.k_np,
             actual_depth,
-            samples.background,
         )
         return out
 
@@ -242,7 +235,7 @@ class NVCenterLorentzianModel(
             np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples_phys.background, dtype=FLOAT_DTYPE),
+            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
             out,
         )
         return out
@@ -256,7 +249,7 @@ class NVCenterLorentzianModel(
         xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
         freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
         n_x, n_p = xs.shape[0], freq.shape[0]
-        grad_out = np.empty((n_x, n_p, 6), dtype=FLOAT_DTYPE)
+        grad_out = np.empty((n_x, n_p, 5), dtype=FLOAT_DTYPE)
 
         nv_center_lorentzian_gradient_vectorized_many(
             xs,
@@ -278,7 +271,6 @@ class NVCenterVoigtSpectrum:
     split: float
     k_np: float
     dip_depth: float
-    background: float
 
     @property
     def physical_amplitude(self) -> float:
@@ -295,7 +287,6 @@ class NVCenterVoigtSpectrumSamples:
     split: np.ndarray
     k_np: np.ndarray
     dip_depth: np.ndarray
-    background: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -306,7 +297,6 @@ class NVCenterVoigtSpectrumUncertainty:
     split: float
     k_np: float
     dip_depth: float
-    background: float
 
 
 class _NVCenterVoigtSpec(
@@ -347,7 +337,7 @@ class NVCenterVoigtModel(
     dip_depth : float
         Right (deepest) peak depth in [0, 1]. Center depth = dip_depth / k_np.
     background : float
-        Background level
+        Background level (fixed to 1.0)
     """
 
     def compute_nvcenter_voigt_model(
@@ -359,7 +349,6 @@ class NVCenterVoigtModel(
         split: float,
         k_np: float,
         dip_depth: float,
-        background: float,
     ) -> float:
         """Triple Voigt NV ODMR; parameter order matches :meth:`parameter_names`."""
         return nv_center_pseudo_voigt_eval(
@@ -370,7 +359,7 @@ class NVCenterVoigtModel(
             float(split),
             float(k_np),
             float(dip_depth),
-            float(background),
+            1.0,
         )
 
     _SPEC = _NVCenterVoigtSpec()
@@ -390,7 +379,6 @@ class NVCenterVoigtModel(
             "split": 1.0,
             "k_np": 1.0,
             "dip_depth": 1.0,
-            "background": 1.0,
         }
 
     def signal_min_span(self, domain_width: float) -> float | None:
@@ -415,7 +403,6 @@ class NVCenterVoigtModel(
             params.split,
             params.k_np,
             params.dip_depth,
-            params.background,
         )
 
     def compute_jax(self, x: float, params: NVCenterVoigtSpectrum) -> Any:
@@ -427,7 +414,7 @@ class NVCenterVoigtModel(
             params.split,
             params.k_np,
             params.dip_depth,
-            params.background,
+            1.0,
         )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
@@ -452,7 +439,7 @@ class NVCenterVoigtModel(
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.asarray(samples.background, dtype=FLOAT_DTYPE),
+            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
             out,
         )
         return out
@@ -502,7 +489,6 @@ def nv_center_lorentzian_bounds_for_domain(
                 "split": _pm10(_val("split")),
                 "k_np": _pm10(_val("k_np"), lo=MIN_K_NP, hi=MAX_K_NP),
                 "dip_depth": _pm10(_val("dip_depth"), lo=0.01, hi=1.0),
-                "background": _pm10(_val("background"), lo=0.5, hi=1.5),
                 "_signal_max_span": (0.0, max_span),
             }
     else:
@@ -516,7 +502,6 @@ def nv_center_lorentzian_bounds_for_domain(
         "split": split_bounds,
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.1, 1.0),
-        "background": (0.5, 1.5),
         "_signal_max_span": (0.0, max_span),
     }
 
@@ -531,7 +516,6 @@ class NVCenterOnePeakLorentzianSpectrum:
     frequency: float
     linewidth: float
     dip_depth: float
-    background: float
 
 
 @dataclass(frozen=True)
@@ -539,7 +523,6 @@ class NVCenterOnePeakLorentzianSpectrumSamples:
     frequency: np.ndarray
     linewidth: np.ndarray
     dip_depth: np.ndarray
-    background: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -547,7 +530,6 @@ class NVCenterOnePeakLorentzianSpectrumUncertainty:
     frequency: float
     linewidth: float
     dip_depth: float
-    background: float
 
 
 class _NVCenterOnePeakLorentzianSpec(
@@ -572,10 +554,10 @@ class NVCenterOnePeakLorentzianModel(
     """NV center ODMR signal — single Lorentzian dip (zero-field / no hyperfine splitting).
 
     split is fixed to 0 and k_np is fixed to 1, so only 4 parameters are inferred:
-    frequency, linewidth, dip_depth, background.
+    frequency, linewidth, dip_depth.
 
     Signal form:
-        S(f) = background - dip_depth * linewidth² / ((f - frequency)² + linewidth²)
+        S(f) = 1.0 - dip_depth * linewidth² / ((f - frequency)² + linewidth²)
     """
 
     _SPEC = _NVCenterOnePeakLorentzianSpec()
@@ -588,7 +570,7 @@ class NVCenterOnePeakLorentzianModel(
         return name in ("linewidth", "dip_depth")
 
     def parameter_weights(self) -> dict[str, float]:
-        return {"frequency": 2.0, "linewidth": 1.0, "dip_depth": 1.0, "background": 1.0}
+        return {"frequency": 2.0, "linewidth": 1.0, "dip_depth": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         linewidth_lo = domain_width * 0.0001
@@ -605,24 +587,23 @@ class NVCenterOnePeakLorentzianModel(
     def compute(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> float:
         lw2 = params.linewidth**2
         denom = (float(x) - params.frequency) ** 2 + lw2
-        return float(params.background - (params.dip_depth * lw2) / denom)
+        return float(1.0 - (params.dip_depth * lw2) / denom)
 
     def compute_jax(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> Any:
         import jax.numpy as jnp
 
         lw2 = params.linewidth**2
         denom = (x - params.frequency) ** 2 + lw2
-        return params.background - (params.dip_depth * lw2) / denom
+        return 1.0 - (params.dip_depth * lw2) / denom
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
         x_f = float(x)
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
         lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
         depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
-        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
         lw2 = lw**2
         denom = (x_f - freq) ** 2 + lw2
-        return (bg - depth * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
+        return (1.0 - depth * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
 
     def compute_vectorized_many(
         self, x_array: Sequence[float], samples: NVCenterOnePeakLorentzianSpectrumSamples
@@ -635,11 +616,10 @@ class NVCenterOnePeakLorentzianModel(
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
         lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
         depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
-        bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
         x2d = xs[:, None]
         lw2 = lw[None, :] ** 2
         denom = (x2d - freq[None, :]) ** 2 + lw2
-        return (bg[None, :] - depth[None, :] * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
+        return (1.0 - depth[None, :] * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
 
 
 def nv_center_one_peak_lorentzian_bounds_for_domain(
@@ -655,7 +635,6 @@ def nv_center_one_peak_lorentzian_bounds_for_domain(
         "frequency": (float(x_min), float(x_max)),
         "linewidth": (width * 0.0001, linewidth_hi),
         "dip_depth": (0.01, 1.0),
-        "background": (0.95, 1.05),
         "_signal_max_span": (0.0, 4.0 * linewidth_hi),
     }
 
@@ -705,7 +684,6 @@ def nv_center_voigt_bounds_for_domain(
                 "split": _pm10(_val("split")),
                 "k_np": _pm10(_val("k_np"), lo=MIN_K_NP, hi=MAX_K_NP),
                 "dip_depth": _pm10(_val("dip_depth"), lo=0.01, hi=1.0),
-                "background": _pm10(_val("background"), lo=0.5, hi=1.5),
                 "_signal_max_span": (0.0, max_span),
             }
     else:
@@ -722,6 +700,5 @@ def nv_center_voigt_bounds_for_domain(
         "split": split_bounds,
         "k_np": (MIN_K_NP, MAX_K_NP),
         "dip_depth": (0.001, 1.0),
-        "background": (0.95, 1.05),
         "_signal_max_span": (0.0, max_span),
     }

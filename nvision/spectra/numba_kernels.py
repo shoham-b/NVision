@@ -66,7 +66,7 @@ def nv_center_lorentzian_gradient(
 ) -> None:
     """Analytical gradient of NV Lorentzian signal model (in-place).
     
-    Order: frequency, linewidth, split, k_np, dip_depth, background
+    Order: frequency, linewidth, split, k_np, dip_depth
     """
     lw2 = lw_phys * lw_phys
     
@@ -118,8 +118,6 @@ def nv_center_lorentzian_gradient(
     grad_phys[3] = (2.0 * dip_depth_phys / (k2 * k_np)) * tl + (dip_depth_phys / k2) * (lw2 * iden_c)
     # dS/dd
     grad_phys[4] = -(tl / k2 + (lw2 * iden_c) / k_np + tr)
-    # dS/dbg
-    grad_phys[5] = 1.0
 
 
 def gaussian_peak_value(
@@ -190,7 +188,7 @@ def nv_center_lorentzian_gradient_vectorized_many(
 ) -> None:
     """Vectorized analytical gradient for many probe positions and many parameter sets.
     
-    Writes into ``grad_phys_out`` which must have shape ``(len(x_phys_array), len(freq_phys), 6)``.
+    Writes into ``grad_phys_out`` which must have shape ``(len(x_phys_array), len(freq_phys), 5)``.
     """
     m = x_phys_array.shape[0]
     n = freq_phys.shape[0]

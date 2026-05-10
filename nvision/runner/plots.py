@@ -88,7 +88,8 @@ def _posterior_animation_inputs(
             col = b._particles[:, idx].copy()
             if is_unit_cube:
                 col = lo + col * (hi - lo)
-            hist.append(col.reshape(-1, 1))
+            weights = b._weights.copy()
+            hist.append(np.column_stack([col, weights]))
         # Unused for particle / histogram mode; required by API
         return hist, np.linspace(0.0, 1.0, 2)
 
@@ -192,7 +193,8 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
             col = b._particles[:, idx].copy()
             if is_unit_cube:
                 col = lo + col * (hi - lo)
-            hist.append(col.reshape(-1, 1))
+            weights = b._weights.copy()
+            hist.append(np.column_stack([col, weights]))
         out[scan_param] = (hist, stub_grid)
     return out
 
@@ -348,6 +350,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         ie["type"] = "bayesian_interactive"
         ie["path"] = interactive_path.relative_to(out_dir).as_posix()
         ie["param_count"] = len(anim_all) if anim_all is not None else 1
+        ie["resampled_count"] = len(resampled_steps)
         extra.append(ie)
 
     # Filter out initial sweep stages from parameter convergence plot

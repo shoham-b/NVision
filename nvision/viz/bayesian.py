@@ -195,11 +195,14 @@ def _trace_one_marginal_posterior(
     param: str,
 ) -> list[go.Histogram | go.Scatter]:
     if posterior.ndim == 2:
-        # Check if particles (N, 1) or mixture (K+1, N_grid)
-        if posterior.shape[1] == 1:
+        # Check if particles (N, 2 or 1) or mixture (K+1, N_grid)
+        if posterior.shape[1] in (1, 2):
+            weights = posterior[:, 1] if posterior.shape[1] == 2 else None
             return [
                 go.Histogram(
                     x=posterior[:, 0],
+                    y=weights,
+                    histfunc="sum" if weights is not None else "count",
                     histnorm="probability density",
                     name=f"{param} (particles)",
                     opacity=0.75,
@@ -644,6 +647,20 @@ class BayesianMixin:
                     name=str(si),
                     layout=go.Layout(
                         title_text=title_text,
+                        annotations=[
+                            dict(
+                                text="RESAMPLED ↺",
+                                xref="paper", yref="paper",
+                                x=1.0, y=1.02,
+                                xanchor="right", yanchor="bottom",
+                                showarrow=False,
+                                font=dict(size=10, color="#ffffff"),
+                                bgcolor="rgba(231, 76, 60, 0.7)",
+                                bordercolor="rgba(231, 76, 60, 0.9)",
+                                borderwidth=0,
+                                borderpad=4,
+                            )
+                        ] if is_resampled else []
                     ),
                 )
             )
@@ -656,7 +673,7 @@ class BayesianMixin:
             if si in refocusing_steps:
                 base_label = f"[{base_label}]"
             if si in resampling_indices:
-                base_label = f"{base_label}↺"
+                base_label = f"{base_label} ↺"
             
             label = base_label
 

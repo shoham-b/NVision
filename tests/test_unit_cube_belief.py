@@ -28,7 +28,7 @@ from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentD
 def test_nv_center_default_bounds_align_with_generation_formulas():
     gen = nv_center_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
     b = nv_center_belief()
-    for key in ("frequency", "linewidth", "split", "k_np", "background"):
+    for key in ("frequency", "linewidth", "split", "k_np"):
         assert b.physical_param_bounds[key] == gen[key]
     glo, ghi = gen["dip_depth"]
     blo, bhi = b.physical_param_bounds["dip_depth"]
@@ -79,7 +79,6 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         "n_grid_split": 24,
         "n_grid_k_np": 16,
         "n_grid_amplitude": 16,
-        "n_grid_background": 16,
     }
     final = Observer(true_signal, exp.x_min, exp.x_max).watch(
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)

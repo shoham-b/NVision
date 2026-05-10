@@ -8,13 +8,13 @@ from nvision import (
 )
 
 
-def test_nv_center_lorentzian_has_six_parameters():
+def test_nv_center_lorentzian_has_five_parameters():
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "split", "k_np", "dip_depth", "background"}
+    assert names == {"frequency", "linewidth", "split", "k_np", "dip_depth"}
 
 
 def test_nv_center_voigt_has_different_params_than_lorentzian():

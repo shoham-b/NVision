@@ -26,7 +26,6 @@ from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
     NVISION_SMC_NUM_PARTICLES,
-    NVISION_SMC_SCALE,
 )
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
@@ -189,7 +188,6 @@ def nv_center_belief(
             ("split", phys["split"], n_grid_split),
             ("k_np", phys["k_np"], n_grid_k_np),
             ("dip_depth", phys["dip_depth"], n_grid_depth),
-            ("background", phys["background"], n_grid_background),
         ]
     else:
         model = NVCenterLorentzianModel()
@@ -200,7 +198,6 @@ def nv_center_belief(
             ("split", phys["split"], n_grid_split),
             ("k_np", phys["k_np"], n_grid_k_np),
             ("dip_depth", phys["dip_depth"], n_grid_depth),
-            ("background", phys["background"], n_grid_background),
         ]
 
     return _unit_cube_belief_from_specs(
@@ -217,7 +214,6 @@ def nv_center_smc_belief(
     num_particles: int = NVISION_SMC_NUM_PARTICLES,
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD,
     a_param: float = NVISION_SMC_A_PARAM,
-    scale: bool = NVISION_SMC_SCALE,
     noise_model: NoiseSignalModel | None = None,
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
@@ -268,7 +264,6 @@ def nv_center_smc_belief(
         num_particles=num_particles,
         ess_threshold=ess_threshold,
         a_param=a_param,
-        scale=scale,
         noise_model=noise_model,
         physical_param_bounds=merged_bounds,
         physical_x_bounds=x_phys,

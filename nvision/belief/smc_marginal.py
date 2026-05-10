@@ -25,8 +25,6 @@ load_dotenv()
 NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
 NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.5"))
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
-NVISION_SMC_SCALE: bool = os.getenv("NVISION_SMC_SCALE", "True").lower() in ("true", "1", "yes")
-NVISION_SMC_ELITISM_RATIO: float = float(os.getenv("NVISION_SMC_ELITISM_RATIO", "0.2"))
 NVISION_SMC_POINTS_PER_MIN_FEATURE: int = int(os.getenv("NVISION_SMC_POINTS_PER_MIN_FEATURE", "5"))
 
 _EIG_CHUNK_SIZE: int = 64
@@ -190,20 +188,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     """Belief distribution using Sequential Monte Carlo (Particle Filter).
 
     Maintains a joint posterior over parameters using a set of weighted particles.
-    Resampling uses the elitist NIST optbayesexpt-style algorithm (Dushenko et al. 2020):
-    elite particles survive intact while the remainder are resampled from them and nudged
-    with a multivariate Gaussian from the particle covariance.
+    Resampling uses systematic resampling (low variance) followed by nudging with a
+    multivariate Gaussian kernel and Liu-West shrinkage (contraction) to maintain
+    diversity and preserve distribution moments.
 
     Parameters
     ----------
     a_param : float
-        Contraction parameter. After nudging, non-elite particles are contracted
-        (1 - a_param) of the distance toward the mean. Default 0.98 (NIST).
-    scale : bool
-        If True, apply contraction toward mean after nudging. Default True.
-    elitism_ratio : float
-        Fraction of top-weight particles that survive each resampling intact.
-        Default 0.2 (20 %).
+        Contraction parameter. After nudging, particles are contracted
+        (1 - a_param) of the distance toward the mean. Default 0.98.
     auto_resample : bool
         If True, resample automatically when ESS drops below threshold.
         Set False to let the locator trigger resampling manually.
@@ -213,8 +206,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     num_particles: int = NVISION_SMC_NUM_PARTICLES
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD
     a_param: float = NVISION_SMC_A_PARAM
-    scale: bool = NVISION_SMC_SCALE
-    elitism_ratio: float = NVISION_SMC_ELITISM_RATIO
     noise_model: NoiseSignalModel | None = None
     auto_resample: bool = True
     resample_delay: int = 0
@@ -273,6 +264,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 "Implement signal_min_span() to return the minimum signal feature width in Hz."
             )
         n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
+
         self._global_grid = np.linspace(f_lo, f_hi, n_global).astype(np.float32)
         self._generate_epoch_candidates()
 
@@ -422,8 +414,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine
         dips. Resolution and search windows scale with posterior uncertainty.
         """
-        estimates = self.estimates()
-        uncertainties = self.uncertainty()
+        # Use unit-space estimates and uncertainties to avoid physical-unit mismatch in subclasses
+        estimates = self._estimates_unit()
+        uncertainties = self._uncertainty_unit()
 
         f_b = estimates["frequency"]
         df_hf = estimates["split"]
@@ -472,36 +465,23 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._current_candidates = np.unique(np.clip(merged, f_lo, f_hi)).astype(np.float32)
 
     def _resample(self) -> None:
-        """Elitist NIST-style resampling (Dushenko et al. 2020, Supp. S.3).
+        """Systematic resampling with Gaussian nudging and Liu-West shrinkage.
 
-        Elite particles (top ``elitism_ratio`` by weight) survive intact.
-        The remainder are resampled from the elite via systematic resampling,
-        then nudged with a multivariate Gaussian of covariance
-        ``(1 - a_param**2) * particle_cov`` and optionally contracted toward
-        the mean by factor ``a_param`` (shrinkage).
+        All particles are resampled using systematic sampling (low variance),
+        then nudged with a multivariate Gaussian kernel based on the current
+        particle covariance. Shrinkage toward the mean is optionally applied
+        to preserve the distribution variance.
         """
         self.resampled = True
-        n_elite = max(1, min(int(self.num_particles * self.elitism_ratio), self.num_particles - 1))
-        n_resample = self.num_particles - n_elite
         d_dim = len(self._param_names)
 
-        # 1. Select elite indices (highest weights)
-        elite_indices = np.argsort(self._weights)[-n_elite:]
+        # 1. Systematic Resampling
+        # Map systematic positions to indices along non-decreasing cumulative_sum
+        positions = (np.arange(self.num_particles) + np.random.random()) / self.num_particles
+        new_indices = _systematic_resample_indices(np.cumsum(self._weights), positions)
 
-        # 2. Systematic resampling of non-elite slots from the elite
-        elite_weights = self._weights[elite_indices]
-        w_sum = np.sum(elite_weights)
-        if w_sum > 1e-30:
-            elite_weights /= w_sum
-        else:
-            elite_weights = (np.ones(n_elite, dtype=FLOAT_DTYPE) / n_elite).astype(FLOAT_DTYPE)
-        positions = (np.arange(n_resample) + np.random.random()) / n_resample
-        resample_indices = _systematic_resample_indices(np.cumsum(elite_weights), positions)
-        new_indices = elite_indices[resample_indices]
-
-        # 3. Compute covariance from the pre-resample distribution for nudging.
-        # We MUST compute this before overwriting self._particles to avoid covariance collapse
-        # and ensure we use the full covariance of the original weighted distribution.
+        # 2. Compute covariance from the pre-resample distribution for nudging.
+        # We MUST compute this before overwriting self._particles to avoid covariance collapse.
         mean = _weighted_mean_axis0(self._particles, self._weights)
         # Use ddof=0 for weighted covariance to avoid NaN if the filter has collapsed
         # to a single particle (where sum(w**2) == 1, making the ddof=1 denominator zero).
@@ -509,25 +489,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if cov.ndim == 0:
             cov = np.array([[cov]], dtype=FLOAT_DTYPE)
 
-        # 4. Assemble new particle array: [elite | resampled-from-elite]
-        all_indices = np.concatenate([elite_indices, new_indices])
-        self._particles = self._particles[all_indices]
+        # 3. Update particles and reset weights
+        self._particles = self._particles[new_indices]
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
+        # 4. Compute nudge covariance: (1 - a^2) * Sigma
         nudge_cov = (1 - self.a_param**2) * cov
 
         # 5. Enforce minimum exploration variance based on parameter ranges.
-        #
-        # The core problem: when particles have already collapsed to a small cluster
-        # (e.g., all weight on 10 particles spanning 10 kHz), `cov` is tiny and
-        # `nudge_cov` is even smaller. The nudge kernel cannot move particles far enough
-        # to discover the true mode if it's ~500 kHz away.
-        #
-        # We enforce a minimum per-dimension variance = (range * MIN_FRAC)^2.
-        # This means even a fully collapsed filter will diffuse particles across at
-        # least MIN_FRAC of the prior width every resample step. With MIN_FRAC=0.002
-        # (0.2%) and a 500 MHz frequency range, the minimum std is ~1 MHz — large
-        # enough to escape local basins, small enough to not disrupt a truly converged filter.
+        # This prevents the filter from getting stuck in a tiny volume.
         MIN_EXPLORATION_FRAC: float = 0.0005
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
@@ -537,47 +507,49 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Also add tiny numerical jitter to ensure strict positive-definiteness
         nudge_cov.flat[:: d_dim + 1] += 1e-12
 
-        # Use Generator API for method='svd', which is robust to near-singular matrices
+        # 6. Apply Nudge (Multivariate Gaussian)
         rng = np.random.default_rng()
         nudges = rng.multivariate_normal(
             np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
         ).astype(FLOAT_DTYPE, copy=False)
+        self._particles += nudges
 
-        self._particles[n_elite:] += nudges[n_elite:]
+        # 7. Shrinkage contraction toward mean (Liu-West)
+        old_center = mean.reshape(1, -1)
+        self._particles = (
+            self._particles * self.a_param + old_center * (1 - self.a_param)
+        ).astype(FLOAT_DTYPE, copy=False)
 
-        # 6. Shrinkage contraction toward mean (non-elite only)
-        # Elite particles must NOT be contracted toward the current (possibly wrong) mean.
-        # Shrinking elite particles toward the posterior mean would bias the filter toward
-        # whichever mode currently dominates, systematically eliminating the tails where
-        # the true value might still reside. Only the freshly-resampled non-elite particles
-        # receive shrinkage to conserve the Liu-West distribution moments.
-        if self.scale:
-            old_center = mean.reshape(1, -1)
-            self._particles[n_elite:] = (
-                self._particles[n_elite:] * self.a_param + old_center * (1 - self.a_param)
-            ).astype(FLOAT_DTYPE, copy=False)
-
-        # 7. Clip all particles to bounds
+        # 8. Clip all particles to bounds
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
             self._particles[:, j] = np.clip(self._particles[:, j], lo, hi)
 
-        # 8. Update cached candidate grid for the next epoch
+        # 9. Update cached candidate grid for the next epoch
         self._generate_epoch_candidates()
 
     def _marginal_std(self, dim_idx: int) -> float:
         _, var = _weighted_mean_variance_1d(self._particles[:, dim_idx], self._weights)
         return float(np.sqrt(max(0.0, var)))
 
-    def estimates(self) -> dict[str, float]:
+    def _estimates_unit(self) -> dict[str, float]:
+        """Return parameter estimates in internal unit/belief space."""
         means = _weighted_mean_axis0(self._particles, self._weights)
         return {name: float(means[i]) for i, name in enumerate(self._param_names)}
 
-    def _empirical_uncertainty(self) -> ParameterValues[float]:
+    def estimates(self) -> dict[str, float]:
+        """Return parameter estimates (weighted mean)."""
+        return self._estimates_unit()
+
+    def _uncertainty_unit(self) -> ParameterValues[float]:
+        """Return parameter uncertainties (std dev) in internal unit/belief space."""
         uncertainties: dict[str, float] = {}
         for i, name in enumerate(self._param_names):
             uncertainties[name] = self._marginal_std(i)
         return ParameterValues.from_mapping(self._param_names, uncertainties)
+
+    def _empirical_uncertainty(self) -> ParameterValues[float]:
+        return self._uncertainty_unit()
 
     def entropy(self) -> float:
         # Simple Kozachenko-Leonenko nearest-neighbor entropy estimator could go here.
@@ -645,9 +617,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             num_particles=self.num_particles,
             ess_threshold=self.ess_threshold,
             a_param=self.a_param,
-            scale=self.scale,
             last_obs=self.last_obs,
-            elitism_ratio=self.elitism_ratio,
             noise_model=self.noise_model,
             auto_resample=self.auto_resample,
             resample_delay=self.resample_delay,

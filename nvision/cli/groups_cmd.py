@@ -478,8 +478,8 @@ def smc_only(
     )
 
 
-@groups_app.command("narrow-sbed")
-def narrow_sbed(
+@groups_app.command("sbed-narrow")
+def sbed_narrow(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
@@ -501,9 +501,9 @@ def narrow_sbed(
         typer.Option("--loc-max-steps", help="Max steps per run"),
     ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
-    """Alias for ``groups run narrow_sbed``."""
+    """Alias for ``groups run sbed_narrow``."""
     _run_named_group(
-        "narrow_sbed",
+        "sbed_narrow",
         repeats_override=repeats,
         no_cache=no_cache,
         runners=runners,
@@ -512,8 +512,10 @@ def narrow_sbed(
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
-@groups_app.command("student-t-only")
-def student_t_only(
+
+
+@groups_app.command("sbed-narrow-lorentzian")
+def sbed_narrow_lorentzian(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
@@ -535,9 +537,9 @@ def student_t_only(
         typer.Option("--loc-max-steps", help="Max steps per run"),
     ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
-    """Alias for ``groups run student_t_only``."""
+    """Alias for ``groups run sbed_narrow_lorentzian``."""
     _run_named_group(
-        "student_t_only",
+        "sbed_narrow_lorentzian",
         repeats_override=repeats,
         no_cache=no_cache,
         runners=runners,
