@@ -43,7 +43,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
         # Force parameter_bounds to unit space for internal SMC operations.
         # This ensures super().__post_init__ initializes particles in [0, 1].
-        self.parameter_bounds = {name: (0.0, 1.0) for name in self.model.parameter_names()}
+        bounds = {name: (0.0, 1.0) for name in self.model.parameter_names()}
+        if self.noise_model is not None:
+            for name in self.noise_model.spec.names:
+                bounds[name] = (0.0, 1.0)
+        self.parameter_bounds = bounds
         super().__post_init__()
 
     def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:

@@ -361,7 +361,9 @@ class BayesianMixin:
                         "transition": {"duration": 0},
                     },
                 ],
-                "label": f"{int(frame.name) + 1}↺" if int(frame.name) in resampling_indices else str(int(frame.name) + 1),
+                "label": f"{int(frame.name) + 1}↺"
+                if int(frame.name) in resampling_indices
+                else str(int(frame.name) + 1),
                 "method": "animate",
             }
             for frame in frames
@@ -543,7 +545,11 @@ class BayesianMixin:
         )
         for param_idx, param in enumerate(param_names, start=1):
             posterior_history, grid = posterior_inputs_by_param[param]
-            posterior = posterior_history[-1] if step_indices[0] >= len(posterior_history) else posterior_history[step_indices[0]]
+            posterior = (
+                posterior_history[-1]
+                if step_indices[0] >= len(posterior_history)
+                else posterior_history[step_indices[0]]
+            )
             for tr in _trace_one_marginal_posterior(posterior, grid, param):
                 fig.add_trace(tr, row=param_idx, col=1)
         for i, name in enumerate(param_names, start=1):
@@ -552,7 +558,7 @@ class BayesianMixin:
 
         frames = []
         refocusing_steps = set()  # Track steps where refocusing occurs
-        resampling_indices = set() # Track indices in frames where resampling happened
+        resampling_indices = set()  # Track indices in frames where resampling happened
         if resampled_steps:
             resampled_set = set(resampled_steps)
         else:
@@ -632,12 +638,12 @@ class BayesianMixin:
             # Add indicators to title
             _formula_suffix = f"  {signal_formula}" if signal_formula else ""
             title_text = f"Posterior evolution (all parameters){_formula_suffix}<br>step {step_idx + 1}/{total_steps}"
-            
+
             is_resampled = step_idx in resampled_set
             if is_resampled:
                 resampling_indices.add(si)
                 title_text = title_text.replace("<br>", " [RESAMPLED] ↺<br>", 1)
-            
+
             if si in refocusing_steps:
                 title_text = title_text.replace("<br>", " [REFOCUSING]<br>", 1)
 
@@ -650,9 +656,12 @@ class BayesianMixin:
                         annotations=[
                             dict(
                                 text="RESAMPLED ↺",
-                                xref="paper", yref="paper",
-                                x=1.0, y=1.02,
-                                xanchor="right", yanchor="bottom",
+                                xref="paper",
+                                yref="paper",
+                                x=1.0,
+                                y=1.02,
+                                xanchor="right",
+                                yanchor="bottom",
                                 showarrow=False,
                                 font=dict(size=10, color="#ffffff"),
                                 bgcolor="rgba(231, 76, 60, 0.7)",
@@ -660,7 +669,9 @@ class BayesianMixin:
                                 borderwidth=0,
                                 borderpad=4,
                             )
-                        ] if is_resampled else []
+                        ]
+                        if is_resampled
+                        else [],
                     ),
                 )
             )
@@ -674,7 +685,7 @@ class BayesianMixin:
                 base_label = f"[{base_label}]"
             if si in resampling_indices:
                 base_label = f"{base_label} ↺"
-            
+
             label = base_label
 
             slider_steps.append(
