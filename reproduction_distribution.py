@@ -1,7 +1,8 @@
+
 import numpy as np
 import plotly.graph_objects as go
 import polars as pl
-
+from pathlib import Path
 
 def reproduction():
     # 200 points coarse sweep (spread out)
@@ -39,16 +40,7 @@ def reproduction():
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=xs_dense, y=ys_dense, name="true signal", line=dict(color="blue")))
-    fig.add_trace(
-        go.Scatter(
-            x=centers,
-            y=y_curve,
-            name="measurement distribution",
-            fill="tozeroy",
-            fillcolor="rgba(111,66,193,0.2)",
-            line=dict(color="purple"),
-        )
-    )
+    fig.add_trace(go.Scatter(x=centers, y=y_curve, name="measurement distribution", fill="tozeroy", fillcolor="rgba(111,66,193,0.2)", line=dict(color="purple")))
 
     # Proposed logic (sqrt scaling + more bins + more smoothing)
     n_bins_new = max(40, min(200, int(np.sqrt(x_meas.size) * 10)))
@@ -64,21 +56,11 @@ def reproduction():
     density_smooth_new = np.convolve(density_new, kernel_new, mode="same")
 
     y_curve_new = y_band_base + density_smooth_new * y_band_height
-    fig.add_trace(
-        go.Scatter(
-            x=centers_new,
-            y=y_curve_new,
-            name="measurement distribution (new)",
-            fill="tozeroy",
-            fillcolor="rgba(255,0,0,0.2)",
-            line=dict(color="red"),
-        )
-    )
+    fig.add_trace(go.Scatter(x=centers_new, y=y_curve_new, name="measurement distribution (new)", fill="tozeroy", fillcolor="rgba(255,0,0,0.2)", line=dict(color="red")))
 
     fig.write_html("reproduction_distribution_v2.html")
     print(f"n_bins={n_bins}, n_bins_new={n_bins_new}")
     print(f"Max count: {counts.max()}")
-
 
 if __name__ == "__main__":
     reproduction()

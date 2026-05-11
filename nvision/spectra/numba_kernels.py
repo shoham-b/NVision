@@ -304,8 +304,6 @@ def nv_center_pseudo_voigt_vectorized_many(
                 pr = lorentz_r + gauss_r
 
                 out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
-
-
 @njit(cache=True)
 def nv_center_pseudo_voigt_eval(
     x: float,

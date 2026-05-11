@@ -523,9 +523,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 7. Shrinkage contraction toward mean (Liu-West)
         old_center = mean.reshape(1, -1)
-        self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(
-            FLOAT_DTYPE, copy=False
-        )
+        self._particles = (
+            self._particles * self.a_param + old_center * (1 - self.a_param)
+        ).astype(FLOAT_DTYPE, copy=False)
 
         # 8. Clip all particles to bounds
         for j, name in enumerate(self._param_names):

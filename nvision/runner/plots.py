@@ -199,7 +199,9 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     return out
 
 
-def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+def _extract_mixture_posterior(
+    snapshots: list, names: list[str]
+) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     from scipy.stats import t
 
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution

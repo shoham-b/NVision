@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Dict, List, Optional
+
 from nvision.metrics.types import ParameterConvergence
 from nvision.models.observer import RunResult
 
 
 def analyze_run_convergence(
-    run_result: RunResult, uncertainty_threshold: float = 0.01, relative: bool = True
-) -> dict[str, ParameterConvergence]:
+    run_result: RunResult,
+    uncertainty_threshold: float = 0.01,
+    relative: bool = True
+) -> Dict[str, ParameterConvergence]:
     """Analyze convergence for all parameters in a single run.
 
     Args:
@@ -60,12 +64,12 @@ def analyze_run_convergence(
             converged=conv_step is not None,
             convergence_step=conv_step,
             final_error=final_err,
-            final_uncertainty=final_uncert,
+            final_uncertainty=final_uncert
         )
 
     return param_convergence
 
 
-def get_convergence_summary(convergence_map: dict[str, ParameterConvergence]) -> dict[str, bool]:
+def get_convergence_summary(convergence_map: Dict[str, ParameterConvergence]) -> Dict[str, bool]:
     """Get a simple summary of which parameters converged."""
     return {p: c.converged for p, c in convergence_map.items()}

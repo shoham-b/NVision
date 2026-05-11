@@ -72,7 +72,7 @@ def nv_center_lorentzian_jax(
     background: Any,
 ) -> Any:
     """Triple Lorentzian NV ODMR implementation in JAX, highly optimized for autodiff."""
-    gamma2 = (linewidth / jnp.float32(2.0)) ** 2
+    gamma2 = (linewidth / jnp.float32(2.0))**2
 
     actual_depth = dip_depth / k_np
     amp_c = actual_depth

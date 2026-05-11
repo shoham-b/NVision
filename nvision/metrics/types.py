@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -16,10 +17,9 @@ class ParameterConvergence:
         final_error: Absolute error at the end of the run.
         final_uncertainty: Uncertainty (std) at the end of the run.
     """
-
     parameter: str
     converged: bool
-    convergence_step: int | None = None
+    convergence_step: Optional[int] = None
     final_error: float = 0.0
     final_uncertainty: float = 0.0
 
@@ -34,10 +34,9 @@ class RepeatMetrics:
         parameter_convergence: Detailed convergence info for each parameter.
         stop_reason: Reason why the locator stopped.
     """
-
     repeat_id: int
     total_steps: int
-    parameter_convergence: dict[str, ParameterConvergence]
+    parameter_convergence: Dict[str, ParameterConvergence]
     stop_reason: str
 
 
@@ -54,14 +53,13 @@ class StrategyMetrics:
         parameter_convergence_rates: Fraction of repeats where each specific parameter converged.
         mean_steps_to_convergence: Average steps to convergence for successful repeats.
     """
-
     strategy_name: str
     n_repeats: int
     # Parameter name -> List of values (one per repeat)
-    absolute_errors: dict[str, list[float]] = field(default_factory=dict)
-    convergence_steps: dict[str, list[int]] = field(default_factory=dict)
+    absolute_errors: Dict[str, List[float]] = field(default_factory=dict)
+    convergence_steps: Dict[str, List[int]] = field(default_factory=dict)
 
     # Summary statistics
-    parameter_convergence_rates: dict[str, float] = field(default_factory=dict)
-    mean_steps_to_convergence: dict[str, float] = field(default_factory=dict)
+    parameter_convergence_rates: Dict[str, float] = field(default_factory=dict)
+    mean_steps_to_convergence: Dict[str, float] = field(default_factory=dict)
     total_convergence_rate: float = 0.0

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping, Sequence
 
+import os
 import numpy as np
 from dotenv import load_dotenv
 
@@ -12,6 +12,7 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
 from nvision.belief.unit_cube_students_t_marginal import UnitCubeStudentsTMixtureMarginalDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
 
 # --- Environment-driven defaults ---------------------------------------------
 
@@ -87,7 +88,6 @@ class StudentsTLocator(SequentialBayesianLocator):
 
         # Ensure we are only running on Lorentzian NV center as requested.
         from nvision.spectra.nv_center import NVCenterLorentzianModel
-
         if not isinstance(model, NVCenterLorentzianModel):
             raise ValueError(f"StudentsTLocator only supports NVCenterLorentzianModel, got {type(model).__name__}")
 
@@ -106,7 +106,7 @@ class StudentsTLocator(SequentialBayesianLocator):
             model=model_norm,
             n_components=n_components,
             _physical_param_bounds=bounds_phys,
-            _physical_x_bounds=freq_bounds_phys,
+            _physical_x_bounds=freq_bounds_phys
         )
 
         return cls(
@@ -162,7 +162,7 @@ class StudentsTLocator(SequentialBayesianLocator):
         lw_est_phys = estimates_phys.get("linewidth", 5e6)
 
         # Add high-density points around the resonance(s)
-        resonance_points_phys = np.linspace(freq_est_phys - 2 * lw_est_phys, freq_est_phys + 2 * lw_est_phys, 200)
+        resonance_points_phys = np.linspace(freq_est_phys - 2*lw_est_phys, freq_est_phys + 2*lw_est_phys, 200)
         candidates_phys = np.unique(np.sort(np.concatenate([xs_phys, resonance_points_phys])))
 
         # Clip to acquisition window

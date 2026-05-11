@@ -68,7 +68,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     def _generate_epoch_candidates(self) -> None:
         """Generate candidates in unit space.
-        
+
         The base class now uses internal _estimates_unit() which correctly
         returns [0, 1] values even for this subclass.
         """

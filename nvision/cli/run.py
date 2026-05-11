@@ -3,10 +3,11 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import logging
-import multiprocessing
 import os
 import queue
+import multiprocessing
 import sys
+import time
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -120,9 +121,7 @@ def _run_tasks_process_pool(  # noqa: C901
         shutdown_called = False
 
         try:
-            future_to_task = {
-                executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks
-            }
+            future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks}
             pending_tasks = []
 
             for future in concurrent.futures.as_completed(future_to_task):

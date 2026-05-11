@@ -5,11 +5,9 @@ candidates, leading to collapsed grids.
 """
 
 import numpy as np
-
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
-
+from nvision.spectra.nv_center import NVCenterLorentzianModel
 
 def test_candidate_normalization():
     # 1. Setup
@@ -19,7 +17,7 @@ def test_candidate_normalization():
         "linewidth": (1e3, 10e6),
         "split": (0.1e6, 10e6),
         "k_np": (2.0, 4.0),
-        "dip_depth": (0.01, 1.0),
+        "dip_depth": (0.01, 1.0)
     }
     x_bounds_phys = (2.86e9, 2.88e9)
     model = UnitCubeSignalModel(inner_model, phys_bounds, x_bounds_phys)
@@ -32,7 +30,7 @@ def test_candidate_normalization():
         num_particles=100,
         parameter_bounds=parameter_bounds,
         physical_param_bounds=phys_bounds,
-        physical_x_bounds=x_bounds_phys,
+        physical_x_bounds=x_bounds_phys
     )
 
     # 2. Inspect candidates
@@ -47,10 +45,9 @@ def test_candidate_normalization():
         if np.all(candidates == 0.0):
             print("FAIL: All candidates collapsed to 0.0!")
         elif np.mean(candidates) < 0.1:
-            print("FAIL: Candidates are heavily biased towards 0 (likely incorrect normalization).")
+             print("FAIL: Candidates are heavily biased towards 0 (likely incorrect normalization).")
         else:
             print("SUCCESS: Candidates are distributed across [0, 1].")
-
 
 if __name__ == "__main__":
     test_candidate_normalization()

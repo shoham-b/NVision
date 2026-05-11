@@ -10,14 +10,18 @@ from __future__ import annotations
 from nvision.models.noise import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
+    CompositeOverProbeNoise,
 )
 from nvision.noises import (
     OverFrequencyGaussianNoise,
+    OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
 )
+from nvision.noises.over_probe.drift_noise import OverProbeDriftNoise
 from nvision.sim.defaults import (
     NVISION_DEFAULT_LOC_MAX_STEPS,
     NVISION_NOISE_GAUSS,
+    NVISION_NOISE_OVER_PROBE,
     NVISION_NOISE_POISSON,
 )
 
