@@ -85,4 +85,88 @@ class ExperimentsMixin:
         comparison_plots = self.plot_model_comparisons(df)
         entries.extend(comparison_plots)
 
+        # Milestone Analysis
+        milestone_plots = self.plot_milestone_analysis(df)
+        entries.extend(milestone_plots)
+
+        return entries
+
+    def plot_milestone_analysis(self, df: pl.DataFrame) -> list[dict]:
+        """Create plots for milestone-based convergence analysis."""
+        milestone_cols = [
+            "steps_to_fb",
+            "err_fb_at_milestone",
+            "err_fc_at_milestone",
+            "final_err_fb",
+            "final_err_fc",
+            "err_fb_diff",
+            "err_fc_diff",
+        ]
+        
+        # Check if any milestone metrics exist
+        if not any(col in df.columns for col in milestone_cols):
+            return []
+
+        entries = []
+        
+        # 1. Distribution of steps to fb convergence
+        if "steps_to_fb" in df.columns:
+            out_path = self.out_dir / "milestone_steps_to_fb.html"
+            fig = go.Figure()
+            # Histogram of steps per strategy
+            for strat in df.get_column("strategy").unique():
+                sub = df.filter(pl.col("strategy") == strat).get_column("steps_to_fb").drop_nans().drop_nulls()
+                if not sub.is_empty():
+                    fig.add_trace(go.Histogram(x=sub.to_list(), name=strat, opacity=0.75))
+            
+            fig.update_layout(
+                title="Steps to Center Frequency (fb) Convergence",
+                xaxis_title="Steps",
+                yaxis_title="Count",
+                barmode="overlay",
+                template="plotly_white",
+            )
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            fig.write_html(out_path)
+            entries.append({"type": "milestone", "path": str(out_path), "title": "Steps to fb Convergence"})
+
+        # 2. Error comparison (Milestone vs Final)
+        if "err_fc_at_milestone" in df.columns and "final_err_fc" in df.columns:
+            out_path = self.out_dir / "milestone_error_comparison_fc.html"
+            fig = go.Figure()
+            for strat in df.get_column("strategy").unique():
+                sub = df.filter(pl.col("strategy") == strat)
+                m_err = sub.get_column("err_fc_at_milestone").drop_nans().drop_nulls()
+                f_err = sub.get_column("final_err_fc").drop_nans().drop_nulls()
+                
+                if not m_err.is_empty():
+                    fig.add_trace(go.Box(y=m_err.to_list(), name=f"{strat} (Milestone)"))
+                if not f_err.is_empty():
+                    fig.add_trace(go.Box(y=f_err.to_list(), name=f"{strat} (Final)"))
+
+            fig.update_layout(
+                title="Splitting (fc) Absolute Error: Milestone vs Final",
+                yaxis_title="Absolute Error (Hz)",
+                template="plotly_white",
+            )
+            fig.write_html(out_path)
+            entries.append({"type": "milestone", "path": str(out_path), "title": "Splitting Error Comparison"})
+
+        # 3. Zeeman resolution sufficiency (Error Delta)
+        if "err_fc_diff" in df.columns:
+            out_path = self.out_dir / "milestone_error_delta_fc.html"
+            fig = go.Figure()
+            for strat in df.get_column("strategy").unique():
+                sub = df.filter(pl.col("strategy") == strat).get_column("err_fc_diff").drop_nans().drop_nulls()
+                if not sub.is_empty():
+                    fig.add_trace(go.Box(y=sub.to_list(), name=strat))
+            
+            fig.update_layout(
+                title="Error Reduction after fb Convergence (fc)",
+                yaxis_title="Error Reduction (Hz)",
+                template="plotly_white",
+            )
+            fig.write_html(out_path)
+            entries.append({"type": "milestone", "path": str(out_path), "title": "Zeeman Resolution Gain"})
+
         return entries

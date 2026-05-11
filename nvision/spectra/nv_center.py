@@ -483,13 +483,22 @@ def nv_center_lorentzian_bounds_for_domain(
             f_win = 0.1 * width
             f_bounds = (float(f_true - f_win), float(f_true + f_win))
 
+            priors = {
+                "frequency": (float(f_true), 0.01 * width),
+                "linewidth": (float(_val("linewidth")), float(_val("linewidth")) * 0.05),
+                "split": (float(_val("split")), float(_val("split")) * 0.05),
+                "k_np": (float(_val("k_np")), 0.05),
+                "dip_depth": (float(_val("dip_depth")), float(_val("dip_depth")) * 0.05),
+            }
+
             return {
-                "frequency": f_bounds,
-                "linewidth": _pm10(_val("linewidth")),
-                "split": _pm10(_val("split")),
-                "k_np": _pm10(_val("k_np"), lo=MIN_K_NP, hi=MAX_K_NP),
-                "dip_depth": _pm10(_val("dip_depth"), lo=0.01, hi=1.0),
+                "frequency": (float(x_min), float(x_max)),
+                "linewidth": linewidth_bounds,
+                "split": split_bounds,
+                "k_np": (MIN_K_NP, MAX_K_NP),
+                "dip_depth": (0.01, 1.0),
                 "_signal_max_span": (0.0, max_span),
+                "_priors": priors,
             }
     else:
         linewidth_bounds = (width * 0.001, width * 0.05)
@@ -677,14 +686,24 @@ def nv_center_voigt_bounds_for_domain(
             f_win = 0.1 * width
             f_bounds = (float(f_true - f_win), float(f_true + f_win))
 
+            priors = {
+                "frequency": (float(f_true), 0.01 * width),
+                "fwhm_total": (float(_val("fwhm_total")), float(_val("fwhm_total")) * 0.05),
+                "lorentz_frac": (float(_val("lorentz_frac")), 0.05),
+                "split": (float(_val("split")), float(_val("split")) * 0.05),
+                "k_np": (float(_val("k_np")), 0.05),
+                "dip_depth": (float(_val("dip_depth")), float(_val("dip_depth")) * 0.05),
+            }
+
             return {
-                "frequency": f_bounds,
-                "fwhm_total": _pm10(_val("fwhm_total")),
-                "lorentz_frac": _pm10(_val("lorentz_frac"), lo=0.01, hi=0.99),
-                "split": _pm10(_val("split")),
-                "k_np": _pm10(_val("k_np"), lo=MIN_K_NP, hi=MAX_K_NP),
-                "dip_depth": _pm10(_val("dip_depth"), lo=0.01, hi=1.0),
+                "frequency": (float(x_min), float(x_max)),
+                "fwhm_total": fwhm_total_bounds,
+                "lorentz_frac": (0.01, 0.99),
+                "split": split_bounds,
+                "k_np": (MIN_K_NP, MAX_K_NP),
+                "dip_depth": (0.01, 1.0),
                 "_signal_max_span": (0.0, max_span),
+                "_priors": priors,
             }
     else:
         split_hi = 5.0e6

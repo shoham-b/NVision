@@ -135,10 +135,14 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             last_obs=self.last_obs,
             noise_model=self.noise_model,
             auto_resample=self.auto_resample,
+            resample_delay=self.resample_delay,
             physical_param_bounds=dict(self.physical_param_bounds),
             physical_x_bounds=self.physical_x_bounds,
+            priors=self.priors,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
         dist._weights = self._weights.copy()
+        dist._step_count = self._step_count
+        dist.resampled = self.resampled
         return dist

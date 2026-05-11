@@ -152,6 +152,21 @@
             <iframe id="comp-iframe-duration" style="height: 500px;" title="Strategy comparison: Duration"></iframe>
         </div>
     </div>
+    
+    <div id="milestone-plots-container" style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 2em; border-top: 1px solid #e2e8f0; padding-top: 2em;">
+        <div style="flex: 1; min-width: 400px;">
+            <h3>Steps to fb Convergence <span class="help-icon-visible" title="Distribution of steps required for the center frequency uncertainty to drop below the threshold.">?</span></h3>
+            <iframe id="milestone-iframe-steps" style="height: 500px;"></iframe>
+        </div>
+        <div style="flex: 1; min-width: 400px;">
+            <h3>fc Error: Milestone vs Final <span class="help-icon-visible" title="Comparison of splitting absolute error at the fb convergence milestone vs the final end-of-run error.">?</span></h3>
+            <iframe id="milestone-iframe-err-fc" style="height: 500px;"></iframe>
+        </div>
+        <div style="flex: 1; min-width: 400px;">
+            <h3>Zeeman Resolution Gain <span class="help-icon-visible" title="Reduction in splitting absolute error achieved by continuing the simulation after fb convergence.">?</span></h3>
+            <iframe id="milestone-iframe-delta-fc" style="height: 500px;"></iframe>
+        </div>
+    </div>
 </div>
 <iframe src="loader.html" style="display:none" title="Background data loader" aria-hidden="true"></iframe>
 </body>

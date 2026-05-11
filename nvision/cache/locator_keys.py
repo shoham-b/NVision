@@ -8,7 +8,30 @@ from typing import Any
 # v3: signal generation uses strategy-independent RNG; prior cache entries are not comparable.
 # v4: same ground-truth draw for all noise models (noise only affects measurement RNG stream).
 # v5: NV Bayesian belief uses unit-cube parameter grids + physical signal wrapper (likelihood x-mapping).
-CACHE_SCHEMA_VERSION = 5
+# v6: Streaming repeat cache (pointer rows + separate repeat rows).
+CACHE_SCHEMA_VERSION = 6
+
+
+def combination_base_cache_config(
+    *,
+    generator: str,
+    noise: str,
+    strategy: str,
+    seed: int,
+    max_steps: int,
+    timeout_s: int,
+) -> dict[str, Any]:
+    """Base config for a combination, independent of the number of repeats (streaming pointer)."""
+    return {
+        "kind": "locator_combination_pointer",
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "generator": generator,
+        "noise": noise,
+        "strategy": strategy,
+        "seed": seed,
+        "max_steps": max_steps,
+        "timeout_s": timeout_s,
+    }
 
 
 def locator_combination_cache_config(

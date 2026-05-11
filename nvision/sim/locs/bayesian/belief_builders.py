@@ -240,6 +240,9 @@ def nv_center_smc_belief(
         for name in merged_bounds:
             if name in parameter_bounds and parameter_bounds[name][1] > parameter_bounds[name][0]:
                 merged_bounds[name] = parameter_bounds[name]
+        # Preserve priors if passed in
+        if "_priors" in parameter_bounds:
+            merged_bounds["_priors"] = parameter_bounds["_priors"]
 
     # Enforce dip_depth floor so the posterior cannot collapse to "flat signal".
     if "dip_depth" in merged_bounds:
@@ -255,6 +258,18 @@ def nv_center_smc_belief(
             else:
                 merged_bounds[name] = noise_spec.bounds[name]
 
+    # Extract priors if available
+    phys_priors = merged_bounds.pop("_priors", None)
+    unit_priors = None
+    if phys_priors:
+        unit_priors = {}
+        for name, (mu, std) in phys_priors.items():
+            if name in merged_bounds:
+                lo, hi = merged_bounds[name]
+                unit_mu = (mu - lo) / (hi - lo)
+                unit_std = std / (hi - lo)
+                unit_priors[name] = (float(unit_mu), float(unit_std))
+
     x_phys = merged_bounds["frequency"]
     wrapped = UnitCubeSignalModel(model, merged_bounds, x_phys)
 
@@ -267,4 +282,5 @@ def nv_center_smc_belief(
         noise_model=noise_model,
         physical_param_bounds=merged_bounds,
         physical_x_bounds=x_phys,
+        priors=unit_priors,
     )

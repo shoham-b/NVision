@@ -103,7 +103,9 @@ def vdc_generator(base: int = 2) -> Iterator[float]:
 
 
 class SobolSweepLocator(SweepingLocator):
-    """Simple Sobol-based sweep locator with mid-sweep refocusing.
+    """ARCHIVED: Currently not used in the main simulation grid.
+    
+    Simple Sobol-based sweep locator with mid-sweep refocusing.
 
     Generates a van der Corput (Sobol-like) low-discrepancy sequence over the
     full domain, detects signal dips from the sweep data, refocuses the

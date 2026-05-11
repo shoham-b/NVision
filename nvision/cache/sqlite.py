@@ -285,10 +285,10 @@ class ShardedSqliteCache:
         return self._shard_path(shard_id)
 
     def get(self, key: str) -> dict | None:
-        # Fast path: consult index DB.
-        shard_id = self._index_get_shard_id(key)
-        if shard_id is not None:
-            try:
+        try:
+            # Fast path: consult index DB.
+            shard_id = self._index_get_shard_id(key)
+            if shard_id is not None:
                 db_path = self._path_for_shard_id(shard_id)
                 conn = self._get_conn_for_path(db_path)
                 self._ensure_cache_table(conn)
@@ -297,12 +297,9 @@ class ShardedSqliteCache:
                 if row:
                     return json.loads(row[0])
                 return None
-            except Exception:
-                return None
 
-        # Compatibility path: if legacy exists and key is not indexed yet, look there.
-        if self._legacy_path is not None:
-            try:
+            # Compatibility path: if legacy exists and key is not indexed yet, look there.
+            if self._legacy_path is not None:
                 conn = self._get_conn_for_path(self._legacy_path)
                 self._ensure_cache_table(conn)
                 cur = conn.execute("SELECT value FROM cache WHERE key = ?", (key,))
@@ -311,9 +308,9 @@ class ShardedSqliteCache:
                     # Backfill index so future lookups are fast.
                     self._index_set_shard_id(key, 0)
                     return json.loads(row[0])
-            except Exception:
-                pass
-        return None
+            return None
+        except Exception:
+            return None
 
     def set(self, key: str, value: dict):
         try:

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+from polars.exceptions import ColumnNotFoundError
 
 from nvision.cache.sqlite import ShardedSqliteCache
 
@@ -36,7 +37,7 @@ class CategoryDataStore:
                 df = pl.DataFrame(rows)
                 columns = obj.get("columns")
                 if columns:
-                    with suppress(pl.ColumnNotFoundError):
+                    with suppress(ColumnNotFoundError):
                         df = df.select(columns)
                 return df
             return None

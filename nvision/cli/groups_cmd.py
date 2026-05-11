@@ -262,8 +262,8 @@ def sweep_only(
     )
 
 
-@groups_app.command("sweep-then-bayesian")
-def sweep_then_bayesian(
+@groups_app.command("wide")
+def wide_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
@@ -285,9 +285,9 @@ def sweep_then_bayesian(
         typer.Option("--loc-max-steps", help="Max steps per run"),
     ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
-    """Alias for ``groups run sweep-then-bayesian``."""
+    """Alias for ``groups run wide``."""
     _run_named_group(
-        "sweep_then_bayesian",
+        "wide",
         repeats_override=repeats,
         no_cache=no_cache,
         runners=runners,
@@ -298,8 +298,8 @@ def sweep_then_bayesian(
     )
 
 
-@groups_app.command("bayesian-only")
-def bayesian_only(
+@groups_app.command("narrow")
+def narrow_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
@@ -321,9 +321,9 @@ def bayesian_only(
         typer.Option("--loc-max-steps", help="Max steps per run"),
     ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
-    """Alias for ``groups run bayesian-only``."""
+    """Alias for ``groups run narrow``."""
     _run_named_group(
-        "bayesian_only",
+        "narrow",
         repeats_override=repeats,
         no_cache=no_cache,
         runners=runners,
@@ -334,8 +334,8 @@ def bayesian_only(
     )
 
 
-@groups_app.command("bayesian-clean")
-def bayesian_clean(
+@groups_app.command("sbed-only")
+def sbed_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
@@ -357,189 +357,9 @@ def bayesian_clean(
         typer.Option("--loc-max-steps", help="Max steps per run"),
     ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
-    """Alias for ``groups run bayesian-clean``."""
+    """Alias for ``groups run sbed_only``."""
     _run_named_group(
-        "bayesian_clean",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("demo")
-def demo_group(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run demo``."""
-    _run_named_group(
-        "demo",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("narrow-only")
-def narrow_only(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run narrow_only``."""
-    _run_named_group(
-        "narrow_only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("smc-only")
-def smc_only(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run smc-only``."""
-    _run_named_group(
-        "smc_only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("sbed-narrow")
-def sbed_narrow(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run sbed_narrow``."""
-    _run_named_group(
-        "sbed_narrow",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("sbed-narrow-lorentzian")
-def sbed_narrow_lorentzian(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run sbed_narrow_lorentzian``."""
-    _run_named_group(
-        "sbed_narrow_lorentzian",
+        "sbed_only",
         repeats_override=repeats,
         no_cache=no_cache,
         runners=runners,

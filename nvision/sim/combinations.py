@@ -70,9 +70,16 @@ class CombinationGrid:
 
     def __init__(self) -> None:
         self._generators: dict[str, object] = dict(sim_presets.generators_basic() + sim_presets.generators_narrow())
-        self._noises: dict[str, CompositeNoise | None] = dict(
+        
+        # Keep only Poisson and Gauss noises.
+        # Archived: NoNoise, OverProbeDrift, Heavy.
+        all_noises = dict(
             sim_presets.noises_none() + sim_presets.noises_single_each() + sim_presets.noises_complex()
         )
+        self._noises = {
+            k: v for k, v in all_noises.items() 
+            if "Gauss" in k or "Poisson" in k
+        }
 
     @property
     def generators(self) -> dict[str, object]:
@@ -89,59 +96,31 @@ class CombinationGrid:
         return "Unknown"
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
-        """Return the locator strategies appropriate for *generator_name*."""
-        if generator_name.startswith("NVCenter-"):
-
-            # Narrow-domain generators never use initial sweeps.
-            is_narrow = generator_name.endswith("-narrow")
-            default_sweep = 0 if is_narrow else None
-
-            strategies = []
-            if not is_narrow:
-                strategies.extend([
-                    ("GenericSweep", GenericSweepLocator),
-                    ("SobolSweep", SobolSweepLocator),
-                    ("StagedSobolSweep", StagedSobolSweepLocator),
-                ])
-
-            suffix = "-NoSweep" if is_narrow else ""
-            strategies.extend([
-                (
-                    f"Bayesian-SBED{suffix}",
-                    {"class": SequentialBayesianExperimentDesignLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC}},
-                ),
-                (
-                    f"Bayesian-EKF{suffix}",
-                    {"class": EKFLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep}},
-                ),
-                (
-                    f"Bayesian-MaximumLikelihood{suffix}",
-                    {"class": MaximumLikelihoodLocator, "config": {"max_steps": 200, "initial_sweep_steps": default_sweep, **_NV_SMC}},
-                ),
-                (
-                    f"Bayesian-UtilitySampling{suffix}",
-                    {
-                        "class": UtilitySamplingLocator,
-                        "config": {
-                            "max_steps": 200,
-                            "initial_sweep_steps": default_sweep,
-                            **_NV_SMC,
-                            "pickiness": 4.0,
-                            "noise_std": 0.02,
-                            "cost": 1.0,
-                            "n_mc_samples": 64,
-                            "n_candidates": 64,
-                        },
-                    },
-                ),
-            ])
-
-            return strategies
-
+        """Return the locator strategies appropriate for *generator_name*.
+        
+        Now returns the same 4 essential locators for all generators:
+        1. GenericSweep
+        2. StagedSobolSweep (Staged Sweep)
+        3. Bayesian-SBED (SBED with sweep)
+        4. Bayesian-SBED-NoSweep (SBED without sweep)
+        """
         return [
             ("GenericSweep", GenericSweepLocator),
-            ("SobolSweep", SobolSweepLocator),
             ("StagedSobolSweep", StagedSobolSweepLocator),
+            (
+                "Bayesian-SBED",
+                {
+                    "class": SequentialBayesianExperimentDesignLocator,
+                    "config": {"max_steps": 200, "initial_sweep_steps": None, **_NV_SMC},
+                },
+            ),
+            (
+                "Bayesian-SBED-NoSweep",
+                {
+                    "class": SequentialBayesianExperimentDesignLocator,
+                    "config": {"max_steps": 200, "initial_sweep_steps": 0, **_NV_SMC},
+                },
+            ),
         ]
 
     def __iter__(self) -> Iterator[Combination]:

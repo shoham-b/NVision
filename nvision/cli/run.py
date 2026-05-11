@@ -5,8 +5,9 @@ import contextlib
 import logging
 import os
 import queue
-import sys
 import multiprocessing
+import sys
+import time
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -222,18 +223,30 @@ def _run_tasks_process_pool(  # noqa: C901
                         child.kill()
             except ImportError:
                 pass  # psutil not available
+
+            # Ensure they are gone before we return and potentially kill the Manager
+            if not shutdown_called:
+                executor.shutdown(wait=True)
+            else:
+                # We already did a wait=False, but we need to be sure on Windows
+                if sys.platform == "win32":
+                    time.sleep(0.5)
+
             return plot_manifest, df_rows, errors, completed_count, True
         finally:
-            # If we didn't terminate early, wait for workers to finish (with timeout to avoid stall).
+            # If we didn't terminate early, wait for workers to finish.
             try:
                 if not shutdown_called:
                     executor.shutdown(wait=True)
-            except KeyboardInterrupt:
-                # User hit Ctrl+C again during shutdown - force terminate without waiting
+                else:
+                    # If we did wait=False earlier, we still want to give them a moment
+                    # to exit before we return to the Manager shutdown in the parent.
+                    if sys.platform == "win32":
+                        time.sleep(0.2)
+            except (KeyboardInterrupt, Exception):
+                # User hit Ctrl+C again or some other error during shutdown - force terminate
                 with contextlib.suppress(Exception):
                     executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass  # Best effort cleanup
 
         if interrupted:
             break

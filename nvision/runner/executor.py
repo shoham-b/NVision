@@ -9,8 +9,9 @@ import random
 import threading
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import polars as pl
@@ -300,6 +301,8 @@ class _TaskRunner:
         self._viz: Viz | None = None
         # Shared sweep cache across all repeats for this task
         self._sweep_cache = SweepCache()
+        # Background saver for streaming repeats
+        self._saver_pool = ThreadPoolExecutor(max_workers=1)
 
     @property
     def viz(self) -> Viz:
@@ -358,51 +361,93 @@ class _TaskRunner:
     def run(self) -> TaskResults:
         """Main pipeline: cache -> repeats -> outputs -> cache."""
         try:
-            cached = self._restore_cached_results()
-            if cached is not None:
+            cached, n_cached = self._restore_cached_results()
+            if n_cached == self.repeats:
                 self._flush_task_progress()
-                if cached:
-                    log.info(
-                        "Cache hit — skipped run: %s/%s/%s (%s repeats)",
-                        self.generator_name,
-                        self.noise_name,
-                        self.strategy_name,
-                        self.repeats,
-                    )
+                log.info(
+                    "Cache hit — skipped run: %s/%s/%s (%s repeats)",
+                    self.generator_name,
+                    self.noise_name,
+                    self.strategy_name,
+                    self.repeats,
+                )
                 return cached
 
             log.debug(
-                "Running task: %s/%s/%s (%s repeats)",
+                "Running task: %s/%s/%s (%s total repeats, %s already cached)",
                 self.generator_name,
                 self.noise_name,
                 self.strategy_name,
                 self.repeats,
+                n_cached,
             )
+
+            # Inform progress bar about cached repeats
+            if n_cached > 0:
+                pq = self.task.progress_queue
+                tid = self.task.task_id
+                if pq is not None and tid is not None:
+                    pq.put((tid, n_cached))
+
             locator_class = self.task.strategy_spec.locator_class
             locator_config = dict(self.task.strategy_spec.locator_config)
-            artifacts = self._run_repeats(locator_class, locator_config)
-            results = self._build_repeat_outputs(artifacts)
-            self._save_full_cache(results)
-            return results
+
+            artifacts = self._run_repeats(locator_class, locator_config, start_idx=n_cached)
+            if isinstance(artifacts, list):
+                # Streaming case: artifacts are already TaskResults (lightweight)
+                new_results = artifacts
+            else:
+                # Inline case: artifacts are raw _RepeatArtifacts
+                new_results = self._build_repeat_outputs(artifacts, start_idx=n_cached)
+
+            # Combine old and new results
+            full_results = cached + new_results
+
+            # Final save (handles both inline full save and streaming pointer updates)
+            self._save_full_cache(full_results)
+            return full_results
         finally:
+            self._saver_pool.shutdown(wait=True)
             if self._owns_bridge:
                 self.bridge.close()
 
-    def _restore_cached_results(self) -> TaskResults | None:
+    def _restore_cached_results(self) -> tuple[TaskResults, int]:
+        """Load results from cache. Handles full matches and partial streaming hits."""
         combo_kw = self._combination_cache_kwargs()
-        if self.task.require_cache:
-            cached = self.cache.get_cached_combination(**combo_kw)
-            if cached:
-                restore_graphs(cached, self.task.out_dir)
+
+        # 1. Try exact full match (Inline or already complete Streaming)
+        cached = self.cache.get_cached_combination(**combo_kw)
+        if cached:
+            restore_graphs(cached, self.task.out_dir)
+            log.debug(
+                "Full cache hit for %s/%s/%s (seed=%s); restoring.",
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+                self.task.seed,
+            )
+            # Strip heavy fields to keep manifest small
+            results = [([strip_heavy_fields(e) for e in entries], row) for entries, row in cached]
+            return results, len(results)
+
+        # 2. Try partial streaming match (only if not using --require-cache, or if miss)
+        if self.task.use_cache and not self.skip_cache:
+            partial, n = self.cache.get_cached_combination_partial(**combo_kw)
+            if n > 0:
+                restore_graphs(partial, self.task.out_dir)
                 log.debug(
-                    "Cache hit for %s/%s/%s (seed=%s); restoring.",
+                    "Partial cache hit for %s/%s/%s (seed=%s); restoring %s/%s repeats.",
                     self.generator_name,
                     self.noise_name,
                     self.strategy_name,
                     self.task.seed,
+                    n,
+                    self.repeats,
                 )
-                # Strip heavy fields to keep manifest small
-                return [([strip_heavy_fields(e) for e in entries], row) for entries, row in cached]
+                results = [([strip_heavy_fields(e) for e in entries], row) for entries, row in partial]
+                return results, n
+
+        if self.task.require_cache:
             log.warning(
                 "Cache miss for %s/%s/%s (seed=%s) with --require-cache. Skipping.",
                 self.generator_name,
@@ -410,64 +455,109 @@ class _TaskRunner:
                 self.strategy_name,
                 self.task.seed,
             )
-            return []
+            return [], self.repeats  # "Pretend" finished so it returns empty
 
-        if self.task.use_cache and not self.skip_cache:
-            cached = self.cache.get_cached_combination(**combo_kw)
-            if cached:
-                restore_graphs(cached, self.task.out_dir)
-                log.debug(
-                    "Cache hit for %s/%s/%s (seed=%s); restoring.",
-                    self.generator_name,
-                    self.noise_name,
-                    self.strategy_name,
-                    self.task.seed,
-                )
-                # Strip heavy fields to keep manifest small
-                return [([strip_heavy_fields(e) for e in entries], row) for entries, row in cached]
-        return None
+        return [], 0
 
-    def _run_repeats(self, locator_class: type[Locator], locator_config: dict[str, Any]) -> _RepeatArtifacts:
-        """Execute all repeats and return raw repeat artifacts."""
+    def _run_repeats(
+        self, locator_class: type[Locator], locator_config: dict[str, Any], start_idx: int = 0
+    ) -> _RepeatArtifacts | TaskResults:
+        """Execute all repeats (or missing ones).
+
+        Returns raw artifacts for small runs, or processed TaskResults for streaming runs
+        to save memory (history is cleared after saving).
+        """
+        n_missing = self.repeats - start_idx
+        if n_missing <= 0:
+            return [] if self.repeats > 5 else _RepeatArtifacts(
+                history_df=pl.DataFrame({"repeat_id": []}),
+                finalize_df=pl.DataFrame({"repeat_id": []}),
+                experiments=[],
+                repeat_start_times=[],
+                repeat_timestamps=[],
+                stop_reasons=[],
+                run_results=[],
+            )
+
         repeat_rngs: list[random.Random] = []
         experiments: list[CoreExperiment] = []
-        # Start times used for the `duration_ms` metadata stored in `locator_results.csv`.
-        # These should align with when progress "advances" (i.e., right before each repeat begins).
-        repeat_start_times: list[float] = [0.0] * self.repeats
-        repeat_timestamps: list[str] = [""] * self.repeats
-        stop_reasons: list[str] = [""] * self.repeats
+        repeat_start_times: list[float] = [0.0] * n_missing
+        repeat_timestamps: list[str] = [""] * n_missing
+        stop_reasons: list[str] = [""] * n_missing
 
-        for attempt_idx in range(self.repeats):
-            measurement_rng = self._rng_for_measurement(attempt_idx)
+        for i in range(n_missing):
+            rid = start_idx + i
+            measurement_rng = self._rng_for_measurement(rid)
             repeat_rngs.append(measurement_rng)
-            experiments.append(get_shared_core_experiment(self.task, attempt_idx, self._build_experiment))
+            experiments.append(get_shared_core_experiment(self.task, rid, self._build_experiment))
 
-        # Pre-generate sweep for Bayesian locators so all repeats can share it
-        # This is done once before any repeats run, ensuring the sweep is in cache
+        # Pre-generate sweep for Bayesian locators
         if experiments:
             self._precompute_sweep_for_task(locator_class, locator_config, experiments[0], repeat_rngs[0])
 
         history_dfs: list[pl.DataFrame] = []
         finalize_records: list[dict[str, Any]] = []
         run_results: list[RunResult] = []
+        streaming_results: TaskResults = []
 
-        for rid in range(self.repeats):
-            repeat_start_times[rid] = time.perf_counter()
-            repeat_timestamps[rid] = datetime.datetime.now().isoformat()
+        from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
+
+        is_streaming = self.repeats > STREAMING_REPEAT_THRESHOLD and not self.skip_cache
+
+        for i in range(n_missing):
+            rid = start_idx + i
+            repeat_start_times[i] = time.perf_counter()
+            repeat_timestamps[i] = datetime.datetime.now().isoformat()
             hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
                 locator_config=locator_config,
-                rng=repeat_rngs[rid],
-                experiment=experiments[rid],
-                repeat_start_time=repeat_start_times[rid],
+                rng=repeat_rngs[i],
+                experiment=experiments[i],
+                repeat_start_time=repeat_start_times[i],
             )
-            stop_reasons[rid] = stop_reason
+            stop_reasons[i] = stop_reason
             run_results.append(run_result)
-            if not hist_df.is_empty():
-                history_dfs.append(hist_df)
             finalize_records.append(finalize_record)
+
+            # Incremental streaming save for long runs
+            if is_streaming:
+                # Generate plots and metrics for JUST this repeat
+                artifacts_single = _RepeatArtifacts(
+                    history_df=hist_df,
+                    finalize_df=pl.DataFrame([finalize_record]),
+                    experiments=[experiments[i]],
+                    repeat_start_times=[repeat_start_times[i]],
+                    repeat_timestamps=[repeat_timestamps[i]],
+                    stop_reasons=[stop_reason],
+                    run_results=[run_result],
+                )
+                res_single = self._build_repeat_outputs(artifacts_single, start_idx=rid)
+                entries, main_result_row = res_single[0]
+                
+                # Strip heavy fields for the in-memory results list
+                light_entries = [strip_heavy_fields(e) for e in entries]
+                streaming_results.append((light_entries, main_result_row))
+
+                # Background save the full version (with base64 plots)
+                entries_embedded = embed_graph_content(entries, self.task.out_dir)
+                self._saver_pool.submit(
+                    self._background_save_repeat,
+                    rid=rid,
+                    entries=entries_embedded,
+                    main_result_row=main_result_row,
+                )
+
+                # FREE MEMORY: hist_df is no longer needed locally
+                del hist_df
+            else:
+                if not hist_df.is_empty():
+                    history_dfs.append(hist_df)
+
             self._notify_repeat_finished(rid)
+
+        if is_streaming:
+            return streaming_results
 
         empty_history = pl.DataFrame(
             {
@@ -487,11 +577,33 @@ class _TaskRunner:
             run_results=run_results,
         )
 
-    def _build_repeat_outputs(self, artifacts: _RepeatArtifacts) -> TaskResults:
+    def _background_save_repeat(
+        self, rid: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]
+    ) -> None:
+        """Worker function for background saving."""
+        try:
+            self.cache.save_repeat(
+                **self._combination_cache_kwargs(),
+                repeat_idx=rid,
+                entries=entries,
+                main_result_row=main_result_row,
+            )
+            # Update pointer
+            self.cache.append_cached_repeats(
+                **self._combination_cache_kwargs(),
+                new_results=[],
+                start_idx=rid + 1,
+            )
+        except Exception:
+            log.error("Failed to save repeat %s to cache in background", rid, exc_info=True)
+
+    def _build_repeat_outputs(self, artifacts: _RepeatArtifacts, start_idx: int = 0) -> TaskResults:
         """Generate metrics/plots and optional per-repeat cache entries."""
         all_results: TaskResults = []
+        n_repeats = len(artifacts.experiments)
 
-        for attempt_idx in range(self.repeats):
+        for i in range(n_repeats):
+            attempt_idx = start_idx + i
             entry_base, main_result_row, current_history_df = generate_attempt_metrics(
                 n_repeats=self.repeats,
                 attempt_idx_in_combo=attempt_idx,
@@ -505,6 +617,7 @@ class _TaskRunner:
                 final_history_df=artifacts.history_df,
                 finalize_results=artifacts.finalize_df,
                 strat_obj=self.task.strategy,
+                run_result=artifacts.run_results[i] if i < len(artifacts.run_results) else None,
             )
 
             entries = generate_attempt_plots(
@@ -528,6 +641,16 @@ class _TaskRunner:
     def _save_full_cache(self, results: TaskResults) -> None:
         if self.skip_cache or not results:
             return
+
+        from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
+
+        if self.repeats > STREAMING_REPEAT_THRESHOLD:
+            # Pointers are updated incrementally in _run_repeats,
+            # but we call this to ensure the final state is consistent.
+            # (Results passed here are already partially saved).
+            self.cache.save_cached_combination(**self._combination_cache_kwargs(), results=results)
+            return
+
         full_results = [(embed_graph_content(entries, self.task.out_dir), row) for entries, row in results]
         self.cache.save_cached_combination(**self._combination_cache_kwargs(), results=full_results)
 

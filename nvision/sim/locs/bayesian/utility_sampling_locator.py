@@ -40,7 +40,9 @@ def _utility_from_mu_preds(mu_preds: np.ndarray, inv_noise_var: float, inv_cost:
 
 
 class UtilitySamplingLocator(SequentialBayesianLocator):
-    """Utility sampling with pickiness.
+    """ARCHIVED: Currently not used in the main simulation grid.
+    
+    Utility sampling with pickiness.
 
     ``Utility(x) = Var_params(x) / sigma_noise^2 / cost``
 

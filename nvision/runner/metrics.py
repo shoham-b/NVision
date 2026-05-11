@@ -35,6 +35,7 @@ def generate_attempt_metrics(  # noqa: C901
     final_history_df: pl.DataFrame,
     finalize_results: pl.DataFrame,
     strat_obj: Any,
+    run_result: RunResult | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], pl.DataFrame]:
     """Calculate and format metrics for a single repeat.
 
@@ -43,6 +44,8 @@ def generate_attempt_metrics(  # noqa: C901
     tuple
         ``(entry_base, main_result_row, current_history_df)``
     """
+    from nvision.metrics.milestones import calculate_zeeman_metrics
+
     if not final_history_df.is_empty():
         current_history_df = final_history_df.filter(pl.col("repeat_id") == attempt_idx_in_combo).drop("repeat_id")
     else:
@@ -92,6 +95,12 @@ def generate_attempt_metrics(  # noqa: C901
     ):
         if _sweep_key in estimate:
             metrics_serialized[_sweep_key] = _maybe_finite(estimate[_sweep_key])
+
+    # Milestone metrics
+    if run_result:
+        milestone_data = calculate_zeeman_metrics(run_result)
+        for k, v in milestone_data.items():
+            metrics_serialized[k] = _maybe_finite(v)
 
     if duration_ms_value is None:
         duration_ms_value = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000

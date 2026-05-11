@@ -209,6 +209,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     noise_model: NoiseSignalModel | None = None
     auto_resample: bool = True
     resample_delay: int = 0
+    priors: dict[str, tuple[float, float]] | None = None
 
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
@@ -234,7 +235,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             if name not in self.parameter_bounds:
                 raise ValueError(f"Missing bounds for parameter: {name}")
             lo, hi = self.parameter_bounds[name]
-            self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
+
+            if self.priors and name in self.priors:
+                mean, std = self.priors[name]
+                self._particles[:, i] = np.random.normal(mean, std, self.num_particles)
+                self._particles[:, i] = np.clip(self._particles[:, i], lo, hi)
+            else:
+                self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
         self._step_count = 0
@@ -621,6 +628,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_model=self.noise_model,
             auto_resample=self.auto_resample,
             resample_delay=self.resample_delay,
+            priors=self.priors,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()

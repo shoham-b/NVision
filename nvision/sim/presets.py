@@ -48,24 +48,24 @@ def generators_basic() -> list[tuple[str, object]]:
 
 
 def generators_narrow() -> list[tuple[str, object]]:
-    """Narrow-domain generators for bayesian_only group.
+    """Narrow-parameter generators for bayesian_only group.
 
-    The domain is 20 MHz wide (2.86–2.88 GHz) and the center frequency
-    is constrained to the middle 10 % so the signal occupies ~10 %
-    of the smaller range, making sweeping unnecessary. Signals use
-    exceptionally narrow linewidths and splitting.
+    The domain remains wide (2.6–3.1 GHz), but signal parameters (linewidth,
+    splitting, etc.) are narrowed. Bayesian locators use Gaussian priors
+    centered on the true values to localize the signal without requiring
+    an initial sweep.
     """
     return [
         (
             "NVCenter-lorentzian-narrow",
             NVCenterCoreGenerator(
-                x_min=2.86e9, x_max=2.88e9, variant="lorentzian", center_freq_fraction=0.1, narrow_signal=True
+                x_min=2.6e9, x_max=3.1e9, variant="lorentzian", center_freq_fraction=0.1, narrow_signal=True
             ),
         ),
         (
             "NVCenter-voigt-narrow",
             NVCenterCoreGenerator(
-                x_min=2.86e9, x_max=2.88e9, variant="voigt", center_freq_fraction=0.1, narrow_signal=True
+                x_min=2.6e9, x_max=3.1e9, variant="voigt", center_freq_fraction=0.1, narrow_signal=True
             ),
         ),
     ]
@@ -75,7 +75,8 @@ def generators_narrow() -> list[tuple[str, object]]:
 
 
 def noises_none() -> list[tuple[str, CompositeNoise | None]]:
-    return [("NoNoise", None)]
+    # ARCHIVED: Only Poisson and Gauss are used now.
+    return []
 
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
@@ -94,22 +95,14 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
                 )
             ),
         ),
-        (
-            f"OverProbeDrift({NVISION_NOISE_OVER_PROBE})",
-            CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(NVISION_NOISE_OVER_PROBE)])),
-        ),
+        # ARCHIVED: OverProbeDrift is archived.
+        # (
+        #     f"OverProbeDrift({NVISION_NOISE_OVER_PROBE})",
+        #     CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(NVISION_NOISE_OVER_PROBE)])),
+        # ),
     ]
 
 
 def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
-    return [
-        (
-            "Heavy",
-            CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise(
-                    [OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.02, 0.5)]
-                ),
-                over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(0.001)]),
-            ),
-        ),
-    ]
+    # ARCHIVED: Heavy noise is archived.
+    return []

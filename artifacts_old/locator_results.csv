@@ -1,0 +1,5 @@
+generator,noise,strategy,repeats,attempt,stop_reason,abs_err_x,uncert,final_entropy,measurements,duration_ms
+NVCenter-lorentzian-narrow,Poisson(3000.0),Bayesian-SBED-NoSweep,2,1,locator_stop,12317.419052124023,142.0463535848424,-46.72088620380863,7.0,18607.748899958096
+NVCenter-lorentzian-narrow,Poisson(3000.0),Bayesian-SBED-NoSweep,2,2,locator_stop,18043.51806640625,242.4239136972159,-42.00651726756721,7.0,17166.27340001287
+NVCenter-lorentzian-narrow,NoNoise,Bayesian-SBED-NoSweep,2,1,locator_stop,10563.373565673828,3641.7534947108998,-25.65189086215723,326.0,844171.2788000004
+NVCenter-lorentzian-narrow,NoNoise,Bayesian-SBED-NoSweep,2,2,locator_stop,4934.3109130859375,2984.1431022168294,-24.3571893013959,228.0,637432.439199998

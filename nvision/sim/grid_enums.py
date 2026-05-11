@@ -29,6 +29,8 @@ class GeneratorName(StrEnum):
 
     NVCENTER_LORENTZIAN = "NVCenter-lorentzian"
     NVCENTER_VOIGT = "NVCenter-voigt"
+    NVCENTER_LORENTZIAN_NARROW = "NVCenter-lorentzian-narrow"
+    NVCENTER_VOIGT_NARROW = "NVCenter-voigt-narrow"
 
 
 class NoiseName(StrEnum):

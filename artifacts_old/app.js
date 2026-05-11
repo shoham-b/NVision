@@ -520,19 +520,9 @@ function main() {
                 btn.className = 'bayes-tab-button' + (s.id === activeId ? ' is-active' : '');
                 btn.type = 'button';
                 btn.textContent = s.label;
-                btn.setAttribute("role", "tab");
-                btn.setAttribute("aria-selected", s.id === activeId ? "true" : "false");
-                btn.setAttribute("aria-controls", s.id);
-                btn.setAttribute("id", "tab-" + s.id);
-                const panel = document.getElementById(s.id);
-                if (panel) {
-                    panel.setAttribute("aria-labelledby", "tab-" + s.id);
-                }
                 btn.dataset.tab = s.id;
                 btn.addEventListener('click', () => {
                     tabBar.querySelectorAll('.bayes-tab-button').forEach((b) => b.classList.remove('is-active'));
-                    tabBar.querySelectorAll(".bayes-tab-button").forEach((b) => b.setAttribute("aria-selected", "false"));
-                    btn.setAttribute("aria-selected", "true");
                     btn.classList.add('is-active');
                     sections.forEach((sec) => {
                         const el = document.getElementById(sec.id);
@@ -692,21 +682,6 @@ function main() {
                 return value.toFixed(1) + ' ms';
             }
             return 'N/A';
-        }
-
-        function formatTimestamp(isoString) {
-            if (!isoString || typeof isoString !== 'string') {
-                return 'N/A';
-            }
-            try {
-                const d = new Date(isoString);
-                if (Number.isNaN(d.getTime())) {
-                    return isoString;
-                }
-                return d.toLocaleString();
-            } catch (e) {
-                return isoString;
-            }
         }
 
         function renderSweepMetricsPanel(container, metrics) {
@@ -1414,30 +1389,12 @@ function main() {
                         if (phaseData.duration_ms != null) {
                             items.push({ label: 'Duration', val: formatDuration(phaseData.duration_ms), tip: 'Wall-clock time for this repeat.' });
                         }
-                        if (phaseData.last_run != null) {
-                            items.push({ label: 'Last run', val: formatTimestamp(phaseData.last_run), tip: 'Timestamp when this repeat was executed.' });
-                        }
                         if (phaseData.abs_err_x != null) {
                             items.push({ label: 'Abs error', val: formatFrequency(phaseData.abs_err_x), tip: 'Absolute frequency error vs ground truth. Lower is better.' });
                         }
                         if (phaseData.uncert != null) {
                             items.push({ label: 'Uncertainty', val: formatFrequency(phaseData.uncert), tip: 'Final estimated standard deviation of the frequency estimate. Lower is better.' });
                         }
-                        
-                        // Milestone metrics
-                        if (phaseData.steps_to_fb != null) {
-                            items.push({ label: 'fb Conv. Step', val: formatCount(phaseData.steps_to_fb), tip: 'Step at which center frequency (fb) uncertainty dropped below threshold.' });
-                        }
-                        if (phaseData.err_fb_at_milestone != null) {
-                            items.push({ label: 'fb Err @ Milestone', val: formatFrequency(phaseData.err_fb_at_milestone), tip: 'Absolute error of center frequency at the moment of convergence.' });
-                        }
-                        if (phaseData.err_fc_at_milestone != null) {
-                            items.push({ label: 'fc Err @ Milestone', val: formatFrequency(phaseData.err_fc_at_milestone), tip: 'Absolute error of splitting at the moment fb converged.' });
-                        }
-                        if (phaseData.err_fc_diff != null) {
-                            items.push({ label: 'fc Err Gain', val: formatFrequency(phaseData.err_fc_diff), tip: 'Reduction in splitting error achieved by continuing after fb convergence.' });
-                        }
-
                         const expUniform = isOverall && plot.metrics && plot.metrics.expected_uniform_points;
                         if (expUniform != null && Number.isFinite(expUniform)) {
                             items.push({ label: 'Exp. uniform', val: formatCount(expUniform), tip: 'Uniform points needed to resolve the signal with 2 samples per dip width.' });
@@ -1589,10 +1546,6 @@ function main() {
                 button.className = 'tab-button';
                 button.textContent = 'Scan measurements';
                 button.dataset.tab = 'scan-section';
-                button.setAttribute('role', 'tab');
-                button.setAttribute('id', 'tab-scan');
-                button.setAttribute('aria-controls', 'scan-section');
-                button.setAttribute('aria-selected', 'false');
                 tabBar.appendChild(button);
             }
 
@@ -1601,10 +1554,6 @@ function main() {
                 button.className = 'tab-button';
                 button.textContent = 'Head to head';
                 button.dataset.tab = 'scan-comparison-section';
-                button.setAttribute('role', 'tab');
-                button.setAttribute('id', 'tab-scan-comparison');
-                button.setAttribute('aria-controls', 'scan-comparison-section');
-                button.setAttribute('aria-selected', 'false');
                 tabBar.appendChild(button);
             }
 
@@ -1612,16 +1561,11 @@ function main() {
             strategyButton.className = 'tab-button';
             strategyButton.textContent = 'Strategy metrics';
             strategyButton.dataset.tab = 'strategy-comparison-section';
-            strategyButton.setAttribute('role', 'tab');
-            strategyButton.setAttribute('id', 'tab-model-comparison');
-            strategyButton.setAttribute('aria-controls', 'strategy-comparison-section');
-            strategyButton.setAttribute('aria-selected', 'false');
             tabBar.appendChild(strategyButton);
 
             const tabButtons = tabBar.querySelectorAll('.tab-button');
             if (tabButtons.length > 0) {
                 tabButtons[0].classList.add('is-active');
-                tabButtons[0].setAttribute('aria-selected', 'true');
                 const initialTabId = tabButtons[0].dataset.tab;
                 tabPanels.forEach(panel => {
                     if (panel.id === initialTabId) {
@@ -1640,12 +1584,8 @@ function main() {
                     return;
                 }
 
-                tabButtons.forEach(button => {
-                    button.classList.remove('is-active');
-                    button.setAttribute('aria-selected', 'false');
-                });
+                tabButtons.forEach(button => button.classList.remove('is-active'));
                 target.classList.add('is-active');
-                target.setAttribute('aria-selected', 'true');
 
                 tabPanels.forEach(panel => {
                     if (panel.id === target.dataset.tab) {
@@ -1664,17 +1604,17 @@ function main() {
         const compIframeMeasurements = document.getElementById('comp-iframe-measurements');
         const compIframeDuration = document.getElementById('comp-iframe-duration');
 
-        const allAggregatePlots = plots.filter(p => p.type === 'model_comparison' || p.type === 'milestone');
+        const modelCompPlots = plots.filter(p => p.type === 'model_comparison');
 
         function updateCompControls() {
             if (!compGenerator || !compNoise) return;
             const uniqueGenerators = [...new Set(
-                allAggregatePlots.map(p => p.generator)
+                modelCompPlots.map(p => p.generator)
             )].sort();
             const selectedGen = renderSegmentedControl(compGenerator, uniqueGenerators, controlValue(compGenerator));
 
             const uniqueNoises = [...new Set(
-                allAggregatePlots
+                modelCompPlots
                     .filter(p => p.generator === selectedGen)
                     .map(p => p.noise)
             )].sort();
@@ -1691,41 +1631,16 @@ function main() {
                 compIframeAbsErr.src = '';
                 compIframeMeasurements.src = '';
                 compIframeDuration.src = '';
-                const mIframeSteps = document.getElementById('milestone-iframe-steps');
-                const mIframeErrFc = document.getElementById('milestone-iframe-err-fc');
-                const mIframeDeltaFc = document.getElementById('milestone-iframe-delta-fc');
-                if (mIframeSteps) mIframeSteps.src = '';
-                if (mIframeErrFc) mIframeErrFc.src = '';
-                if (mIframeDeltaFc) mIframeDeltaFc.src = '';
                 return;
             }
 
-            const absErrPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'abs_err_x');
-            const measurementsPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'measurements');
-            const durationPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'duration_ms');
+            const absErrPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'abs_err_x');
+            const measurementsPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'measurements');
+            const durationPlot = modelCompPlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'duration_ms');
 
             compIframeAbsErr.src = absErrPlot ? absErrPlot.path : '';
             compIframeMeasurements.src = measurementsPlot ? measurementsPlot.path : '';
             compIframeDuration.src = durationPlot ? durationPlot.path : '';
-
-            // Update milestone plots
-            const milestonePlots = plots.filter(p => p.type === 'milestone');
-            const stepsPlot = milestonePlots.find(p => p.generator === gen && p.noise === noise && p.path.includes('steps_to_fb'));
-            const errFcPlot = milestonePlots.find(p => p.generator === gen && p.noise === noise && p.path.includes('error_comparison_fc'));
-            const deltaFcPlot = milestonePlots.find(p => p.generator === gen && p.noise === noise && p.path.includes('error_delta_fc'));
-
-            const mIframeSteps = document.getElementById('milestone-iframe-steps');
-            const mIframeErrFc = document.getElementById('milestone-iframe-err-fc');
-            const mIframeDeltaFc = document.getElementById('milestone-iframe-delta-fc');
-            const mContainer = document.getElementById('milestone-plots-container');
-
-            if (mIframeSteps) mIframeSteps.src = stepsPlot ? stepsPlot.path : '';
-            if (mIframeErrFc) mIframeErrFc.src = errFcPlot ? errFcPlot.path : '';
-            if (mIframeDeltaFc) mIframeDeltaFc.src = deltaFcPlot ? deltaFcPlot.path : '';
-            
-            if (mContainer) {
-                mContainer.style.display = (stepsPlot || errFcPlot || deltaFcPlot) ? 'flex' : 'none';
-            }
         }
 
         if (compGenerator && compNoise) {
@@ -1986,11 +1901,11 @@ function main() {
 
 
         scanGenerator.addEventListener('controlchange', () => {
-            updateAllScanControls();
+            updateScanSignalControls();
+            updateScanRepeatControl();
             findAndDisplayPlot();
         });
         scanNoise.addEventListener('controlchange', () => {
-            updateScanStrategyControl();
             updateScanRepeatControl();
             findAndDisplayPlot();
         });
