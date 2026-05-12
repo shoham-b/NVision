@@ -505,7 +505,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 5. Enforce minimum exploration variance based on parameter ranges.
         # This prevents the filter from getting stuck in a tiny volume.
-        MIN_EXPLORATION_FRAC: float = 0.0005
+        MIN_EXPLORATION_FRAC: float = 0.01
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
             min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
@@ -514,18 +514,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Also add tiny numerical jitter to ensure strict positive-definiteness
         nudge_cov.flat[:: d_dim + 1] += 1e-12
 
-        # 6. Apply Nudge (Multivariate Gaussian)
+        # 6. Shrinkage contraction toward mean (Liu-West)
+        # MUST happen before nudging so we don't shrink the added noise
+        old_center = mean.reshape(1, -1)
+        self._particles = (
+            self._particles * self.a_param + old_center * (1 - self.a_param)
+        ).astype(FLOAT_DTYPE, copy=False)
+
+        # 7. Apply Nudge (Multivariate Gaussian)
         rng = np.random.default_rng()
         nudges = rng.multivariate_normal(
             np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
         ).astype(FLOAT_DTYPE, copy=False)
         self._particles += nudges
-
-        # 7. Shrinkage contraction toward mean (Liu-West)
-        old_center = mean.reshape(1, -1)
-        self._particles = (
-            self._particles * self.a_param + old_center * (1 - self.a_param)
-        ).astype(FLOAT_DTYPE, copy=False)
 
         # 8. Clip all particles to bounds
         for j, name in enumerate(self._param_names):
