@@ -923,7 +923,13 @@ class _TaskRunner:
         if experiment.noise is not None:
             noise_std = float(experiment.noise.estimated_noise_std())
 
-        for name, (lo_raw, hi_raw) in experiment.true_signal.bounds.items():
+        for name, bounds_val in experiment.true_signal.bounds.items():
+            if name == "_priors":
+                bounds[name] = bounds_val
+                continue
+            if name.startswith("_"):
+                continue
+            lo_raw, hi_raw = bounds_val
             lo, hi = float(lo_raw), float(hi_raw)
             if hi > lo:
                 name_lc = name.lower()

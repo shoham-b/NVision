@@ -95,13 +95,11 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
         index_html = index_html.replace(css_pattern, css_inline)
 
     # Replace the iframe loader with direct script tag
-    iframe_pattern = '<iframe src="../artifacts/loader.html" style="display:none"></iframe>'
     script_tag = f'<script src="app.js?v={stamp}"></script>'
-    index_html = index_html.replace(iframe_pattern, script_tag)
-
-    # Also handle case where path might be different
-    iframe_pattern2 = '<iframe src="loader.html" style="display:none"></iframe>'
-    index_html = index_html.replace(iframe_pattern2, script_tag)
+    
+    # We look for any iframe referencing loader.html and replace it
+    import re
+    index_html = re.sub(r'<iframe [^>]*src="[^"]*loader\.html"[^>]*></iframe>', script_tag, index_html)
 
     # Copy app.js with cache-busting in the URL (content unchanged)
     import shutil

@@ -41,9 +41,14 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("UnitCubeSMCMarginalDistribution requires a UnitCubeSignalModel")
 
-        # Force parameter_bounds to unit space for internal SMC operations.
-        # This ensures super().__post_init__ initializes particles in [0, 1].
-        self.parameter_bounds = {name: (0.0, 1.0) for name in self.model.parameter_names()}
+        # Ensure all parameters (including noise) are in unit space [0, 1].
+        # We must detect noise parameters here because super().__post_init__ 
+        # expects them to be in parameter_bounds before it iterates over _param_names.
+        all_names = list(self.model.parameter_names())
+        if self.noise_model is not None:
+            all_names.extend(n for n in self.noise_model.spec.names if n not in all_names)
+
+        self.parameter_bounds = {name: (0.0, 1.0) for name in all_names}
         super().__post_init__()
 
     def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
