@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping, Sequence
 
-import os
 import numpy as np
 from dotenv import load_dotenv
 
@@ -12,7 +12,6 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
 from nvision.belief.unit_cube_students_t_marginal import UnitCubeStudentsTMixtureMarginalDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-
 
 # --- Environment-driven defaults ---------------------------------------------
 
@@ -24,8 +23,8 @@ NVISION_STUDENTS_T_NUM_EXPERTS: int = int(os.getenv("NVISION_STUDENTS_T_NUM_EXPE
 class StudentsTLocator(SequentialBayesianLocator):
     """Parametric Bayesian Locator using Student's t Mixture.
 
-    Performs online Bayesian updates using a linearized conditionally conjugate 
-    mixture-of-experts approach. Acquisition uses analytical EIG from the 
+    Performs online Bayesian updates using a linearized conditionally conjugate
+    mixture-of-experts approach. Acquisition uses analytical EIG from the
     mixture predictive variance.
     """
 
@@ -88,25 +87,26 @@ class StudentsTLocator(SequentialBayesianLocator):
 
         # Ensure we are only running on Lorentzian NV center as requested.
         from nvision.spectra.nv_center import NVCenterLorentzianModel
+
         if not isinstance(model, NVCenterLorentzianModel):
             raise ValueError(f"StudentsTLocator only supports NVCenterLorentzianModel, got {type(model).__name__}")
 
         bounds_phys = dict(parameter_bounds) if parameter_bounds else {}
         from nvision.spectra.unit_cube import UnitCubeSignalModel
-        
+
         # Determine frequency bounds for the UnitCube mapping
         freq_bounds_phys = bounds_phys.get("frequency", (2.6e9, 3.1e9))
-        
+
         # Wrap the physical model in a UnitCubeSignalModel
         model_norm = UnitCubeSignalModel(model, bounds_phys, freq_bounds_phys)
-        
+
         # Create the UnitCube belief for normalized simulation
         # It will initialize its internal means to 0.5 (normalized) automatically.
         belief_norm = UnitCubeStudentsTMixtureMarginalDistribution(
             model=model_norm,
             n_components=n_components,
             _physical_param_bounds=bounds_phys,
-            _physical_x_bounds=freq_bounds_phys
+            _physical_x_bounds=freq_bounds_phys,
         )
 
         return cls(
@@ -152,19 +152,19 @@ class StudentsTLocator(SequentialBayesianLocator):
     def _generate_candidates_phys(self) -> np.ndarray:
         """Return a slope-targeted candidate grid in Hz."""
         lo_phys, hi_phys = self._acquisition_bounds_phys()
-        
+
         # Heuristic: 1000 points over the acquisition window
         xs_phys = np.linspace(lo_phys, hi_phys, 1000)
-        
+
         # Target regions of high slope for EIG acquisition
         estimates_phys = self.belief.estimates()
         freq_est_phys = estimates_phys.get("frequency", (lo_phys + hi_phys) / 2.0)
         lw_est_phys = estimates_phys.get("linewidth", 5e6)
-        
+
         # Add high-density points around the resonance(s)
-        resonance_points_phys = np.linspace(freq_est_phys - 2*lw_est_phys, freq_est_phys + 2*lw_est_phys, 200)
+        resonance_points_phys = np.linspace(freq_est_phys - 2 * lw_est_phys, freq_est_phys + 2 * lw_est_phys, 200)
         candidates_phys = np.unique(np.sort(np.concatenate([xs_phys, resonance_points_phys])))
-        
+
         # Clip to acquisition window
         mask = (candidates_phys >= lo_phys) & (candidates_phys <= hi_phys)
         return candidates_phys[mask].astype(np.float64)
@@ -176,9 +176,9 @@ class StudentsTLocator(SequentialBayesianLocator):
     def _acquire(self) -> float:
         """Bayesian acquisition: propose next position in physical Hz via maximum EIG."""
         candidates_phys = self._generate_candidates_phys()
-        
+
         # expected_information_gain_batch expects physical Hz candidates
         eigs = self.belief.expected_information_gain_batch(candidates_phys)
-        
+
         best_idx = int(np.argmax(eigs))
         return float(candidates_phys[best_idx])

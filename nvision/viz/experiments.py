@@ -102,13 +102,13 @@ class ExperimentsMixin:
             "err_fb_diff",
             "err_fc_diff",
         ]
-        
+
         # Check if any milestone metrics exist
         if not any(col in df.columns for col in milestone_cols):
             return []
 
         entries = []
-        
+
         # 1. Distribution of steps to fb convergence
         if "steps_to_fb" in df.columns:
             out_path = self.out_dir / "milestone_steps_to_fb.html"
@@ -118,7 +118,7 @@ class ExperimentsMixin:
                 sub = df.filter(pl.col("strategy") == strat).get_column("steps_to_fb").drop_nans().drop_nulls()
                 if not sub.is_empty():
                     fig.add_trace(go.Histogram(x=sub.to_list(), name=strat, opacity=0.75))
-            
+
             fig.update_layout(
                 title="Steps to Center Frequency (fb) Convergence",
                 xaxis_title="Steps",
@@ -138,7 +138,7 @@ class ExperimentsMixin:
                 sub = df.filter(pl.col("strategy") == strat)
                 m_err = sub.get_column("err_fc_at_milestone").drop_nans().drop_nulls()
                 f_err = sub.get_column("final_err_fc").drop_nans().drop_nulls()
-                
+
                 if not m_err.is_empty():
                     fig.add_trace(go.Box(y=m_err.to_list(), name=f"{strat} (Milestone)"))
                 if not f_err.is_empty():
@@ -160,7 +160,7 @@ class ExperimentsMixin:
                 sub = df.filter(pl.col("strategy") == strat).get_column("err_fc_diff").drop_nans().drop_nulls()
                 if not sub.is_empty():
                     fig.add_trace(go.Box(y=sub.to_list(), name=strat))
-            
+
             fig.update_layout(
                 title="Error Reduction after fb Convergence (fc)",
                 yaxis_title="Error Reduction (Hz)",

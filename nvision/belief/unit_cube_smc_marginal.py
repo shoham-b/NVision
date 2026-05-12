@@ -42,7 +42,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             raise TypeError("UnitCubeSMCMarginalDistribution requires a UnitCubeSignalModel")
 
         # Ensure all parameters (including noise) are in unit space [0, 1].
-        # We must detect noise parameters here because super().__post_init__ 
+        # We must detect noise parameters here because super().__post_init__
         # expects them to be in parameter_bounds before it iterates over _param_names.
         all_names = list(self.model.parameter_names())
         if self.noise_model is not None:
@@ -69,7 +69,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     def _generate_epoch_candidates(self) -> None:
         """Generate candidates in unit space.
-        
+
         The base class now uses internal _estimates_unit() which correctly
         returns [0, 1] values even for this subclass.
         """

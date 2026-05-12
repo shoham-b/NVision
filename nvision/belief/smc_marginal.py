@@ -517,9 +517,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 6. Shrinkage contraction toward mean (Liu-West)
         # MUST happen before nudging so we don't shrink the added noise
         old_center = mean.reshape(1, -1)
-        self._particles = (
-            self._particles * self.a_param + old_center * (1 - self.a_param)
-        ).astype(FLOAT_DTYPE, copy=False)
+        self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(
+            FLOAT_DTYPE, copy=False
+        )
 
         # 7. Apply Nudge (Multivariate Gaussian)
         rng = np.random.default_rng()

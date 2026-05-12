@@ -95,9 +95,7 @@ class NVCenterCoreGenerator:
                 k_np=k_np,
                 dip_depth=dip_depth,
             )
-            bounds = nv_center_lorentzian_bounds_for_domain(
-                self.x_min, self.x_max, narrow=self.narrow_signal
-            )
+            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, narrow=self.narrow_signal)
         else:  # voigt
             lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
             lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
@@ -126,9 +124,7 @@ class NVCenterCoreGenerator:
                 k_np=k_np,
                 dip_depth=dip_depth,
             )
-            bounds = nv_center_voigt_bounds_for_domain(
-                self.x_min, self.x_max, narrow=self.narrow_signal
-            )
+            bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, narrow=self.narrow_signal)
 
         if self.narrow_signal:
             priors = {}
