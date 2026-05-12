@@ -34,31 +34,28 @@ _EIG_CHUNK_SIZE: int = 64
 
 @njit(cache=True, fastmath=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Weighted mean and variance of ``x`` with weights ``w`` (2-pass stable algorithm)."""
+    """Weighted mean and variance of ``x`` with weights ``w`` (1-pass Welford's algorithm)."""
     n = x.shape[0]
     if n == 0:
         return 0.0, 0.0
 
-    # Pass 1: Combined sum of weights and weighted sum for mean
-    s = 0.0
-    wx = 0.0
+    weight_sum = 0.0
+    mean = 0.0
+    m2 = 0.0
+
     for i in range(n):
         wi = w[i]
-        s += wi
-        wx += wi * x[i]
+        if wi > 0.0:
+            xi = x[i]
+            weight_sum += wi
+            delta = xi - mean
+            mean += (wi / weight_sum) * delta
+            m2 += wi * delta * (xi - mean)
 
-    if s <= 0.0:
+    if weight_sum <= 0.0:
         return 0.0, 0.0
 
-    mean = wx / s
-
-    # Pass 2: Weighted variance calculation
-    var_sum = 0.0
-    for i in range(n):
-        d = x[i] - mean
-        var_sum += w[i] * d * d
-
-    return mean, var_sum / s
+    return mean, max(0.0, m2 / weight_sum)
 
 
 @njit(cache=True, fastmath=True)
@@ -140,24 +137,26 @@ def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
     n_rows, n_cols = x_2d.shape
     vars_out = np.empty(n_rows, dtype=x_2d.dtype)
 
-    # Sum weights once
+    # Sum weights once to check validity
     sw = np.sum(w)
     if sw <= 0.0:
         return np.zeros(n_rows, dtype=x_2d.dtype)
 
     for i in numba.prange(n_rows):
-        # Pass 1: Mean
-        wx = 0.0
-        for j in range(n_cols):
-            wx += w[j] * x_2d[i, j]
-        mean = wx / sw
+        weight_sum = 0.0
+        mean = 0.0
+        m2 = 0.0
 
-        # Pass 2: Variance
-        wv = 0.0
         for j in range(n_cols):
-            d = x_2d[i, j] - mean
-            wv += w[j] * d * d
-        vars_out[i] = wv / sw
+            wj = w[j]
+            if wj > 0.0:
+                xij = x_2d[i, j]
+                weight_sum += wj
+                delta = xij - mean
+                mean += (wj / weight_sum) * delta
+                m2 += wj * delta * (xij - mean)
+
+        vars_out[i] = max(0.0, m2 / weight_sum) if weight_sum > 0.0 else 0.0
 
     return vars_out
 
@@ -517,9 +516,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 6. Shrinkage contraction toward mean (Liu-West)
         # MUST happen before nudging so we don't shrink the added noise
         old_center = mean.reshape(1, -1)
-        self._particles = (
-            self._particles * self.a_param + old_center * (1 - self.a_param)
-        ).astype(FLOAT_DTYPE, copy=False)
+        self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(
+            FLOAT_DTYPE, copy=False
+        )
 
         # 7. Apply Nudge (Multivariate Gaussian)
         rng = np.random.default_rng()

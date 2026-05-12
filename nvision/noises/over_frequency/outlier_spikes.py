@@ -12,7 +12,7 @@ from nvision.sim.batch import DataBatch
 @dataclass
 class OverFrequencyOutlierSpikes(OverFrequencyNoise):
     """ARCHIVED: Currently not used in the main simulation grid.
-    
+
     Injects occasional large spikes or dips into the sampled frequency response.
     """
 

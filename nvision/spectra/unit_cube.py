@@ -153,7 +153,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         """Vectorized signal evaluation at many unit x positions over unit samples."""
         xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
         param_arrays_norm = self._get_param_arrays_norm(samples_norm)
-        
+
         names = self.parameter_names()
         if len(param_arrays_norm) != len(names):
             raise ValueError(f"Expected {len(names)} parameter arrays, got {len(param_arrays_norm)}")
@@ -178,7 +178,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         """Vectorized analytical gradient evaluation at many unit x positions over unit samples."""
         xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
         param_arrays_norm = self._get_param_arrays_norm(samples_norm)
-        
+
         names = self.parameter_names()
 
         phys_arrays: list[np.ndarray] = []
@@ -195,7 +195,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
         # grad_phys has shape (n_x, n_p, dim)
         grad_phys = self.inner.gradient_vectorized_many(xs_phys, typed_samples_phys)
-        
+
         # Chain rule: dS/du = dS/dv * dv/du = dS/dv * (hi - lo)
         # We need to scale each parameter column by its width
         widths_arr = np.array(widths, dtype=FLOAT_DTYPE)
@@ -213,7 +213,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         phys_width = float(x_hi - x_lo)
         if phys_width <= 0:
             return self.inner.signal_min_span(domain_width)
-        
+
         res = self.inner.signal_min_span(phys_width)
         if res is None:
             return None
@@ -224,7 +224,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         phys_width = float(x_hi - x_lo)
         if phys_width <= 0:
             return self.inner.signal_max_span(domain_width)
-            
+
         res = self.inner.signal_max_span(phys_width)
         if res is None:
             return None

@@ -5,3 +5,7 @@
 
 **Learning:** When calculating weighted variance over particle sets (e.g. `_weighted_variance_axis1` inside SMC Marginal distributions), doing a 2-pass algorithm (one for the mean, one for the variance sum of squares) inside the tight innermost Numba loops is computationally heavy. A 1-pass algorithm that simultaneously sums $E[X]$ and $E[X^2]$, calculating $V = E[X^2] - (E[X])^2$ yields a significant ~30% performance boost and perfectly identical output.
 **Action:** Replace 2-pass mean and variance inner Numba loops with 1-pass summation. Guard against negative variances caused by floating point precision limits using `max(0.0, var)`.
+
+## YYYY-MM-DD - [1-pass Variance Algorithm Numerical Stability]
+**Learning:** Replaced the 2-pass mean and variance inner Numba loops in `_weighted_mean_variance_1d` with a 1-pass algorithm that calculates `E[X]` and `E[X^2]` simultaneously, and computes the variance as `max(0.0, E[X^2] - (E[X])^2)`. Although the 1-pass algorithm is generally ~30% faster and produced identical test outputs here, it is a naive approach that can be susceptible to catastrophic cancellation/loss of precision when variance is small compared to the magnitude of the values, making it incorrect for use in robust numerical operations in this codebase.
+**Action:** Reverted the changes. When variance computations must be optimized for performance, explore stable 1-pass variance methods like Welford's online algorithm.
