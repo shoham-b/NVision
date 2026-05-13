@@ -34,31 +34,27 @@ _EIG_CHUNK_SIZE: int = 64
 
 @njit(cache=True, fastmath=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Weighted mean and variance of ``x`` with weights ``w`` (2-pass stable algorithm)."""
+    """Weighted mean and variance of ``x`` with weights ``w`` (Welford's 1-pass algorithm)."""
     n = x.shape[0]
     if n == 0:
         return 0.0, 0.0
 
-    # Pass 1: Combined sum of weights and weighted sum for mean
-    s = 0.0
-    wx = 0.0
+    mean = 0.0
+    S = 0.0  # noqa: N806
+    sum_weight = 0.0
     for i in range(n):
         wi = w[i]
-        s += wi
-        wx += wi * x[i]
+        xi = x[i]
+        sum_weight += wi
+        if sum_weight > 0.0:
+            delta = xi - mean
+            mean += (wi / sum_weight) * delta
+            S += wi * delta * (xi - mean)  # noqa: N806
 
-    if s <= 0.0:
+    if sum_weight <= 0.0:
         return 0.0, 0.0
 
-    mean = wx / s
-
-    # Pass 2: Weighted variance calculation
-    var_sum = 0.0
-    for i in range(n):
-        d = x[i] - mean
-        var_sum += w[i] * d * d
-
-    return mean, var_sum / s
+    return float(mean), float(S / sum_weight)
 
 
 @njit(cache=True, fastmath=True)
@@ -130,6 +126,9 @@ def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
 def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
     """Weighted variance along axis 1 (particles) for many candidates in parallel.
 
+    Uses an optimized 1-pass Welford's algorithm to prevent catastrophic
+    cancellation while minimizing redundant division.
+
     Args:
         x_2d: 2D array of predictions (n_candidates, n_particles).
         w: 1D array of weights (n_particles).
@@ -140,24 +139,28 @@ def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
     n_rows, n_cols = x_2d.shape
     vars_out = np.empty(n_rows, dtype=x_2d.dtype)
 
-    # Sum weights once
     sw = np.sum(w)
     if sw <= 0.0:
         return np.zeros(n_rows, dtype=x_2d.dtype)
 
-    for i in numba.prange(n_rows):
-        # Pass 1: Mean
-        wx = 0.0
-        for j in range(n_cols):
-            wx += w[j] * x_2d[i, j]
-        mean = wx / sw
+    # Precalculate weight fractions since they are identical for all candidates
+    w_inv = np.zeros(n_cols, dtype=w.dtype)
+    sum_weight = 0.0
+    for j in range(n_cols):
+        sum_weight += w[j]
+        if sum_weight > 0.0:
+            w_inv[j] = w[j] / sum_weight
 
-        # Pass 2: Variance
-        wv = 0.0
+    for i in numba.prange(n_rows):
+        mean = 0.0
+        S = 0.0  # noqa: N806
         for j in range(n_cols):
-            d = x_2d[i, j] - mean
-            wv += w[j] * d * d
-        vars_out[i] = wv / sw
+            wj = w[j]
+            xij = x_2d[i, j]
+            delta = xij - mean
+            mean += w_inv[j] * delta
+            S += wj * delta * (xij - mean)  # noqa: N806
+        vars_out[i] = S / sw
 
     return vars_out
 
@@ -261,7 +264,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # signal_min_span returns the minimum signal feature width (e.g. 4 × linewidth_min).
         # We require POINTS_PER_MIN_FEATURE grid points within that span.
         # Formula: n = ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE)
-        POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE
+        POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE  # noqa: N806
         f_lo, f_hi = self.parameter_bounds["frequency"]
         domain_width = float(f_hi - f_lo)
         min_span = self.model.signal_min_span(domain_width)
@@ -289,7 +292,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Epistemic uncertainty: spread of ALL predictions at this x
         sigma_epistemic = float(np.std(predicted))
-        noise_std = float(obs.noise_std)
+        float(obs.noise_std)
         if self.noise_model is not None and self._noise_param_slice is not None:
             noise_arrays = [
                 self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
@@ -468,7 +471,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             local_grids.append(np.arange(start, stop + delta_d, delta_d))
 
         # 5. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
-        merged = np.concatenate(local_grids + [self._global_grid]) if local_grids else self._global_grid
+        merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
         self._current_candidates = np.unique(np.clip(merged, f_lo, f_hi)).astype(np.float32)
 
     def _resample(self) -> None:
@@ -505,7 +508,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 5. Enforce minimum exploration variance based on parameter ranges.
         # This prevents the filter from getting stuck in a tiny volume.
-        MIN_EXPLORATION_FRAC: float = 0.01
+        MIN_EXPLORATION_FRAC: float = 0.01  # noqa: N806
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
             min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
@@ -517,9 +520,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 6. Shrinkage contraction toward mean (Liu-West)
         # MUST happen before nudging so we don't shrink the added noise
         old_center = mean.reshape(1, -1)
-        self._particles = (
-            self._particles * self.a_param + old_center * (1 - self.a_param)
-        ).astype(FLOAT_DTYPE, copy=False)
+        self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(
+            FLOAT_DTYPE, copy=False
+        )
 
         # 7. Apply Nudge (Multivariate Gaussian)
         rng = np.random.default_rng()
@@ -754,7 +757,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             # If the scan parameter was narrowed, update the global grid and candidates
             if param_name == "frequency":
-                POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE
+                POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE  # noqa: N806
                 domain_width = float(hi - lo)
                 min_span = self.model.signal_min_span(domain_width)
                 if min_span is not None and min_span > 0:
