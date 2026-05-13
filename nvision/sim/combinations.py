@@ -19,14 +19,11 @@ from nvision.belief.smc_marginal import (
 from nvision.models.noise import CompositeNoise
 from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.acquisition_locators import (
-    EKFLocator,
-    MaximumLikelihoodLocator,
     SequentialBayesianExperimentDesignLocator,
-    UtilitySamplingLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-from nvision.sim.locs.coarse.sobol_locator import SobolSweepLocator, StagedSobolSweepLocator
+from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,16 +67,11 @@ class CombinationGrid:
 
     def __init__(self) -> None:
         self._generators: dict[str, object] = dict(sim_presets.generators_basic() + sim_presets.generators_narrow())
-        
+
         # Keep only Poisson and Gauss noises.
         # Archived: NoNoise, OverProbeDrift, Heavy.
-        all_noises = dict(
-            sim_presets.noises_none() + sim_presets.noises_single_each() + sim_presets.noises_complex()
-        )
-        self._noises = {
-            k: v for k, v in all_noises.items() 
-            if "Gauss" in k or "Poisson" in k
-        }
+        all_noises = dict(sim_presets.noises_none() + sim_presets.noises_single_each() + sim_presets.noises_complex())
+        self._noises = {k: v for k, v in all_noises.items() if "Gauss" in k or "Poisson" in k}
 
     @property
     def generators(self) -> dict[str, object]:
@@ -97,7 +89,7 @@ class CombinationGrid:
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*.
-        
+
         Now returns the same 4 essential locators for all generators:
         1. GenericSweep
         2. StagedSobolSweep (Staged Sweep)

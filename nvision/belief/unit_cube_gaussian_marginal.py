@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
 
@@ -78,10 +78,7 @@ class UnitCubeGaussianMixtureMarginalDistribution(GaussianMixtureMarginalDistrib
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         raw_norm = super().sample(n)
-        data_phys = {
-            name: self._to_physical(name, u_norm_arr)
-            for name, u_norm_arr in raw_norm.items()
-        }
+        data_phys = {name: self._to_physical(name, u_norm_arr) for name, u_norm_arr in raw_norm.items()}
         return ParameterValues.from_mapping(list(raw_norm.keys()), data_phys)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo_phys: float, new_hi_phys: float) -> None:
@@ -108,13 +105,13 @@ class UnitCubeGaussianMixtureMarginalDistribution(GaussianMixtureMarginalDistrib
                 f_phys = old_lo + u_norm * w_old
                 u_new_norm = (f_phys - nl) / w_new
                 self.means[k, idx] = np.clip(u_new_norm, 0.0, 1.0)
-                self.precisions[k, idx, idx] *= (w_old / w_new)**2
+                self.precisions[k, idx, idx] *= (w_old / w_new) ** 2
 
         self.model.narrow_physical_interval_for_param(param_name, nl, nh, update_x_axis=sync_x)
         self.physical_param_bounds[param_name] = (nl, nh)
         if sync_x:
             self._physical_x_bounds = (nl, nh)
-        
+
         self._recompute_covariances()
 
     def copy(self) -> UnitCubeGaussianMixtureMarginalDistribution:

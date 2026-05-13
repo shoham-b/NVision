@@ -199,9 +199,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     return out
 
 
-def _extract_mixture_posterior(
-    snapshots: list, names: list[str]
-) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     from scipy.stats import t
 
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
@@ -314,10 +312,10 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         signal_model = run_result.true_signal.model
         param_descriptions = _get_nv_parameter_descriptions(signal_model)
         signal_formula = _get_signal_formula(signal_model)
-        
+
         # Track which steps involved a resampling event
         resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
-        
+
         viz.plot_posterior_animation_all_params(
             anim_all,
             interactive_path,

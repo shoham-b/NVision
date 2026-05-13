@@ -11,7 +11,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -469,14 +469,18 @@ class _TaskRunner:
         """
         n_missing = self.repeats - start_idx
         if n_missing <= 0:
-            return [] if self.repeats > 5 else _RepeatArtifacts(
-                history_df=pl.DataFrame({"repeat_id": []}),
-                finalize_df=pl.DataFrame({"repeat_id": []}),
-                experiments=[],
-                repeat_start_times=[],
-                repeat_timestamps=[],
-                stop_reasons=[],
-                run_results=[],
+            return (
+                []
+                if self.repeats > 5
+                else _RepeatArtifacts(
+                    history_df=pl.DataFrame({"repeat_id": []}),
+                    finalize_df=pl.DataFrame({"repeat_id": []}),
+                    experiments=[],
+                    repeat_start_times=[],
+                    repeat_timestamps=[],
+                    stop_reasons=[],
+                    run_results=[],
+                )
             )
 
         repeat_rngs: list[random.Random] = []
@@ -534,7 +538,7 @@ class _TaskRunner:
                 )
                 res_single = self._build_repeat_outputs(artifacts_single, start_idx=rid)
                 entries, main_result_row = res_single[0]
-                
+
                 # Strip heavy fields for the in-memory results list
                 light_entries = [strip_heavy_fields(e) for e in entries]
                 streaming_results.append((light_entries, main_result_row))
@@ -577,9 +581,7 @@ class _TaskRunner:
             run_results=run_results,
         )
 
-    def _background_save_repeat(
-        self, rid: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]
-    ) -> None:
+    def _background_save_repeat(self, rid: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]) -> None:
         """Worker function for background saving."""
         try:
             self.cache.save_repeat(
@@ -846,9 +848,7 @@ class _TaskRunner:
                 cfg["noise_model"] = experiment.true_signal.noise_model
 
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
-        token = set_combination_log_initials(
-            self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid
-        )
+        token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
         try:
             result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))
