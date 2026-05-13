@@ -427,9 +427,12 @@ body {
             transition: all 0.15s ease;
         }
 
-        .help-icon-visible:hover {
+        .help-icon-visible:hover,
+        .help-icon-visible:focus-visible {
             background: #3b82f6;
             color: #fff;
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
         }
 
         .scan-metrics-panel .help-icon {

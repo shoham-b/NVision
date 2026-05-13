@@ -1165,6 +1165,7 @@ function main() {
                 const isActive = button.dataset.value === normalized;
                 button.classList.toggle('is-active', isActive);
                 button.setAttribute('aria-checked', String(isActive));
+                button.tabIndex = isActive ? 0 : -1;
             }
             if (!silent) {
                 control.dispatchEvent(
@@ -1193,9 +1194,25 @@ function main() {
                 button.dataset.value = item;
                 button.setAttribute('role', 'radio');
                 button.setAttribute('aria-checked', 'false');
+                button.tabIndex = -1;
                 button.textContent = item;
                 button.addEventListener('click', () => {
                     setControlValue(control, item);
+                });
+                button.addEventListener('keydown', (e) => {
+                    const buttons = Array.from(control.querySelectorAll('button'));
+                    const index = buttons.indexOf(button);
+                    let nextIndex = null;
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                        nextIndex = (index + 1) % buttons.length;
+                    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                        nextIndex = (index - 1 + buttons.length) % buttons.length;
+                    }
+                    if (nextIndex !== null) {
+                        e.preventDefault();
+                        buttons[nextIndex].focus();
+                        buttons[nextIndex].click();
+                    }
                 });
                 control.appendChild(button);
             }
