@@ -522,6 +522,7 @@ function main() {
                 btn.textContent = s.label;
                 btn.setAttribute("role", "tab");
                 btn.setAttribute("aria-selected", s.id === activeId ? "true" : "false");
+                btn.tabIndex = s.id === activeId ? 0 : -1;
                 btn.setAttribute("aria-controls", s.id);
                 btn.setAttribute("id", "tab-" + s.id);
                 const panel = document.getElementById(s.id);
@@ -530,14 +531,33 @@ function main() {
                 }
                 btn.dataset.tab = s.id;
                 btn.addEventListener('click', () => {
-                    tabBar.querySelectorAll('.bayes-tab-button').forEach((b) => b.classList.remove('is-active'));
-                    tabBar.querySelectorAll(".bayes-tab-button").forEach((b) => b.setAttribute("aria-selected", "false"));
+                    tabBar.querySelectorAll('.bayes-tab-button').forEach((b) => {
+                        b.classList.remove('is-active');
+                        b.setAttribute("aria-selected", "false");
+                        b.tabIndex = -1;
+                    });
                     btn.setAttribute("aria-selected", "true");
+                    btn.tabIndex = 0;
                     btn.classList.add('is-active');
                     sections.forEach((sec) => {
                         const el = document.getElementById(sec.id);
                         if (el) el.classList.toggle('is-active', sec.id === s.id);
                     });
+                });
+                btn.addEventListener('keydown', (e) => {
+                    const buttons = Array.from(tabBar.querySelectorAll('.bayes-tab-button'));
+                    const index = buttons.indexOf(btn);
+                    let nextIndex = null;
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                        nextIndex = (index + 1) % buttons.length;
+                    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                        nextIndex = (index - 1 + buttons.length) % buttons.length;
+                    }
+                    if (nextIndex !== null) {
+                        e.preventDefault();
+                        buttons[nextIndex].focus();
+                        buttons[nextIndex].click();
+                    }
                 });
                 tabBar.appendChild(btn);
             }
@@ -1635,10 +1655,14 @@ function main() {
             strategyButton.setAttribute('aria-selected', 'false');
             tabBar.appendChild(strategyButton);
 
-            const tabButtons = tabBar.querySelectorAll('.tab-button');
+            const tabButtons = Array.from(tabBar.querySelectorAll('.tab-button'));
             if (tabButtons.length > 0) {
                 tabButtons[0].classList.add('is-active');
                 tabButtons[0].setAttribute('aria-selected', 'true');
+                tabButtons[0].tabIndex = 0;
+                for (let i = 1; i < tabButtons.length; i++) {
+                    tabButtons[i].tabIndex = -1;
+                }
                 const initialTabId = tabButtons[0].dataset.tab;
                 tabPanels.forEach(panel => {
                     if (panel.id === initialTabId) {
@@ -1660,9 +1684,11 @@ function main() {
                 tabButtons.forEach(button => {
                     button.classList.remove('is-active');
                     button.setAttribute('aria-selected', 'false');
+                    button.tabIndex = -1;
                 });
                 target.classList.add('is-active');
                 target.setAttribute('aria-selected', 'true');
+                target.tabIndex = 0;
 
                 tabPanels.forEach(panel => {
                     if (panel.id === target.dataset.tab) {
@@ -1671,6 +1697,25 @@ function main() {
                         panel.classList.add('is-hidden');
                     }
                 });
+            });
+
+            tabBar.addEventListener('keydown', (e) => {
+                const target = e.target;
+                if (!target.matches('.tab-button')) {
+                    return;
+                }
+                const index = tabButtons.indexOf(target);
+                let nextIndex = null;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    nextIndex = (index + 1) % tabButtons.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    nextIndex = (index - 1 + tabButtons.length) % tabButtons.length;
+                }
+                if (nextIndex !== null) {
+                    e.preventDefault();
+                    tabButtons[nextIndex].focus();
+                    tabButtons[nextIndex].click();
+                }
             });
         }
 
