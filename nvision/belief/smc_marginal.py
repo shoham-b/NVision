@@ -673,8 +673,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if len(candidates) == 0:
             return candidates[:0]
 
-        # Evaluate EIG for all candidates at once
-        eig_scores = self.expected_information_gain(candidates, noise_std=noise_std).astype(np.float64)
+        # Evaluate EIG in chunks to prevent large memory allocation for predictions
+        n_cands = len(candidates)
+        eig_scores = np.empty(n_cands, dtype=np.float64)
+        for i in range(0, n_cands, _EIG_CHUNK_SIZE):
+            end = min(i + _EIG_CHUNK_SIZE, n_cands)
+            chunk = candidates[i:end]
+            eig_scores[i:end] = self.expected_information_gain(chunk, noise_std=noise_std).astype(np.float64)
 
         # Use Numba parallel prange to find per-chunk argmax indices
         winner_indices = _chunk_argmax(eig_scores, _EIG_CHUNK_SIZE)
