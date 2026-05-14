@@ -8,3 +8,7 @@
 ## 2026-05-13 - Segmented Controls and ARIA Keyboard Navigation
 **Learning:** Native `role="radiogroup"` combined with `role="radio"` elements does not give users standard keyboard navigation implicitly. It requires explicit arrow key navigation using javascript and a roving tabindex to correctly shift focus without requiring tabbing through every single item.
 **Action:** When implementing custom segmented controls with `role="radio"`, attach `keydown` listeners to cycle through nodes using `ArrowLeft`/`ArrowUp` and `ArrowRight`/`ArrowDown`, and manipulate `tabindex` to `0` / `-1` appropriately.
+
+## 2024-05-14 - Tab Keyboard Navigation
+**Learning:** Elements with `role="tab"` should use a "roving tabindex" strategy where only the active tab has `tabindex="0"` and inactive tabs have `tabindex="-1"`. Navigation between tabs within the same `role="tablist"` should be handled using arrow keys to improve keyboard accessibility for screen reader users.
+**Action:** When implementing custom tab UI elements, ensure appropriate keydown listeners are attached for arrow keys, dynamically updating `tabindex` and focusing the newly selected tab.
