@@ -2327,12 +2327,11 @@ const float MIN_DIFF = 1e-6;
 
 // TODO: possible optimizations: avoid overcalculating all for vertices and calc just one instead
 // TODO: precalculate dot products, normalize things beforehead etc.
-// TODO: refactor to rectangular algorithm
+
 
 float distToLine(vec2 p, vec2 a, vec2 b) {
 	vec2 diff = b - a;
-	vec2 perp = normalize(vec2(-diff.y, diff.x));
-	return dot(p - a, perp);
+	return (diff.x * (p.y - a.y) - diff.y * (p.x - a.x)) / length(diff);
 }
 
 bool isNaN( float val ){
@@ -2522,8 +2521,7 @@ varying float enableStartMiter, enableEndMiter;
 
 float distToLine(vec2 p, vec2 a, vec2 b) {
 	vec2 diff = b - a;
-	vec2 perp = normalize(vec2(-diff.y, diff.x));
-	return dot(p - a, perp);
+	return (diff.x * (p.y - a.y) - diff.y * (p.x - a.x)) / length(diff);
 }
 
 void main() {
