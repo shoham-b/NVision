@@ -156,18 +156,18 @@ class LocatorResultsRepository:
             if isinstance(cached_payload_raw, str):
                 try:
                     cached_payload = json.loads(cached_payload_raw)
-                    cached_results: CachedComboResults = []
-                    for record in cached_payload:
-                        if not isinstance(record, dict):
-                            break
-                        entries = record.get("entries")
-                        result_row = record.get("main_result_row")
-                        if not isinstance(entries, list) or not isinstance(result_row, dict):
-                            break
-                        cached_results.append((entries, result_row))
-                    else:
-                        if cached_results:
-                            return cached_results
+
+                    if not all(type(r) is dict for r in cached_payload):
+                        return None
+
+                    cached_results: CachedComboResults = [
+                        (record["entries"], record["main_result_row"]) for record in cached_payload
+                    ]
+
+                    if all(type(e) is list and type(r) is dict for e, r in cached_results):
+                        return cached_results
+                except (KeyError, TypeError):
+                    pass
                 except Exception:
                     pass
         return None
@@ -190,15 +190,6 @@ class LocatorResultsRepository:
         """
         if repeats > STREAMING_REPEAT_THRESHOLD:
             # Streaming path: write pointer and all repeats
-            ptr_config = combination_base_cache_config(
-                generator=generator,
-                noise=noise,
-                strategy=strategy,
-                seed=seed,
-                max_steps=max_steps,
-                timeout_s=timeout_s,
-            )
-            ptr_key = stable_config_hash(ptr_config)
             self.append_cached_repeats(
                 generator=generator,
                 noise=noise,
