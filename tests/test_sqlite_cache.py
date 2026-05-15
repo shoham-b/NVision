@@ -51,3 +51,58 @@ def test_sqlite_cache_recovery_other_db_error_raises(tmp_path: Path, monkeypatch
 
     with pytest.raises(sqlite3.DatabaseError, match="Some other database error occurred"):
         _init_schema_with_recovery(db_path, schema_sql)
+
+
+def test_sharded_sqlite_cache_iter_index_error(tmp_path, monkeypatch):
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    cache = ShardedSqliteCache(tmp_path / "base.db")
+
+    def mock_get_index_conn(*args, **kwargs):
+        raise Exception("Simulated index DB error")
+
+    monkeypatch.setattr(cache, "_get_index_conn", mock_get_index_conn)
+
+    keys = list(cache)
+    assert keys == []
+
+
+def test_sharded_sqlite_cache_iter_legacy_error(tmp_path, monkeypatch):
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    # Create a dummy base db to trigger legacy path behavior
+    base_db = tmp_path / "legacy.db"
+    base_db.write_text("dummy")
+
+    cache = ShardedSqliteCache(base_db)
+
+    def mock_get_conn_for_path(*args, **kwargs):
+        raise Exception("Simulated legacy DB error")
+
+    monkeypatch.setattr(cache, "_get_conn_for_path", mock_get_conn_for_path)
+
+    keys = list(cache)
+    assert keys == []
+
+
+def test_sharded_sqlite_cache_iter_yields_legacy_if_index_fails(tmp_path, monkeypatch):
+    import sqlite3
+
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    # Create a dummy base db to trigger legacy path behavior
+    base_db = tmp_path / "legacy_working.db"
+    base_db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(base_db) as conn:
+        conn.execute("CREATE TABLE cache (key TEXT PRIMARY KEY)")
+        conn.execute("INSERT INTO cache (key) VALUES ('legacy_key_1')")
+
+    cache = ShardedSqliteCache(base_db)
+
+    def mock_get_index_conn(*args, **kwargs):
+        raise Exception("Simulated index DB error")
+
+    monkeypatch.setattr(cache, "_get_index_conn", mock_get_index_conn)
+
+    keys = list(cache)
+    assert keys == ["legacy_key_1"]
