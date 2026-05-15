@@ -130,7 +130,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if ess < ess_threshold:
             if hasattr(self.belief, "_resample"):
                 self.belief._resample()
-            
+
             if check_convergence and self._target_params_converged():
                 self._is_converged = True
 

@@ -6,18 +6,14 @@ import dataclasses
 import datetime
 import logging
 import random
-import threading
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 import polars as pl
 
-from nvision.belief.abstract_marginal import AbstractMarginalDistribution
-from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 from nvision.cache import CacheBridge
 from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
@@ -32,11 +28,7 @@ from nvision.runner.signal_cache import get_shared_core_experiment
 from nvision.runner.sweep_cache import (
     SweepCache,
     _create_sweep_belief,
-    clear_sweep_cache,
-    get_cached_sweep,
-    has_cached_sweep,
     precompute_sweep,
-    put_cached_sweep,
 )
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
