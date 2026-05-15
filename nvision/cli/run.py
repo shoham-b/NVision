@@ -8,6 +8,7 @@ import os
 import queue
 import struct
 import sys
+import time
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
 from multiprocessing import shared_memory
@@ -233,8 +234,6 @@ def _run_tasks_process_pool(  # noqa: C901
                     with contextlib.suppress(psutil.NoSuchProcess):
                         child.terminate()
                 # Give processes a moment to terminate gracefully
-                import time
-
                 time.sleep(0.5)
                 # Kill any remaining
                 for child in parent.children(recursive=True):
@@ -682,6 +681,7 @@ def run(  # noqa: C901
                 shm_lock = manager.Lock()
                 sweep_shm_lock = manager.Lock()
 
+        log.info(f"DEBUG: Found {len(tasks)} tasks")
         try:
             with monitor:
                 # Tasks are now actually executing

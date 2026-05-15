@@ -58,6 +58,9 @@
     <div id="bayes-section-container" style="margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em;">
         <h2>Bayesian Analysis <span tabindex="0" class="help-icon-visible" title="Bayesian inference visualizations showing how beliefs evolve as measurements accumulate.">?</span></h2>
         <div class="bayes-tab-bar" id="bayes-tab-bar" role="tablist" style="display:none;"></div>
+        <div id="bayes-no-data-message" style="display:none; padding: 2em; text-align: center; color: #666; background: #fafafa; border: 1px dashed #ccc; border-radius: 8px; margin: 1em 0;">
+            No Bayesian analysis data available for this selection.
+        </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-interactive-section">
             <h3>Posterior Evolution <span tabindex="0" class="help-icon-visible" title="Animated heatmap showing how the Bayesian posterior distribution updates as each new measurement is taken.">?</span></h3>
             <iframe id="bayes-interactive-iframe" title="Bayesian posterior evolution plot"></iframe>
@@ -79,8 +82,12 @@
             <iframe id="bayes-fisher-pairs-iframe" title="Fisher CRLB parameter correlations plot"></iframe>
         </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-ellipse-section">
-            <h3>Covariance Ellipses <span tabindex="0" class="help-icon-visible" title="Animated 2D covariance ellipses showing how uncertainty regions shrink toward the true parameter values as more measurements are collected.">?</span></h3>
+            <h3>Covariance Ellipses <span tabindex="0" class="help-icon-visible" title="Animated 2D covariance ellipses showing how uncertainty regions shrink and move (jitter) toward the true parameter values as more measurements are collected.">?</span></h3>
             <iframe id="bayes-ellipse-iframe" title="Covariance ellipses plot"></iframe>
+        </div>
+        <div class="bayes-tab-panel" role="tabpanel" id="bayes-jitter-section">
+            <h3>Covariance & Jitter <span tabindex="0" class="help-icon-visible" title="Numerical covariance and jitter statistics. 'Jitter' is the standard deviation of parameter estimates over the last 20 steps, capturing how much the filter is still 'jumping' around.">?</span></h3>
+            <div id="bayes-jitter-content" class="scan-metrics-panel"></div>
         </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-true-params-section">
             <h3>True Signal Parameters <span class="help-icon-visible" title="Ground truth parameters used to generate the signal for this repeat.">?</span></h3>

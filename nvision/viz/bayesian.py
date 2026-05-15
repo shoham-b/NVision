@@ -1174,12 +1174,14 @@ class BayesianMixin:
         pairs: list[tuple[int, int]],
         out_path: Path,
         *,
+        means_history: list[dict[str, float]] | None = None,
         true_params: Mapping[str, float] | None = None,
     ) -> None:
         """Animate 2D covariance ellipses for parameter pairs (Option C).
 
         Shows how uncertainty regions shrink toward true parameter values.
-        Each subplot shows a 2σ ellipse shrinking as inference progresses.
+        Each subplot shows a 2σ ellipse. If means_history is provided,
+        ellipses are centered at the estimated means (showing jitter).
         """
         if not covariance_history or not pairs:
             return
@@ -1188,9 +1190,11 @@ class BayesianMixin:
 
         # Subsample if too many steps
         step_indices = list(range(n_steps))
-        if n_steps > 100:
-            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 100)]
+        if n_steps > 150:
+            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 150)]
             covariance_history = [covariance_history[i] for i in step_indices]
+            if means_history:
+                means_history = [means_history[i] for i in step_indices]
             n_steps = len(step_indices)
 
         from plotly.subplots import make_subplots
@@ -1230,19 +1234,43 @@ class BayesianMixin:
                 rot = eigvecs
                 points = np.column_stack([ellipse_x, ellipse_y]) @ rot.T
 
+                # Center at means if available
+                if means_history:
+                    step_means = means_history[step_idx]
+                    m_i = step_means.get(param_names[i], 0.0)
+                    m_j = step_means.get(param_names[j], 0.0)
+                    points[:, 0] += m_i
+                    points[:, 1] += m_j
+
                 frame_data.append(
                     go.Scatter(
                         x=points[:, 0],
                         y=points[:, 1],
                         mode="lines",
-                        line=dict(color=colors[step_idx], width=2),
+                        line=dict(color=colors[step_idx], width=3),
                         fill="toself",
                         fillcolor=colors[step_idx],
-                        opacity=0.7,
+                        opacity=0.6,
                         name=f"Step {step_indices[step_idx]}",
                         showlegend=(pair_idx == 0),
                     )
                 )
+
+                # Add true value cross
+                if true_params:
+                    t_i = true_params.get(param_names[i])
+                    t_j = true_params.get(param_names[j])
+                    if t_i is not None and t_j is not None:
+                        frame_data.append(
+                            go.Scatter(
+                                x=[t_i],
+                                y=[t_j],
+                                mode="markers",
+                                marker=dict(symbol="x", color="red", size=10),
+                                name="True",
+                                showlegend=(pair_idx == 0 and step_idx == 0),
+                            )
+                        )
 
             frames.append(
                 go.Frame(
@@ -1328,9 +1356,11 @@ class BayesianMixin:
         # Update all subplots with proper axis labels
         for pair_idx, (i, j) in enumerate(pairs):
             col = pair_idx + 1
-            fig.update_xaxes(title_text=f"Δ{param_names[i]} (deviation)", row=1, col=col)
-            fig.update_yaxes(title_text=f"Δ{param_names[j]} (deviation)", row=1, col=col)
-            fig.update_yaxes(scaleanchor=f"x{col if col > 1 else ''}", scaleratio=1, row=1, col=col)
+            fig.update_xaxes(title_text=param_names[i], row=1, col=col)
+            fig.update_yaxes(title_text=param_names[j], row=1, col=col)
+            # Use data-driven ranges if centered at means
+            if not means_history:
+                fig.update_yaxes(scaleanchor=f"x{col if col > 1 else ''}", scaleratio=1, row=1, col=col)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")

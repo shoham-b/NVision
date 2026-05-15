@@ -99,6 +99,14 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         raw_uncertainties = super()._empirical_uncertainty()
         return all(u < threshold for u in raw_uncertainties.values())
 
+    def covariance_matrix(self) -> np.ndarray:
+        """Return the physical-scale covariance matrix."""
+        raw_cov = super().covariance_matrix()
+        ranges = np.array(
+            [self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0] for name in self._param_names]
+        )
+        return raw_cov * np.outer(ranges, ranges)
+
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         return super().sample(n)
 

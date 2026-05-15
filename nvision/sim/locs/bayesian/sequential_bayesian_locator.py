@@ -470,7 +470,13 @@ class SequentialBayesianLocator(Locator):
         """Stop when converged (after warm-up) or step budget is exhausted."""
         if not self._staged_sobol.done():
             return False
-        return self._acquisition_done()
+        res = self._acquisition_done()
+        if res:
+            import logging
+            logging.getLogger("nvision.sim.locs.bayesian").warning(
+                f"DEBUG: done() returning True. inference_step_count={self.inference_step_count}, max_steps={self.max_steps}"
+            )
+        return res
 
     def _target_params_converged(self) -> bool:
         """Check convergence on configured target parameters.

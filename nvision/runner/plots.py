@@ -370,6 +370,64 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             ce["path"] = conv_path.relative_to(out_dir).as_posix()
             extra.append(ce)
 
+    # Actual SMC covariance history for ellipses and jitter
+    from nvision.belief.smc_marginal import SMCMarginalDistribution
+    
+    if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
+        cov_hist = [s.belief.covariance_matrix() for s in bayesian_snapshots]
+        param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
+
+        # Select pairs for 2D visualization
+        pairs = []
+        try:
+            f_idx = param_names.index("frequency")
+            if "split" in param_names:
+                pairs.append((f_idx, param_names.index("split")))
+            if "linewidth" in param_names:
+                pairs.append((f_idx, param_names.index("linewidth")))
+            # If still few pairs, add first two if not already added
+            if len(pairs) < 1 and len(param_names) >= 2:
+                pairs.append((0, 1))
+        except (ValueError, IndexError):
+            if len(param_names) >= 2:
+                pairs.append((0, 1))
+
+        if pairs:
+            ellipse_path = bayes_dir / f"{attempt_slug}_covariance_ellipses.html"
+            viz.plot_covariance_ellipses(
+                cov_hist,
+                param_names,
+                pairs,
+                ellipse_path,
+                means_history=estimates_hist,
+                true_params=true_params,
+            )
+            if ellipse_path.exists():
+                ee = entry_base.copy()
+                ee["type"] = "bayesian_covariance_ellipses"
+                ee["path"] = ellipse_path.relative_to(out_dir).as_posix()
+                extra.append(ee)
+
+        # Add numerical jitter metrics (standard deviation of estimates over last 20 steps)
+        if len(estimates_hist) >= 2:
+            subset = estimates_hist[-20:]
+            jitter = {k: float(np.std([s.get(k, 0.0) for s in subset])) for k in param_names}
+            final_cov = cov_hist[-1]
+            
+            je = entry_base.copy()
+            je["type"] = "bayesian_jitter"
+            je["jitter"] = jitter
+            # Include final covariance diagonal (variances)
+            je["variances"] = {name: float(final_cov[i, i]) for i, name in enumerate(param_names)}
+            # Also include the full correlation matrix for the UI to show couplings
+            stds = np.sqrt(np.diag(final_cov) + 1e-20)
+            corr = final_cov / np.outer(stds, stds)
+            je["correlations"] = {
+                name_i: {name_j: float(corr[i, j]) for j, name_j in enumerate(param_names)}
+                for i, name_i in enumerate(param_names)
+            }
+            extra.append(je)
+
     # Fisher information bounds vs actual uncertainty for SMC beliefs
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
@@ -519,6 +577,11 @@ def generate_attempt_plots(  # noqa: C901
     run_result: RunResult | None = None,
 ) -> list[dict[str, Any]]:
     """Generate visualizations and graph manifest entries for a single repeat."""
+    log.warning(f"DEBUG: generate_attempt_plots called for {entry_base.get('strategy')}")
+    log.warning(f"DEBUG: run_result is {type(run_result)}")
+    if run_result:
+        log.warning(f"DEBUG: run_result.snapshots count: {len(run_result.snapshots)}")
+        log.warning(f"DEBUG: run_result.sweep_steps: {run_result.sweep_steps}")
     attempt_slug = f"{slug_base}_r{attempt_idx_in_combo + 1}"
     out_path = scans_dir / f"{attempt_slug}.html"
 

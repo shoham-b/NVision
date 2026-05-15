@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -11,6 +12,8 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
 from nvision.spectra.signal import TrueSignal
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -262,6 +265,8 @@ class Observer:
                     resampled=locator.belief.resampled,
                 )
                 self.snapshots.append(snapshot)
+            # else:
+                # print(f"DEBUG: Observer skipped step, last_obs is None")
 
         self.last_locator = last_locator
         focus_window: tuple[float, float] | None = None

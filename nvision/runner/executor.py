@@ -1,6 +1,7 @@
 """Task executor — runs a LocatorTask end-to-end."""
 
 from __future__ import annotations
+from nvision.sim.locs.coarse import SweepingLocator
 
 import dataclasses
 import datetime
@@ -76,7 +77,7 @@ def run_loop(
 ) -> Iterator[Locator]:
     """Run one repeat's measurement loop and yield locator states.
 
-    For Bayesian locators with initial sweeps and sweep locators, checks
+    For Bayesian locators with initial sweeps and  locators, checks
     ``sweep_cache`` for pre-computed observations to avoid redundant measurements.
     """
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)

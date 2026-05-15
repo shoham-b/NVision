@@ -243,6 +243,13 @@ function main() {
         const bayesImage = document.getElementById('bayes-image');
         const bayesPlots = plots.filter((p) => p.type === 'bayesian');
         const bayesInteractivePlots = plots.filter((p) => p.type === 'bayesian_interactive');
+        const bayesFisherPlots = plots.filter((p) => p.type === 'bayesian_fisher_information');
+        const bayesFisherPairsPlots = plots.filter((p) => p.type === 'bayesian_fisher_crlb_pairs');
+        const bayesEllipsePlots = plots.filter((p) => p.type === 'bayesian_covariance_ellipses');
+        const bayesConvergencePlots = plots.filter((p) => p.type === 'bayesian_parameter_convergence');
+        const bayesConvMetricsPlots = plots.filter((p) => p.type === 'bayesian_convergence_metrics');
+        const bayesJitterPlots = plots.filter((p) => p.type === 'bayesian_jitter');
+        
         const bayesInteractiveSection = document.getElementById('bayes-interactive-section');
         const bayesInteractiveIframe = document.getElementById('bayes-interactive-iframe');
         const bayesConvergenceSection = document.getElementById('bayes-convergence-section');
@@ -255,6 +262,8 @@ function main() {
         const bayesFisherPairsIframe = document.getElementById('bayes-fisher-pairs-iframe');
         const bayesEllipseSection = document.getElementById('bayes-ellipse-section');
         const bayesEllipseIframe = document.getElementById('bayes-ellipse-iframe');
+        const bayesJitterSection = document.getElementById('bayes-jitter-section');
+        const bayesJitterContent = document.getElementById('bayes-jitter-content');
         const bayesStatsPlots = plots.filter((p) => p.type === 'bayesian_stats');
         const bayesStatsSection = document.getElementById('bayes-stats-section');
         const posteriorHistoryImage = document.getElementById('posterior-history-image');
@@ -267,6 +276,7 @@ function main() {
             plots.some((p) => p.type === 'bayesian_convergence_metrics') ||
             plots.some((p) => p.type === 'bayesian_fisher_bounds') ||
             plots.some((p) => p.type === 'bayesian_fisher_crlb_pairs') ||
+            plots.some((p) => p.type === 'bayesian_jitter') ||
             plots.some((p) => p.type === 'bayesian_covariance_ellipses');
         if (bayesSection) {
             bayesSection.hidden = !hasBayesArtifacts;
@@ -319,6 +329,8 @@ function main() {
                 bayesConvMetricsIframe.src = '';
                 bayesEllipseSection.dataset.available = 'false';
                 bayesEllipseIframe.src = '';
+                bayesJitterSection.dataset.available = 'false';
+                bayesJitterContent.innerHTML = '';
                 return;
             }
 
@@ -427,6 +439,23 @@ function main() {
                 bayesEllipseSection.dataset.available = 'false';
                 bayesEllipseIframe.src = '';
             }
+
+            const jitterPlot = plots.find(
+                (p) =>
+                    p.type === 'bayesian_jitter' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            if (jitterPlot && bayesJitterContent) {
+                renderJitterView(bayesJitterContent, jitterPlot);
+                bayesJitterSection.dataset.available = 'true';
+            } else if (bayesJitterSection) {
+                bayesJitterSection.dataset.available = 'false';
+                if (bayesJitterContent) bayesJitterContent.innerHTML = '';
+            }
         }
 
         function updateBayesStatsView(selectedPlot) {
@@ -471,6 +500,8 @@ function main() {
                 convergenceStatsImage.hidden = true;
             }
 
+            if (posteriorPlot || convergencePlot) {
+                bayesStatsSection.dataset.available = 'true';
             } else {
                 bayesStatsSection.dataset.available = 'false';
             }
@@ -501,6 +532,7 @@ function main() {
                 { id: 'bayes-fisher-section', label: 'Fisher Bounds' },
                 { id: 'bayes-fisher-pairs-section', label: 'CRLB Pairs' },
                 { id: 'bayes-ellipse-section', label: 'Covariance Ellipses' },
+                { id: 'bayes-jitter-section', label: 'Covariance & Jitter' },
                 { id: 'bayes-true-params-section', label: 'True Parameters' },
                 { id: 'bayes-stats-section', label: 'Statistics' },
             ];
@@ -510,21 +542,28 @@ function main() {
                 return el && el.dataset.available === 'true';
             });
 
-            if (available.length === 0) {
-                tabBar.style.display = 'none';
-                sections.forEach((s) => {
-                    const el = document.getElementById(s.id);
-                    if (el) el.classList.remove('is-active');
-                });
+            const bayesSectionContainer = document.getElementById('bayes-section-container');
+            const noDataMsg = document.getElementById('bayes-no-data-message');
+            
+            if (bayesPlots.length === 0 && bayesInteractivePlots.length === 0) {
+                if (bayesSectionContainer) bayesSectionContainer.style.display = 'none';
                 return;
+            } else if (bayesSectionContainer) {
+                bayesSectionContainer.style.display = 'block';
             }
 
-            tabBar.style.display = 'flex';
+            if (available.length === 0) {
+                tabBar.style.display = 'none';
+                if (noDataMsg) noDataMsg.style.display = 'block';
+            } else {
+                tabBar.style.display = 'flex';
+                if (noDataMsg) noDataMsg.style.display = 'none';
+            }
 
             const currentActive = tabBar.querySelector('.bayes-tab-button.is-active');
             let activeId = currentActive ? currentActive.dataset.tab : null;
             if (!available.some((s) => s.id === activeId)) {
-                activeId = available[0].id;
+                activeId = available[0] ? available[0].id : null;
             }
 
             tabBar.innerHTML = '';
@@ -1568,6 +1607,59 @@ function main() {
                         return items;
                     }
 
+                    function renderJitterView(container, jitterPlot) {
+                        if (!container || !jitterPlot) return;
+                        
+                        const jitter = jitterPlot.jitter || {};
+                        const variances = jitterPlot.variances || {};
+                        const correlations = jitterPlot.correlations || {};
+                        const paramNames = Object.keys(jitter);
+                        
+                        const items = [];
+                        for (const name of paramNames) {
+                            items.push({
+                                label: name,
+                                val: formatMetricValue(jitter[name]),
+                                tip: 'Standard deviation of estimates over last 20 steps (physical units).',
+                                rawVal: jitter[name]
+                            });
+                        }
+                        
+                        let html = '<h4>Jitter (last 20 steps)</h4>';
+                        html += renderItemsToHtml(items);
+                        
+                        if (Object.keys(variances).length > 0) {
+                            html += '<h4 style="margin-top:1.5em">Final Variances (diag Σ)</h4>';
+                            const varItems = paramNames.map(name => ({
+                                label: name,
+                                val: formatMetricValue(variances[name]),
+                                rawVal: variances[name]
+                            }));
+                            html += renderItemsToHtml(varItems);
+                        }
+                        
+                        if (Object.keys(correlations).length > 0) {
+                            html += '<h4 style="margin-top:1.5em">Correlation Matrix</h4>';
+                            html += '<div style="overflow-x:auto"><table class="correlation-table" style="border-collapse: collapse; width: 100%; font-size: 0.9em;">';
+                            const names = paramNames;
+                            html += '<thead><tr><th style="padding: 8px; border-bottom: 2px solid #eee;"></th>' + names.map(n => `<th style="padding: 8px; border-bottom: 2px solid #eee;">${n}</th>`).join('') + '</tr></thead>';
+                            html += '<tbody>';
+                            for (const ni of names) {
+                                html += `<tr><th style="padding: 8px; text-align: left; border-bottom: 1px solid #eee;">${ni}</th>`;
+                                for (const nj of names) {
+                                    const val = (correlations[ni] && correlations[ni][nj] !== undefined) ? correlations[ni][nj] : 0;
+                                    const color = val > 0 ? `rgba(52, 152, 219, ${Math.min(1, val)})` : `rgba(231, 76, 60, ${Math.min(1, Math.abs(val))})`;
+                                    const textColor = Math.abs(val) > 0.5 ? 'white' : 'black';
+                                    html += `<td style="background-color:${color}; text-align:center; padding: 8px; border-bottom: 1px solid #eee; color:${textColor}; font-weight: bold;">${val.toFixed(2)}</td>`;
+                                }
+                                html += '</tr>';
+                            }
+                            html += '</tbody></table></div>';
+                        }
+                        
+                        container.innerHTML = html;
+                    }
+
                     function renderItemsToHtml(items, useSliders = false) {
                         return items.map(it => {
                             const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
@@ -2429,7 +2521,7 @@ function main() {
         }
     });
 
-    window.addEventListener('DOMContentLoaded', () => {
+    const init = () => {
         const lastRunEl = document.getElementById('last-run-time');
         if (lastRunEl) {
             lastRunEl.textContent = 'Last run: ' + new Date().toLocaleString();
@@ -2450,4 +2542,10 @@ function main() {
                 errorDiv.innerHTML = '<h3>Error: Failed to initialize UI assets</h3><p>Could not load manifest/settings data files.</p>';
                 document.body.appendChild(errorDiv);
             });
-    });
+    };
+
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }

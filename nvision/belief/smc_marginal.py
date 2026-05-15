@@ -290,10 +290,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         arrays_in_order = [self._particles[:, j] for j in range(d_signal)]
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
-        # Epistemic uncertainty: spread of ALL predictions at this x
-        sigma_epistemic = float(np.std(predicted))
-        float(obs.noise_std)
         if self.noise_model is not None and self._noise_param_slice is not None:
+            # Epistemic spread is passed to the noise model for its own tempering logic.
+            sigma_epistemic = float(np.std(predicted))
             noise_arrays = [
                 self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
             ]
@@ -303,12 +302,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             log_liks -= np.max(log_liks)
             likelihoods = np.exp(log_liks).astype(FLOAT_DTYPE, copy=False)
         else:
-            # Fallback: original path with epistemic tempering
-            sigma_eff = float(np.sqrt(obs.noise_std**2 + sigma_epistemic**2))
+            # Use only the true aleatoric noise std so that the likelihood is sharp
+            # enough to actually differentiate particles. Stability is handled by
+            # ESS-triggered resampling, not by inflating the noise width.
             likelihoods = likelihood_from_observation_model(
                 obs_y=obs.signal_value,
                 predicted=predicted,
-                noise_std=sigma_eff,
+                noise_std=obs.noise_std,
                 frequency_noise_model=obs.frequency_noise_model,
                 tempering_factor=1.0,
             ).astype(FLOAT_DTYPE, copy=False)
@@ -320,7 +320,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 3. Normalize weights
         # Use float64 for normalization to avoid precision issues that can lead to
         # weights summing to > 1.0 or catastrophic precision loss in float32.
-        raw_weights = self._weights.astype(np.float64)
+        raw_weights = self._weights.astype(FLOAT_DTYPE)
         weight_sum = np.sum(raw_weights)
         if weight_sum > 1e-100:
             self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE)
@@ -367,7 +367,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # likelihood proportionally to how much the particles disagree — identical to
         # what update() does. Without this, batch processing 30+ sweep observations
         # accumulates a product of sharp likelihoods and collapses the filter in ~16 steps.
-        log_weights = np.zeros(self.num_particles, dtype=np.float64)
+        log_weights = np.zeros(self.num_particles, dtype=FLOAT_DTYPE)
         for obs in observations:
             predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
@@ -382,15 +382,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 )
                 log_liks -= np.max(log_liks)
             else:
-                sigma_epistemic = float(np.std(predicted))
-                sigma_eff = float(np.sqrt(obs.noise_std**2 + sigma_epistemic**2))
-                likelihoods = likelihood_from_observation_model(
-                    obs_y=obs.signal_value,
-                    predicted=predicted,
-                    noise_std=sigma_eff,
-                    frequency_noise_model=obs.frequency_noise_model,
-                ).astype(np.float64, copy=False)
-                log_liks = np.log(np.clip(likelihoods, 1e-300, None))
+                # Compute log-likelihood directly in log-space to avoid the
+                # exp → float32 → log roundtrip that underflows to 0.0 for
+                # particles far from the observation (log(0) = -inf / warning).
+                sigma = max(float(obs.noise_std), 1e-9)
+                residuals_f64 = (obs.signal_value - predicted.astype(np.float64))
+                log_liks = (-0.5 * (residuals_f64 / sigma) ** 2).astype(FLOAT_DTYPE)
 
             log_weights += log_liks
 
@@ -398,7 +395,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Convert back to normalized weights
         log_weights -= np.max(log_weights)
-        raw_weights = np.exp(log_weights) * self._weights.astype(np.float64)
+        raw_weights = np.exp(log_weights) * self._weights.astype(FLOAT_DTYPE)
         weight_sum = np.sum(raw_weights)
         if weight_sum > 1e-300:
             self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE)
@@ -508,7 +505,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 5. Enforce minimum exploration variance based on parameter ranges.
         # This prevents the filter from getting stuck in a tiny volume.
-        MIN_EXPLORATION_FRAC: float = 0.01  # noqa: N806
+        MIN_EXPLORATION_FRAC: float = 0.0  # noqa: N806
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
             min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
@@ -675,11 +672,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Evaluate EIG in chunks to prevent large memory allocation for predictions
         n_cands = len(candidates)
-        eig_scores = np.empty(n_cands, dtype=np.float64)
+        eig_scores = np.empty(n_cands, dtype=FLOAT_DTYPE)
         for i in range(0, n_cands, _EIG_CHUNK_SIZE):
             end = min(i + _EIG_CHUNK_SIZE, n_cands)
             chunk = candidates[i:end]
-            eig_scores[i:end] = self.expected_information_gain(chunk, noise_std=noise_std).astype(np.float64)
+            eig_scores[i:end] = self.expected_information_gain(chunk, noise_std=noise_std).astype(FLOAT_DTYPE)
 
         # Use Numba parallel prange to find per-chunk argmax indices
         winner_indices = _chunk_argmax(eig_scores, _EIG_CHUNK_SIZE)
@@ -691,7 +688,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         winner_scores = eig_scores[winner_indices]
         shifted_scores = (winner_scores - np.max(winner_scores)) / temp
         # Use float64 for softmax to avoid overflow/underflow artifacts
-        probs = np.exp(shifted_scores.astype(np.float64))
+        probs = np.exp(shifted_scores.astype(FLOAT_DTYPE))
         probs /= np.sum(probs)
 
         # Sample n indices without replacement based on EIG probabilities
