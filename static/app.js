@@ -1720,9 +1720,11 @@ function main() {
                     scanViewMode.querySelectorAll('button').forEach(b => {
                         b.classList.remove('is-active');
                         b.setAttribute('aria-checked', 'false');
+                        b.tabIndex = -1;
                     });
                     e.target.classList.add('is-active');
                     e.target.setAttribute('aria-checked', 'true');
+                    e.target.tabIndex = 0;
                     
                     const mode = e.target.dataset.value;
                     const repeatView = document.getElementById('scan-repeat-view');
@@ -1738,6 +1740,22 @@ function main() {
                     }
                 }
             });
+            scanViewMode.addEventListener('keydown', (e) => {
+                if (e.target.tagName !== 'BUTTON') return;
+                const buttons = Array.from(scanViewMode.querySelectorAll('button'));
+                const index = buttons.indexOf(e.target);
+                let nextIndex = null;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    nextIndex = (index + 1) % buttons.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    nextIndex = (index - 1 + buttons.length) % buttons.length;
+                }
+                if (nextIndex !== null) {
+                    e.preventDefault();
+                    buttons[nextIndex].focus();
+                    buttons[nextIndex].click();
+                }
+            });
         }
         
         const summaryTabBar = document.getElementById('summary-tab-bar');
@@ -1747,16 +1765,34 @@ function main() {
                     summaryTabBar.querySelectorAll('button').forEach(b => {
                         b.classList.remove('is-active');
                         b.setAttribute('aria-selected', 'false');
+                        b.tabIndex = -1;
                         const panel = document.getElementById(b.dataset.tab);
                         if (panel) panel.classList.remove('is-active');
                     });
                     e.target.classList.add('is-active');
                     e.target.setAttribute('aria-selected', 'true');
+                    e.target.tabIndex = 0;
                     const activePanel = document.getElementById(e.target.dataset.tab);
                     if (activePanel) activePanel.classList.add('is-active');
                     
                     // Trigger resize so Plotly fits correctly if it was hidden
                     window.dispatchEvent(new Event('resize'));
+                }
+            });
+            summaryTabBar.addEventListener('keydown', (e) => {
+                if (e.target.tagName !== 'BUTTON') return;
+                const buttons = Array.from(summaryTabBar.querySelectorAll('button'));
+                const index = buttons.indexOf(e.target);
+                let nextIndex = null;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    nextIndex = (index + 1) % buttons.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    nextIndex = (index - 1 + buttons.length) % buttons.length;
+                }
+                if (nextIndex !== null) {
+                    e.preventDefault();
+                    buttons[nextIndex].focus();
+                    buttons[nextIndex].click();
                 }
             });
         }
