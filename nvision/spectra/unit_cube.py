@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
+from numba import njit
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.signal import (
@@ -20,18 +21,36 @@ _UNIT_INTERVAL_SLACK = np.sqrt(np.float32(_FI.eps))
 _ONE_PLUS_SLACK = np.float32(1.0) + _UNIT_INTERVAL_SLACK
 
 
+@njit(cache=True)
 def _unit_interval_to_physical(u_raw: np.ndarray, lo: float, hi: float, param_name: str) -> np.ndarray:
     """Map unit-cube samples to ``[lo, hi]``, clipping benign float endpoint error."""
-    if np.any(u_raw < -_UNIT_INTERVAL_SLACK) or np.any(u_raw > _ONE_PLUS_SLACK):
-        raise ValueError(
-            f"Parameter {param_name} unit values must lie in [0, 1]; got min {float(np.min(u_raw))}, "
-            f"max {float(np.max(u_raw))}"
-        )
-    u = np.clip(u_raw, np.float32(0.0), np.float32(1.0))
+    n = len(u_raw)
+    out = np.empty(n, dtype=np.float32)
     lo32 = np.float32(lo)
     hi32 = np.float32(hi)
-    v = lo32 + u * (hi32 - lo32)
-    return np.clip(v, lo32, hi32)
+    diff = hi32 - lo32
+    for i in range(n):
+        val = u_raw[i]
+        if val < -_UNIT_INTERVAL_SLACK or val > _ONE_PLUS_SLACK:
+            raise ValueError("Parameter unit values must lie in [0, 1]")
+
+        # clip 0 to 1
+        if val < 0.0:
+            val = 0.0
+        elif val > 1.0:
+            val = 1.0
+
+        v = lo32 + val * diff
+
+        # clip lo to hi
+        if v < lo32:
+            v = lo32
+        elif v > hi32:
+            v = hi32
+
+        out[i] = v
+
+    return out
 
 
 class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[ParamsT, SampleParamsT, UncertaintyT]):

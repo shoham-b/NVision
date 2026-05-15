@@ -143,7 +143,6 @@ def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
     if sw <= 0.0:
         return np.zeros(n_rows, dtype=x_2d.dtype)
 
-    # Precalculate weight fractions since they are identical for all candidates
     w_inv = np.zeros(n_cols, dtype=w.dtype)
     sum_weight = 0.0
     for j in range(n_cols):
@@ -159,7 +158,11 @@ def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
             xij = x_2d[i, j]
             delta = xij - mean
             mean += w_inv[j] * delta
-            S += wj * delta * (xij - mean)  # noqa: N806
+            # compute S without updating it on the fly
+
+        for j in range(n_cols):
+            delta = x_2d[i, j] - mean
+            S += w[j] * delta * delta
         vars_out[i] = S / sw
 
     return vars_out

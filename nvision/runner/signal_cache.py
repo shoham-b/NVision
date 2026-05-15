@@ -70,14 +70,14 @@ def _sync_from_shm(target_key: str | None = None) -> tuple[TrueSignal, float, fl
 
         # Scan index
         count = struct.unpack("<I", _SHM.buf[8:12])[0]
-        
+
         target_hash = hash(target_key) if target_key else None
         found_bundle = None
 
         for i in range(count):
             base = 12 + i * ENTRY_SIZE
             entry_hash, offset, length = struct.unpack("<QII", _SHM.buf[base : base + 16])
-            
+
             # If we are looking for a specific key and found its hash
             if target_hash is not None and entry_hash == target_hash:
                 # To be absolutely sure about hash collisions, we'd need to store the key too.
@@ -104,7 +104,7 @@ def _write_to_shm(key: str, bundle: tuple[TrueSignal, float, float]) -> None:
 
         # Get current state from header
         version, next_offset, count = struct.unpack("<III", _SHM.buf[:12])
-        
+
         if count >= MAX_ENTRIES:
             return
         if next_offset + length > _SHM.size:
@@ -120,7 +120,7 @@ def _write_to_shm(key: str, bundle: tuple[TrueSignal, float, float]) -> None:
         # 3. Update header (version last)
         _SHM.buf[4:12] = struct.pack("<II", next_offset + length, count + 1)
         _SHM.buf[:4] = struct.pack("<I", version + 1)
-        
+
         global _LOCAL_VERSION
         _LOCAL_VERSION = version + 1
     except Exception:
@@ -161,7 +161,7 @@ def get_shared_core_experiment(
     cached = _DESERIALIZED_CACHE.get(key)
     if cached is None:
         cached = _sync_from_shm(key)
-    
+
     if cached is not None:
         true_signal, x_min, x_max = cached
         return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)

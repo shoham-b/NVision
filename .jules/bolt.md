@@ -12,3 +12,7 @@
 ## 2025-05-15 - Fast Validation & Parsing for Cache Payloads
 **Learning:** Replacing manual explicit `for`-loop variable assignments and individual `isinstance()` checks with optimistic list comprehensions combined with `all()` and exact type checking (`type(x) is T`) yields noticeable performance gains (~10%) while maintaining strict data integrity for cached JSON loads.
 **Action:** When validating arrays of structured data (like JSON payloads), prefer list comprehensions over traditional loops, and use `all()` with exact type checking to fail-fast.
+
+## 2024-05-24 - Optimizing SMC Belief Calculations
+**Learning:** When calculating weighted variance inside tight Numba `@njit` loops over fully in-memory arrays (like particle sets), use a 2-pass algorithm (calculate mean, then variance) instead of 1-pass algorithms (like Welford's). The 2-pass approach avoids catastrophic cancellation and is significantly faster because it eliminates loop-carried data dependencies, allowing Numba to heavily optimize and SIMD-vectorize the operations. Additionally, functions operating purely on raw Python floats and primitives like `np.clip` perform much faster when rewritten manually in `njit` blocks, skipping numpy overhead.
+**Action:** Always prefer 2-pass array algorithms when iterating over in-memory arrays and remove single value generic np functions where an explicit Numba loop yields a faster implementation.
