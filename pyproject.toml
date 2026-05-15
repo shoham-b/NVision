@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "google-cloud-storage>=3.10.1",
     "numdifftools>=0.9.41",
+    "numpy>=2.4.4",
 ]
 
 [project.optional-dependencies]
