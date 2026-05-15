@@ -128,10 +128,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         ess = 1.0 / w_sq if w_sq > 0 else 0.0
         ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)
         if ess < ess_threshold:
+            if hasattr(self.belief, "_resample"):
+                self.belief._resample()
+            
             if check_convergence and self._target_params_converged():
                 self._is_converged = True
-            elif hasattr(self.belief, "_resample"):
-                self.belief._resample()
 
     def _acquisition_done(self) -> bool:
         if self._is_converged:

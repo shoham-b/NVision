@@ -29,6 +29,15 @@ from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
 from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
 from nvision.runner.signal_cache import get_shared_core_experiment
+from nvision.runner.sweep_cache import (
+    SweepCache,
+    _create_sweep_belief,
+    clear_sweep_cache,
+    get_cached_sweep,
+    has_cached_sweep,
+    precompute_sweep,
+    put_cached_sweep,
+)
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
@@ -36,158 +45,30 @@ from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
 
-# Process-level shared sweep cache (shared across all locators, all tasks)
-_SWEEP_CACHE_LOCK = threading.Lock()
-_SWEEP_OBSERVATIONS_BY_KEY: dict[str, list[Observation]] = {}
+MAX_PROCESS_MEMORY_GIB = 1.0
 
 
-def _sweep_cache_key(experiment: CoreExperiment, sweep_steps: int) -> str:
-    """Generate cache key from experiment characteristics.
+def _check_memory_limit() -> None:
+    """Check current process memory usage and raise MemoryError if it exceeds limit."""
+    try:
+        import os
 
-    Key includes: x-range, sweep steps, noise config, and signal signature.
-    """
-    sig_bounds = getattr(experiment.true_signal, "bounds", {})
-    noise_name = experiment.noise.__class__.__name__ if experiment.noise else "none"
-    noise_seed = getattr(experiment.noise, "seed", "noseed") if experiment.noise else "noseed"
-    # Include parameter values for signal instances with different true parameters
-    param_values = getattr(experiment.true_signal, "parameter_values", lambda: {})()
-    return (
-        f"sweep:{experiment.x_min:.9f}:{experiment.x_max:.9f}:"
-        f"{sweep_steps}:{noise_name}:{noise_seed}:"
-        f"{hash(str(sorted(sig_bounds.items())))}:{hash(str(sorted(param_values.items())))}"
-    )
+        import psutil
 
-
-def get_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> list[Observation] | None:
-    """Retrieve cached sweep observations if available."""
-    key = _sweep_cache_key(experiment, sweep_steps)
-    with _SWEEP_CACHE_LOCK:
-        return _SWEEP_OBSERVATIONS_BY_KEY.get(key)
-
-
-def put_cached_sweep(experiment: CoreExperiment, sweep_steps: int, observations: list[Observation]) -> None:
-    """Store sweep observations in shared cache."""
-    key = _sweep_cache_key(experiment, sweep_steps)
-    with _SWEEP_CACHE_LOCK:
-        _SWEEP_OBSERVATIONS_BY_KEY[key] = observations
-
-
-def has_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> bool:
-    """Check if sweep is cached for this experiment."""
-    key = _sweep_cache_key(experiment, sweep_steps)
-    with _SWEEP_CACHE_LOCK:
-        return key in _SWEEP_OBSERVATIONS_BY_KEY
-
-
-def clear_sweep_cache() -> None:
-    """Clear all cached sweep observations (useful for testing)."""
-    with _SWEEP_CACHE_LOCK:
-        _SWEEP_OBSERVATIONS_BY_KEY.clear()
-
-
-def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribution:
-    """Create a minimal GridMarginalDistribution for sweeping locators.
-
-    Sweeping locators need a belief to satisfy the Locator parent class,
-    but they don't actually use it for sweep detection (they use signal_model).
-    This creates a simple grid belief with the signal model's parameters.
-    """
-    model = experiment.true_signal.model
-    param_names = model.parameter_names()
-
-    # Create grid parameters for each model parameter
-    parameters = []
-    for name in param_names:
-        # Use experiment bounds if available, otherwise default
-        bounds = getattr(experiment.true_signal, "bounds", {}).get(name, (experiment.x_min, experiment.x_max))
-        grid = np.linspace(bounds[0], bounds[1], 64)
-        parameters.append(
-            GridParameter(
-                name=name,
-                bounds=bounds,
-                grid=grid,
-                posterior=np.ones(64) / 64,
+        process = psutil.Process(os.getpid())
+        mem_bytes = process.memory_info().rss
+        if mem_bytes > MAX_PROCESS_MEMORY_GIB * 1024 * 1024 * 1024:
+            log.error(
+                "Process %s memory limit exceeded: %.2f GiB > %.2f GiB",
+                os.getpid(),
+                mem_bytes / (1024**3),
+                MAX_PROCESS_MEMORY_GIB,
             )
-        )
-
-    return GridMarginalDistribution(model=model, parameters=parameters)
-
-
-def precompute_sweep(
-    locator_class: type[Locator],
-    experiment: CoreExperiment,
-    rng: random.Random,
-    sweep_cache: SweepCache,
-    **locator_config: Any,
-) -> list[Observation] | None:
-    """Pre-generate and cache sweep observations for Bayesian and sweep locators.
-
-    This function creates a temporary locator, runs the initial sweep,
-    and stores the observations in the shared sweep cache. Subsequent repeats
-    can then use these cached observations without re-measuring.
-
-    Returns the precomputed sweep observations, or None if the locator doesn't
-    support sweep precomputation.
-    """
-    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-    from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
-
-    # Only Bayesian locators and sweep locators need pre-computation
-    is_bayesian = issubclass(locator_class, SequentialBayesianLocator)
-    is_sweep = issubclass(locator_class, SweepingLocator)
-    if not (is_bayesian or is_sweep):
-        return None
-
-    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
-    if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
-        locator_config.setdefault("belief", _create_sweep_belief(experiment))
-        locator_config.setdefault("signal_model", experiment.true_signal.model)
-
-    locator = locator_class.create(**locator_config)
-
-    # For Bayesian: use initial_sweep_steps; for sweep: use max_steps (full sweep)
-    sweep_steps = getattr(locator, "initial_sweep_steps", 0) if is_bayesian else getattr(locator, "max_steps", 0)
-
-    if sweep_steps <= 0:
-        return None
-
-    # Check if already cached
-    if sweep_cache.has(experiment, sweep_steps):
-        return sweep_cache.get(experiment, sweep_steps)
-
-    # Run the sweep phase
-    observations: list[Observation] = []
-    step = 0
-    while not locator.done() and step < sweep_steps:
-        step += 1
-        x_current = locator.next()
-        obs = experiment.measure(x_current, rng)
-        locator.observe(obs)
-        observations.append(obs)
-
-    # Store in cache for subsequent repeats
-    if observations:
-        sweep_cache.put(experiment, sweep_steps, observations)
-
-    return observations
-
-
-@dataclass
-class SweepCache:
-    """Per-task sweep cache wrapper that uses the process-level shared cache.
-
-    This allows each _TaskRunner to have its own cache reference while sharing
-    the underlying storage across all locators in the process.
-    """
-
-    def get(self, experiment: CoreExperiment, sweep_steps: int) -> list[Observation] | None:
-        return get_cached_sweep(experiment, sweep_steps)
-
-    def put(self, experiment: CoreExperiment, sweep_steps: int, observations: list[Observation]) -> None:
-        put_cached_sweep(experiment, sweep_steps, observations)
-
-    def has(self, experiment: CoreExperiment, sweep_steps: int) -> bool:
-        return has_cached_sweep(experiment, sweep_steps)
+            raise MemoryError(
+                f"Memory limit of {MAX_PROCESS_MEMORY_GIB} GiB exceeded (current: {mem_bytes / (1024**3):.2f} GiB)"
+            )
+    except ImportError:
+        pass
 
 
 type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
@@ -206,8 +87,6 @@ def run_loop(
     For Bayesian locators with initial sweeps and sweep locators, checks
     ``sweep_cache`` for pre-computed observations to avoid redundant measurements.
     """
-    from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
-
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
@@ -229,6 +108,7 @@ def run_loop(
 
     step = 0
     while not locator.done():
+        _check_memory_limit()
         step += 1
         x_current = locator.next()
 
@@ -248,17 +128,30 @@ def run_loop(
         yield locator
 
 
-def run_task(task: LocatorTask, *, cache_bridge: CacheBridge | None = None) -> TaskResults:
-    """Run a task (cache -> repeats -> outputs -> cache).
+def run_task(
+    task: LocatorTask,
+    cache_bridge: CacheBridge | None = None,
+    log_level: int = logging.INFO,
+    shm_name: str | None = None,
+    shm_lock: Any | None = None,
+    sweep_shm_name: str | None = None,
+    sweep_shm_lock: Any | None = None,
+) -> tuple[list[dict[str, object]], list[dict]]:
+    """Run a single combination task and return results."""
+    from nvision.runner.signal_cache import initialize_shared_cache
+    from nvision.runner.sweep_cache import initialize_shared_sweep_cache
 
-    Pass a shared :class:`~nvision.cache.bridge.CacheBridge` from the CLI when running
-    many tasks so SQLite is not opened and closed per task (large speedup on cache hits).
-    """
-    token = set_combination_log_initials(task.generator_name, task.noise_name, task.strategy_name)
+    # Ensure this process is attached to the shared cache
+    initialize_shared_cache(shm_name, shm_lock)
+    initialize_shared_sweep_cache(sweep_shm_name, sweep_shm_lock)
+
+    _check_memory_limit()
+    set_combination_log_initials(task.generator_name, task.strategy_name, task.noise_name, task.seed)
     try:
-        return _TaskRunner(task, cache_bridge=cache_bridge).run()
+        runner = _TaskRunner(task, cache_bridge=cache_bridge)
+        return runner.run()
     finally:
-        reset_combination_log_initials(token)
+        reset_combination_log_initials()
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +253,7 @@ class _TaskRunner:
 
     def run(self) -> TaskResults:
         """Main pipeline: cache -> repeats -> outputs -> cache."""
+        _check_memory_limit()
         try:
             cached, n_cached = self._restore_cached_results()
             if n_cached == self.repeats:

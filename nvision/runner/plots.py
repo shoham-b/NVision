@@ -620,6 +620,13 @@ def generate_attempt_plots(  # noqa: C901
                 "last_run": scan_entry.get("last_run"),
             }
 
+        if run_result is not None and run_result.true_signal:
+            scan_entry["true_params"] = {
+                "label": "True Signal Parameters",
+                "params": run_result.true_signal.parameter_values(),
+                "bounds": run_result.true_signal.all_bounds(),
+            }
+
     entries: list[dict[str, Any]] = [scan_entry]
 
     if run_result is not None and _is_bayesian_run(strat_name, strat_obj):

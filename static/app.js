@@ -471,10 +471,22 @@ function main() {
                 convergenceStatsImage.hidden = true;
             }
 
-            if (posteriorPlot || convergencePlot) {
-                bayesStatsSection.dataset.available = 'true';
             } else {
                 bayesStatsSection.dataset.available = 'false';
+            }
+        }
+
+        function updateBayesTrueParamsView(selectedPlot) {
+            const section = document.getElementById('bayes-true-params-section');
+            const content = document.getElementById('bayes-true-params-content');
+            if (!section || !content) return;
+
+            if (selectedPlot && selectedPlot.true_params) {
+                content.innerHTML = renderItemsToHtml(buildTrueParamItems(selectedPlot.true_params), true);
+                section.dataset.available = 'true';
+            } else {
+                content.innerHTML = '';
+                section.dataset.available = 'false';
             }
         }
 
@@ -489,6 +501,7 @@ function main() {
                 { id: 'bayes-fisher-section', label: 'Fisher Bounds' },
                 { id: 'bayes-fisher-pairs-section', label: 'CRLB Pairs' },
                 { id: 'bayes-ellipse-section', label: 'Covariance Ellipses' },
+                { id: 'bayes-true-params-section', label: 'True Parameters' },
                 { id: 'bayes-stats-section', label: 'Statistics' },
             ];
 
@@ -1392,6 +1405,17 @@ function main() {
                 scanRepeat.dataset.value = selectedRepeat;
             }
             updateRepeatNavButtons();
+            
+            const viewToggleContainer = document.getElementById('scan-view-toggle-container');
+            if (viewToggleContainer) {
+                if (repeatItems.length > 0) {
+                    viewToggleContainer.style.display = 'flex';
+                } else {
+                    viewToggleContainer.style.display = 'none';
+                    const singleBtn = document.querySelector('#scan-view-mode button[data-value="single"]');
+                    if (singleBtn) singleBtn.click();
+                }
+            }
         }
 
         function updateAllScanControls() {
@@ -1482,13 +1506,95 @@ function main() {
                         return items;
                     }
 
-                    function renderItemsToHtml(items) {
+                    function buildTrueParamItems(trueData) {
+                        const items = [];
+                        const params = trueData.params || {};
+                        const bounds = trueData.bounds || {};
+                        // Preferred order for common parameters
+                        const preferred = ['frequency', 'linewidth', 'fwhm_total', 'split', 'dip_depth', 'k_np', 'lorentz_frac'];
+                        const keys = Object.keys(params).sort((a, b) => {
+                            const ia = preferred.indexOf(a);
+                            const ib = preferred.indexOf(b);
+                            if (ia !== -1 && ib !== -1) return ia - ib;
+                            if (ia !== -1) return -1;
+                            if (ib !== -1) return 1;
+                            return a.localeCompare(b);
+                        });
+
+                        for (const name of keys) {
+                            const val = params[name];
+                            const b = bounds[name];
+                            let label = name.replace(/_/g, ' ');
+                            // Capitalize first letter
+                            label = label.charAt(0).toUpperCase() + label.slice(1);
+                            
+                            let formatted = val;
+                            let fmtLo = b ? b[0] : null;
+                            let fmtHi = b ? b[1] : null;
+
+                            const lowName = name.toLowerCase();
+                            const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total';
+                            
+                            if (typeof val === 'number') {
+                                if (isFreqLike) {
+                                    formatted = formatFrequency(val);
+                                    if (b) {
+                                        fmtLo = formatFrequency(b[0]);
+                                        fmtHi = formatFrequency(b[1]);
+                                    }
+                                } else if (lowName === 'dip_depth' || lowName === 'k_np' || lowName === 'lorentz_frac') {
+                                    formatted = val.toFixed(3);
+                                    if (b) {
+                                        fmtLo = b[0].toFixed(3);
+                                        fmtHi = b[1].toFixed(3);
+                                    }
+                                } else {
+                                    formatted = formatMetricValue(val);
+                                    if (b) {
+                                        fmtLo = formatMetricValue(b[0]);
+                                        fmtHi = formatMetricValue(b[1]);
+                                    }
+                                }
+                            }
+                            items.push({ 
+                                label: label, 
+                                val: formatted, 
+                                bounds: b, 
+                                rawVal: val,
+                                fmtLo: fmtLo,
+                                fmtHi: fmtHi
+                            });
+                        }
+                        return items;
+                    }
+
+                    function renderItemsToHtml(items, useSliders = false) {
                         return items.map(it => {
                             const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
                             const icon = it.tip ? '<span class="help-icon"' + tipAttr + '>?</span>' : '';
+                            
+                            let valueHtml = '<div class="metric-value">' + it.val + '</div>';
+                            
+                            if (useSliders && it.bounds && typeof it.rawVal === 'number') {
+                                const lo = it.bounds[0];
+                                const hi = it.bounds[1];
+                                const percent = Math.min(100, Math.max(0, (it.rawVal - lo) / (hi - lo) * 100));
+                                valueHtml = 
+                                    '<div class="metric-value">' + it.val + '</div>' +
+                                    '<div class="param-range-container">' +
+                                        '<div class="param-range-track">' +
+                                            '<div class="param-range-marker" style="left: ' + percent + '%"></div>' +
+                                        '</div>' +
+                                        '<div class="param-range-bounds">' +
+                                            '<span>' + it.fmtLo + '</span>' +
+                                            '<span>' + it.fmtHi + '</span>' +
+                                        '</div>' +
+                                    '</div>';
+                            }
+
                             return '<div class="metric-item">' +
                                 '<div class="metric-label">' + it.label + icon + '</div>' +
-                                '<div class="metric-value">' + it.val + '</div>' +
+                                valueHtml +
                                 '</div>';
                         }).join('');
                     }
@@ -1496,11 +1602,17 @@ function main() {
                     if (plot.coarse && plot.fine) {
                         const totalMeasurements = plot.measurements || (plot.coarse.measurements + plot.fine.measurements);
                         scanMetrics.className = 'scan-metrics-wrapper';
-                        scanMetrics.innerHTML =
+                        let html =
                             '<div style="margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.coarse.label) + '</div>' +
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.coarse, false, totalMeasurements)) + '</div>' +
                             '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.fine.label) + '</div>' +
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
+                        
+                        if (plot.true_params) {
+                            html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
+                                    '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params), true) + '</div>';
+                        }
+                        scanMetrics.innerHTML = html;
                     } else {
                         scanMetrics.className = 'scan-metrics-panel';
                         scanMetrics.innerHTML = renderItemsToHtml(buildScanItems(plot, true));
@@ -1509,6 +1621,7 @@ function main() {
                     updateBayesView(plot);
                     updateBayesStatsView(plot);
                     updateBayesInteractiveView(plot);
+                    updateBayesTrueParamsView(plot);
                     updateBayesTabs();
                 } else {
                     scanIframe.src = '';
@@ -1518,6 +1631,7 @@ function main() {
                     updateBayesView(null);
                     updateBayesStatsView(null);
                     updateBayesInteractiveView(null);
+                    updateBayesTrueParamsView(null);
                     updateBayesTabs();
                 }
             } else {
@@ -1529,6 +1643,122 @@ function main() {
                 updateBayesInteractiveView(null);
                 updateBayesTabs();
             }
+            
+            // Check view mode and render summary if needed
+            const activeViewModeBtn = document.querySelector('#scan-view-mode button.is-active');
+            if (activeViewModeBtn && activeViewModeBtn.dataset.value === 'summary') {
+                renderRepeatsSummary(scanGeneratorValue, scanNoiseValue, scanStrategyValue);
+            }
+        }
+        
+        function renderRepeatsSummary(generator, noise, strategy) {
+            const summaryPlots = scanPlots.filter(
+                (p) => p.generator === generator && p.noise === noise && p.strategy === strategy
+            );
+            if (summaryPlots.length === 0) return;
+            
+            ensurePlotly().then(() => {
+                const metricsList = summaryPlots.map(p => p.metrics || {});
+                
+                // Extract metrics arrays
+                const final_err_fb = metricsList.map(m => m.final_err_fb).filter(v => v != null);
+                const final_err_fc = metricsList.map(m => m.final_err_fc).filter(v => v != null);
+                const abs_err_x = metricsList.map(m => m.abs_err_x).filter(v => v != null);
+                
+                const err_fb_at_milestone = metricsList.map(m => m.err_fb_at_milestone).filter(v => v != null);
+                const err_fc_at_milestone = metricsList.map(m => m.err_fc_at_milestone).filter(v => v != null);
+                
+                const err_fb_diff = metricsList.map(m => m.err_fb_diff).filter(v => v != null);
+                const err_fc_diff = metricsList.map(m => m.err_fc_diff).filter(v => v != null);
+                
+                const final_overall_uncert = metricsList.map(m => m.final_overall_uncert || m.uncert).filter(v => v != null);
+                
+                function createHistogram(containerId, title, data, name, color) {
+                    if (!data || data.length === 0) return;
+                    const div = document.createElement('div');
+                    div.style.flex = '1 1 400px';
+                    div.style.minWidth = '300px';
+                    document.getElementById(containerId).appendChild(div);
+                    
+                    const trace = {
+                        x: data,
+                        type: 'histogram',
+                        name: name,
+                        marker: { color: color }
+                    };
+                    const layout = {
+                        title: { text: title, font: { size: 14 } },
+                        margin: { l: 40, r: 20, t: 40, b: 40 },
+                        xaxis: { title: 'Value', showgrid: true, zeroline: true },
+                        yaxis: { title: 'Count', showgrid: true },
+                        showlegend: false
+                    };
+                    Plotly.newPlot(div, [trace], layout, {responsive: true});
+                }
+                
+                const absErrContainer = document.getElementById('summary-abs-error-charts');
+                absErrContainer.innerHTML = '';
+                if (abs_err_x.length > 0) createHistogram('summary-abs-error-charts', 'Overall Abs Error', abs_err_x, 'Overall', '#3b82f6');
+                if (final_err_fb.length > 0) createHistogram('summary-abs-error-charts', 'Final Err fb', final_err_fb, 'fb', '#10b981');
+                if (final_err_fc.length > 0) createHistogram('summary-abs-error-charts', 'Final Err fc', final_err_fc, 'fc', '#8b5cf6');
+                if (err_fb_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Err fb @ Milestone', err_fb_at_milestone, 'fb Milestone', '#f59e0b');
+                if (err_fc_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Err fc @ Milestone', err_fc_at_milestone, 'fc Milestone', '#ef4444');
+                if (err_fb_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fb Diff (Milestone - Final)', err_fb_diff, 'fb Diff', '#6366f1');
+                if (err_fc_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fc Diff (Milestone - Final)', err_fc_diff, 'fc Diff', '#ec4899');
+                
+                const uncertContainer = document.getElementById('summary-uncertainty-charts');
+                uncertContainer.innerHTML = '';
+                if (final_overall_uncert.length > 0) createHistogram('summary-uncertainty-charts', 'Overall Uncertainty', final_overall_uncert, 'Uncertainty', '#64748b');
+            });
+        }
+        
+        // Toggle setup
+        const scanViewMode = document.getElementById('scan-view-mode');
+        if (scanViewMode) {
+            scanViewMode.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') {
+                    scanViewMode.querySelectorAll('button').forEach(b => {
+                        b.classList.remove('is-active');
+                        b.setAttribute('aria-checked', 'false');
+                    });
+                    e.target.classList.add('is-active');
+                    e.target.setAttribute('aria-checked', 'true');
+                    
+                    const mode = e.target.dataset.value;
+                    const repeatView = document.getElementById('scan-repeat-view');
+                    const summaryView = document.getElementById('scan-summary-view');
+                    
+                    if (mode === 'single') {
+                        repeatView.style.display = 'block';
+                        summaryView.style.display = 'none';
+                    } else {
+                        repeatView.style.display = 'none';
+                        summaryView.style.display = 'block';
+                        renderRepeatsSummary(controlValue(scanGenerator), controlValue(scanNoise), controlValue(scanStrategy));
+                    }
+                }
+            });
+        }
+        
+        const summaryTabBar = document.getElementById('summary-tab-bar');
+        if (summaryTabBar) {
+            summaryTabBar.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') {
+                    summaryTabBar.querySelectorAll('button').forEach(b => {
+                        b.classList.remove('is-active');
+                        b.setAttribute('aria-selected', 'false');
+                        const panel = document.getElementById(b.dataset.tab);
+                        if (panel) panel.classList.remove('is-active');
+                    });
+                    e.target.classList.add('is-active');
+                    e.target.setAttribute('aria-selected', 'true');
+                    const activePanel = document.getElementById(e.target.dataset.tab);
+                    if (activePanel) activePanel.classList.add('is-active');
+                    
+                    // Trigger resize so Plotly fits correctly if it was hidden
+                    window.dispatchEvent(new Event('resize'));
+                }
+            });
         }
 
         if (scanIframe) {

@@ -33,7 +33,15 @@
             </div>
         </div>
     </div>
-    <div class="repeat-row">
+    <div class="scan-view-toggle" id="scan-view-toggle-container" style="display: none; margin-top: 1em; margin-bottom: 0.5em;">
+        <span class="control-label" style="margin-right: 0.5em;">View:</span>
+        <div class="segmented-control" id="scan-view-mode" role="radiogroup">
+            <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active">Single Repeat</button>
+            <button type="button" role="radio" aria-checked="false" data-value="summary">Repeats Summary</button>
+        </div>
+    </div>
+    <div id="scan-repeat-view">
+        <div class="repeat-row">
         <div class="control-row">
             <span class="control-label">Repeat:</span>
             <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
@@ -74,6 +82,10 @@
             <h3>Covariance Ellipses <span tabindex="0" class="help-icon-visible" title="Animated 2D covariance ellipses showing how uncertainty regions shrink toward the true parameter values as more measurements are collected.">?</span></h3>
             <iframe id="bayes-ellipse-iframe" title="Covariance ellipses plot"></iframe>
         </div>
+        <div class="bayes-tab-panel" role="tabpanel" id="bayes-true-params-section">
+            <h3>True Signal Parameters <span class="help-icon-visible" title="Ground truth parameters used to generate the signal for this repeat.">?</span></h3>
+            <div id="bayes-true-params-content" class="scan-metrics-panel"></div>
+        </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-stats-section">
             <h3>Bayesian Inference Statistics <span tabindex="0" class="help-icon-visible" title="Static summary plots capturing posterior and convergence history at key inference steps.">?</span></h3>
             <div>
@@ -85,6 +97,24 @@
                 <img alt="Convergence stats plot" hidden id="convergence-stats-image">
             </div>
             <img alt="Bayesian optimization visualization" hidden id="bayes-image">
+        </div>
+        </div>
+    </div>
+    
+    <div id="scan-summary-view" style="display:none; margin-top: 1em; padding-top: 1em; border-top: 1px solid #eee;">
+        <div class="bayes-tab-bar" id="summary-tab-bar" role="tablist">
+            <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" aria-controls="summary-abs-error" id="tab-summary-abs-error" data-tab="summary-abs-error">Abs Error</button>
+            <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" aria-controls="summary-uncertainty" id="tab-summary-uncertainty" data-tab="summary-uncertainty">Uncertainty</button>
+        </div>
+        
+        <div class="bayes-tab-panel is-active" role="tabpanel" id="summary-abs-error" aria-labelledby="tab-summary-abs-error">
+            <h3 style="margin-top:0">Absolute Error Distributions <span class="help-icon-visible" title="Distributions of absolute error across all repeats.">?</span></h3>
+            <div id="summary-abs-error-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
+        </div>
+        
+        <div class="bayes-tab-panel" role="tabpanel" id="summary-uncertainty" aria-labelledby="tab-summary-uncertainty">
+            <h3 style="margin-top:0">Uncertainty Distributions <span class="help-icon-visible" title="Distributions of uncertainty across all repeats.">?</span></h3>
+            <div id="summary-uncertainty-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
         </div>
     </div>
 </div>
