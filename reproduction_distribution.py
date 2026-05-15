@@ -13,7 +13,7 @@ def reproduction():
 
     x_meas = np.concatenate([x_coarse, x_res1, x_res2])
 
-    history = pl.DataFrame({"x": x_meas})
+    pl.DataFrame({"x": x_meas})
 
     xs_dense = np.linspace(2.867, 2.872, 5000)
     ys_dense = np.ones_like(xs_dense)

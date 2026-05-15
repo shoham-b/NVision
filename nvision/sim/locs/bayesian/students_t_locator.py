@@ -139,11 +139,11 @@ class StudentsTLocator(SequentialBayesianLocator):
         estimates = self.belief.estimates()
         uncertainties = self.belief.uncertainty()
 
-        f_b = estimates.get("frequency", (lo + hi) / 2)
-        split = estimates.get("split", domain * 0.005)
+        estimates.get("frequency", (lo + hi) / 2)
+        estimates.get("split", domain * 0.005)
         lw = estimates.get("linewidth", domain * 0.001)
-        sigma_f = float(uncertainties.get("frequency", domain * 0.1))
-        sigma_lw = float(uncertainties.get("linewidth", lw * 0.5))
+        float(uncertainties.get("frequency", domain * 0.1))
+        float(uncertainties.get("linewidth", lw * 0.5))
 
     def _acquisition_bounds_phys(self) -> tuple[float, float]:
         """Return the focus window in physical frequency [Hz]."""

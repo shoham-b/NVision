@@ -295,7 +295,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         """Calculate EIG in physical space."""
         noise_var = (self.last_obs.noise_std**2) if self.last_obs else 0.05**2
 
-        K, D = self.n_components, self._dim
+        K, _D = self.n_components, self._dim
         n_x = xs_phys.shape[0]
 
         samples_phys = self.model.spec.unpack_samples(tuple(self.means.T))

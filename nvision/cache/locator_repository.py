@@ -198,7 +198,7 @@ class LocatorResultsRepository:
                 max_steps=max_steps,
                 timeout_s=timeout_s,
             )
-            ptr_key = stable_config_hash(ptr_config)
+            stable_config_hash(ptr_config)
             self.append_cached_repeats(
                 generator=generator,
                 noise=noise,

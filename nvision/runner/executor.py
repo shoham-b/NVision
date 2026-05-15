@@ -899,7 +899,7 @@ class _TaskRunner:
         if last_loc is not None:
             # Use effective_initial_sweep_steps() to get actual steps taken (accounts for early stopping)
             eff_sweep_steps = getattr(last_loc, "effective_initial_sweep_steps", lambda: 0)()
-            init_sweep_steps = getattr(last_loc, "initial_sweep_steps", 0)
+            getattr(last_loc, "initial_sweep_steps", 0)
             step_count = getattr(last_loc, "step_count", 0)
             inf_steps = getattr(last_loc, "inference_step_count", 0)
             max_steps = getattr(last_loc, "max_steps", 0)

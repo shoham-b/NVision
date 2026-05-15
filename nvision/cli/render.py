@@ -208,10 +208,7 @@ def _config_matches_filters(
     # (e.g. narrow signals should not have sweep strategies)
     grid = CombinationGrid()
     valid_strategies = [name for name, _ in grid.strategies_for(generator)]
-    if strategy not in valid_strategies:
-        return False
-
-    return True
+    return strategy in valid_strategies
 
 
 def _config_matches_run_params(
