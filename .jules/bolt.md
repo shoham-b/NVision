@@ -1,7 +1,3 @@
-## YYYY-MM-DD - [Parallelize Numba SBED Entropy]
-**Learning:** Numba `prange` allows parallelizing outer candidate loops effectively, and thread-local scratchpad arrays like `buffer` must be allocated inside the `prange` loop to avoid race conditions. Additionally, expensive math operations like `math.log` inside tight inner loops over particles can be avoided via algebraic identities (e.g. `log(w) = ll - max_ll - log_sum_exp`).
-**Action:** Always look for nested loops with independent evaluations (e.g., candidate scoring) to parallelize with `@njit(parallel=True)` and `prange`, taking care to define buffers locally inside the loop. Avoid mathematically redundant slow math inside innermost loops.
-## 2024-05-10 - One-Pass Variance Computation in Numba
-
-**Learning:** When calculating weighted variance over particle sets (e.g. `_weighted_variance_axis1` inside SMC Marginal distributions), doing a 2-pass algorithm (one for the mean, one for the variance sum of squares) inside the tight innermost Numba loops is computationally heavy. A 1-pass algorithm that simultaneously sums $E[X]$ and $E[X^2]$, calculating $V = E[X^2] - (E[X])^2$ yields a significant ~30% performance boost and perfectly identical output.
-**Action:** Replace 2-pass mean and variance inner Numba loops with 1-pass summation. Guard against negative variances caused by floating point precision limits using `max(0.0, var)`.
+## 2026-05-15 - Shifted 1-pass variance calculation in Numba
+**Learning:** When calculating weighted variance inside tight Numba `@njit` loops over particle sets, a naive 1-pass algorithm ($V = E[X^2] - (E[X])^2$) is highly susceptible to catastrophic cancellation and loss of precision when the variance is small relative to the mean.
+**Action:** Use a shifted 1-pass algorithm (shifting by the first element, e.g., `x[0]`) to maintain a stable 1-pass calculation without the overhead of the full 2-pass algorithm.

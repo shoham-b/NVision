@@ -34,31 +34,29 @@ _EIG_CHUNK_SIZE: int = 64
 
 @njit(cache=True, fastmath=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Weighted mean and variance of ``x`` with weights ``w`` (2-pass stable algorithm)."""
+    """Weighted mean and variance of ``x`` with weights ``w`` (1-pass stable algorithm)."""
     n = x.shape[0]
     if n == 0:
         return 0.0, 0.0
 
-    # Pass 1: Combined sum of weights and weighted sum for mean
     s = 0.0
     wx = 0.0
+    wxx = 0.0
+    shift = x[0]
     for i in range(n):
         wi = w[i]
+        xi = x[i] - shift
         s += wi
-        wx += wi * x[i]
+        wx += wi * xi
+        wxx += wi * xi * xi
 
     if s <= 0.0:
         return 0.0, 0.0
 
-    mean = wx / s
-
-    # Pass 2: Weighted variance calculation
-    var_sum = 0.0
-    for i in range(n):
-        d = x[i] - mean
-        var_sum += w[i] * d * d
-
-    return mean, var_sum / s
+    mean_shifted = wx / s
+    mean = mean_shifted + shift
+    var = max(0.0, (wxx / s) - (mean_shifted * mean_shifted))
+    return mean, var
 
 
 @njit(cache=True, fastmath=True)
@@ -146,18 +144,17 @@ def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
         return np.zeros(n_rows, dtype=x_2d.dtype)
 
     for i in numba.prange(n_rows):
-        # Pass 1: Mean
         wx = 0.0
+        wxx = 0.0
+        shift = x_2d[i, 0]
         for j in range(n_cols):
-            wx += w[j] * x_2d[i, j]
-        mean = wx / sw
-
-        # Pass 2: Variance
-        wv = 0.0
-        for j in range(n_cols):
-            d = x_2d[i, j] - mean
-            wv += w[j] * d * d
-        vars_out[i] = wv / sw
+            wj = w[j]
+            xij = x_2d[i, j] - shift
+            wx += wj * xij
+            wxx += wj * xij * xij
+        mean_shifted = wx / sw
+        var = (wxx / sw) - (mean_shifted * mean_shifted)
+        vars_out[i] = max(0.0, var)
 
     return vars_out
 
