@@ -6,6 +6,7 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
 def test_select_max_information_gain_diversity():
+    np.random.seed(42)
     """Test that the locator doesn't get stuck at a single point for a flat/sampled prior."""
     # Setup a standard NV center model
     model = NVCenterLorentzianModel()
