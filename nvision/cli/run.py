@@ -6,11 +6,7 @@ import logging
 import multiprocessing
 import os
 import queue
-<<<<<<< HEAD
-=======
-import multiprocessing
 import struct
->>>>>>> 298c518 (memmory optimizations)
 import sys
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
@@ -673,11 +669,13 @@ def run(  # noqa: C901
             shm_size = 20 * 1024 * 1024  # 20 MiB
             shm = shared_memory.SharedMemory(create=True, size=shm_size)
             from nvision.runner.signal_cache import HEADER_SIZE as SIGNAL_HEADER_SIZE
+
             shm.buf[:12] = struct.pack("<III", 0, SIGNAL_HEADER_SIZE, 0)
-            
-            sweep_shm_size = 50 * 1024 * 1024 # 50 MiB
+
+            sweep_shm_size = 50 * 1024 * 1024  # 50 MiB
             sweep_shm = shared_memory.SharedMemory(create=True, size=sweep_shm_size)
             from nvision.runner.sweep_cache import HEADER_SIZE as SWEEP_HEADER_SIZE
+
             sweep_shm.buf[:12] = struct.pack("<III", 0, SWEEP_HEADER_SIZE, 0)
 
             if manager is not None:
