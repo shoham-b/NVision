@@ -146,12 +146,12 @@ def run_task(
     initialize_shared_sweep_cache(sweep_shm_name, sweep_shm_lock)
 
     _check_memory_limit()
-    set_combination_log_initials(task.generator_name, task.strategy_name, task.noise_name, task.seed)
+    token = set_combination_log_initials(task.generator_name, task.noise_name, task.strategy_name, task.seed)
     try:
         runner = _TaskRunner(task, cache_bridge=cache_bridge)
         return runner.run()
     finally:
-        reset_combination_log_initials()
+        reset_combination_log_initials(token)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +182,9 @@ class _TaskRunner:
         self.noise_name = task.noise_name
         self.strategy_name = task.strategy_name
         self.repeats = task.repeats
-        self.skip_cache = task.ignore_cache_strategy is not None and task.strategy_name == task.ignore_cache_strategy
+        self.skip_cache = (not task.use_cache) or (
+            task.ignore_cache_strategy is not None and task.strategy_name == task.ignore_cache_strategy
+        )
         category = CombinationGrid.generator_category(self.generator_name)
         if cache_bridge is not None:
             self.bridge = cache_bridge
@@ -307,6 +309,18 @@ class _TaskRunner:
 
     def _restore_cached_results(self) -> tuple[TaskResults, int]:
         """Load results from cache. Handles full matches and partial streaming hits."""
+        if self.skip_cache:
+            if self.task.require_cache:
+                log.warning(
+                    "Cache miss for %s/%s/%s (seed=%s) with --require-cache + caching disabled. Skipping.",
+                    self.generator_name,
+                    self.noise_name,
+                    self.strategy_name,
+                    self.task.seed,
+                )
+                return [], self.repeats  # "Pretend" finished so it returns empty
+            return [], 0
+
         combo_kw = self._combination_cache_kwargs()
 
         # 1. Try exact full match (Inline or already complete Streaming)
@@ -325,21 +339,20 @@ class _TaskRunner:
             return results, len(results)
 
         # 2. Try partial streaming match (only if not using --require-cache, or if miss)
-        if self.task.use_cache and not self.skip_cache:
-            partial, n = self.cache.get_cached_combination_partial(**combo_kw)
-            if n > 0:
-                restore_graphs(partial, self.task.out_dir)
-                log.debug(
-                    "Partial cache hit for %s/%s/%s (seed=%s); restoring %s/%s repeats.",
-                    self.generator_name,
-                    self.noise_name,
-                    self.strategy_name,
-                    self.task.seed,
-                    n,
-                    self.repeats,
-                )
-                results = [([strip_heavy_fields(e) for e in entries], row) for entries, row in partial]
-                return results, n
+        partial, n = self.cache.get_cached_combination_partial(**combo_kw)
+        if n > 0:
+            restore_graphs(partial, self.task.out_dir)
+            log.debug(
+                "Partial cache hit for %s/%s/%s (seed=%s); restoring %s/%s repeats.",
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+                self.task.seed,
+                n,
+                self.repeats,
+            )
+            results = [([strip_heavy_fields(e) for e in entries], row) for entries, row in partial]
+            return results, n
 
         if self.task.require_cache:
             log.warning(
