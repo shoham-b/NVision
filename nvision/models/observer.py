@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+import numpy as np
+
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
 from nvision.spectra.signal import TrueSignal
-
-import numpy as np
 
 
 @dataclass

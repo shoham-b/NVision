@@ -71,14 +71,14 @@ def _sync_from_shm(target_key: str | None = None) -> list[Observation] | None:
 
         # Scan index
         count = struct.unpack("<I", _SHM.buf[8:12])[0]
-        
+
         target_hash = hash(target_key) if target_key else None
         found_obs = None
 
         for i in range(count):
             base = 12 + i * ENTRY_SIZE
             entry_hash, offset, length = struct.unpack("<QII", _SHM.buf[base : base + 16])
-            
+
             if target_hash is not None and entry_hash == target_hash:
                 pickled_data = _SHM.buf[offset : offset + length]
                 found_obs = pickle.loads(pickled_data)
@@ -102,7 +102,7 @@ def _write_to_shm(key: str, observations: list[Observation]) -> None:
 
         # Get current state from header
         version, next_offset, count = struct.unpack("<III", _SHM.buf[:12])
-        
+
         if count >= MAX_ENTRIES:
             return
         if next_offset + length > _SHM.size:
@@ -119,7 +119,7 @@ def _write_to_shm(key: str, observations: list[Observation]) -> None:
         # 3. Update header (version last)
         _SHM.buf[4:12] = struct.pack("<II", next_offset + length, count + 1)
         _SHM.buf[:4] = struct.pack("<I", version + 1)
-        
+
         global _LOCAL_VERSION
         _LOCAL_VERSION = version + 1
     except Exception:
@@ -151,7 +151,7 @@ def get_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> list[Obser
 def put_cached_sweep(experiment: CoreExperiment, sweep_steps: int, observations: list[Observation]) -> None:
     """Store sweep observations in shared cache."""
     key = _sweep_cache_key(experiment, sweep_steps)
-    
+
     if _SHM_LOCK is not None:
         with _SHM_LOCK:
             cached = _sync_from_shm(key)
