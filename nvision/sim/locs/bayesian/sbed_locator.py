@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 
+from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
@@ -123,9 +124,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     def _check_and_resample(self, check_convergence: bool = True) -> None:
         if not hasattr(self.belief, "_weights"):
             return
-        weights = self.belief._weights
-        w_sq = np.sum(weights**2)
-        ess = 1.0 / w_sq if w_sq > 0 else 0.0
+        ess = _inverse_sum_squares(self.belief._weights)
         ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)
         if ess < ess_threshold:
             if hasattr(self.belief, "_resample"):

@@ -32,7 +32,7 @@ _EIG_CHUNK_SIZE: int = 64
 # --- Numba helpers (particle weights / resampling) ----------------------------
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
     """Weighted mean and variance of ``x`` with weights ``w`` (Welford's 1-pass algorithm)."""
     n = x.shape[0]
@@ -57,7 +57,7 @@ def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, flo
     return float(mean), float(S / sum_weight)
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True)
 def _weighted_mean_axis0(particles: np.ndarray, weights: np.ndarray) -> np.ndarray:
     """Column-wise weighted means for ``particles`` shaped ``(n, d)``."""
     # Ensure weights are the same float type as particles for np.dot
@@ -221,6 +221,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _noise_param_slice: slice | None = field(init=False, repr=False, default=None)
     _current_candidates: np.ndarray = field(init=False, repr=False)
     _global_grid: np.ndarray = field(init=False, repr=False)
+    _rng: np.random.Generator = field(init=False, repr=False)
+    _d_signal: int = field(init=False, repr=False, default=0)
 
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
@@ -248,6 +250,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
         self._step_count = 0
+        self._rng = np.random.default_rng()
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -255,6 +258,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             indices = [i for i, name in enumerate(self._param_names) if name in noise_names]
             if indices:
                 self._noise_param_slice = slice(min(indices), max(indices) + 1)
+
+        # Cache the number of signal dimensions (everything before noise params)
+        self._d_signal = self._noise_param_slice.start if self._noise_param_slice is not None else len(self._param_names)
 
         # Initialize the first epoch-based candidate grid.
         # Spacing must resolve the narrowest possible signal feature so that EIG
@@ -283,11 +289,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self.resampled = False
 
         # 1. Compute likelihood for all particles (vectorized model evaluation)
-        d_signal = self._particles.shape[1]
-        if self._noise_param_slice is not None:
-            d_signal = self._noise_param_slice.start
-
-        arrays_in_order = [self._particles[:, j] for j in range(d_signal)]
+        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
         if self.noise_model is not None and self._noise_param_slice is not None:
@@ -357,39 +359,37 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self.last_obs = observations[-1]
         self.resampled = False
 
-        d_signal = self._particles.shape[1]
-        if self._noise_param_slice is not None:
-            d_signal = self._noise_param_slice.start
-        arrays_in_order = [self._particles[:, j] for j in range(d_signal)]
+        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
 
-        # Accumulate log-likelihoods with per-observation epistemic tempering.
-        # sigma_epistemic = std(predicted across particles) at each x broadens the
-        # likelihood proportionally to how much the particles disagree — identical to
-        # what update() does. Without this, batch processing 30+ sweep observations
-        # accumulates a product of sharp likelihoods and collapses the filter in ~16 steps.
         log_weights = np.zeros(self.num_particles, dtype=FLOAT_DTYPE)
-        for obs in observations:
-            predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
-            if self.noise_model is not None and self._noise_param_slice is not None:
-                noise_arrays = [
-                    self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
-                ]
+        if self.noise_model is not None and self._noise_param_slice is not None:
+            # Noise-model path: must evaluate per-observation (needs per-particle noise params).
+            noise_arrays = [
+                self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
+            ]
+            for obs in observations:
+                predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
                 sigma_epistemic = float(np.std(predicted))
                 residuals = obs.signal_value - predicted
                 log_liks = self.noise_model.composite_log_likelihood(
                     predicted, residuals, noise_arrays, sigma_epistemic
                 )
                 log_liks -= np.max(log_liks)
-            else:
-                # Compute log-likelihood directly in log-space to avoid the
-                # exp → float32 → log roundtrip that underflows to 0.0 for
-                # particles far from the observation (log(0) = -inf / warning).
-                sigma = max(float(obs.noise_std), 1e-9)
-                residuals_f64 = (obs.signal_value - predicted.astype(np.float64))
-                log_liks = (-0.5 * (residuals_f64 / sigma) ** 2).astype(FLOAT_DTYPE)
-
-            log_weights += log_liks
+                log_weights += log_liks
+        else:
+            # Gaussian path: batch all xs into one compute_vectorized_many call.
+            # Shape: (n_obs, n_particles) — one kernel dispatch instead of n_obs.
+            all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
+            predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
+            # predictions: (n_obs, n_particles)
+            ys = np.array([obs.signal_value for obs in observations], dtype=np.float64)
+            sigmas = np.array([max(float(obs.noise_std), 1e-9) for obs in observations], dtype=np.float64)
+            # residuals: (n_obs, n_particles); log_liks: (n_obs, n_particles)
+            residuals = ys[:, None] - predictions.astype(np.float64)
+            log_liks_matrix = -0.5 * (residuals / sigmas[:, None]) ** 2
+            # Sum over observations → (n_particles,)
+            log_weights += log_liks_matrix.sum(axis=0).astype(FLOAT_DTYPE)
 
         self._step_count += len(observations)
 
@@ -521,9 +521,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             FLOAT_DTYPE, copy=False
         )
 
-        # 7. Apply Nudge (Multivariate Gaussian)
-        rng = np.random.default_rng()
-        nudges = rng.multivariate_normal(
+        # 7. Apply Nudge (Multivariate Gaussian) — reuse the cached RNG
+        nudges = self._rng.multivariate_normal(
             np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
         ).astype(FLOAT_DTYPE, copy=False)
         self._particles += nudges
@@ -550,11 +549,22 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return self._estimates_unit()
 
     def _uncertainty_unit(self) -> ParameterValues[float]:
-        """Return parameter uncertainties (std dev) in internal unit/belief space."""
-        uncertainties: dict[str, float] = {}
-        for i, name in enumerate(self._param_names):
-            uncertainties[name] = self._marginal_std(i)
-        return ParameterValues.from_mapping(self._param_names, uncertainties)
+        """Return parameter uncertainties (std dev) in internal unit/belief space.
+
+        Computes all marginal variances in a single vectorized pass instead of
+        calling the 1-D Numba kernel once per dimension.
+        """
+        w = self._weights.astype(np.float64)
+        sw = w.sum()
+        if sw <= 0.0:
+            stds = {name: 0.0 for name in self._param_names}
+            return ParameterValues.from_mapping(self._param_names, stds)
+        p = self._particles.astype(np.float64)  # (N, d)
+        mean = (w @ p) / sw                     # (d,)
+        diff = p - mean                          # (N, d)
+        var = (w @ (diff ** 2)) / sw             # (d,)  weighted variance
+        stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
+        return ParameterValues.from_mapping(self._param_names, stds)
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         return self._uncertainty_unit()
@@ -670,32 +680,23 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if len(candidates) == 0:
             return candidates[:0]
 
-        # Evaluate EIG in chunks to prevent large memory allocation for predictions
-        n_cands = len(candidates)
-        eig_scores = np.empty(n_cands, dtype=FLOAT_DTYPE)
-        for i in range(0, n_cands, _EIG_CHUNK_SIZE):
-            end = min(i + _EIG_CHUNK_SIZE, n_cands)
-            chunk = candidates[i:end]
-            eig_scores[i:end] = self.expected_information_gain(chunk, noise_std=noise_std).astype(FLOAT_DTYPE)
+        # Evaluate EIG over all candidates in one vectorized call.
+        # The old chunked loop (64 candidates/call) was unnecessary — the Numba
+        # _weighted_variance_axis1 kernel already parallelises over rows.
+        eig_scores = self.expected_information_gain(candidates, noise_std=noise_std).astype(FLOAT_DTYPE)
 
-        # Use Numba parallel prange to find per-chunk argmax indices
+        # Boltzmann sampling over chunk winners to avoid getting stuck at a
+        # single numerical noise peak (same logic, now over the full grid).
         winner_indices = _chunk_argmax(eig_scores, _EIG_CHUNK_SIZE)
-
-        # To avoid being stuck at a single numerical noise peak (common in SMC),
-        # we use Boltzmann sampling (Softmax) over the chunk winners.
-        # Temperature T=0.01 ensures we are still very greedy but explore ties robustly.
         temp = 0.01
         winner_scores = eig_scores[winner_indices]
         shifted_scores = (winner_scores - np.max(winner_scores)) / temp
-        # Use float64 for softmax to avoid overflow/underflow artifacts
-        probs = np.exp(shifted_scores.astype(FLOAT_DTYPE))
+        probs = np.exp(shifted_scores.astype(np.float64))  # float64 to avoid softmax overflow
         probs /= np.sum(probs)
 
-        # Sample n indices without replacement based on EIG probabilities
         best_chunk_order = np.random.choice(
             len(winner_indices), size=min(n, len(winner_indices)), replace=False, p=probs
         )
-        # Sort them by original score to maintain a stable order for the caller
         best_chunk_order = best_chunk_order[np.argsort(winner_scores[best_chunk_order])][::-1]
         best_indices = winner_indices[best_chunk_order]
 
@@ -710,8 +711,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         and sigma_eta^2 is the measurement noise variance.
         """
         arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
-        # shape: (n_candidates, n_particles)
-        predictions = self.model.compute_vectorized_many(candidates, arrays_in_order)
+        # shape: (n_candidates, n_particles) — uses fastmath kernel (acquisition path only)
+        predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
 
         # Calculate weighted variance of predictions across particles for each candidate
         # Using optimized Numba helper to avoid large temporary array allocations

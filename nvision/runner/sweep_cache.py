@@ -72,7 +72,7 @@ def _sync_from_shm(target_key: str | None = None) -> list[Observation] | None:
         # Scan index
         count = struct.unpack("<I", _SHM.buf[8:12])[0]
 
-        target_hash = hash(target_key) if target_key else None
+        target_hash = hash(target_key) & 0xFFFF_FFFF_FFFF_FFFF if target_key else None
         found_obs = None
 
         for i in range(count):
@@ -114,7 +114,7 @@ def _write_to_shm(key: str, observations: list[Observation]) -> None:
 
         # 2. Write index entry
         base = 12 + count * ENTRY_SIZE
-        _SHM.buf[base : base + 16] = struct.pack("<QII", hash(key), next_offset, length)
+        _SHM.buf[base : base + 16] = struct.pack("<QII", hash(key) & 0xFFFF_FFFF_FFFF_FFFF, next_offset, length)
 
         # 3. Update header (version last)
         _SHM.buf[4:12] = struct.pack("<II", next_offset + length, count + 1)
