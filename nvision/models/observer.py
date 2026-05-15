@@ -10,6 +10,8 @@ from nvision.models.locator import Locator
 from nvision.models.observation import Observation
 from nvision.spectra.signal import TrueSignal
 
+import numpy as np
+
 
 @dataclass
 class StepSnapshot:
@@ -244,9 +246,17 @@ class Observer:
                     if nb:
                         current_bounds = nb
 
+                copied_belief = locator.belief.copy()
+
+                # Strip heavy cached arrays from the snapshot copy to drastically lower memory footprint
+                if hasattr(copied_belief, "_global_grid"):
+                    copied_belief._global_grid = np.array([], dtype=np.float32)
+                if hasattr(copied_belief, "_current_candidates"):
+                    copied_belief._current_candidates = np.array([], dtype=np.float32)
+
                 snapshot = StepSnapshot(
                     obs=locator.belief.last_obs,
-                    belief=locator.belief.copy(),
+                    belief=copied_belief,
                     true_signal=self.true_signal,
                     narrowed_param_bounds=current_bounds,
                     resampled=locator.belief.resampled,
