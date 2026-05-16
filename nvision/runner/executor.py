@@ -411,7 +411,7 @@ class _TaskRunner:
         for i in range(n_missing):
             rid = start_idx + i
             repeat_start_times[i] = time.perf_counter()
-            repeat_timestamps[i] = datetime.datetime.now().isoformat()
+            repeat_timestamps[i] = datetime.datetime.now(datetime.UTC).isoformat()
             hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
