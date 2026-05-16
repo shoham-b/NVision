@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any, TYPE_CHECKING
 
 import polars as pl
 
@@ -25,9 +25,7 @@ class RepeatsRepository:
         """Storage key for a single repeat."""
         return f"repeat:{combo_key}:{repeat_idx}"
 
-    def save_repeat(
-        self, combo_key: str, repeat_idx: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]
-    ) -> None:
+    def save_repeat(self, combo_key: str, repeat_idx: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]) -> None:
         """Persist one repeat immediately."""
         key = self.make_repeat_key(combo_key, repeat_idx)
         payload = {"entries": entries, "main_result_row": main_result_row}

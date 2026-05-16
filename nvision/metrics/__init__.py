@@ -20,11 +20,11 @@ from nvision.metrics.types import (
 )
 
 __all__ = [
+    "calculate_strategy_metrics",
+    "compute_error_histogram",
+    "analyze_run_convergence",
+    "get_convergence_summary",
     "ParameterConvergence",
     "RepeatMetrics",
     "StrategyMetrics",
-    "analyze_run_convergence",
-    "calculate_strategy_metrics",
-    "compute_error_histogram",
-    "get_convergence_summary",
 ]

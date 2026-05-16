@@ -41,14 +41,9 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("UnitCubeSMCMarginalDistribution requires a UnitCubeSignalModel")
 
-        # Ensure all parameters (including noise) are in unit space [0, 1].
-        # We must detect noise parameters here because super().__post_init__
-        # expects them to be in parameter_bounds before it iterates over _param_names.
-        all_names = list(self.model.parameter_names())
-        if self.noise_model is not None:
-            all_names.extend(n for n in self.noise_model.spec.names if n not in all_names)
-
-        self.parameter_bounds = {name: (0.0, 1.0) for name in all_names}
+        # Force parameter_bounds to unit space for internal SMC operations.
+        # This ensures super().__post_init__ initializes particles in [0, 1].
+        self.parameter_bounds = {name: (0.0, 1.0) for name in self.model.parameter_names()}
         super().__post_init__()
 
     def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
@@ -98,14 +93,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Check convergence uniformly using inner [0, 1] uncertainties
         raw_uncertainties = super()._empirical_uncertainty()
         return all(u < threshold for u in raw_uncertainties.values())
-
-    def covariance_matrix(self) -> np.ndarray:
-        """Return the physical-scale covariance matrix."""
-        raw_cov = super().covariance_matrix()
-        ranges = np.array(
-            [self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0] for name in self._param_names]
-        )
-        return raw_cov * np.outer(ranges, ranges)
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         return super().sample(n)

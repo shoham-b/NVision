@@ -36,7 +36,6 @@ class NVCenterCoreGenerator:
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
     center_freq_fraction: float | None = None  # if set, constrain center_freq to middle fraction of domain
     narrow_signal: bool = False  # if True, use exceptionally narrow linewidths and splitting
-    narrow_prior_std_factor: float = 0.05  # standard deviation factor for priors in narrow mode
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate NV center ODMR signal.
@@ -95,7 +94,9 @@ class NVCenterCoreGenerator:
                 k_np=k_np,
                 dip_depth=dip_depth,
             )
-            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, narrow=self.narrow_signal)
+            bounds = nv_center_lorentzian_bounds_for_domain(
+                self.x_min, self.x_max, narrow=self.narrow_signal, true_params=typed_params
+            )
         else:  # voigt
             lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
             lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
@@ -124,17 +125,8 @@ class NVCenterCoreGenerator:
                 k_np=k_np,
                 dip_depth=dip_depth,
             )
-            bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, narrow=self.narrow_signal)
-
-        if self.narrow_signal:
-            priors = {}
-            for k in typed_params.__dataclass_fields__:
-                if k == "frequency":
-                    continue
-                val = getattr(typed_params, k)
-                std = val * self.narrow_prior_std_factor if k != "k_np" else self.narrow_prior_std_factor
-                assumed_val = rng.gauss(val, std)
-                priors[k] = (assumed_val, std)
-            bounds["_priors"] = priors
+            bounds = nv_center_voigt_bounds_for_domain(
+                self.x_min, self.x_max, narrow=self.narrow_signal, true_params=typed_params
+            )
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)

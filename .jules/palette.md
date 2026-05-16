@@ -5,13 +5,3 @@
 ## 2026-05-09 - Ensure all `iframe` elements have accessible titles
 **Learning:** In visual-heavy reporting tools, iframes are frequently used to embed various types of plots and charts (e.g., Plotly graphs, Bayesian posterior visualizations). Screen reader users rely on the `title` attribute of the `iframe` to understand the content or purpose of the embedded document before deciding to interact with it. Without a `title`, screen readers often just announce "iframe" or the URL, which provides no context for the user.
 **Action:** When adding or maintaining data visualizations embedded via `iframe`, always include a descriptive `title` attribute (e.g., `title="Parameter convergence plot"`). For hidden utility iframes (like background data loaders), include `title` and set `aria-hidden="true"`.
-## 2026-05-13 - Segmented Controls and ARIA Keyboard Navigation
-**Learning:** Native `role="radiogroup"` combined with `role="radio"` elements does not give users standard keyboard navigation implicitly. It requires explicit arrow key navigation using javascript and a roving tabindex to correctly shift focus without requiring tabbing through every single item.
-**Action:** When implementing custom segmented controls with `role="radio"`, attach `keydown` listeners to cycle through nodes using `ArrowLeft`/`ArrowUp` and `ArrowRight`/`ArrowDown`, and manipulate `tabindex` to `0` / `-1` appropriately.
-
-## 2024-05-14 - Tab Keyboard Navigation
-**Learning:** Elements with `role="tab"` should use a "roving tabindex" strategy where only the active tab has `tabindex="0"` and inactive tabs have `tabindex="-1"`. Navigation between tabs within the same `role="tablist"` should be handled using arrow keys to improve keyboard accessibility for screen reader users.
-**Action:** When implementing custom tab UI elements, ensure appropriate keydown listeners are attached for arrow keys, dynamically updating `tabindex` and focusing the newly selected tab.
-## 2026-05-16 - Make dynamic help icons keyboard accessible
-**Learning:** Dynamically generated HTML (like metric cards in `app.js`) often drops accessibility attributes if not explicitly included in the string templates. Here, help icon `<span>` elements lacked `tabindex="0"`, making their tooltips inaccessible to keyboard users navigating via Tab.
-**Action:** Always ensure that interactive or tooltip-triggering elements rendered via JavaScript strings include `tabindex="0"` and appropriate CSS focus states (`:focus-visible`) to maintain accessibility.

@@ -113,6 +113,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             float(background),
         )
 
+
     _SPEC = _VoigtZeemanSpec()
 
     @property

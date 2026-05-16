@@ -11,7 +11,7 @@ import math
 from collections.abc import Sequence
 
 import numpy as np
-from numba import njit, prange
+from numba import njit
 
 from nvision.spectra.spec import BasicParamSpec, NoiseSignalModel, ParamSpec
 
@@ -57,7 +57,7 @@ class NoiseSignalModel(NoiseSignalModel, abc.ABC):
         """
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True)
 def _gaussian_composite_ll_jit(
     residuals: np.ndarray,
     sigma_aleatoric_arr: np.ndarray,
@@ -66,11 +66,11 @@ def _gaussian_composite_ll_jit(
     n = residuals.shape[0]
     out = np.empty(n, dtype=np.float64)
     eps_sq = sigma_epistemic * sigma_epistemic
-    for i in prange(n):
+    for i in range(n):
         s_a = max(sigma_aleatoric_arr[i], 1e-9)
         # Combine aleatoric and epistemic variances
-        s_eff_sq = s_a * s_a + eps_sq
-        out[i] = -0.5 * (residuals[i] * residuals[i] / s_eff_sq + math.log(s_eff_sq))
+        s_eff = math.sqrt(s_a * s_a + eps_sq)
+        out[i] = -0.5 * (residuals[i] / s_eff) ** 2 - math.log(s_eff)
     return out
 
 
@@ -98,7 +98,7 @@ class GaussianNoiseSignalModel(NoiseSignalModel):
         )
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True)
 def _poisson_composite_ll_jit(
     obs_y: float,
     predicted: np.ndarray,
@@ -108,7 +108,7 @@ def _poisson_composite_ll_jit(
     n = predicted.shape[0]
     out = np.empty(n, dtype=np.float64)
     eps_sq = sigma_epistemic * sigma_epistemic
-    for i in prange(n):
+    for i in range(n):
         scale = max(scale_arr[i], 1e-12)
         lam = max(predicted[i] * scale, 1e-12)
         k = max(round(obs_y * scale), 0)
@@ -120,8 +120,9 @@ def _poisson_composite_ll_jit(
             # Broaden Poisson by adding epistemic uncertainty in quadrature
             # sigma_total^2 = lam + (sigma_epistemic * scale)^2
             # We approximate the broadened Poisson as Gaussian-like tempering
-            sigma_eff_sq = lam + eps_sq * scale * scale
-            tempering = lam / sigma_eff_sq
+            sigma_p_sq = lam
+            sigma_eff_sq = sigma_p_sq + (sigma_epistemic * scale) ** 2
+            tempering = sigma_p_sq / sigma_eff_sq
             out[i] = log_p * tempering
         else:
             out[i] = log_p

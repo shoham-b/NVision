@@ -1,9 +1,9 @@
-import numpy as np
 
+import numpy as np
+import pytest
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
-
 
 def test_select_max_information_gain_diversity():
     """Test that the locator doesn't get stuck at a single point for a flat/sampled prior."""
@@ -27,7 +27,7 @@ def test_select_max_information_gain_diversity():
         parameter_bounds=param_bounds,
         num_particles=1000,
         physical_param_bounds=phys_bounds,
-        physical_x_bounds=x_bounds,
+        physical_x_bounds=x_bounds
     )
 
     # Generate candidates
@@ -46,7 +46,6 @@ def test_select_max_information_gain_diversity():
     # even if there's sampling noise, thanks to tie-breaking/jitter.
     # If it's 1, it's definitely stuck.
     assert unique_counts > 5, f"Locator is stuck! Only {unique_counts} unique points picked out of 50."
-
 
 if __name__ == "__main__":
     test_select_max_information_gain_diversity()

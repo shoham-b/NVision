@@ -75,19 +75,6 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
                 return np.stack([self.compute_vectorized_samples(float(x), samples) for x in xs], axis=0)
         return np.stack([self.compute_vectorized(float(x), *param_arrays) for x in xs], axis=0)
 
-    def compute_vectorized_many_fast(
-        self,
-        x_array: Sequence[float],
-        samples: VectorizedManySamplesInput[SampleParamsT],
-    ) -> np.ndarray:
-        """Approximate (fastmath) vectorized prediction — for acquisition / EIG scoring only.
-
-        Default delegates to :meth:`compute_vectorized_many` (exact). Concrete
-        models that have a ``fastmath``-compiled kernel should override this to
-        use it.  Never call from weight updates or uncertainty computation.
-        """
-        return self.compute_vectorized_many(x_array, samples)
-
     @property
     def inner(self) -> SignalModel:
         """Return the inner physical model (for wrapped models like UnitCubeSignalModel).

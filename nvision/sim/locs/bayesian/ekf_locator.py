@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping, Sequence
 
+import os
 import numpy as np
 from dotenv import load_dotenv
 
@@ -12,6 +12,7 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
 from nvision.belief.unit_cube_gaussian_marginal import UnitCubeGaussianMixtureMarginalDistribution
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
 
 # --- Environment-driven defaults ---------------------------------------------
 
@@ -84,7 +85,6 @@ class EKFLocator(SequentialBayesianLocator):
                 raise ValueError("EKFLocator requires either signal_model or a builder.")
 
         from nvision.spectra.nv_center import NVCenterLorentzianModel
-
         if not isinstance(model, NVCenterLorentzianModel):
             raise ValueError(f"EKFLocator only supports NVCenterLorentzianModel, got {type(model).__name__}")
 
@@ -98,7 +98,7 @@ class EKFLocator(SequentialBayesianLocator):
             model=model_norm,
             n_components=n_components,
             _physical_param_bounds=bounds_phys,
-            _physical_x_bounds=freq_bounds_phys,
+            _physical_x_bounds=freq_bounds_phys
         )
 
         return cls(
@@ -123,7 +123,7 @@ class EKFLocator(SequentialBayesianLocator):
         freq_est_phys = estimates_phys.get("frequency", (lo_phys + hi_phys) / 2.0)
         lw_est_phys = estimates_phys.get("linewidth", 5e6)
 
-        resonance_points_phys = np.linspace(freq_est_phys - 2 * lw_est_phys, freq_est_phys + 2 * lw_est_phys, 200)
+        resonance_points_phys = np.linspace(freq_est_phys - 2*lw_est_phys, freq_est_phys + 2*lw_est_phys, 200)
         candidates_phys = np.unique(np.sort(np.concatenate([xs_phys, resonance_points_phys])))
 
         mask = (candidates_phys >= lo_phys) & (candidates_phys <= hi_phys)

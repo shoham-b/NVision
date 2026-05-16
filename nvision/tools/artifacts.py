@@ -167,11 +167,12 @@ def merge_run_plot_manifest_with_existing_on_disk(
         old_manifest = [_strip_heavy_fields(e) for e in old_manifest]
 
         # Identify (generator, noise) pairs that are being updated.
-        # Identify (generator, noise, strategy, repeat) combinations being updated
-        updated_combinations = {
-            (str(row.get("generator")), str(row.get("noise")), str(row.get("strategy")), row.get("repeat"))
+        # We replace ALL entries for these pairs to ensure that if a new run
+        # contains a subset of strategies (e.g. only SBED for narrow), the old ones are gone.
+        updated_gen_noise = {
+            (str(row.get("generator")), str(row.get("noise")))
             for row in plot_manifest
-            if all(row.get(k) is not None for k in ["generator", "noise", "strategy", "repeat"])
+            if row.get("generator") and row.get("noise")
         }
 
         filtered_old: list[dict[str, object]] = []
@@ -180,14 +181,11 @@ def merge_run_plot_manifest_with_existing_on_disk(
             if entry.get("type") == "summary":
                 continue
 
-            # Drop entries that are part of the NEW (generator, noise, strategy, repeat) combinations being merged
-            # This ensures that we only replace what we are actually updating, preserving other strategies or repeats.
+            # Drop entries that are part of the NEW (generator, noise) pairs being merged
+            # This ensures that if we run a "narrow" batch, any old "sweeping" locators for those signals are removed.
             g = entry.get("generator")
             n = entry.get("noise")
-            s = entry.get("strategy")
-            r = entry.get("repeat")
-            
-            if g and n and s and r is not None and (str(g), str(n), str(s), r) in updated_combinations:
+            if g and n and (str(g), str(n)) in updated_gen_noise:
                 continue
 
             # 2. Aggressive pruning: check if file exists

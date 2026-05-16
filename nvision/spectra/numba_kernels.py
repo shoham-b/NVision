@@ -146,56 +146,8 @@ def nv_center_lorentzian_vectorized_many(
     """Triple-Lorentzian ODMR for many probe positions and many particles.
 
     Writes into ``out`` which must have shape ``(len(xs), len(freq))``.
-
-    Parallelises over probe positions (rows) — ``out[i, :]`` is contiguous
-    in row-major (C) order, so each thread writes a full cache line at a time.
     """
     m = xs.shape[0]
-    n = freq.shape[0]
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            lw = linewidth[j]
-            lw2 = lw * lw
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
-
-            amp_c = (d / k) * lw2
-            amp_l = amp_c / k
-            amp_r = amp_c * k
-
-            dx_c = x - f
-            dx_l = dx_c + s
-            dx_r = dx_c - s
-
-            denom_l = dx_l * dx_l + lw2
-            denom_c = dx_c * dx_c + lw2
-            denom_r = dx_r * dx_r + lw2
-
-            out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
-
-
-@njit(cache=True, parallel=True)
-def nv_center_lorentzian_vectorized_one(
-    x: float,
-    freq: np.ndarray,
-    linewidth: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    background: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Triple-Lorentzian ODMR for a SINGLE probe position across many particles.
-
-    Writes into ``out`` which must have shape ``(len(freq),)``.
-
-    Parallelises over particles — the correct layout when m=1 (used in
-    :meth:`SMCMarginalDistribution.update` which evaluates one x at a time).
-    """
     n = freq.shape[0]
     for j in prange(n):
         lw = linewidth[j]
@@ -206,103 +158,22 @@ def nv_center_lorentzian_vectorized_one(
         d = dip_depth[j]
         bg = background[j]
 
+        # Precompute particle-specific amplitude scaling
         amp_c = (d / k) * lw2
         amp_l = amp_c / k
         amp_r = amp_c * k
 
-        dx_c = x - f
-        dx_l = dx_c + s
-        dx_r = dx_c - s
-
-        denom_l = dx_l * dx_l + lw2
-        denom_c = dx_c * dx_c + lw2
-        denom_r = dx_r * dx_r + lw2
-
-        out[j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
-
-
-@njit(cache=True, parallel=True)
-def nv_center_pseudo_voigt_vectorized_one(
-    x: float,
-    freq: np.ndarray,
-    fwhm_total: np.ndarray,
-    lorentz_frac: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    background: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Triple pseudo-Voigt ODMR for a SINGLE probe position across many particles.
-
-    Writes into ``out`` which must have shape ``(len(freq),)``.
-
-    Parallelises over particles — the correct layout for the update() hot path.
-    """
-    n = freq.shape[0]
-    for j in prange(n):
-        fwhm = fwhm_total[j]
-        lf = lorentz_frac[j]
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
-        f = freq[j]
-        s = split[j]
-        k = k_np[j]
-        d = dip_depth[j]
-        bg = background[j]
-
-        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-        gamma = fwhm_l / 2.0
-        ratio = fwhm_l / (fwhm_l + fwhm_g)
-        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-
-        gamma2 = gamma * gamma
-        has_gamma = abs(gamma) > 1e-12
-        lorentz_center = 1.0 / gamma if has_gamma else 0.0
-
-        has_sigma = abs(sigma) > 1e-12
-        if has_sigma:
-            gauss_center = 1.0 / (sigma * _SQRT2PI)
-            neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
-            eta_gauss_factor = (1.0 - eta) * gauss_center
-        else:
-            gauss_center = 0.0
-            neg_half_inv_sigma2 = 0.0
-            eta_gauss_factor = 0.0
-
-        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
-
-        actual_depth = d / k
-        eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-        eta_gauss_factor = eta_gauss_factor * inv_center_height
-
-        amp_c = actual_depth
-        amp_l = amp_c / k
-        amp_r = amp_c * k
-
-        dx_c = x - f
-        dx_c2 = dx_c * dx_c
-        lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
-        gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
-        pc = lorentz_c + gauss_c
-
-        if s < 1e-10:
-            out[j] = bg - amp_c * pc
-        else:
+        for i in range(m):
+            x = xs[i]
+            dx_c = x - f
             dx_l = dx_c + s
-            dx_l2 = dx_l * dx_l
-            lorentz_l = eta_lorentz_factor / (dx_l2 + gamma2) if has_gamma else 0.0
-            gauss_l = eta_gauss_factor * math.exp(dx_l2 * neg_half_inv_sigma2) if has_sigma else 0.0
-            pl = lorentz_l + gauss_l
-
             dx_r = dx_c - s
-            dx_r2 = dx_r * dx_r
-            lorentz_r = eta_lorentz_factor / (dx_r2 + gamma2) if has_gamma else 0.0
-            gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
-            pr = lorentz_r + gauss_r
 
-            out[j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
+            denom_l = dx_l * dx_l + lw2
+            denom_c = dx_c * dx_c + lw2
+            denom_r = dx_r * dx_r + lw2
+
+            out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
 
 
 @njit(cache=True, parallel=True)
@@ -353,65 +224,73 @@ def nv_center_pseudo_voigt_vectorized_many(
     """Triple pseudo-Voigt ODMR for many probe positions and many particles.
 
     Writes into ``out`` which must have shape ``(len(xs), len(freq))``.
-
-    Parallelises over probe positions (rows) — ``out[i, :]`` is contiguous
-    in row-major (C) order, so each thread writes a full cache line at a time.
     """
     m = xs.shape[0]
     n = freq.shape[0]
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            fwhm = fwhm_total[j]
-            lf = lorentz_frac[j]
-            fwhm_l = lf * fwhm
-            fwhm_g = (1.0 - lf) * fwhm
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
+    for j in prange(n):
+        fwhm = fwhm_total[j]
+        lf = lorentz_frac[j]
+        fwhm_l = lf * fwhm
+        fwhm_g = (1.0 - lf) * fwhm
+        f = freq[j]
+        s = split[j]
+        k = k_np[j]
+        d = dip_depth[j]
+        bg = background[j]
 
-            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-            gamma = fwhm_l / 2.0
-            ratio = fwhm_l / (fwhm_l + fwhm_g)
-            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+        gamma = fwhm_l / 2.0
+        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
-            gamma2 = gamma * gamma
-            has_gamma = abs(gamma) > 1e-12
-            lorentz_center = 1.0 / gamma if has_gamma else 0.0
+        gamma2 = gamma * gamma
+        has_gamma = abs(gamma) > 1e-12
+        lorentz_center = 1.0 / gamma if has_gamma else 0.0
 
-            has_sigma = abs(sigma) > 1e-12
-            if has_sigma:
-                gauss_center = 1.0 / (sigma * _SQRT2PI)
-                neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
-                eta_gauss_factor = (1.0 - eta) * gauss_center
-            else:
-                gauss_center = 0.0
-                neg_half_inv_sigma2 = 0.0
-                eta_gauss_factor = 0.0
+        has_sigma = abs(sigma) > 1e-12
+        if has_sigma:
+            gauss_center = 1.0 / (sigma * _SQRT2PI)
+            neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
+            eta_gauss_factor = (1.0 - eta) * gauss_center
+        else:
+            gauss_center = 0.0
+            neg_half_inv_sigma2 = 0.0
+            eta_gauss_factor = 0.0
 
-            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
 
-            actual_depth = d / k
-            eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-            eta_gauss_factor = eta_gauss_factor * inv_center_height
+        actual_depth = d / k
+        eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
+        eta_gauss_factor = eta_gauss_factor * inv_center_height
 
-            amp_c = actual_depth
-            amp_l = amp_c / k
-            amp_r = amp_c * k
+        amp_c = actual_depth
+        amp_l = amp_c / k
+        amp_r = amp_c * k
 
-            dx_c = x - f
-            dx_c2 = dx_c * dx_c
+        has_split = s >= 1e-10
 
-            lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
-            gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
-            pc = lorentz_c + gauss_c
+        if not has_split:
+            for i in range(m):
+                x = xs[i]
+                dx_c = x - f
+                dx_c2 = dx_c * dx_c
 
-            if s < 1e-10:
+                lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
+                gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                pc = lorentz_c + gauss_c
+
                 out[i, j] = bg - amp_c * pc
-            else:
+        else:
+            for i in range(m):
+                x = xs[i]
+                dx_c = x - f
+                dx_c2 = dx_c * dx_c
+
+                lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
+                gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                pc = lorentz_c + gauss_c
+
                 dx_l = dx_c + s
                 dx_l2 = dx_l * dx_l
                 lorentz_l = eta_lorentz_factor / (dx_l2 + gamma2) if has_gamma else 0.0
@@ -425,8 +304,6 @@ def nv_center_pseudo_voigt_vectorized_many(
                 pr = lorentz_r + gauss_r
 
                 out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
-
-
 @njit(cache=True)
 def nv_center_pseudo_voigt_eval(
     x: float,
@@ -477,144 +354,3 @@ def nv_center_pseudo_voigt_eval(
     pl = _profile(x, freq - split)
     pr = _profile(x, freq + split)
     return background - (actual_depth / k_np * pl + actual_depth * pc + actual_depth * k_np * pr)
-
-
-# ---------------------------------------------------------------------------
-# Fast (fastmath=True) acquisition-only variants of the _many kernels.
-# Use ONLY in EIG / information-gain scoring where approximate arithmetic is
-# acceptable. Never use in weight updates or uncertainty computation.
-# ---------------------------------------------------------------------------
-
-
-@njit(cache=True, parallel=True, fastmath=True)
-def nv_center_lorentzian_vectorized_many_fast(
-    xs: np.ndarray,
-    freq: np.ndarray,
-    linewidth: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    background: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Fast (fastmath) triple-Lorentzian ODMR — acquisition / EIG path only.
-
-    Identical body to :func:`nv_center_lorentzian_vectorized_many` but compiled
-    with ``fastmath=True``.  Do **not** use this for Bayesian weight updates or
-    uncertainty estimation.
-    """
-    m = xs.shape[0]
-    n = freq.shape[0]
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            lw = linewidth[j]
-            lw2 = lw * lw
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
-
-            amp_c = (d / k) * lw2
-            amp_l = amp_c / k
-            amp_r = amp_c * k
-
-            dx_c = x - f
-            dx_l = dx_c + s
-            dx_r = dx_c - s
-
-            denom_l = dx_l * dx_l + lw2
-            denom_c = dx_c * dx_c + lw2
-            denom_r = dx_r * dx_r + lw2
-
-            out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
-
-
-@njit(cache=True, parallel=True, fastmath=True)
-def nv_center_pseudo_voigt_vectorized_many_fast(
-    xs: np.ndarray,
-    freq: np.ndarray,
-    fwhm_total: np.ndarray,
-    lorentz_frac: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    background: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Fast (fastmath) triple pseudo-Voigt ODMR — acquisition / EIG path only.
-
-    Identical body to :func:`nv_center_pseudo_voigt_vectorized_many` but compiled
-    with ``fastmath=True``.  Do **not** use this for Bayesian weight updates or
-    uncertainty estimation.
-    """
-    m = xs.shape[0]
-    n = freq.shape[0]
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            fwhm = fwhm_total[j]
-            lf = lorentz_frac[j]
-            fwhm_l = lf * fwhm
-            fwhm_g = (1.0 - lf) * fwhm
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
-
-            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-            gamma = fwhm_l / 2.0
-            ratio = fwhm_l / (fwhm_l + fwhm_g)
-            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-
-            gamma2 = gamma * gamma
-            has_gamma = abs(gamma) > 1e-12
-            lorentz_center = 1.0 / gamma if has_gamma else 0.0
-
-            has_sigma = abs(sigma) > 1e-12
-            if has_sigma:
-                gauss_center = 1.0 / (sigma * _SQRT2PI)
-                neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
-                eta_gauss_factor = (1.0 - eta) * gauss_center
-            else:
-                gauss_center = 0.0
-                neg_half_inv_sigma2 = 0.0
-                eta_gauss_factor = 0.0
-
-            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
-
-            actual_depth = d / k
-            eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-            eta_gauss_factor = eta_gauss_factor * inv_center_height
-
-            amp_c = actual_depth
-            amp_l = amp_c / k
-            amp_r = amp_c * k
-
-            dx_c = x - f
-            dx_c2 = dx_c * dx_c
-
-            lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
-            gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
-            pc = lorentz_c + gauss_c
-
-            if s < 1e-10:
-                out[i, j] = bg - amp_c * pc
-            else:
-                dx_l = dx_c + s
-                dx_l2 = dx_l * dx_l
-                lorentz_l = eta_lorentz_factor / (dx_l2 + gamma2) if has_gamma else 0.0
-                gauss_l = eta_gauss_factor * math.exp(dx_l2 * neg_half_inv_sigma2) if has_sigma else 0.0
-                pl = lorentz_l + gauss_l
-
-                dx_r = dx_c - s
-                dx_r2 = dx_r * dx_r
-                lorentz_r = eta_lorentz_factor / (dx_r2 + gamma2) if has_gamma else 0.0
-                gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
-                pr = lorentz_r + gauss_r
-
-                out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
-

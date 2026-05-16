@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-import os
+import math
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import Any, ClassVar
 
+import os
 import numpy as np
 from dotenv import load_dotenv
+from numba import njit, prange
 from scipy.linalg import inv, solve
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
+
 
 # --- Environment-driven defaults ---------------------------------------------
 
@@ -48,13 +51,13 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     # After this many observations the locator is free to collapse onto one mode.
     weight_floor_steps: int = NVISION_STUDENTS_T_WEIGHT_FLOOR_STEPS
 
-    means: np.ndarray = field(init=False)  # (K, D)
-    precisions: np.ndarray = field(init=False)  # (K, D, D)
-    kappas: np.ndarray = field(init=False)  # (K,)
-    nus: np.ndarray = field(init=False)  # (K,)
-    weights: np.ndarray = field(init=False)  # (K,)
+    means: np.ndarray = field(init=False)         # (K, D)
+    precisions: np.ndarray = field(init=False)    # (K, D, D)
+    kappas: np.ndarray = field(init=False)        # (K,)
+    nus: np.ndarray = field(init=False)           # (K,)
+    weights: np.ndarray = field(init=False)       # (K,)
     _covariances: np.ndarray = field(init=False)  # (K, D, D)
-    _update_count: int = field(init=False)  # observations seen so far
+    _update_count: int = field(init=False)        # observations seen so far
 
     _physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     _param_names: list[str] = field(init=False)
@@ -65,8 +68,8 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     # identically zero on the very first update (which would freeze the belief).
     _PARAM_DEFAULTS: ClassVar[dict[str, float]] = {
         "linewidth": NVISION_STUDENTS_T_DEFAULT_LINEWIDTH,
-        "split": NVISION_STUDENTS_T_DEFAULT_SPLIT,
-        "k_np": NVISION_STUDENTS_T_DEFAULT_K_NP,
+        "split":     NVISION_STUDENTS_T_DEFAULT_SPLIT,
+        "k_np":      NVISION_STUDENTS_T_DEFAULT_K_NP,
         "dip_depth": NVISION_STUDENTS_T_DEFAULT_DIP_DEPTH,
     }
 
@@ -92,7 +95,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             freq_lo, freq_hi, freq_width = 2.87e9, 2.87e9, 1.0
 
         from nvision.spectra.unit_cube import UnitCubeSignalModel
-
         self._is_unit_cube = isinstance(self.model, UnitCubeSignalModel) or "UnitCube" in type(self.model).__name__
 
         for i, name in enumerate(self._param_names):
@@ -104,7 +106,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
                     if name == "frequency" and K > 1:
                         offset = (k - (K - 1) / 2.0) * 0.1
                         self.means[k, i] = float(np.clip(mid + offset, 0.0, 1.0))
-                var = (0.25) ** 2  # sigma = 0.25 (covers 0 to 1 in 4 sigma)
+                var = (0.25) ** 2 # sigma = 0.25 (covers 0 to 1 in 4 sigma)
                 for k in range(K):
                     self.precisions[k, i, i] = 1.0 / var
             elif name in self._physical_param_bounds:
@@ -280,9 +282,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             diff = self.means[k] - weighted_mean
             total_var += self.weights[k] * (np.diag(self._covariances[k]) + diff**2)
         stds = np.sqrt(np.maximum(total_var, 0.0))
-        return ParameterValues.from_mapping(
-            self._param_names, {name: float(stds[i]) for i, name in enumerate(self._param_names)}
-        )
+        return ParameterValues.from_mapping(self._param_names, {name: float(stds[i]) for i, name in enumerate(self._param_names)})
 
     def converged(self, threshold: float) -> bool:
         stds = self._empirical_uncertainty()
@@ -316,17 +316,14 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         samples = np.zeros((n, D), dtype=FLOAT_DTYPE)
         comp_indices = np.random.choice(K, size=n, p=self.weights)
         for k in range(K):
-            mask = comp_indices == k
+            mask = (comp_indices == k)
             nk = np.sum(mask)
-            if nk == 0:
-                continue
+            if nk == 0: continue
             df = max(self.nus[k] - D + 1.0, 1.0)
             u = np.random.chisquare(df, size=nk) / df
             z = np.random.multivariate_normal(np.zeros(D), self._covariances[k], size=nk)
             samples[mask] = self.means[k] + z / np.sqrt(u[:, None])
-        return ParameterValues.from_mapping(
-            self._param_names, {name: samples[:, i] for i, name in enumerate(self._param_names)}
-        )
+        return ParameterValues.from_mapping(self._param_names, {name: samples[:, i] for i, name in enumerate(self._param_names)})
 
     def expected_information_gain_batch(self, xs_phys: np.ndarray) -> np.ndarray:
         """Calculate EIG in physical space."""
@@ -342,7 +339,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         # J_phys shape (n_x, K, D)
         J_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)
 
-        y_mix = np.sum(self.weights * y_preds, axis=1)  # (n_x,)
+        y_mix = np.sum(self.weights * y_preds, axis=1) # (n_x,)
 
         eigs = np.zeros(n_x)
         for i in range(n_x):
@@ -350,7 +347,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             for k in range(K):
                 gk = J_phys[i, k]
                 ev = gk @ self._covariances[k] @ gk.T
-                pred_var += self.weights[k] * (ev + (y_preds[i, k] - y_mix[i]) ** 2)
+                pred_var += self.weights[k] * (ev + (y_preds[i, k] - y_mix[i])**2)
 
             eigs[i] = 0.5 * np.log(1.0 + pred_var / (noise_var + 1e-12))
 
@@ -358,7 +355,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import t
-
         idx = self._param_names.index(param_name)
         pdf_val = np.zeros_like(x, dtype=np.float64)
         for k in range(self.n_components):
@@ -369,7 +365,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import t
-
         idx = self._param_names.index(param_name)
         cdf_val = np.zeros_like(x, dtype=np.float64)
         for k in range(self.n_components):

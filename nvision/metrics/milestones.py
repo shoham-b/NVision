@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Dict, Optional
 
 from nvision.models.observer import RunResult
 
 
-def detect_milestone(run_result: RunResult, param: str, threshold: float = 0.01, relative: bool = True) -> int | None:
+def detect_milestone(
+    run_result: RunResult,
+    param: str,
+    threshold: float = 0.01,
+    relative: bool = True
+) -> Optional[int]:
     """Find the first step where a parameter's uncertainty drops below a threshold.
 
     Args:
@@ -39,8 +44,11 @@ def detect_milestone(run_result: RunResult, param: str, threshold: float = 0.01,
 
 
 def extract_milestone_metrics(
-    run_result: RunResult, step_idx: int, fb_param: str = "frequency", fc_param: str = "split"
-) -> dict[str, Any]:
+    run_result: RunResult,
+    step_idx: int,
+    fb_param: str = "frequency",
+    fc_param: str = "split"
+) -> Dict[str, Any]:
     """Extract estimates and errors at a specific step milestone.
 
     Returns a dictionary of metrics at that step.
@@ -72,8 +80,11 @@ def extract_milestone_metrics(
 
 
 def calculate_zeeman_metrics(
-    run_result: RunResult, threshold: float = 0.01, fb_param: str = "frequency", fc_param: str = "split"
-) -> dict[str, Any]:
+    run_result: RunResult,
+    threshold: float = 0.01,
+    fb_param: str = "frequency",
+    fc_param: str = "split"
+) -> Dict[str, Any]:
     """Compare the fb milestone to the final state.
 
     Returns aggregated metrics for the repeat.
@@ -81,42 +92,36 @@ def calculate_zeeman_metrics(
     # 1. FB Milestone
     fb_idx = detect_milestone(run_result, fb_param, threshold)
 
-    metrics: dict[str, Any] = {}
+    metrics: Dict[str, Any] = {}
 
     if fb_idx is not None:
         ms = extract_milestone_metrics(run_result, fb_idx, fb_param, fc_param)
-        metrics.update(
-            {
-                "steps_to_fb": ms["step"],
-                "err_fb_at_milestone": ms["err_fb"],
-                "err_fc_at_milestone": ms["err_fc"],
-                "fc_at_milestone": ms["est_fc"],
-                "overall_uncert_at_milestone": ms["overall_uncert"],
-            }
-        )
+        metrics.update({
+            "steps_to_fb": ms["step"],
+            "err_fb_at_milestone": ms["err_fb"],
+            "err_fc_at_milestone": ms["err_fc"],
+            "fc_at_milestone": ms["est_fc"],
+            "overall_uncert_at_milestone": ms["overall_uncert"],
+        })
     else:
-        metrics.update(
-            {
-                "steps_to_fb": None,
-                "err_fb_at_milestone": None,
-                "err_fc_at_milestone": None,
-                "fc_at_milestone": None,
-                "overall_uncert_at_milestone": None,
-            }
-        )
+        metrics.update({
+            "steps_to_fb": None,
+            "err_fb_at_milestone": None,
+            "err_fc_at_milestone": None,
+            "fc_at_milestone": None,
+            "overall_uncert_at_milestone": None,
+        })
 
     # 2. Final state
     final_idx = len(run_result.snapshots) - 1
     if final_idx >= 0:
         fs = extract_milestone_metrics(run_result, final_idx, fb_param, fc_param)
-        metrics.update(
-            {
-                "final_err_fb": fs["err_fb"],
-                "final_err_fc": fs["err_fc"],
-                "final_overall_uncert": fs["overall_uncert"],
-                "final_steps": fs["step"],
-            }
-        )
+        metrics.update({
+            "final_err_fb": fs["err_fb"],
+            "final_err_fc": fs["err_fc"],
+            "final_overall_uncert": fs["overall_uncert"],
+            "final_steps": fs["step"],
+        })
 
         # 3. Deltas
         if fb_idx is not None:

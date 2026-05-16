@@ -26,7 +26,7 @@ def find_project_root() -> Path:
     for parent in current.parents:
         if (parent / ".git").is_dir():
             return parent
-    raise FileNotFoundError("Could not find the project root (no .git directory found).")
+    return Path(__file__).resolve().parent.parent.parent
 
 
 # Define PROJECT_ROOT as the root directory of the project

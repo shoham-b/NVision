@@ -7,8 +7,8 @@ metrics to understand why particles might concentrate in the wrong place.
 from __future__ import annotations
 
 import random
-
 import numpy as np
+import polars as pl
 from rich.console import Console
 from rich.table import Table
 
@@ -16,10 +16,10 @@ from nvision import (
     CoreExperiment,
     NVCenterCoreGenerator,
     nv_center_smc_belief,
+    run_loop,
 )
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
-
 
 def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = "sbed"):
     console = Console()
@@ -61,9 +61,7 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
     else:
         raise ValueError(f"Unknown locator type: {locator_type}")
 
-    console.print(
-        f"[bold blue]Starting Debug Run[/bold blue] (seed={seed}, sweep={initial_sweep_steps}, type={locator_type})"
-    )
+    console.print(f"[bold blue]Starting Debug Run[/bold blue] (seed={seed}, sweep={initial_sweep_steps}, type={locator_type})")
     console.print(f"True Frequency: [green]{true_params['frequency']:.4e}[/green]")
 
     table = Table(title=f"{locator_type.upper()} Step-by-Step Report")
@@ -134,9 +132,7 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
         snr = (b_mean - y) / noise_std if noise_std > 0 else 0.0
 
         # Detect if resample happened (SMC only)
-        resampled = (
-            "Yes" if (metric_val > last_ess * 2.0 and step > 1 and phase != "Warmup" and locator_type == "sbed") else ""
-        )
+        resampled = "Yes" if (metric_val > last_ess * 2.0 and step > 1 and phase != "Warmup" and locator_type == "sbed") else ""
         last_ess = metric_val
 
         table.add_row(
@@ -149,7 +145,7 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
             f"{f_mean:.4e}",
             f"{f_std:.2e}",
             f"{d_mean:.3f}",
-            resampled,
+            resampled
         )
 
     console.print(table)
@@ -158,13 +154,11 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
     est = locator.belief.estimates()
     error = abs(est["frequency"] - true_params["frequency"])
     console.print(f"\nFinal Frequency Error: [bold red]{error:.4e}[/bold red]")
-    if error > 1e7:  # 10MHz error is large for a converged run
+    if error > 1e7: # 10MHz error is large for a converged run
         console.print("[bold reverse red]FAILED TO CONVERGE TO TRUE VALUE[/bold reverse red]")
     else:
         console.print("[bold green]SUCCESSFULLY CONVERGED[/bold green]")
 
-
 if __name__ == "__main__":
     import typer
-
     typer.run(debug_run)

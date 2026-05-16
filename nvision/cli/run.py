@@ -3,15 +3,13 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import logging
-import multiprocessing
 import os
 import queue
-import struct
+import multiprocessing
 import sys
 import time
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
-from multiprocessing import shared_memory
 from pathlib import Path
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
@@ -48,21 +46,9 @@ log = logging.getLogger("nvision")
 console = Console()
 
 
-def _worker_init(
-    log_queue: multiprocessing.Queue,
-    log_level: int,
-    shm_name: str | None = None,
-    shm_lock: Any | None = None,
-    sweep_shm_name: str | None = None,
-    sweep_shm_lock: Any | None = None,
-) -> None:
-    """Initialize worker process: set up logging and shared signal/sweep caches."""
-    from nvision.runner.signal_cache import initialize_shared_cache
-    from nvision.runner.sweep_cache import initialize_shared_sweep_cache
+def _worker_init(log_queue: multiprocessing.Queue, log_level: int) -> None:
+    """Initialize worker process: set up logging to the shared queue."""
     from nvision.tools.log_context import CombinationLogFilter
-
-    initialize_shared_cache(shm_name, shm_lock)
-    initialize_shared_sweep_cache(sweep_shm_name, sweep_shm_lock)
 
     root = logging.getLogger()
     root.setLevel(log_level)
@@ -94,10 +80,6 @@ def _run_tasks_process_pool(  # noqa: C901
     out_dir: Path | None = None,
     started_at: str | None = None,
     min_runners: int = 1,
-    shm_name: str | None = None,
-    shm_lock: Any | None = None,
-    sweep_shm_name: str | None = None,
-    sweep_shm_lock: Any | None = None,
 ) -> tuple[list[dict[str, object]], list[dict], list[Exception], int, bool]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
@@ -132,16 +114,14 @@ def _run_tasks_process_pool(  # noqa: C901
         executor = concurrent.futures.ProcessPoolExecutor(
             max_workers=current_runners,
             initializer=_worker_init,
-            initargs=(log_queue, log_level, shm_name, shm_lock, sweep_shm_name, sweep_shm_lock),
+            initargs=(log_queue, log_level),
         )
         future_to_task: dict[concurrent.futures.Future, object] = {}
         retry_tasks: list[object] = []
         shutdown_called = False
 
         try:
-            future_to_task = {
-                executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks
-            }
+            future_to_task = {executor.submit(run_task, task, cache_bridge=cache_bridge): task for task in pending_tasks}
             pending_tasks = []
 
             for future in concurrent.futures.as_completed(future_to_task):
@@ -234,6 +214,8 @@ def _run_tasks_process_pool(  # noqa: C901
                     with contextlib.suppress(psutil.NoSuchProcess):
                         child.terminate()
                 # Give processes a moment to terminate gracefully
+                import time
+
                 time.sleep(0.5)
                 # Kill any remaining
                 for child in parent.children(recursive=True):
@@ -658,30 +640,6 @@ def run(  # noqa: C901
         cache_bridge: CacheBridge | None = None
         if not no_cache and runners == 1:
             cache_bridge = CacheBridge(tree.cache_dir)
-
-        shm: shared_memory.SharedMemory | None = None
-        shm_lock: Any | None = None
-        sweep_shm: shared_memory.SharedMemory | None = None
-        sweep_shm_lock: Any | None = None
-
-        if runners > 1:
-            shm_size = 20 * 1024 * 1024  # 20 MiB
-            shm = shared_memory.SharedMemory(create=True, size=shm_size)
-            from nvision.runner.signal_cache import HEADER_SIZE as SIGNAL_HEADER_SIZE
-
-            shm.buf[:12] = struct.pack("<III", 0, SIGNAL_HEADER_SIZE, 0)
-
-            sweep_shm_size = 50 * 1024 * 1024  # 50 MiB
-            sweep_shm = shared_memory.SharedMemory(create=True, size=sweep_shm_size)
-            from nvision.runner.sweep_cache import HEADER_SIZE as SWEEP_HEADER_SIZE
-
-            sweep_shm.buf[:12] = struct.pack("<III", 0, SWEEP_HEADER_SIZE, 0)
-
-            if manager is not None:
-                shm_lock = manager.Lock()
-                sweep_shm_lock = manager.Lock()
-
-        log.info(f"DEBUG: Found {len(tasks)} tasks")
         try:
             with monitor:
                 # Tasks are now actually executing
@@ -701,10 +659,6 @@ def run(  # noqa: C901
                         out_dir=out_dir,
                         started_at=started_at,
                         min_runners=cli_defaults.MIN_RUNNERS,
-                        shm_name=shm.name if shm else None,
-                        shm_lock=shm_lock,
-                        sweep_shm_name=sweep_shm.name if sweep_shm else None,
-                        sweep_shm_lock=sweep_shm_lock,
                     )
                     if _pool_interrupted:
                         raise KeyboardInterrupt("User requested exit")
@@ -742,12 +696,6 @@ def run(  # noqa: C901
         finally:
             if cache_bridge is not None:
                 cache_bridge.close()
-            if shm:
-                shm.close()
-                shm.unlink()
-            if sweep_shm:
-                sweep_shm.close()
-                sweep_shm.unlink()
 
         if errors and not interrupted:
             _update_run_status("error")

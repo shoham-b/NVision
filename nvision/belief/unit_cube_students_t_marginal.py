@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Sequence
 
 import numpy as np
 
@@ -39,6 +39,7 @@ class UnitCubeStudentsTMixtureMarginalDistribution(StudentsTMixtureMarginalDistr
         # Ensure base class knows we are in unit cube mode for initialization
         self._is_unit_cube = True
         super().__post_init__()
+
 
     def update(self, obs_norm: Observation) -> None:
         """Update with a normalized observation."""
@@ -90,7 +91,10 @@ class UnitCubeStudentsTMixtureMarginalDistribution(StudentsTMixtureMarginalDistr
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         # Samples are generated in [0, 1] space; convert to physical for public API
         raw_norm = super().sample(n)
-        data_phys = {name: self._to_physical(name, u_norm_arr) for name, u_norm_arr in raw_norm.items()}
+        data_phys = {
+            name: self._to_physical(name, u_norm_arr)
+            for name, u_norm_arr in raw_norm.items()
+        }
         return ParameterValues.from_mapping(list(raw_norm.keys()), data_phys)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo_phys: float, new_hi_phys: float) -> None:
@@ -119,7 +123,7 @@ class UnitCubeStudentsTMixtureMarginalDistribution(StudentsTMixtureMarginalDistr
                 self.means[k, idx] = np.clip(u_new_norm, 0.0, 1.0)
 
                 # Scale precision to keep relative uncertainty consistent
-                self.precisions[k, idx, idx] *= (w_old / w_new) ** 2
+                self.precisions[k, idx, idx] *= (w_old / w_new)**2
 
         self.model.narrow_physical_interval_for_param(param_name, nl, nh, update_x_axis=sync_x)
         self.physical_param_bounds[param_name] = (nl, nh)

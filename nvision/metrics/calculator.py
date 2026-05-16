@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
 from nvision.metrics.convergence import analyze_run_convergence
-from nvision.metrics.types import StrategyMetrics
+from nvision.metrics.types import ParameterConvergence, RepeatMetrics, StrategyMetrics
 from nvision.models.observer import RunResult
 
 log = logging.getLogger(__name__)
 
 
 def calculate_strategy_metrics(
-    strategy_name: str, run_results: Sequence[RunResult], uncertainty_threshold: float = 0.01, relative: bool = True
+    strategy_name: str,
+    run_results: Sequence[RunResult],
+    uncertainty_threshold: float = 0.01,
+    relative: bool = True
 ) -> StrategyMetrics:
     """Calculate aggregated metrics for a strategy from a sequence of run results.
 
@@ -33,10 +36,10 @@ def calculate_strategy_metrics(
         return StrategyMetrics(strategy_name=strategy_name, n_repeats=0)
 
     # Temporary storage for aggregation
-    all_abs_errors: dict[str, list[float]] = {}
-    all_conv_steps: dict[str, list[int]] = {}
-    convergence_counts: dict[str, int] = {}
-    total_conv_steps: dict[str, int] = {}
+    all_abs_errors: Dict[str, List[float]] = {}
+    all_conv_steps: Dict[str, List[int]] = {}
+    convergence_counts: Dict[str, int] = {}
+    total_conv_steps: Dict[str, int] = {}
     total_fully_converged = 0
 
     param_names = set()
@@ -70,7 +73,7 @@ def calculate_strategy_metrics(
     # Calculate summary stats
     param_conv_rates = {p: count / n_repeats for p, count in convergence_counts.items()}
     mean_conv_steps = {
-        p: total_conv_steps[p] / convergence_counts[p] if convergence_counts[p] > 0 else float("nan")
+        p: total_conv_steps[p] / convergence_counts[p] if convergence_counts[p] > 0 else float('nan')
         for p in convergence_counts
     }
 
@@ -81,11 +84,15 @@ def calculate_strategy_metrics(
         convergence_steps=all_conv_steps,
         parameter_convergence_rates=param_conv_rates,
         mean_steps_to_convergence=mean_conv_steps,
-        total_convergence_rate=total_fully_converged / n_repeats,
+        total_convergence_rate=total_fully_converged / n_repeats
     )
 
 
-def compute_error_histogram(errors: list[float], bins: int = 20, density: bool = True) -> tuple[np.ndarray, np.ndarray]:
+def compute_error_histogram(
+    errors: List[float],
+    bins: int = 20,
+    density: bool = True
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute histogram of errors for density estimation.
 
     Returns:
