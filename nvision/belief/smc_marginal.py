@@ -126,9 +126,10 @@ def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
 def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
     """Weighted variance along axis 1 (particles) for many candidates in parallel.
 
-    Uses a 1-pass algorithm that simultaneously sums E[X] and E[X^2].
-    This allows Numba to heavily optimize and SIMD-vectorize the operations,
-    which can be significantly faster than Welford's algorithm or 2-pass.
+    Uses an optimized 2-pass algorithm. The 2-pass approach avoids catastrophic
+    cancellation and is significantly faster because it eliminates loop-carried
+    data dependencies, allowing Numba to heavily optimize and SIMD-vectorize the
+    operations.
 
     Args:
         x_2d: 2D array of predictions (n_candidates, n_particles).
@@ -145,17 +146,19 @@ def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
         return np.zeros(n_rows, dtype=x_2d.dtype)
 
     for i in numba.prange(n_rows):
-        sum_x = 0.0
-        sum_x2 = 0.0
+        # Pass 1: Mean
+        mean = 0.0
         for j in range(n_cols):
-            wj = w[j]
-            xij = x_2d[i, j]
-            sum_x += wj * xij
-            sum_x2 += wj * xij * xij
+            mean += w[j] * x_2d[i, j]
+        mean /= sw
 
-        mean_x = sum_x / sw
-        mean_x2 = sum_x2 / sw
-        var = mean_x2 - (mean_x * mean_x)
+        # Pass 2: Variance
+        var = 0.0
+        for j in range(n_cols):
+            diff = x_2d[i, j] - mean
+            var += w[j] * diff * diff
+
+        var /= sw
         vars_out[i] = var if var > 0.0 else 0.0
 
     return vars_out
@@ -256,9 +259,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 self._noise_param_slice = slice(min(indices), max(indices) + 1)
 
         # Cache the number of signal dimensions (everything before noise params)
-        self._d_signal = (
-            self._noise_param_slice.start if self._noise_param_slice is not None else len(self._param_names)
-        )
+        self._d_signal = self._noise_param_slice.start if self._noise_param_slice is not None else len(self._param_names)
 
         # Initialize the first epoch-based candidate grid.
         # Spacing must resolve the narrowest possible signal feature so that EIG
@@ -558,9 +559,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             stds = {name: 0.0 for name in self._param_names}
             return ParameterValues.from_mapping(self._param_names, stds)
         p = self._particles.astype(np.float64)  # (N, d)
-        mean = (w @ p) / sw  # (d,)
-        diff = p - mean  # (N, d)
-        var = (w @ (diff**2)) / sw  # (d,)  weighted variance
+        mean = (w @ p) / sw                     # (d,)
+        diff = p - mean                          # (N, d)
+        var = (w @ (diff ** 2)) / sw             # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, stds)
 
