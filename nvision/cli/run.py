@@ -797,7 +797,7 @@ def run(  # noqa: C901
     else:
         _update_run_status("complete")
 
-    df_loc = pl.DataFrame(df_rows)
+    df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
     df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
     out_path = write_locator_results_csv(df_loc, out_dir)
     log.info(f"Wrote locator results to: {out_path}")

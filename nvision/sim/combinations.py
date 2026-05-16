@@ -66,7 +66,7 @@ class CombinationGrid:
     """
 
     def __init__(self) -> None:
-        self._generators: dict[str, object] = dict(sim_presets.generators_basic() + sim_presets.generators_narrow())
+        self._generators: dict[str, object] = dict(sim_presets.generators_basic())
 
         # Keep only Poisson and Gauss noises.
         # Archived: NoNoise, OverProbeDrift, Heavy.

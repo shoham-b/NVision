@@ -13,6 +13,13 @@ from nvision.cache import CacheBridge
 from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.app_instance import app
 from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
+from nvision.sim.combinations import CombinationGrid
+from nvision.runner.metrics import generate_attempt_metrics
+from nvision.tools.utils import NVISION_RNG_SEED
+import random
+import json
+import logging
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 console = Console()
 
@@ -231,3 +238,133 @@ def clean_manifest(  # noqa: C901
         with open(manifest_path, "w") as f:
             json.dump(valid_plots, f, indent=2)
         console.print(f"[green]Removed {removed} manifest entries and {cache_removed} cache entries.[/green]")
+
+@cache_app.command(name="recalc")
+def recalculate_metrics(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    category: Annotated[str | None, typer.Option("--category", help="Category filter")] = None,
+    strategy: Annotated[StrategyFilter | None, typer.Option("--strategy", help="Strategy filter")] = None,
+    generator: Annotated[GeneratorName | None, typer.Option("--generator", help="Generator filter")] = None,
+    noise: Annotated[NoiseName | None, typer.Option("--noise", help="Noise filter")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without updating")] = False,
+    force: Annotated[bool, typer.Option("--force", help="Update even if metrics already exist")] = False,
+) -> None:
+    """Recalculate metrics for cached simulation runs."""
+    from nvision.models.experiment import CoreExperiment
+    from nvision.runner.cache import strip_heavy_fields
+    import polars as pl
+
+    cache_root = out / "cache"
+    grid = CombinationGrid()
+    updated_count = 0
+    total_repeats = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        task_id = progress.add_task("Recalculating metrics...", total=None)
+
+        for cat_name, cat_cache in _get_caches(cache_root):
+            if category and category.lower() not in cat_name.lower():
+                continue
+
+            backend = cat_cache.backend
+            for key in backend:
+                payload = backend.get(key)
+                if not isinstance(payload, dict) or "config" not in payload:
+                    continue
+
+                cfg = payload["config"]
+                if not _matches_filter(cfg, None, strategy, generator, noise):
+                    continue
+
+                gen_name = cfg.get("generator")
+                noise_name = cfg.get("noise")
+                strat_name = cfg.get("strategy")
+                seed = cfg.get("seed", NVISION_RNG_SEED)
+
+                combo = grid.resolve(gen_name, noise_name, strat_name)
+                if not combo:
+                    continue
+
+                # Reconstruct experiment
+                rng = random.Random(seed)
+                true_signal = combo.generator.generate(rng)
+                x_min, x_max = 2.6e9, 3.1e9  # Matches _TaskRunner
+                experiment = CoreExperiment(true_signal=true_signal, noise=combo.noise, x_min=x_min, x_max=x_max)
+
+                # Load results
+                if payload.get("__nvision_cache__") != "dataframe":
+                    continue
+                data = payload.get("data", [])
+                if not data:
+                    continue
+
+                results_json = data[0].get("results")
+                if not results_json:
+                    continue
+
+                try:
+                    results = json.loads(results_json)
+                except Exception:
+                    continue
+
+                if not results:
+                    continue
+
+                progress.update(task_id, description=f"Processing {gen_name}/{noise_name}/{strat_name}")
+
+                new_results = []
+                combo_updated = False
+
+                for rid, record in enumerate(results):
+                    # Results are stored as list of dicts: [{"entries": ..., "main_result_row": ...}, ...]
+                    if not isinstance(record, dict):
+                        continue
+                        
+                    entries = record.get("entries", [])
+                    main_result_row = record.get("main_result_row", {})
+                    
+                    # We'll use the main_result_row as the 'estimate' source.
+                    # It contains the flattened results from run_result_to_finalize_record.
+                    from nvision.runner.metrics import _scan_attempt_metrics, _truth_positions
+                    
+                    truth_positions = _truth_positions(experiment)
+                    new_metrics = _scan_attempt_metrics(truth_positions, main_result_row)
+                    
+                    if not force and all(main_result_row.get(k) == v for k, v in new_metrics.items()):
+                        new_results.append(record)
+                        continue
+
+                    # Update main_result_row
+                    updated_row = dict(main_result_row)
+                    updated_row.update(new_metrics)
+                    
+                    # Update entries
+                    new_entries = []
+                    for entry in entries:
+                        if "metrics" in entry:
+                            # entry["metrics"] might be a dict or a list of dicts?
+                            # Usually it's a dict.
+                            entry["metrics"].update(new_metrics)
+                        # Also update top-level metrics in entry
+                        entry.update(new_metrics)
+                        new_entries.append(entry)
+                    
+                    new_results.append({"entries": new_entries, "main_result_row": updated_row})
+                    combo_updated = True
+                    total_repeats += 1
+
+                if combo_updated and not dry_run:
+                    data[0]["results"] = json.dumps(new_results)
+                    backend.set(key, payload)
+                    updated_count += 1
+                elif combo_updated:
+                    updated_count += 1
+
+    if dry_run:
+        console.print(f"[dim]Dry run: would update {updated_count} combinations ({total_repeats} repeats).[/dim]")
+    else:
+        console.print(f"[green]Updated {updated_count} combinations ({total_repeats} repeats).[/green]")

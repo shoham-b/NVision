@@ -117,13 +117,20 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
             return df_loc
     try:
         old_df = pl.read_csv(out_path)
-        key = ("generator", "noise", "strategy", "repeat")
+        key = ("generator", "noise", "strategy", "max_steps", "seed", "attempt")
         if set(key).issubset(old_df.columns):
-            return pl.concat([old_df, df_loc], how="diagonal").unique(
+            merged = pl.concat([old_df, df_loc], how="diagonal").unique(
                 subset=list(key),
                 keep="last",
                 maintain_order=True,
             )
+            # Normalize 'repeats' column to the maximum for each scenario group to ensure consistency
+            group_cols = ["generator", "noise", "strategy", "max_steps", "seed"]
+            if "repeats" in merged.columns and set(group_cols).issubset(merged.columns):
+                merged = merged.with_columns(
+                    pl.col("repeats").max().over(group_cols)
+                )
+            return merged
     except Exception as e:
         log.warning("Could not merge with existing CSV (perhaps schema changed!): %s", e)
     return df_loc
@@ -169,9 +176,16 @@ def merge_run_plot_manifest_with_existing_on_disk(
         # Identify (generator, noise) pairs that are being updated.
         # Identify (generator, noise, strategy, repeat) combinations being updated
         updated_combinations = {
-            (str(row.get("generator")), str(row.get("noise")), str(row.get("strategy")), row.get("repeat"))
+            (
+                str(row.get("generator")),
+                str(row.get("noise")),
+                str(row.get("strategy")),
+                row.get("max_steps"),
+                row.get("seed"),
+                row.get("repeat"),
+            )
             for row in plot_manifest
-            if all(row.get(k) is not None for k in ["generator", "noise", "strategy", "repeat"])
+            if all(row.get(k) is not None for k in ["generator", "noise", "strategy"])
         }
 
         filtered_old: list[dict[str, object]] = []
@@ -186,6 +200,10 @@ def merge_run_plot_manifest_with_existing_on_disk(
             n = entry.get("noise")
             s = entry.get("strategy")
             r = entry.get("repeat")
+            ms = entry.get("max_steps")
+            sd = entry.get("seed")
+            
+            if g and n and s and (str(g), str(n), str(s), ms, sd, r) in updated_combinations:
 
             if g and n and s and r is not None and (str(g), str(n), str(s), r) in updated_combinations:
                 continue

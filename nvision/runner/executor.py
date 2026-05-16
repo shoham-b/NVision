@@ -407,6 +407,14 @@ class _TaskRunner:
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
 
         is_streaming = self.repeats > STREAMING_REPEAT_THRESHOLD and not self.skip_cache
+        
+        # Determine effective max_steps for metrics/manifest keys
+        locator_class = self.task.strategy_spec.locator_class
+        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+        if uses_sweep_max_steps and experiments:
+            effective_max_steps = self._resolve_sweep_max_steps(experiments[0])
+        else:
+            effective_max_steps = self.task.loc_max_steps
 
         for i in range(n_missing):
             rid = start_idx + i
@@ -473,7 +481,7 @@ class _TaskRunner:
         )
         return _RepeatArtifacts(
             history_df=pl.concat(history_dfs) if history_dfs else empty_history,
-            finalize_df=pl.DataFrame(finalize_records) if finalize_records else pl.DataFrame({"repeat_id": []}),
+            finalize_df=pl.from_dicts(finalize_records, infer_schema_length=None) if finalize_records else pl.DataFrame({"repeat_id": []}),
             experiments=experiments,
             repeat_start_times=repeat_start_times,
             repeat_timestamps=repeat_timestamps,
@@ -504,6 +512,14 @@ class _TaskRunner:
         all_results: TaskResults = []
         n_repeats = len(artifacts.experiments)
 
+        # Determine effective max_steps for metrics/manifest keys
+        locator_class = self.task.strategy_spec.locator_class
+        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+        if uses_sweep_max_steps and artifacts.experiments:
+            effective_max_steps = self._resolve_sweep_max_steps(artifacts.experiments[0])
+        else:
+            effective_max_steps = self.task.loc_max_steps
+
         for i in range(n_repeats):
             attempt_idx = start_idx + i
             entry_base, main_result_row, current_history_df = generate_attempt_metrics(
@@ -519,6 +535,8 @@ class _TaskRunner:
                 final_history_df=artifacts.history_df,
                 finalize_results=artifacts.finalize_df,
                 strat_obj=self.task.strategy,
+                max_steps=effective_max_steps,
+                seed=self.task.seed,
                 run_result=artifacts.run_results[i] if i < len(artifacts.run_results) else None,
             )
 

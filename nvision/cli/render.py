@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from nvision.cache import CacheBridge
+from nvision.cache import CacheBridge, stable_config_hash
 from nvision.cli import defaults as cli_defaults
 from nvision.cli.app_instance import app
 from nvision.gui.report import prepare_static_ui_data
@@ -167,7 +167,10 @@ def _read_locator_combination_config(payload: object) -> dict[str, object] | Non
     if not isinstance(payload, dict):
         return None
     cfg = payload.get("config")
-    if not isinstance(cfg, dict) or cfg.get("kind") != "locator_combination":
+    if not isinstance(cfg, dict):
+        return None
+    kind = cfg.get("kind")
+    if kind not in ("locator_combination", "locator_combination_pointer"):
         return None
     generator = cfg.get("generator")
     noise = cfg.get("noise")
@@ -204,11 +207,15 @@ def _config_matches_filters(
         if not any(fnmatch.fnmatch(strategy, p) for p in patterns):
             return False
 
+<<<<<<< HEAD
     # 2. Grid validation: ensure the strategy is valid for this generator
     # (e.g. narrow signals should not have sweep strategies)
     grid = CombinationGrid()
     valid_strategies = [name for name, _ in grid.strategies_for(generator)]
     return strategy in valid_strategies
+=======
+    return True
+>>>>>>> 89d44b6 (add recalc)
 
 
 def _config_matches_run_params(
@@ -218,8 +225,9 @@ def _config_matches_run_params(
     loc_max_steps: int,
     loc_timeout_s: int,
 ) -> bool:
+    # Use repeats as a minimum threshold for discovery
     return bool(
-        cfg.get("repeats") == repeats
+        cfg.get("repeats", 0) >= repeats
         and cfg.get("max_steps") == loc_max_steps
         and cfg.get("timeout_s") == loc_timeout_s
     )
@@ -233,24 +241,64 @@ def _collect_cache_results_from_configs(
     task_id,
 ) -> tuple[list[dict], list[dict[str, object]], int]:
     """Hydrate results from discovered cache configs."""
+    from rich.table import Table
+
     df_rows: list[dict] = []
     plot_manifest: list[dict[str, object]] = []
     hits = 0
 
-    for category, cfg in discovered_configs:
+    table = Table(title="Loading from Cache", box=None, header_style="bold cyan")
+    table.add_column("Generator")
+    table.add_column("Noise")
+    table.add_column("Strategy")
+    table.add_column("Steps", justify="right")
+    table.add_column("Seed", justify="right")
+    table.add_column("Repeats", justify="right")
+
+    # Sort for consistent display
+    sorted_configs = sorted(
+        discovered_configs,
+        key=lambda x: (
+            str(x[1].get("generator", "")),
+            str(x[1].get("noise", "")),
+            str(x[1].get("strategy", "")),
+            int(x[1].get("max_steps", 0)),
+        ),
+    )
+
+    for category, cfg in sorted_configs:
         generator = str(cfg.get("generator", "-"))
         noise = str(cfg.get("noise", "-"))
         strategy = str(cfg.get("strategy", "-"))
+        max_steps = int(cfg.get("max_steps", 0))
+        seed = int(cfg.get("seed", 0))
+
         progress.update(
             task_id,
             description=f"Loading {generator}/{noise}/{strategy}",
         )
 
         cache = bridge.get_cache_for_category(category)
-        cached_results = cache.get_cached_combination_by_config(cfg)
+        
+        # Determine achieved repeats from pointer if available
+        achieved_repeats = int(cfg.get("repeats", 0))
+        if cfg.get("kind") == "locator_combination_pointer":
+             key = stable_config_hash(cfg)
+             ptr_df = cache._store.load_df(key)
+             if ptr_df is not None and not ptr_df.is_empty():
+                 achieved_repeats = int(ptr_df.get_column("achieved_repeats")[0])
+             
+             # Load all achieved repeats
+             cached_results = cache._repeats.load_repeats(key, achieved_repeats)
+        else:
+             cached_results = cache.get_cached_combination_by_config(cfg)
+             
         if not cached_results:
             continue
+
         hits += 1
+        table.add_row(generator, noise, strategy, str(max_steps), str(seed), str(achieved_repeats))
+
         restore_graphs(cached_results, out_dir)
         for entries, main_result_row in cached_results:
             # Strip heavy fields (content, plot_data) to keep manifest small
@@ -265,6 +313,9 @@ def _collect_cache_results_from_configs(
                     )
             plot_manifest.extend(cleaned_entries)
             df_rows.append(main_result_row)
+
+    if hits:
+        console.print(table)
 
     # Debug logging for entry types
     if plot_manifest:
@@ -319,17 +370,12 @@ def _apply_default_filters(
     filter_strategy: str | None,
     all_experiments: bool,
 ) -> tuple[str | None, str | None]:
-    if all_experiments:
+    if all_experiments or filter_category is not None:
         return filter_category, filter_strategy
 
-    default_category = "NVCenter"  # old default_run_case was nvcenter
-
-    if filter_category is None:
-        filter_category = default_category
-        if filter_category is not None:
-            log.info("Defaulting to category %r. Use --all to render everything.", filter_category)
-
-    return filter_category, filter_strategy
+    # In render mode, we default to showing everything found in cache
+    # unless a specific filter was provided.
+    return None, filter_strategy
 
 
 def _configure_render_logging(log_level: str) -> None:
@@ -379,7 +425,7 @@ def _load_cache_rows_for_render(
         TextColumn("[progress.description]{task.description}"),
         transient=True,
     ) as progress:
-        task_id = progress.add_task("Checking cache...", total=None)
+        task_id = progress.add_task("Discovering cache...", total=None)
         discovered = _discover_cached_combination_configs(
             bridge,
             filter_category=filter_category,
@@ -388,65 +434,64 @@ def _load_cache_rows_for_render(
             repeats=repeats,
             loc_max_steps=loc_max_steps,
             loc_timeout_s=loc_timeout_s,
-            strict_params=True,
+            strict_params=False,  # Always allow discovery of larger repeat counts
         )
 
-        if discovered:
-            log.info("Discovered %s cached combination(s) matching requested parameters.", len(discovered))
-            df_rows, plot_manifest, combo_hits = _collect_cache_results_from_configs(
+        if not discovered:
+            # Fallback for older cache payloads that may miss metadata.
+            return _collect_cache_results(
                 bridge,
-                discovered,
-                out_dir,
-                progress,
-                task_id,
-            )
-            log.info("Loaded %s combination(s) from cache metadata.", combo_hits)
-            return df_rows, plot_manifest
-
-        relaxed = _discover_cached_combination_configs(
-            bridge,
-            filter_category=filter_category,
-            filter_strategy=filter_strategy,
-            filter_generator=filter_generator,
-            repeats=repeats,
-            loc_max_steps=loc_max_steps,
-            loc_timeout_s=loc_timeout_s,
-            strict_params=False,
-        )
-        if relaxed:
-            log.warning(
-                "No exact cache match for repeats=%s max_steps=%s timeout_s=%s. "
-                "Using %s discovered cached combination(s) with different run parameters.",
+                grid,
+                filter_category,
+                filter_strategy,
+                filter_generator,
                 repeats,
+                NVISION_RNG_SEED,
                 loc_max_steps,
                 loc_timeout_s,
-                len(relaxed),
-            )
-            df_rows, plot_manifest, combo_hits = _collect_cache_results_from_configs(
-                bridge,
-                relaxed,
                 out_dir,
                 progress,
                 task_id,
             )
-            log.info("Loaded %s combination(s) from relaxed cache metadata lookup.", combo_hits)
-            return df_rows, plot_manifest
 
-        # Fallback for older cache payloads that may miss metadata.
-        return _collect_cache_results(
+        # Deduplicate: if we have multiple cached versions of the same scenario,
+        # pick the one with the MOST repeats.
+        best_configs: dict[tuple[str, str, str, int, int], tuple[str, dict[str, object]]] = {}
+        for category, cfg in discovered:
+            gen = str(cfg.get("generator"))
+            noise = str(cfg.get("noise"))
+            strat = str(cfg.get("strategy"))
+            max_steps = int(cfg.get("max_steps", 0))
+            seed = int(cfg.get("seed", 0))
+            key = (gen, noise, strat, max_steps, seed)
+            
+            # For pointers, we need to check the actual achieved repeats from the store
+            curr_repeats = int(cfg.get("repeats", 0))
+            if cfg.get("kind") == "locator_combination_pointer":
+                 ptr_key = stable_config_hash(cfg)
+                 cache = bridge.get_cache_for_category(category)
+                 ptr_df = cache._store.load_df(ptr_key)
+                 if ptr_df is not None and not ptr_df.is_empty():
+                     curr_repeats = int(ptr_df.get_column("achieved_repeats")[0])
+
+            if key not in best_configs or curr_repeats > int(best_configs[key][1].get("repeats", 0)):
+                # Note: we update the config dict to store the resolved 'achieved_repeats' for easier sorting later
+                cfg_copy = dict(cfg)
+                cfg_copy["repeats"] = curr_repeats
+                best_configs[key] = (category, cfg_copy)
+
+        final_configs = list(best_configs.values())
+        log.info("Discovered %s unique cached scenario(s) (best versions).", len(final_configs))
+
+        df_rows, plot_manifest, combo_hits = _collect_cache_results_from_configs(
             bridge,
-            grid,
-            filter_category,
-            filter_strategy,
-            filter_generator,
-            repeats,
-            NVISION_RNG_SEED,
-            loc_max_steps,
-            loc_timeout_s,
+            final_configs,
             out_dir,
             progress,
             task_id,
         )
+        log.info("Loaded %s combination(s) from cache.", combo_hits)
+        return df_rows, plot_manifest
 
 
 @app.command()
@@ -493,8 +538,8 @@ def render(
     ] = None,
     all_experiments: Annotated[
         bool,
-        typer.Option("--all", help="Include all experiments (disables default filtering)"),
-    ] = False,
+        typer.Option("--all", help="Include all experiments (default for render)"),
+    ] = True,
     log_level: Annotated[
         str,
         typer.Option(
@@ -542,12 +587,12 @@ def render(
     finally:
         bridge.close()
 
-    df_loc = pl.DataFrame(df_rows)
+    df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
     df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
     if df_loc.is_empty():
         recovered_rows = _rows_from_existing_manifest(out_dir)
         if recovered_rows:
-            df_loc = pl.DataFrame(recovered_rows)
+            df_loc = pl.from_dicts(recovered_rows, infer_schema_length=None)
             log.info(
                 "Recovered %s locator result row(s) from existing plots_manifest.json.",
                 len(recovered_rows),

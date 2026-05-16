@@ -18,11 +18,15 @@ def _to_native(obj: Any) -> Any:
     return obj
 
 
-def _maybe_finite(value: object) -> float | None:
-    if isinstance(value, int | float):
-        value_float = float(value)
-        if math.isfinite(value_float):
-            return value_float
+def _maybe_finite(value: object) -> float | int | None:
+    """Return the value if it is a finite number, else None. Preserves int type."""
+    # Ensure we handle NumPy scalars by converting them first
+    val = _to_native(value)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        if math.isfinite(val):
+            return val
     return None
 
 

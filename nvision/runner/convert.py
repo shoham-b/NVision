@@ -58,7 +58,7 @@ def run_result_to_history_df(
             }
         )
 
-    return pl.DataFrame(rows)
+    return pl.from_dicts(rows, infer_schema_length=None)
 
 
 def extract_peak_estimates(

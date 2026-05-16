@@ -35,6 +35,8 @@ def generate_attempt_metrics(  # noqa: C901
     final_history_df: pl.DataFrame,
     finalize_results: pl.DataFrame,
     strat_obj: Any,
+    max_steps: int | None = None,
+    seed: int | None = None,
     run_result: RunResult | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], pl.DataFrame]:
     """Calculate and format metrics for a single repeat.
@@ -111,6 +113,8 @@ def generate_attempt_metrics(  # noqa: C901
         "noise": noise_name,
         "strategy": strat_name,
         "repeats": n_repeats,
+        "max_steps": max_steps,
+        "seed": seed,
         "attempt": attempt_idx_in_combo + 1,
         "stop_reason": repeat_stop_reasons[attempt_idx_in_combo],
         **metrics_serialized,
@@ -134,6 +138,8 @@ def generate_attempt_metrics(  # noqa: C901
         "strategy": strat_name,
         "repeat": attempt_idx_in_combo + 1,
         "repeat_total": n_repeats,
+        "max_steps": max_steps,
+        "seed": seed,
         "stop_reason": repeat_stop_reasons[attempt_idx_in_combo],
         "abs_err_x": metrics_serialized.get("abs_err_x"),
         "uncert": metrics_serialized.get("uncert"),
