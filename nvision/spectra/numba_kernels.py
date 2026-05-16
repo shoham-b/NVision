@@ -617,4 +617,3 @@ def nv_center_pseudo_voigt_vectorized_many_fast(
                 pr = lorentz_r + gauss_r
 
                 out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
-

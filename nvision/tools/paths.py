@@ -22,6 +22,7 @@ def slugify(value: str) -> str:
 
 def find_project_root() -> Path:
     """Find the project root by looking for a .git directory.
+
     Falls back to the parent directory of 'nvision' if .git is not found (e.g. in Docker).
     """
     current = Path(__file__).resolve()

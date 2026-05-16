@@ -382,10 +382,7 @@ class SequentialBayesianLocator(Locator):
         Default: stop when step budget is exhausted or target parameters
         have stayed converged for ``convergence_patience_steps``.
         """
-        if self.inference_step_count >= self.max_steps:
-            return True
-
-        return False
+        return self.inference_step_count >= self.max_steps
 
     # ------------------------------------------------------------------
     # Locator interface — thin orchestrators that delegate to hooks above
@@ -473,6 +470,7 @@ class SequentialBayesianLocator(Locator):
         res = self._acquisition_done()
         if res:
             import logging
+
             logging.getLogger("nvision.sim.locs.bayesian").warning(
                 f"DEBUG: done() returning True. inference_step_count={self.inference_step_count}, max_steps={self.max_steps}"
             )

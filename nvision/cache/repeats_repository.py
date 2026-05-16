@@ -64,7 +64,7 @@ class RepeatsRepository:
         """Count how many sequential repeats are already saved."""
         count = 0
         for i in range(max_expected):
-            key = self.make_repeat_key(combo_key, i)
+            self.make_repeat_key(combo_key, i)
             # Efficient check: load_df is relatively fast, but we only need to know if it exists.
             # ShardedSqliteCache doesn't have an 'exists' method, so we load.
             if self.load_repeat(combo_key, i) is not None:

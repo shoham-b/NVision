@@ -39,11 +39,10 @@ def calculate_strategy_metrics(
     total_conv_steps: dict[str, int] = {}
     total_fully_converged = 0
 
-    param_names = set()
     if run_results[0].snapshots:
-        param_names = set(run_results[0].snapshots[0].belief.estimates().keys())
+        set(run_results[0].snapshots[0].belief.estimates().keys())
 
-    for i, run in enumerate(run_results):
+    for _i, run in enumerate(run_results):
         conv_map = analyze_run_convergence(run, uncertainty_threshold, relative)
 
         fully_converged = True

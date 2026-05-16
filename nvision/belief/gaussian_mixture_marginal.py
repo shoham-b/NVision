@@ -62,7 +62,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
         self._dim = len(self._param_names)
-        K, D = self.n_components, self._dim
+        K, D = self.n_components, self._dim  # noqa: N806
 
         self.means = np.zeros((K, D), dtype=FLOAT_DTYPE)
         self.precisions = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
@@ -138,7 +138,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
                 idx = self._param_names.index(param_name)
                 width = hi - lo
                 mid = (lo + hi) / 2.0
-                K = self.n_components
+                K = self.n_components  # noqa: N806
                 for k in range(K):
                     if K > 1:
                         offset = (k - (K - 1) / 2.0) * (width * 0.1)
@@ -173,7 +173,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
         """Perform linearized EKF update for each component."""
-        K, D = self.n_components, self._dim
+        K, D = self.n_components, self._dim  # noqa: N806
         sigma2 = sigma_eta**2
         epsilon = NVISION_GAUSSIAN_EPSILON
 
@@ -183,13 +183,13 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
         samples = self.model.spec.unpack_samples(tuple(self.means.T))
         y_preds = self.model.compute_vectorized_samples(x_probe, samples)
-        J_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # (K, D)
+        J_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # noqa: N806
 
         for k in range(K):
             m = self.means[k]
             y_pred = y_preds[k]
             r = y_obs - y_pred
-            J = J_all[k]
+            J = J_all[k]  # noqa: N806
 
             # Standard Gaussian Precision update
             delta_prec = (1.0 / sigma2) * np.outer(J, J)
@@ -277,7 +277,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         return dist
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
-        K, D = self.n_components, self._dim
+        K, D = self.n_components, self._dim  # noqa: N806
         samples = np.zeros((n, D), dtype=FLOAT_DTYPE)
         comp_indices = np.random.choice(K, size=n, p=self.weights)
         for k in range(K):
@@ -295,12 +295,12 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         """Calculate EIG in physical space."""
         noise_var = (self.last_obs.noise_std**2) if self.last_obs else 0.05**2
 
-        K, D = self.n_components, self._dim
+        K, D = self.n_components, self._dim  # noqa: N806, F841
         n_x = xs_phys.shape[0]
 
         samples_phys = self.model.spec.unpack_samples(tuple(self.means.T))
         y_preds = self.model.compute_vectorized_many(xs_phys, samples_phys)
-        J_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)
+        J_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)  # noqa: N806
 
         y_mix = np.sum(self.weights * y_preds, axis=1)  # (n_x,)
 

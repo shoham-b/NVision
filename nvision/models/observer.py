@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
@@ -266,7 +266,7 @@ class Observer:
                 )
                 self.snapshots.append(snapshot)
             # else:
-                # print(f"DEBUG: Observer skipped step, last_obs is None")
+            # print(f"DEBUG: Observer skipped step, last_obs is None")
 
         self.last_locator = last_locator
         focus_window: tuple[float, float] | None = None

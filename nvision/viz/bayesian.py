@@ -528,7 +528,8 @@ class BayesianMixin:
 
         n = len(param_names)
 
-        subplot_titles = tuple(_build_subplot_title(p, param_descriptions) for p in param_names) + (
+        subplot_titles = (
+            *tuple(_build_subplot_title(p, param_descriptions) for p in param_names),
             "<b>Timeline (Resampling & Progress)</b>",
         )
         fig = make_subplots(
@@ -616,10 +617,7 @@ class BayesianMixin:
         frames = []
         refocusing_steps = set()  # Track steps where refocusing occurs
         resampling_indices = set()  # Track indices in frames where resampling happened
-        if resampled_steps:
-            resampled_set = set(resampled_steps)
-        else:
-            resampled_set = set()
+        resampled_set = set(resampled_steps) if resampled_steps else set()
 
         for si, step_idx in enumerate(step_indices):
             # Get narrowed bounds for this step if available
