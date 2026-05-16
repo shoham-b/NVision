@@ -249,7 +249,7 @@ function main() {
         const bayesConvergencePlots = plots.filter((p) => p.type === 'bayesian_parameter_convergence');
         const bayesConvMetricsPlots = plots.filter((p) => p.type === 'bayesian_convergence_metrics');
         const bayesJitterPlots = plots.filter((p) => p.type === 'bayesian_jitter');
-        
+
         const bayesInteractiveSection = document.getElementById('bayes-interactive-section');
         const bayesInteractiveIframe = document.getElementById('bayes-interactive-iframe');
         const bayesConvergenceSection = document.getElementById('bayes-convergence-section');
@@ -544,7 +544,7 @@ function main() {
 
             const bayesSectionContainer = document.getElementById('bayes-section-container');
             const noDataMsg = document.getElementById('bayes-no-data-message');
-            
+
             if (bayesPlots.length === 0 && bayesInteractivePlots.length === 0) {
                 if (bayesSectionContainer) bayesSectionContainer.style.display = 'none';
                 return;
@@ -1444,7 +1444,7 @@ function main() {
                 scanRepeat.dataset.value = selectedRepeat;
             }
             updateRepeatNavButtons();
-            
+
             const viewToggleContainer = document.getElementById('scan-view-toggle-container');
             if (viewToggleContainer) {
                 if (repeatItems.length > 0) {
@@ -1523,7 +1523,7 @@ function main() {
                         if (phaseData.uncert != null) {
                             items.push({ label: 'Uncertainty', val: formatFrequency(phaseData.uncert), tip: 'Final estimated standard deviation of the frequency estimate. Lower is better.' });
                         }
-                        
+
                         // Milestone metrics
                         if (phaseData.steps_to_fb != null) {
                             items.push({ label: 'fb Conv. Step', val: formatCount(phaseData.steps_to_fb), tip: 'Step at which center frequency (fb) uncertainty dropped below threshold.' });
@@ -1566,14 +1566,14 @@ function main() {
                             let label = name.replace(/_/g, ' ');
                             // Capitalize first letter
                             label = label.charAt(0).toUpperCase() + label.slice(1);
-                            
+
                             let formatted = val;
                             let fmtLo = b ? b[0] : null;
                             let fmtHi = b ? b[1] : null;
 
                             const lowName = name.toLowerCase();
                             const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total';
-                            
+
                             if (typeof val === 'number') {
                                 if (isFreqLike) {
                                     formatted = formatFrequency(val);
@@ -1595,10 +1595,10 @@ function main() {
                                     }
                                 }
                             }
-                            items.push({ 
-                                label: label, 
-                                val: formatted, 
-                                bounds: b, 
+                            items.push({
+                                label: label,
+                                val: formatted,
+                                bounds: b,
                                 rawVal: val,
                                 fmtLo: fmtLo,
                                 fmtHi: fmtHi
@@ -1609,12 +1609,12 @@ function main() {
 
                     function renderJitterView(container, jitterPlot) {
                         if (!container || !jitterPlot) return;
-                        
+
                         const jitter = jitterPlot.jitter || {};
                         const variances = jitterPlot.variances || {};
                         const correlations = jitterPlot.correlations || {};
                         const paramNames = Object.keys(jitter);
-                        
+
                         const items = [];
                         for (const name of paramNames) {
                             items.push({
@@ -1624,10 +1624,10 @@ function main() {
                                 rawVal: jitter[name]
                             });
                         }
-                        
+
                         let html = '<h4>Jitter (last 20 steps)</h4>';
                         html += renderItemsToHtml(items);
-                        
+
                         if (Object.keys(variances).length > 0) {
                             html += '<h4 style="margin-top:1.5em">Final Variances (diag Σ)</h4>';
                             const varItems = paramNames.map(name => ({
@@ -1637,7 +1637,7 @@ function main() {
                             }));
                             html += renderItemsToHtml(varItems);
                         }
-                        
+
                         if (Object.keys(correlations).length > 0) {
                             html += '<h4 style="margin-top:1.5em">Correlation Matrix</h4>';
                             html += '<div style="overflow-x:auto"><table class="correlation-table" style="border-collapse: collapse; width: 100%; font-size: 0.9em;">';
@@ -1656,7 +1656,7 @@ function main() {
                             }
                             html += '</tbody></table></div>';
                         }
-                        
+
                         container.innerHTML = html;
                     }
 
@@ -1664,14 +1664,14 @@ function main() {
                         return items.map(it => {
                             const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
                             const icon = it.tip ? '<span class="help-icon" tabindex="0"' + tipAttr + '>?</span>' : '';
-                            
+
                             let valueHtml = '<div class="metric-value">' + it.val + '</div>';
-                            
+
                             if (useSliders && it.bounds && typeof it.rawVal === 'number') {
                                 const lo = it.bounds[0];
                                 const hi = it.bounds[1];
                                 const percent = Math.min(100, Math.max(0, (it.rawVal - lo) / (hi - lo) * 100));
-                                valueHtml = 
+                                valueHtml =
                                     '<div class="metric-value">' + it.val + '</div>' +
                                     '<div class="param-range-container">' +
                                         '<div class="param-range-track">' +
@@ -1699,7 +1699,7 @@ function main() {
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.coarse, false, totalMeasurements)) + '</div>' +
                             '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.fine.label) + '</div>' +
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
-                        
+
                         if (plot.true_params) {
                             html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
                                     '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params), true) + '</div>';
@@ -1735,43 +1735,43 @@ function main() {
                 updateBayesInteractiveView(null);
                 updateBayesTabs();
             }
-            
+
             // Check view mode and render summary if needed
             const activeViewModeBtn = document.querySelector('#scan-view-mode button.is-active');
             if (activeViewModeBtn && activeViewModeBtn.dataset.value === 'summary') {
                 renderRepeatsSummary(scanGeneratorValue, scanNoiseValue, scanStrategyValue);
             }
         }
-        
+
         function renderRepeatsSummary(generator, noise, strategy) {
             const summaryPlots = scanPlots.filter(
                 (p) => p.generator === generator && p.noise === noise && p.strategy === strategy
             );
             if (summaryPlots.length === 0) return;
-            
+
             ensurePlotly().then(() => {
                 const metricsList = summaryPlots.map(p => p.metrics || {});
-                
+
                 // Extract metrics arrays
                 const final_err_fb = metricsList.map(m => m.final_err_fb).filter(v => v != null);
                 const final_err_fc = metricsList.map(m => m.final_err_fc).filter(v => v != null);
                 const abs_err_x = metricsList.map(m => m.abs_err_x).filter(v => v != null);
-                
+
                 const err_fb_at_milestone = metricsList.map(m => m.err_fb_at_milestone).filter(v => v != null);
                 const err_fc_at_milestone = metricsList.map(m => m.err_fc_at_milestone).filter(v => v != null);
-                
+
                 const err_fb_diff = metricsList.map(m => m.err_fb_diff).filter(v => v != null);
                 const err_fc_diff = metricsList.map(m => m.err_fc_diff).filter(v => v != null);
-                
+
                 const final_overall_uncert = metricsList.map(m => m.final_overall_uncert || m.uncert).filter(v => v != null);
-                
+
                 function createHistogram(containerId, title, data, name, color) {
                     if (!data || data.length === 0) return;
                     const div = document.createElement('div');
                     div.style.flex = '1 1 400px';
                     div.style.minWidth = '300px';
                     document.getElementById(containerId).appendChild(div);
-                    
+
                     const trace = {
                         x: data,
                         type: 'histogram',
@@ -1787,7 +1787,7 @@ function main() {
                     };
                     Plotly.newPlot(div, [trace], layout, {responsive: true});
                 }
-                
+
                 const absErrContainer = document.getElementById('summary-abs-error-charts');
                 absErrContainer.innerHTML = '';
                 if (abs_err_x.length > 0) createHistogram('summary-abs-error-charts', 'Overall Abs Error', abs_err_x, 'Overall', '#3b82f6');
@@ -1797,13 +1797,13 @@ function main() {
                 if (err_fc_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Err fc @ Milestone', err_fc_at_milestone, 'fc Milestone', '#ef4444');
                 if (err_fb_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fb Diff (Milestone - Final)', err_fb_diff, 'fb Diff', '#6366f1');
                 if (err_fc_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fc Diff (Milestone - Final)', err_fc_diff, 'fc Diff', '#ec4899');
-                
+
                 const uncertContainer = document.getElementById('summary-uncertainty-charts');
                 uncertContainer.innerHTML = '';
                 if (final_overall_uncert.length > 0) createHistogram('summary-uncertainty-charts', 'Overall Uncertainty', final_overall_uncert, 'Uncertainty', '#64748b');
             });
         }
-        
+
         // Toggle setup
         const scanViewMode = document.getElementById('scan-view-mode');
         if (scanViewMode) {
@@ -1817,11 +1817,11 @@ function main() {
                     e.target.classList.add('is-active');
                     e.target.setAttribute('aria-checked', 'true');
                     e.target.tabIndex = 0;
-                    
+
                     const mode = e.target.dataset.value;
                     const repeatView = document.getElementById('scan-repeat-view');
                     const summaryView = document.getElementById('scan-summary-view');
-                    
+
                     if (mode === 'single') {
                         repeatView.style.display = 'block';
                         summaryView.style.display = 'none';
@@ -1849,7 +1849,7 @@ function main() {
                 }
             });
         }
-        
+
         const summaryTabBar = document.getElementById('summary-tab-bar');
         if (summaryTabBar) {
             summaryTabBar.addEventListener('click', (e) => {
@@ -1866,7 +1866,7 @@ function main() {
                     e.target.tabIndex = 0;
                     const activePanel = document.getElementById(e.target.dataset.tab);
                     if (activePanel) activePanel.classList.add('is-active');
-                    
+
                     // Trigger resize so Plotly fits correctly if it was hidden
                     window.dispatchEvent(new Event('resize'));
                 }
@@ -2142,7 +2142,7 @@ function main() {
             if (mIframeSteps) mIframeSteps.src = stepsPlot ? stepsPlot.path : '';
             if (mIframeErrFc) mIframeErrFc.src = errFcPlot ? errFcPlot.path : '';
             if (mIframeDeltaFc) mIframeDeltaFc.src = deltaFcPlot ? deltaFcPlot.path : '';
-            
+
             if (mContainer) {
                 mContainer.style.display = (stepsPlot || errFcPlot || deltaFcPlot) ? 'flex' : 'none';
             }
