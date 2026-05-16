@@ -164,7 +164,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         )
         return out.astype(FLOAT_DTYPE, copy=False)
 
-    def compute_jax(self, x: float, params: VoigtZeemanSpectrum) -> Any:
+    def compute_jax(self, x: float, params: VoigtZeemanSpectrum) -> 'Any':
         return nv_center_pseudo_voigt_jax(
             x,
             params.frequency,

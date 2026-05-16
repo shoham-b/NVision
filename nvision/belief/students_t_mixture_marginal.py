@@ -73,9 +73,9 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
         self._dim = len(self._param_names)
-        K, D = self.n_components, self._dim
+        n_comp, dim = self.n_components, self._dim
 
-        self.means = np.zeros((K, D), dtype=FLOAT_DTYPE)
+        self.means = np.zeros((n_comp, dim), dtype=FLOAT_DTYPE)
         self.precisions = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
         self.kappas = np.ones(K, dtype=FLOAT_DTYPE) * 1.0
         self.nus = np.ones(K, dtype=FLOAT_DTYPE) * (D + 2.0)
@@ -99,40 +99,40 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             if self._is_unit_cube:
                 # Unit cube: everything is [0, 1]. Default to midpoint.
                 mid = 0.5
-                for k in range(K):
+                for k in range(n_comp):
                     self.means[k, i] = mid
-                    if name == "frequency" and K > 1:
+                    if name == "frequency" and n_comp > 1:
                         offset = (k - (K - 1) / 2.0) * 0.1
                         self.means[k, i] = float(np.clip(mid + offset, 0.0, 1.0))
                 var = (0.25) ** 2  # sigma = 0.25 (covers 0 to 1 in 4 sigma)
-                for k in range(K):
+                for k in range(n_comp):
                     self.precisions[k, i, i] = 1.0 / var
             elif name in self._physical_param_bounds:
                 lo, hi = self._physical_param_bounds[name]
                 mid = (lo + hi) / 2.0
                 width = hi - lo
-                for k in range(K):
+                for k in range(n_comp):
                     self.means[k, i] = mid
-                    if name == "frequency" and K > 1:
+                    if name == "frequency" and n_comp > 1:
                         offset = (k - (K - 1) / 2.0) * (width * 0.1)
                         self.means[k, i] = float(np.clip(mid + offset, lo, hi))
                 var = (width / 4.0) ** 2
-                for k in range(K):
+                for k in range(n_comp):
                     self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
             else:
                 # No explicit bound supplied – use heuristic defaults
                 default = self._PARAM_DEFAULTS.get(name)
                 if default is None:
                     default = freq_width * 1e-3
-                for k in range(K):
+                for k in range(n_comp):
                     self.means[k, i] = float(default)
                 var = (default * 2.0) ** 2
-                for k in range(K):
+                for k in range(n_comp):
                     self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
 
         if not self._physical_param_bounds:
             # Completely unconstrained: fall back to identity precision
-            for k in range(K):
+            for k in range(n_comp):
                 self.precisions[k] = np.eye(D)
 
         self._recompute_covariances()
@@ -158,9 +158,9 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
                 idx = self._param_names.index(param_name)
                 width = hi - lo
                 mid = (lo + hi) / 2.0
-                K = self.n_components
-                for k in range(K):
-                    if K > 1:
+                n_comp = self.n_components
+                for k in range(n_comp):
+                    if n_comp > 1:
                         offset = (k - (K - 1) / 2.0) * (width * 0.1)
                         self.means[k, idx] = float(np.clip(mid + offset, lo, hi))
                     else:
@@ -168,7 +168,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
                 # Also tighten the prior precision to match the new window width
                 # if it was uninformatively large.
-                for k in range(K):
+                for k in range(n_comp):
                     var = (width / 4.0) ** 2
                     self.precisions[k, idx, idx] = max(self.precisions[k, idx, idx], 1.0 / max(var, 1e-20))
 
@@ -197,7 +197,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
         """Perform linearized update with Student's t weighting."""
-        K, D = self.n_components, self._dim
+        n_comp, dim = self.n_components, self._dim
         sigma2 = sigma_eta**2
         df_weight = NVISION_STUDENTS_T_DF_WEIGHT
         epsilon = NVISION_STUDENTS_T_EPSILON
@@ -209,13 +209,13 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         # Vectorized evaluation over components
         samples = self.model.spec.unpack_samples(tuple(self.means.T))
         y_preds = self.model.compute_vectorized_samples(x_probe, samples)
-        J_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # (K, D)
+        j_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # (K, D)
 
-        for k in range(K):
+        for k in range(n_comp):
             m = self.means[k]
             y_pred = y_preds[k]
             r = y_obs - y_pred
-            J = J_all[k]
+            j = j_all[k]
 
             # Weighting
             w = (1.0 + (r**2) / (df_weight * sigma2)) ** (-(df_weight + 1.0) / 2.0)
@@ -230,7 +230,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             try:
                 delta_mu = solve(reg_new_prec, rhs)
             except np.linalg.LinAlgError:
-                delta_mu = np.zeros(D)
+                delta_mu = np.zeros(dim)
 
             new_means[k] = m + delta_mu
 
@@ -312,17 +312,17 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         return dist
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
-        K, D = self.n_components, self._dim
-        samples = np.zeros((n, D), dtype=FLOAT_DTYPE)
-        comp_indices = np.random.choice(K, size=n, p=self.weights)
-        for k in range(K):
+        n_comp, dim = self.n_components, self._dim
+        samples = np.zeros((n, dim), dtype=FLOAT_DTYPE)
+        comp_indices = np.random.choice(n_comp, size=n, p=self.weights)
+        for k in range(n_comp):
             mask = comp_indices == k
             nk = np.sum(mask)
             if nk == 0:
                 continue
-            df = max(self.nus[k] - D + 1.0, 1.0)
+            df = max(self.nus[k] - dim + 1.0, 1.0)
             u = np.random.chisquare(df, size=nk) / df
-            z = np.random.multivariate_normal(np.zeros(D), self._covariances[k], size=nk)
+            z = np.random.multivariate_normal(np.zeros(dim), self._covariances[k], size=nk)
             samples[mask] = self.means[k] + z / np.sqrt(u[:, None])
         return ParameterValues.from_mapping(
             self._param_names, {name: samples[:, i] for i, name in enumerate(self._param_names)}
@@ -332,22 +332,22 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         """Calculate EIG in physical space."""
         noise_var = (self.last_obs.noise_std**2) if self.last_obs else 0.05**2
 
-        K, D = self.n_components, self._dim
+        n_comp = self.n_components
         n_x = xs_phys.shape[0]
 
         # Vectorized evaluation over components and x-positions
         samples_phys = self.model.spec.unpack_samples(tuple(self.means.T))
         # y_preds shape (n_x, K)
         y_preds = self.model.compute_vectorized_many(xs_phys, samples_phys)
-        # J_phys shape (n_x, K, D)
-        J_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)
+        # J_phys shape (n_x, n_comp, dim)
+        j_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)
 
         y_mix = np.sum(self.weights * y_preds, axis=1)  # (n_x,)
 
         eigs = np.zeros(n_x)
         for i in range(n_x):
             pred_var = 0.0
-            for k in range(K):
+            for k in range(n_comp):
                 gk = J_phys[i, k]
                 ev = gk @ self._covariances[k] @ gk.T
                 pred_var += self.weights[k] * (ev + (y_preds[i, k] - y_mix[i]) ** 2)

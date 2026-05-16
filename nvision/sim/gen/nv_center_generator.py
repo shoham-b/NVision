@@ -74,7 +74,7 @@ class NVCenterCoreGenerator:
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
 
         # Normalize NV Center ODMR directly to [0, 1] bounds using exactly 1.0 maximum dip
-        background = 1.0
+
 
         if self.variant == "lorentzian":
             unit_dip_depth = rng.uniform(0.3, 0.95)

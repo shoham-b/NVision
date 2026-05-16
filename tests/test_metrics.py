@@ -48,7 +48,7 @@ def create_mock_run_result(final_error=0.01, final_uncertainty=0.005, converged_
         # Mock belief to return specific estimates/uncertainty
         class MockBelief(GridMarginalDistribution):
             def estimates(self):
-                return {"x1": est if i == 9 else est}
+                return {"x1": est}
 
             def uncertainty(self):
                 return {"x1": uncert}

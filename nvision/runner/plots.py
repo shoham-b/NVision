@@ -218,15 +218,15 @@ def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, t
         for s in snapshots:
             b = s.belief
             assert isinstance(b, StudentsTMixtureMarginalDistribution)
-            K = b.n_components
-            D = b._dim
+            n_comp = b.n_components
+            dim = b._dim
 
             comp_pdfs = []
-            for k in range(K):
+            for k in range(n_comp):
                 mu = float(b.means[k, idx])
                 sigma = float(np.sqrt(max(b._covariances[k, idx, idx], 1e-18)))
                 # degrees of freedom for the marginal of a multivariate t is nu - dim + 1
-                df = float(max(b.nus[k] - D + 1.0, 1.0))
+                df = float(max(b.nus[k] - dim + 1.0, 1.0))
                 # Weighted component PDF
                 pdf_val = float(b.weights[k]) * t.pdf(grid, df=df, loc=mu, scale=sigma)
                 comp_pdfs.append(pdf_val)

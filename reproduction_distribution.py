@@ -1,6 +1,5 @@
 import numpy as np
 import plotly.graph_objects as go
-import polars as pl
 
 
 def reproduction():
@@ -13,7 +12,7 @@ def reproduction():
 
     x_meas = np.concatenate([x_coarse, x_res1, x_res2])
 
-    history = pl.DataFrame({"x": x_meas})
+
 
     xs_dense = np.linspace(2.867, 2.872, 5000)
     ys_dense = np.ones_like(xs_dense)

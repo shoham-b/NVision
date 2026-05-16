@@ -62,9 +62,9 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
         self._dim = len(self._param_names)
-        K, D = self.n_components, self._dim
+        n_comp, dim = self.n_components, self._dim
 
-        self.means = np.zeros((K, D), dtype=FLOAT_DTYPE)
+        self.means = np.zeros((n_comp, dim), dtype=FLOAT_DTYPE)
         self.precisions = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
         self.weights = np.ones(K, dtype=FLOAT_DTYPE) / K
         self._covariances = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
@@ -85,38 +85,38 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         for i, name in enumerate(self._param_names):
             if self._is_unit_cube:
                 mid = 0.5
-                for k in range(K):
+                for k in range(n_comp):
                     self.means[k, i] = mid
-                    if name == "frequency" and K > 1:
+                    if name == "frequency" and n_comp > 1:
                         offset = (k - (K - 1) / 2.0) * 0.1
                         self.means[k, i] = float(np.clip(mid + offset, 0.0, 1.0))
                 var = (0.25) ** 2
-                for k in range(K):
+                for k in range(n_comp):
                     self.precisions[k, i, i] = 1.0 / var
             elif name in self._physical_param_bounds:
                 lo, hi = self._physical_param_bounds[name]
                 mid = (lo + hi) / 2.0
                 width = hi - lo
-                for k in range(K):
+                for k in range(n_comp):
                     self.means[k, i] = mid
-                    if name == "frequency" and K > 1:
+                    if name == "frequency" and n_comp > 1:
                         offset = (k - (K - 1) / 2.0) * (width * 0.1)
                         self.means[k, i] = float(np.clip(mid + offset, lo, hi))
                 var = (width / 4.0) ** 2
-                for k in range(K):
+                for k in range(n_comp):
                     self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
             else:
                 default = self._PARAM_DEFAULTS.get(name)
                 if default is None:
                     default = freq_width * 1e-3
-                for k in range(K):
+                for k in range(n_comp):
                     self.means[k, i] = float(default)
                 var = (default * 2.0) ** 2
-                for k in range(K):
+                for k in range(n_comp):
                     self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
 
         if not self._physical_param_bounds:
-            for k in range(K):
+            for k in range(n_comp):
                 self.precisions[k] = np.eye(D)
 
         self._recompute_covariances()
@@ -138,15 +138,15 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
                 idx = self._param_names.index(param_name)
                 width = hi - lo
                 mid = (lo + hi) / 2.0
-                K = self.n_components
-                for k in range(K):
-                    if K > 1:
+                n_comp = self.n_components
+                for k in range(n_comp):
+                    if n_comp > 1:
                         offset = (k - (K - 1) / 2.0) * (width * 0.1)
                         self.means[k, idx] = float(np.clip(mid + offset, lo, hi))
                     else:
                         self.means[k, idx] = mid
 
-                for k in range(K):
+                for k in range(n_comp):
                     var = (width / 4.0) ** 2
                     self.precisions[k, idx, idx] = max(self.precisions[k, idx, idx], 1.0 / max(var, 1e-20))
 
@@ -173,7 +173,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
         """Perform linearized EKF update for each component."""
-        K, D = self.n_components, self._dim
+        n_comp, dim = self.n_components, self._dim
         sigma2 = sigma_eta**2
         epsilon = NVISION_GAUSSIAN_EPSILON
 
@@ -183,13 +183,13 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
         samples = self.model.spec.unpack_samples(tuple(self.means.T))
         y_preds = self.model.compute_vectorized_samples(x_probe, samples)
-        J_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # (K, D)
+        j_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # (K, D)
 
-        for k in range(K):
+        for k in range(n_comp):
             m = self.means[k]
             y_pred = y_preds[k]
             r = y_obs - y_pred
-            J = J_all[k]
+            j = j_all[k]
 
             # Standard Gaussian Precision update
             delta_prec = (1.0 / sigma2) * np.outer(J, J)
@@ -277,10 +277,10 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         return dist
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
-        K, D = self.n_components, self._dim
+        n_comp, dim = self.n_components, self._dim
         samples = np.zeros((n, D), dtype=FLOAT_DTYPE)
-        comp_indices = np.random.choice(K, size=n, p=self.weights)
-        for k in range(K):
+        comp_indices = np.random.choice(n_comp, size=n, p=self.weights)
+        for k in range(n_comp):
             mask = comp_indices == k
             nk = np.sum(mask)
             if nk == 0:
@@ -295,19 +295,19 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         """Calculate EIG in physical space."""
         noise_var = (self.last_obs.noise_std**2) if self.last_obs else 0.05**2
 
-        K, D = self.n_components, self._dim
+        n_comp = self.n_components
         n_x = xs_phys.shape[0]
 
         samples_phys = self.model.spec.unpack_samples(tuple(self.means.T))
         y_preds = self.model.compute_vectorized_many(xs_phys, samples_phys)
-        J_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)
+        j_phys = self.model.gradient_vectorized_many(xs_phys, samples_phys)
 
         y_mix = np.sum(self.weights * y_preds, axis=1)  # (n_x,)
 
         eigs = np.zeros(n_x)
         for i in range(n_x):
             pred_var = 0.0
-            for k in range(K):
+            for k in range(n_comp):
                 gk = J_phys[i, k]
                 ev = gk @ self._covariances[k] @ gk.T
                 pred_var += self.weights[k] * (ev + (y_preds[i, k] - y_mix[i]) ** 2)

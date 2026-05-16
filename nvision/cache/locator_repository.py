@@ -198,7 +198,7 @@ class LocatorResultsRepository:
                 max_steps=max_steps,
                 timeout_s=timeout_s,
             )
-            ptr_key = stable_config_hash(ptr_config)
+
             self.append_cached_repeats(
                 generator=generator,
                 noise=noise,
@@ -249,8 +249,17 @@ class LocatorResultsRepository:
             max_steps=max_steps,
             timeout_s=timeout_s,
         )
-        ptr_key = stable_config_hash(ptr_config)
 
+
+        ptr_config = combination_base_cache_config(
+            generator=generator,
+            noise=noise,
+            strategy=strategy,
+            seed=seed,
+            max_steps=max_steps,
+            timeout_s=timeout_s,
+        )
+        ptr_key = stable_config_hash(ptr_config)
         # Save each repeat row
         for i, (entries, main_result_row) in enumerate(new_results):
             self._repeats.save_repeat(ptr_key, start_idx + i, entries, main_result_row)
@@ -274,6 +283,15 @@ class LocatorResultsRepository:
         main_result_row: dict[str, Any],
     ) -> None:
         """Save a single repeat (streaming). Caller is responsible for updating the pointer later if needed."""
+        ptr_config = combination_base_cache_config(
+            generator=generator,
+            noise=noise,
+            strategy=strategy,
+            seed=seed,
+            max_steps=max_steps,
+            timeout_s=timeout_s,
+        )
+
         ptr_config = combination_base_cache_config(
             generator=generator,
             noise=noise,

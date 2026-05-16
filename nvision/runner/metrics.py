@@ -6,7 +6,9 @@ import logging
 import math
 import time
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from nvision.runner.executor import RunResult
 
 import polars as pl
 
