@@ -12,3 +12,6 @@
 ## 2024-05-14 - Tab Keyboard Navigation
 **Learning:** Elements with `role="tab"` should use a "roving tabindex" strategy where only the active tab has `tabindex="0"` and inactive tabs have `tabindex="-1"`. Navigation between tabs within the same `role="tablist"` should be handled using arrow keys to improve keyboard accessibility for screen reader users.
 **Action:** When implementing custom tab UI elements, ensure appropriate keydown listeners are attached for arrow keys, dynamically updating `tabindex` and focusing the newly selected tab.
+## 2026-05-16 - Make dynamic help icons keyboard accessible
+**Learning:** Dynamically generated HTML (like metric cards in `app.js`) often drops accessibility attributes if not explicitly included in the string templates. Here, help icon `<span>` elements lacked `tabindex="0"`, making their tooltips inaccessible to keyboard users navigating via Tab.
+**Action:** Always ensure that interactive or tooltip-triggering elements rendered via JavaScript strings include `tabindex="0"` and appropriate CSS focus states (`:focus-visible`) to maintain accessibility.
