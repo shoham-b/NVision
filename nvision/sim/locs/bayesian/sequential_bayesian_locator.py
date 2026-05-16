@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-
 from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
@@ -362,10 +361,7 @@ class SequentialBayesianLocator(Locator):
         When a sweep was already run, ``batch_update`` already provided this warm start,
         so observations are applied immediately as usual.
         """
-        in_warmup = (
-            self.initial_sweep_steps == 0
-            and self.inference_step_count <= _WARMUP_BUFFER_SIZE
-        )
+        in_warmup = self.initial_sweep_steps == 0 and self.inference_step_count <= _WARMUP_BUFFER_SIZE
         if in_warmup:
             self._warmup_obs_buffer.append(obs)
             if self.inference_step_count == _WARMUP_BUFFER_SIZE:
@@ -388,7 +384,7 @@ class SequentialBayesianLocator(Locator):
         """
         if self.inference_step_count >= self.max_steps:
             return True
-            
+
         return False
 
     # ------------------------------------------------------------------
@@ -397,7 +393,7 @@ class SequentialBayesianLocator(Locator):
 
     def next(self) -> float:
         """Propose next measurement with staged initial-sweep warm-start.
-        
+
         In narrow mode (initial_sweep_steps == 0), the first _WARMUP_BUFFER_SIZE
         steps use a Sobol sequence to ensure diverse exploration of the domain
         before the first belief update.
@@ -415,15 +411,13 @@ class SequentialBayesianLocator(Locator):
             self._on_sweep_complete()
 
         self.inference_step_count += 1
-        
+
         # Use Sobol sequence for proposals during the warmup phase (narrow mode only)
         # to ensure we don't repeat the same non-informative measurement.
-        in_warmup = (
-            self.initial_sweep_steps == 0
-            and self.inference_step_count <= _WARMUP_BUFFER_SIZE
-        )
+        in_warmup = self.initial_sweep_steps == 0 and self.inference_step_count <= _WARMUP_BUFFER_SIZE
         if in_warmup:
             from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
+
             # sobol_1d_sequence(n) returns n points. We take the last one.
             val = float(sobol_1d_sequence(self.inference_step_count)[-1])
             # val is in [0, 1]. We keep it normalized as per super().next() expectation
@@ -476,7 +470,13 @@ class SequentialBayesianLocator(Locator):
         """Stop when converged (after warm-up) or step budget is exhausted."""
         if not self._staged_sobol.done():
             return False
-        return self._acquisition_done()
+        res = self._acquisition_done()
+        if res:
+            import logging
+            logging.getLogger("nvision.sim.locs.bayesian").warning(
+                f"DEBUG: done() returning True. inference_step_count={self.inference_step_count}, max_steps={self.max_steps}"
+            )
+        return res
 
     def _target_params_converged(self) -> bool:
         """Check convergence on configured target parameters.

@@ -798,7 +798,7 @@ def compute_scan_plot_data(
         _splice_noisy_dense_at_measurements(xs, noisy_vals, history_xs_s, history_ys_s)
         out["y_dense_noisy"] = noisy_vals
 
-    has_metrics = history.height > 0 and any(col in history.columns for col in ["entropy", "max_prob", "uncertainty"])
+    has_metrics = history.height > 0 and any(col in history.columns for col in ("entropy", "max_prob", "uncertainty"))
     out["has_metrics"] = has_metrics
     out["measurements"] = _measurements_from_history(history)
     if focus_window is not None:
@@ -1072,7 +1072,7 @@ class MeasurementsMixin:
             measurement_ys.append(ym)
 
         has_metrics = history.height > 0 and any(
-            col in history.columns for col in ["entropy", "max_prob", "uncertainty"]
+            col in history.columns for col in ("entropy", "max_prob", "uncertainty")
         )
 
         fig = _make_scan_figure(has_metrics)

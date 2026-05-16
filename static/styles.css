@@ -404,7 +404,10 @@ body {
             transition: all 0.15s ease;
         }
 
-        .sweep-metrics-panel .help-icon:hover {
+        .sweep-metrics-panel .help-icon:hover,
+        .sweep-metrics-panel .help-icon:focus-visible {
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
             background: #3b82f6;
             color: #fff;
         }
@@ -427,9 +430,12 @@ body {
             transition: all 0.15s ease;
         }
 
-        .help-icon-visible:hover {
+        .help-icon-visible:hover,
+        .help-icon-visible:focus-visible {
             background: #3b82f6;
             color: #fff;
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
         }
 
         .scan-metrics-panel .help-icon {
@@ -450,7 +456,10 @@ body {
             transition: all 0.15s ease;
         }
 
-        .scan-metrics-panel .help-icon:hover {
+        .scan-metrics-panel .help-icon:hover,
+        .scan-metrics-panel .help-icon:focus-visible {
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
             background: #3b82f6;
             color: #fff;
         }
@@ -686,4 +695,43 @@ body {
             font-size: 1.2em;
             color: #3b82f6;
             font-weight: bold;
+        }
+
+        /* ---- Parameter Range Visualizer (Slider style) ---- */
+        .param-range-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.1em;
+            width: 100%;
+            margin-top: 0.2em;
+        }
+
+        .param-range-track {
+            position: relative;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin: 0.4em 4px;
+        }
+
+        .param-range-marker {
+            position: absolute;
+            top: 50%;
+            width: 10px;
+            height: 10px;
+            background: #8b5cf6;
+            border: 1.5px solid #fff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+            z-index: 2;
+        }
+
+        .param-range-bounds {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            color: #94a3b8;
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            line-height: 1;
         }

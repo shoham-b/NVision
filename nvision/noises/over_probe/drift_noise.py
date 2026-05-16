@@ -10,7 +10,7 @@ from nvision.spectra.noise_model import NoiseSignalModel
 @dataclass
 class OverProbeDriftNoise(OverProbeNoise):
     """ARCHIVED: Currently not used in the main simulation grid.
-    
+
     Adds a slow linear drift across sequential probes.
     """
 

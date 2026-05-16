@@ -12,7 +12,7 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 
 class MaximumLikelihoodLocator(SequentialBayesianLocator):
     """ARCHIVED: Currently not used in the main simulation grid.
-    
+
     Maximum Likelihood (Mode) acquisition.
 
     Measures where the marginal posterior distribution is maximized.

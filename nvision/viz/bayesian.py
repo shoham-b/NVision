@@ -361,7 +361,9 @@ class BayesianMixin:
                         "transition": {"duration": 0},
                     },
                 ],
-                "label": f"{int(frame.name) + 1}↺" if int(frame.name) in resampling_indices else str(int(frame.name) + 1),
+                "label": f"<b><span style='color:red;'>🔴{int(frame.name) + 1}↺</span></b>"
+                if int(frame.name) in resampling_indices
+                else str(int(frame.name) + 1),
                 "method": "animate",
             }
             for frame in frames
@@ -526,33 +528,94 @@ class BayesianMixin:
 
         n = len(param_names)
 
+        subplot_titles = tuple(_build_subplot_title(p, param_descriptions) for p in param_names) + (
+            "<b>Timeline (Resampling & Progress)</b>",
+        )
+        fig = make_subplots(
+            rows=n + 1,
+            cols=1,
+            subplot_titles=subplot_titles,
+            vertical_spacing=min(0.12, 0.5 / max(n + 1, 1)),  # slightly more spacing for rich titles
+            row_heights=[1.0] * n + [0.2],
+        )
+        timeline_row = n + 1
+
         def traces_for_step(step_idx: int) -> list[object]:
             traces: list[object] = []
             for param in param_names:
                 posterior_history, grid = posterior_inputs_by_param[param]
                 posterior = posterior_history[-1] if step_idx >= len(posterior_history) else posterior_history[step_idx]
                 traces.extend(_trace_one_marginal_posterior(posterior, grid, param))
+
+            # Add timeline traces
+            # Base line
+            traces.append(
+                go.Scatter(
+                    x=[1, total_steps],
+                    y=[0, 0],
+                    mode="lines",
+                    line=dict(color="#eee", width=2),
+                    showlegend=False,
+                    xaxis=f"x{timeline_row}",
+                    yaxis=f"y{timeline_row}",
+                )
+            )
+
+            # Resampling markers (Red vertical bars)
+            if resampled_steps:
+                rs_x = [rs + 1 for rs in resampled_steps]
+                traces.append(
+                    go.Scatter(
+                        x=rs_x,
+                        y=[0] * len(rs_x),
+                        mode="markers",
+                        marker=dict(symbol="line-ns-open", size=20, line=dict(color="rgba(231, 76, 60, 0.8)", width=3)),
+                        name="Resampling",
+                        showlegend=False,
+                        xaxis=f"x{timeline_row}",
+                        yaxis=f"y{timeline_row}",
+                        hoverinfo="text",
+                        text=[f"Resampled at step {x}" for x in rs_x],
+                    )
+                )
+
+            # Current position cursor (Blue vertical line)
+            traces.append(
+                go.Scatter(
+                    x=[step_idx + 1, step_idx + 1],
+                    y=[-1, 1],
+                    mode="lines",
+                    line=dict(color="#1e90ff", width=4),
+                    name="Current Step",
+                    showlegend=False,
+                    xaxis=f"x{timeline_row}",
+                    yaxis=f"y{timeline_row}",
+                    hoverinfo="skip",
+                )
+            )
+
             return traces
 
-        subplot_titles = tuple(_build_subplot_title(p, param_descriptions) for p in param_names)
-        fig = make_subplots(
-            rows=n,
-            cols=1,
-            subplot_titles=subplot_titles,
-            vertical_spacing=min(0.15, 0.6 / max(n, 1)),  # slightly more spacing for rich titles
-        )
         for param_idx, param in enumerate(param_names, start=1):
             posterior_history, grid = posterior_inputs_by_param[param]
-            posterior = posterior_history[-1] if step_indices[0] >= len(posterior_history) else posterior_history[step_indices[0]]
+            posterior = (
+                posterior_history[-1]
+                if step_indices[0] >= len(posterior_history)
+                else posterior_history[step_indices[0]]
+            )
             for tr in _trace_one_marginal_posterior(posterior, grid, param):
                 fig.add_trace(tr, row=param_idx, col=1)
         for i, name in enumerate(param_names, start=1):
             fig.update_yaxes(title_text="density", automargin=True, row=i, col=1)
             fig.update_xaxes(title_text=name, row=i, col=1)
 
+        # Format Timeline subplot
+        fig.update_yaxes(visible=False, range=[-1, 1], row=timeline_row, col=1)
+        fig.update_xaxes(title_text="Measurement Step", range=[0.5, total_steps + 0.5], row=timeline_row, col=1)
+
         frames = []
         refocusing_steps = set()  # Track steps where refocusing occurs
-        resampling_indices = set() # Track indices in frames where resampling happened
+        resampling_indices = set()  # Track indices in frames where resampling happened
         if resampled_steps:
             resampled_set = set(resampled_steps)
         else:
@@ -632,12 +695,12 @@ class BayesianMixin:
             # Add indicators to title
             _formula_suffix = f"  {signal_formula}" if signal_formula else ""
             title_text = f"Posterior evolution (all parameters){_formula_suffix}<br>step {step_idx + 1}/{total_steps}"
-            
+
             is_resampled = step_idx in resampled_set
             if is_resampled:
                 resampling_indices.add(si)
                 title_text = title_text.replace("<br>", " [RESAMPLED] ↺<br>", 1)
-            
+
             if si in refocusing_steps:
                 title_text = title_text.replace("<br>", " [REFOCUSING]<br>", 1)
 
@@ -650,9 +713,12 @@ class BayesianMixin:
                         annotations=[
                             dict(
                                 text="RESAMPLED ↺",
-                                xref="paper", yref="paper",
-                                x=1.0, y=1.02,
-                                xanchor="right", yanchor="bottom",
+                                xref="paper",
+                                yref="paper",
+                                x=1.0,
+                                y=1.02,
+                                xanchor="right",
+                                yanchor="bottom",
                                 showarrow=False,
                                 font=dict(size=10, color="#ffffff"),
                                 bgcolor="rgba(231, 76, 60, 0.7)",
@@ -660,7 +726,9 @@ class BayesianMixin:
                                 borderwidth=0,
                                 borderpad=4,
                             )
-                        ] if is_resampled else []
+                        ]
+                        if is_resampled
+                        else [],
                     ),
                 )
             )
@@ -674,8 +742,11 @@ class BayesianMixin:
                 base_label = f"[{base_label}]"
             if si in resampling_indices:
                 base_label = f"{base_label} ↺"
-            
+
             label = base_label
+            if si in resampling_indices:
+                # Use bold red for resampling labels
+                label = f"<b><span style='color:red;'>🔴{base_label}</span></b>"
 
             slider_steps.append(
                 {
@@ -1103,12 +1174,14 @@ class BayesianMixin:
         pairs: list[tuple[int, int]],
         out_path: Path,
         *,
+        means_history: list[dict[str, float]] | None = None,
         true_params: Mapping[str, float] | None = None,
     ) -> None:
         """Animate 2D covariance ellipses for parameter pairs (Option C).
 
         Shows how uncertainty regions shrink toward true parameter values.
-        Each subplot shows a 2σ ellipse shrinking as inference progresses.
+        Each subplot shows a 2σ ellipse. If means_history is provided,
+        ellipses are centered at the estimated means (showing jitter).
         """
         if not covariance_history or not pairs:
             return
@@ -1117,9 +1190,11 @@ class BayesianMixin:
 
         # Subsample if too many steps
         step_indices = list(range(n_steps))
-        if n_steps > 100:
-            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 100)]
+        if n_steps > 150:
+            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 150)]
             covariance_history = [covariance_history[i] for i in step_indices]
+            if means_history:
+                means_history = [means_history[i] for i in step_indices]
             n_steps = len(step_indices)
 
         from plotly.subplots import make_subplots
@@ -1159,19 +1234,43 @@ class BayesianMixin:
                 rot = eigvecs
                 points = np.column_stack([ellipse_x, ellipse_y]) @ rot.T
 
+                # Center at means if available
+                if means_history:
+                    step_means = means_history[step_idx]
+                    m_i = step_means.get(param_names[i], 0.0)
+                    m_j = step_means.get(param_names[j], 0.0)
+                    points[:, 0] += m_i
+                    points[:, 1] += m_j
+
                 frame_data.append(
                     go.Scatter(
                         x=points[:, 0],
                         y=points[:, 1],
                         mode="lines",
-                        line=dict(color=colors[step_idx], width=2),
+                        line=dict(color=colors[step_idx], width=3),
                         fill="toself",
                         fillcolor=colors[step_idx],
-                        opacity=0.7,
+                        opacity=0.6,
                         name=f"Step {step_indices[step_idx]}",
                         showlegend=(pair_idx == 0),
                     )
                 )
+
+                # Add true value cross
+                if true_params:
+                    t_i = true_params.get(param_names[i])
+                    t_j = true_params.get(param_names[j])
+                    if t_i is not None and t_j is not None:
+                        frame_data.append(
+                            go.Scatter(
+                                x=[t_i],
+                                y=[t_j],
+                                mode="markers",
+                                marker=dict(symbol="x", color="red", size=10),
+                                name="True",
+                                showlegend=(pair_idx == 0 and step_idx == 0),
+                            )
+                        )
 
             frames.append(
                 go.Frame(
@@ -1257,9 +1356,11 @@ class BayesianMixin:
         # Update all subplots with proper axis labels
         for pair_idx, (i, j) in enumerate(pairs):
             col = pair_idx + 1
-            fig.update_xaxes(title_text=f"Δ{param_names[i]} (deviation)", row=1, col=col)
-            fig.update_yaxes(title_text=f"Δ{param_names[j]} (deviation)", row=1, col=col)
-            fig.update_yaxes(scaleanchor=f"x{col if col > 1 else ''}", scaleratio=1, row=1, col=col)
+            fig.update_xaxes(title_text=param_names[i], row=1, col=col)
+            fig.update_yaxes(title_text=param_names[j], row=1, col=col)
+            # Use data-driven ranges if centered at means
+            if not means_history:
+                fig.update_yaxes(scaleanchor=f"x{col if col > 1 else ''}", scaleratio=1, row=1, col=col)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
@@ -1661,6 +1762,8 @@ class BayesianMixin:
         )
 
         steps = list(range(n_steps))
+        achieved = [bool(cm["convergence_achieved"]) for cm in conv_metrics]
+        global_conv_idx = next((i for i, a in enumerate(achieved) if a), None)
 
         # Plot per-parameter uncertainties with threshold line
         for i, param in enumerate(param_names):
@@ -1726,6 +1829,26 @@ class BayesianMixin:
                     col=1,
                 )
 
+            # Status badge on the right
+            is_conv_end = conv_metrics[-1]["converged_params"].get(param, False)
+            status_text = "CONVERGED" if is_conv_end else "NOT CONVERGED"
+            status_color = "#2ecc71" if is_conv_end else "#e74c3c"
+
+            fig.add_annotation(
+                text=f"<b>{status_text}</b>",
+                xref=f"x{row if row > 1 else ''} domain",
+                yref=f"y{row if row > 1 else ''} domain",
+                x=1.02,
+                y=0.5,
+                showarrow=False,
+                font=dict(color="white", size=9),
+                xanchor="left",
+                bgcolor=status_color,
+                bordercolor=status_color,
+                borderwidth=1,
+                borderpad=4,
+            )
+
         # Convergence streak plot (bottom subplot)
         streaks = [int(cm["convergence_streak"]) for cm in conv_metrics]
         achieved = [bool(cm["convergence_achieved"]) for cm in conv_metrics]
@@ -1767,11 +1890,24 @@ class BayesianMixin:
                     col=1,
                 )
 
+        # Mark global convergence step across all subplots
+        if global_conv_idx is not None:
+            for r in range(1, n_params + 2):
+                fig.add_vline(
+                    x=global_conv_idx,
+                    line=dict(color="#2ecc71", dash="dash", width=2),
+                    annotation_text="Converged" if r == 1 else None,
+                    annotation_position="top left",
+                    row=r,
+                    col=1,
+                )
+
         fig.update_layout(
             title="Bayesian Convergence Metrics",
             xaxis_title="Step",
             height=250 * (n_params + 1),
-            width=900,
+            width=1000,
+            margin=dict(r=150),
             template="plotly_white",
             showlegend=False,
         )

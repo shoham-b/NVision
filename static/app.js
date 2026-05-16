@@ -243,6 +243,13 @@ function main() {
         const bayesImage = document.getElementById('bayes-image');
         const bayesPlots = plots.filter((p) => p.type === 'bayesian');
         const bayesInteractivePlots = plots.filter((p) => p.type === 'bayesian_interactive');
+        const bayesFisherPlots = plots.filter((p) => p.type === 'bayesian_fisher_information');
+        const bayesFisherPairsPlots = plots.filter((p) => p.type === 'bayesian_fisher_crlb_pairs');
+        const bayesEllipsePlots = plots.filter((p) => p.type === 'bayesian_covariance_ellipses');
+        const bayesConvergencePlots = plots.filter((p) => p.type === 'bayesian_parameter_convergence');
+        const bayesConvMetricsPlots = plots.filter((p) => p.type === 'bayesian_convergence_metrics');
+        const bayesJitterPlots = plots.filter((p) => p.type === 'bayesian_jitter');
+        
         const bayesInteractiveSection = document.getElementById('bayes-interactive-section');
         const bayesInteractiveIframe = document.getElementById('bayes-interactive-iframe');
         const bayesConvergenceSection = document.getElementById('bayes-convergence-section');
@@ -255,6 +262,8 @@ function main() {
         const bayesFisherPairsIframe = document.getElementById('bayes-fisher-pairs-iframe');
         const bayesEllipseSection = document.getElementById('bayes-ellipse-section');
         const bayesEllipseIframe = document.getElementById('bayes-ellipse-iframe');
+        const bayesJitterSection = document.getElementById('bayes-jitter-section');
+        const bayesJitterContent = document.getElementById('bayes-jitter-content');
         const bayesStatsPlots = plots.filter((p) => p.type === 'bayesian_stats');
         const bayesStatsSection = document.getElementById('bayes-stats-section');
         const posteriorHistoryImage = document.getElementById('posterior-history-image');
@@ -267,6 +276,7 @@ function main() {
             plots.some((p) => p.type === 'bayesian_convergence_metrics') ||
             plots.some((p) => p.type === 'bayesian_fisher_bounds') ||
             plots.some((p) => p.type === 'bayesian_fisher_crlb_pairs') ||
+            plots.some((p) => p.type === 'bayesian_jitter') ||
             plots.some((p) => p.type === 'bayesian_covariance_ellipses');
         if (bayesSection) {
             bayesSection.hidden = !hasBayesArtifacts;
@@ -319,6 +329,8 @@ function main() {
                 bayesConvMetricsIframe.src = '';
                 bayesEllipseSection.dataset.available = 'false';
                 bayesEllipseIframe.src = '';
+                bayesJitterSection.dataset.available = 'false';
+                bayesJitterContent.innerHTML = '';
                 return;
             }
 
@@ -427,6 +439,23 @@ function main() {
                 bayesEllipseSection.dataset.available = 'false';
                 bayesEllipseIframe.src = '';
             }
+
+            const jitterPlot = plots.find(
+                (p) =>
+                    p.type === 'bayesian_jitter' &&
+                    p.generator === selectedPlot.generator &&
+                    p.noise === selectedPlot.noise &&
+                    p.strategy === selectedPlot.strategy &&
+                    p.repeat === selectedPlot.repeat
+            );
+
+            if (jitterPlot && bayesJitterContent) {
+                renderJitterView(bayesJitterContent, jitterPlot);
+                bayesJitterSection.dataset.available = 'true';
+            } else if (bayesJitterSection) {
+                bayesJitterSection.dataset.available = 'false';
+                if (bayesJitterContent) bayesJitterContent.innerHTML = '';
+            }
         }
 
         function updateBayesStatsView(selectedPlot) {
@@ -478,6 +507,20 @@ function main() {
             }
         }
 
+        function updateBayesTrueParamsView(selectedPlot) {
+            const section = document.getElementById('bayes-true-params-section');
+            const content = document.getElementById('bayes-true-params-content');
+            if (!section || !content) return;
+
+            if (selectedPlot && selectedPlot.true_params) {
+                content.innerHTML = renderItemsToHtml(buildTrueParamItems(selectedPlot.true_params), true);
+                section.dataset.available = 'true';
+            } else {
+                content.innerHTML = '';
+                section.dataset.available = 'false';
+            }
+        }
+
         function updateBayesTabs() {
             const tabBar = document.getElementById('bayes-tab-bar');
             if (!tabBar) return;
@@ -489,6 +532,8 @@ function main() {
                 { id: 'bayes-fisher-section', label: 'Fisher Bounds' },
                 { id: 'bayes-fisher-pairs-section', label: 'CRLB Pairs' },
                 { id: 'bayes-ellipse-section', label: 'Covariance Ellipses' },
+                { id: 'bayes-jitter-section', label: 'Covariance & Jitter' },
+                { id: 'bayes-true-params-section', label: 'True Parameters' },
                 { id: 'bayes-stats-section', label: 'Statistics' },
             ];
 
@@ -497,21 +542,28 @@ function main() {
                 return el && el.dataset.available === 'true';
             });
 
-            if (available.length === 0) {
-                tabBar.style.display = 'none';
-                sections.forEach((s) => {
-                    const el = document.getElementById(s.id);
-                    if (el) el.classList.remove('is-active');
-                });
+            const bayesSectionContainer = document.getElementById('bayes-section-container');
+            const noDataMsg = document.getElementById('bayes-no-data-message');
+            
+            if (bayesPlots.length === 0 && bayesInteractivePlots.length === 0) {
+                if (bayesSectionContainer) bayesSectionContainer.style.display = 'none';
                 return;
+            } else if (bayesSectionContainer) {
+                bayesSectionContainer.style.display = 'block';
             }
 
-            tabBar.style.display = 'flex';
+            if (available.length === 0) {
+                tabBar.style.display = 'none';
+                if (noDataMsg) noDataMsg.style.display = 'block';
+            } else {
+                tabBar.style.display = 'flex';
+                if (noDataMsg) noDataMsg.style.display = 'none';
+            }
 
             const currentActive = tabBar.querySelector('.bayes-tab-button.is-active');
             let activeId = currentActive ? currentActive.dataset.tab : null;
             if (!available.some((s) => s.id === activeId)) {
-                activeId = available[0].id;
+                activeId = available[0] ? available[0].id : null;
             }
 
             tabBar.innerHTML = '';
@@ -522,6 +574,7 @@ function main() {
                 btn.textContent = s.label;
                 btn.setAttribute("role", "tab");
                 btn.setAttribute("aria-selected", s.id === activeId ? "true" : "false");
+                btn.tabIndex = s.id === activeId ? 0 : -1;
                 btn.setAttribute("aria-controls", s.id);
                 btn.setAttribute("id", "tab-" + s.id);
                 const panel = document.getElementById(s.id);
@@ -530,14 +583,33 @@ function main() {
                 }
                 btn.dataset.tab = s.id;
                 btn.addEventListener('click', () => {
-                    tabBar.querySelectorAll('.bayes-tab-button').forEach((b) => b.classList.remove('is-active'));
-                    tabBar.querySelectorAll(".bayes-tab-button").forEach((b) => b.setAttribute("aria-selected", "false"));
+                    tabBar.querySelectorAll('.bayes-tab-button').forEach((b) => {
+                        b.classList.remove('is-active');
+                        b.setAttribute("aria-selected", "false");
+                        b.tabIndex = -1;
+                    });
                     btn.setAttribute("aria-selected", "true");
+                    btn.tabIndex = 0;
                     btn.classList.add('is-active');
                     sections.forEach((sec) => {
                         const el = document.getElementById(sec.id);
                         if (el) el.classList.toggle('is-active', sec.id === s.id);
                     });
+                });
+                btn.addEventListener('keydown', (e) => {
+                    const buttons = Array.from(tabBar.querySelectorAll('.bayes-tab-button'));
+                    const index = buttons.indexOf(btn);
+                    let nextIndex = null;
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                        nextIndex = (index + 1) % buttons.length;
+                    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                        nextIndex = (index - 1 + buttons.length) % buttons.length;
+                    }
+                    if (nextIndex !== null) {
+                        e.preventDefault();
+                        buttons[nextIndex].focus();
+                        buttons[nextIndex].click();
+                    }
                 });
                 tabBar.appendChild(btn);
             }
@@ -769,7 +841,7 @@ function main() {
                 el.innerHTML =
                     '<div class="metric-header">' +
                     '<span class="metric-label">' + it.label + '</span>' +
-                    '<span class="help-icon" title="' + it.tip.replace(/"/g, '&quot;') + '">?</span>' +
+                    '<span class="help-icon" tabindex="0" title="' + it.tip.replace(/"/g, '&quot;') + '">?</span>' +
                     '</div>' +
                     '<div class="metric-value">' + it.fmt(val) + '</div>' + formula;
                 container.appendChild(el);
@@ -1165,6 +1237,7 @@ function main() {
                 const isActive = button.dataset.value === normalized;
                 button.classList.toggle('is-active', isActive);
                 button.setAttribute('aria-checked', String(isActive));
+                button.tabIndex = isActive ? 0 : -1;
             }
             if (!silent) {
                 control.dispatchEvent(
@@ -1193,9 +1266,25 @@ function main() {
                 button.dataset.value = item;
                 button.setAttribute('role', 'radio');
                 button.setAttribute('aria-checked', 'false');
+                button.tabIndex = -1;
                 button.textContent = item;
                 button.addEventListener('click', () => {
                     setControlValue(control, item);
+                });
+                button.addEventListener('keydown', (e) => {
+                    const buttons = Array.from(control.querySelectorAll('button'));
+                    const index = buttons.indexOf(button);
+                    let nextIndex = null;
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                        nextIndex = (index + 1) % buttons.length;
+                    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                        nextIndex = (index - 1 + buttons.length) % buttons.length;
+                    }
+                    if (nextIndex !== null) {
+                        e.preventDefault();
+                        buttons[nextIndex].focus();
+                        buttons[nextIndex].click();
+                    }
                 });
                 control.appendChild(button);
             }
@@ -1355,6 +1444,17 @@ function main() {
                 scanRepeat.dataset.value = selectedRepeat;
             }
             updateRepeatNavButtons();
+            
+            const viewToggleContainer = document.getElementById('scan-view-toggle-container');
+            if (viewToggleContainer) {
+                if (repeatItems.length > 0) {
+                    viewToggleContainer.style.display = 'flex';
+                } else {
+                    viewToggleContainer.style.display = 'none';
+                    const singleBtn = document.querySelector('#scan-view-mode button[data-value="single"]');
+                    if (singleBtn) singleBtn.click();
+                }
+            }
         }
 
         function updateAllScanControls() {
@@ -1445,13 +1545,148 @@ function main() {
                         return items;
                     }
 
-                    function renderItemsToHtml(items) {
+                    function buildTrueParamItems(trueData) {
+                        const items = [];
+                        const params = trueData.params || {};
+                        const bounds = trueData.bounds || {};
+                        // Preferred order for common parameters
+                        const preferred = ['frequency', 'linewidth', 'fwhm_total', 'split', 'dip_depth', 'k_np', 'lorentz_frac'];
+                        const keys = Object.keys(params).sort((a, b) => {
+                            const ia = preferred.indexOf(a);
+                            const ib = preferred.indexOf(b);
+                            if (ia !== -1 && ib !== -1) return ia - ib;
+                            if (ia !== -1) return -1;
+                            if (ib !== -1) return 1;
+                            return a.localeCompare(b);
+                        });
+
+                        for (const name of keys) {
+                            const val = params[name];
+                            const b = bounds[name];
+                            let label = name.replace(/_/g, ' ');
+                            // Capitalize first letter
+                            label = label.charAt(0).toUpperCase() + label.slice(1);
+                            
+                            let formatted = val;
+                            let fmtLo = b ? b[0] : null;
+                            let fmtHi = b ? b[1] : null;
+
+                            const lowName = name.toLowerCase();
+                            const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total';
+                            
+                            if (typeof val === 'number') {
+                                if (isFreqLike) {
+                                    formatted = formatFrequency(val);
+                                    if (b) {
+                                        fmtLo = formatFrequency(b[0]);
+                                        fmtHi = formatFrequency(b[1]);
+                                    }
+                                } else if (lowName === 'dip_depth' || lowName === 'k_np' || lowName === 'lorentz_frac') {
+                                    formatted = val.toFixed(3);
+                                    if (b) {
+                                        fmtLo = b[0].toFixed(3);
+                                        fmtHi = b[1].toFixed(3);
+                                    }
+                                } else {
+                                    formatted = formatMetricValue(val);
+                                    if (b) {
+                                        fmtLo = formatMetricValue(b[0]);
+                                        fmtHi = formatMetricValue(b[1]);
+                                    }
+                                }
+                            }
+                            items.push({ 
+                                label: label, 
+                                val: formatted, 
+                                bounds: b, 
+                                rawVal: val,
+                                fmtLo: fmtLo,
+                                fmtHi: fmtHi
+                            });
+                        }
+                        return items;
+                    }
+
+                    function renderJitterView(container, jitterPlot) {
+                        if (!container || !jitterPlot) return;
+                        
+                        const jitter = jitterPlot.jitter || {};
+                        const variances = jitterPlot.variances || {};
+                        const correlations = jitterPlot.correlations || {};
+                        const paramNames = Object.keys(jitter);
+                        
+                        const items = [];
+                        for (const name of paramNames) {
+                            items.push({
+                                label: name,
+                                val: formatMetricValue(jitter[name]),
+                                tip: 'Standard deviation of estimates over last 20 steps (physical units).',
+                                rawVal: jitter[name]
+                            });
+                        }
+                        
+                        let html = '<h4>Jitter (last 20 steps)</h4>';
+                        html += renderItemsToHtml(items);
+                        
+                        if (Object.keys(variances).length > 0) {
+                            html += '<h4 style="margin-top:1.5em">Final Variances (diag Σ)</h4>';
+                            const varItems = paramNames.map(name => ({
+                                label: name,
+                                val: formatMetricValue(variances[name]),
+                                rawVal: variances[name]
+                            }));
+                            html += renderItemsToHtml(varItems);
+                        }
+                        
+                        if (Object.keys(correlations).length > 0) {
+                            html += '<h4 style="margin-top:1.5em">Correlation Matrix</h4>';
+                            html += '<div style="overflow-x:auto"><table class="correlation-table" style="border-collapse: collapse; width: 100%; font-size: 0.9em;">';
+                            const names = paramNames;
+                            html += '<thead><tr><th style="padding: 8px; border-bottom: 2px solid #eee;"></th>' + names.map(n => `<th style="padding: 8px; border-bottom: 2px solid #eee;">${n}</th>`).join('') + '</tr></thead>';
+                            html += '<tbody>';
+                            for (const ni of names) {
+                                html += `<tr><th style="padding: 8px; text-align: left; border-bottom: 1px solid #eee;">${ni}</th>`;
+                                for (const nj of names) {
+                                    const val = (correlations[ni] && correlations[ni][nj] !== undefined) ? correlations[ni][nj] : 0;
+                                    const color = val > 0 ? `rgba(52, 152, 219, ${Math.min(1, val)})` : `rgba(231, 76, 60, ${Math.min(1, Math.abs(val))})`;
+                                    const textColor = Math.abs(val) > 0.5 ? 'white' : 'black';
+                                    html += `<td style="background-color:${color}; text-align:center; padding: 8px; border-bottom: 1px solid #eee; color:${textColor}; font-weight: bold;">${val.toFixed(2)}</td>`;
+                                }
+                                html += '</tr>';
+                            }
+                            html += '</tbody></table></div>';
+                        }
+                        
+                        container.innerHTML = html;
+                    }
+
+                    function renderItemsToHtml(items, useSliders = false) {
                         return items.map(it => {
                             const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
-                            const icon = it.tip ? '<span class="help-icon"' + tipAttr + '>?</span>' : '';
+                            const icon = it.tip ? '<span class="help-icon" tabindex="0"' + tipAttr + '>?</span>' : '';
+                            
+                            let valueHtml = '<div class="metric-value">' + it.val + '</div>';
+                            
+                            if (useSliders && it.bounds && typeof it.rawVal === 'number') {
+                                const lo = it.bounds[0];
+                                const hi = it.bounds[1];
+                                const percent = Math.min(100, Math.max(0, (it.rawVal - lo) / (hi - lo) * 100));
+                                valueHtml = 
+                                    '<div class="metric-value">' + it.val + '</div>' +
+                                    '<div class="param-range-container">' +
+                                        '<div class="param-range-track">' +
+                                            '<div class="param-range-marker" style="left: ' + percent + '%"></div>' +
+                                        '</div>' +
+                                        '<div class="param-range-bounds">' +
+                                            '<span>' + it.fmtLo + '</span>' +
+                                            '<span>' + it.fmtHi + '</span>' +
+                                        '</div>' +
+                                    '</div>';
+                            }
+
                             return '<div class="metric-item">' +
                                 '<div class="metric-label">' + it.label + icon + '</div>' +
-                                '<div class="metric-value">' + it.val + '</div>' +
+                                valueHtml +
                                 '</div>';
                         }).join('');
                     }
@@ -1459,11 +1694,17 @@ function main() {
                     if (plot.coarse && plot.fine) {
                         const totalMeasurements = plot.measurements || (plot.coarse.measurements + plot.fine.measurements);
                         scanMetrics.className = 'scan-metrics-wrapper';
-                        scanMetrics.innerHTML =
+                        let html =
                             '<div style="margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.coarse.label) + '</div>' +
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.coarse, false, totalMeasurements)) + '</div>' +
                             '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.fine.label) + '</div>' +
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
+                        
+                        if (plot.true_params) {
+                            html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
+                                    '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params), true) + '</div>';
+                        }
+                        scanMetrics.innerHTML = html;
                     } else {
                         scanMetrics.className = 'scan-metrics-panel';
                         scanMetrics.innerHTML = renderItemsToHtml(buildScanItems(plot, true));
@@ -1472,6 +1713,7 @@ function main() {
                     updateBayesView(plot);
                     updateBayesStatsView(plot);
                     updateBayesInteractiveView(plot);
+                    updateBayesTrueParamsView(plot);
                     updateBayesTabs();
                 } else {
                     scanIframe.src = '';
@@ -1481,6 +1723,7 @@ function main() {
                     updateBayesView(null);
                     updateBayesStatsView(null);
                     updateBayesInteractiveView(null);
+                    updateBayesTrueParamsView(null);
                     updateBayesTabs();
                 }
             } else {
@@ -1492,6 +1735,158 @@ function main() {
                 updateBayesInteractiveView(null);
                 updateBayesTabs();
             }
+            
+            // Check view mode and render summary if needed
+            const activeViewModeBtn = document.querySelector('#scan-view-mode button.is-active');
+            if (activeViewModeBtn && activeViewModeBtn.dataset.value === 'summary') {
+                renderRepeatsSummary(scanGeneratorValue, scanNoiseValue, scanStrategyValue);
+            }
+        }
+        
+        function renderRepeatsSummary(generator, noise, strategy) {
+            const summaryPlots = scanPlots.filter(
+                (p) => p.generator === generator && p.noise === noise && p.strategy === strategy
+            );
+            if (summaryPlots.length === 0) return;
+            
+            ensurePlotly().then(() => {
+                const metricsList = summaryPlots.map(p => p.metrics || {});
+                
+                // Extract metrics arrays
+                const final_err_fb = metricsList.map(m => m.final_err_fb).filter(v => v != null);
+                const final_err_fc = metricsList.map(m => m.final_err_fc).filter(v => v != null);
+                const abs_err_x = metricsList.map(m => m.abs_err_x).filter(v => v != null);
+                
+                const err_fb_at_milestone = metricsList.map(m => m.err_fb_at_milestone).filter(v => v != null);
+                const err_fc_at_milestone = metricsList.map(m => m.err_fc_at_milestone).filter(v => v != null);
+                
+                const err_fb_diff = metricsList.map(m => m.err_fb_diff).filter(v => v != null);
+                const err_fc_diff = metricsList.map(m => m.err_fc_diff).filter(v => v != null);
+                
+                const final_overall_uncert = metricsList.map(m => m.final_overall_uncert || m.uncert).filter(v => v != null);
+                
+                function createHistogram(containerId, title, data, name, color) {
+                    if (!data || data.length === 0) return;
+                    const div = document.createElement('div');
+                    div.style.flex = '1 1 400px';
+                    div.style.minWidth = '300px';
+                    document.getElementById(containerId).appendChild(div);
+                    
+                    const trace = {
+                        x: data,
+                        type: 'histogram',
+                        name: name,
+                        marker: { color: color }
+                    };
+                    const layout = {
+                        title: { text: title, font: { size: 14 } },
+                        margin: { l: 40, r: 20, t: 40, b: 40 },
+                        xaxis: { title: 'Value', showgrid: true, zeroline: true },
+                        yaxis: { title: 'Count', showgrid: true },
+                        showlegend: false
+                    };
+                    Plotly.newPlot(div, [trace], layout, {responsive: true});
+                }
+                
+                const absErrContainer = document.getElementById('summary-abs-error-charts');
+                absErrContainer.innerHTML = '';
+                if (abs_err_x.length > 0) createHistogram('summary-abs-error-charts', 'Overall Abs Error', abs_err_x, 'Overall', '#3b82f6');
+                if (final_err_fb.length > 0) createHistogram('summary-abs-error-charts', 'Final Err fb', final_err_fb, 'fb', '#10b981');
+                if (final_err_fc.length > 0) createHistogram('summary-abs-error-charts', 'Final Err fc', final_err_fc, 'fc', '#8b5cf6');
+                if (err_fb_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Err fb @ Milestone', err_fb_at_milestone, 'fb Milestone', '#f59e0b');
+                if (err_fc_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Err fc @ Milestone', err_fc_at_milestone, 'fc Milestone', '#ef4444');
+                if (err_fb_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fb Diff (Milestone - Final)', err_fb_diff, 'fb Diff', '#6366f1');
+                if (err_fc_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fc Diff (Milestone - Final)', err_fc_diff, 'fc Diff', '#ec4899');
+                
+                const uncertContainer = document.getElementById('summary-uncertainty-charts');
+                uncertContainer.innerHTML = '';
+                if (final_overall_uncert.length > 0) createHistogram('summary-uncertainty-charts', 'Overall Uncertainty', final_overall_uncert, 'Uncertainty', '#64748b');
+            });
+        }
+        
+        // Toggle setup
+        const scanViewMode = document.getElementById('scan-view-mode');
+        if (scanViewMode) {
+            scanViewMode.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') {
+                    scanViewMode.querySelectorAll('button').forEach(b => {
+                        b.classList.remove('is-active');
+                        b.setAttribute('aria-checked', 'false');
+                        b.tabIndex = -1;
+                    });
+                    e.target.classList.add('is-active');
+                    e.target.setAttribute('aria-checked', 'true');
+                    e.target.tabIndex = 0;
+                    
+                    const mode = e.target.dataset.value;
+                    const repeatView = document.getElementById('scan-repeat-view');
+                    const summaryView = document.getElementById('scan-summary-view');
+                    
+                    if (mode === 'single') {
+                        repeatView.style.display = 'block';
+                        summaryView.style.display = 'none';
+                    } else {
+                        repeatView.style.display = 'none';
+                        summaryView.style.display = 'block';
+                        renderRepeatsSummary(controlValue(scanGenerator), controlValue(scanNoise), controlValue(scanStrategy));
+                    }
+                }
+            });
+            scanViewMode.addEventListener('keydown', (e) => {
+                if (e.target.tagName !== 'BUTTON') return;
+                const buttons = Array.from(scanViewMode.querySelectorAll('button'));
+                const index = buttons.indexOf(e.target);
+                let nextIndex = null;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    nextIndex = (index + 1) % buttons.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    nextIndex = (index - 1 + buttons.length) % buttons.length;
+                }
+                if (nextIndex !== null) {
+                    e.preventDefault();
+                    buttons[nextIndex].focus();
+                    buttons[nextIndex].click();
+                }
+            });
+        }
+        
+        const summaryTabBar = document.getElementById('summary-tab-bar');
+        if (summaryTabBar) {
+            summaryTabBar.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') {
+                    summaryTabBar.querySelectorAll('button').forEach(b => {
+                        b.classList.remove('is-active');
+                        b.setAttribute('aria-selected', 'false');
+                        b.tabIndex = -1;
+                        const panel = document.getElementById(b.dataset.tab);
+                        if (panel) panel.classList.remove('is-active');
+                    });
+                    e.target.classList.add('is-active');
+                    e.target.setAttribute('aria-selected', 'true');
+                    e.target.tabIndex = 0;
+                    const activePanel = document.getElementById(e.target.dataset.tab);
+                    if (activePanel) activePanel.classList.add('is-active');
+                    
+                    // Trigger resize so Plotly fits correctly if it was hidden
+                    window.dispatchEvent(new Event('resize'));
+                }
+            });
+            summaryTabBar.addEventListener('keydown', (e) => {
+                if (e.target.tagName !== 'BUTTON') return;
+                const buttons = Array.from(summaryTabBar.querySelectorAll('button'));
+                const index = buttons.indexOf(e.target);
+                let nextIndex = null;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    nextIndex = (index + 1) % buttons.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    nextIndex = (index - 1 + buttons.length) % buttons.length;
+                }
+                if (nextIndex !== null) {
+                    e.preventDefault();
+                    buttons[nextIndex].focus();
+                    buttons[nextIndex].click();
+                }
+            });
         }
 
         if (scanIframe) {
@@ -1618,10 +2013,14 @@ function main() {
             strategyButton.setAttribute('aria-selected', 'false');
             tabBar.appendChild(strategyButton);
 
-            const tabButtons = tabBar.querySelectorAll('.tab-button');
+            const tabButtons = Array.from(tabBar.querySelectorAll('.tab-button'));
             if (tabButtons.length > 0) {
                 tabButtons[0].classList.add('is-active');
                 tabButtons[0].setAttribute('aria-selected', 'true');
+                tabButtons[0].tabIndex = 0;
+                for (let i = 1; i < tabButtons.length; i++) {
+                    tabButtons[i].tabIndex = -1;
+                }
                 const initialTabId = tabButtons[0].dataset.tab;
                 tabPanels.forEach(panel => {
                     if (panel.id === initialTabId) {
@@ -1643,9 +2042,11 @@ function main() {
                 tabButtons.forEach(button => {
                     button.classList.remove('is-active');
                     button.setAttribute('aria-selected', 'false');
+                    button.tabIndex = -1;
                 });
                 target.classList.add('is-active');
                 target.setAttribute('aria-selected', 'true');
+                target.tabIndex = 0;
 
                 tabPanels.forEach(panel => {
                     if (panel.id === target.dataset.tab) {
@@ -1654,6 +2055,25 @@ function main() {
                         panel.classList.add('is-hidden');
                     }
                 });
+            });
+
+            tabBar.addEventListener('keydown', (e) => {
+                const target = e.target;
+                if (!target.matches('.tab-button')) {
+                    return;
+                }
+                const index = tabButtons.indexOf(target);
+                let nextIndex = null;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    nextIndex = (index + 1) % tabButtons.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    nextIndex = (index - 1 + tabButtons.length) % tabButtons.length;
+                }
+                if (nextIndex !== null) {
+                    e.preventDefault();
+                    tabButtons[nextIndex].focus();
+                    tabButtons[nextIndex].click();
+                }
             });
         }
 
@@ -2101,7 +2521,7 @@ function main() {
         }
     });
 
-    window.addEventListener('DOMContentLoaded', () => {
+    const init = () => {
         const lastRunEl = document.getElementById('last-run-time');
         if (lastRunEl) {
             lastRunEl.textContent = 'Last run: ' + new Date().toLocaleString();
@@ -2122,4 +2542,10 @@ function main() {
                 errorDiv.innerHTML = '<h3>Error: Failed to initialize UI assets</h3><p>Could not load manifest/settings data files.</p>';
                 document.body.appendChild(errorDiv);
             });
-    });
+    };
+
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }

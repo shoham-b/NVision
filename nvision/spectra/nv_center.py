@@ -16,8 +16,12 @@ from nvision.spectra.jax_kernels import nv_center_lorentzian_jax, nv_center_pseu
 from nvision.spectra.numba_kernels import (
     nv_center_lorentzian_eval,
     nv_center_lorentzian_vectorized_many,
+    nv_center_lorentzian_vectorized_many_fast,
+    nv_center_lorentzian_vectorized_one,
     nv_center_pseudo_voigt_eval,
     nv_center_pseudo_voigt_vectorized_many,
+    nv_center_pseudo_voigt_vectorized_many_fast,
+    nv_center_pseudo_voigt_vectorized_one,
 )
 from nvision.spectra.signal import SignalModel
 from nvision.spectra.spec import GenericParamSpec
@@ -144,17 +148,21 @@ class NVCenterLorentzianModel(
         dip_depth: np.ndarray,
     ) -> np.ndarray:
         """Vectorized triple-Lorentzian NV evaluation for one probe location."""
-        xs = np.array([float(x)], dtype=FLOAT_DTYPE)
         freq = np.asarray(frequency, dtype=FLOAT_DTYPE)
-        linewidth_arr = np.asarray(linewidth, dtype=FLOAT_DTYPE)
-        split_arr = np.asarray(split, dtype=FLOAT_DTYPE)
-        k_np_arr = np.asarray(k_np, dtype=FLOAT_DTYPE)
-        depth = np.asarray(dip_depth, dtype=FLOAT_DTYPE)
-        bg = np.ones(freq.shape[0], dtype=FLOAT_DTYPE)
-
-        out = np.empty((1, freq.shape[0]), dtype=FLOAT_DTYPE)
-        nv_center_lorentzian_vectorized_many(xs, freq, linewidth_arr, split_arr, k_np_arr, depth, bg, out)
-        return out[0]
+        n = freq.shape[0]
+        out = np.empty(n, dtype=FLOAT_DTYPE)
+        bg = np.ones(n, dtype=FLOAT_DTYPE)
+        nv_center_lorentzian_vectorized_one(
+            float(x),
+            freq,
+            np.asarray(linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(split, dtype=FLOAT_DTYPE),
+            np.asarray(k_np, dtype=FLOAT_DTYPE),
+            np.asarray(dip_depth, dtype=FLOAT_DTYPE),
+            bg,
+            out,
+        )
+        return out
 
     _SPEC = _NVCenterLorentzianSpec()
 
@@ -217,8 +225,10 @@ class NVCenterLorentzianModel(
     def compute_vectorized_many(
         self, x_phys_array: Sequence[float], samples_phys: NVCenterLorentzianSpectrumSamples
     ) -> np.ndarray:
-        if not hasattr(samples_phys, "frequency"):
-            # Accept raw arrays / sample containers via the generic base fallback.
+        if isinstance(samples_phys, list | tuple):
+            # Raw list of parameter arrays from SMC batch_update — unpack to typed samples.
+            samples_phys = self.spec.unpack_samples(samples_phys)  # type: ignore[arg-type]
+        elif not hasattr(samples_phys, "frequency"):
             return super().compute_vectorized_many(x_phys_array, samples_phys)  # type: ignore[arg-type]
 
         xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
@@ -229,6 +239,30 @@ class NVCenterLorentzianModel(
         out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
 
         nv_center_lorentzian_vectorized_many(
+            xs,
+            freq,
+            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.dip_depth, dtype=FLOAT_DTYPE),
+            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
+            out,
+        )
+        return out
+
+    def compute_vectorized_many_fast(
+        self, x_phys_array: Sequence[float], samples_phys: NVCenterLorentzianSpectrumSamples
+    ) -> np.ndarray:
+        """Acquisition-only fast variant: uses the fastmath Lorentzian kernel."""
+        if isinstance(samples_phys, list | tuple):
+            samples_phys = self.spec.unpack_samples(samples_phys)  # type: ignore[arg-type]
+        elif not hasattr(samples_phys, "frequency"):
+            return super().compute_vectorized_many_fast(x_phys_array, samples_phys)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
+        freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
+        out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
+        nv_center_lorentzian_vectorized_many_fast(
             xs,
             freq,
             np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
@@ -418,11 +452,52 @@ class NVCenterVoigtModel(
         )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
-        return self.compute_vectorized_many([x], samples)[0]
+        """Vectorized Voigt evaluation for a single probe position across all particles."""
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        n = freq.shape[0]
+        out = np.empty(n, dtype=FLOAT_DTYPE)
+        bg = np.ones(n, dtype=FLOAT_DTYPE)
+        nv_center_pseudo_voigt_vectorized_one(
+            float(x),
+            freq,
+            np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
+            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
+            bg,
+            out,
+        )
+        return out
+
+    def compute_vectorized_many_fast(self, x_array: Sequence[float], samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
+        """Acquisition-only fast variant: uses the fastmath pseudo-Voigt kernel."""
+        if isinstance(samples, list | tuple):
+            samples = self.spec.unpack_samples(samples)  # type: ignore[arg-type]
+        elif not hasattr(samples, "frequency"):
+            return super().compute_vectorized_many_fast(x_array, samples)  # type: ignore[arg-type]
+
+        xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
+        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
+        nv_center_pseudo_voigt_vectorized_many_fast(
+            xs,
+            freq,
+            np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
+            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
+            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
+            out,
+        )
+        return out
 
     def compute_vectorized_many(self, x_array: Sequence[float], samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
-        if not hasattr(samples, "frequency"):
-            # Accept raw arrays / sample containers via the generic base fallback.
+        if isinstance(samples, list | tuple):
+            # Raw list of parameter arrays from SMC batch_update — unpack to typed samples.
+            samples = self.spec.unpack_samples(samples)  # type: ignore[arg-type]
+        elif not hasattr(samples, "frequency"):
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
@@ -449,7 +524,6 @@ def nv_center_lorentzian_bounds_for_domain(
     x_min: float,
     x_max: float,
     narrow: bool = False,
-    true_params: NVCenterLorentzianSpectrum | dict | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``."""
     width = float(x_max - x_min)
@@ -462,44 +536,14 @@ def nv_center_lorentzian_bounds_for_domain(
         split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
         max_span = 5.0e6
 
-        if true_params is not None:
-
-            def _pm10(v, lo=None, hi=None):
-                left, right = float(v) * 0.9, float(v) * 1.1
-                if lo is not None:
-                    left = max(left, float(lo))
-                if hi is not None:
-                    right = min(right, float(hi))
-                return (float(left), float(right))
-
-            # Helper to get attribute or dict key
-            def _val(k):
-                if isinstance(true_params, dict):
-                    return true_params.get(k)
-                return getattr(true_params, k, None)
-
-            f_true = _val("frequency")
-            # For frequency, use +-10% of domain width if available
-            f_win = 0.1 * width
-            f_bounds = (float(f_true - f_win), float(f_true + f_win))
-
-            priors = {
-                "frequency": (float(f_true), 0.01 * width),
-                "linewidth": (float(_val("linewidth")), float(_val("linewidth")) * 0.05),
-                "split": (float(_val("split")), float(_val("split")) * 0.05),
-                "k_np": (float(_val("k_np")), 0.05),
-                "dip_depth": (float(_val("dip_depth")), float(_val("dip_depth")) * 0.05),
-            }
-
-            return {
-                "frequency": (float(x_min), float(x_max)),
-                "linewidth": linewidth_bounds,
-                "split": split_bounds,
-                "k_np": (MIN_K_NP, MAX_K_NP),
-                "dip_depth": (0.01, 1.0),
-                "_signal_max_span": (0.0, max_span),
-                "_priors": priors,
-            }
+        return {
+            "frequency": (float(x_min), float(x_max)),
+            "linewidth": linewidth_bounds,
+            "split": split_bounds,
+            "k_np": (MIN_K_NP, MAX_K_NP),
+            "dip_depth": (0.01, 1.0),
+            "_signal_max_span": (0.0, max_span),
+        }
     else:
         linewidth_bounds = (width * 0.001, width * 0.05)
         split_bounds = (width * 0.005, width * 0.02)
@@ -599,8 +643,6 @@ class NVCenterOnePeakLorentzianModel(
         return float(1.0 - (params.dip_depth * lw2) / denom)
 
     def compute_jax(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> Any:
-        import jax.numpy as jnp
-
         lw2 = params.linewidth**2
         denom = (x - params.frequency) ** 2 + lw2
         return 1.0 - (params.dip_depth * lw2) / denom
@@ -652,7 +694,6 @@ def nv_center_voigt_bounds_for_domain(
     x_min: float,
     x_max: float,
     narrow: bool = False,
-    true_params: NVCenterVoigtSpectrum | dict | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Voigt signals over ``[x_min, x_max]``."""
     width = float(x_max - x_min)
@@ -665,46 +706,15 @@ def nv_center_voigt_bounds_for_domain(
         split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
         max_span = 5.0e6
 
-        if true_params is not None:
-
-            def _pm10(v, lo=None, hi=None):
-                left, right = float(v) * 0.9, float(v) * 1.1
-                if lo is not None:
-                    left = max(left, float(lo))
-                if hi is not None:
-                    right = min(right, float(hi))
-                return (float(left), float(right))
-
-            # Helper to get attribute or dict key
-            def _val(k):
-                if isinstance(true_params, dict):
-                    return true_params.get(k)
-                return getattr(true_params, k, None)
-
-            f_true = _val("frequency")
-            # For frequency, use +-10% of domain width if available
-            f_win = 0.1 * width
-            f_bounds = (float(f_true - f_win), float(f_true + f_win))
-
-            priors = {
-                "frequency": (float(f_true), 0.01 * width),
-                "fwhm_total": (float(_val("fwhm_total")), float(_val("fwhm_total")) * 0.05),
-                "lorentz_frac": (float(_val("lorentz_frac")), 0.05),
-                "split": (float(_val("split")), float(_val("split")) * 0.05),
-                "k_np": (float(_val("k_np")), 0.05),
-                "dip_depth": (float(_val("dip_depth")), float(_val("dip_depth")) * 0.05),
-            }
-
-            return {
-                "frequency": (float(x_min), float(x_max)),
-                "fwhm_total": fwhm_total_bounds,
-                "lorentz_frac": (0.01, 0.99),
-                "split": split_bounds,
-                "k_np": (MIN_K_NP, MAX_K_NP),
-                "dip_depth": (0.01, 1.0),
-                "_signal_max_span": (0.0, max_span),
-                "_priors": priors,
-            }
+        return {
+            "frequency": (float(x_min), float(x_max)),
+            "fwhm_total": fwhm_total_bounds,
+            "lorentz_frac": (0.01, 0.99),
+            "split": split_bounds,
+            "k_np": (MIN_K_NP, MAX_K_NP),
+            "dip_depth": (0.01, 1.0),
+            "_signal_max_span": (0.0, max_span),
+        }
     else:
         split_hi = 5.0e6
         fwhm_total_hi = 2.8e6

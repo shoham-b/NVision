@@ -2327,12 +2327,11 @@ const float MIN_DIFF = 1e-6;
 
 // TODO: possible optimizations: avoid overcalculating all for vertices and calc just one instead
 // TODO: precalculate dot products, normalize things beforehead etc.
-// TODO: refactor to rectangular algorithm
+
 
 float distToLine(vec2 p, vec2 a, vec2 b) {
 	vec2 diff = b - a;
-	vec2 perp = normalize(vec2(-diff.y, diff.x));
-	return dot(p - a, perp);
+	return (diff.x * (p.y - a.y) - diff.y * (p.x - a.x)) / length(diff);
 }
 
 bool isNaN( float val ){
@@ -2372,19 +2371,12 @@ void main() {
 	vec2 currNormal = vec2(-currTangent.y, currTangent.x);
 	vec2 nextNormal = vec2(-nextTangent.y, nextTangent.x);
 
-	vec2 startJoinDirection = normalize(prevTangent - currTangent);
-	vec2 endJoinDirection = normalize(currTangent - nextTangent);
-
 	// collapsed/unidirectional segment cases
-	// FIXME: there should be more elegant solution
-	vec2 prevTanDiff = abs(prevTangent - currTangent);
-	vec2 nextTanDiff = abs(nextTangent - currTangent);
-	if (max(prevTanDiff.x, prevTanDiff.y) < MIN_DIFF) {
-		startJoinDirection = currNormal;
-	}
-	if (max(nextTanDiff.x, nextTanDiff.y) < MIN_DIFF) {
-		endJoinDirection = currNormal;
-	}
+	vec2 prevTanDiff = prevTangent - currTangent;
+	vec2 startJoinDirection = length(prevTanDiff) < MIN_DIFF ? currNormal : normalize(prevTanDiff);
+
+	vec2 nextTanDiff = currTangent - nextTangent;
+	vec2 endJoinDirection = length(nextTanDiff) < MIN_DIFF ? currNormal : normalize(nextTanDiff);
 	if (aCoord == bCoord) {
 		endJoinDirection = startJoinDirection;
 		currNormal = prevNormal;
@@ -2522,8 +2514,7 @@ varying float enableStartMiter, enableEndMiter;
 
 float distToLine(vec2 p, vec2 a, vec2 b) {
 	vec2 diff = b - a;
-	vec2 perp = normalize(vec2(-diff.y, diff.x));
-	return dot(p - a, perp);
+	return (diff.x * (p.y - a.y) - diff.y * (p.x - a.x)) / length(diff);
 }
 
 void main() {
