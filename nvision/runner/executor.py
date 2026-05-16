@@ -1,7 +1,6 @@
 """Task executor — runs a LocatorTask end-to-end."""
 
 from __future__ import annotations
-from nvision.sim.locs.coarse import SweepingLocator
 
 import dataclasses
 import datetime
@@ -33,6 +32,7 @@ from nvision.runner.sweep_cache import (
 )
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.sim.locs.coarse import SweepingLocator
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
 
@@ -411,7 +411,7 @@ class _TaskRunner:
         for i in range(n_missing):
             rid = start_idx + i
             repeat_start_times[i] = time.perf_counter()
-            repeat_timestamps[i] = datetime.datetime.now().isoformat()
+            repeat_timestamps[i] = datetime.datetime.now(datetime.UTC).isoformat()
             hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
                 rid=rid,
                 locator_class=locator_class,
@@ -799,7 +799,7 @@ class _TaskRunner:
         if last_loc is not None:
             # Use effective_initial_sweep_steps() to get actual steps taken (accounts for early stopping)
             eff_sweep_steps = getattr(last_loc, "effective_initial_sweep_steps", lambda: 0)()
-            init_sweep_steps = getattr(last_loc, "initial_sweep_steps", 0)
+            getattr(last_loc, "initial_sweep_steps", 0)
             step_count = getattr(last_loc, "step_count", 0)
             inf_steps = getattr(last_loc, "inference_step_count", 0)
             max_steps = getattr(last_loc, "max_steps", 0)

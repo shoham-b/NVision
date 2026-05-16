@@ -260,7 +260,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 self._noise_param_slice = slice(min(indices), max(indices) + 1)
 
         # Cache the number of signal dimensions (everything before noise params)
-        self._d_signal = self._noise_param_slice.start if self._noise_param_slice is not None else len(self._param_names)
+        self._d_signal = (
+            self._noise_param_slice.start if self._noise_param_slice is not None else len(self._param_names)
+        )
 
         # Initialize the first epoch-based candidate grid.
         # Spacing must resolve the narrowest possible signal feature so that EIG
@@ -560,9 +562,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             stds = {name: 0.0 for name in self._param_names}
             return ParameterValues.from_mapping(self._param_names, stds)
         p = self._particles.astype(np.float64)  # (N, d)
-        mean = (w @ p) / sw                     # (d,)
-        diff = p - mean                          # (N, d)
-        var = (w @ (diff ** 2)) / sw             # (d,)  weighted variance
+        mean = (w @ p) / sw  # (d,)
+        diff = p - mean  # (N, d)
+        var = (w @ (diff**2)) / sw  # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, stds)
 

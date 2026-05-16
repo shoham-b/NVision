@@ -21,12 +21,16 @@ def slugify(value: str) -> str:
 
 
 def find_project_root() -> Path:
-    """Find the project root by looking for a .git directory."""
+    """Find the project root by looking for a .git directory.
+
+    Falls back to the parent directory of 'nvision' if .git is not found (e.g. in Docker).
+    """
     current = Path(__file__).resolve()
     for parent in current.parents:
-        if (parent / ".git").is_dir():
+        if (parent / ".git").is_dir() or (parent / "pyproject.toml").is_file() or (parent / "nvision").is_dir():
             return parent
-    raise FileNotFoundError("Could not find the project root (no .git directory found).")
+    # Fallback if somehow completely isolated (e.g. site-packages)
+    return Path.cwd()
 
 
 # Define PROJECT_ROOT as the root directory of the project

@@ -470,7 +470,9 @@ class NVCenterVoigtModel(
         )
         return out
 
-    def compute_vectorized_many_fast(self, x_array: Sequence[float], samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
+    def compute_vectorized_many_fast(
+        self, x_array: Sequence[float], samples: NVCenterVoigtSpectrumSamples
+    ) -> np.ndarray:
         """Acquisition-only fast variant: uses the fastmath pseudo-Voigt kernel."""
         if isinstance(samples, list | tuple):
             samples = self.spec.unpack_samples(samples)  # type: ignore[arg-type]

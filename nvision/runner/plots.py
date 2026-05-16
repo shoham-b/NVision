@@ -372,7 +372,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
     # Actual SMC covariance history for ellipses and jitter
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    
+
     if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
         cov_hist = [s.belief.covariance_matrix() for s in bayesian_snapshots]
         param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
@@ -413,7 +413,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             subset = estimates_hist[-20:]
             jitter = {k: float(np.std([s.get(k, 0.0) for s in subset])) for k in param_names}
             final_cov = cov_hist[-1]
-            
+
             je = entry_base.copy()
             je["type"] = "bayesian_jitter"
             je["jitter"] = jitter

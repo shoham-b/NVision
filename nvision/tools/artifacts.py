@@ -186,7 +186,7 @@ def merge_run_plot_manifest_with_existing_on_disk(
             n = entry.get("noise")
             s = entry.get("strategy")
             r = entry.get("repeat")
-            
+
             if g and n and s and r is not None and (str(g), str(n), str(s), r) in updated_combinations:
                 continue
 
