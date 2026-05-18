@@ -28,6 +28,23 @@ class MockSignalModel(SignalModel):
         return np.ones(len(samples))
 
 
+def _make_mock_belief(_est, _uncert):
+    class MockBelief(GridMarginalDistribution):
+        def estimates(self):
+            return {"x1": _est}
+
+        def uncertainty(self):
+            return {"x1": _uncert}
+
+        def copy(self):
+            return self
+
+        @property
+        def physical_param_bounds(self):
+            return {"x1": (0, 1)}
+    return MockBelief
+
+
 def create_mock_run_result(final_error=0.01, final_uncertainty=0.005, converged_at=None):
     model = MockSignalModel()
     true_signal = TrueSignal(model=model, typed_parameters=(0.5,), bounds={"x1": (0, 1)})
@@ -44,22 +61,6 @@ def create_mock_run_result(final_error=0.01, final_uncertainty=0.005, converged_
             grid=np.linspace(0, 1, 10),
             posterior=np.ones(10) / 10,  # dummy
         )
-
-        def _make_mock_belief(_est, _uncert):
-            class MockBelief(GridMarginalDistribution):
-                def estimates(self):
-                    return {"x1": _est}
-
-                def uncertainty(self):
-                    return {"x1": _uncert}
-
-                def copy(self):
-                    return self
-
-                @property
-                def physical_param_bounds(self):
-                    return {"x1": (0, 1)}
-            return MockBelief
 
         mock_belief_cls = _make_mock_belief(est, uncert)
 
