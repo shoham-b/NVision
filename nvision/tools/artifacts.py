@@ -117,7 +117,7 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
             return df_loc
     try:
         old_df = pl.read_csv(out_path)
-        
+
         # Backward compatibility: map 'repeat' column to 'attempt' if 'attempt' is missing
         if "repeat" in old_df.columns and "attempt" not in old_df.columns:
             old_df = old_df.rename({"repeat": "attempt"})
@@ -127,7 +127,7 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
         for col in key:
             if col not in old_df.columns:
                 old_df = old_df.with_columns(pl.lit(None).alias(col))
-                
+
         # Also ensure df_loc has all columns in key (just in case)
         for col in key:
             if col not in df_loc.columns:
@@ -164,9 +164,7 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
         # Normalize 'repeats' column to the maximum for each scenario group to ensure consistency
         group_cols = ["generator", "noise", "strategy", "max_steps", "seed"]
         if "repeats" in merged.columns and set(group_cols).issubset(merged.columns):
-            merged = merged.with_columns(
-                pl.col("repeats").max().over(group_cols)
-            )
+            merged = merged.with_columns(pl.col("repeats").max().over(group_cols))
         return merged
     except Exception as e:
         log.warning("Could not merge with existing CSV (perhaps schema changed!): %s", e, exc_info=True)

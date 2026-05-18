@@ -239,6 +239,7 @@ def clean_manifest(  # noqa: C901
             json.dump(valid_plots, f, indent=2)
         console.print(f"[green]Removed {removed} manifest entries and {cache_removed} cache entries.[/green]")
 
+
 @cache_app.command(name="recalc")
 def recalculate_metrics(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
@@ -323,17 +324,17 @@ def recalculate_metrics(
                     # Results are stored as list of dicts: [{"entries": ..., "main_result_row": ...}, ...]
                     if not isinstance(record, dict):
                         continue
-                        
+
                     entries = record.get("entries", [])
                     main_result_row = record.get("main_result_row", {})
-                    
+
                     # We'll use the main_result_row as the 'estimate' source.
                     # It contains the flattened results from run_result_to_finalize_record.
                     from nvision.runner.metrics import _scan_attempt_metrics, _truth_positions
-                    
+
                     truth_positions = _truth_positions(experiment)
                     new_metrics = _scan_attempt_metrics(truth_positions, main_result_row)
-                    
+
                     if not force and all(main_result_row.get(k) == v for k, v in new_metrics.items()):
                         new_results.append(record)
                         continue
@@ -341,7 +342,7 @@ def recalculate_metrics(
                     # Update main_result_row
                     updated_row = dict(main_result_row)
                     updated_row.update(new_metrics)
-                    
+
                     # Update entries
                     new_entries = []
                     for entry in entries:
@@ -352,7 +353,7 @@ def recalculate_metrics(
                         # Also update top-level metrics in entry
                         entry.update(new_metrics)
                         new_entries.append(entry)
-                    
+
                     new_results.append({"entries": new_entries, "main_result_row": updated_row})
                     combo_updated = True
                     total_repeats += 1

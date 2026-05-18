@@ -39,7 +39,7 @@ class NVCenterCoreGenerator:
     x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
     center_freq_fraction: float | None = None  # if set, constrain center_freq to middle fraction of domain
-    narrow_signal: bool = False  # if True, use exceptionally narrow linewidths and splitting
+    narrow_signal: bool = True  # if True, use exceptionally narrow linewidths and splitting
     narrow_prior_std_factor: float = 0.05  # standard deviation factor for priors in narrow mode
 
     def generate(self, rng: random.Random):  # TrueSignal

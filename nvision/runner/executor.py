@@ -407,7 +407,7 @@ class _TaskRunner:
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
 
         is_streaming = self.repeats > STREAMING_REPEAT_THRESHOLD and not self.skip_cache
-        
+
         # Determine effective max_steps for metrics/manifest keys
         locator_class = self.task.strategy_spec.locator_class
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
@@ -481,7 +481,9 @@ class _TaskRunner:
         )
         return _RepeatArtifacts(
             history_df=pl.concat(history_dfs) if history_dfs else empty_history,
-            finalize_df=pl.from_dicts(finalize_records, infer_schema_length=None) if finalize_records else pl.DataFrame({"repeat_id": []}),
+            finalize_df=pl.from_dicts(finalize_records, infer_schema_length=None)
+            if finalize_records
+            else pl.DataFrame({"repeat_id": []}),
             experiments=experiments,
             repeat_start_times=repeat_start_times,
             repeat_timestamps=repeat_timestamps,

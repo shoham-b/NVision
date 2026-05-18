@@ -285,6 +285,73 @@ class BayesianMixin:
     # Typing for mixin dependency
     out_dir: Path
 
+    def _inject_timeline_bridge(self, html_path: Path, step_labels: list[str] | None = None) -> None:
+        """Injects timeline bridge JS to expose showFrame, totalFrames, and stepValues for global parent sync."""
+        if not html_path.exists():
+            return
+        import json
+
+        content = html_path.read_text(encoding="utf-8")
+
+        hide_css = """
+        <style>
+          @media screen {
+            body.in-iframe .updatemenu-container { display: none !important; }
+            body.in-iframe .slider-container { display: none !important; }
+          }
+        </style>
+        """
+
+        labels_json = "[]" if step_labels is None else json.dumps(step_labels)
+
+        bridge_script = f"""
+        {hide_css}
+        <script>
+        (function() {{
+            if (window.self !== window.top) {{
+                document.body.classList.add('in-iframe');
+            }}
+            
+            function getPlotlyDiv() {{
+                return document.querySelector('.plotly-graph-div');
+            }}
+            
+            window.showFrame = function(idx) {{
+                var gd = getPlotlyDiv();
+                if (!gd || !window.Plotly) return;
+                
+                window.Plotly.animate(gd, [String(idx)], {{
+                    mode: 'immediate',
+                    transition: {{duration: 0}},
+                    frame: {{duration: 0, redraw: true}}
+                }});
+            }};
+            
+            var checkInterval = setInterval(function() {{
+                var gd = getPlotlyDiv();
+                if (gd && gd._transitionData && gd._transitionData._frames) {{
+                    window.totalFrames = gd._transitionData._frames.length;
+                    window.stepValues = {labels_json};
+                    if (window.stepValues.length === 0) {{
+                        try {{
+                            var steps = gd.layout.sliders[0].steps;
+                            window.stepValues = steps.map(function(s) {{ return s.label; }});
+                        }} catch (e) {{}}
+                    }}
+                    clearInterval(checkInterval);
+                }}
+            }}, 50);
+        }})();
+        </script>
+        """
+
+        if "</body>" in content:
+            content = content.replace("</body>", f"{bridge_script}\n</body>")
+        else:
+            content += f"\n{bridge_script}"
+
+        html_path.write_text(content, encoding="utf-8")
+
     def plot_posterior_animation(  # noqa: C901
         self,
         posterior_history: list[np.ndarray],
@@ -544,7 +611,7 @@ class BayesianMixin:
 
             ess_history = []
             for w in weight_history:
-                sum_sq = np.sum(w ** 2)
+                sum_sq = np.sum(w**2)
                 ess_history.append(1.0 / sum_sq if sum_sq > 0.0 else 0.0)
             num_particles = len(weight_history[0])
             ess_threshold_val = 0.5 * num_particles
@@ -567,10 +634,15 @@ class BayesianMixin:
 
         def traces_for_step(step_idx: int) -> list[object]:
             traces: list[object] = []
-            for param in param_names:
+            for param_idx, param in enumerate(param_names, start=1):
                 posterior_history, grid = posterior_inputs_by_param[param]
                 posterior = posterior_history[-1] if step_idx >= len(posterior_history) else posterior_history[step_idx]
-                traces.extend(_trace_one_marginal_posterior(posterior, grid, param))
+                for tr in _trace_one_marginal_posterior(posterior, grid, param):
+                    if param_idx > 1:
+                        tr.update(xaxis=f"x{param_idx}", yaxis=f"y{param_idx}")
+                    else:
+                        tr.update(xaxis="x", yaxis="y")
+                    traces.append(tr)
 
             if has_weights:
                 # Sorted Particle Weights trace
@@ -621,22 +693,21 @@ class BayesianMixin:
                     )
                 )
 
-                # Resampling markers on ESS
+                # Resampling markers on ESS (always present)
                 if resampled_steps:
                     rs_up_to_now = [rs for rs in resampled_steps if rs <= step_idx]
-                    if rs_up_to_now:
-                        traces.append(
-                            go.Scatter(
-                                x=[rs + 1 for rs in rs_up_to_now],
-                                y=[ess_history[rs] for rs in rs_up_to_now],
-                                mode="markers",
-                                marker=dict(symbol="x", size=10, color="rgba(231, 76, 60, 0.9)", line=dict(width=2)),
-                                name="Resample Event",
-                                showlegend=False,
-                                xaxis=f"x{ess_row}",
-                                yaxis=f"y{ess_row}",
-                            )
+                    traces.append(
+                        go.Scatter(
+                            x=[rs + 1 for rs in rs_up_to_now] if rs_up_to_now else [],
+                            y=[ess_history[rs] for rs in rs_up_to_now] if rs_up_to_now else [],
+                            mode="markers",
+                            marker=dict(symbol="x", size=10, color="rgba(231, 76, 60, 0.9)", line=dict(width=2)),
+                            name="Resample Event",
+                            showlegend=False,
+                            xaxis=f"x{ess_row}",
+                            yaxis=f"y{ess_row}",
                         )
+                    )
 
             # Add timeline traces
             # Base line
@@ -685,91 +756,139 @@ class BayesianMixin:
                 )
             )
 
+            # Always add exactly one trace for the acquisition window/refocusing overlay to keep trace count constant.
+            acq_x = []
+            acq_y = []
+            acq_name = "post-sweep acquisition"
+            row_nb = 1
+            if acquisition_param and acquisition_param in param_names:
+                row_nb = param_names.index(acquisition_param) + 1
+                
+                # Check for step-specific bounds
+                step_bounds = None
+                if per_step_narrowed_bounds is not None and step_idx < len(per_step_narrowed_bounds):
+                    step_bounds = per_step_narrowed_bounds[step_idx]
+                elif narrowed_param_bounds is not None:
+                    step_bounds = narrowed_param_bounds
+
+                window = None
+                if step_bounds and acquisition_param in step_bounds:
+                    window = step_bounds[acquisition_param]
+                    if step_idx >= 32:
+                        acq_name = "posterior refocusing"
+                elif (not step_bounds) and acquisition_window is not None and step_idx >= 32:
+                    window = acquisition_window
+                
+                if window is not None:
+                    x0, x1 = float(window[0]), float(window[1])
+                    if math.isfinite(x0) and math.isfinite(x1) and x1 > x0:
+                        acq_x = [x0, x1, x1, x0, x0]
+                        y_limit_val = y_max_by_param.get(acquisition_param)
+                        y_val = float(y_limit_val * 2.0) if y_limit_val is not None else 1000.0
+                        acq_y = [0.0, 0.0, y_val, y_val, 0.0]
+
+            traces.append(
+                go.Scatter(
+                    x=acq_x,
+                    y=acq_y,
+                    fill="toself",
+                    fillcolor="rgba(46, 204, 113, 0.18)",
+                    line=dict(color="rgba(46, 204, 113, 0.75)" if acq_x else "rgba(0,0,0,0)", width=1 if acq_x else 0),
+                    hoverinfo="skip" if acq_x else "none",
+                    showlegend=False,
+                    xaxis=f"x{row_nb}" if row_nb > 1 else "x",
+                    yaxis=f"y{row_nb}" if row_nb > 1 else "y",
+                    name=acq_name,
+                )
+            )
+
             return traces
 
-        for param_idx, param in enumerate(param_names, start=1):
+
+        # Pre-calculate global maximum density (y-axis) and active support range (x-axis) across all steps
+        y_max_by_param = {}
+        x_range_by_param = {}
+        for param in param_names:
             posterior_history, grid = posterior_inputs_by_param[param]
-            posterior = (
-                posterior_history[-1]
-                if step_indices[0] >= len(posterior_history)
-                else posterior_history[step_indices[0]]
+
+            # SMC posteriors in posterior_history are of shape (num_particles, 2)
+            is_smc = (
+                len(posterior_history) > 0
+                and posterior_history[0].ndim == 2
+                and posterior_history[0].shape[1] in (1, 2)
             )
-            for tr in _trace_one_marginal_posterior(posterior, grid, param):
-                fig.add_trace(tr, row=param_idx, col=1)
+
+            if is_smc:
+                # 1. SMC Particle belief
+                # The active support is the union of the particle ranges across all steps
+                x_min_val = float("inf")
+                x_max_val = float("-inf")
+                for post in posterior_history:
+                    vals = post[:, 0]
+                    x_min_val = min(x_min_val, float(np.min(vals)))
+                    x_max_val = max(x_max_val, float(np.max(vals)))
+
+                span = x_max_val - x_min_val
+                if span <= 0:
+                    span = 1e-6
+                x_range_by_param[param] = [float(x_min_val - 0.05 * span), float(x_max_val + 0.05 * span)]
+                y_max_by_param[param] = None  # Plotly will auto-scale the y-axis
+            else:
+                # 2. Grid or Mixture belief
+                max_density = 0.0
+                min_active_idx = len(grid) - 1
+                max_active_idx = 0
+
+                for post in posterior_history:
+                    if post.ndim == 2:
+                        post_1d = post[-1]
+                    else:
+                        post_1d = post
+                    m = np.max(post_1d)
+                    if m > max_density:
+                        max_density = m
+
+                    if m > 0:
+                        thresh = 1e-4 * m
+                        active_indices = np.where(post_1d > thresh)[0]
+                        if len(active_indices) > 0:
+                            min_active_idx = min(min_active_idx, active_indices[0])
+                            max_active_idx = max(max_active_idx, active_indices[-1])
+
+                y_max_by_param[param] = max_density if max_density > 0 else 1.0
+
+                if min_active_idx <= max_active_idx:
+                    x0 = grid[min_active_idx]
+                    x1 = grid[max_active_idx]
+                    span = x1 - x0
+                    if span == 0:
+                        span = 1e-6
+                    x_range_by_param[param] = [float(x0 - 0.05 * span), float(x1 + 0.05 * span)]
+                else:
+                    x_range_by_param[param] = [float(grid[0]), float(grid[-1])]
+
+        # Add initial traces in the exact same structure as frames
+        init_idx = step_indices[0]
+        for tr in traces_for_step(init_idx):
+            fig.add_trace(tr)
+
         for i, name in enumerate(param_names, start=1):
-            fig.update_yaxes(title_text="density", automargin=True, row=i, col=1)
-            fig.update_xaxes(title_text=name, row=i, col=1)
+            x_limit = x_range_by_param[name]
+            y_limit_val = y_max_by_param[name]
+            if y_limit_val is not None:
+                y_limit = float(y_limit_val * 1.15)
+                fig.update_yaxes(title_text="density", range=[0, y_limit], automargin=True, row=i, col=1)
+            else:
+                # SMC Particle Histogram auto-scaling
+                fig.update_yaxes(title_text="density", automargin=True, row=i, col=1)
+            fig.update_xaxes(title_text=name, range=x_limit, row=i, col=1)
 
         if has_weights:
-            # Sorted Particle Weights initial trace
-            init_idx = step_indices[0]
-            w_curr = np.sort(weight_history[init_idx])[::-1]
-            fig.add_trace(
-                go.Scatter(
-                    x=list(range(len(w_curr))),
-                    y=w_curr,
-                    mode="lines",
-                    fill="tozeroy",
-                    fillcolor="rgba(30, 144, 255, 0.25)",
-                    line=dict(color="rgba(30, 144, 255, 0.85)", width=2),
-                    name="Weight Profile",
-                    showlegend=False,
-                ),
-                row=weights_row,
-                col=1,
-            )
-
-            # ESS initial trace
-            fig.add_trace(
-                go.Scatter(
-                    x=list(range(1, init_idx + 2)),
-                    y=[ess_history[i] for i in range(init_idx + 1)],
-                    mode="lines+markers",
-                    line=dict(color="rgba(155, 89, 182, 0.85)", width=2.5),
-                    marker=dict(size=4, color="rgba(155, 89, 182, 1.0)"),
-                    name="ESS",
-                    showlegend=False,
-                ),
-                row=ess_row,
-                col=1,
-            )
-
-            # Resampling Threshold initial trace
-            fig.add_trace(
-                go.Scatter(
-                    x=[1, total_steps],
-                    y=[ess_threshold_val, ess_threshold_val],
-                    mode="lines",
-                    line=dict(color="rgba(231, 76, 60, 0.5)", width=1.5, dash="dash"),
-                    name="Resampling Threshold (50%)",
-                    showlegend=False,
-                ),
-                row=ess_row,
-                col=1,
-            )
-
-            # Resampling markers on ESS initial trace
-            if resampled_steps:
-                rs_up_to_now = [rs for rs in resampled_steps if rs <= init_idx]
-                if rs_up_to_now:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=[rs + 1 for rs in rs_up_to_now],
-                            y=[ess_history[rs] for rs in rs_up_to_now],
-                            mode="markers",
-                            marker=dict(symbol="x", size=10, color="rgba(231, 76, 60, 0.9)", line=dict(width=2)),
-                            name="Resampled",
-                            showlegend=False,
-                        ),
-                        row=ess_row,
-                        col=1,
-                    )
-
             fig.update_yaxes(title_text="weight", automargin=True, row=weights_row, col=1)
             fig.update_xaxes(title_text="Sorted Particle Index", row=weights_row, col=1)
 
             fig.update_yaxes(title_text="ESS", automargin=True, range=[0, num_particles * 1.05], row=ess_row, col=1)
-            fig.update_xaxes(title_text="Measurement Step", range=[0.5, total_steps + 0.5], row=ess_row, col=1)
+            fig.update_xaxes(title_text= "Measurement Step", range=[0.5, total_steps + 0.5], row=ess_row, col=1)
 
         # Format Timeline subplot
         fig.update_yaxes(visible=False, range=[-1, 1], row=timeline_row, col=1)
@@ -781,75 +900,11 @@ class BayesianMixin:
         resampled_set = set(resampled_steps) if resampled_steps else set()
 
         for si, step_idx in enumerate(step_indices):
-            # Get narrowed bounds for this step if available
-            step_bounds = None
-            if per_step_narrowed_bounds is not None and step_idx < len(per_step_narrowed_bounds):
-                step_bounds = per_step_narrowed_bounds[step_idx]
-            elif narrowed_param_bounds is not None:
-                # Fallback to final bounds if per-step not available
-                step_bounds = narrowed_param_bounds
-
             frame_data = traces_for_step(step_idx)
 
-            # Add acquisition window overlays for this step to frame data
-            if step_bounds and acquisition_param and acquisition_param in step_bounds:
-                window = step_bounds[acquisition_param]
-                if acquisition_param in posterior_inputs_by_param:
-                    row_nb = param_names.index(acquisition_param) + 1
-                    # Create a vrect shape for this frame
-                    x0, x1 = float(window[0]), float(window[1])
-                    if math.isfinite(x0) and math.isfinite(x1) and x1 > x0:
-                        # Determine annotation text based on step
-                        annotation = "post-sweep acquisition" if step_idx < 32 else "posterior refocusing"
-
-                        frame_data.append(
-                            go.Scatter(
-                                x=[x0, x1, x1, x0, x0],
-                                y=[0, 0, 1, 1, 0],
-                                fill="toself",
-                                fillcolor="rgba(46, 204, 113, 0.18)",
-                                line=dict(color="rgba(46, 204, 113, 0.75)", width=1),
-                                hoverinfo="skip",
-                                showlegend=False,
-                                xaxis=f"x{row_nb}" if row_nb > 1 else "x",
-                                yaxis=f"y{row_nb}" if row_nb > 1 else "y",
-                                name=annotation,  # Store annotation in name for hover
-                            )
-                        )
-
-                        # Track refocusing events (after initial sweep, every 20 steps)
-                        if step_idx >= 32 and (step_idx - 32) % 20 == 0:
-                            refocusing_steps.add(si)
-
-            # If no per-step bounds but we have acquisition window, show it as post-sweep
-            elif (
-                not step_bounds
-                and acquisition_window is not None
-                and acquisition_param
-                and acquisition_param in posterior_inputs_by_param
-            ):
-                if step_idx >= 32:  # Only show after sweep is complete
-                    row_nb = param_names.index(acquisition_param) + 1
-                    x0, x1 = float(acquisition_window[0]), float(acquisition_window[1])
-                    if math.isfinite(x0) and math.isfinite(x1) and x1 > x0:
-                        frame_data.append(
-                            go.Scatter(
-                                x=[x0, x1, x1, x0, x0],
-                                y=[0, 0, 1, 1, 0],
-                                fill="toself",
-                                fillcolor="rgba(46, 204, 113, 0.18)",
-                                line=dict(color="rgba(46, 204, 113, 0.75)", width=1),
-                                hoverinfo="skip",
-                                showlegend=False,
-                                xaxis=f"x{row_nb}" if row_nb > 1 else "x",
-                                yaxis=f"y{row_nb}" if row_nb > 1 else "y",
-                                name="post-sweep acquisition",
-                            )
-                        )
-
-                        # Manually track refocusing events every 20 steps after initial sweep
-                        if step_idx >= 32 and (step_idx - 32) % 20 == 0:
-                            refocusing_steps.add(si)
+            # Track refocusing events (after initial sweep, every 20 steps)
+            if step_idx >= 32 and (step_idx - 32) % 20 == 0:
+                refocusing_steps.add(si)
 
             # Add indicators to title
             _formula_suffix = f"  {signal_formula}" if signal_formula else ""
@@ -1009,7 +1064,9 @@ class BayesianMixin:
             title_yanchor="top",
             template="plotly_white",
             height=max(400, int(200 * (n + 2.5 if has_weights else n))),
-            margin=dict(l=90, r=40, t=145, b=50),  # Increased t (top margin) for header spacing, decreased b (bottom margin)
+            margin=dict(
+                l=90, r=40, t=145, b=50
+            ),  # Increased t (top margin) for header spacing, decreased b (bottom margin)
             updatemenus=[],
             sliders=[],
         )
@@ -1018,6 +1075,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         import json
+
         html_content = fig.to_html(include_plotlyjs="cdn", include_mathjax="cdn", full_html=True)
 
         # Prepare custom HTML header injection for premium sticky controls
@@ -1043,6 +1101,14 @@ class BayesianMixin:
         </div>
 
         <style>
+          @media screen {{
+            body.in-iframe #custom-timeline-controls {{
+              display: none !important;
+            }}
+            body.in-iframe .plotly-graph-div {{
+              padding-top: 0 !important;
+            }}
+          }}
           #custom-timeline-controls {{
             position: -webkit-sticky;
             position: sticky;
@@ -1193,12 +1259,12 @@ class BayesianMixin:
             
             function updateLabel(idx) {{
               const val = stepValues[idx] !== undefined ? stepValues[idx] : idx;
-              label.textContent = `Step: ${val} (${idx + 1} / ${totalFrames})`;
+              label.textContent = `Step: ${{val}} (${{idx + 1}} / ${{totalFrames}})`;
             }}
             
             function showFrame(idx) {{
               updateLabel(idx);
-              Plotly.animate(gd, ['frame_' + idx], {{
+              Plotly.animate(gd, [String(idx)], {{
                 mode: 'immediate',
                 transition: {{duration: 0}},
                 frame: {{duration: 0, redraw: true}}
@@ -1234,6 +1300,17 @@ class BayesianMixin:
               
               clearInterval(playInterval);
             }}
+            
+            // Sync bridge interface for parent global timeline sync
+            if (window.self !== window.top) {{
+              document.body.classList.add('in-iframe');
+            }}
+            window.showFrame = function(idx) {{
+              slider.value = idx;
+              showFrame(idx);
+            }};
+            window.totalFrames = totalFrames;
+            window.stepValues = stepValues;
           }});
         </script>
         """
@@ -1309,18 +1386,37 @@ class BayesianMixin:
             )
 
         # True-value horizontal lines
+        true_raw_y = []
+        true_norm_y = []
+        has_true = False
         if true_params:
             for key in keys:
                 tv = true_params.get(key)
                 if tv is not None and math.isfinite(float(tv)):
-                    fig.add_hline(
-                        y=float(tv),
-                        line_dash="dot",
-                        line_color="green",
-                        annotation_text=f"true {key}",
-                        annotation_position="right",
-                        yref="y2" if estimates_history else "y",
+                    has_true = True
+                    init_est = estimates_history[0].get(key, 1.0) if estimates_history else 1.0
+                    if init_est == 0:
+                        init_est = 1.0
+                    true_raw_y.append([float(tv), float(tv)])
+                    true_norm_y.append([float(tv) / init_est, float(tv) / init_est])
+                else:
+                    true_raw_y.append([0.0, 0.0])
+                    true_norm_y.append([0.0, 0.0])
+
+        if has_true:
+            for key, y_val in zip(keys, true_raw_y):
+                fig.add_trace(
+                    go.Scatter(
+                        x=[steps[0], steps[-1]],
+                        y=y_val,
+                        mode="lines",
+                        name=f"{key} (true)",
+                        line=dict(dash="dot", color="green"),
+                        yaxis="y2" if estimates_history else "y",
+                        legendgroup=key,
+                        visible="legendonly",
                     )
+                )
 
         fig.update_layout(
             title="Parameter Convergence",
@@ -1341,14 +1437,14 @@ class BayesianMixin:
                     showactive=True,
                     x=0.0,
                     xanchor="left",
-                    y=1.12,
+                    y=1.18,
                     yanchor="bottom",
                     buttons=[
                         dict(
                             label="Absolute",
                             method="update",
                             args=[
-                                {"y": raw_y + est_raw_y},
+                                {"y": raw_y + est_raw_y + (true_raw_y if has_true else [])},
                                 {
                                     "yaxis.title.text": "Uncertainty (std dev)",
                                     "yaxis2.title.text": "Parameter estimate",
@@ -1359,7 +1455,7 @@ class BayesianMixin:
                             label="Normalized (÷ initial)",
                             method="update",
                             args=[
-                                {"y": norm_y + est_norm_y},
+                                {"y": norm_y + est_norm_y + (true_norm_y if has_true else [])},
                                 {
                                     "yaxis.title.text": "Relative uncertainty (u / u₀)",
                                     "yaxis2.title.text": "Relative estimate (val / val₀)",
@@ -1573,15 +1669,36 @@ class BayesianMixin:
                     ]
                 )
 
-                # Generate 2σ ellipse points
+                # Extremely robust eigensystem via Normalized Correlation Matrix
+                # Scale physical variance values
+                std_i = np.sqrt(max(cov_2d[0, 0], 1e-30))
+                std_j = np.sqrt(max(cov_2d[1, 1], 1e-30))
+
+                # Correlation coefficient rho
+                rho = cov_2d[0, 1] / (std_i * std_j)
+                if not np.isfinite(rho):
+                    rho = 0.0
+                rho = np.clip(rho, -0.9999, 0.9999)  # Avoid singularity
+
+                # Stable Correlation Matrix
+                corr_2d = np.array([[1.0, rho], [rho, 1.0]])
+
+                # Eigensystem on normalized correlation matrix
+                eigvals, eigvecs = np.linalg.eigh(corr_2d)
+
+                # Generate 2-sigma ellipse points on normalized scale
                 theta = np.linspace(0, 2 * np.pi, 100)
-                eigvals, eigvecs = np.linalg.eigh(cov_2d)
-                a, b = 2 * np.sqrt(np.maximum(eigvals, 0))
+                a, b = 2 * np.sqrt(np.maximum(eigvals, 0.0))
 
                 ellipse_x = a * np.cos(theta)
                 ellipse_y = b * np.sin(theta)
                 rot = eigvecs
-                points = np.column_stack([ellipse_x, ellipse_y]) @ rot.T
+                points_corr = np.column_stack([ellipse_x, ellipse_y]) @ rot.T
+
+                # Map back to physical units
+                points = np.zeros_like(points_corr)
+                points[:, 0] = points_corr[:, 0] * std_i
+                points[:, 1] = points_corr[:, 1] * std_j
 
                 # Center at means if available
                 if means_history:
@@ -1713,6 +1830,7 @@ class BayesianMixin:
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
+        self._inject_timeline_bridge(out_path, step_labels=[str(idx) for idx in step_indices])
 
     def plot_fisher_vs_crlb(
         self,
@@ -2187,11 +2305,12 @@ class BayesianMixin:
                 text=f"<b>{status_text}</b>",
                 xref=f"x{row if row > 1 else ''} domain",
                 yref=f"y{row if row > 1 else ''} domain",
-                x=1.02,
-                y=0.5,
+                x=0.98,
+                y=0.95,
                 showarrow=False,
                 font=dict(color="white", size=9),
-                xanchor="left",
+                xanchor="right",
+                yanchor="top",
                 bgcolor=status_color,
                 bordercolor=status_color,
                 borderwidth=1,

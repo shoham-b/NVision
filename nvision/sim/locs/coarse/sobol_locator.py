@@ -83,8 +83,11 @@ def _infer_tight_focus_window(
         return domain_lo, domain_hi
 
     noise_threshold = noise_med - depth_fraction * dip_depth
-    lo, hi = _refocus_infer_focus_window(history, domain_lo, domain_hi, noise_threshold=noise_threshold)
-    return lo, hi
+    try:
+        lo, hi = _refocus_infer_focus_window(history, domain_lo, domain_hi, noise_threshold=noise_threshold)
+        return lo, hi
+    except ValueError:
+        return domain_lo, domain_hi
 
 
 def vdc_generator(base: int = 2) -> Iterator[float]:

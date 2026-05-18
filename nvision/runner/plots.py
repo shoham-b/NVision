@@ -318,6 +318,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
         # Extract particle weight history if it is a particle-based filter
         from nvision.belief.smc_marginal import SMCMarginalDistribution
+
         weight_history = None
         if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
             weight_history = [s.belief._weights.copy() for s in bayesian_snapshots]
@@ -384,20 +385,40 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         cov_hist = [s.belief.covariance_matrix() for s in bayesian_snapshots]
         param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
 
-        # Select pairs for 2D visualization
+        # Select pairs for 2D visualization (up to 3 distinct pairs for richer coupling analysis)
         pairs = []
         try:
-            f_idx = param_names.index("frequency")
-            if "split" in param_names:
-                pairs.append((f_idx, param_names.index("split")))
-            if "linewidth" in param_names:
-                pairs.append((f_idx, param_names.index("linewidth")))
-            # If still few pairs, add first two if not already added
-            if len(pairs) < 1 and len(param_names) >= 2:
-                pairs.append((0, 1))
+            priority_pairs = [
+                ("frequency", "split"),
+                ("frequency", "linewidth"),
+                ("split", "linewidth"),
+                ("frequency", "dip_depth"),
+                ("dip_depth", "linewidth"),
+            ]
+            for p1, p2 in priority_pairs:
+                if p1 in param_names and p2 in param_names:
+                    idx1 = param_names.index(p1)
+                    idx2 = param_names.index(p2)
+                    pair = (min(idx1, idx2), max(idx1, idx2))
+                    if pair not in pairs:
+                        pairs.append(pair)
+
+            if len(pairs) < 3:
+                for idx1 in range(len(param_names)):
+                    for idx2 in range(idx1 + 1, len(param_names)):
+                        pair = (idx1, idx2)
+                        if pair not in pairs:
+                            pairs.append(pair)
+                            if len(pairs) >= 3:
+                                break
+                    if len(pairs) >= 3:
+                        break
         except (ValueError, IndexError):
-            if len(param_names) >= 2:
-                pairs.append((0, 1))
+            pass
+
+        pairs = pairs[:3]
+        if not pairs and len(param_names) >= 2:
+            pairs.append((0, 1))
 
         if pairs:
             ellipse_path = bayes_dir / f"{attempt_slug}_covariance_ellipses.html"

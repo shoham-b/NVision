@@ -57,6 +57,24 @@
     <iframe id="scan-iframe" title="Scan measurements plot"></iframe>
     <div id="bayes-section-container" style="margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em;">
         <h2>Bayesian Analysis <span tabindex="0" class="help-icon-visible" title="Bayesian inference visualizations showing how beliefs evolve as measurements accumulate.">?</span></h2>
+
+        <!-- Premium Sticky Global Timeline Controls -->
+        <div id="global-timeline-controls" class="global-timeline-controls" style="display: none;">
+            <button id="global-play-btn" class="timeline-btn">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>
+            </button>
+            <div class="timeline-slider-container">
+                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0">
+                <span id="global-step-label" class="timeline-label">Step: --</span>
+            </div>
+            <select id="global-speed-select" class="speed-select">
+                <option value="500">Speed: 0.5x</option>
+                <option value="200" selected>Speed: 1x</option>
+                <option value="100">Speed: 2x</option>
+                <option value="50">Speed: 4x</option>
+            </select>
+        </div>
+
         <div class="bayes-tab-bar" id="bayes-tab-bar" role="tablist" style="display:none;"></div>
         <div id="bayes-no-data-message" style="display:none; padding: 2em; text-align: center; color: #666; background: #fafafa; border: 1px dashed #ccc; border-radius: 8px; margin: 1em 0;">
             No Bayesian analysis data available for this selection.
@@ -89,10 +107,6 @@
             <h3>Covariance & Jitter <span tabindex="0" class="help-icon-visible" title="Numerical covariance and jitter statistics. 'Jitter' is the standard deviation of parameter estimates over the last 20 steps, capturing how much the filter is still 'jumping' around.">?</span></h3>
             <div id="bayes-jitter-content" class="scan-metrics-panel"></div>
         </div>
-        <div class="bayes-tab-panel" role="tabpanel" id="bayes-true-params-section">
-            <h3>True Signal Parameters <span tabindex="0" class="help-icon-visible" title="Ground truth parameters used to generate the signal for this repeat.">?</span></h3>
-            <div id="bayes-true-params-content" class="scan-metrics-panel"></div>
-        </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-stats-section">
             <h3>Bayesian Inference Statistics <span tabindex="0" class="help-icon-visible" title="Static summary plots capturing posterior and convergence history at key inference steps.">?</span></h3>
             <div>
@@ -116,44 +130,11 @@
         
         <div class="bayes-tab-panel is-active" role="tabpanel" id="summary-abs-error" aria-labelledby="tab-summary-abs-error">
             <h3 style="margin-top:0">Absolute Error Distributions <span tabindex="0" class="help-icon-visible" title="Distributions of absolute error across all repeats.">?</span></h3>
-            <div class="explanation-panel">
-                <h4>Understanding Absolute Error Distributions</h4>
-                <p>These histograms aggregate the performance of the selected active search strategy across all repeats, showing the absolute physical difference between estimated values and ground-truth values:</p>
-                <div class="explanation-grid">
-                    <div class="explanation-item">
-                        <strong>Overall Absolute Error:</strong> Absolute frequency error of the main estimated parameter. Lower is better.
-                    </div>
-                    <div class="explanation-item">
-                        <strong>Final Center Frequency Error (fb):</strong> The absolute error of the estimated resonance center frequency ($f_b$) at the end of the run, measuring final centering accuracy.
-                    </div>
-                    <div class="explanation-item">
-                        <strong>Final Splitting Error (fc):</strong> The absolute error of the estimated resonance splitting frequency ($f_c$, due to magnetic Zeeman or hyperfine effects) at the end of the run.
-                    </div>
-                    <div class="explanation-item">
-                        <strong>Center Frequency Error at Milestone:</strong> The center frequency absolute error ($f_b$) at the exact step when the milestone stopping criteria was met (uncertainty below convergence threshold).
-                    </div>
-                    <div class="explanation-item">
-                        <strong>Splitting Error at Milestone:</strong> The splitting frequency absolute error ($f_c$) at the moment the center frequency milestone was hit, showing early-stage splitting resolution.
-                    </div>
-                    <div class="explanation-item">
-                        <strong>fb/fc Error Reduction (Milestone - Final):</strong> The reduction in error achieved by continuing active search after the center frequency milestone. Positive values indicate successful refinement from post-milestone steps.
-                    </div>
-                </div>
-            </div>
             <div id="summary-abs-error-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
         </div>
         
         <div class="bayes-tab-panel" role="tabpanel" id="summary-uncertainty" aria-labelledby="tab-summary-uncertainty">
             <h3 style="margin-top:0">Uncertainty Distributions <span tabindex="0" class="help-icon-visible" title="Distributions of uncertainty across all repeats.">?</span></h3>
-            <div class="explanation-panel">
-                <h4>Understanding Uncertainty Distributions</h4>
-                <p>This histogram visualizes the remaining statistical uncertainty (standard deviation) of the estimates across all repeat runs:</p>
-                <div class="explanation-grid">
-                    <div class="explanation-item">
-                        <strong>Overall Uncertainty:</strong> The final estimated standard deviation of parameter estimates. Lower values represent tighter confidence bounds and high posterior certainty.
-                    </div>
-                </div>
-            </div>
             <div id="summary-uncertainty-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
         </div>
     </div>

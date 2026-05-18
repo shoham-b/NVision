@@ -170,6 +170,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     auto_resample: bool = True
     resample_delay: int = 0
     priors: dict[str, tuple[float, float]] | None = None
+    _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
+    _cov_step: int = field(init=False, default=-1, repr=False)
 
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
@@ -277,6 +279,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 2. Update weights — paper-compliant likelihood only (Eq. S3)
         self._weights *= likelihoods
         self._step_count += 1
+        self._cov_step = -1
 
         # 3. Normalize weights
         raw_weights = self._weights.astype(FLOAT_DTYPE)
@@ -445,13 +448,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         new_indices = _systematic_resample_indices(np.cumsum(self._weights), positions)
 
         # 2. Compute covariance from the pre-resample distribution for nudging.
-        # We MUST compute this before overwriting self._particles to avoid covariance collapse.
+        # Use cached covariance for the current step to avoid duplicate computation.
         mean = _weighted_mean_axis0(self._particles, self._weights)
-        # Use ddof=0 for weighted covariance to avoid NaN if the filter has collapsed
-        # to a single particle (where sum(w**2) == 1, making the ddof=1 denominator zero).
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights, ddof=0).astype(FLOAT_DTYPE, copy=False)
-        if cov.ndim == 0:
-            cov = np.array([[cov]], dtype=FLOAT_DTYPE)
+        cov = self._cached_covariance()
 
         # 3. Update particles and reset weights
         self._particles = self._particles[new_indices]
@@ -468,8 +467,20 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
             nudge_cov[j, j] = max(float(nudge_cov[j, j]), float(min_var))
 
-        # Also add tiny numerical jitter to ensure strict positive-definiteness
-        nudge_cov.flat[:: d_dim + 1] += 1e-12
+        # Make nudge_cov perfectly symmetric and strictly positive definite.
+        # Adding a tiny absolute and relative diagonal jitter ensures
+        # we don't hit LinAlgError due to float32 numerical precision.
+        nudge_cov = 0.5 * (nudge_cov + nudge_cov.T)
+
+        # Enforce relative and absolute threshold for eigenvalues to restrict
+        # the condition number to 1e6 (ratio of max to min eigenvalue).
+        # Since FLOAT_DTYPE is np.float32, the machine epsilon is ~1.19e-7,
+        # so any eigenvalue smaller than 1e-6 * max_eig will be lost in float32 rounding.
+        eigvals, eigvecs = np.linalg.eigh(nudge_cov)
+        max_eig = np.max(eigvals)
+        min_eigval = max(1e-11, 1e-6 * max_eig) if max_eig > 0 else 1e-11
+        eigvals = np.maximum(eigvals, min_eigval)
+        nudge_cov = (eigvecs * eigvals) @ eigvecs.T
 
         # 6. Shrinkage contraction toward mean (Liu-West)
         # MUST happen before nudging so we don't shrink the added noise
@@ -479,9 +490,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         )
 
         # 7. Apply Nudge (Multivariate Gaussian) — reuse the cached RNG
-        nudges = self._rng.multivariate_normal(
-            np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="cholesky"
-        ).astype(FLOAT_DTYPE, copy=False)
+        try:
+            nudges = self._rng.multivariate_normal(
+                np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="cholesky"
+            ).astype(FLOAT_DTYPE, copy=False)
+        except np.linalg.LinAlgError:
+            # Fall back to the highly robust SVD method if Cholesky still fails
+            nudges = self._rng.multivariate_normal(
+                np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
+            ).astype(FLOAT_DTYPE, copy=False)
         self._particles += nudges
 
         # 8. Clip all particles to bounds
@@ -539,15 +556,32 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         _, logdet = np.linalg.slogdet(cov)
         return float(0.5 * logdet + 0.5 * d_dim * (1 + np.log(2 * np.pi)))
 
+    def _cached_covariance(self) -> np.ndarray:
+        """Calculate and cache weighted covariance of particles for the current step."""
+        if self._cov_step == self._step_count and self._cached_cov is not None:
+            return self._cached_cov
+
+        w = self._weights
+        sw = w.sum()
+        if sw <= 0.0:
+            cov = np.zeros((len(self._param_names), len(self._param_names)), dtype=FLOAT_DTYPE)
+        else:
+            p = self._particles
+            mean = (w @ p) / sw
+            diff = p - mean
+            cov = (diff.T @ (w[:, None] * diff)) / sw
+
+        self._cached_cov = cov
+        self._cov_step = self._step_count
+        return cov
+
     def covariance_matrix(self) -> np.ndarray:
         """Return full covariance matrix of particle distribution.
 
         Returns a (d, d) array where d is the number of parameters.
         """
-        cov = np.cov(self._particles, rowvar=False, aweights=self._weights, ddof=0)
-        if cov.ndim == 0:
-            cov = np.array([[cov]])
-        return cov
+        # Return cached covariance if available for the current step.
+        return self._cached_covariance()
 
     def correlation_matrix(self) -> np.ndarray:
         """Return correlation matrix (normalized covariance).

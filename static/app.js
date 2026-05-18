@@ -280,8 +280,147 @@ function main() {
             plots.some((p) => p.type === 'bayesian_fisher_crlb_pairs') ||
             plots.some((p) => p.type === 'bayesian_jitter') ||
             plots.some((p) => p.type === 'bayesian_covariance_ellipses');
-        if (bayesSection) {
-            bayesSection.hidden = !hasBayesArtifacts;
+        // Global Timeline Controls Sync Controller
+        const globalControls = document.getElementById('global-timeline-controls');
+        const globalPlayBtn = document.getElementById('global-play-btn');
+        const globalSlider = document.getElementById('global-range-slider');
+        const globalLabel = document.getElementById('global-step-label');
+        const globalSpeedSelect = document.getElementById('global-speed-select');
+
+        let globalIsPlaying = false;
+        let globalPlayInterval = null;
+        let globalTotalFrames = 0;
+        let globalStepValues = [];
+
+        // Track registered iframes
+        const activeIframes = new Set();
+
+        function registerIframeForTimeline(iframe) {
+            if (!iframe) return;
+            
+            function onIframeLoaded() {
+                try {
+                    const win = iframe.contentWindow;
+                    if (win && win.showFrame && win.totalFrames !== undefined) {
+                        activeIframes.add(iframe);
+                        updateGlobalTimelineMetadata();
+                    } else {
+                        let attempts = 0;
+                        const poll = setInterval(() => {
+                            attempts++;
+                            if (win && win.showFrame && win.totalFrames !== undefined) {
+                                activeIframes.add(iframe);
+                                updateGlobalTimelineMetadata();
+                                clearInterval(poll);
+                            }
+                            if (attempts > 30) clearInterval(poll);
+                        }, 100);
+                    }
+                } catch (e) {
+                    console.error("Timeline registration cross-origin error:", e);
+                }
+            }
+            
+            iframe.addEventListener('load', onIframeLoaded);
+            onIframeLoaded();
+        }
+
+        function updateGlobalTimelineMetadata() {
+            let maxFrames = 0;
+            let steps = [];
+            for (const iframe of activeIframes) {
+                try {
+                    const win = iframe.contentWindow;
+                    if (win && win.totalFrames > maxFrames) {
+                        maxFrames = win.totalFrames;
+                        if (win.stepValues && win.stepValues.length > 0) {
+                            steps = win.stepValues;
+                        }
+                    }
+                } catch (e) {}
+            }
+            
+            if (maxFrames > 0) {
+                globalTotalFrames = maxFrames;
+                globalStepValues = steps;
+                globalSlider.max = maxFrames - 1;
+                globalControls.style.display = 'flex';
+                updateGlobalLabel(parseInt(globalSlider.value, 10));
+                syncFrames(parseInt(globalSlider.value, 10));
+            } else {
+                globalTotalFrames = 0;
+                globalStepValues = [];
+                globalControls.style.display = 'none';
+                if (globalIsPlaying) {
+                    globalPause();
+                }
+            }
+        }
+
+        function updateGlobalLabel(idx) {
+            const val = (globalStepValues && globalStepValues[idx] !== undefined) ? globalStepValues[idx] : idx;
+            globalLabel.textContent = `Step: ${val} (${idx + 1} / ${globalTotalFrames})`;
+        }
+
+        function syncFrames(idx) {
+            updateGlobalLabel(idx);
+            for (const iframe of activeIframes) {
+                try {
+                    const win = iframe.contentWindow;
+                    if (win && typeof win.showFrame === 'function') {
+                        const localIdx = Math.min(idx, win.totalFrames - 1);
+                        win.showFrame(localIdx);
+                    }
+                } catch (e) {}
+            }
+        }
+
+        globalSlider.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.value, 10);
+            syncFrames(idx);
+        });
+
+        globalPlayBtn.addEventListener('click', () => {
+            if (globalIsPlaying) {
+                globalPause();
+            } else {
+                globalPlay();
+            }
+        });
+
+        globalSpeedSelect.addEventListener('change', () => {
+            if (globalIsPlaying) {
+                globalPause();
+                globalPlay();
+            }
+        });
+
+        function globalPlay() {
+            globalIsPlaying = true;
+            globalPlayBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg><span>Pause</span>';
+            globalPlayBtn.style.background = '#ffebe6';
+            globalPlayBtn.style.borderColor = '#ff4d4d';
+            globalPlayBtn.style.color = '#960000';
+            
+            const intervalMs = parseInt(globalSpeedSelect.value, 10);
+            globalPlayInterval = setInterval(() => {
+                let nextIdx = parseInt(globalSlider.value, 10) + 1;
+                if (nextIdx >= globalTotalFrames) {
+                    nextIdx = 0;
+                }
+                globalSlider.value = nextIdx;
+                syncFrames(nextIdx);
+            }, intervalMs);
+        }
+
+        function globalPause() {
+            globalIsPlaying = false;
+            globalPlayBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>';
+            globalPlayBtn.style.background = '#e6f2ff';
+            globalPlayBtn.style.borderColor = '#1e90ff';
+            globalPlayBtn.style.color = '#005b96';
+            
+            clearInterval(globalPlayInterval);
         }
 
         function updateBayesView(selectedPlot) {
@@ -318,6 +457,14 @@ function main() {
                 return;
             }
 
+            // Clear registered iframes and reset the slider
+            activeIframes.clear();
+            globalTotalFrames = 0;
+            globalStepValues = [];
+            globalSlider.value = 0;
+            globalSlider.max = 0;
+            updateGlobalLabel(0);
+
             if (!selectedPlot) {
                 bayesInteractiveSection.dataset.available = 'false';
                 bayesInteractiveIframe.src = '';
@@ -348,6 +495,7 @@ function main() {
                 bayesInteractiveIframe.src = interactivePlot.path;
                 bayesInteractiveIframe.style.height = '85vh';
                 bayesInteractiveSection.dataset.available = 'true';
+                registerIframeForTimeline(bayesInteractiveIframe);
             } else {
                 bayesInteractiveSection.dataset.available = 'false';
                 bayesInteractiveIframe.src = '';
@@ -434,6 +582,7 @@ function main() {
             if (ellipsePlot) {
                 bayesEllipseIframe.src = ellipsePlot.path;
                 bayesEllipseSection.dataset.available = 'true';
+                registerIframeForTimeline(bayesEllipseIframe);
             } else {
                 bayesEllipseSection.dataset.available = 'false';
                 bayesEllipseIframe.src = '';
@@ -506,19 +655,7 @@ function main() {
             }
         }
 
-        function updateBayesTrueParamsView(selectedPlot) {
-            const section = document.getElementById('bayes-true-params-section');
-            const content = document.getElementById('bayes-true-params-content');
-            if (!section || !content) return;
 
-            if (selectedPlot && selectedPlot.true_params) {
-                content.innerHTML = renderItemsToHtml(buildTrueParamItems(selectedPlot.true_params), true);
-                section.dataset.available = 'true';
-            } else {
-                content.innerHTML = '';
-                section.dataset.available = 'false';
-            }
-        }
 
         function updateBayesTabs() {
             const tabBar = document.getElementById('bayes-tab-bar');
@@ -532,7 +669,6 @@ function main() {
                 { id: 'bayes-fisher-pairs-section', label: 'CRLB Pairs' },
                 { id: 'bayes-ellipse-section', label: 'Covariance Ellipses' },
                 { id: 'bayes-jitter-section', label: 'Covariance & Jitter' },
-                { id: 'bayes-true-params-section', label: 'True Parameters' },
                 { id: 'bayes-stats-section', label: 'Statistics' },
             ];
 
@@ -1567,7 +1703,6 @@ function main() {
                     updateBayesView(plot);
                     updateBayesStatsView(plot);
                     updateBayesInteractiveView(plot);
-                    updateBayesTrueParamsView(plot);
                     updateBayesTabs();
                 } else {
                     scanIframe.src = '';
@@ -1577,7 +1712,6 @@ function main() {
                     updateBayesView(null);
                     updateBayesStatsView(null);
                     updateBayesInteractiveView(null);
-                    updateBayesTrueParamsView(null);
                     updateBayesTabs();
                 }
             } else {
@@ -1691,18 +1825,28 @@ function main() {
             }
             
             if (Object.keys(correlations).length > 0) {
-                html += '<h4 style="margin-top:1.5em">Correlation Matrix</h4>';
-                html += '<div style="overflow-x:auto"><table class="correlation-table" style="border-collapse: collapse; width: 100%; font-size: 0.9em;">';
+                html += '<h4 style="margin-top:1.5em">Correlation Matrix <span class="help-icon" tabindex="0" title="Measures how tightly parameters are coupled. Value of +1/-1 means perfect correlation; 0 means completely independent.">?</span></h4>';
+                html += '<div class="correlation-table-wrapper"><table class="correlation-table">';
                 const names = paramNames;
-                html += '<thead><tr><th style="padding: 8px; border-bottom: 2px solid #eee;"></th>' + names.map(n => `<th style="padding: 8px; border-bottom: 2px solid #eee;">${n}</th>`).join('') + '</tr></thead>';
+                html += '<thead><tr><th></th>' + names.map(n => `<th>${n}</th>`).join('') + '</tr></thead>';
                 html += '<tbody>';
                 for (const ni of names) {
-                    html += `<tr><th style="padding: 8px; text-align: left; border-bottom: 1px solid #eee;">${ni}</th>`;
+                    html += `<tr><th>${ni}</th>`;
                     for (const nj of names) {
                         const val = (correlations[ni] && correlations[ni][nj] !== undefined) ? correlations[ni][nj] : 0;
-                        const color = val > 0 ? `rgba(52, 152, 219, ${Math.min(1, val)})` : `rgba(231, 76, 60, ${Math.min(1, Math.abs(val))})`;
-                        const textColor = Math.abs(val) > 0.5 ? 'white' : 'black';
-                        html += `<td style="background-color:${color}; text-align:center; padding: 8px; border-bottom: 1px solid #eee; color:${textColor}; font-weight: bold;">${val.toFixed(2)}</td>`;
+                        let color;
+                        let textColor;
+                        if (ni === nj) {
+                            color = 'rgba(71, 85, 105, 0.15)';
+                            textColor = '#1e293b';
+                        } else if (val > 0) {
+                            color = `rgba(30, 144, 255, ${0.1 + 0.9 * val})`;
+                            textColor = val > 0.4 ? '#ffffff' : '#1e3a8a';
+                        } else {
+                            color = `rgba(239, 68, 68, ${0.1 + 0.9 * Math.abs(val)})`;
+                            textColor = Math.abs(val) > 0.4 ? '#ffffff' : '#7f1d1d';
+                        }
+                        html += `<td class="corr-cell" style="background-color:${color}; color:${textColor};">${val.toFixed(2)}</td>`;
                     }
                     html += '</tr>';
                 }

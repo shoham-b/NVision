@@ -275,20 +275,20 @@ def _collect_cache_results_from_configs(
         )
 
         cache = bridge.get_cache_for_category(category)
-        
+
         # Determine achieved repeats from pointer if available
         achieved_repeats = int(cfg.get("repeats", 0))
         if cfg.get("kind") == "locator_combination_pointer":
-             key = stable_config_hash(cfg)
-             ptr_df = cache._store.load_df(key)
-             if ptr_df is not None and not ptr_df.is_empty():
-                 achieved_repeats = int(ptr_df.get_column("achieved_repeats")[0])
-             
-             # Load all achieved repeats
-             cached_results = cache._repeats.load_repeats(key, achieved_repeats)
+            key = stable_config_hash(cfg)
+            ptr_df = cache._store.load_df(key)
+            if ptr_df is not None and not ptr_df.is_empty():
+                achieved_repeats = int(ptr_df.get_column("achieved_repeats")[0])
+
+            # Load all achieved repeats
+            cached_results = cache._repeats.load_repeats(key, achieved_repeats)
         else:
-             cached_results = cache.get_cached_combination_by_config(cfg)
-             
+            cached_results = cache.get_cached_combination_by_config(cfg)
+
         if not cached_results:
             continue
 
@@ -322,6 +322,8 @@ def _collect_cache_results_from_configs(
         log.info("Loaded from cache: %s entries of types: %s", len(plot_manifest), type_counts)
 
     return df_rows, plot_manifest, hits
+
+
 def _rows_from_existing_manifest(out_dir: Path) -> list[dict[str, object]]:
     """Best-effort recovery of locator result rows from existing scan manifest entries."""
     path = plots_manifest_path(out_dir)
@@ -485,15 +487,15 @@ def _load_cache_rows_for_render(
             max_steps = int(cfg.get("max_steps", 0))
             seed = int(cfg.get("seed", 0))
             key = (gen, noise, strat, max_steps, seed)
-            
+
             # For pointers, we need to check the actual achieved repeats from the store
             curr_repeats = int(cfg.get("repeats", 0))
             if cfg.get("kind") == "locator_combination_pointer":
-                 ptr_key = stable_config_hash(cfg)
-                 cache = bridge.get_cache_for_category(category)
-                 ptr_df = cache._store.load_df(ptr_key)
-                 if ptr_df is not None and not ptr_df.is_empty():
-                     curr_repeats = int(ptr_df.get_column("achieved_repeats")[0])
+                ptr_key = stable_config_hash(cfg)
+                cache = bridge.get_cache_for_category(category)
+                ptr_df = cache._store.load_df(ptr_key)
+                if ptr_df is not None and not ptr_df.is_empty():
+                    curr_repeats = int(ptr_df.get_column("achieved_repeats")[0])
 
             if key not in best_configs or curr_repeats > int(best_configs[key][1].get("repeats", 0)):
                 # Note: we update the config dict to store the resolved 'achieved_repeats' for easier sorting later
@@ -608,8 +610,11 @@ def render(
     finally:
         bridge.close()
 
-    df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
-    
+    if df_rows:
+        df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
+    else:
+        df_loc = pl.DataFrame()
+
     # Always attempt recovery of manifest rows to merge with cached results
     recovered_rows = _rows_from_existing_manifest(out_dir)
     if recovered_rows:
@@ -618,7 +623,7 @@ def render(
         for col in ("max_steps", "seed", "attempt", "repeats"):
             if col in df_recovered.columns:
                 df_recovered = df_recovered.with_columns(pl.col(col).cast(pl.Int64, strict=False))
-        
+
         if df_loc.is_empty():
             df_loc = df_recovered
             log.info("Recovered %s locator result row(s) from existing plots_manifest.json.", len(recovered_rows))
@@ -632,7 +637,7 @@ def render(
                     df_recovered = df_recovered.with_columns(pl.lit(None).alias(col))
             for col in ("max_steps", "seed", "attempt"):
                 df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
-                
+
             combined = pl.concat([df_recovered, df_loc], how="diagonal").unique(
                 subset=list(key),
                 keep="last",
