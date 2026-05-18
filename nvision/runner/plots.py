@@ -316,6 +316,12 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         # Track which steps involved a resampling event
         resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
 
+        # Extract particle weight history if it is a particle-based filter
+        from nvision.belief.smc_marginal import SMCMarginalDistribution
+        weight_history = None
+        if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
+            weight_history = [s.belief._weights.copy() for s in bayesian_snapshots]
+
         viz.plot_posterior_animation_all_params(
             anim_all,
             interactive_path,
@@ -328,6 +334,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             param_descriptions=param_descriptions,
             signal_formula=signal_formula,
             resampled_steps=resampled_steps,
+            weight_history=weight_history,
         )
     else:
         anim_inputs = _posterior_animation_inputs(run_result, scan_param, start_idx=sweep_steps)

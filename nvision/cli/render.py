@@ -207,15 +207,11 @@ def _config_matches_filters(
         if not any(fnmatch.fnmatch(strategy, p) for p in patterns):
             return False
 
-<<<<<<< HEAD
     # 2. Grid validation: ensure the strategy is valid for this generator
     # (e.g. narrow signals should not have sweep strategies)
     grid = CombinationGrid()
     valid_strategies = [name for name, _ in grid.strategies_for(generator)]
     return strategy in valid_strategies
-=======
-    return True
->>>>>>> 89d44b6 (add recalc)
 
 
 def _config_matches_run_params(
@@ -326,8 +322,6 @@ def _collect_cache_results_from_configs(
         log.info("Loaded from cache: %s entries of types: %s", len(plot_manifest), type_counts)
 
     return df_rows, plot_manifest, hits
-
-
 def _rows_from_existing_manifest(out_dir: Path) -> list[dict[str, object]]:
     """Best-effort recovery of locator result rows from existing scan manifest entries."""
     path = plots_manifest_path(out_dir)
@@ -351,16 +345,43 @@ def _rows_from_existing_manifest(out_dir: Path) -> list[dict[str, object]]:
         strategy = entry.get("strategy")
         if not isinstance(generator, str) or not isinstance(noise, str) or not isinstance(strategy, str):
             continue
+
         row: dict[str, object] = {
             "generator": generator,
             "noise": noise,
             "strategy": strategy,
-            "repeat": entry.get("repeat", 1),
+            "repeats": entry.get("repeat_total"),
+            "max_steps": entry.get("max_steps"),
+            "seed": entry.get("seed"),
+            "attempt": entry.get("repeat"),
+            "stop_reason": entry.get("stop_reason"),
+            "sweep_steps": entry.get("sweep_steps"),
+            "locator_steps": entry.get("locator_steps"),
         }
-        for metric in ("abs_err_x", "uncert", "measurements", "duration_ms", "pair_rmse", "abs_err_x1", "abs_err_x2"):
+
+        # Recover metrics from nested dict
+        metrics = entry.get("metrics")
+        if isinstance(metrics, dict):
+            for k, v in metrics.items():
+                if v is not None:
+                    row[k] = v
+
+        # Also fallback/override individual fields
+        for metric in (
+            "abs_err_x",
+            "uncert",
+            "measurements",
+            "duration_ms",
+            "pair_rmse",
+            "abs_err_x1",
+            "abs_err_x2",
+            "sweep_steps",
+            "locator_steps",
+        ):
             value = entry.get(metric)
             if value is not None:
                 row[metric] = value
+
         rows.append(row)
     return rows
 
@@ -588,15 +609,43 @@ def render(
         bridge.close()
 
     df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
-    df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
-    if df_loc.is_empty():
-        recovered_rows = _rows_from_existing_manifest(out_dir)
-        if recovered_rows:
-            df_loc = pl.from_dicts(recovered_rows, infer_schema_length=None)
-            log.info(
-                "Recovered %s locator result row(s) from existing plots_manifest.json.",
-                len(recovered_rows),
+    
+    # Always attempt recovery of manifest rows to merge with cached results
+    recovered_rows = _rows_from_existing_manifest(out_dir)
+    if recovered_rows:
+        df_recovered = pl.from_dicts(recovered_rows, infer_schema_length=None)
+        # Ensure correct column typing
+        for col in ("max_steps", "seed", "attempt", "repeats"):
+            if col in df_recovered.columns:
+                df_recovered = df_recovered.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+        
+        if df_loc.is_empty():
+            df_loc = df_recovered
+            log.info("Recovered %s locator result row(s) from existing plots_manifest.json.", len(recovered_rows))
+        else:
+            # Diagonally concatenate and unique them to combine both sources
+            key = ("generator", "noise", "strategy", "max_steps", "seed", "attempt")
+            for col in key:
+                if col not in df_loc.columns:
+                    df_loc = df_loc.with_columns(pl.lit(None).alias(col))
+                if col not in df_recovered.columns:
+                    df_recovered = df_recovered.with_columns(pl.lit(None).alias(col))
+            for col in ("max_steps", "seed", "attempt"):
+                df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+                
+            combined = pl.concat([df_recovered, df_loc], how="diagonal").unique(
+                subset=list(key),
+                keep="last",
+                maintain_order=True,
             )
+            log.info(
+                "Combined %s cached rows with %s recovered rows from plots_manifest.json.",
+                len(df_loc),
+                len(df_recovered),
+            )
+            df_loc = combined
+
+    df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
     if df_loc.is_empty():
         log.warning("No results found in cache or existing artifacts. The report will be empty.")
 

@@ -122,49 +122,6 @@ def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
     return winners
 
 
-@njit(parallel=True, cache=True, fastmath=True)
-def _weighted_variance_axis1(x_2d: np.ndarray, w: np.ndarray) -> np.ndarray:
-    """Weighted variance along axis 1 (particles) for many candidates in parallel.
-
-    Uses an optimized 1-pass Welford's algorithm to prevent catastrophic
-    cancellation while minimizing redundant division.
-
-    Args:
-        x_2d: 2D array of predictions (n_candidates, n_particles).
-        w: 1D array of weights (n_particles).
-
-    Returns:
-        1D array of weighted variances (n_candidates).
-    """
-    n_rows, n_cols = x_2d.shape
-    vars_out = np.empty(n_rows, dtype=x_2d.dtype)
-
-    sw = np.sum(w)
-    if sw <= 0.0:
-        return np.zeros(n_rows, dtype=x_2d.dtype)
-
-    # Precalculate weight fractions since they are identical for all candidates
-    w_inv = np.zeros(n_cols, dtype=w.dtype)
-    sum_weight = 0.0
-    for j in range(n_cols):
-        sum_weight += w[j]
-        if sum_weight > 0.0:
-            w_inv[j] = w[j] / sum_weight
-
-    for i in numba.prange(n_rows):
-        mean = 0.0
-        S = 0.0  # noqa: N806
-        for j in range(n_cols):
-            wj = w[j]
-            xij = x_2d[i, j]
-            delta = xij - mean
-            mean += w_inv[j] * delta
-            S += wj * delta * (xij - mean)  # noqa: N806
-        vars_out[i] = S / sw
-
-    return vars_out
-
-
 @njit(cache=True)
 def _weighted_cdf(samples: np.ndarray, weights: np.ndarray, x_query: np.ndarray) -> np.ndarray:
     """Compute empirical weighted CDF using Numba for speed.
@@ -322,8 +279,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._step_count += 1
 
         # 3. Normalize weights
-        # Use float64 for normalization to avoid precision issues that can lead to
-        # weights summing to > 1.0 or catastrophic precision loss in float32.
         raw_weights = self._weights.astype(FLOAT_DTYPE)
         weight_sum = np.sum(raw_weights)
         if weight_sum > 1e-100:
@@ -385,13 +340,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
             predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
             # predictions: (n_obs, n_particles)
-            ys = np.array([obs.signal_value for obs in observations], dtype=np.float64)
-            sigmas = np.array([max(float(obs.noise_std), 1e-9) for obs in observations], dtype=np.float64)
+            ys = np.array([obs.signal_value for obs in observations], dtype=FLOAT_DTYPE)
+            sigmas = np.array([max(float(obs.noise_std), 1e-9) for obs in observations], dtype=FLOAT_DTYPE)
             # residuals: (n_obs, n_particles); log_liks: (n_obs, n_particles)
-            residuals = ys[:, None] - predictions.astype(np.float64)
+            residuals = ys[:, None] - predictions
             log_liks_matrix = -0.5 * (residuals / sigmas[:, None]) ** 2
             # Sum over observations → (n_particles,)
-            log_weights += log_liks_matrix.sum(axis=0).astype(FLOAT_DTYPE)
+            log_weights += log_liks_matrix.sum(axis=0)
 
         self._step_count += len(observations)
 
@@ -525,7 +480,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 7. Apply Nudge (Multivariate Gaussian) — reuse the cached RNG
         nudges = self._rng.multivariate_normal(
-            np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
+            np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="cholesky"
         ).astype(FLOAT_DTYPE, copy=False)
         self._particles += nudges
 
@@ -556,12 +511,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Computes all marginal variances in a single vectorized pass instead of
         calling the 1-D Numba kernel once per dimension.
         """
-        w = self._weights.astype(np.float64)
+        w = self._weights
         sw = w.sum()
         if sw <= 0.0:
             stds = {name: 0.0 for name in self._param_names}
             return ParameterValues.from_mapping(self._param_names, stds)
-        p = self._particles.astype(np.float64)  # (N, d)
+        p = self._particles  # (N, d)
         mean = (w @ p) / sw  # (d,)
         diff = p - mean  # (N, d)
         var = (w @ (diff**2)) / sw  # (d,)  weighted variance
@@ -683,8 +638,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             return candidates[:0]
 
         # Evaluate EIG over all candidates in one vectorized call.
-        # The old chunked loop (64 candidates/call) was unnecessary — the Numba
-        # _weighted_variance_axis1 kernel already parallelises over rows.
         eig_scores = self.expected_information_gain(candidates, noise_std=noise_std).astype(FLOAT_DTYPE)
 
         # Boltzmann sampling over chunk winners to avoid getting stuck at a
@@ -693,7 +646,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         temp = 0.01
         winner_scores = eig_scores[winner_indices]
         shifted_scores = (winner_scores - np.max(winner_scores)) / temp
-        probs = np.exp(shifted_scores.astype(np.float64))  # float64 to avoid softmax overflow
+        probs = np.exp(shifted_scores)
         probs /= np.sum(probs)
 
         best_chunk_order = np.random.choice(
@@ -716,13 +669,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # shape: (n_candidates, n_particles) — uses fastmath kernel (acquisition path only)
         predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
 
-        # Calculate weighted variance of predictions across particles for each candidate
-        # Using optimized Numba helper to avoid large temporary array allocations
-        var_pred = _weighted_variance_axis1(predictions, self._weights)
+        w = self._weights  # already float32, already normalized
+        mean_pred = predictions @ w  # (n_candidates,)
+        diff = predictions - mean_pred[:, None]  # (n_candidates, n_particles)
+        var_pred = (diff**2) @ w  # (n_candidates,)
 
-        # Return approximate information gain using the noise floor sigma_eta^2
-        noise_var = noise_std**2
-        return 0.5 * np.log(1.0 + var_pred / (noise_var + 1e-15))
+        return var_pred
 
     def expected_information_gain_jax(self, candidates: Any, noise_std: float = 0.02) -> Any:
         """Compute the approximate expected information gain using JAX for auto-differentiation."""

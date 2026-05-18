@@ -735,3 +735,146 @@ body {
             font-family: ui-monospace, SFMono-Regular, monospace;
             line-height: 1;
         }
+
+        /* ---- Premium Sweep-Narrowed Priors Slider ---- */
+        .param-bounds-header {
+            font-weight: 700;
+            color: #176337;
+            font-size: 0.9em;
+            margin-bottom: 0.4em;
+        }
+
+        .param-bounds-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 0.75em;
+            width: 100%;
+            margin-top: 0.4em;
+        }
+
+        .param-slider-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35em;
+            background: #ffffff;
+            padding: 0.55em 0.75em;
+            border-radius: 8px;
+            border: 1px solid rgba(46, 204, 113, 0.18);
+            box-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.015);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+
+        .param-slider-card:hover {
+            transform: translateY(-1.5px);
+            box-shadow: 0 4px 10px rgba(46, 204, 113, 0.06);
+            border-color: rgba(46, 204, 113, 0.4);
+        }
+
+        .param-slider-label {
+            font-size: 0.8em;
+            font-weight: 700;
+            color: #15803d;
+            text-transform: capitalize;
+            letter-spacing: 0.005em;
+        }
+
+        .param-slider-wrapper {
+            position: relative;
+            height: 4px;
+            margin: 0.4em 0 1.1em 0;
+        }
+
+        .param-slider-track-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #e2e8f0;
+            border-radius: 999px;
+        }
+
+        .param-slider-track-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, #10b981, #34d399);
+            border-radius: 999px;
+        }
+
+        .param-slider-handle {
+            position: absolute;
+            top: 50%;
+            width: 10px;
+            height: 10px;
+            background: #ffffff;
+            border: 1.5px solid #10b981;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 1.5px 3.5px rgba(0, 0, 0, 0.12);
+            z-index: 2;
+            transition: transform 0.15s ease, background-color 0.15s ease;
+        }
+
+        .param-slider-card:hover .param-slider-handle {
+            transform: translate(-50%, -50%) scale(1.15);
+            background-color: #f0fdf4;
+        }
+
+        .param-slider-value {
+            position: absolute;
+            top: 10px;
+            transform: translateX(-50%);
+            font-size: 0.78em;
+            font-weight: 700;
+            color: #047857;
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            white-space: nowrap;
+        }
+
+        .param-slider-bounds {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72em;
+            color: #64748b;
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            line-height: 1;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 0.4em;
+            margin-top: 0.15em;
+        }
+
+        /* ---- Summary Chart Explanations ---- */
+        .explanation-panel {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-left: 4px solid #3b82f6;
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-top: 0.75rem;
+            margin-bottom: 1.25rem;
+            font-size: 0.9em;
+            color: #334155;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .explanation-panel h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #1e3a8a;
+        }
+        .explanation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 0.75rem 1.25rem;
+            margin-top: 0.5rem;
+        }
+        .explanation-item {
+            line-height: 1.4;
+        }
+        .explanation-item strong {
+            color: #1e293b;
+            font-weight: 600;
+        }
+

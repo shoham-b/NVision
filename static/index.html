@@ -116,11 +116,44 @@
         
         <div class="bayes-tab-panel is-active" role="tabpanel" id="summary-abs-error" aria-labelledby="tab-summary-abs-error">
             <h3 style="margin-top:0">Absolute Error Distributions <span tabindex="0" class="help-icon-visible" title="Distributions of absolute error across all repeats.">?</span></h3>
+            <div class="explanation-panel">
+                <h4>Understanding Absolute Error Distributions</h4>
+                <p>These histograms aggregate the performance of the selected active search strategy across all repeats, showing the absolute physical difference between estimated values and ground-truth values:</p>
+                <div class="explanation-grid">
+                    <div class="explanation-item">
+                        <strong>Overall Absolute Error:</strong> Absolute frequency error of the main estimated parameter. Lower is better.
+                    </div>
+                    <div class="explanation-item">
+                        <strong>Final Center Frequency Error (fb):</strong> The absolute error of the estimated resonance center frequency ($f_b$) at the end of the run, measuring final centering accuracy.
+                    </div>
+                    <div class="explanation-item">
+                        <strong>Final Splitting Error (fc):</strong> The absolute error of the estimated resonance splitting frequency ($f_c$, due to magnetic Zeeman or hyperfine effects) at the end of the run.
+                    </div>
+                    <div class="explanation-item">
+                        <strong>Center Frequency Error at Milestone:</strong> The center frequency absolute error ($f_b$) at the exact step when the milestone stopping criteria was met (uncertainty below convergence threshold).
+                    </div>
+                    <div class="explanation-item">
+                        <strong>Splitting Error at Milestone:</strong> The splitting frequency absolute error ($f_c$) at the moment the center frequency milestone was hit, showing early-stage splitting resolution.
+                    </div>
+                    <div class="explanation-item">
+                        <strong>fb/fc Error Reduction (Milestone - Final):</strong> The reduction in error achieved by continuing active search after the center frequency milestone. Positive values indicate successful refinement from post-milestone steps.
+                    </div>
+                </div>
+            </div>
             <div id="summary-abs-error-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
         </div>
         
         <div class="bayes-tab-panel" role="tabpanel" id="summary-uncertainty" aria-labelledby="tab-summary-uncertainty">
             <h3 style="margin-top:0">Uncertainty Distributions <span tabindex="0" class="help-icon-visible" title="Distributions of uncertainty across all repeats.">?</span></h3>
+            <div class="explanation-panel">
+                <h4>Understanding Uncertainty Distributions</h4>
+                <p>This histogram visualizes the remaining statistical uncertainty (standard deviation) of the estimates across all repeat runs:</p>
+                <div class="explanation-grid">
+                    <div class="explanation-item">
+                        <strong>Overall Uncertainty:</strong> The final estimated standard deviation of parameter estimates. Lower values represent tighter confidence bounds and high posterior certainty.
+                    </div>
+                </div>
+            </div>
             <div id="summary-uncertainty-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
         </div>
     </div>

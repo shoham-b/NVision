@@ -201,6 +201,7 @@ function main() {
         initRunStatusBanner();
 
         let plots = [];
+        let currentPlot = null;
         try {
             plots = window.MANIFEST;
             if (!Array.isArray(plots)) {
@@ -345,10 +346,7 @@ function main() {
 
             if (interactivePlot) {
                 bayesInteractiveIframe.src = interactivePlot.path;
-                const paramCount = interactivePlot.param_count || 1;
-                const plotHeight = Math.max(260, 180 * paramCount);
-                const totalHeight = plotHeight + 120;
-                bayesInteractiveIframe.style.height = totalHeight + 'px';
+                bayesInteractiveIframe.style.height = '85vh';
                 bayesInteractiveSection.dataset.available = 'true';
             } else {
                 bayesInteractiveSection.dataset.available = 'false';
@@ -1484,6 +1482,7 @@ function main() {
                         p.strategy === scanStrategyValue &&
                         p.repeat === repeatNumber
                 );
+                currentPlot = plot;
                 scanIframe.src = plot ? plot.path : '';
                 if (plot) {
                     function buildScanItems(phaseData, isOverall, totalMeasurements) {
@@ -1546,152 +1545,6 @@ function main() {
                         return items;
                     }
 
-                    function buildTrueParamItems(trueData) {
-                        const items = [];
-                        const params = trueData.params || {};
-                        const bounds = trueData.bounds || {};
-                        // Preferred order for common parameters
-                        const preferred = ['frequency', 'linewidth', 'fwhm_total', 'split', 'dip_depth', 'k_np', 'lorentz_frac'];
-                        const keys = Object.keys(params).sort((a, b) => {
-                            const ia = preferred.indexOf(a);
-                            const ib = preferred.indexOf(b);
-                            if (ia !== -1 && ib !== -1) return ia - ib;
-                            if (ia !== -1) return -1;
-                            if (ib !== -1) return 1;
-                            return a.localeCompare(b);
-                        });
-
-                        for (const name of keys) {
-                            const val = params[name];
-                            const b = bounds[name];
-                            let label = name.replace(/_/g, ' ');
-                            // Capitalize first letter
-                            label = label.charAt(0).toUpperCase() + label.slice(1);
-                            
-                            let formatted = val;
-                            let fmtLo = b ? b[0] : null;
-                            let fmtHi = b ? b[1] : null;
-
-                            const lowName = name.toLowerCase();
-                            const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total';
-                            
-                            if (typeof val === 'number') {
-                                if (isFreqLike) {
-                                    formatted = formatFrequency(val);
-                                    if (b) {
-                                        fmtLo = formatFrequency(b[0]);
-                                        fmtHi = formatFrequency(b[1]);
-                                    }
-                                } else if (lowName === 'dip_depth' || lowName === 'k_np' || lowName === 'lorentz_frac') {
-                                    formatted = val.toFixed(3);
-                                    if (b) {
-                                        fmtLo = b[0].toFixed(3);
-                                        fmtHi = b[1].toFixed(3);
-                                    }
-                                } else {
-                                    formatted = formatMetricValue(val);
-                                    if (b) {
-                                        fmtLo = formatMetricValue(b[0]);
-                                        fmtHi = formatMetricValue(b[1]);
-                                    }
-                                }
-                            }
-                            items.push({ 
-                                label: label, 
-                                val: formatted, 
-                                bounds: b, 
-                                rawVal: val,
-                                fmtLo: fmtLo,
-                                fmtHi: fmtHi
-                            });
-                        }
-                        return items;
-                    }
-
-                    function renderJitterView(container, jitterPlot) {
-                        if (!container || !jitterPlot) return;
-                        
-                        const jitter = jitterPlot.jitter || {};
-                        const variances = jitterPlot.variances || {};
-                        const correlations = jitterPlot.correlations || {};
-                        const paramNames = Object.keys(jitter);
-                        
-                        const items = [];
-                        for (const name of paramNames) {
-                            items.push({
-                                label: name,
-                                val: formatMetricValue(jitter[name]),
-                                tip: 'Standard deviation of estimates over last 20 steps (physical units).',
-                                rawVal: jitter[name]
-                            });
-                        }
-                        
-                        let html = '<h4>Jitter (last 20 steps)</h4>';
-                        html += renderItemsToHtml(items);
-                        
-                        if (Object.keys(variances).length > 0) {
-                            html += '<h4 style="margin-top:1.5em">Final Variances (diag Σ)</h4>';
-                            const varItems = paramNames.map(name => ({
-                                label: name,
-                                val: formatMetricValue(variances[name]),
-                                rawVal: variances[name]
-                            }));
-                            html += renderItemsToHtml(varItems);
-                        }
-                        
-                        if (Object.keys(correlations).length > 0) {
-                            html += '<h4 style="margin-top:1.5em">Correlation Matrix</h4>';
-                            html += '<div style="overflow-x:auto"><table class="correlation-table" style="border-collapse: collapse; width: 100%; font-size: 0.9em;">';
-                            const names = paramNames;
-                            html += '<thead><tr><th style="padding: 8px; border-bottom: 2px solid #eee;"></th>' + names.map(n => `<th style="padding: 8px; border-bottom: 2px solid #eee;">${n}</th>`).join('') + '</tr></thead>';
-                            html += '<tbody>';
-                            for (const ni of names) {
-                                html += `<tr><th style="padding: 8px; text-align: left; border-bottom: 1px solid #eee;">${ni}</th>`;
-                                for (const nj of names) {
-                                    const val = (correlations[ni] && correlations[ni][nj] !== undefined) ? correlations[ni][nj] : 0;
-                                    const color = val > 0 ? `rgba(52, 152, 219, ${Math.min(1, val)})` : `rgba(231, 76, 60, ${Math.min(1, Math.abs(val))})`;
-                                    const textColor = Math.abs(val) > 0.5 ? 'white' : 'black';
-                                    html += `<td style="background-color:${color}; text-align:center; padding: 8px; border-bottom: 1px solid #eee; color:${textColor}; font-weight: bold;">${val.toFixed(2)}</td>`;
-                                }
-                                html += '</tr>';
-                            }
-                            html += '</tbody></table></div>';
-                        }
-                        
-                        container.innerHTML = html;
-                    }
-
-                    function renderItemsToHtml(items, useSliders = false) {
-                        return items.map(it => {
-                            const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
-                            const icon = it.tip ? '<span class="help-icon" tabindex="0"' + tipAttr + '>?</span>' : '';
-                            
-                            let valueHtml = '<div class="metric-value">' + it.val + '</div>';
-                            
-                            if (useSliders && it.bounds && typeof it.rawVal === 'number') {
-                                const lo = it.bounds[0];
-                                const hi = it.bounds[1];
-                                const percent = Math.min(100, Math.max(0, (it.rawVal - lo) / (hi - lo) * 100));
-                                valueHtml = 
-                                    '<div class="metric-value">' + it.val + '</div>' +
-                                    '<div class="param-range-container">' +
-                                        '<div class="param-range-track">' +
-                                            '<div class="param-range-marker" style="left: ' + percent + '%"></div>' +
-                                        '</div>' +
-                                        '<div class="param-range-bounds">' +
-                                            '<span>' + it.fmtLo + '</span>' +
-                                            '<span>' + it.fmtHi + '</span>' +
-                                        '</div>' +
-                                    '</div>';
-                            }
-
-                            return '<div class="metric-item">' +
-                                '<div class="metric-label">' + it.label + icon + '</div>' +
-                                valueHtml +
-                                '</div>';
-                        }).join('');
-                    }
-
                     if (plot.coarse && plot.fine) {
                         const totalMeasurements = plot.measurements || (plot.coarse.measurements + plot.fine.measurements);
                         scanMetrics.className = 'scan-metrics-wrapper';
@@ -1743,6 +1596,152 @@ function main() {
                 renderRepeatsSummary(scanGeneratorValue, scanNoiseValue, scanStrategyValue);
             }
         }
+
+        function buildTrueParamItems(trueData) {
+            const items = [];
+            const params = trueData.params || {};
+            const bounds = trueData.bounds || {};
+            // Preferred order for common parameters
+            const preferred = ['frequency', 'linewidth', 'fwhm_total', 'split', 'dip_depth', 'k_np', 'lorentz_frac'];
+            const keys = Object.keys(params).sort((a, b) => {
+                const ia = preferred.indexOf(a);
+                const ib = preferred.indexOf(b);
+                if (ia !== -1 && ib !== -1) return ia - ib;
+                if (ia !== -1) return -1;
+                if (ib !== -1) return 1;
+                return a.localeCompare(b);
+            });
+
+            for (const name of keys) {
+                const val = params[name];
+                const b = bounds[name];
+                let label = name.replace(/_/g, ' ');
+                // Capitalize first letter
+                label = label.charAt(0).toUpperCase() + label.slice(1);
+                
+                let formatted = val;
+                let fmtLo = b ? b[0] : null;
+                let fmtHi = b ? b[1] : null;
+
+                const lowName = name.toLowerCase();
+                const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total';
+                
+                if (typeof val === 'number') {
+                    if (isFreqLike) {
+                        formatted = formatFrequency(val);
+                        if (b) {
+                            fmtLo = formatFrequency(b[0]);
+                            fmtHi = formatFrequency(b[1]);
+                        }
+                    } else if (lowName === 'dip_depth' || lowName === 'k_np' || lowName === 'lorentz_frac') {
+                        formatted = val.toFixed(3);
+                        if (b) {
+                            fmtLo = b[0].toFixed(3);
+                            fmtHi = b[1].toFixed(3);
+                        }
+                    } else {
+                        formatted = formatMetricValue(val);
+                        if (b) {
+                            fmtLo = formatMetricValue(b[0]);
+                            fmtHi = formatMetricValue(b[1]);
+                        }
+                    }
+                }
+                items.push({ 
+                    label: label, 
+                    val: formatted, 
+                    bounds: b, 
+                    rawVal: val,
+                    fmtLo: fmtLo,
+                    fmtHi: fmtHi
+                });
+            }
+            return items;
+        }
+
+        function renderJitterView(container, jitterPlot) {
+            if (!container || !jitterPlot) return;
+            
+            const jitter = jitterPlot.jitter || {};
+            const variances = jitterPlot.variances || {};
+            const correlations = jitterPlot.correlations || {};
+            const paramNames = Object.keys(jitter);
+            
+            const items = [];
+            for (const name of paramNames) {
+                items.push({
+                    label: name,
+                    val: formatMetricValue(jitter[name]),
+                    tip: 'Standard deviation of estimates over last 20 steps (physical units).',
+                    rawVal: jitter[name]
+                });
+            }
+            
+            let html = '<h4>Jitter (last 20 steps)</h4>';
+            html += renderItemsToHtml(items);
+            
+            if (Object.keys(variances).length > 0) {
+                html += '<h4 style="margin-top:1.5em">Final Variances (diag Σ)</h4>';
+                const varItems = paramNames.map(name => ({
+                    label: name,
+                    val: formatMetricValue(variances[name]),
+                    rawVal: variances[name]
+                }));
+                html += renderItemsToHtml(varItems);
+            }
+            
+            if (Object.keys(correlations).length > 0) {
+                html += '<h4 style="margin-top:1.5em">Correlation Matrix</h4>';
+                html += '<div style="overflow-x:auto"><table class="correlation-table" style="border-collapse: collapse; width: 100%; font-size: 0.9em;">';
+                const names = paramNames;
+                html += '<thead><tr><th style="padding: 8px; border-bottom: 2px solid #eee;"></th>' + names.map(n => `<th style="padding: 8px; border-bottom: 2px solid #eee;">${n}</th>`).join('') + '</tr></thead>';
+                html += '<tbody>';
+                for (const ni of names) {
+                    html += `<tr><th style="padding: 8px; text-align: left; border-bottom: 1px solid #eee;">${ni}</th>`;
+                    for (const nj of names) {
+                        const val = (correlations[ni] && correlations[ni][nj] !== undefined) ? correlations[ni][nj] : 0;
+                        const color = val > 0 ? `rgba(52, 152, 219, ${Math.min(1, val)})` : `rgba(231, 76, 60, ${Math.min(1, Math.abs(val))})`;
+                        const textColor = Math.abs(val) > 0.5 ? 'white' : 'black';
+                        html += `<td style="background-color:${color}; text-align:center; padding: 8px; border-bottom: 1px solid #eee; color:${textColor}; font-weight: bold;">${val.toFixed(2)}</td>`;
+                    }
+                    html += '</tr>';
+                }
+                html += '</tbody></table></div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        function renderItemsToHtml(items, useSliders = false) {
+            return items.map(it => {
+                const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
+                const icon = it.tip ? '<span class="help-icon" tabindex="0"' + tipAttr + '>?</span>' : '';
+                
+                let valueHtml = '<div class="metric-value">' + it.val + '</div>';
+                
+                if (useSliders && it.bounds && typeof it.rawVal === 'number') {
+                    const lo = it.bounds[0];
+                    const hi = it.bounds[1];
+                    const percent = Math.min(100, Math.max(0, (it.rawVal - lo) / (hi - lo) * 100));
+                    valueHtml = 
+                        '<div class="metric-value">' + it.val + '</div>' +
+                        '<div class="param-range-container">' +
+                            '<div class="param-range-track">' +
+                                '<div class="param-range-marker" style="left: ' + percent + '%"></div>' +
+                            '</div>' +
+                            '<div class="param-range-bounds">' +
+                                '<span>' + it.fmtLo + '</span>' +
+                                '<span>' + it.fmtHi + '</span>' +
+                            '</div>' +
+                        '</div>';
+                }
+
+                return '<div class="metric-item">' +
+                    '<div class="metric-label">' + it.label + icon + '</div>' +
+                    valueHtml +
+                    '</div>';
+            }).join('');
+        }
         
         function renderRepeatsSummary(generator, noise, strategy) {
             const summaryPlots = scanPlots.filter(
@@ -1773,16 +1772,39 @@ function main() {
                     div.style.minWidth = '300px';
                     document.getElementById(containerId).appendChild(div);
                     
+                    // Automatically determine the optimal frequency scale and unit based on the maximum absolute value
+                    let maxAbs = 0;
+                    for (let i = 0; i < data.length; i++) {
+                        const abs = Math.abs(data[i]);
+                        if (abs > maxAbs) maxAbs = abs;
+                    }
+                    
+                    let factor = 1;
+                    let unit = 'Hz';
+                    if (maxAbs >= 1e9) {
+                        factor = 1e9;
+                        unit = 'GHz';
+                    } else if (maxAbs >= 1e6) {
+                        factor = 1e6;
+                        unit = 'MHz';
+                    } else if (maxAbs >= 1e3) {
+                        factor = 1e3;
+                        unit = 'kHz';
+                    }
+                    
+                    const scaledData = data.map(v => v / factor);
+                    
                     const trace = {
-                        x: data,
+                        x: scaledData,
                         type: 'histogram',
                         name: name,
-                        marker: { color: color }
+                        marker: { color: color },
+                        nbinsx: 35 // Smaller bin size (more bins) to reveal the distribution shape clearly
                     };
                     const layout = {
                         title: { text: title, font: { size: 14 } },
-                        margin: { l: 40, r: 20, t: 40, b: 40 },
-                        xaxis: { title: 'Value', showgrid: true, zeroline: true },
+                        margin: { l: 45, r: 20, t: 40, b: 40 },
+                        xaxis: { title: 'Value (' + unit + ')', showgrid: true, zeroline: true },
                         yaxis: { title: 'Count', showgrid: true },
                         showlegend: false
                     };
@@ -1791,13 +1813,13 @@ function main() {
                 
                 const absErrContainer = document.getElementById('summary-abs-error-charts');
                 absErrContainer.innerHTML = '';
-                if (abs_err_x.length > 0) createHistogram('summary-abs-error-charts', 'Overall Abs Error', abs_err_x, 'Overall', '#3b82f6');
-                if (final_err_fb.length > 0) createHistogram('summary-abs-error-charts', 'Final Err fb', final_err_fb, 'fb', '#10b981');
-                if (final_err_fc.length > 0) createHistogram('summary-abs-error-charts', 'Final Err fc', final_err_fc, 'fc', '#8b5cf6');
-                if (err_fb_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Err fb @ Milestone', err_fb_at_milestone, 'fb Milestone', '#f59e0b');
-                if (err_fc_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Err fc @ Milestone', err_fc_at_milestone, 'fc Milestone', '#ef4444');
-                if (err_fb_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fb Diff (Milestone - Final)', err_fb_diff, 'fb Diff', '#6366f1');
-                if (err_fc_diff.length > 0) createHistogram('summary-abs-error-charts', 'Err fc Diff (Milestone - Final)', err_fc_diff, 'fc Diff', '#ec4899');
+                if (abs_err_x.length > 0) createHistogram('summary-abs-error-charts', 'Overall Absolute Frequency Error', abs_err_x, 'Overall', '#3b82f6');
+                if (final_err_fb.length > 0) createHistogram('summary-abs-error-charts', 'Final Center Frequency Error (fb)', final_err_fb, 'fb', '#10b981');
+                if (final_err_fc.length > 0) createHistogram('summary-abs-error-charts', 'Final Splitting Error (fc)', final_err_fc, 'fc', '#8b5cf6');
+                if (err_fb_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Center Frequency Error at Milestone (fb)', err_fb_at_milestone, 'fb Milestone', '#f59e0b');
+                if (err_fc_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Splitting Error at Milestone (fc)', err_fc_at_milestone, 'fc Milestone', '#ef4444');
+                if (err_fb_diff.length > 0) createHistogram('summary-abs-error-charts', 'Center Frequency Error Reduction (fb)', err_fb_diff, 'fb Diff', '#6366f1');
+                if (err_fc_diff.length > 0) createHistogram('summary-abs-error-charts', 'Splitting Error Reduction (fc)', err_fc_diff, 'fc Diff', '#ec4899');
                 
                 const uncertContainer = document.getElementById('summary-uncertainty-charts');
                 uncertContainer.innerHTML = '';
@@ -1908,6 +1930,34 @@ function main() {
             return v.toPrecision(4);
         }
 
+        function isFrequencyVariable(name) {
+            if (typeof name !== 'string') return false;
+            const n = name.toLowerCase();
+            return n.includes('frequency') || n.includes('linewidth') || n.includes('split') || n.includes('span');
+        }
+
+        function formatHzValue(name, v) {
+            if (typeof v !== 'number' || !Number.isFinite(v)) return '?';
+            if (!isFrequencyVariable(name)) {
+                return formatBoundValue(v);
+            }
+            let unit = ' Hz';
+            let factor = 1;
+            const absV = Math.abs(v);
+            if (absV >= 1e9) {
+                unit = ' GHz';
+                factor = 1e9;
+            } else if (absV >= 1e6) {
+                unit = ' MHz';
+                factor = 1e6;
+            } else if (absV >= 1e3) {
+                unit = ' kHz';
+                factor = 1e3;
+            }
+            const scaled = v / factor;
+            return parseFloat(scaled.toFixed(3)) + unit;
+        }
+
         function renderNarrowedBoundsPanel(narrowedBounds) {
             if (!narrowedBoundsPanel) return;
             if (!narrowedBounds || typeof narrowedBounds !== 'object' || Object.keys(narrowedBounds).length === 0) {
@@ -1923,12 +1973,54 @@ function main() {
                 narrowedBoundsPanel.innerHTML = '';
                 return;
             }
-            const chips = entries.map(({ name, lo, hi }) =>
-                '<span class="param-bound-chip" title="' + name + ': [' + lo + ', ' + hi + ']">' +
-                '\uD83D\uDD0D\u00A0<strong>' + name + '</strong>\u00A0[' + formatBoundValue(lo) + ',\u00A0' + formatBoundValue(hi) + ']</span>'
-            ).join('');
+
+            let cardsHtml = '';
+            for (const { name, lo, hi } of entries) {
+                let selectedVal = undefined;
+                if (currentPlot && currentPlot.true_params && currentPlot.true_params.params) {
+                    const params = currentPlot.true_params.params;
+                    if (params[name] !== undefined) {
+                        selectedVal = params[name];
+                    } else {
+                        const lowerName = name.toLowerCase();
+                        const foundKey = Object.keys(params).find(k => k.toLowerCase() === lowerName);
+                        if (foundKey) {
+                            selectedVal = params[foundKey];
+                        }
+                    }
+                }
+                if (selectedVal === undefined || typeof selectedVal !== 'number') {
+                    selectedVal = (lo + hi) / 2;
+                }
+
+                let percent = 50;
+                if (hi > lo) {
+                    percent = Math.min(100, Math.max(0, (selectedVal - lo) / (hi - lo) * 100));
+                }
+
+                const fmtLo = formatHzValue(name, lo);
+                const fmtHi = formatHzValue(name, hi);
+                const fmtVal = formatHzValue(name, selectedVal);
+
+                cardsHtml += 
+                    '<div class="param-slider-card" title="' + name + ': [' + lo + ', ' + hi + '] — Selected: ' + selectedVal + '">' +
+                        '<div class="param-slider-label">🔍 ' + escapeHtml(name) + '</div>' +
+                        '<div class="param-slider-wrapper">' +
+                            '<div class="param-slider-track-bg"></div>' +
+                            '<div class="param-slider-track-fill" style="width: ' + percent + '%"></div>' +
+                            '<div class="param-slider-handle" style="left: ' + percent + '%"></div>' +
+                            '<div class="param-slider-value" style="left: ' + percent + '%">' + fmtVal + '</div>' +
+                        '</div>' +
+                        '<div class="param-slider-bounds">' +
+                            '<span class="param-slider-bound-lo">' + fmtLo + '</span>' +
+                            '<span class="param-slider-bound-hi">' + fmtHi + '</span>' +
+                        '</div>' +
+                    '</div>';
+            }
+
             narrowedBoundsPanel.innerHTML =
-                '<span class="param-bound-label">Sweep-narrowed priors:</span>' + chips;
+                '<div class="param-bounds-header">Sweep-narrowed priors:</div>' +
+                '<div class="param-bounds-grid">' + cardsHtml + '</div>';
             narrowedBoundsPanel.hidden = false;
         }
 

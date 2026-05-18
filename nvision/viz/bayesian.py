@@ -495,6 +495,7 @@ class BayesianMixin:
         param_descriptions: dict[str, str] | None = None,
         signal_formula: str | None = None,
         resampled_steps: list[int] | None = None,
+        weight_history: list[np.ndarray] | None = None,
     ) -> None:
         """Animate marginal posterior evolution for every parameter (one subplot each, own x-axis).
 
@@ -527,19 +528,42 @@ class BayesianMixin:
             step_indices = [int(x) for x in np.linspace(0, total_steps - 1, 100)]
 
         n = len(param_names)
+        has_weights = weight_history is not None and len(weight_history) > 0
 
-        subplot_titles = (
-            *tuple(_build_subplot_title(p, param_descriptions) for p in param_names),
-            "<b>Timeline (Resampling & Progress)</b>",
-        )
+        if has_weights:
+            subplot_titles = (
+                *tuple(_build_subplot_title(p, param_descriptions) for p in param_names),
+                "<b>Sorted Particle Weights (Concentration Profile)</b>",
+                "<b>Effective Sample Size (ESS) Timeline</b>",
+                "<b>Timeline (Resampling & Progress)</b>",
+            )
+            total_rows = n + 3
+            weights_row = n + 1
+            ess_row = n + 2
+            row_heights = [1.0] * n + [0.8, 0.8] + [0.2]
+
+            ess_history = []
+            for w in weight_history:
+                sum_sq = np.sum(w ** 2)
+                ess_history.append(1.0 / sum_sq if sum_sq > 0.0 else 0.0)
+            num_particles = len(weight_history[0])
+            ess_threshold_val = 0.5 * num_particles
+        else:
+            subplot_titles = (
+                *tuple(_build_subplot_title(p, param_descriptions) for p in param_names),
+                "<b>Timeline (Resampling & Progress)</b>",
+            )
+            total_rows = n + 1
+            row_heights = [1.0] * n + [0.2]
+
         fig = make_subplots(
-            rows=n + 1,
+            rows=total_rows,
             cols=1,
             subplot_titles=subplot_titles,
-            vertical_spacing=min(0.12, 0.5 / max(n + 1, 1)),  # slightly more spacing for rich titles
-            row_heights=[1.0] * n + [0.2],
+            vertical_spacing=min(0.08, 0.5 / max(total_rows, 1)),  # slightly more spacing for rich titles
+            row_heights=row_heights,
         )
-        timeline_row = n + 1
+        timeline_row = total_rows
 
         def traces_for_step(step_idx: int) -> list[object]:
             traces: list[object] = []
@@ -547,6 +571,72 @@ class BayesianMixin:
                 posterior_history, grid = posterior_inputs_by_param[param]
                 posterior = posterior_history[-1] if step_idx >= len(posterior_history) else posterior_history[step_idx]
                 traces.extend(_trace_one_marginal_posterior(posterior, grid, param))
+
+            if has_weights:
+                # Sorted Particle Weights trace
+                w_curr = np.sort(weight_history[step_idx])[::-1]
+                traces.append(
+                    go.Scatter(
+                        x=list(range(len(w_curr))),
+                        y=w_curr,
+                        mode="lines",
+                        fill="tozeroy",
+                        fillcolor="rgba(30, 144, 255, 0.25)",
+                        line=dict(color="rgba(30, 144, 255, 0.85)", width=2),
+                        name="Weight Profile",
+                        showlegend=False,
+                        xaxis=f"x{weights_row}",
+                        yaxis=f"y{weights_row}",
+                    )
+                )
+
+                # ESS Timeline trace
+                ess_x = list(range(1, step_idx + 2))
+                ess_y = [ess_history[i] for i in range(step_idx + 1)]
+                traces.append(
+                    go.Scatter(
+                        x=ess_x,
+                        y=ess_y,
+                        mode="lines+markers",
+                        line=dict(color="rgba(155, 89, 182, 0.85)", width=2.5),
+                        marker=dict(size=4, color="rgba(155, 89, 182, 1.0)"),
+                        name="ESS",
+                        showlegend=False,
+                        xaxis=f"x{ess_row}",
+                        yaxis=f"y{ess_row}",
+                    )
+                )
+
+                # Resampling Threshold dashed line
+                traces.append(
+                    go.Scatter(
+                        x=[1, total_steps],
+                        y=[ess_threshold_val, ess_threshold_val],
+                        mode="lines",
+                        line=dict(color="rgba(231, 76, 60, 0.5)", width=1.5, dash="dash"),
+                        name="Resampling Threshold (50%)",
+                        showlegend=False,
+                        xaxis=f"x{ess_row}",
+                        yaxis=f"y{ess_row}",
+                    )
+                )
+
+                # Resampling markers on ESS
+                if resampled_steps:
+                    rs_up_to_now = [rs for rs in resampled_steps if rs <= step_idx]
+                    if rs_up_to_now:
+                        traces.append(
+                            go.Scatter(
+                                x=[rs + 1 for rs in rs_up_to_now],
+                                y=[ess_history[rs] for rs in rs_up_to_now],
+                                mode="markers",
+                                marker=dict(symbol="x", size=10, color="rgba(231, 76, 60, 0.9)", line=dict(width=2)),
+                                name="Resample Event",
+                                showlegend=False,
+                                xaxis=f"x{ess_row}",
+                                yaxis=f"y{ess_row}",
+                            )
+                        )
 
             # Add timeline traces
             # Base line
@@ -609,6 +699,77 @@ class BayesianMixin:
         for i, name in enumerate(param_names, start=1):
             fig.update_yaxes(title_text="density", automargin=True, row=i, col=1)
             fig.update_xaxes(title_text=name, row=i, col=1)
+
+        if has_weights:
+            # Sorted Particle Weights initial trace
+            init_idx = step_indices[0]
+            w_curr = np.sort(weight_history[init_idx])[::-1]
+            fig.add_trace(
+                go.Scatter(
+                    x=list(range(len(w_curr))),
+                    y=w_curr,
+                    mode="lines",
+                    fill="tozeroy",
+                    fillcolor="rgba(30, 144, 255, 0.25)",
+                    line=dict(color="rgba(30, 144, 255, 0.85)", width=2),
+                    name="Weight Profile",
+                    showlegend=False,
+                ),
+                row=weights_row,
+                col=1,
+            )
+
+            # ESS initial trace
+            fig.add_trace(
+                go.Scatter(
+                    x=list(range(1, init_idx + 2)),
+                    y=[ess_history[i] for i in range(init_idx + 1)],
+                    mode="lines+markers",
+                    line=dict(color="rgba(155, 89, 182, 0.85)", width=2.5),
+                    marker=dict(size=4, color="rgba(155, 89, 182, 1.0)"),
+                    name="ESS",
+                    showlegend=False,
+                ),
+                row=ess_row,
+                col=1,
+            )
+
+            # Resampling Threshold initial trace
+            fig.add_trace(
+                go.Scatter(
+                    x=[1, total_steps],
+                    y=[ess_threshold_val, ess_threshold_val],
+                    mode="lines",
+                    line=dict(color="rgba(231, 76, 60, 0.5)", width=1.5, dash="dash"),
+                    name="Resampling Threshold (50%)",
+                    showlegend=False,
+                ),
+                row=ess_row,
+                col=1,
+            )
+
+            # Resampling markers on ESS initial trace
+            if resampled_steps:
+                rs_up_to_now = [rs for rs in resampled_steps if rs <= init_idx]
+                if rs_up_to_now:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[rs + 1 for rs in rs_up_to_now],
+                            y=[ess_history[rs] for rs in rs_up_to_now],
+                            mode="markers",
+                            marker=dict(symbol="x", size=10, color="rgba(231, 76, 60, 0.9)", line=dict(width=2)),
+                            name="Resampled",
+                            showlegend=False,
+                        ),
+                        row=ess_row,
+                        col=1,
+                    )
+
+            fig.update_yaxes(title_text="weight", automargin=True, row=weights_row, col=1)
+            fig.update_xaxes(title_text="Sorted Particle Index", row=weights_row, col=1)
+
+            fig.update_yaxes(title_text="ESS", automargin=True, range=[0, num_particles * 1.05], row=ess_row, col=1)
+            fig.update_xaxes(title_text="Measurement Step", range=[0.5, total_steps + 0.5], row=ess_row, col=1)
 
         # Format Timeline subplot
         fig.update_yaxes(visible=False, range=[-1, 1], row=timeline_row, col=1)
@@ -840,61 +1001,251 @@ class BayesianMixin:
             for label, duration in speed_options
         ]
 
+        # Update layout properties for clean display (excluding sliders/updatemenus)
         fig.update_layout(
             title_text=f"{base_title}<br>step {step_indices[0] + 1}/{total_steps}",
             title_font_size=14,
             title_y=0.98,
             title_yanchor="top",
             template="plotly_white",
-            height=max(400, 200 * n),
-            margin=dict(l=90, r=40, t=110, b=110),
-            updatemenus=[
-                # Play/Pause toggle button - positioned below slider, left side
-                dict(
-                    type="buttons",
-                    direction="left",
-                    x=0.02,
-                    y=-0.12,
-                    xanchor="left",
-                    yanchor="top",
-                    showactive=False,
-                    pad={"r": 10, "t": 0},
-                    bgcolor="#e6f2ff",
-                    bordercolor="#1e90ff",
-                    borderwidth=2,
-                    font=dict(size=14, color="#005b96"),
-                    buttons=[
-                        play_pause_button(True),
-                        play_pause_button(False),
-                    ],
-                ),
-                # Speed control buttons - positioned below slider, right of play/pause
-                dict(
-                    type="buttons",
-                    direction="left",
-                    x=0.18,
-                    y=-0.12,
-                    xanchor="left",
-                    yanchor="top",
-                    showactive=True,
-                    active=1,  # Default to 1× speed
-                    pad={"r": 10, "t": 0},
-                    buttons=speed_buttons,
-                ),
-            ],
-            sliders=[
-                dict(
-                    active=0,
-                    pad={"t": 30, "b": 10},
-                    currentvalue={"prefix": "Measurement step: "},
-                    steps=slider_steps,
-                )
-            ],
+            height=max(400, int(200 * (n + 2.5 if has_weights else n))),
+            margin=dict(l=90, r=40, t=145, b=50),  # Increased t (top margin) for header spacing, decreased b (bottom margin)
+            updatemenus=[],
+            sliders=[],
         )
         fig.frames = frames
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
+
+        import json
+        html_content = fig.to_html(include_plotlyjs="cdn", include_mathjax="cdn", full_html=True)
+
+        # Prepare custom HTML header injection for premium sticky controls
+        max_idx = len(frames) - 1
+        total_frames = len(frames)
+        step_values_json = json.dumps([step["label"] for step in slider_steps])
+
+        custom_controls = f"""
+        <div id="custom-timeline-controls">
+          <button id="timeline-play-btn" class="timeline-btn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>
+          </button>
+          <div class="timeline-slider-container">
+            <input type="range" id="timeline-range-slider" class="timeline-slider" min="0" max="{max_idx}" value="0">
+            <span id="timeline-step-label" class="timeline-label">Step: 0 / 0</span>
+          </div>
+          <select id="timeline-speed-select" class="speed-select">
+            <option value="500">Speed: 0.5x</option>
+            <option value="200" selected>Speed: 1x</option>
+            <option value="100">Speed: 2x</option>
+            <option value="50">Speed: 4x</option>
+          </select>
+        </div>
+
+        <style>
+          #custom-timeline-controls {{
+            position: -webkit-sticky;
+            position: sticky;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 999999;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-bottom: 1.5px solid #e2e8f0;
+            padding: 10px 20px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+          }}
+          .plotly-graph-div {{
+            padding-top: 10px;
+          }}
+          .timeline-btn {{
+            background: #e6f2ff;
+            border: 2px solid #1e90ff;
+            color: #005b96;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            outline: none;
+            min-width: 95px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          }}
+          .timeline-btn:hover {{
+            background: #1e90ff;
+            color: white;
+            box-shadow: 0 4px 6px rgba(30, 144, 255, 0.2);
+          }}
+          .timeline-btn:active {{
+            transform: scale(0.96);
+          }}
+          .timeline-slider-container {{
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }}
+          .timeline-slider {{
+            flex-grow: 1;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #cbd5e1;
+            outline: none;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+          }}
+          .timeline-slider:hover {{
+            background: #94a3b8;
+          }}
+          .timeline-slider::-webkit-slider-thumb {{
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #1e90ff;
+            border: 2.5px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.25);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          }}
+          .timeline-slider::-webkit-slider-thumb:hover {{
+            transform: scale(1.25);
+            background: #0070e0;
+          }}
+          .timeline-label {{
+            font-size: 14px;
+            font-weight: 700;
+            color: #334155;
+            min-width: 150px;
+            white-space: nowrap;
+          }}
+          .speed-select {{
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1.5px solid #cbd5e1;
+            font-size: 13px;
+            font-weight: 600;
+            background: white;
+            color: #334155;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          }}
+          .speed-select:hover {{
+            border-color: #94a3b8;
+          }}
+        </style>
+
+        <script>
+          window.addEventListener('DOMContentLoaded', () => {{
+            const gd = document.getElementsByClassName('plotly-graph-div')[0];
+            if (!gd) return;
+            
+            const playBtn = document.getElementById('timeline-play-btn');
+            const playBtnText = playBtn.querySelector('span');
+            const playBtnIcon = playBtn.querySelector('svg');
+            const slider = document.getElementById('timeline-range-slider');
+            const label = document.getElementById('timeline-step-label');
+            const speedSelect = document.getElementById('timeline-speed-select');
+            
+            let isPlaying = false;
+            let playInterval = null;
+            let totalFrames = {total_frames};
+            let stepValues = {step_values_json};
+            
+            slider.max = totalFrames - 1;
+            updateLabel(0);
+            
+            slider.addEventListener('input', (e) => {{
+              const frameIdx = parseInt(e.target.value, 10);
+              showFrame(frameIdx);
+            }});
+            
+            playBtn.addEventListener('click', () => {{
+              if (isPlaying) {{
+                pause();
+              }} else {{
+                play();
+              }}
+            }});
+            
+            speedSelect.addEventListener('change', () => {{
+              if (isPlaying) {{
+                pause();
+                play();
+              }}
+            }});
+            
+            function updateLabel(idx) {{
+              const val = stepValues[idx] !== undefined ? stepValues[idx] : idx;
+              label.textContent = `Step: ${val} (${idx + 1} / ${totalFrames})`;
+            }}
+            
+            function showFrame(idx) {{
+              updateLabel(idx);
+              Plotly.animate(gd, ['frame_' + idx], {{
+                mode: 'immediate',
+                transition: {{duration: 0}},
+                frame: {{duration: 0, redraw: true}}
+              }});
+            }}
+            
+            function play() {{
+              isPlaying = true;
+              playBtnText.textContent = 'Pause';
+              playBtnIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+              playBtn.style.background = '#ffebe6';
+              playBtn.style.borderColor = '#ff4d4d';
+              playBtn.style.color = '#960000';
+              
+              const intervalMs = parseInt(speedSelect.value, 10);
+              playInterval = setInterval(() => {{
+                let nextIdx = parseInt(slider.value, 10) + 1;
+                if (nextIdx >= totalFrames) {{
+                  nextIdx = 0;
+                }}
+                slider.value = nextIdx;
+                showFrame(nextIdx);
+              }}, intervalMs);
+            }}
+            
+            function pause() {{
+              isPlaying = false;
+              playBtnText.textContent = 'Play';
+              playBtnIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+              playBtn.style.background = '#e6f2ff';
+              playBtn.style.borderColor = '#1e90ff';
+              playBtn.style.color = '#005b96';
+              
+              clearInterval(playInterval);
+            }}
+          }});
+        </script>
+        """
+
+        # Inject custom timeline header immediately at the start of <body>
+        if "<body>" in html_content:
+            html_content = html_content.replace("<body>", f"<body>{custom_controls}", 1)
+        elif "<body >" in html_content:
+            html_content = html_content.replace("<body >", f"<body>{custom_controls}", 1)
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
 
     def plot_parameter_convergence(
         self,

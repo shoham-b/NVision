@@ -349,32 +349,8 @@ class SequentialBayesianLocator(Locator):
         self._staged_sobol.observe(obs)
 
     def _observe_acquisition(self, obs: Observation) -> None:
-        """Route acquisition observations through the warmup buffer (narrow mode only).
-
-        When no initial sweep was configured (``initial_sweep_steps == 0``), the first
-        ``_WARMUP_BUFFER_SIZE`` Bayesian observations are buffered and applied as a
-        single :meth:`batch_update` (log-space + epistemic tempering). This prevents
-        sequential ``w *= likelihood`` calls from compounding multiplicatively and
-        drifting weights to a wrong mode before the first resample fires — the same
-        role the Sobol sweep plays in the non-narrow variant.
-
-        When a sweep was already run, ``batch_update`` already provided this warm start,
-        so observations are applied immediately as usual.
-        """
-        in_warmup = self.initial_sweep_steps == 0 and self.inference_step_count <= _WARMUP_BUFFER_SIZE
-        if in_warmup:
-            self._warmup_obs_buffer.append(obs)
-            if self.inference_step_count == _WARMUP_BUFFER_SIZE:
-                # Flush the warmup buffer as one tempered batch.
-                if hasattr(self.belief, "batch_update"):
-                    self.belief.batch_update(self._warmup_obs_buffer)
-                else:
-                    for o in self._warmup_obs_buffer:
-                        self.belief.update(o)
-                self._warmup_obs_buffer = []
-            # No update or resample during buffering — keep particles diverse.
-        else:
-            self.belief.update(obs)
+        """Route acquisition observations to the belief immediately."""
+        self.belief.update(obs)
 
     def _acquisition_done(self) -> bool:
         """Return whether the Bayesian acquisition phase should stop.
@@ -389,12 +365,7 @@ class SequentialBayesianLocator(Locator):
     # ------------------------------------------------------------------
 
     def next(self) -> float:
-        """Propose next measurement with staged initial-sweep warm-start.
-
-        In narrow mode (initial_sweep_steps == 0), the first _WARMUP_BUFFER_SIZE
-        steps use a Sobol sequence to ensure diverse exploration of the domain
-        before the first belief update.
-        """
+        """Propose next measurement with staged initial-sweep warm-start."""
         self.step_count += 1
 
         if not self._staged_sobol.done():
@@ -408,17 +379,6 @@ class SequentialBayesianLocator(Locator):
             self._on_sweep_complete()
 
         self.inference_step_count += 1
-
-        # Use Sobol sequence for proposals during the warmup phase (narrow mode only)
-        # to ensure we don't repeat the same non-informative measurement.
-        in_warmup = self.initial_sweep_steps == 0 and self.inference_step_count <= _WARMUP_BUFFER_SIZE
-        if in_warmup:
-            from nvision.sim.locs.coarse.sobol_locator import sobol_1d_sequence
-
-            # sobol_1d_sequence(n) returns n points. We take the last one.
-            val = float(sobol_1d_sequence(self.inference_step_count)[-1])
-            # val is in [0, 1]. We keep it normalized as per super().next() expectation
-            return val
 
         physical_value = self._acquire()
         return self._to_experiment_normalized(physical_value)

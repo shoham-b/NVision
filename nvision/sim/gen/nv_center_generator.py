@@ -11,7 +11,11 @@ from nvision.spectra.nv_center import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
     MAX_K_NP,
+    MAX_LINEWIDTH,
+    MAX_SPLIT,
     MIN_K_NP,
+    MIN_LINEWIDTH,
+    MIN_SPLIT,
     NVCenterLorentzianModel,
     NVCenterLorentzianSpectrum,
     NVCenterVoigtModel,
@@ -55,7 +59,10 @@ class NVCenterCoreGenerator:
 
         # For hyperfine-split case, need room for side peaks
         # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
-        split = rng.uniform(0.5e6, 1.2e6) if self.narrow_signal else rng.uniform(2.0e6, 3.5e6)
+        split = rng.uniform(0.5e6, 1.2e6) if self.narrow_signal else rng.uniform(MIN_SPLIT, MAX_SPLIT)
+
+        # Random linewidth (HWHM for Lorentzian)
+        linewidth = rng.uniform(0.01e6, 0.05e6) if self.narrow_signal else rng.uniform(MIN_LINEWIDTH, MAX_LINEWIDTH)
 
         usable_lo = self.x_min + split + 0.05 * width
         usable_hi = self.x_max - split - 0.05 * width
@@ -66,9 +73,6 @@ class NVCenterCoreGenerator:
             center_freq = rng.uniform(mid - half_span, mid + half_span)
         else:
             center_freq = rng.uniform(usable_lo, usable_hi)
-
-        # Random linewidth (HWHM for Lorentzian)
-        linewidth = rng.uniform(0.01e6, 0.05e6) if self.narrow_signal else rng.uniform(0.05e6, 0.4e6)
 
         # Random k_np (non-polarization factor)
         k_np = rng.uniform(MIN_K_NP, MAX_K_NP)

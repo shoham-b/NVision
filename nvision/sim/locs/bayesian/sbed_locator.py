@@ -110,16 +110,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks."""
         super()._observe_acquisition(obs)
-        # The base class handles buffering if in warmup.
-        # If we are NOT in warmup, we should check for resampling.
-        in_warmup = (
-            self.initial_sweep_steps == 0 and self.inference_step_count <= 5  # _WARMUP_BUFFER_SIZE is 5
-        )
-        if not in_warmup:
-            self._check_and_resample(check_convergence=True)
-        elif self.inference_step_count == 5:
-            # Just finished warmup and flushed the buffer. Resample now.
-            self._check_and_resample(check_convergence=True)
+        self._check_and_resample(check_convergence=True)
 
     def _check_and_resample(self, check_convergence: bool = True) -> None:
         if not hasattr(self.belief, "_weights"):

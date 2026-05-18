@@ -32,6 +32,14 @@ A_PARAM = 0.0003
 MIN_K_NP = 2.0
 MAX_K_NP = 4.0
 
+# Physical ranges for linewidth (HWHM) and hyperfine splitting.
+# These constants are shared between the signal generator and the inference
+# prior bounds so they can never drift apart.
+MIN_LINEWIDTH: float = 50e3    # 50 kHz — minimum HWHM generated / searched
+MAX_LINEWIDTH: float = 400e3   # 400 kHz — maximum HWHM generated / searched
+MIN_SPLIT: float = 2.0e6       # 2.0 MHz — minimum split generated / searched
+MAX_SPLIT: float = 3.5e6       # 3.5 MHz — maximum split generated / searched
+
 DEFAULT_NV_CENTER_FREQ_X_MIN = 2.6e9
 DEFAULT_NV_CENTER_FREQ_X_MAX = 3.1e9
 
@@ -547,8 +555,10 @@ def nv_center_lorentzian_bounds_for_domain(
             "_signal_max_span": (0.0, max_span),
         }
     else:
-        linewidth_bounds = (width * 0.001, width * 0.05)
-        split_bounds = (width * 0.005, width * 0.02)
+        # Bounds are anchored to the shared MIN/MAX constants so the generator
+        # and inference prior are always aligned.
+        linewidth_bounds = (MIN_LINEWIDTH, max(MAX_LINEWIDTH, width * 0.05))
+        split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         max_span = width * 0.1
 
     return {

@@ -117,22 +117,59 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
             return df_loc
     try:
         old_df = pl.read_csv(out_path)
+        
+        # Backward compatibility: map 'repeat' column to 'attempt' if 'attempt' is missing
+        if "repeat" in old_df.columns and "attempt" not in old_df.columns:
+            old_df = old_df.rename({"repeat": "attempt"})
+
         key = ("generator", "noise", "strategy", "max_steps", "seed", "attempt")
-        if set(key).issubset(old_df.columns):
-            merged = pl.concat([old_df, df_loc], how="diagonal").unique(
-                subset=list(key),
-                keep="last",
-                maintain_order=True,
+        # Ensure old_df has all columns in key to prevent set(key).issubset failure
+        for col in key:
+            if col not in old_df.columns:
+                old_df = old_df.with_columns(pl.lit(None).alias(col))
+                
+        # Also ensure df_loc has all columns in key (just in case)
+        for col in key:
+            if col not in df_loc.columns:
+                df_loc = df_loc.with_columns(pl.lit(None).alias(col))
+
+        # Make sure types are aligned for key columns
+        for col in ("max_steps", "seed", "attempt"):
+            if col in old_df.columns:
+                old_df = old_df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+            if col in df_loc.columns:
+                df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+
+        # Align all column datatypes that exist in both dataframes to prevent concat/vstack errors
+        for col in set(old_df.columns).intersection(df_loc.columns):
+            type_old = old_df.schema[col]
+            type_new = df_loc.schema[col]
+            if type_old != type_new:
+                if type_old == pl.Null:
+                    old_df = old_df.with_columns(pl.col(col).cast(type_new, strict=False))
+                elif type_new == pl.Null:
+                    df_loc = df_loc.with_columns(pl.col(col).cast(type_old, strict=False))
+                elif type_old.is_numeric() and type_new.is_numeric():
+                    old_df = old_df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+                    df_loc = df_loc.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+                else:
+                    old_df = old_df.with_columns(pl.col(col).cast(pl.String, strict=False))
+                    df_loc = df_loc.with_columns(pl.col(col).cast(pl.String, strict=False))
+
+        merged = pl.concat([old_df, df_loc], how="diagonal").unique(
+            subset=list(key),
+            keep="last",
+            maintain_order=True,
+        )
+        # Normalize 'repeats' column to the maximum for each scenario group to ensure consistency
+        group_cols = ["generator", "noise", "strategy", "max_steps", "seed"]
+        if "repeats" in merged.columns and set(group_cols).issubset(merged.columns):
+            merged = merged.with_columns(
+                pl.col("repeats").max().over(group_cols)
             )
-            # Normalize 'repeats' column to the maximum for each scenario group to ensure consistency
-            group_cols = ["generator", "noise", "strategy", "max_steps", "seed"]
-            if "repeats" in merged.columns and set(group_cols).issubset(merged.columns):
-                merged = merged.with_columns(
-                    pl.col("repeats").max().over(group_cols)
-                )
-            return merged
+        return merged
     except Exception as e:
-        log.warning("Could not merge with existing CSV (perhaps schema changed!): %s", e)
+        log.warning("Could not merge with existing CSV (perhaps schema changed!): %s", e, exc_info=True)
     return df_loc
 
 
@@ -202,10 +239,7 @@ def merge_run_plot_manifest_with_existing_on_disk(
             r = entry.get("repeat")
             ms = entry.get("max_steps")
             sd = entry.get("seed")
-            
             if g and n and s and (str(g), str(n), str(s), ms, sd, r) in updated_combinations:
-
-            if g and n and s and r is not None and (str(g), str(n), str(s), r) in updated_combinations:
                 continue
 
             # 2. Aggressive pruning: check if file exists
