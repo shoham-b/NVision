@@ -1,4 +1,5 @@
-"""Tests for the metrics package."""
+with open('tests/test_metrics.py', 'w') as f:
+    f.write('''"""Tests for the metrics package."""
 
 import numpy as np
 
@@ -98,3 +99,4 @@ def test_calculate_strategy_metrics():
     assert metrics.total_convergence_rate == 1.0
     assert "x1" in metrics.parameter_convergence_rates
     assert metrics.parameter_convergence_rates["x1"] == 1.0
+''')
