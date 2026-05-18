@@ -210,6 +210,7 @@ function main() {
             console.error('Error reading plots manifest from window.MANIFEST:', error);
             // Show an error message to the user
             const errorDiv = document.createElement('div');
+            errorDiv.setAttribute('role', 'alert');
             errorDiv.style.padding = '20px';
             errorDiv.style.margin = '20px';
             errorDiv.style.border = '1px solid #f5c6cb';
@@ -2455,6 +2456,7 @@ function main() {
             console.error('Error initializing UI controls:', error);
             // Show an error message to the user
             const errorDiv = document.createElement('div');
+            errorDiv.setAttribute('role', 'alert');
             errorDiv.style.padding = '20px';
             errorDiv.style.margin = '20px';
             errorDiv.style.border = '1px solid #f5c6cb';
@@ -2478,6 +2480,8 @@ function main() {
             console.log('Reloading results...');
             // Show notification
             const notif = document.createElement('div');
+            notif.setAttribute('role', 'status');
+            notif.setAttribute('aria-live', 'polite');
             notif.id = 'reload-notification';
             notif.style.cssText = 'position:fixed;top:20px;right:20px;padding:15px 25px;background:#2196F3;color:white;border-radius:4px;z-index:9999;font-family:sans-serif;font-weight:bold;box-shadow:0 2px 10px rgba(0,0,0,0.3);';
             notif.textContent = 'Reloading results...';
@@ -2533,6 +2537,7 @@ function main() {
             .catch((error) => {
                 console.error('Failed to initialize UI assets:', error);
                 const errorDiv = document.createElement('div');
+                errorDiv.setAttribute('role', 'alert');
                 errorDiv.style.padding = '20px';
                 errorDiv.style.margin = '20px';
                 errorDiv.style.border = '1px solid #f5c6cb';
