@@ -22,6 +22,7 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     SequentialBayesianExperimentDesignLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from nvision.sim.locs.bayesian.ekf_locator import EKFLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
@@ -111,6 +112,13 @@ class CombinationGrid:
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
                     "config": {"max_steps": 200, "initial_sweep_steps": 0, **_NV_SMC},
+                },
+            ),
+            (
+                "Bayesian-EKF",
+                {
+                    "class": EKFLocator,
+                    "config": {"max_steps": 200, "initial_sweep_steps": None, "n_components": 3},
                 },
             ),
         ]
