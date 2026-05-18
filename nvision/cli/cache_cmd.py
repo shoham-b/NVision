@@ -1,25 +1,23 @@
 from __future__ import annotations
 
+import json
+import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Confirm
 from rich.table import Table
 
 from nvision.cache import CacheBridge
 from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.app_instance import app
-from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
 from nvision.sim.combinations import CombinationGrid
-from nvision.runner.metrics import generate_attempt_metrics
+from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
 from nvision.tools.utils import NVISION_RNG_SEED
-import random
-import json
-import logging
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 console = Console()
 
@@ -251,9 +249,8 @@ def recalculate_metrics(
     force: Annotated[bool, typer.Option("--force", help="Update even if metrics already exist")] = False,
 ) -> None:
     """Recalculate metrics for cached simulation runs."""
+
     from nvision.models.experiment import CoreExperiment
-    from nvision.runner.cache import strip_heavy_fields
-    import polars as pl
 
     cache_root = out / "cache"
     grid = CombinationGrid()
@@ -320,7 +317,7 @@ def recalculate_metrics(
                 new_results = []
                 combo_updated = False
 
-                for rid, record in enumerate(results):
+                for _rid, record in enumerate(results):
                     # Results are stored as list of dicts: [{"entries": ..., "main_result_row": ...}, ...]
                     if not isinstance(record, dict):
                         continue

@@ -48,13 +48,9 @@ class ODMRActiveLearningExecutor:
             The selected frequency `f_next`.
         """
         # 1. Select next frequency based on current P and theta_hat
-        f_next = self.acquisition_strategy.select_next_frequency(
-            self.theta_hat, self.P, self.R, f_candidates
-        )
+        f_next = self.acquisition_strategy.select_next_frequency(self.theta_hat, self.P, self.R, f_candidates)
 
         # 2. Update EKF state and covariance using the measurement at the selected frequency
-        self.theta_hat, self.P = ekf_update(
-            self.theta_hat, self.P, current_y_measurement, f_next, self.R
-        )
+        self.theta_hat, self.P = ekf_update(self.theta_hat, self.P, current_y_measurement, f_next, self.R)
 
         return f_next

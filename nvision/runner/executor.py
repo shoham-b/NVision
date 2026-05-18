@@ -412,9 +412,9 @@ class _TaskRunner:
         locator_class = self.task.strategy_spec.locator_class
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
         if uses_sweep_max_steps and experiments:
-            effective_max_steps = self._resolve_sweep_max_steps(experiments[0])
+            self._resolve_sweep_max_steps(experiments[0])
         else:
-            effective_max_steps = self.task.loc_max_steps
+            pass
 
         for i in range(n_missing):
             rid = start_idx + i
