@@ -37,7 +37,7 @@ def generate_attempt_metrics(  # noqa: C901
     strat_obj: Any,
     max_steps: int | None = None,
     seed: int | None = None,
-    run_result: RunResult | None = None,
+    run_result: Any | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], pl.DataFrame]:
     """Calculate and format metrics for a single repeat.
 

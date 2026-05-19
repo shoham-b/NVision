@@ -85,7 +85,7 @@ class EKFLocator(SequentialBayesianLocator):
 
         from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterVoigtModel
 
-        if not isinstance(model, (NVCenterLorentzianModel, NVCenterVoigtModel)):
+        if not isinstance(model, NVCenterLorentzianModel | NVCenterVoigtModel):
             raise ValueError(f"EKFLocator only supports NV center models, got {type(model).__name__}")
 
         bounds_phys = dict(parameter_bounds) if parameter_bounds else {}
