@@ -32,6 +32,8 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 from nvision.sim.locs.bayesian.utility_sampling_locator import UtilitySamplingLocator
 from nvision.sim.locs.coarse import SimpleSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
+from nvision.sim.locs.ekf.ekf_locator import EKFLocator
+
 
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:

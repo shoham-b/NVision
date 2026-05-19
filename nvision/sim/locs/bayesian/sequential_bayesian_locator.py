@@ -95,8 +95,10 @@ class SequentialBayesianLocator(Locator):
         noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
+        initial_sweep_steps: int | None = None,
     ) -> None:
         super().__init__(belief)
+        self.initial_sweep_steps: int = 0
         self.max_steps = int(max_steps)
         if self.max_steps <= 0:
             raise ValueError("max_steps must be positive")

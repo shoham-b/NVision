@@ -26,6 +26,8 @@ NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "100
 NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.5"))
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
 NVISION_SMC_POINTS_PER_MIN_FEATURE: int = int(os.getenv("NVISION_SMC_POINTS_PER_MIN_FEATURE", "5"))
+NVISION_SMC_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_SMC_MIN_EXPLORATION_FRAC", "0.01"))
+
 
 _EIG_CHUNK_SIZE: int = 64
 
@@ -68,7 +70,7 @@ def _weighted_mean_axis0(particles: np.ndarray, weights: np.ndarray) -> np.ndarr
     return np.dot(w_typed, particles) / sw
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True)
 def _systematic_resample_indices(cumulative_sum: np.ndarray, positions: np.ndarray) -> np.ndarray:
     """Map systematic ``positions`` to indices along non-decreasing ``cumulative_sum``."""
     n = positions.shape[0]
@@ -170,6 +172,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     auto_resample: bool = True
     resample_delay: int = 0
     priors: dict[str, tuple[float, float]] | None = None
+    min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC
+
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
 
@@ -459,11 +463,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 5. Enforce minimum exploration variance based on parameter ranges.
         # This prevents the filter from getting stuck in a tiny volume.
-        MIN_EXPLORATION_FRAC: float = 0.0  # noqa: N806
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
-            min_var = ((hi - lo) * MIN_EXPLORATION_FRAC) ** 2
+            min_var = ((hi - lo) * self.min_exploration_frac) ** 2
             nudge_cov[j, j] = max(float(nudge_cov[j, j]), float(min_var))
+
 
         # Make nudge_cov perfectly symmetric and strictly positive definite.
         # Adding a tiny absolute and relative diagonal jitter ensures
@@ -629,6 +633,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             auto_resample=self.auto_resample,
             resample_delay=self.resample_delay,
             priors=self.priors,
+            min_exploration_frac=self.min_exploration_frac,
+
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()

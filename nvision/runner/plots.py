@@ -120,7 +120,20 @@ def _posterior_animation_inputs(
         if scan_param in out:
             return out[scan_param]
 
-    from nvision.sim.locs.ekf.belief import EKFBelief
+    from nvision.sim.locs.ekf.belief import EKFBelief, EKFParticleFrequencyBelief
+
+    if isinstance(b0, EKFParticleFrequencyBelief):
+        if scan_param == "frequency":
+            hist = []
+            for s in snapshots:
+                col = s.belief._frequency_particles.copy()
+                weights = s.belief._frequency_weights.copy()
+                hist.append(np.column_stack([col, weights]))
+            return hist, np.linspace(0.0, 1.0, 2)
+        else:
+            grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
+            hist = [s.belief.marginal_pdf(scan_param, grid) for s in snapshots]
+            return hist, grid
 
     if isinstance(b0, EKFBelief):
         grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
@@ -160,7 +173,7 @@ def _posterior_animation_inputs_all_params(
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
     from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
-    from nvision.sim.locs.ekf.belief import EKFBelief
+    from nvision.sim.locs.ekf.belief import EKFBelief, EKFParticleFrequencyBelief
 
     if isinstance(b0, UnitCubeGridMarginalDistribution):
         return _extract_unit_cube_grid_posterior(snapshots, names)
@@ -176,6 +189,9 @@ def _posterior_animation_inputs_all_params(
 
     if isinstance(b0, EKFBelief):
         return _extract_ekf_posterior(snapshots, names)
+
+    if isinstance(b0, EKFParticleFrequencyBelief):
+        return _extract_ekf_particle_frequency_posterior(snapshots, names)
 
     log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
     return None
@@ -297,6 +313,37 @@ def _extract_ekf_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
             hist.append(pdf_vals)
 
         out[scan_param] = (hist, grid)
+    return out
+
+
+def _extract_ekf_particle_frequency_posterior(
+    snapshots: list, names: list[str]
+) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+    from nvision.sim.locs.ekf.belief import EKFParticleFrequencyBelief
+
+    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
+    b0 = snapshots[0].belief
+    assert isinstance(b0, EKFParticleFrequencyBelief)
+
+    for scan_param in names:
+        if scan_param == "frequency":
+            hist: list[np.ndarray] = []
+            for s in snapshots:
+                b = s.belief
+                assert isinstance(b, EKFParticleFrequencyBelief)
+                col = b._frequency_particles.copy()
+                weights = b._frequency_weights.copy()
+                hist.append(np.column_stack([col, weights]))
+            out[scan_param] = (hist, np.linspace(0.0, 1.0, 2))
+        else:
+            grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
+            hist = []
+            for s in snapshots:
+                b = s.belief
+                assert isinstance(b, EKFParticleFrequencyBelief)
+                pdf_vals = b.marginal_pdf(scan_param, grid)
+                hist.append(pdf_vals)
+            out[scan_param] = (hist, grid)
     return out
 
 

@@ -25,6 +25,7 @@ from nvision.belief.grid_marginal import GridParameter
 from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
+    NVISION_SMC_MIN_EXPLORATION_FRAC,
     NVISION_SMC_NUM_PARTICLES,
 )
 from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
@@ -215,6 +216,7 @@ def nv_center_smc_belief(
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD,
     a_param: float = NVISION_SMC_A_PARAM,
     noise_model: NoiseSignalModel | None = None,
+    min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC,
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model."""
@@ -283,4 +285,5 @@ def nv_center_smc_belief(
         physical_param_bounds=merged_bounds,
         physical_x_bounds=x_phys,
         priors=unit_priors,
+        min_exploration_frac=min_exploration_frac,
     )

@@ -152,6 +152,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             physical_param_bounds=dict(self.physical_param_bounds),
             physical_x_bounds=self.physical_x_bounds,
             priors=self.priors,
+            min_exploration_frac=self.min_exploration_frac,
+
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
