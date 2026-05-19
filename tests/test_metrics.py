@@ -42,6 +42,7 @@ def _make_mock_belief(_est, _uncert):
         @property
         def physical_param_bounds(self):
             return {"x1": (0, 1)}
+
     return MockBelief
 
 

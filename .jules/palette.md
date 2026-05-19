@@ -18,3 +18,7 @@
 ## 2024-05-17 - Keyboard and Screen Reader Accessibility for Custom Tooltips and Dynamic Notifications
 **Learning:** Custom UI elements like tooltip icons (e.g., `<span class="help-icon-visible">?</span>`) built with non-interactive elements do not receive keyboard focus by default, hiding their informative titles from keyboard-only and screen reader users. Additionally, dynamically inserted DOM elements (like error messages or status notifications) are ignored by screen readers unless explicitly marked with live region roles (`role="alert"` or `role="status" aria-live="polite"`).
 **Action:** When adding custom tooltips using `<span>` or `<div>`, always include `tabindex="0"` to enable keyboard focus. When dynamically injecting error messages or status updates into the DOM via JavaScript, always set the appropriate `role` attribute (`alert` for errors, `status` for updates) so assistive technologies can announce them to the user.
+
+## 2026-05-19 - Adding title tooltips to disabled repeat buttons
+**Learning:** Native OS tooltips (via the `title` attribute) are effective for explaining disabled control states in this app, but they cannot be reliably captured in headless Playwright screenshots.
+**Action:** When testing UI improvements that rely on `title` attributes, verify them programmatically by asserting `locator.get_attribute("title")` instead of relying solely on visual screenshot tests.

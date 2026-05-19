@@ -78,7 +78,6 @@ class RunResult:
             return 0.0
         return self.expected_uniform_points - float(self.num_steps())
 
-
     def uncertainty_trajectory(self, param: str) -> list[float]:
         """Get uncertainty (std) trajectory for parameter.
 

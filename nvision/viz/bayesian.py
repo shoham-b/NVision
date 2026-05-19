@@ -197,9 +197,9 @@ def _trace_one_marginal_posterior(
 ) -> list[go.Scatter]:
     # Unified, harmonized color palette matching Plotly's default color cycle
     colors = [
-        "rgba(99, 110, 250, 1.0)",   # Blue
-        "rgba(239, 85, 59, 1.0)",   # Red
-        "rgba(0, 204, 150, 1.0)",   # Green
+        "rgba(99, 110, 250, 1.0)",  # Blue
+        "rgba(239, 85, 59, 1.0)",  # Red
+        "rgba(0, 204, 150, 1.0)",  # Green
         "rgba(171, 99, 250, 1.0)",  # Purple
         "rgba(255, 161, 90, 1.0)",  # Orange
         "rgba(25, 211, 243, 1.0)",  # Cyan
@@ -227,7 +227,7 @@ def _trace_one_marginal_posterior(
                 density=True,
             )
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
-            
+
             # Using step-like shape 'hvh' to look exactly like a histogram outline
             return [
                 go.Scatter(
@@ -862,7 +862,7 @@ class BayesianMixin:
                     vals = post[:, 0]
                     x_min_val = min(x_min_val, float(np.min(vals)))
                     x_max_val = max(x_max_val, float(np.max(vals)))
-                    
+
                     weights = post[:, 1] if post.shape[1] == 2 else None
                     counts, _ = np.histogram(vals, bins=80, weights=weights, density=True)
                     m = np.max(counts)

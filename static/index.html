@@ -64,10 +64,10 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>
             </button>
             <div class="timeline-slider-container">
-                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0">
-                <span id="global-step-label" class="timeline-label">Step: --</span>
+                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0" aria-label="Timeline progress">
+                <span id="global-step-label" class="timeline-label" aria-live="polite">Step: --</span>
             </div>
-            <select id="global-speed-select" class="speed-select">
+            <select id="global-speed-select" class="speed-select" aria-label="Playback speed">
                 <option value="500">Speed: 0.5x</option>
                 <option value="200" selected>Speed: 1x</option>
                 <option value="100">Speed: 2x</option>

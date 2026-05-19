@@ -1,7 +1,9 @@
 import logging
 from pathlib import Path
+
 import polars as pl
-from nvision.tools.artifacts import merge_locator_results_with_existing, locator_results_path
+
+from nvision.tools.artifacts import locator_results_path, merge_locator_results_with_existing
 
 
 def test_merge_locator_results_schema_mismatch(tmp_path: Path):

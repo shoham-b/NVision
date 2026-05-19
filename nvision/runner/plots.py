@@ -189,7 +189,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
             b = s.belief
             assert isinstance(b, SMCMarginalDistribution)
             col = b._particles[:, idx].copy()
-            
+
             lo, hi = 0.0, 1.0
             if hasattr(b, "physical_param_bounds") and scan_param in b.physical_param_bounds:
                 lo, hi = b.physical_param_bounds[scan_param]

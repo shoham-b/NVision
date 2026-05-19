@@ -1478,13 +1478,22 @@ function main() {
             if (currentRepeatItems.length === 0) {
                 scanRepeatPrev.disabled = true;
                 scanRepeatNext.disabled = true;
+                scanRepeatPrev.title = 'No repeats available';
+                scanRepeatNext.title = 'No repeats available';
                 return;
             }
             const currentValue = scanRepeat.value || currentRepeatItems[0] || '';
             const currentIndex = currentRepeatItems.indexOf(currentValue);
             const hasValidSelection = currentIndex !== -1;
-            scanRepeatPrev.disabled = !hasValidSelection || currentIndex <= 0;
-            scanRepeatNext.disabled = !hasValidSelection || currentIndex >= currentRepeatItems.length - 1;
+
+            const prevDisabled = !hasValidSelection || currentIndex <= 0;
+            const nextDisabled = !hasValidSelection || currentIndex >= currentRepeatItems.length - 1;
+
+            scanRepeatPrev.disabled = prevDisabled;
+            scanRepeatNext.disabled = nextDisabled;
+
+            scanRepeatPrev.title = prevDisabled ? (hasValidSelection ? 'Already at first repeat' : 'No repeat selected') : 'Go to previous repeat';
+            scanRepeatNext.title = nextDisabled ? (hasValidSelection ? 'Already at last repeat' : 'No repeat selected') : 'Go to next repeat';
         }
 
         function selectRepeatByIndex(index) {
