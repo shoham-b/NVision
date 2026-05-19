@@ -254,20 +254,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
         if self.noise_model is not None and self._noise_param_slice is not None:
-            # Epistemic spread is passed to the noise model for its own tempering logic.
+            # Epistemic spread is passed to the noise model for its own tempering logic
             sigma_epistemic = float(np.std(predicted))
             noise_arrays = [
                 self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
             ]
             residuals = obs.signal_value - predicted
             log_liks = self.noise_model.composite_log_likelihood(predicted, residuals, noise_arrays, sigma_epistemic)
+
             # Numerically stable exponentiation
             log_liks -= np.max(log_liks)
             likelihoods = np.exp(log_liks).astype(FLOAT_DTYPE, copy=False)
         else:
-            # Use only the true aleatoric noise std so that the likelihood is sharp
-            # enough to actually differentiate particles. Stability is handled by
-            # ESS-triggered resampling, not by inflating the noise width.
+            # Use true aleatoric noise; stability handled by ESS-triggered resampling
             likelihoods = likelihood_from_observation_model(
                 obs_y=obs.signal_value,
                 predicted=predicted,
@@ -276,21 +275,20 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 tempering_factor=1.0,
             ).astype(FLOAT_DTYPE, copy=False)
 
-        # 2. Update weights — paper-compliant likelihood only (Eq. S3)
+        # 2. Update weights — paper-compliant likelihood only (Eq. S3) [cite: 117]
         self._weights *= likelihoods
         self._step_count += 1
         self._cov_step = -1
 
-        # 3. Normalize weights
-        raw_weights = self._weights.astype(FLOAT_DTYPE)
-        weight_sum = np.sum(raw_weights)
+        # 3. Normalize weights safely without redundant array casting allocations
+        weight_sum = np.sum(self._weights)
         if weight_sum > 1e-100:
-            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE)
+            self._weights = (self._weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
         else:
-            # Total filter collapse: likelihood was zero everywhere.
-            self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
+            # Total filter collapse: likelihood was zero everywhere
+            self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
 
-        # 4. Resample if Effective Sample Size (ESS) is too low
+        # 4. Resample if Effective Sample Size (ESS) is too low [cite: 198, 199]
         ess = _inverse_sum_squares(self._weights)
         if (
             self.auto_resample
@@ -300,19 +298,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._resample()
 
     def batch_update(self, observations: list[Observation]) -> None:
-        """Update belief from multiple observations in a single batch.
-
-        Log-likelihoods are accumulated before exponentiation to prevent underflow.
-        Each observation uses the same epistemic tempering as :meth:`update`:
-        the effective noise ``σ_eff = sqrt(σ_η² + σ_epistemic²)`` broadens the
-        likelihood by the current prediction spread across particles, preventing
-        catastrophic concentration when the prior is still diffuse.
-
-        Parameters
-        ----------
-        observations : list[Observation]
-            List of observations to incorporate into the belief.
-        """
         if not observations:
             return
 
@@ -320,11 +305,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self.resampled = False
 
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
-
         log_weights = np.zeros(self.num_particles, dtype=FLOAT_DTYPE)
 
         if self.noise_model is not None and self._noise_param_slice is not None:
-            # Noise-model path: must evaluate per-observation (needs per-particle noise params).
+            # Path A: Custom composite noise model evaluating epistemic spread
             noise_arrays = [
                 self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
             ]
@@ -332,37 +316,51 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
                 sigma_epistemic = float(np.std(predicted))
                 residuals = obs.signal_value - predicted
-                log_liks = self.noise_model.composite_log_likelihood(
+
+                # Accumulated directly; inner max-subtraction removed for speed
+                log_weights += self.noise_model.composite_log_likelihood(
                     predicted, residuals, noise_arrays, sigma_epistemic
                 )
-                log_liks -= np.max(log_liks)
-                log_weights += log_liks
         else:
-            # Gaussian path: batch all xs into one compute_vectorized_many call.
-            # Shape: (n_obs, n_particles) — one kernel dispatch instead of n_obs.
-            all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
-            predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
-            # predictions: (n_obs, n_particles)
-            ys = np.array([obs.signal_value for obs in observations], dtype=FLOAT_DTYPE)
-            sigmas = np.array([max(float(obs.noise_std), 1e-9) for obs in observations], dtype=FLOAT_DTYPE)
-            # residuals: (n_obs, n_particles); log_liks: (n_obs, n_particles)
-            residuals = ys[:, None] - predictions
-            log_liks_matrix = -0.5 * (residuals / sigmas[:, None]) ** 2
-            # Sum over observations → (n_particles,)
-            log_weights += log_liks_matrix.sum(axis=0)
+            # Path B: Standard/Frequency noise model
+            if any(obs.frequency_noise_model is not None for obs in observations):
+                # Fallback to match custom frequency noise transformations sequentially
+                for obs in observations:
+                    predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
+                    lik = likelihood_from_observation_model(
+                        obs_y=obs.signal_value,
+                        predicted=predicted,
+                        noise_std=obs.noise_std,
+                        frequency_noise_model=obs.frequency_noise_model,
+                        tempering_factor=1.0,
+                    )
+                    log_weights += np.log(np.maximum(lik, 1e-100))
+            else:
+                # Optimized pure Gaussian path via vectorized matrix operations
+                all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
+                predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
+
+                ys = np.array([obs.signal_value for obs in observations], dtype=FLOAT_DTYPE)
+                sigmas = np.array([max(float(obs.noise_std), 1e-9) for obs in observations], dtype=FLOAT_DTYPE)
+
+                residuals = ys[:, None] - predictions
+                log_liks_matrix = -0.5 * (residuals / sigmas[:, None]) ** 2
+                log_weights += log_liks_matrix.sum(axis=0)
 
         self._step_count += len(observations)
 
-        # Convert back to normalized weights
+        # Convert log-weights back to normalized standard weights safely
         log_weights -= np.max(log_weights)
         raw_weights = np.exp(log_weights) * self._weights.astype(FLOAT_DTYPE)
         weight_sum = np.sum(raw_weights)
-        if weight_sum > 1e-300:
+
+        # Threshold aligned to 1e-100 to match standard update behavior
+        if weight_sum > 1e-100:
             self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE)
         else:
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        # Single resampling step after all updates
+        # Evaluate Effective Sample Size (ESS) for resampling
         ess = _inverse_sum_squares(self._weights)
         if (
             self.auto_resample

@@ -1989,6 +1989,16 @@ function main() {
                             '#f59e0b',
                             'measurements'
                         );
+                    } else {
+                        const placeholder = document.createElement('div');
+                        placeholder.style.padding = '3em 2em';
+                        placeholder.style.color = '#718096';
+                        placeholder.style.textAlign = 'center';
+                        placeholder.style.width = '100%';
+                        placeholder.style.fontSize = '1.1em';
+                        placeholder.style.gridColumn = '1 / -1';
+                        placeholder.innerHTML = '💡 <strong>No sweep savings data available for this strategy.</strong><br><span style="font-size:0.95em;color:#a0aec0;margin-top:0.5em;display:block;">Sweep savings are computed for locator strategies that utilize a sweep phase (e.g., <code>StagedSobolSweep</code> or <code>GenericSweep</code>). Select one of these strategies to view the savings distribution.</span>';
+                        efficiencyContainer.appendChild(placeholder);
                     }
                 }
             });

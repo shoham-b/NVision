@@ -289,7 +289,8 @@ class SequentialBayesianLocator(Locator):
                     self.belief.narrow_scan_parameter_physical_bounds("split", float(split_lo), new_split_hi)
 
         self._narrowed_param_bounds = {
-            name: (float(lo), float(hi)) for name, (lo, hi) in self.belief.physical_param_bounds.items()
+            name: (float(lo), float(hi)) for name, bounds in self.belief.physical_param_bounds.items() if len(bounds) == 2
+            lo, hi = bounds
         }
 
     def _native_scan_candidates(self, lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
@@ -429,10 +430,12 @@ class SequentialBayesianLocator(Locator):
             return False
         res = self._acquisition_done()
         if res:
-            import logging
 
-            logging.getLogger("nvision.sim.locs.bayesian").warning(
-                f"DEBUG: done() returning True. inference_step_count={self.inference_step_count}, max_steps={self.max_steps}"
+            logger = logging.getLogger("nvision.sim.locs.bayesian")
+            logger.warning(
+                "DEBUG: done() returning True. "
+                f"inference_step_count={self.inference_step_count}, "
+                f"max_steps={self.max_steps}"
             )
         return res
 

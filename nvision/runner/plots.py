@@ -33,6 +33,28 @@ def _resolve_scan_param(strat_obj: Any, run_result: RunResult) -> str:
     return "frequency"
 
 
+def _make_focused_ekf_grid(snapshots: list, scan_param: str, default_bounds: tuple[float, float]) -> np.ndarray:
+    """Construct a focused grid that covers the mean trajectory and resolves the narrow final peak."""
+    means = [float(s.belief.estimates().get(scan_param, 0.0)) for s in snapshots]
+    uncs = [float(s.belief.uncertainty().get(scan_param, 1.0)) for s in snapshots]
+
+    final_unc = uncs[-1] if uncs else 1.0
+    if final_unc <= 0:
+        final_unc = 1e-9
+
+    lo = min(means) - 5 * final_unc
+    hi = max(means) + 5 * final_unc
+
+    phys_lo, phys_hi = default_bounds
+    lo = max(lo, phys_lo)
+    hi = min(hi, phys_hi)
+
+    if hi <= lo:
+        lo, hi = phys_lo, phys_hi
+
+    return np.linspace(lo, hi, 250)
+
+
 def _posterior_animation_inputs(
     run_result: RunResult,
     scan_param: str,
@@ -98,6 +120,13 @@ def _posterior_animation_inputs(
         if scan_param in out:
             return out[scan_param]
 
+    from nvision.sim.locs.ekf.belief import EKFBelief
+
+    if isinstance(b0, EKFBelief):
+        grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
+        hist = [s.belief.marginal_pdf(scan_param, grid) for s in snapshots]
+        return hist, grid
+
     log.debug("No posterior animation extraction for belief type %s", type(b0).__name__)
     return None
 
@@ -131,6 +160,7 @@ def _posterior_animation_inputs_all_params(
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
     from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
+    from nvision.sim.locs.ekf.belief import EKFBelief
 
     if isinstance(b0, UnitCubeGridMarginalDistribution):
         return _extract_unit_cube_grid_posterior(snapshots, names)
@@ -143,6 +173,9 @@ def _posterior_animation_inputs_all_params(
 
     if isinstance(b0, StudentsTMixtureMarginalDistribution):
         return _extract_mixture_posterior(snapshots, names)
+
+    if isinstance(b0, EKFBelief):
+        return _extract_ekf_posterior(snapshots, names)
 
     log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
     return None
@@ -189,7 +222,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
             b = s.belief
             assert isinstance(b, SMCMarginalDistribution)
             col = b._particles[:, idx].copy()
-            
+
             lo, hi = 0.0, 1.0
             if hasattr(b, "physical_param_bounds") and scan_param in b.physical_param_bounds:
                 lo, hi = b.physical_param_bounds[scan_param]
@@ -241,6 +274,27 @@ def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, t
             total_pdf = np.sum(comp_pdfs, axis=0)
             snapshot_data = np.vstack([comp_pdfs, total_pdf])
             hist.append(snapshot_data)
+
+        out[scan_param] = (hist, grid)
+    return out
+
+
+def _extract_ekf_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+    from nvision.sim.locs.ekf.belief import EKFBelief
+
+    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
+    b0 = snapshots[0].belief
+    assert isinstance(b0, EKFBelief)
+
+    for scan_param in names:
+        grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
+
+        hist: list[np.ndarray] = []
+        for s in snapshots:
+            b = s.belief
+            assert isinstance(b, EKFBelief)
+            pdf_vals = b.marginal_pdf(scan_param, grid)
+            hist.append(pdf_vals)
 
         out[scan_param] = (hist, grid)
     return out

@@ -651,10 +651,23 @@ class StagedSobolSweepLocator(Locator):
         if self.step_count > self.max_steps:
             return
 
-        self.history.append(obs)
+        domain_width = self.domain_hi - self.domain_lo
+        if domain_width > 1.5 and obs.x <= 1.5:
+            from nvision.models.observation import Observation
+
+            obs_physical = Observation(
+                x=self.domain_lo + obs.x * domain_width,
+                signal_value=obs.signal_value,
+                noise_std=obs.noise_std,
+                frequency_noise_model=obs.frequency_noise_model,
+            )
+        else:
+            obs_physical = obs
+
+        self.history.append(obs_physical)
         # Set last_obs so Observer can create snapshots for plotting
-        self.belief.last_obs = obs
-        self._active_locator.observe(obs)
+        self.belief.last_obs = obs_physical
+        self._active_locator.observe(obs_physical)
 
         if self._active_locator is self._stage1 and self._active_locator.done():
             self._stage1_end_step = self.step_count

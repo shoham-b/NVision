@@ -197,9 +197,9 @@ def _trace_one_marginal_posterior(
 ) -> list[go.Scatter]:
     # Unified, harmonized color palette matching Plotly's default color cycle
     colors = [
-        "rgba(99, 110, 250, 1.0)",   # Blue
-        "rgba(239, 85, 59, 1.0)",   # Red
-        "rgba(0, 204, 150, 1.0)",   # Green
+        "rgba(99, 110, 250, 1.0)",  # Blue
+        "rgba(239, 85, 59, 1.0)",  # Red
+        "rgba(0, 204, 150, 1.0)",  # Green
         "rgba(171, 99, 250, 1.0)",  # Purple
         "rgba(255, 161, 90, 1.0)",  # Orange
         "rgba(25, 211, 243, 1.0)",  # Cyan
@@ -227,7 +227,14 @@ def _trace_one_marginal_posterior(
                 density=True,
             )
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
-            
+
+            # Subsample particles for the jitter/rug plot to keep HTML size lightweight and fast
+            rng = np.random.default_rng(42)
+            sub_indices = rng.choice(len(posterior[:, 0]), size=min(150, len(posterior[:, 0])), replace=False)
+            jitter_x = posterior[sub_indices, 0]
+            max_density = np.max(counts) if len(counts) > 0 else 1.0
+            jitter_y = -0.04 * max_density + rng.uniform(-0.02 * max_density, 0.02 * max_density, size=len(jitter_x))
+
             # Using step-like shape 'hvh' to look exactly like a histogram outline
             return [
                 go.Scatter(
@@ -239,7 +246,20 @@ def _trace_one_marginal_posterior(
                     line=dict(color=c, width=2, shape="hvh"),
                     name=f"{param} (particles)",
                     showlegend=False,
-                )
+                ),
+                go.Scatter(
+                    x=jitter_x,
+                    y=jitter_y,
+                    mode="markers",
+                    marker=dict(
+                        size=3,
+                        color=c,
+                        opacity=0.45,
+                    ),
+                    name=f"{param} particles",
+                    showlegend=False,
+                    hoverinfo="skip",
+                ),
             ]
         else:
             # Mixture: each row is a component, last row is total
@@ -635,14 +655,16 @@ class BayesianMixin:
         if has_weights:
             subplot_titles = (
                 *tuple(_build_subplot_title(p, param_descriptions) for p in param_names),
+                "<b>Parameter Correlation Matrix Heatmap</b>",
                 "<b>Sorted Particle Weights (Concentration Profile)</b>",
                 "<b>Effective Sample Size (ESS) Timeline</b>",
                 "<b>Timeline (Resampling & Progress)</b>",
             )
-            total_rows = n + 3
-            weights_row = n + 1
-            ess_row = n + 2
-            row_heights = [1.0] * n + [0.8, 0.8] + [0.2]
+            total_rows = n + 4
+            corr_row = n + 1
+            weights_row = n + 2
+            ess_row = n + 3
+            row_heights = [1.0] * n + [1.8] + [0.8, 0.8] + [0.2]
 
             ess_history = []
             for w in weight_history:
@@ -680,12 +702,57 @@ class BayesianMixin:
                     traces.append(tr)
 
             if has_weights:
+                # Calculate weighted correlation matrix of the particles at the current step
+                step_particles = []
+                for param in param_names:
+                    posterior_history, _ = posterior_inputs_by_param[param]
+                    post = posterior_history[-1] if step_idx >= len(posterior_history) else posterior_history[step_idx]
+                    step_particles.append(post[:, 0])
+
+                particles_matrix = np.vstack(step_particles)  # (n_params, n_particles)
+                w_curr = weight_history[step_idx]
+                w_sum = np.sum(w_curr)
+                w_norm = w_curr / w_sum if w_sum > 0.0 else np.ones_like(w_curr) / len(w_curr)
+
+                # Compute weighted covariance and correlation matrix
+                mean = np.average(particles_matrix, axis=1, weights=w_norm)[:, None]
+                cov = np.cov(particles_matrix, aweights=w_norm)
+                std = np.sqrt(np.diag(cov))
+                std[std == 0.0] = 1e-8
+                corr = cov / np.outer(std, std)
+                corr = np.clip(corr, -1.0, 1.0)
+
+                # Add Heatmap trace
+                traces.append(
+                    go.Heatmap(
+                        z=corr,
+                        x=param_names,
+                        y=param_names,
+                        zmin=-1,
+                        zmax=1,
+                        colorscale="RdBu",
+                        showscale=True,
+                        xaxis=f"x{corr_row}",
+                        yaxis=f"y{corr_row}",
+                        text=np.round(corr, 2),
+                        texttemplate="%{text:.2f}",
+                        textfont=dict(size=10),
+                        colorbar=dict(
+                            title="Corr",
+                            thickness=15,
+                            len=0.3,
+                            y=0.3,
+                            yanchor="middle",
+                        ),
+                    )
+                )
+
                 # Sorted Particle Weights trace
-                w_curr = np.sort(weight_history[step_idx])[::-1]
+                w_curr_sorted = np.sort(weight_history[step_idx])[::-1]
                 traces.append(
                     go.Scatter(
-                        x=list(range(len(w_curr))),
-                        y=w_curr,
+                        x=list(range(len(w_curr_sorted))),
+                        y=w_curr_sorted,
                         mode="lines",
                         fill="tozeroy",
                         fillcolor="rgba(30, 144, 255, 0.25)",
@@ -862,7 +929,7 @@ class BayesianMixin:
                     vals = post[:, 0]
                     x_min_val = min(x_min_val, float(np.min(vals)))
                     x_max_val = max(x_max_val, float(np.max(vals)))
-                    
+
                     weights = post[:, 1] if post.shape[1] == 2 else None
                     counts, _ = np.histogram(vals, bins=80, weights=weights, density=True)
                     m = np.max(counts)
@@ -913,9 +980,15 @@ class BayesianMixin:
         for i, name in enumerate(param_names, start=1):
             x_limit = x_range_by_param[name]
             y_limit_val = y_max_by_param[name]
+            is_smc_subplot = (
+                len(posterior_inputs_by_param[name][0]) > 0
+                and posterior_inputs_by_param[name][0][0].ndim == 2
+                and posterior_inputs_by_param[name][0][0].shape[1] in (1, 2)
+            )
             if y_limit_val is not None:
                 y_limit = float(y_limit_val * 1.15)
-                fig.update_yaxes(title_text="density", range=[0, y_limit], automargin=True, row=i, col=1)
+                y_min = float(-0.08 * y_limit_val) if is_smc_subplot else 0.0
+                fig.update_yaxes(title_text="density", range=[y_min, y_limit], automargin=True, row=i, col=1)
             else:
                 # SMC Particle Histogram auto-scaling
                 fig.update_yaxes(title_text="density", automargin=True, row=i, col=1)
@@ -927,6 +1000,8 @@ class BayesianMixin:
 
             fig.update_yaxes(title_text="ESS", automargin=True, range=[0, num_particles * 1.05], row=ess_row, col=1)
             fig.update_xaxes(title_text="Measurement Step", range=[0.5, total_steps + 0.5], row=ess_row, col=1)
+
+            fig.update_yaxes(autorange="reversed", row=corr_row, col=1)
 
         # Format Timeline subplot
         fig.update_yaxes(visible=False, range=[-1, 1], row=timeline_row, col=1)

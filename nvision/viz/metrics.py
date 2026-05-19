@@ -89,18 +89,14 @@ class MetricsVizMixin:
             "title": f"Convergence Steps: {param_name}",
         }
 
-    def plot_sobol_difference(
-        self, metrics: StrategyMetrics, gen_name: str, noise_name: str
-    ) -> dict[str, Any]:
+    def plot_sobol_difference(self, metrics: StrategyMetrics, gen_name: str, noise_name: str) -> dict[str, Any]:
         """Generate a histogram plot showing the difference in measurements vs simple Sobol sweep."""
         diffs = getattr(metrics, "sobol_differences", [])
         if not diffs:
             return {}
 
         fig = go.Figure()
-        fig.add_trace(
-            go.Histogram(x=diffs, name="Sweep Savings", marker_color="orange", opacity=0.75, nbinsx=15)
-        )
+        fig.add_trace(go.Histogram(x=diffs, name="Sweep Savings", marker_color="orange", opacity=0.75, nbinsx=15))
 
         title = (
             f"Sobol Sweep Measurement Savings<br>"

@@ -22,7 +22,7 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     SequentialBayesianExperimentDesignLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.bayesian.ekf_locator import EKFLocator
+from nvision.sim.locs.ekf import EKFLocator, EKFDOptimalLocator, EKFAOptimalLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
@@ -118,38 +118,57 @@ class CombinationGrid:
 
         if "lorentzian" in generator_name.lower():
             # EKF only supports Lorentzian currently
-            strats.append(
-                (
-                    "Bayesian-EKF",
-                    {
-                        "class": EKFLocator,
-                        "config": {
-                            "max_steps": 200,
-                            "initial_sweep_steps": None,
-                            "n_components": 3,
-                            "builder": nv_center_smc_belief,
+            strats.extend(
+                [
+                    (
+                        "Bayesian-EKF-D",
+                        {
+                            "class": EKFDOptimalLocator,
+                            "config": {
+                                "max_steps": 200,
+                                "initial_sweep_steps": None,
+                                "n_components": 3,
+                                "builder": nv_center_smc_belief,
+                            },
                         },
-                    },
-                )
-            )
-
-        return strats
-
-        if "lorentzian" in generator_name.lower():
-            # EKF only supports Lorentzian currently
-            strats.append(
-                (
-                    "Bayesian-EKF",
-                    {
-                        "class": EKFLocator,
-                        "config": {
-                            "max_steps": 200,
-                            "initial_sweep_steps": None,
-                            "n_components": 3,
-                            "builder": nv_center_smc_belief,
+                    ),
+                    (
+                        "Bayesian-EKF-D-NoSweep",
+                        {
+                            "class": EKFDOptimalLocator,
+                            "config": {
+                                "max_steps": 200,
+                                "initial_sweep_steps": 0,
+                                "n_components": 3,
+                                "builder": nv_center_smc_belief,
+                            },
                         },
-                    },
-                )
+                    ),
+                    (
+                        "Bayesian-EKF-A",
+                        {
+                            "class": EKFAOptimalLocator,
+                            "config": {
+                                "max_steps": 200,
+                                "initial_sweep_steps": None,
+                                "n_components": 3,
+                                "builder": nv_center_smc_belief,
+                            },
+                        },
+                    ),
+                    (
+                        "Bayesian-EKF-A-NoSweep",
+                        {
+                            "class": EKFAOptimalLocator,
+                            "config": {
+                                "max_steps": 200,
+                                "initial_sweep_steps": 0,
+                                "n_components": 3,
+                                "builder": nv_center_smc_belief,
+                            },
+                        },
+                    ),
+                ]
             )
 
         return strats

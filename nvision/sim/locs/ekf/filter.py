@@ -42,6 +42,8 @@ def ekf_update(theta_hat: np.ndarray, P: np.ndarray, y: float, f: float, R: floa
 
     # Covariance update
     # P_next = P - K @ H @ P (Joseph form is better for numerical stability if needed, but basic form works here)
-    P_next = P - K @ H @ P  # noqa: N806
+    # Add a small diagonal process noise matrix to prevent covariance collapse.
+    Q = np.diag(np.array([1e-4, 1e-4, 1e-8, 1e-6, 1e-6]))  # noqa: N806
+    P_next = P - K @ H @ P + Q  # noqa: N806
 
     return theta_next, P_next
