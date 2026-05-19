@@ -38,12 +38,16 @@ def calculate_strategy_metrics(
     convergence_counts: dict[str, int] = {}
     total_conv_steps: dict[str, int] = {}
     total_fully_converged = 0
+    sobol_diffs: list[float] = []
 
     if run_results[0].snapshots:
         set(run_results[0].snapshots[0].belief.estimates().keys())
 
     for _i, run in enumerate(run_results):
         conv_map = analyze_run_convergence(run, uncertainty_threshold, relative)
+
+        if getattr(run, "expected_uniform_points", 0.0) > 0:
+            sobol_diffs.append(run.sobol_difference)
 
         fully_converged = True
         for param, conv_info in conv_map.items():
@@ -78,6 +82,7 @@ def calculate_strategy_metrics(
         n_repeats=n_repeats,
         absolute_errors=all_abs_errors,
         convergence_steps=all_conv_steps,
+        sobol_differences=sobol_diffs,
         parameter_convergence_rates=param_conv_rates,
         mean_steps_to_convergence=mean_conv_steps,
         total_convergence_rate=total_fully_converged / n_repeats,

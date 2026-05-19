@@ -91,6 +91,18 @@ class ComparisonsMixin:
                     manifest_entries=manifest_entries,
                 )
 
+            # Metric 4: Sobol Sweep Measurement Savings
+            if "sobol_difference" in sub_df.columns:
+                self._create_comparison_plot(
+                    sub_df,
+                    gen,
+                    noise,
+                    metric="sobol_difference",
+                    title_metric="Sobol Sweep Measurement Savings",
+                    y_axis_title="Savings",
+                    manifest_entries=manifest_entries,
+                )
+
         return manifest_entries
 
     @staticmethod

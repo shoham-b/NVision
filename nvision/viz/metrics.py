@@ -88,3 +88,35 @@ class MetricsVizMixin:
             "path": out_path.as_posix(),
             "title": f"Convergence Steps: {param_name}",
         }
+
+    def plot_sobol_difference(
+        self, metrics: StrategyMetrics, gen_name: str, noise_name: str
+    ) -> dict[str, Any]:
+        """Generate a histogram plot showing the difference in measurements vs simple Sobol sweep."""
+        diffs = getattr(metrics, "sobol_differences", [])
+        if not diffs:
+            return {}
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Histogram(x=diffs, name="Sweep Savings", marker_color="orange", opacity=0.75, nbinsx=15)
+        )
+
+        title = (
+            f"Sobol Sweep Measurement Savings<br>"
+            f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
+        )
+        fig.update_layout(title=title, xaxis_title="Measurements Saved", yaxis_title="Count", template="plotly_white")
+
+        filename = f"sobol_diff_{metrics.strategy_name}.html"
+        safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
+        out_path = self.out_dir / safe_filename
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(out_path)
+
+        return {
+            "type": "sobol_difference",
+            "strategy": metrics.strategy_name,
+            "path": out_path.as_posix(),
+            "title": "Sobol Sweep Measurement Savings",
+        }

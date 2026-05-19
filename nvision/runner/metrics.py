@@ -98,6 +98,11 @@ def generate_attempt_metrics(  # noqa: C901
         if _sweep_key in estimate:
             metrics_serialized[_sweep_key] = _maybe_finite(estimate[_sweep_key])
 
+    exp_uniform = metrics_serialized.get("expected_uniform_points")
+    meas = metrics_serialized.get("measurements")
+    if exp_uniform is not None and meas is not None:
+        metrics_serialized["sobol_difference"] = _maybe_finite(exp_uniform - meas)
+
     # Milestone metrics
     if run_result:
         milestone_data = calculate_zeeman_metrics(run_result)

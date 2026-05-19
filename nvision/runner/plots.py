@@ -174,6 +174,7 @@ def _extract_grid_posterior(snapshots: list, names: list[str]) -> dict[str, tupl
 
 def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     from nvision.belief.smc_marginal import SMCMarginalDistribution
+    from nvision.spectra.unit_cube import UnitCubeSignalModel
 
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
     b0 = snapshots[0].belief
@@ -183,16 +184,21 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     for scan_param in names:
         idx = b0._param_names.index(scan_param)
         hist: list[np.ndarray] = []
-        lo, hi = 0.0, 1.0
-        if is_unit_cube:
-            lo, hi = b0.model.param_bounds_phys[scan_param]
 
         for s in snapshots:
             b = s.belief
             assert isinstance(b, SMCMarginalDistribution)
             col = b._particles[:, idx].copy()
-            if is_unit_cube:
+            
+            lo, hi = 0.0, 1.0
+            if hasattr(b, "physical_param_bounds") and scan_param in b.physical_param_bounds:
+                lo, hi = b.physical_param_bounds[scan_param]
+            elif is_unit_cube and hasattr(b, "model") and hasattr(b.model, "param_bounds_phys"):
+                lo, hi = b.model.param_bounds_phys[scan_param]
+
+            if lo != 0.0 or hi != 1.0:
                 col = lo + col * (hi - lo)
+
             weights = b._weights.copy()
             hist.append(np.column_stack([col, weights]))
         out[scan_param] = (hist, stub_grid)

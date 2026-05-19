@@ -60,6 +60,7 @@ class StrategyMetrics:
     # Parameter name -> List of values (one per repeat)
     absolute_errors: dict[str, list[float]] = field(default_factory=dict)
     convergence_steps: dict[str, list[int]] = field(default_factory=dict)
+    sobol_differences: list[float] = field(default_factory=list)
 
     # Summary statistics
     parameter_convergence_rates: dict[str, float] = field(default_factory=dict)

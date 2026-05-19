@@ -193,27 +193,58 @@ def _trace_one_marginal_posterior(
     posterior: np.ndarray,
     grid: np.ndarray,
     param: str,
-) -> list[go.Histogram | go.Scatter]:
+    color_idx: int = 0,
+) -> list[go.Scatter]:
+    # Unified, harmonized color palette matching Plotly's default color cycle
+    colors = [
+        "rgba(99, 110, 250, 1.0)",   # Blue
+        "rgba(239, 85, 59, 1.0)",   # Red
+        "rgba(0, 204, 150, 1.0)",   # Green
+        "rgba(171, 99, 250, 1.0)",  # Purple
+        "rgba(255, 161, 90, 1.0)",  # Orange
+        "rgba(25, 211, 243, 1.0)",  # Cyan
+    ]
+    fill_colors = [
+        "rgba(99, 110, 250, 0.25)",
+        "rgba(239, 85, 59, 0.25)",
+        "rgba(0, 204, 150, 0.25)",
+        "rgba(171, 99, 250, 0.25)",
+        "rgba(255, 161, 90, 0.25)",
+        "rgba(25, 211, 243, 0.25)",
+    ]
+    c = colors[color_idx % len(colors)]
+    fc = fill_colors[color_idx % len(fill_colors)]
+
     if posterior.ndim == 2:
         # Check if particles (N, 2 or 1) or mixture (K+1, N_grid)
         if posterior.shape[1] in (1, 2):
             weights = posterior[:, 1] if posterior.shape[1] == 2 else None
+            # Pre-calculate histogram to avoid client-side Plotly animation bugs with go.Histogram/go.Bar
+            counts, bin_edges = np.histogram(
+                posterior[:, 0],
+                bins=80,
+                weights=weights,
+                density=True,
+            )
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+            
+            # Using step-like shape 'hvh' to look exactly like a histogram outline
             return [
-                go.Histogram(
-                    x=posterior[:, 0],
-                    y=weights,
-                    histfunc="sum" if weights is not None else "count",
-                    histnorm="probability density",
+                go.Scatter(
+                    x=bin_centers,
+                    y=counts,
+                    mode="lines",
+                    fill="tozeroy",
+                    fillcolor=fc,
+                    line=dict(color=c, width=2, shape="hvh"),
                     name=f"{param} (particles)",
-                    opacity=0.75,
-                    nbinsx=80,
                     showlegend=False,
                 )
             ]
         else:
             # Mixture: each row is a component, last row is total
             K_plus_1 = posterior.shape[0]
-            traces: list[go.Histogram | go.Scatter] = []
+            traces: list[go.Scatter] = []
             # Plot individual experts with dashed lines
             for k in range(K_plus_1 - 1):
                 traces.append(
@@ -222,18 +253,20 @@ def _trace_one_marginal_posterior(
                         y=posterior[k],
                         mode="lines",
                         name=f"{param} expert {k}",
-                        line=dict(dash="dash", width=1, color="rgba(0,0,255,0.4)"),
+                        line=dict(dash="dash", width=1, color="rgba(0, 0, 0, 0.25)"),
                         showlegend=False,
                     )
                 )
-            # Plot total mixture with solid blue line
+            # Plot total mixture with solid line and fill
             traces.append(
                 go.Scatter(
                     x=grid,
                     y=posterior[-1],
                     mode="lines",
                     name=f"{param} (mixture)",
-                    line=dict(color="blue", width=2.5),
+                    line=dict(color=c, width=2.5),
+                    fill="tozeroy",
+                    fillcolor=fc,
                     showlegend=False,
                 )
             )
@@ -244,8 +277,10 @@ def _trace_one_marginal_posterior(
             x=grid,
             y=posterior,
             mode="lines",
+            fill="tozeroy",
+            fillcolor=fc,
             name=param,
-            line=dict(color="blue"),
+            line=dict(color=c, width=2.5),
             showlegend=False,
         )
     ]
@@ -637,7 +672,7 @@ class BayesianMixin:
             for param_idx, param in enumerate(param_names, start=1):
                 posterior_history, grid = posterior_inputs_by_param[param]
                 posterior = posterior_history[-1] if step_idx >= len(posterior_history) else posterior_history[step_idx]
-                for tr in _trace_one_marginal_posterior(posterior, grid, param):
+                for tr in _trace_one_marginal_posterior(posterior, grid, param, color_idx=param_idx - 1):
                     if param_idx > 1:
                         tr.update(xaxis=f"x{param_idx}", yaxis=f"y{param_idx}")
                     else:
@@ -822,16 +857,23 @@ class BayesianMixin:
                 # The active support is the union of the particle ranges across all steps
                 x_min_val = float("inf")
                 x_max_val = float("-inf")
+                max_density = 0.0
                 for post in posterior_history:
                     vals = post[:, 0]
                     x_min_val = min(x_min_val, float(np.min(vals)))
                     x_max_val = max(x_max_val, float(np.max(vals)))
+                    
+                    weights = post[:, 1] if post.shape[1] == 2 else None
+                    counts, _ = np.histogram(vals, bins=80, weights=weights, density=True)
+                    m = np.max(counts)
+                    if m > max_density:
+                        max_density = m
 
                 span = x_max_val - x_min_val
                 if span <= 0:
                     span = 1e-6
                 x_range_by_param[param] = [float(x_min_val - 0.05 * span), float(x_max_val + 0.05 * span)]
-                y_max_by_param[param] = None  # Plotly will auto-scale the y-axis
+                y_max_by_param[param] = float(max_density) if max_density > 0.0 else 1.0
             else:
                 # 2. Grid or Mixture belief
                 max_density = 0.0
@@ -980,7 +1022,7 @@ class BayesianMixin:
                 row=row_ap,
                 col=1,
                 annotation_text="post-sweep acquisition",
-                zoom_to_window=True,
+                zoom_to_window=False,
             )
             _add_acquisition_window_subplot(
                 fig,

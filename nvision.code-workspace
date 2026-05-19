@@ -1,0 +1,164 @@
+{
+  "folders": [
+    {
+      "name": "NVision",
+      "path": "."
+    }
+  ],
+  "settings": {
+    // Interpreter and Environment
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+      "${workspaceFolder}"
+    ],
+    
+    // Testing
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+      "tests"
+    ],
+
+    // Formatting & Linting
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit",
+      "source.fixAll": "explicit"
+    },
+    "[python]": {
+      "editor.defaultFormatter": "charliermarsh.ruff",
+      "editor.codeActionsOnSave": {
+        "source.organizeImports.ruff": "explicit",
+        "source.fixAll.ruff": "explicit"
+      }
+    },
+
+    // File/Search Exclusions for Performance
+    "files.exclude": {
+      "**/.git": true,
+      "**/.svn": true,
+      "**/.hg": true,
+      "**/CVS": true,
+      "**/.DS_Store": true,
+      "**/Thumbs.db": true,
+      "**/.venv": false, // Keep visible in file tree
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/.ruff_cache": true,
+      "**/.idea": true,
+      "**/.agent": true
+    },
+    "search.exclude": {
+      "**/.venv": true,
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/.ruff_cache": true,
+      "**/dist": true,
+      "**/build": true
+    },
+    "files.watcherExclude": {
+      "**/.git/objects/**": true,
+      "**/.git/subtree-cache/**": true,
+      "**/.venv/**": true,
+      "**/__pycache__/**": true,
+      "**/.pytest_cache/**": true,
+      "**/.ruff_cache/**": true
+    },
+
+    // Style & Editor Settings
+    "editor.rulers": [120],
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.eol": "\n",
+
+    // Terminal settings
+    "terminal.integrated.env.windows": {
+      "PYTHONPATH": "${workspaceFolder}"
+    }
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Python: Current File",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${file}",
+        "console": "integratedTerminal",
+        "justMyCode": true
+      },
+      {
+        "name": "NVision: CLI Run",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "nvision",
+        "args": [
+          "run",
+          "--repeats",
+          "5",
+          "--loc-max-steps",
+          "150"
+        ],
+        "console": "integratedTerminal",
+        "justMyCode": true,
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}"
+        }
+      },
+      {
+        "name": "NVision: CLI Render",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "nvision",
+        "args": [
+          "render"
+        ],
+        "console": "integratedTerminal",
+        "justMyCode": true,
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}"
+        }
+      },
+      {
+        "name": "Python: Debug Tests",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/.venv/Scripts/pytest",
+        "args": [
+          "-v"
+        ],
+        "console": "integratedTerminal",
+        "justMyCode": false
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "NVision: Sync dependencies (uv)",
+        "type": "shell",
+        "command": "uv sync --group dev",
+        "problemMatcher": [],
+        "group": "build"
+      },
+      {
+        "label": "NVision: Run Tests (uv)",
+        "type": "shell",
+        "command": "uv run --no-sync pytest",
+        "problemMatcher": [],
+        "group": "test"
+      },
+      {
+        "label": "NVision: Format & Lint (Ruff)",
+        "type": "shell",
+        "command": "uv run --no-sync ruff check . --fix && uv run --no-sync ruff format .",
+        "problemMatcher": []
+      }
+    ]
+  }
+}

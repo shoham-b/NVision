@@ -126,6 +126,7 @@
         <div class="bayes-tab-bar" id="summary-tab-bar" role="tablist">
             <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" aria-controls="summary-abs-error" id="tab-summary-abs-error" data-tab="summary-abs-error" tabindex="0">Abs Error</button>
             <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" aria-controls="summary-uncertainty" id="tab-summary-uncertainty" data-tab="summary-uncertainty" tabindex="-1">Uncertainty</button>
+            <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" aria-controls="summary-efficiency" id="tab-summary-efficiency" data-tab="summary-efficiency" tabindex="-1">Sweep Savings</button>
         </div>
         
         <div class="bayes-tab-panel is-active" role="tabpanel" id="summary-abs-error" aria-labelledby="tab-summary-abs-error">
@@ -136,6 +137,11 @@
         <div class="bayes-tab-panel" role="tabpanel" id="summary-uncertainty" aria-labelledby="tab-summary-uncertainty">
             <h3 style="margin-top:0">Uncertainty Distributions <span tabindex="0" class="help-icon-visible" title="Distributions of uncertainty across all repeats.">?</span></h3>
             <div id="summary-uncertainty-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
+        </div>
+
+        <div class="bayes-tab-panel" role="tabpanel" id="summary-efficiency" aria-labelledby="tab-summary-efficiency">
+            <h3 style="margin-top:0">Sweep Savings Distributions <span tabindex="0" class="help-icon-visible" title="Difference between expected simple Sobol sweep points and actual measurements taken by the locator. Greater is better.">?</span></h3>
+            <div id="summary-efficiency-charts" style="display: flex; flex-wrap: wrap; gap: 1em;"></div>
         </div>
     </div>
 </div>
@@ -201,6 +207,10 @@
         <div style="flex: 1; min-width: 400px;">
             <h3>Duration <span tabindex="0" class="help-icon-visible" title="Wall-clock computation time per strategy across all repeats. Lower is better.">?</span></h3>
             <iframe id="comp-iframe-duration" style="height: 500px;" title="Strategy comparison: Duration"></iframe>
+        </div>
+        <div style="flex: 1; min-width: 400px;" id="comp-savings-container">
+            <h3>Sweep Savings <span tabindex="0" class="help-icon-visible" title="Difference between expected simple Sobol sweep points and actual measurements taken by the locator. Greater is better.">?</span></h3>
+            <iframe id="comp-iframe-savings" style="height: 500px;" title="Strategy comparison: Sweep Savings"></iframe>
         </div>
     </div>
     

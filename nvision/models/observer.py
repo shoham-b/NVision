@@ -69,6 +69,15 @@ class RunResult:
     sweep_steps: int = 0
     secondary_sweep_steps: int = 0
     tertiary_sweep_steps: int = 0
+    expected_uniform_points: float = 0.0
+
+    @property
+    def sobol_difference(self) -> float:
+        """Difference between simple Sobol sweep required points and actual measurements."""
+        if self.expected_uniform_points <= 0:
+            return 0.0
+        return self.expected_uniform_points - float(self.num_steps())
+
 
     def uncertainty_trajectory(self, param: str) -> list[float]:
         """Get uncertainty (std) trajectory for parameter.
@@ -275,6 +284,7 @@ class Observer:
         sweep_steps = 0
         secondary_sweep_steps = 0
         tertiary_sweep_steps = 0
+        expected_uniform_points = 0.0
         if last_locator is not None:
             # Use duck typing with hasattr for optional locator capabilities
             if hasattr(last_locator, "bayesian_focus_window"):
@@ -297,6 +307,14 @@ class Observer:
             if hasattr(last_locator, "tertiary_sweep_count"):
                 tertiary_sweep_steps = last_locator.tertiary_sweep_count()
 
+            if hasattr(last_locator, "result") and callable(last_locator.result):
+                try:
+                    res = last_locator.result()
+                    if isinstance(res, dict) and "expected_uniform_points" in res:
+                        expected_uniform_points = float(res["expected_uniform_points"])
+                except Exception:
+                    pass
+
         return RunResult(
             snapshots=self.snapshots,
             true_signal=self.true_signal,
@@ -306,4 +324,5 @@ class Observer:
             sweep_steps=sweep_steps,
             secondary_sweep_steps=secondary_sweep_steps,
             tertiary_sweep_steps=tertiary_sweep_steps,
+            expected_uniform_points=expected_uniform_points,
         )
