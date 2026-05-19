@@ -256,3 +256,71 @@ def test_ekf_posterior_animation_extraction():
     assert len(hist_f) == 1
     assert hist_f[0].shape == (250,)
     assert grid_f.shape == (250,)
+
+
+def test_ekf_particle_frequency_posterior_animation_extraction():
+    from nvision.sim.locs.ekf.belief import EKFParticleFrequencyBelief
+    from nvision.runner.plots import _posterior_animation_inputs, _posterior_animation_inputs_all_params
+
+    model = NVCenterLorentzianModel()
+    theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])
+    P_initial = np.eye(5) * 0.1
+    bounds = {
+        "frequency": (2.6e9, 3.1e9),
+        "linewidth": (50e3, 400e3),
+        "split": (2.0e6, 3.5e6),
+        "k_np": (2.0, 4.0),
+        "dip_depth": (0.1, 1.0),
+    }
+    belief = EKFParticleFrequencyBelief(
+        model=model,
+        theta_initial=theta_initial,
+        P_initial=P_initial,
+        R=0.05**2,
+        parameter_bounds=bounds,
+        num_particles=100,
+    )
+
+    class MockSnapshot:
+        def __init__(self, b):
+            self.belief = b
+
+    snapshots = [MockSnapshot(belief)]
+
+    class MockRunResult:
+        def __init__(self, snaps):
+            self.snapshots = snaps
+
+    run_result = MockRunResult(snapshots)
+
+    # 1. 1D frequency extraction -> should be particles
+    out_1d_freq = _posterior_animation_inputs(run_result, "frequency")
+    assert out_1d_freq is not None
+    hist, grid = out_1d_freq
+    assert len(hist) == 1
+    assert hist[0].shape == (100, 2)
+    assert grid.shape == (2,)
+
+    # 2. 1D linewidth extraction -> should be continuous (250 grid points)
+    out_1d_lw = _posterior_animation_inputs(run_result, "linewidth")
+    assert out_1d_lw is not None
+    hist_lw, grid_lw = out_1d_lw
+    assert len(hist_lw) == 1
+    assert hist_lw[0].shape == (250,)
+    assert grid_lw.shape == (250,)
+
+    # 3. Multi-parameter extraction
+    out_multi = _posterior_animation_inputs_all_params(run_result)
+    assert out_multi is not None
+    assert "frequency" in out_multi
+    assert "linewidth" in out_multi
+    assert "split" in out_multi
+
+    hist_f, grid_f = out_multi["frequency"]
+    assert len(hist_f) == 1
+    assert hist_f[0].shape == (100, 2)
+
+    hist_lw, grid_lw = out_multi["linewidth"]
+    assert len(hist_lw) == 1
+    assert hist_lw[0].shape == (250,)
+
