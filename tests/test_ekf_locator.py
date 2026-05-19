@@ -153,6 +153,38 @@ def test_ekf_aoptimal_locator_create_and_run():
     assert all(math.isfinite(v) for v in est.values())
 
 
+def test_ekf_particle_frequency_locator_create_and_run():
+    from nvision.sim.locs.ekf.ekf_locator import EKFParticleFrequencyLocator
+    from nvision.sim.locs.ekf.belief import EKFParticleFrequencyBelief
+
+    exp = _nv_center_experiment()
+    rng = random.Random(42)
+
+    # Build the locator
+    locator = EKFParticleFrequencyLocator.create(
+        max_steps=10,
+        parameter_bounds=exp.true_signal.bounds,
+        noise_std=0.05,
+        num_particles=100,
+    )
+
+    assert isinstance(locator, EKFParticleFrequencyLocator)
+    assert isinstance(locator.belief, EKFParticleFrequencyBelief)
+
+    # Run the measurement loop
+    steps = list(run_loop(EKFParticleFrequencyLocator, exp, rng, max_steps=15, noise_std=0.05))
+    assert len(steps) > 0
+    assert len(steps) <= 20
+
+    last_loc = steps[-1]
+    assert isinstance(last_loc, EKFParticleFrequencyLocator)
+    assert last_loc.belief.last_obs is not None
+
+    # Check finite estimates
+    est = last_loc.result()
+    assert all(math.isfinite(v) for v in est.values())
+
+
 def test_ekf_locator_with_priors():
     exp = _nv_center_experiment()
     bounds = dict(exp.true_signal.bounds)
