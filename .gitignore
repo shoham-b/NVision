@@ -114,16 +114,12 @@ logs/
 # Project specific
 .fuzz_cache/
 
-# Allow artifacts to be committed
-!artifacts/
-!artifacts/cache/
 graphs/
 /.hypothesis/
 
 .gemini/
 gha-creds-*.json
 .\junit-result.xml
-artifacts/cache/
-artifacts/
-demo_artifacts/
-beta_artifacts/
+artifacts/**
+demo_artifacts*/
+beta_artifacts*/
