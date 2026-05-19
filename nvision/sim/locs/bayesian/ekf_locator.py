@@ -83,10 +83,10 @@ class EKFLocator(SequentialBayesianLocator):
             else:
                 raise ValueError("EKFLocator requires either signal_model or a builder.")
 
-        from nvision.spectra.nv_center import NVCenterLorentzianModel
+        from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterVoigtModel
 
-        if not isinstance(model, NVCenterLorentzianModel):
-            raise ValueError(f"EKFLocator only supports NVCenterLorentzianModel, got {type(model).__name__}")
+        if not isinstance(model, (NVCenterLorentzianModel, NVCenterVoigtModel)):
+            raise ValueError(f"EKFLocator only supports NV center models, got {type(model).__name__}")
 
         bounds_phys = dict(parameter_bounds) if parameter_bounds else {}
         from nvision.spectra.unit_cube import UnitCubeSignalModel
@@ -113,6 +113,33 @@ class EKFLocator(SequentialBayesianLocator):
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
         )
+
+    def _on_sweep_complete(self) -> None:
+        if self._initial_sweep_completed_at_step is None:
+            self._initial_sweep_completed_at_step = self._staged_sobol.step_count
+
+        if hasattr(self._staged_sobol, "finalize"):
+            self._staged_sobol.finalize()
+
+        self._acquisition_lo, self._acquisition_hi = self._staged_sobol.acquisition_window()
+        if hasattr(self._staged_sobol, "per_dip_windows"):
+            pdw = self._staged_sobol.per_dip_windows()
+            if pdw is not None:
+                self._per_dip_windows = pdw
+
+        self.belief.narrow_scan_parameter_physical_bounds(self._scan_param, self._acquisition_lo, self._acquisition_hi)
+
+        if self._sweep_buffer.count > 0:
+            for obs in self._sweep_buffer.observations:
+                self.belief.update(obs)
+            from nvision.models.observation import ObservationHistory
+
+            self._sweep_buffer = ObservationHistory(self.max_steps)
+
+        phys_bounds = self.belief.physical_param_bounds
+        slo, shi = phys_bounds[self._scan_param]
+        self._acquisition_lo = min(slo, shi)
+        self._acquisition_hi = max(slo, shi)
 
     def _generate_candidates_phys(self) -> np.ndarray:
         """Return a slope-targeted candidate grid in Hz."""
