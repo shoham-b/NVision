@@ -311,22 +311,22 @@ class BayesianMixin:
             if (window.self !== window.top) {{
                 document.body.classList.add('in-iframe');
             }}
-            
+
             function getPlotlyDiv() {{
                 return document.querySelector('.plotly-graph-div');
             }}
-            
+
             window.showFrame = function(idx) {{
                 var gd = getPlotlyDiv();
                 if (!gd || !window.Plotly) return;
-                
+
                 window.Plotly.animate(gd, [String(idx)], {{
                     mode: 'immediate',
                     transition: {{duration: 0}},
                     frame: {{duration: 0, redraw: true}}
                 }});
             }};
-            
+
             var checkInterval = setInterval(function() {{
                 var gd = getPlotlyDiv();
                 if (gd && gd._transitionData && gd._transitionData._frames) {{
@@ -763,7 +763,7 @@ class BayesianMixin:
             row_nb = 1
             if acquisition_param and acquisition_param in param_names:
                 row_nb = param_names.index(acquisition_param) + 1
-                
+
                 # Check for step-specific bounds
                 step_bounds = None
                 if per_step_narrowed_bounds is not None and step_idx < len(per_step_narrowed_bounds):
@@ -778,7 +778,7 @@ class BayesianMixin:
                         acq_name = "posterior refocusing"
                 elif (not step_bounds) and acquisition_window is not None and step_idx >= 32:
                     window = acquisition_window
-                
+
                 if window is not None:
                     x0, x1 = float(window[0]), float(window[1])
                     if math.isfinite(x0) and math.isfinite(x1) and x1 > x0:
@@ -803,7 +803,6 @@ class BayesianMixin:
             )
 
             return traces
-
 
         # Pre-calculate global maximum density (y-axis) and active support range (x-axis) across all steps
         y_max_by_param = {}
@@ -840,10 +839,7 @@ class BayesianMixin:
                 max_active_idx = 0
 
                 for post in posterior_history:
-                    if post.ndim == 2:
-                        post_1d = post[-1]
-                    else:
-                        post_1d = post
+                    post_1d = post[-1] if post.ndim == 2 else post
                     m = np.max(post_1d)
                     if m > max_density:
                         max_density = m
@@ -888,7 +884,7 @@ class BayesianMixin:
             fig.update_xaxes(title_text="Sorted Particle Index", row=weights_row, col=1)
 
             fig.update_yaxes(title_text="ESS", automargin=True, range=[0, num_particles * 1.05], row=ess_row, col=1)
-            fig.update_xaxes(title_text= "Measurement Step", range=[0.5, total_steps + 0.5], row=ess_row, col=1)
+            fig.update_xaxes(title_text="Measurement Step", range=[0.5, total_steps + 0.5], row=ess_row, col=1)
 
         # Format Timeline subplot
         fig.update_yaxes(visible=False, range=[-1, 1], row=timeline_row, col=1)
@@ -1039,7 +1035,7 @@ class BayesianMixin:
                 )
 
         # Build speed buttons
-        speed_buttons = [
+        [
             dict(
                 label=label,
                 method="animate",
@@ -1221,27 +1217,27 @@ class BayesianMixin:
           window.addEventListener('DOMContentLoaded', () => {{
             const gd = document.getElementsByClassName('plotly-graph-div')[0];
             if (!gd) return;
-            
+
             const playBtn = document.getElementById('timeline-play-btn');
             const playBtnText = playBtn.querySelector('span');
             const playBtnIcon = playBtn.querySelector('svg');
             const slider = document.getElementById('timeline-range-slider');
             const label = document.getElementById('timeline-step-label');
             const speedSelect = document.getElementById('timeline-speed-select');
-            
+
             let isPlaying = false;
             let playInterval = null;
             let totalFrames = {total_frames};
             let stepValues = {step_values_json};
-            
+
             slider.max = totalFrames - 1;
             updateLabel(0);
-            
+
             slider.addEventListener('input', (e) => {{
               const frameIdx = parseInt(e.target.value, 10);
               showFrame(frameIdx);
             }});
-            
+
             playBtn.addEventListener('click', () => {{
               if (isPlaying) {{
                 pause();
@@ -1249,19 +1245,19 @@ class BayesianMixin:
                 play();
               }}
             }});
-            
+
             speedSelect.addEventListener('change', () => {{
               if (isPlaying) {{
                 pause();
                 play();
               }}
             }});
-            
+
             function updateLabel(idx) {{
               const val = stepValues[idx] !== undefined ? stepValues[idx] : idx;
               label.textContent = `Step: ${{val}} (${{idx + 1}} / ${{totalFrames}})`;
             }}
-            
+
             function showFrame(idx) {{
               updateLabel(idx);
               Plotly.animate(gd, [String(idx)], {{
@@ -1270,7 +1266,7 @@ class BayesianMixin:
                 frame: {{duration: 0, redraw: true}}
               }});
             }}
-            
+
             function play() {{
               isPlaying = true;
               playBtnText.textContent = 'Pause';
@@ -1278,7 +1274,7 @@ class BayesianMixin:
               playBtn.style.background = '#ffebe6';
               playBtn.style.borderColor = '#ff4d4d';
               playBtn.style.color = '#960000';
-              
+
               const intervalMs = parseInt(speedSelect.value, 10);
               playInterval = setInterval(() => {{
                 let nextIdx = parseInt(slider.value, 10) + 1;
@@ -1289,7 +1285,7 @@ class BayesianMixin:
                 showFrame(nextIdx);
               }}, intervalMs);
             }}
-            
+
             function pause() {{
               isPlaying = false;
               playBtnText.textContent = 'Play';
@@ -1297,10 +1293,10 @@ class BayesianMixin:
               playBtn.style.background = '#e6f2ff';
               playBtn.style.borderColor = '#1e90ff';
               playBtn.style.color = '#005b96';
-              
+
               clearInterval(playInterval);
             }}
-            
+
             // Sync bridge interface for parent global timeline sync
             if (window.self !== window.top) {{
               document.body.classList.add('in-iframe');
@@ -1404,7 +1400,7 @@ class BayesianMixin:
                     true_norm_y.append([0.0, 0.0])
 
         if has_true:
-            for key, y_val in zip(keys, true_raw_y):
+            for key, y_val in zip(keys, true_raw_y, strict=False):
                 fig.add_trace(
                     go.Scatter(
                         x=[steps[0], steps[-1]],

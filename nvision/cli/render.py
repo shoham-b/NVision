@@ -610,10 +610,7 @@ def render(
     finally:
         bridge.close()
 
-    if df_rows:
-        df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
-    else:
-        df_loc = pl.DataFrame()
+    df_loc = pl.from_dicts(df_rows, infer_schema_length=None) if df_rows else pl.DataFrame()
 
     # Always attempt recovery of manifest rows to merge with cached results
     recovered_rows = _rows_from_existing_manifest(out_dir)

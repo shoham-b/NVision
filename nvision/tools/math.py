@@ -24,9 +24,8 @@ def _maybe_finite(value: object) -> float | int | None:
     val = _to_native(value)
     if isinstance(val, int):
         return val
-    if isinstance(val, float):
-        if math.isfinite(val):
-            return val
+    if isinstance(val, float) and math.isfinite(val):
+        return val
     return None
 
 
