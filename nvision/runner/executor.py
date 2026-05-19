@@ -674,15 +674,12 @@ class _TaskRunner:
         This ensures that when repeats are spawned, the sweep is already in cache
         and all repeats can share the same initial sweep measurements.
         """
-        from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-
         noise_std = 0.05
         noise_max_dev: float | None = None
         if experiment.noise is not None:
             noise_std = float(experiment.noise.estimated_noise_std())
             if hasattr(experiment.noise, "estimated_max_noise_deviation"):
-                mid_n = SequentialBayesianLocator.DEFAULT_INITIAL_SWEEP_STEPS // 2
-                noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=mid_n))
+                noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
 
         domain_width = float(experiment.x_max - experiment.x_min)
         signal_min_span: float | None = None
@@ -726,17 +723,13 @@ class _TaskRunner:
         experiment: CoreExperiment,
         repeat_start_time: float,
     ) -> tuple[pl.DataFrame, dict[str, Any], str, RunResult]:
-        from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-
         noise_std = 0.05
         noise_max_dev: float | None = None
         if experiment.noise is not None:
             noise_std = float(experiment.noise.estimated_noise_std())
             if hasattr(experiment.noise, "estimated_max_noise_deviation"):
-                # Use DEFAULT_INITIAL_SWEEP_STEPS // 2 as the n_samples count
-                # so the threshold accounts for the actual mid-sweep sample size.
-                mid_n = SequentialBayesianLocator.DEFAULT_INITIAL_SWEEP_STEPS // 2
-                noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=mid_n))
+                # Use a default of 6 samples (previously mid-sweep) to account for mid-step sample size.
+                noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
         # Read signal spans from the model's declared methods.
         domain_width = float(experiment.x_max - experiment.x_min)
         signal_max_span: float | None = None

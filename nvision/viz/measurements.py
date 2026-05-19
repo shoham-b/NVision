@@ -430,7 +430,12 @@ def _add_per_dip_windows_overlay(
         )
 
 
-def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, float]]:  # noqa: C901
+def _detect_dip_segments(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    *,
+    max_dips: int | None = None,
+) -> list[tuple[float, float]]:  # noqa: C901
     """Detect dip segments from dense signal evaluation using percentile thresholding."""
     xs = np.asarray(xs)
     ys = np.asarray(ys)
@@ -458,6 +463,10 @@ def _detect_dip_segments(xs: np.ndarray, ys: np.ndarray) -> list[tuple[float, fl
 
     if not minima_indices:
         return []
+
+    if max_dips is not None and len(minima_indices) > max_dips:
+        minima_indices = sorted(minima_indices, key=lambda i: float(ys_s[i]))[:max_dips]
+        minima_indices.sort()
 
     segments: list[tuple[float, float]] = []
     for min_idx in minima_indices:
@@ -493,9 +502,10 @@ def _add_dip_boundary_lines(
     xs: np.ndarray,
     ys: np.ndarray,
     has_metrics: bool,
+    max_dips: int | None = None,
 ) -> None:
     """Overlay vertical dashed lines at true-signal dip boundaries."""
-    segments = _detect_dip_segments(xs, ys)
+    segments = _detect_dip_segments(xs, ys, max_dips=max_dips)
     if not segments:
         return
     row, col = _row_col(has_metrics)
@@ -1090,8 +1100,20 @@ class MeasurementsMixin:
         _add_measurement_distribution_trace(fig, history=history, xs_dense=xs, ys_dense=ys, has_metrics=has_metrics)
         _add_history_traces(fig, history, has_metrics)
         _add_focus_window_overlay(fig, focus_window=focus_window, has_metrics=has_metrics)
+        expected_dips: int | None = None
+        try:
+            expected_dips = int(scan.true_signal.model.expected_dip_count())
+        except (AttributeError, TypeError, ValueError):
+            expected_dips = None
+        # Sweep over-detection (e.g. 1200 noisy points) can yield dozens of spurious windows.
+        if (
+            per_dip_windows is not None
+            and expected_dips is not None
+            and len(per_dip_windows) > expected_dips
+        ):
+            per_dip_windows = None
         _add_per_dip_windows_overlay(fig, per_dip_windows=per_dip_windows, has_metrics=has_metrics)
-        _add_dip_boundary_lines(fig, xs=xs, ys=ys, has_metrics=has_metrics)
+        _add_dip_boundary_lines(fig, xs=xs, ys=ys, has_metrics=has_metrics, max_dips=expected_dips)
         # Draw last so the curve sits on top of true/noisy/measurements/distribution.
         _add_mode_belief_trace(
             fig,

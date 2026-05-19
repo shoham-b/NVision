@@ -100,3 +100,39 @@ def test_calculate_strategy_metrics():
     assert metrics.total_convergence_rate == 1.0
     assert "x1" in metrics.parameter_convergence_rates
     assert metrics.parameter_convergence_rates["x1"] == 1.0
+
+
+def test_sequential_bayesian_locator_expected_uniform_points():
+    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
+    class MockSignalModelWithDip(MockSignalModel):
+        def compute(self, x, params):
+            if abs(x - 0.5) < 0.05:
+                return 0.5
+            return 1.0
+
+    # Create mock belief
+    model = MockSignalModelWithDip()
+    true_signal = TrueSignal(model=model, typed_parameters=(0.5,), bounds={"x1": (0, 1)})
+
+    param = GridParameter(
+        name="x1",
+        bounds=(0, 1),
+        grid=np.linspace(0, 1, 10),
+        posterior=np.ones(10) / 10,
+    )
+
+    mock_belief_cls = _make_mock_belief(0.5, 0.01)
+    belief = mock_belief_cls(model=model, parameters=[param])
+
+    # Create SequentialBayesianLocator subclass
+    class TestLocator(SequentialBayesianLocator):
+        def _acquire(self):
+            return 0.5
+
+    locator = TestLocator(belief=belief, noise_std=0.01)
+    locator._true_signal = true_signal
+
+    res = locator.result()
+    assert "expected_uniform_points" in res
+    assert res["expected_uniform_points"] > 0

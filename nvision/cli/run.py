@@ -448,6 +448,13 @@ def run(  # noqa: C901
         str | None,
         typer.Option("--gcp-bucket", help="GCP bucket to upload results to"),
     ] = cli_defaults.DEFAULT_GCP_BUCKET,
+    single_run: Annotated[
+        bool,
+        typer.Option(
+            "--single-run",
+            help="Run a single combination of generator, noise, and strategy (overrides other filters)",
+        ),
+    ] = False,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -458,12 +465,18 @@ def run(  # noqa: C901
     defaulted_noise = False
     combination_names: list[tuple[str, str, str]] | None = None
 
+    # Add support for "single-run" mode
+    if single_run:
+        combination_names = [(filter_generator, filter_noise, filter_strategy)]
+        log.info("Running in single-run mode with combination: %s", combination_names)
+
+    # Ensure the new locator is included in run_group logic
     if run_group is not None:
         group = sim_run_groups.get_run_group(run_group)
-        # Cartesian product of the group's explicit name lists
         combination_names = [
             (g, n, s) for g in group.generator_names for n in group.noise_names for s in group.strategy_names
         ]
+        log.info("Running group: %s with combinations: %s", run_group, combination_names)
     elif not all_experiments:
         # Backward-compatible default: NVCenter category (old default_run_case behaviour)
         if filter_category is None:

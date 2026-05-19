@@ -104,7 +104,6 @@ def test_ekf_doptimal_locator_create_and_run():
     # Build the locator
     locator = EKFDOptimalLocator.create(
         max_steps=10,
-        initial_sweep_steps=5,
         parameter_bounds=exp.true_signal.bounds,
         noise_std=0.05,
     )
@@ -113,7 +112,7 @@ def test_ekf_doptimal_locator_create_and_run():
     assert isinstance(locator.belief, EKFBelief)
 
     # Run the measurement loop
-    steps = list(run_loop(EKFDOptimalLocator, exp, rng, max_steps=15, initial_sweep_steps=5, noise_std=0.05))
+    steps = list(run_loop(EKFDOptimalLocator, exp, rng, max_steps=15, noise_std=0.05))
     assert len(steps) > 0
     assert len(steps) <= 20
 
@@ -133,7 +132,6 @@ def test_ekf_aoptimal_locator_create_and_run():
     # Build the locator
     locator = EKFAOptimalLocator.create(
         max_steps=10,
-        initial_sweep_steps=5,
         parameter_bounds=exp.true_signal.bounds,
         noise_std=0.05,
     )
@@ -142,7 +140,7 @@ def test_ekf_aoptimal_locator_create_and_run():
     assert isinstance(locator.belief, EKFBelief)
 
     # Run the measurement loop
-    steps = list(run_loop(EKFAOptimalLocator, exp, rng, max_steps=15, initial_sweep_steps=5, noise_std=0.05))
+    steps = list(run_loop(EKFAOptimalLocator, exp, rng, max_steps=15, noise_std=0.05))
     assert len(steps) > 0
     assert len(steps) <= 20
 
@@ -170,7 +168,6 @@ def test_ekf_locator_with_priors():
 
     locator = EKFDOptimalLocator.create(
         max_steps=10,
-        initial_sweep_steps=0,
         parameter_bounds=bounds,
         noise_std=0.05,
     )

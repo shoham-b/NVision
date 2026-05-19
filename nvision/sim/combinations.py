@@ -22,9 +22,13 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     SequentialBayesianExperimentDesignLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.ekf import EKFLocator, EKFDOptimalLocator, EKFAOptimalLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
+from nvision.sim.locs.ekf.ekf_locator import (
+    EKFAOptimalLocator,
+    EKFDOptimalLocator,
+    EKFParticleFrequencyLocator,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,11 +95,10 @@ class CombinationGrid:
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*.
 
-        Now returns the same 4 essential locators for all generators:
+        Now returns the 3 essential locators for all generators:
         1. GenericSweep
         2. StagedSobolSweep (Staged Sweep)
-        3. Bayesian-SBED (SBED with sweep)
-        4. Bayesian-SBED-NoSweep (SBED without sweep)
+        3. Bayesian-SBED (SBED)
         """
         strats = [
             ("GenericSweep", GenericSweepLocator),
@@ -104,68 +107,39 @@ class CombinationGrid:
                 "Bayesian-SBED",
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
-                    "config": {"max_steps": 200, "initial_sweep_steps": None, **_NV_SMC},
-                },
-            ),
-            (
-                "Bayesian-SBED-NoSweep",
-                {
-                    "class": SequentialBayesianExperimentDesignLocator,
-                    "config": {"max_steps": 200, "initial_sweep_steps": 0, **_NV_SMC},
+                    "config": {"max_steps": 200, **_NV_SMC},
                 },
             ),
         ]
 
-        if "lorentzian" in generator_name.lower():
-            # EKF only supports Lorentzian currently
+        if generator_name.startswith("NVCenter-"):
+            # EKF uses a triple-Lorentzian surrogate (valid for Lorentzian and Voigt signals)
+            _ekf_config = {
+                "max_steps": 200,
+                "n_components": 3,
+                "builder": nv_center_smc_belief,
+            }
             strats.extend(
                 [
                     (
                         "Bayesian-EKF-D",
                         {
                             "class": EKFDOptimalLocator,
-                            "config": {
-                                "max_steps": 200,
-                                "initial_sweep_steps": None,
-                                "n_components": 3,
-                                "builder": nv_center_smc_belief,
-                            },
-                        },
-                    ),
-                    (
-                        "Bayesian-EKF-D-NoSweep",
-                        {
-                            "class": EKFDOptimalLocator,
-                            "config": {
-                                "max_steps": 200,
-                                "initial_sweep_steps": 0,
-                                "n_components": 3,
-                                "builder": nv_center_smc_belief,
-                            },
+                            "config": {**_ekf_config},
                         },
                     ),
                     (
                         "Bayesian-EKF-A",
                         {
                             "class": EKFAOptimalLocator,
-                            "config": {
-                                "max_steps": 200,
-                                "initial_sweep_steps": None,
-                                "n_components": 3,
-                                "builder": nv_center_smc_belief,
-                            },
+                            "config": {**_ekf_config},
                         },
                     ),
                     (
-                        "Bayesian-EKF-A-NoSweep",
+                        "Bayesian-EKF-ParticleFrequency",
                         {
-                            "class": EKFAOptimalLocator,
-                            "config": {
-                                "max_steps": 200,
-                                "initial_sweep_steps": 0,
-                                "n_components": 3,
-                                "builder": nv_center_smc_belief,
-                            },
+                            "class": EKFParticleFrequencyLocator,
+                            "config": {**_ekf_config},
                         },
                     ),
                 ]
@@ -243,8 +217,8 @@ class CombinationGrid:
                         generator=gen_obj,
                         noise_name=noise_name,
                         noise=noise_obj,
-                        strategy_name=strat_name,
                         strategy=strat_obj,
+                        strategy_name=strat_name,
                     )
 
     def resolve(self, gen_name: str, noise_name: str, strat_name: str) -> Combination | None:

@@ -5,10 +5,20 @@ import json
 from pathlib import Path
 from typing import Final
 
+from nvision.sim.combinations import CombinationGrid
 from nvision.tools.artifacts import plots_manifest_path, read_run_status
 
 _STATIC_DIR: Final = Path(__file__).parents[2] / "static"
 _STATIC_INDEX_PATH: Final = _STATIC_DIR / "index.html"
+
+
+def _strategy_grid_json() -> str:
+    """Locator strategy names per generator for UI controls (includes not-yet-run strategies)."""
+    grid = CombinationGrid()
+    strategy_grid = {
+        gen_name: [name for name, _ in grid.strategies_for(gen_name)] for gen_name in grid.generators
+    }
+    return json.dumps(strategy_grid, indent=2)
 
 
 def _read_manifest_json(out_dir: Path) -> str:
@@ -69,6 +79,10 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     )
     safe_settings = settings_json.replace("</", "<\\/")
     data_scripts.append(f"<script>window.SETTINGS = {safe_settings};</script>")
+
+    strategy_grid_json = _strategy_grid_json()
+    safe_strategy_grid = strategy_grid_json.replace("</", "<\\/")
+    data_scripts.append(f"<script>window.STRATEGY_GRID = {safe_strategy_grid};</script>")
 
     # Inline run status so the UI can show banners even before polling
     run_status = read_run_status(out_dir)

@@ -209,6 +209,17 @@ body {
             outline-offset: 2px;
         }
 
+        .segmented-control button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            color: #888;
+            background-color: #eee;
+        }
+
+        .segmented-control button:disabled:hover {
+            border-color: #ccc;
+        }
+
         .repeat-picker {
             display: inline-flex;
             align-items: center;

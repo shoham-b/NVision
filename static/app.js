@@ -1384,7 +1384,10 @@ function main() {
             }
         }
 
-        function renderSegmentedControl(control, items, previousValue) {
+        function renderSegmentedControl(control, items, previousValue, options = {}) {
+            const disabledItems = options.disabledItems instanceof Set
+                ? options.disabledItems
+                : new Set(options.disabledItems || []);
             const uniqueItems = [
                 ...new Set(
                     items.filter((item) => item !== undefined && item !== null)
@@ -1403,7 +1406,14 @@ function main() {
                 button.setAttribute('aria-checked', 'false');
                 button.tabIndex = -1;
                 button.textContent = item;
+                if (disabledItems.has(item)) {
+                    button.disabled = true;
+                    button.title = 'No scan data yet. Run this strategy with nvision run, then render.';
+                }
                 button.addEventListener('click', () => {
+                    if (button.disabled) {
+                        return;
+                    }
                     setControlValue(control, item);
                 });
                 button.addEventListener('keydown', (e) => {
@@ -1425,11 +1435,14 @@ function main() {
             }
 
             let nextValue = '';
-            if (uniqueItems.length > 0) {
-                if (previousValue && uniqueItems.includes(previousValue)) {
+            const enabledItems = uniqueItems.filter((item) => !disabledItems.has(item));
+            if (enabledItems.length > 0) {
+                if (previousValue && enabledItems.includes(previousValue)) {
                     nextValue = previousValue;
+                } else if (previousValue && uniqueItems.includes(previousValue)) {
+                    nextValue = enabledItems[0];
                 } else {
-                    nextValue = uniqueItems[0];
+                    nextValue = enabledItems[0];
                 }
             }
 
@@ -1537,22 +1550,26 @@ function main() {
             );
         }
 
-        /** Right column: strategies available for selected generator. */
+        /** Right column: strategies for selected generator (grid + cached scans). */
         function updateScanStrategyControl() {
             const selectedScanGenerator = controlValue(scanGenerator);
             const selectedScanNoise = controlValue(scanNoise);
-            const scanStrategyItems = [
-                ...new Set(
-                    scanPlots
-                        .filter((p) => p.generator === selectedScanGenerator && p.noise === selectedScanNoise)
-                        .map((p) => p.strategy)
-                ),
-            ];
-            renderSegmentedControl(
-                scanStrategy,
-                scanStrategyItems,
-                controlValue(scanStrategy),
+            const availableFromPlots = new Set(
+                scanPlots
+                    .filter((p) => p.generator === selectedScanGenerator && p.noise === selectedScanNoise)
+                    .map((p) => p.strategy),
             );
+            const gridStrategies =
+                (window.STRATEGY_GRID && window.STRATEGY_GRID[selectedScanGenerator]) || [];
+            const scanStrategyItems = [
+                ...new Set([...gridStrategies, ...availableFromPlots]),
+            ];
+            const disabledItems = new Set(
+                scanStrategyItems.filter((strategy) => !availableFromPlots.has(strategy)),
+            );
+            renderSegmentedControl(scanStrategy, scanStrategyItems, controlValue(scanStrategy), {
+                disabledItems,
+            });
         }
 
         /** Repeat options for the full (signal × locator) selection. */
@@ -2475,11 +2492,19 @@ function main() {
             function updateCmpStrategyControls() {
                 const selGen = controlValue(cmpGen);
                 const selNoise = controlValue(cmpNoise);
-                const stratItems = [
-                    ...new Set(scanPlots.filter((p) => p.generator === selGen && p.noise === selNoise).map((p) => p.strategy)),
-                ];
-                renderSegmentedControl(leftStrat, stratItems, controlValue(leftStrat));
-                renderSegmentedControl(rightStrat, stratItems, controlValue(rightStrat));
+                const availableFromPlots = new Set(
+                    scanPlots
+                        .filter((p) => p.generator === selGen && p.noise === selNoise)
+                        .map((p) => p.strategy),
+                );
+                const gridStrategies = (window.STRATEGY_GRID && window.STRATEGY_GRID[selGen]) || [];
+                const stratItems = [...new Set([...gridStrategies, ...availableFromPlots])];
+                const disabledItems = new Set(
+                    stratItems.filter((strategy) => !availableFromPlots.has(strategy)),
+                );
+                const opts = {disabledItems};
+                renderSegmentedControl(leftStrat, stratItems, controlValue(leftStrat), opts);
+                renderSegmentedControl(rightStrat, stratItems, controlValue(rightStrat), opts);
             }
 
             function repeatStringsFor(g, n, strat) {

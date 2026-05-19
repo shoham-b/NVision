@@ -25,7 +25,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         max_steps: int = 150,
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
-        initial_sweep_steps: int | None = None,
         noise_std: float = 0.02,
         n_candidates: int | None = None,
     ) -> None:
@@ -34,7 +33,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             max_steps,
             convergence_threshold,
             scan_param,
-            initial_sweep_steps=initial_sweep_steps,
             noise_std=noise_std,
         )
         self.n_candidates = int(n_candidates) if n_candidates is not None else None
@@ -52,7 +50,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         convergence_threshold: float = 0.01,
         scan_param: str | None = None,
         parameter_bounds=None,
-        initial_sweep_steps: int | None = None,
         noise_std: float | None = None,
         n_candidates: int | None = None,
         **grid_config,
@@ -65,7 +62,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
-            initial_sweep_steps=initial_sweep_steps,
             noise_std=noise_std,
             n_candidates=n_candidates,
         )
@@ -100,12 +96,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if len(best) > 0:
             return float(best[0])
         return float(candidates[len(candidates) // 2])
-
-    def _on_sweep_complete(self) -> None:
-        super()._on_sweep_complete()
-        # Do NOT resample here. Resampling immediately after batch_update collapses
-        # particles before any Bayesian measurement has been taken, undoing the
-        # epistemic tempering. The per-acquisition _check_and_resample handles it.
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks."""
