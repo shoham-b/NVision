@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import math
 import random
+
 import numpy as np
 
 from nvision.belief.abstract_marginal import ParameterValues
-from nvision.models.observation import Observation
-from nvision.spectra.nv_center import NVCenterLorentzianModel
-from nvision.sim.locs.ekf.belief import EKFBelief
-from nvision.sim.locs.ekf.ekf_locator import EKFLocator, EKFDOptimalLocator, EKFAOptimalLocator
-from nvision.runner.executor import run_loop
 from nvision.models.experiment import CoreExperiment
+from nvision.runner.executor import run_loop
+from nvision.sim.locs.ekf.belief import EKFBelief
+from nvision.sim.locs.ekf.ekf_locator import EKFAOptimalLocator, EKFDOptimalLocator
+from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.signal import TrueSignal
 
 
@@ -259,8 +259,8 @@ def test_ekf_posterior_animation_extraction():
 
 
 def test_ekf_particle_frequency_posterior_animation_extraction():
-    from nvision.sim.locs.ekf.belief import EKFParticleFrequencyBelief
     from nvision.runner.plots import _posterior_animation_inputs, _posterior_animation_inputs_all_params
+    from nvision.sim.locs.ekf.belief import EKFParticleFrequencyBelief
 
     model = NVCenterLorentzianModel()
     theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])

@@ -1,10 +1,11 @@
-import numpy as np
 from collections.abc import Callable, Sequence
 
+import numpy as np
+
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
 from nvision.models.observation import Observation
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
 from nvision.sim.locs.ekf.parameter_bounds import prepare_ekf_parameter_bounds
 
 
