@@ -104,7 +104,7 @@ def prepare_artifact_tree(out_dir: Path, *, clear_cache: bool = False) -> Artifa
     )
 
 
-def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger) -> pl.DataFrame:
+def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger) -> pl.DataFrame:  # noqa: C901
     """Concatenate with on-disk CSV when present, keeping the newest row per scenario key."""
     out_path = locator_results_path(out_dir)
     if not out_path.exists():

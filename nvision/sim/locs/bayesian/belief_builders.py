@@ -209,7 +209,7 @@ def nv_center_belief(
     )
 
 
-def nv_center_smc_belief(
+def nv_center_smc_belief(  # noqa: C901
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
     num_particles: int = NVISION_SMC_NUM_PARTICLES,

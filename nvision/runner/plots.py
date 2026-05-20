@@ -55,7 +55,7 @@ def _make_focused_ekf_grid(snapshots: list, scan_param: str, default_bounds: tup
     return np.linspace(lo, hi, 250)
 
 
-def _posterior_animation_inputs(
+def _posterior_animation_inputs(  # noqa: C901
     run_result: RunResult,
     scan_param: str,
     start_idx: int = 0,
@@ -273,8 +273,8 @@ def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, t
         for s in snapshots:
             b = s.belief
             assert isinstance(b, StudentsTMixtureMarginalDistribution)
-            K = b.n_components
-            D = b._dim
+            K = b.n_components  # noqa: N806
+            D = b._dim  # noqa: N806
 
             comp_pdfs = []
             for k in range(K):

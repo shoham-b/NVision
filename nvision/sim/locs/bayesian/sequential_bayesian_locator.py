@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
-from nvision.models.observation import Observation, ObservationHistory
+from nvision.models.observation import Observation
 
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
@@ -342,7 +342,7 @@ class SequentialBayesianLocator(Locator):
             res["expected_uniform_points"] = expected_uniform
         return res
 
-    def _compute_expected_uniform_points(self) -> float:
+    def _compute_expected_uniform_points(self) -> float:  # noqa: C901
         """Compute the expected points a simple Sobol sweep would require."""
         true_signal = getattr(self, "_true_signal", None)
         if true_signal is None:

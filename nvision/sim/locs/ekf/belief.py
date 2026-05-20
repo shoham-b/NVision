@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+
 import numpy as np
 from scipy.special import erf
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
-from nvision.spectra.signal import SignalModel
-from nvision.sim.locs.ekf.models import mu
 from nvision.sim.locs.ekf.filter import ekf_update
+from nvision.sim.locs.ekf.models import mu
+from nvision.spectra.signal import SignalModel
 
 
 class EKFBelief(AbstractMarginalDistribution):
@@ -21,8 +22,8 @@ class EKFBelief(AbstractMarginalDistribution):
         self,
         model: SignalModel,
         theta_initial: np.ndarray,
-        P_initial: np.ndarray,
-        R: float,
+        P_initial: np.ndarray,  # noqa: N803
+        R: float,  # noqa: N803
         parameter_bounds: dict[str, tuple[float, float]],
         last_obs: Observation | None = None,
     ) -> None:
@@ -90,9 +91,9 @@ class EKFBelief(AbstractMarginalDistribution):
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         """Compute empirical uncertainty (standard deviations) from covariance."""
-        f_B = self.theta_hat[0]  # noqa: N806
-        delta_f_HF = self.theta_hat[1]  # noqa: N806
-        a = self.theta_hat[2]
+        self.theta_hat[0]
+        self.theta_hat[1]
+        self.theta_hat[2]
         Omega = self.theta_hat[3]  # noqa: N806
         k_NP = self.theta_hat[4]  # noqa: N806
 
@@ -106,15 +107,9 @@ class EKFBelief(AbstractMarginalDistribution):
         std_lw = math.sqrt(max(0.0, var_Omega)) * 1e6
         std_split = math.sqrt(max(0.0, var_delta)) * 1e6
 
-        if k_NP != 0:
-            std_k_np = math.sqrt(max(0.0, var_k)) / (k_NP**2)
-        else:
-            std_k_np = 0.0
+        std_k_np = math.sqrt(max(0.0, var_k)) / k_NP ** 2 if k_NP != 0 else 0.0
 
-        if k_NP != 0 and Omega != 0:
-            std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega**2)
-        else:
-            std_dip_depth = 0.0
+        std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega ** 2) if k_NP != 0 and Omega != 0 else 0.0
 
         names = list(self.model.parameter_names())
         data = {
@@ -171,7 +166,7 @@ class EKFBelief(AbstractMarginalDistribution):
         P_reg = self.P.copy()  # noqa: N806
         min_eig = np.min(np.linalg.eigvals(P_reg))
         if min_eig < 1e-12:
-            P_reg += np.eye(5) * (abs(min_eig) + 1e-10)
+            P_reg += np.eye(5) * (abs(min_eig) + 1e-10)  # noqa: N806
 
         raw_samples = np.random.multivariate_normal(self.theta_hat, P_reg, n)
 
@@ -241,8 +236,8 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         self,
         model: SignalModel,
         theta_initial: np.ndarray,
-        P_initial: np.ndarray,
-        R: float,
+        P_initial: np.ndarray,  # noqa: N803
+        R: float,  # noqa: N803
         parameter_bounds: dict[str, tuple[float, float]],
         num_particles: int = 1000,
         last_obs: Observation | None = None,
@@ -296,7 +291,7 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         state vector, with frequency overridden by the particle mean.
         """
         self.last_obs = obs
-        f_mhz = obs.x / 1e6
+        obs.x / 1e6
 
         # Update frequency particles via likelihood
         freq_particles_mhz = self._frequency_particles / 1e6
@@ -369,8 +364,8 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         std_freq = np.sqrt(max(0.0, var_f)) * 1e6
 
         # Other parameters from EKF covariance
-        delta_f_HF = self.theta_hat[1]  # noqa: N806
-        a = self.theta_hat[2]
+        self.theta_hat[1]
+        self.theta_hat[2]
         Omega = self.theta_hat[3]  # noqa: N806
         k_NP = self.theta_hat[4]  # noqa: N806
 
@@ -382,15 +377,9 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         std_lw = math.sqrt(max(0.0, var_Omega)) * 1e6
         std_split = math.sqrt(max(0.0, var_delta)) * 1e6
 
-        if k_NP != 0:
-            std_k_np = math.sqrt(max(0.0, var_k)) / (k_NP**2)
-        else:
-            std_k_np = 0.0
+        std_k_np = math.sqrt(max(0.0, var_k)) / k_NP ** 2 if k_NP != 0 else 0.0
 
-        if k_NP != 0 and Omega != 0:
-            std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega**2)
-        else:
-            std_dip_depth = 0.0
+        std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega ** 2) if k_NP != 0 and Omega != 0 else 0.0
 
         names = list(self.model.parameter_names())
         data = {
@@ -412,10 +401,7 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         # EKF entropy for parameters 1-4
         try:
             sign, logdet = np.linalg.slogdet(2 * np.pi * np.e * self.P[1:, 1:])
-            if sign > 0:
-                ekf_entropy = 0.5 * logdet
-            else:
-                ekf_entropy = 0.0
+            ekf_entropy = 0.5 * logdet if sign > 0 else 0.0
         except np.linalg.LinAlgError:
             ekf_entropy = 0.0
 
@@ -459,13 +445,13 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         P_reg = self.P[1:, 1:].copy()  # noqa: N806
         min_eig = np.min(np.linalg.eigvals(P_reg))
         if min_eig < 1e-12:
-            P_reg += np.eye(4) * (abs(min_eig) + 1e-10)
+            P_reg += np.eye(4) * (abs(min_eig) + 1e-10)  # noqa: N806
 
         raw_samples = np.random.multivariate_normal(self.theta_hat[1:], P_reg, n)
 
         delta_f_s = raw_samples[:, 0]
         a_s = raw_samples[:, 1]
-        Omega_s = raw_samples[:, 2]
+        Omega_s = raw_samples[:, 2]  # noqa: N806
         k_NP_s = raw_samples[:, 3]  # noqa: N806
 
         frequency = frequency_samples

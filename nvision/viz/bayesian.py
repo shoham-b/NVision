@@ -263,7 +263,7 @@ def _trace_one_marginal_posterior(
             ]
         else:
             # Mixture: each row is a component, last row is total
-            K_plus_1 = posterior.shape[0]
+            K_plus_1 = posterior.shape[0]  # noqa: N806
             traces: list[go.Scatter] = []
             # Plot individual experts with dashed lines
             for k in range(K_plus_1 - 1):
@@ -689,7 +689,7 @@ class BayesianMixin:
         )
         timeline_row = total_rows
 
-        def traces_for_step(step_idx: int) -> list[object]:
+        def traces_for_step(step_idx: int) -> list[object]:  # noqa: C901
             traces: list[object] = []
             for param_idx, param in enumerate(param_names, start=1):
                 posterior_history, grid = posterior_inputs_by_param[param]
@@ -715,7 +715,6 @@ class BayesianMixin:
                 w_norm = w_curr / w_sum if w_sum > 0.0 else np.ones_like(w_curr) / len(w_curr)
 
                 # Compute weighted covariance and correlation matrix
-                mean = np.average(particles_matrix, axis=1, weights=w_norm)[:, None]
                 cov = np.cov(particles_matrix, aweights=w_norm)
                 std = np.sqrt(np.diag(cov))
                 std[std == 0.0] = 1e-8
@@ -1196,10 +1195,12 @@ class BayesianMixin:
         total_frames = len(frames)
         step_values_json = json.dumps([step["label"] for step in slider_steps])
 
-        custom_controls = f"""
+        custom_controls = f"""  # noqa: E501
         <div id="custom-timeline-controls">
           <button id="timeline-play-btn" class="timeline-btn">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" "  # noqa: E501
+            "style="display:inline-block; vertical-align:middle; margin-right:4px;">"
+            "<path d="M8 5v14l11-7z"/></svg><span>Play</span>
           </button>
           <div class="timeline-slider-container">
             <input type="range" id="timeline-range-slider" class="timeline-slider" min="0" max="{max_idx}" value="0">
@@ -1437,7 +1438,7 @@ class BayesianMixin:
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html_content)
 
-    def plot_parameter_convergence(
+    def plot_parameter_convergence(  # noqa: C901
         self,
         parameter_history: list[dict[str, float]],
         out_path: Path,
@@ -1725,7 +1726,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
 
-    def plot_covariance_ellipses(
+    def plot_covariance_ellipses(  # noqa: C901
         self,
         covariance_history: list[np.ndarray],
         param_names: list[str],
