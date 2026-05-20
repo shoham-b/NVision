@@ -36,27 +36,29 @@ _EIG_CHUNK_SIZE: int = 64
 
 @njit(cache=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Weighted mean and variance of ``x`` with weights ``w`` (Welford's 1-pass algorithm)."""
+    """Weighted mean and variance of ``x`` with weights ``w`` (2-pass algorithm)."""
     n = x.shape[0]
     if n == 0:
         return 0.0, 0.0
 
-    mean = 0.0
-    S = 0.0  # noqa: N806
     sum_weight = 0.0
+    sum_x = 0.0
     for i in range(n):
         wi = w[i]
-        xi = x[i]
         sum_weight += wi
-        if sum_weight > 0.0:
-            delta = xi - mean
-            mean += (wi / sum_weight) * delta
-            S += wi * delta * (xi - mean)  # noqa: N806
+        sum_x += x[i] * wi
 
     if sum_weight <= 0.0:
         return 0.0, 0.0
 
-    return float(mean), float(S / sum_weight)
+    mean = sum_x / sum_weight
+
+    var_sum = 0.0
+    for i in range(n):
+        diff = x[i] - mean
+        var_sum += w[i] * diff * diff
+
+    return float(mean), float(var_sum / sum_weight)
 
 
 @njit(cache=True)
@@ -468,7 +470,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             min_var = ((hi - lo) * self.min_exploration_frac) ** 2
             nudge_cov[j, j] = max(float(nudge_cov[j, j]), float(min_var))
 
-
         # Make nudge_cov perfectly symmetric and strictly positive definite.
         # Adding a tiny absolute and relative diagonal jitter ensures
         # we don't hit LinAlgError due to float32 numerical precision.
@@ -634,7 +635,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             resample_delay=self.resample_delay,
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
-
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
