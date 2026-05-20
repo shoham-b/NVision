@@ -79,7 +79,7 @@ def _group_all() -> RunGroup:
     strats = _default_strategy_names(gens)
     return RunGroup(
         name="all",
-        description="All allowed generators (Wide + Narrow), noises (Gauss + Poisson), and strategies (Sweep + Staged + SBED).",
+        description="All allowed generators (Wide + Narrow), noises (Gauss + Poisson), and strategies (Sweep + Staged + SBED).",  # noqa: E501
         generator_names=gens,
         noise_names=noises,
         strategy_names=strats,

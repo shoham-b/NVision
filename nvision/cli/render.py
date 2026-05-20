@@ -229,7 +229,7 @@ def _config_matches_run_params(
     )
 
 
-def _collect_cache_results_from_configs(
+def _collect_cache_results_from_configs(  # noqa: C901
     bridge: CacheBridge,
     discovered_configs: list[tuple[str, dict[str, object]]],
     out_dir: Path,
@@ -324,7 +324,7 @@ def _collect_cache_results_from_configs(
     return df_rows, plot_manifest, hits
 
 
-def _rows_from_existing_manifest(out_dir: Path) -> list[dict[str, object]]:
+def _rows_from_existing_manifest(out_dir: Path) -> list[dict[str, object]]:  # noqa: C901
     """Best-effort recovery of locator result rows from existing scan manifest entries."""
     path = plots_manifest_path(out_dir)
     if not path.exists():
@@ -518,7 +518,7 @@ def _load_cache_rows_for_render(
 
 
 @app.command()
-def render(
+def render(  # noqa: C901
     out: Annotated[
         Path,
         typer.Option("--out", help="Output directory (must match the run that wrote cache)"),

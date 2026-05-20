@@ -342,7 +342,7 @@ class SequentialBayesianLocator(Locator):
             res["expected_uniform_points"] = expected_uniform
         return res
 
-    def _compute_expected_uniform_points(self) -> float:
+    def _compute_expected_uniform_points(self) -> float:  # noqa: C901
         """Compute the expected points a simple Sobol sweep would require."""
         true_signal = getattr(self, "_true_signal", None)
         if true_signal is None:

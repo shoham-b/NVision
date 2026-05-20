@@ -239,7 +239,7 @@ def test_ekf_posterior_animation_extraction():
     # Set up EKF belief
     model = NVCenterLorentzianModel()
     theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])
-    p_initial = np.eye(5) * 0.1
+    P_initial = np.eye(5) * 0.1  # noqa: N806
     bounds = {
         "frequency": (2.6e9, 3.1e9),
         "linewidth": (50e3, 400e3),
@@ -296,7 +296,7 @@ def test_ekf_particle_frequency_posterior_animation_extraction():
 
     model = NVCenterLorentzianModel()
     theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])
-    p_initial = np.eye(5) * 0.1
+    P_initial = np.eye(5) * 0.1  # noqa: N806
     bounds = {
         "frequency": (2.6e9, 3.1e9),
         "linewidth": (50e3, 400e3),

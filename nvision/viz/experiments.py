@@ -91,7 +91,7 @@ class ExperimentsMixin:
 
         return entries
 
-    def plot_milestone_analysis(self, df: pl.DataFrame) -> list[dict]:
+    def plot_milestone_analysis(self, df: pl.DataFrame) -> list[dict]:  # noqa: C901
         """Create plots for milestone-based convergence analysis."""
         milestone_cols = [
             "steps_to_fb",

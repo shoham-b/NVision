@@ -11,6 +11,7 @@ from typing import Any
 import polars as pl
 
 from nvision.models.experiment import CoreExperiment
+from nvision.models.observer import RunResult
 from nvision.tools.math import _first_finite, _maybe_finite, _promote_uncert
 
 log = logging.getLogger(__name__)

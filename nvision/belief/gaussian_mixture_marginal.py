@@ -59,7 +59,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         "dip_depth": NVISION_GAUSSIAN_DEFAULT_DIP_DEPTH,
     }
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901
         self._param_names = list(self.model.parameter_names())
         self._dim = len(self._param_names)
         K, D = self.n_components, self._dim  # noqa: N806

@@ -430,7 +430,7 @@ def _add_per_dip_windows_overlay(
         )
 
 
-def _detect_dip_segments(
+def _detect_dip_segments(  # noqa: C901
     xs: np.ndarray,
     ys: np.ndarray,
     *,

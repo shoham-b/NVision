@@ -239,7 +239,7 @@ def clean_manifest(  # noqa: C901
 
 
 @cache_app.command(name="recalc")
-def recalculate_metrics(
+def recalculate_metrics(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     category: Annotated[str | None, typer.Option("--category", help="Category filter")] = None,
     strategy: Annotated[StrategyFilter | None, typer.Option("--strategy", help="Strategy filter")] = None,
