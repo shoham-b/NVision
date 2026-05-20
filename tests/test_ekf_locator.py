@@ -41,7 +41,7 @@ def _nv_center_experiment() -> CoreExperiment:
 def test_ekf_belief_methods():
     model = NVCenterLorentzianModel()
     theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])
-    P_initial = np.eye(5) * 0.1  # noqa: N806
+    p_initial = np.eye(5) * 0.1
     bounds = {
         "frequency": (2.6e9, 3.1e9),
         "linewidth": (50e3, 400e3),
@@ -52,7 +52,7 @@ def test_ekf_belief_methods():
     belief = EKFBelief(
         model=model,
         theta_initial=theta_initial,
-        P_initial=P_initial,
+        P_initial=p_initial,
         R=0.05**2,
         parameter_bounds=bounds,
     )
@@ -174,31 +174,31 @@ def test_ekf_locator_with_priors():
 
     # Verify that prior means and variances map correctly
     theta = locator.belief.theta_hat
-    P = locator.belief.P
+    p_cov = locator.belief.P
 
     # frequency: always flat prior (midpoint 2850 MHz, uniform variance over bounds)
     assert np.allclose(theta[0], 2850.0)
-    assert np.allclose(P[0, 0], 500.0**2 / 12.0)
+    assert np.allclose(p_cov[0, 0], 500.0**2 / 12.0)
 
     # split: 2.1 MHz
     assert np.allclose(theta[1], 2.1)
-    assert np.allclose(P[1, 1], (0.1) ** 2)
+    assert np.allclose(p_cov[1, 1], (0.1) ** 2)
 
     # linewidth (Omega): 0.2 MHz
     assert np.allclose(theta[3], 0.2)
-    assert np.allclose(P[3, 3], (0.01) ** 2)
+    assert np.allclose(p_cov[3, 3], (0.01) ** 2)
 
     # k_NP = 1 / k_np = 1/3
     assert np.allclose(theta[4], 1.0 / 3.0)
     # Delta method variance for k_NP = (knp_std / knp_val^2)^2 = (0.1 / 9)^2
-    assert np.allclose(P[4, 4], (0.1 / 9.0) ** 2)
+    assert np.allclose(p_cov[4, 4], (0.1 / 9.0) ** 2)
 
     # dip_depth (a): 0.5 * k_NP * Omega^2 = 0.5 * (1/3) * (0.2^2)
     a_expected = 0.5 * (1.0 / 3.0) * (0.2**2)
     assert np.allclose(theta[2], a_expected)
     # Delta method variance: (dd_std * k_NP * Omega^2)^2 = (0.05 * (1/3) * 0.04)^2
     # Clamped to minimum covariance floor of 1e-6 for stability
-    assert np.allclose(P[2, 2], max(1e-6, (0.05 * (1.0 / 3.0) * 0.04) ** 2))
+    assert np.allclose(p_cov[2, 2], max(1e-6, (0.05 * (1.0 / 3.0) * 0.04) ** 2))
 
 
 def test_ekf_posterior_animation_extraction():
@@ -207,7 +207,7 @@ def test_ekf_posterior_animation_extraction():
     # Set up EKF belief
     model = NVCenterLorentzianModel()
     theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])
-    P_initial = np.eye(5) * 0.1
+    p_initial = np.eye(5) * 0.1
     bounds = {
         "frequency": (2.6e9, 3.1e9),
         "linewidth": (50e3, 400e3),
@@ -218,7 +218,7 @@ def test_ekf_posterior_animation_extraction():
     belief = EKFBelief(
         model=model,
         theta_initial=theta_initial,
-        P_initial=P_initial,
+        P_initial=p_initial,
         R=0.05**2,
         parameter_bounds=bounds,
     )
@@ -252,10 +252,10 @@ def test_ekf_posterior_animation_extraction():
     assert "linewidth" in out_multi
     assert "split" in out_multi
 
-    hist_f, grid_f = out_multi["frequency"]
+    hist_f, _grid_f = out_multi["frequency"]
     assert len(hist_f) == 1
     assert hist_f[0].shape == (250,)
-    assert grid_f.shape == (250,)
+    assert _grid_f.shape == (250,)
 
 
 def test_ekf_particle_frequency_posterior_animation_extraction():
@@ -264,7 +264,7 @@ def test_ekf_particle_frequency_posterior_animation_extraction():
 
     model = NVCenterLorentzianModel()
     theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])
-    P_initial = np.eye(5) * 0.1
+    p_initial = np.eye(5) * 0.1
     bounds = {
         "frequency": (2.6e9, 3.1e9),
         "linewidth": (50e3, 400e3),
@@ -275,7 +275,7 @@ def test_ekf_particle_frequency_posterior_animation_extraction():
     belief = EKFParticleFrequencyBelief(
         model=model,
         theta_initial=theta_initial,
-        P_initial=P_initial,
+        P_initial=p_initial,
         R=0.05**2,
         parameter_bounds=bounds,
         num_particles=100,
@@ -316,7 +316,7 @@ def test_ekf_particle_frequency_posterior_animation_extraction():
     assert "linewidth" in out_multi
     assert "split" in out_multi
 
-    hist_f, grid_f = out_multi["frequency"]
+    hist_f, _grid_f = out_multi["frequency"]
     assert len(hist_f) == 1
     assert hist_f[0].shape == (100, 2)
 
