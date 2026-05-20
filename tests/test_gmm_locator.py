@@ -1,16 +1,21 @@
 from nvision.models.observation import Observation
 from nvision.sim.locs.ekf.gmm_locator import GaussianMixtureLocator
+from nvision.spectra.nv_center import NVCenterLorentzianModel
 
 
 def test_gmm_locator_create():
-    locator = GaussianMixtureLocator.create(parameter_bounds={"frequency": (2.8e9, 2.9e9)}, max_steps=100)
+    model = NVCenterLorentzianModel()
+    locator = GaussianMixtureLocator.create(
+        signal_model=model, parameter_bounds={"frequency": (2.8e9, 2.9e9)}, max_steps=100
+    )
     assert locator is not None
     assert locator.belief.n_components == 5
 
 
 def test_gmm_locator_acquire_within_bounds():
+    model = NVCenterLorentzianModel()
     locator = GaussianMixtureLocator.create(
-        parameter_bounds={"frequency": (2.8e9, 2.9e9)}, scan_param="frequency", max_steps=100
+        signal_model=model, parameter_bounds={"frequency": (2.8e9, 2.9e9)}, scan_param="frequency", max_steps=100
     )
 
     # In a full run, SequentialBayesianLocator initialization uses domain limits
@@ -28,8 +33,9 @@ def test_gmm_locator_acquire_within_bounds():
 
 
 def test_gmm_locator_on_sweep_complete():
+    model = NVCenterLorentzianModel()
     locator = GaussianMixtureLocator.create(
-        parameter_bounds={"frequency": (2.8e9, 2.9e9)}, scan_param="frequency", max_steps=100
+        signal_model=model, parameter_bounds={"frequency": (2.8e9, 2.9e9)}, scan_param="frequency", max_steps=100
     )
     locator._acquisition_bounds = lambda: (2.82e9, 2.88e9)
     locator._on_sweep_complete()

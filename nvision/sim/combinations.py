@@ -29,6 +29,7 @@ from nvision.sim.locs.ekf.ekf_locator import (
     EKFDOptimalLocator,
     EKFParticleFrequencyLocator,
 )
+from nvision.sim.locs.ekf.gmm_locator import GaussianMixtureLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +109,13 @@ class CombinationGrid:
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
                     "config": {"max_steps": 200, **_NV_SMC},
+                },
+            ),
+            (
+                "GaussianMixture",
+                {
+                    "class": GaussianMixtureLocator,
+                    "config": {"max_steps": 200, "n_components": 5, "builder": nv_center_smc_belief},
                 },
             ),
         ]

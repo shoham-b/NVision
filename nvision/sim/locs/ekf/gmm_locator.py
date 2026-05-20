@@ -39,6 +39,7 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
     @classmethod
     def create(
         cls,
+        signal_model=None,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 200,
         convergence_threshold: float = 0.01,
@@ -50,17 +51,24 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
         n_components: int = 5,
-        **config: object,
+        **grid_config: object,
     ) -> "GaussianMixtureLocator":
-        from nvision.spectra.nv_center import NVCenterLorentzianModel
+        # We enforce the parametric belief here, so we extract the model and use it
+        model = signal_model
+        if model is None:
+            if builder is not None:
+                # Create a dummy belief just to extract the model
+                dummy_belief = builder(parameter_bounds, **grid_config)
+                model = dummy_belief.model
+            else:
+                raise ValueError("GaussianMixtureLocator requires either signal_model or a builder.")
 
-        signal_model = NVCenterLorentzianModel()
         bounds_phys = prepare_ekf_parameter_bounds(
             dict(parameter_bounds) if parameter_bounds else None,
         )
 
         belief = GaussianMixtureMarginalDistribution(
-            model=signal_model,
+            model=model,
             n_components=n_components,
             _physical_param_bounds=bounds_phys,
         )
