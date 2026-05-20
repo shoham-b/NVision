@@ -363,7 +363,7 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         freq_particles_mhz = self._frequency_particles / 1e6
         f_mean_mhz = np.average(freq_particles_mhz, weights=self._frequency_weights)
         self.theta_hat[0] = f_mean_mhz
-        self.theta_hat, self.P = ekf_update(self.theta_hat, self.P, obs.signal_value, f_mean_mhz, self.R)
+        self.theta_hat, self.P = ekf_update(self.theta_hat, self.P, obs.signal_value, f_mhz, self.R)
         # Override frequency with particle mean (EKF may have moved it)
         self.theta_hat[0] = f_mean_mhz
 

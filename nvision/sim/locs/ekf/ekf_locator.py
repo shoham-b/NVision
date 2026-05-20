@@ -241,9 +241,15 @@ class EKFLocator(SequentialBayesianLocator):
         assert hasattr(self.belief, "P"), "`P` is not defined in EKFBelief."
         assert hasattr(self.belief, "R"), "`R` is not defined in EKFBelief."
 
+        # Thompson sampling: pick a frequency particle proportional to its weight to drive exploration
+        theta_sample = self.belief.theta_hat.copy()
+        if hasattr(self.belief, "_frequency_particles") and hasattr(self.belief, "_frequency_weights"):
+            idx = np.random.choice(len(self.belief._frequency_particles), p=self.belief._frequency_weights)
+            theta_sample[0] = self.belief._frequency_particles[idx] / 1e6
+
         # Update `select_next_frequency` call to match expected arguments.
         next_f_mhz = self.acquisition_strategy.select_next_frequency(
-            theta_hat=self.belief.theta_hat,
+            theta_hat=theta_sample,
             P=self.belief.P,
             R=self.belief.R,
             f_candidates=candidates_mhz,
