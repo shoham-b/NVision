@@ -35,6 +35,7 @@ from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 from nvision.sim.locs.ekf.ekf_locator import EKFLocator
 
 
+
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)
     x_min, x_max = None, None

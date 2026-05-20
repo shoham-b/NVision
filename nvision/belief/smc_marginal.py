@@ -37,26 +37,18 @@ _EIG_CHUNK_SIZE: int = 64
 @njit(cache=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
     """Weighted mean and variance of ``x`` with weights ``w`` (2-pass algorithm)."""
-    n = x.shape[0]
-    if n == 0:
+    if x.shape[0] == 0:
         return 0.0, 0.0
 
-    sum_weight = 0.0
-    sum_x = 0.0
-    for i in range(n):
-        wi = w[i]
-        sum_weight += wi
-        sum_x += x[i] * wi
+    sum_weight = np.sum(w)
 
     if sum_weight <= 0.0:
         return 0.0, 0.0
 
-    mean = sum_x / sum_weight
+    mean = np.dot(x, w) / sum_weight
 
-    var_sum = 0.0
-    for i in range(n):
-        diff = x[i] - mean
-        var_sum += w[i] * diff * diff
+    diff = x - mean
+    var_sum = np.dot(diff * diff, w)
 
     return float(mean), float(var_sum / sum_weight)
 

@@ -15,7 +15,9 @@ _STATIC_INDEX_PATH: Final = _STATIC_DIR / "index.html"
 def _strategy_grid_json() -> str:
     """Locator strategy names per generator for UI controls (includes not-yet-run strategies)."""
     grid = CombinationGrid()
-    strategy_grid = {gen_name: [name for name, _ in grid.strategies_for(gen_name)] for gen_name in grid.generators}
+    strategy_grid = {
+        gen_name: [name for name, _ in grid.strategies_for(gen_name)] for gen_name in grid.generators
+    }
     return json.dumps(strategy_grid, indent=2)
 
 
