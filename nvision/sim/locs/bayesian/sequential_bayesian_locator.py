@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
-from nvision.models.observation import Observation, ObservationHistory
+from nvision.models.observation import Observation
 
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
