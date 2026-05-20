@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-
 import numpy as np
 from scipy.special import erf
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
-from nvision.sim.locs.ekf.filter import ekf_update
-from nvision.sim.locs.ekf.models import mu
 from nvision.spectra.signal import SignalModel
+from nvision.sim.locs.ekf.models import mu
+from nvision.sim.locs.ekf.filter import ekf_update
 
 
 class EKFBelief(AbstractMarginalDistribution):

@@ -11,9 +11,9 @@ from nvision.sim.locs.ekf.ekf_locator import (
 )
 
 __all__ = [
-    "EKFAOptimalLocator",
     "EKFBelief",
-    "EKFDOptimalLocator",
     "EKFLocator",
+    "EKFDOptimalLocator",
+    "EKFAOptimalLocator",
     "EKFParticleFrequencyLocator",
 ]
