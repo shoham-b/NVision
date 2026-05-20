@@ -291,7 +291,8 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         state vector, with frequency overridden by the particle mean.
         """
         self.last_obs = obs
-        obs.x / 1e6
+        self.resampled = False
+        f_mhz = obs.x / 1e6
 
         # Update frequency particles via likelihood
         freq_particles_mhz = self._frequency_particles / 1e6
@@ -301,12 +302,16 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         for f_p in freq_particles_mhz:
             theta_temp = self.theta_hat.copy()
             theta_temp[0] = f_p  # Use particle frequency
-            predictions.append(mu(f_p, theta_temp))
+            predictions.append(mu(f_mhz, theta_temp))
         predictions = np.array(predictions)
 
         # Compute likelihoods
         likelihoods = np.exp(-0.5 * ((obs.signal_value - predictions) / np.sqrt(self.R)) ** 2)
-        likelihoods /= np.sum(likelihoods)
+        weight_sum = np.sum(likelihoods)
+        if weight_sum > 1e-100:
+            likelihoods /= weight_sum
+        else:
+            likelihoods = np.ones(self.num_particles) / self.num_particles
 
         # Update frequency weights
         self._frequency_weights *= likelihoods
@@ -319,16 +324,52 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         # Resample frequency particles if ESS is low
         ess = 1.0 / np.sum(self._frequency_weights**2)
         if ess < 0.5 * self.num_particles:
-            indices = np.random.choice(self.num_particles, self.num_particles, p=self._frequency_weights)
+            from nvision.belief.smc_marginal import _systematic_resample_indices
+
+            # 1. Compute weighted mean and variance before resampling
+            f_mean = np.average(self._frequency_particles, weights=self._frequency_weights)
+            f_var = np.average((self._frequency_particles - f_mean) ** 2, weights=self._frequency_weights)
+
+            # 2. Systematic resampling
+            positions = (np.arange(self.num_particles) + np.random.random()) / self.num_particles
+            indices = _systematic_resample_indices(np.cumsum(self._frequency_weights), positions)
             self._frequency_particles = self._frequency_particles[indices]
             self._frequency_weights = np.ones(self.num_particles) / self.num_particles
+            self.resampled = True
+
+            # 3. Liu-West shrinkage: contract resampled particles toward the old mean
+            a_param = 0.98
+            self._frequency_particles = self._frequency_particles * a_param + f_mean * (1.0 - a_param)
+
+            # 4. Add Gaussian nudge/jitter
+            # Nudge variance: (1 - a^2) * f_var
+            nudge_var = (1.0 - a_param**2) * f_var
+
+            # Enforce a minimum exploration variance floor (e.g. min_exploration_frac of the frequency range)
+            freq_bounds = self._physical_bounds.get("frequency", (2.6e9, 3.1e9))
+            freq_range = freq_bounds[1] - freq_bounds[0]
+            min_exploration_frac = 0.01
+            min_var = (freq_range * min_exploration_frac) ** 2
+            nudge_var = max(nudge_var, min_var)
+
+            # Add Gaussian noise
+            nudges = np.random.normal(0.0, np.sqrt(nudge_var), self.num_particles)
+            self._frequency_particles += nudges
+
+            # Clip particles to physical bounds
+            self._frequency_particles = np.clip(self._frequency_particles, freq_bounds[0], freq_bounds[1])
 
         # Update EKF for all parameters using weighted mean frequency
+        freq_particles_mhz = self._frequency_particles / 1e6
         f_mean_mhz = np.average(freq_particles_mhz, weights=self._frequency_weights)
         self.theta_hat[0] = f_mean_mhz
         self.theta_hat, self.P = ekf_update(self.theta_hat, self.P, obs.signal_value, f_mean_mhz, self.R)
         # Override frequency with particle mean (EKF may have moved it)
         self.theta_hat[0] = f_mean_mhz
+
+        # Synchronize EKF covariance P[0, 0] with particle variance in MHz^2
+        f_var_mhz2 = np.average((freq_particles_mhz - f_mean_mhz) ** 2, weights=self._frequency_weights)
+        self.P[0, 0] = max(1e-6, f_var_mhz2)
 
     def batch_update(self, observations: Sequence[Observation]) -> None:
         """Batch update - ignore coarse sweep buffer to prevent covariance explosion."""
