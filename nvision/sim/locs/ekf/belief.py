@@ -107,9 +107,9 @@ class EKFBelief(AbstractMarginalDistribution):
         std_lw = math.sqrt(max(0.0, var_Omega)) * 1e6
         std_split = math.sqrt(max(0.0, var_delta)) * 1e6
 
-        std_k_np = math.sqrt(max(0.0, var_k)) / k_NP ** 2 if k_NP != 0 else 0.0
+        std_k_np = math.sqrt(max(0.0, var_k)) / k_NP**2 if k_NP != 0 else 0.0
 
-        std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega ** 2) if k_NP != 0 and Omega != 0 else 0.0
+        std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega**2) if k_NP != 0 and Omega != 0 else 0.0
 
         names = list(self.model.parameter_names())
         data = {
@@ -418,9 +418,9 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         std_lw = math.sqrt(max(0.0, var_Omega)) * 1e6
         std_split = math.sqrt(max(0.0, var_delta)) * 1e6
 
-        std_k_np = math.sqrt(max(0.0, var_k)) / k_NP ** 2 if k_NP != 0 else 0.0
+        std_k_np = math.sqrt(max(0.0, var_k)) / k_NP**2 if k_NP != 0 else 0.0
 
-        std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega ** 2) if k_NP != 0 and Omega != 0 else 0.0
+        std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega**2) if k_NP != 0 and Omega != 0 else 0.0
 
         names = list(self.model.parameter_names())
         data = {

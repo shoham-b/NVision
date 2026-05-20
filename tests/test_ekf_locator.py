@@ -41,7 +41,7 @@ def _nv_center_experiment() -> CoreExperiment:
 def test_ekf_belief_methods():
     model = NVCenterLorentzianModel()
     theta_initial = np.array([2870.0, 2.1, 0.05, 5.0, 1.0])
-    p_initial = np.eye(5) * 0.1
+    P_initial = np.eye(5) * 0.1  # noqa: N806
     bounds = {
         "frequency": (2.6e9, 3.1e9),
         "linewidth": (50e3, 400e3),
@@ -52,7 +52,7 @@ def test_ekf_belief_methods():
     belief = EKFBelief(
         model=model,
         theta_initial=theta_initial,
-        P_initial=p_initial,
+        P_initial=P_initial,
         R=0.05**2,
         parameter_bounds=bounds,
     )
@@ -154,8 +154,8 @@ def test_ekf_aoptimal_locator_create_and_run():
 
 
 def test_ekf_particle_frequency_locator_create_and_run():
-    from nvision.sim.locs.ekf.ekf_locator import EKFParticleFrequencyLocator
     from nvision.sim.locs.ekf.belief import EKFParticleFrequencyBelief
+    from nvision.sim.locs.ekf.ekf_locator import EKFParticleFrequencyLocator
 
     exp = _nv_center_experiment()
     rng = random.Random(42)
@@ -250,7 +250,7 @@ def test_ekf_posterior_animation_extraction():
     belief = EKFBelief(
         model=model,
         theta_initial=theta_initial,
-        P_initial=p_initial,
+        P_initial=P_initial,
         R=0.05**2,
         parameter_bounds=bounds,
     )
@@ -307,7 +307,7 @@ def test_ekf_particle_frequency_posterior_animation_extraction():
     belief = EKFParticleFrequencyBelief(
         model=model,
         theta_initial=theta_initial,
-        P_initial=p_initial,
+        P_initial=P_initial,
         R=0.05**2,
         parameter_bounds=bounds,
         num_particles=100,
@@ -355,4 +355,3 @@ def test_ekf_particle_frequency_posterior_animation_extraction():
     hist_lw, grid_lw = out_multi["linewidth"]
     assert len(hist_lw) == 1
     assert hist_lw[0].shape == (250,)
-
