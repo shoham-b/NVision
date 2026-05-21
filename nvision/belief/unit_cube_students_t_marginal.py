@@ -132,6 +132,9 @@ class UnitCubeStudentsTMixtureMarginalDistribution(StudentsTMixtureMarginalDistr
         dist = UnitCubeStudentsTMixtureMarginalDistribution(
             model=self.model,
             n_components=self.n_components,
+            weight_floor=self.weight_floor,
+            weight_floor_steps=self.weight_floor_steps,
+            priors=self.priors.copy() if self.priors else None,
             _physical_param_bounds=dict(self.physical_param_bounds),
             _physical_x_bounds=self.physical_x_bounds,
         )

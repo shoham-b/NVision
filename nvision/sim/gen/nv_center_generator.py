@@ -39,8 +39,6 @@ class NVCenterCoreGenerator:
     x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
     center_freq_fraction: float | None = None  # if set, constrain center_freq to middle fraction of domain
-    narrow_signal: bool = True  # if True, use exceptionally narrow linewidths and splitting
-    narrow_prior_std_factor: float = 0.05  # standard deviation factor for priors in narrow mode
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate NV center ODMR signal.
@@ -57,12 +55,11 @@ class NVCenterCoreGenerator:
         """
         width = self.x_max - self.x_min
 
-        # For hyperfine-split case, need room for side peaks
-        # Generate something roughly centered around the physical values for 14N and 15N (2.16 MHz and 3.03 MHz)
-        split = rng.uniform(0.5e6, 1.2e6) if self.narrow_signal else rng.uniform(MIN_SPLIT, MAX_SPLIT)
+        # Generate split and linewidth from the shared physical constants
+        split = rng.uniform(MIN_SPLIT, MAX_SPLIT)
 
         # Random linewidth (HWHM for Lorentzian)
-        linewidth = rng.uniform(0.01e6, 0.05e6) if self.narrow_signal else rng.uniform(MIN_LINEWIDTH, MAX_LINEWIDTH)
+        linewidth = rng.uniform(MIN_LINEWIDTH, MAX_LINEWIDTH)
 
         usable_lo = self.x_min + split + 0.05 * width
         usable_hi = self.x_max - split - 0.05 * width
@@ -98,7 +95,7 @@ class NVCenterCoreGenerator:
                 k_np=k_np,
                 dip_depth=dip_depth,
             )
-            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, narrow=self.narrow_signal)
+            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
         else:  # voigt
             lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
             lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
@@ -127,17 +124,6 @@ class NVCenterCoreGenerator:
                 k_np=k_np,
                 dip_depth=dip_depth,
             )
-            bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, narrow=self.narrow_signal)
-
-        if self.narrow_signal:
-            priors = {}
-            for k in typed_params.__dataclass_fields__:
-                if k == "frequency":
-                    continue
-                val = getattr(typed_params, k)
-                std = val * self.narrow_prior_std_factor if k != "k_np" else self.narrow_prior_std_factor
-                assumed_val = rng.gauss(val, std)
-                priors[k] = (assumed_val, std)
-            bounds["_priors"] = priors
+            bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)

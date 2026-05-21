@@ -298,42 +298,6 @@ def wide_group(
     )
 
 
-@groups_app.command("narrow")
-def narrow_group(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run narrow``."""
-    _run_named_group(
-        "narrow",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
 @groups_app.command("sbed-only")
 def sbed_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
@@ -360,6 +324,78 @@ def sbed_only_group(
     """Alias for ``groups run sbed_only``."""
     _run_named_group(
         "sbed_only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+    )
+
+
+@groups_app.command("ekf-only")
+def ekf_only_group(
+    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+) -> None:
+    """Alias for ``groups run ekf_only`` — runs EKF-D, EKF-A, and EKF-ParticleFrequency locators."""
+    _run_named_group(
+        "ekf_only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        runners=runners,
+        open_browser=open_browser,
+        loc_max_steps=loc_max_steps,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+    )
+
+
+@groups_app.command("gmm-only")
+def gmm_only_group(
+    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
+    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    runners: int = typer.Option(
+        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
+    ),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    gcp: bool = typer.Option(
+        cli_defaults.DEFAULT_GCP,
+        "--gcp/--no-gcp",
+        help="Upload results to GCP after run",
+    ),
+    gcp_bucket: str | None = typer.Option(
+        cli_defaults.DEFAULT_GCP_BUCKET,
+        "--gcp-bucket",
+        help="GCP bucket to upload results to",
+    ),
+    loc_max_steps: Annotated[
+        int,
+        typer.Option("--loc-max-steps", help="Max steps per run"),
+    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+) -> None:
+    """Alias for ``groups run gmm_only`` — runs the Gaussian Mixture locator."""
+    _run_named_group(
+        "gmm_only",
         repeats_override=repeats,
         no_cache=no_cache,
         runners=runners,

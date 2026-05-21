@@ -30,6 +30,7 @@ from nvision.sim.locs.ekf.ekf_locator import (
     EKFParticleFrequencyLocator,
 )
 from nvision.sim.locs.ekf.gmm_locator import GaussianMixtureLocator
+from nvision.belief.gaussian_mixture_marginal import NVISION_GAUSSIAN_NUM_EXPERTS
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +116,7 @@ class CombinationGrid:
                 "GaussianMixture",
                 {
                     "class": GaussianMixtureLocator,
-                    "config": {"max_steps": 200, "n_components": 5, "builder": nv_center_smc_belief},
+                    "config": {"max_steps": 200, "n_components": NVISION_GAUSSIAN_NUM_EXPERTS, "builder": nv_center_smc_belief},
                 },
             ),
         ]

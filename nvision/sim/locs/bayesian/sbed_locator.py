@@ -93,9 +93,23 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # Retrieve candidates directly from the belief (slope-targeted epoch grid)
         candidates = self.belief.get_candidates()
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
-        if len(best) > 0:
-            return float(best[0])
-        return float(candidates[len(candidates) // 2])
+        eig_choice = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
+
+        # Mix EIG with Thompson sampling to prevent sample impoverishment gaps
+        # 20% of the time, explore directly on a sampled particle's frequency
+        if (
+            hasattr(self.belief, "_particles")
+            and hasattr(self.belief, "_weights")
+            and np.random.rand() < 0.2
+        ):
+            weights = self.belief._weights
+            if np.sum(weights) > 0:
+                idx = int(np.random.choice(len(weights), p=weights))
+                if "frequency" in getattr(self.belief, "_param_names", []):
+                    f_idx = self.belief._param_names.index("frequency")
+                    return float(self.belief._particles[idx, f_idx])
+
+        return eig_choice
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks."""

@@ -583,6 +583,57 @@ class _TaskRunner:
         )
         return random.Random(repeat_seed_int(key))
 
+    def _rng_for_sobol_baseline(self, repeat_idx: int) -> random.Random:
+        """RNG for Sobol baseline measurement noise — strategy-independent."""
+        key = measurement_repeat_key(
+            self.task.seed, self.generator_name, "sobol_baseline", self.noise_name, repeat_idx
+        )
+        return random.Random(repeat_seed_int(key))
+
+    def _run_sobol_baseline(
+        self,
+        rid: int,
+        experiment: CoreExperiment,
+        locator_config: dict[str, Any],
+        noise_std: float,
+        noise_max_dev: float | None,
+        signal_max_span: float | None,
+    ) -> int:
+        """Simulate the SimpleSobolBayesianLocator until convergence and return step count."""
+        from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+
+        # Create a fresh RNG for the Sobol baseline measurements
+        sobol_rng = self._rng_for_sobol_baseline(rid)
+
+        sobol_config = {
+            **locator_config,
+            "max_steps": self.task.loc_max_steps,
+            "parameter_bounds": self._injected_parameter_bounds(experiment),
+            "noise_std": noise_std,
+            **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
+            **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
+        }
+
+        # Build belief
+        belief = nv_center_smc_belief(sobol_config["parameter_bounds"])
+        sobol_config["belief"] = belief
+        sobol_config["signal_model"] = experiment.true_signal.model
+        if experiment.true_signal.noise_model is not None:
+            sobol_config["noise_model"] = experiment.true_signal.noise_model
+
+        locator = SimpleSobolBayesianLocator.create(**sobol_config)
+
+        step = 0
+        while not locator.done():
+            _check_memory_limit()
+            step += 1
+            x_current = locator.next()
+            obs = experiment.measure(x_current, sobol_rng)
+            locator.observe(obs)
+
+        return locator.step_count
+
     def _build_experiment(self, rng: random.Random) -> CoreExperiment:
         true_signal = self.task.generator.generate(rng)
         x_min, x_max = self._domain_from_signal_params(true_signal)
@@ -738,6 +789,18 @@ class _TaskRunner:
             model.signal_min_span(domain_width)
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
+        # Run Sobol Sweep baseline for this signal repeat
+        sobol_steps = self._sweep_cache.get_sobol_baseline(
+            experiment, self.task.seed, self.generator_name, self.noise_name, rid
+        )
+        if sobol_steps is None:
+            sobol_steps = self._run_sobol_baseline(
+                rid, experiment, locator_config, noise_std, noise_max_dev, signal_max_span
+            )
+            self._sweep_cache.put_sobol_baseline(
+                experiment, self.task.seed, self.generator_name, self.noise_name, rid, sobol_steps
+            )
+
         # Check locator class attributes to determine configuration
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
@@ -822,6 +885,7 @@ class _TaskRunner:
                 eff_sweep_steps = step_count
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
+        finalize_record["sobol_baseline_steps"] = sobol_steps
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

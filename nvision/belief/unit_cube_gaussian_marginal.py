@@ -114,10 +114,49 @@ class UnitCubeGaussianMixtureMarginalDistribution(GaussianMixtureMarginalDistrib
 
         self._recompute_covariances()
 
+    def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
+        """Override to scale/evaluate the PDF of physical coordinates using internal unit-cube parameters."""
+        if param_name not in self.physical_param_bounds:
+            return super().marginal_pdf(param_name, x)
+        lo, hi = self.physical_param_bounds[param_name]
+        width = hi - lo
+        if width <= 0:
+            return np.zeros_like(x, dtype=np.float64)
+        u = (x - lo) / width
+
+        from scipy.stats import norm
+        idx = self._param_names.index(param_name)
+        pdf_val = np.zeros_like(u, dtype=np.float64)
+        for k in range(self.n_components):
+            mu, sigma = self.means[k, idx], np.sqrt(max(self._covariances[k, idx, idx], 1e-12))
+            pdf_val += self.weights[k] * norm.pdf(u, loc=mu, scale=sigma)
+        return pdf_val / width
+
+    def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
+        """Override to evaluate the CDF of physical coordinates using internal unit-cube parameters."""
+        if param_name not in self.physical_param_bounds:
+            return super().marginal_cdf(param_name, x)
+        lo, hi = self.physical_param_bounds[param_name]
+        width = hi - lo
+        if width <= 0:
+            return np.zeros_like(x, dtype=np.float64)
+        u = (x - lo) / width
+
+        from scipy.stats import norm
+        idx = self._param_names.index(param_name)
+        cdf_val = np.zeros_like(u, dtype=np.float64)
+        for k in range(self.n_components):
+            mu, sigma = self.means[k, idx], np.sqrt(max(self._covariances[k, idx, idx], 1e-12))
+            cdf_val += self.weights[k] * norm.cdf(u, loc=mu, scale=sigma)
+        return cdf_val
+
     def copy(self) -> UnitCubeGaussianMixtureMarginalDistribution:
         dist = UnitCubeGaussianMixtureMarginalDistribution(
             model=self.model,
             n_components=self.n_components,
+            weight_floor=self.weight_floor,
+            weight_floor_steps=self.weight_floor_steps,
+            priors=self.priors.copy() if self.priors else None,
             _physical_param_bounds=dict(self.physical_param_bounds),
             _physical_x_bounds=self.physical_x_bounds,
         )

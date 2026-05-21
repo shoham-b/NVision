@@ -6,6 +6,7 @@ from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
 from nvision.sim.locs.bayesian.utility_sampling_locator import UtilitySamplingLocator
+from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 
 __all__ = [
     "MaximumLikelihoodLocator",
@@ -13,5 +14,6 @@ __all__ = [
     "SequentialBayesianLocator",
     "StudentsTLocator",
     "UtilitySamplingLocator",
+    "SimpleSobolBayesianLocator",
     "nv_center_belief",
 ]

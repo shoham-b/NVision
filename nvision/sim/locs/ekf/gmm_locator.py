@@ -67,11 +67,23 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
             dict(parameter_bounds) if parameter_bounds else None,
         )
 
-        belief = GaussianMixtureMarginalDistribution(
-            model=model,
-            n_components=n_components,
-            _physical_param_bounds=bounds_phys,
-        )
+        from nvision.spectra.unit_cube import UnitCubeSignalModel
+        is_unit_cube = isinstance(model, UnitCubeSignalModel) or "UnitCube" in type(model).__name__
+
+        if is_unit_cube:
+            from nvision.belief.unit_cube_gaussian_marginal import UnitCubeGaussianMixtureMarginalDistribution
+            belief = UnitCubeGaussianMixtureMarginalDistribution(
+                model=model,
+                n_components=n_components,
+                _physical_param_bounds=bounds_phys,
+                _physical_x_bounds=(bounds_phys.get("frequency") or (2.6e9, 3.1e9)),
+            )
+        else:
+            belief = GaussianMixtureMarginalDistribution(
+                model=model,
+                n_components=n_components,
+                _physical_param_bounds=bounds_phys,
+            )
 
         return cls(
             belief=belief,
@@ -86,21 +98,59 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
         )
 
     def _acquire(self) -> float:
-        """Run OED acquisition maximizing expected information gain."""
+        """Acquire next probe by maximising EIG over the full acquisition range.
+
+        The previous Thompson-sampling ±2σ window approach caused a systematic
+        dead zone: it restricted the search to near each component's mean, where
+        the Lorentzian gradient ∂y/∂freq = 0 by symmetry.  As a result the EKF
+        mean update δμ ≈ solve(P, J·r/σ²) was also near-zero regardless of the
+        residual, so no component ever moved toward the true dip.
+
+        Full-range EIG evaluation fixes this because:
+
+        1. **Gradient-variance term** ``gk @ cov[k] @ gk`` is maximised at the
+           Lorentzian inflection points ``freq_k ± Γ_k/√3``, where ∂y/∂freq is
+           largest, giving a strong mean-update signal.
+        2. **Model-disagreement term** ``(y_pred[k] − y_mix)²`` is maximised
+           where components predict different values, naturally driving
+           exploration toward ambiguous regions including the true dip.
+
+        Together these terms guide measurement toward the true resonance far
+        more reliably than the restricted-window approach.
+        """
         lo, hi = self._acquisition_bounds()
+        belief: GaussianMixtureMarginalDistribution = self.belief  # type: ignore[assignment]
 
-        # Generate candidates along physical scan axis
+        # Use enough candidates to resolve narrow Lorentzian inflection peaks.
+        # At 1 MHz linewidth over a 500 MHz range we need ~1000+ points.
         candidates_hz = np.linspace(lo, hi, 1000)
+        eigs = belief.expected_information_gain_batch(candidates_hz)
 
-        # Calculate EIG
-        eigs = self.belief.expected_information_gain_batch(candidates_hz)
+        eig_max = float(np.max(eigs))
+        if eig_max < 1e-12:
+            # Degenerate belief (all components collapsed): explore uniformly.
+            return float(np.random.uniform(lo, hi))
 
-        # Select maximum EIG
-        best_idx = np.argmax(eigs)
+        # Softmax sampling with a mild temperature = 10% of the EIG range.
+        # Pure argmax always picks the same point, accumulating an identical
+        # rank-1 delta_prec each step and causing precision-matrix collapse
+        # in the J-direction.  Softmax keeps the probe near the optimum while
+        # varying the exact position, maintaining a full-rank information matrix.
+        temperature = max(eig_max * 0.10, 1e-12)
+        logits = (eigs - eig_max) / temperature  # shift so max logit = 0
+        probs = np.exp(logits)
+        probs /= probs.sum()
+        best_idx = int(np.random.choice(len(candidates_hz), p=probs))
         return float(candidates_hz[best_idx])
 
+
+
     def observe(self, obs: Observation) -> None:
-        """Route observation, denormalizing the x coordinate."""
+        """Route observation, denormalizing the x coordinate if physical belief."""
+        if getattr(self.belief, "_is_unit_cube", False):
+            self.belief.update(obs)
+            return
+
         lo, hi = self._acquisition_bounds()
         x_hz = lo + obs.x * (hi - lo)
 

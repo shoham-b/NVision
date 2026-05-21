@@ -1,13 +1,12 @@
-"""Debug script for SBED convergence issues.
+"""Debug script for EKFParticleFrequencyLocator convergence issues.
 
-This script runs a single SBED experiment repeat and reports detailed per-step
-metrics to understand why particles might concentrate in the wrong place.
+This script runs a single EKF-PF experiment repeat and reports detailed per-step
+metrics to understand why particles might fail to contract on the true value.
 """
 
 from __future__ import annotations
 
 import random
-
 import numpy as np
 from rich.console import Console
 from rich.table import Table
@@ -15,20 +14,16 @@ from rich.table import Table
 from nvision import (
     CoreExperiment,
     NVCenterCoreGenerator,
-    nv_center_smc_belief,
 )
-from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
-from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
+from nvision.sim.locs.ekf.ekf_locator import EKFParticleFrequencyLocator
 
 
-def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = "sbed"):
+def debug_run(seed: int = 42, initial_sweep_steps: int = 0):
     console = Console()
     rng = random.Random(seed)
     np.random.seed(seed)
 
     # 1. Setup Signal and Experiment
-    # Using Lorentzian variant as it's common for these tests
-    # Narrower domain for "narrow scan" scenario (20MHz)
     x_min_gen, x_max_gen = 2.63e9, 2.65e9
     gen = NVCenterCoreGenerator(x_min=x_min_gen, x_max=x_max_gen, variant="lorentzian")
     true_signal = gen.generate(rng)
@@ -48,31 +43,19 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
         "parameter_bounds": pb,
         "noise_std": noise_std,
         "initial_sweep_steps": initial_sweep_steps,
+        "num_particles": 200,
     }
 
-    if locator_type == "sbed":
-        cfg["builder"] = nv_center_smc_belief
-        cfg["num_particles"] = 200
-        locator_cls = SequentialBayesianExperimentDesignLocator
-    elif locator_type == "students_t":
-        cfg["signal_model"] = true_signal.model
-        cfg["n_components"] = 3
-        locator_cls = StudentsTLocator
-    else:
-        raise ValueError(f"Unknown locator type: {locator_type}")
-
     console.print(
-        f"[bold blue]Starting Debug Run[/bold blue] (seed={seed}, sweep={initial_sweep_steps}, type={locator_type})"
+        f"[bold blue]Starting Debug Run for EKF-PF[/bold blue] (seed={seed}, sweep={initial_sweep_steps})"
     )
     console.print(f"True Frequency: [green]{true_params['frequency']:.4e}[/green]")
 
-    table = Table(title=f"{locator_type.upper()} Step-by-Step Report")
+    table = Table(title="EKF Particle Frequency Step-by-Step Report")
     table.add_column("Step", justify="right")
-    table.add_column("Phase", style="cyan")
     table.add_column("x (Hz)", justify="right")
     table.add_column("y", justify="right")
-    table.add_column("SNR", justify="right")
-    table.add_column("ESS / Mix", justify="right")
+    table.add_column("ESS", justify="right")
     table.add_column("Freq Mean", justify="right")
     table.add_column("Freq Std", justify="right")
     table.add_column("Depth", justify="right")
@@ -80,12 +63,9 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
 
     # 3. Iterative Run
     step = 0
-    last_ess = 0.0
+    locator = EKFParticleFrequencyLocator.create(**cfg)
 
-    # Create the locator
-    locator = locator_cls.create(**cfg)
-
-    while not locator.done() and step < 150:
+    while not locator.done() and step < 100:
         step += 1
 
         # 1. Propose
@@ -103,14 +83,6 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
         # 4. Report
         belief = locator.belief
 
-        # Determine Phase
-        if hasattr(locator, "_staged_sobol") and not locator._staged_sobol.done():
-            phase = "Sweep"
-        elif hasattr(locator, "_warmup_obs_buffer") and len(locator._warmup_obs_buffer) > 0:
-            phase = "Warmup"
-        else:
-            phase = "Bayesian"
-
         # Get estimates
         est = belief.estimates()
         unc = belief.uncertainty()
@@ -118,34 +90,19 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
         f_mean = est.get("frequency", 0.0)
         f_std = unc.get("frequency", 0.0)
         d_mean = est.get("dip_depth", 0.0)
-        b_mean = est.get("background", 1.0)
 
-        # Get ESS or Mixing Weights
-        if hasattr(belief, "_weights"):
-            w_sq = np.sum(belief._weights**2)
-            metric_val = 1.0 / w_sq if w_sq > 0 else 0.0
-        elif hasattr(belief, "mixing_weights"):
-            # For StudentsT, show the highest weight
-            metric_val = float(np.max(belief.mixing_weights))
-        else:
-            metric_val = 0.0
-
-        # SNR: (background - y) / noise_std
-        snr = (b_mean - y) / noise_std if noise_std > 0 else 0.0
+        # Get ESS
+        w_sq = np.sum(belief._frequency_weights**2)
+        ess = 1.0 / w_sq if w_sq > 0 else 0.0
 
         # Detect if resample happened (SMC only)
-        resampled = (
-            "Yes" if (metric_val > last_ess * 2.0 and step > 1 and phase != "Warmup" and locator_type == "sbed") else ""
-        )
-        last_ess = metric_val
+        resampled = "Yes" if getattr(belief, "resampled", False) else ""
 
         table.add_row(
             str(step),
-            phase,
             f"{x_phys:.4e}",
             f"{y:.4f}",
-            f"{snr:+.1f}",
-            f"{metric_val:.2f}",
+            f"{ess:.2f}",
             f"{f_mean:.4e}",
             f"{f_std:.2e}",
             f"{d_mean:.3f}",
@@ -165,6 +122,4 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
 
 
 if __name__ == "__main__":
-    import typer
-
-    typer.run(debug_run)
+    debug_run()

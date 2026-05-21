@@ -47,6 +47,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
     # Number of update steps over which the floor linearly decays to zero.
     # After this many observations the locator is free to collapse onto one mode.
     weight_floor_steps: int = NVISION_STUDENTS_T_WEIGHT_FLOOR_STEPS
+    priors: dict[str, tuple[float, float]] | None = None
 
     means: np.ndarray = field(init=False)  # (K, D)
     precisions: np.ndarray = field(init=False)  # (K, D, D)
@@ -95,32 +96,60 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
         self._is_unit_cube = isinstance(self.model, UnitCubeSignalModel) or "UnitCube" in type(self.model).__name__
 
+        # Resolve active priors (mapping physical to unit space if in unit cube mode)
+        if self.priors is None and "_priors" in self._physical_param_bounds:
+            self.priors = self._physical_param_bounds["_priors"]
+
+        active_priors = {}
+        if self.priors:
+            for name, (mu, std) in self.priors.items():
+                if self._is_unit_cube:
+                    if name in self._physical_param_bounds:
+                        lo, hi = self._physical_param_bounds[name]
+                        width = max(hi - lo, 1e-12)
+                        active_priors[name] = (float((mu - lo) / width), float(std / width))
+                else:
+                    active_priors[name] = (float(mu), float(std))
+
         for i, name in enumerate(self._param_names):
-            if self._is_unit_cube:
-                # Unit cube: everything is [0, 1]. Default to midpoint.
+            if name in active_priors:
+                prior_mu, prior_std = active_priors[name]
+                lo, hi = (0.0, 1.0) if self._is_unit_cube else self._physical_param_bounds.get(name, (0.0, 1.0))
+                sampled_means = np.random.normal(loc=prior_mu, scale=prior_std, size=K)
+                for k in range(K):
+                    self.means[k, i] = float(np.clip(sampled_means[k], lo, hi))
+                var = prior_std ** 2
+                for k in range(K):
+                    self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
+            elif name == "frequency":
+                if self._is_unit_cube:
+                    lo, hi, width = 0.0, 1.0, 1.0
+                else:
+                    lo, hi = self._physical_param_bounds.get("frequency", (2.87e9, 2.87e9))
+                    width = max(hi - lo, 1e-12)
+                part_width = width / K
+                std = part_width / 2.0
+                var = std ** 2
+                for k in range(K):
+                    center = lo + (k + 0.5) * part_width
+                    self.means[k, i] = float(np.clip(center, lo, hi))
+                    self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
+            elif self._is_unit_cube:
                 mid = 0.5
                 for k in range(K):
                     self.means[k, i] = mid
-                    if name == "frequency" and K > 1:
-                        offset = (k - (K - 1) / 2.0) * 0.1
-                        self.means[k, i] = float(np.clip(mid + offset, 0.0, 1.0))
-                var = (0.25) ** 2  # sigma = 0.25 (covers 0 to 1 in 4 sigma)
+                var = (0.15) ** 2
                 for k in range(K):
                     self.precisions[k, i, i] = 1.0 / var
             elif name in self._physical_param_bounds:
                 lo, hi = self._physical_param_bounds[name]
                 mid = (lo + hi) / 2.0
-                width = hi - lo
                 for k in range(K):
                     self.means[k, i] = mid
-                    if name == "frequency" and K > 1:
-                        offset = (k - (K - 1) / 2.0) * (width * 0.1)
-                        self.means[k, i] = float(np.clip(mid + offset, lo, hi))
-                var = (width / 4.0) ** 2
+                var = ((hi - lo) * 0.15) ** 2
                 for k in range(K):
                     self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
             else:
-                # No explicit bound supplied – use heuristic defaults
                 default = self._PARAM_DEFAULTS.get(name)
                 if default is None:
                     default = freq_width * 1e-3
@@ -144,6 +173,27 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             reg_prec = self.precisions[k] + epsilon * np.eye(self._dim)
             c = inv(reg_prec)
             self._covariances[k] = (c + c.T) / 2.0
+
+        # Enforce frequency uncertainty >= linewidth uncertainty
+        if "frequency" in self._param_names and "linewidth" in self._param_names:
+            freq_idx = self._param_names.index("frequency")
+            lw_idx = self._param_names.index("linewidth")
+            if self._is_unit_cube:
+                freq_lo, freq_hi = self._physical_param_bounds.get("frequency", (0.0, 1.0))
+                freq_w = max(freq_hi - freq_lo, 1e-12)
+                lw_lo, lw_hi = self._physical_param_bounds.get("linewidth", (0.0, 1.0))
+                lw_w = max(lw_hi - lw_lo, 1e-12)
+                scale_factor = (lw_w / freq_w) ** 2
+            else:
+                scale_factor = 1.0
+
+            for k in range(self.n_components):
+                cov = self._covariances[k]
+                var_lw = cov[lw_idx, lw_idx]
+                var_freq_min = var_lw * scale_factor
+                if cov[freq_idx, freq_idx] < var_freq_min:
+                    cov[freq_idx, freq_idx] = var_freq_min
+                    self.precisions[k, freq_idx, freq_idx] = 1.0 / max(var_freq_min, 1e-20)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
         if param_name in self._physical_param_bounds:
@@ -279,6 +329,22 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         for k in range(self.n_components):
             diff = self.means[k] - weighted_mean
             total_var += self.weights[k] * (np.diag(self._covariances[k]) + diff**2)
+
+        # Enforce frequency uncertainty >= linewidth uncertainty
+        if "frequency" in self._param_names and "linewidth" in self._param_names:
+            freq_idx = self._param_names.index("frequency")
+            lw_idx = self._param_names.index("linewidth")
+            if self._is_unit_cube:
+                freq_lo, freq_hi = self._physical_param_bounds.get("frequency", (0.0, 1.0))
+                freq_w = max(freq_hi - freq_lo, 1e-12)
+                lw_lo, lw_hi = self._physical_param_bounds.get("linewidth", (0.0, 1.0))
+                lw_w = max(lw_hi - lw_lo, 1e-12)
+                scale_factor = (lw_w / freq_w) ** 2
+            else:
+                scale_factor = 1.0
+
+            total_var[freq_idx] = max(total_var[freq_idx], total_var[lw_idx] * scale_factor)
+
         stds = np.sqrt(np.maximum(total_var, 0.0))
         return ParameterValues.from_mapping(
             self._param_names, {name: float(stds[i]) for i, name in enumerate(self._param_names)}
@@ -302,6 +368,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             n_components=self.n_components,
             weight_floor=self.weight_floor,
             weight_floor_steps=self.weight_floor_steps,
+            priors=self.priors.copy() if self.priors else None,
             _physical_param_bounds=self._physical_param_bounds.copy(),
         )
         dist.means, dist.precisions = self.means.copy(), self.precisions.copy()

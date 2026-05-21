@@ -95,6 +95,7 @@ def generate_attempt_metrics(  # noqa: C901
         "measurements_done",
         "acquisition_lo",
         "acquisition_hi",
+        "sobol_baseline_steps",
     ):
         if _sweep_key in estimate:
             metrics_serialized[_sweep_key] = _maybe_finite(estimate[_sweep_key])
@@ -128,6 +129,7 @@ def generate_attempt_metrics(  # noqa: C901
 
     sweep_steps: int | None = None
     locator_steps: int | None = None
+    sobol_baseline_steps: int | None = None
     if not finalize_row.is_empty():
         if "sweep_steps" in finalize_row.columns:
             val = finalize_row.get_column("sweep_steps")[0]
@@ -137,6 +139,10 @@ def generate_attempt_metrics(  # noqa: C901
             val = finalize_row.get_column("locator_steps")[0]
             if val is not None:
                 locator_steps = int(val)
+        if "sobol_baseline_steps" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_baseline_steps")[0]
+            if val is not None:
+                sobol_baseline_steps = int(val)
 
     entry_base: dict[str, Any] = {
         "generator": gen_name,
@@ -154,6 +160,7 @@ def generate_attempt_metrics(  # noqa: C901
         "last_run": repeat_timestamps[attempt_idx_in_combo] if attempt_idx_in_combo < len(repeat_timestamps) else None,
         "sweep_steps": sweep_steps,
         "locator_steps": locator_steps,
+        "sobol_baseline_steps": sobol_baseline_steps,
         "metrics": metrics_serialized,
     }
 

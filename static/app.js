@@ -937,6 +937,7 @@ function main() {
                 { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatFrequency },
                 { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatFrequency },
                 { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the signal with 2 samples across the effective span.', fmt: formatCount },
+                { key: 'sobol_baseline_steps', label: 'Sobol baseline', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.', fmt: formatCount },
                 { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
                 { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function(v){ return v; } },
             ];
@@ -1676,6 +1677,9 @@ function main() {
                         if (phaseData.uncert != null) {
                             items.push({ label: 'Uncertainty', val: formatFrequency(phaseData.uncert), tip: 'Final estimated standard deviation of the frequency estimate. Lower is better.' });
                         }
+                        if (phaseData.sobol_baseline_steps != null) {
+                            items.push({ label: 'Sobol baseline', val: formatCount(phaseData.sobol_baseline_steps), tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.' });
+                        }
                         
                         // Milestone metrics
                         if (phaseData.steps_to_fb != null) {
@@ -1713,8 +1717,16 @@ function main() {
                         }
                         scanMetrics.innerHTML = html;
                     } else {
-                        scanMetrics.className = 'scan-metrics-panel';
-                        scanMetrics.innerHTML = renderItemsToHtml(buildScanItems(plot, true));
+                        if (plot.true_params) {
+                            scanMetrics.className = 'scan-metrics-wrapper';
+                            let html = '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot, true)) + '</div>';
+                            html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
+                                    '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params), true) + '</div>';
+                            scanMetrics.innerHTML = html;
+                        } else {
+                            scanMetrics.className = 'scan-metrics-panel';
+                            scanMetrics.innerHTML = renderItemsToHtml(buildScanItems(plot, true));
+                        }
                     }
                     renderSweepMetricsPanel(scanSweepMetrics, plot.metrics || {});
                     updateBayesView(plot);
@@ -2560,6 +2572,10 @@ function main() {
                     const expUniform = plot.metrics && plot.metrics.expected_uniform_points;
                     if (expUniform != null && Number.isFinite(expUniform)) {
                         text += ` • Exp. uniform: ${formatCount(expUniform)}`;
+                    }
+                    const sobolBaseline = plot.sobol_baseline_steps;
+                    if (sobolBaseline != null && Number.isFinite(sobolBaseline)) {
+                        text += ` • Sobol baseline: ${formatCount(sobolBaseline)}`;
                     }
                     el.textContent = text;
                 } else {

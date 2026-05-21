@@ -26,19 +26,17 @@ from nvision.spectra.numba_kernels import (
 from nvision.spectra.signal import SignalModel
 from nvision.spectra.spec import GenericParamSpec
 
-# Legacy scale factor (no longer used by :class:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator`;
-# Lorentzian NV uses ``amplitude ≈ dip_depth * linewidth²`` in Hz², matching :class:`LorentzianModel`).
-A_PARAM = 0.0003
-MIN_K_NP = 2.0
-MAX_K_NP = 4.0
+MIN_K_NP: float = 1.0  # Captures reverse polarization regimes
+MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
+
 
 # Physical ranges for linewidth (HWHM) and hyperfine splitting.
 # These constants are shared between the signal generator and the inference
 # prior bounds so they can never drift apart.
-MIN_LINEWIDTH: float = 50e3  # 50 kHz — minimum HWHM generated / searched
-MAX_LINEWIDTH: float = 400e3  # 400 kHz — maximum HWHM generated / searched
-MIN_SPLIT: float = 2.0e6  # 2.0 MHz — minimum split generated / searched
-MAX_SPLIT: float = 3.5e6  # 3.5 MHz — maximum split generated / searched
+MIN_LINEWIDTH: float = 200e3  # 200 kHz — lower bound for broader lines
+MAX_LINEWIDTH: float = 5.0e6  # 5.0 MHz — handles heavy power broadening and strong dipole dephasing
+MIN_SPLIT: float = 3.0e6  # 2.0 MHz — minimum split generated / searched
+MAX_SPLIT: float = 8.5e6  # 3.5 MHz — maximum split generated / searched
 
 DEFAULT_NV_CENTER_FREQ_X_MIN = 2.6e9
 DEFAULT_NV_CENTER_FREQ_X_MAX = 3.1e9
@@ -533,33 +531,17 @@ class NVCenterVoigtModel(
 def nv_center_lorentzian_bounds_for_domain(
     x_min: float,
     x_max: float,
-    narrow: bool = False,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``."""
     width = float(x_max - x_min)
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
-    if narrow:
-        # Tighter bounds for "narrow" variant
-        linewidth_bounds = (1e3, 0.2e6)  # 1 kHz to 200 kHz
-        split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
-        max_span = 5.0e6
-
-        return {
-            "frequency": (float(x_min), float(x_max)),
-            "linewidth": linewidth_bounds,
-            "split": split_bounds,
-            "k_np": (MIN_K_NP, MAX_K_NP),
-            "dip_depth": (0.01, 1.0),
-            "_signal_max_span": (0.0, max_span),
-        }
-    else:
-        # Bounds are anchored to the shared MIN/MAX constants so the generator
-        # and inference prior are always aligned.
-        linewidth_bounds = (MIN_LINEWIDTH, max(MAX_LINEWIDTH, width * 0.05))
-        split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
-        max_span = width * 0.1
+    # Bounds are anchored to the shared MIN/MAX constants so the generator
+    # and inference prior are always aligned.
+    linewidth_bounds = (MIN_LINEWIDTH, max(MAX_LINEWIDTH, width * 0.05))
+    split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
+    max_span = width * 0.1
 
     return {
         "frequency": (float(x_min), float(x_max)),
@@ -705,34 +687,17 @@ def nv_center_one_peak_lorentzian_bounds_for_domain(
 def nv_center_voigt_bounds_for_domain(
     x_min: float,
     x_max: float,
-    narrow: bool = False,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Voigt signals over ``[x_min, x_max]``."""
     width = float(x_max - x_min)
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
-    if narrow:
-        # Tighter bounds for "narrow" variant
-        fwhm_total_bounds = (2e3, 0.4e6)  # 2 kHz to 400 kHz
-        split_bounds = (0.1e6, 2.0e6)  # 0.1 MHz to 2 MHz
-        max_span = 5.0e6
-
-        return {
-            "frequency": (float(x_min), float(x_max)),
-            "fwhm_total": fwhm_total_bounds,
-            "lorentz_frac": (0.01, 0.99),
-            "split": split_bounds,
-            "k_np": (MIN_K_NP, MAX_K_NP),
-            "dip_depth": (0.01, 1.0),
-            "_signal_max_span": (0.0, max_span),
-        }
-    else:
-        split_hi = 5.0e6
-        fwhm_total_hi = 2.8e6
-        fwhm_total_bounds = (70e3, fwhm_total_hi)
-        split_bounds = (0.0, split_hi)
-        max_span = 2.0 * split_hi + 2.0 * fwhm_total_hi
+    split_hi = 5.0e6
+    fwhm_total_hi = 2.8e6
+    fwhm_total_bounds = (70e3, fwhm_total_hi)
+    split_bounds = (0.0, split_hi)
+    max_span = 2.0 * split_hi + 2.0 * fwhm_total_hi
 
     return {
         "frequency": (float(x_min), float(x_max)),

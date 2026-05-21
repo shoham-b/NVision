@@ -43,30 +43,6 @@ def generators_basic() -> list[tuple[str, object]]:
     ]
 
 
-def generators_narrow() -> list[tuple[str, object]]:
-    """Narrow-parameter generators for bayesian_only group.
-
-    The domain remains wide (2.6–3.1 GHz), but signal parameters (linewidth,
-    splitting, etc.) are narrowed. Bayesian locators use Gaussian priors
-    centered on the true values to localize the signal without requiring
-    an initial sweep.
-    """
-    return [
-        (
-            "NVCenter-lorentzian-narrow",
-            NVCenterCoreGenerator(
-                x_min=2.6e9, x_max=3.1e9, variant="lorentzian", center_freq_fraction=0.1, narrow_signal=True
-            ),
-        ),
-        (
-            "NVCenter-voigt-narrow",
-            NVCenterCoreGenerator(
-                x_min=2.6e9, x_max=3.1e9, variant="voigt", center_freq_fraction=0.1, narrow_signal=True
-            ),
-        ),
-    ]
-
-
 # Noise tiers: start simple and evolve
 
 

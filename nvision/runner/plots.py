@@ -78,6 +78,7 @@ def _posterior_animation_inputs(  # noqa: C901
     if not snapshots:
         return None
 
+    from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
     from nvision.belief.grid_marginal import GridMarginalDistribution
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
@@ -117,6 +118,11 @@ def _posterior_animation_inputs(  # noqa: C901
 
     if isinstance(b0, StudentsTMixtureMarginalDistribution):
         out = _extract_mixture_posterior(snapshots, [scan_param])
+        if scan_param in out:
+            return out[scan_param]
+
+    if isinstance(b0, GaussianMixtureMarginalDistribution):
+        out = _extract_gaussian_mixture_posterior(snapshots, [scan_param])
         if scan_param in out:
             return out[scan_param]
 
@@ -169,6 +175,7 @@ def _posterior_animation_inputs_all_params(
     if not names:
         return None
 
+    from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
     from nvision.belief.grid_marginal import GridMarginalDistribution
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
@@ -186,6 +193,9 @@ def _posterior_animation_inputs_all_params(
 
     if isinstance(b0, StudentsTMixtureMarginalDistribution):
         return _extract_mixture_posterior(snapshots, names)
+
+    if isinstance(b0, GaussianMixtureMarginalDistribution):
+        return _extract_gaussian_mixture_posterior(snapshots, names)
 
     if isinstance(b0, EKFBelief):
         return _extract_ekf_posterior(snapshots, names)
@@ -282,8 +292,60 @@ def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, t
                 sigma = float(np.sqrt(max(b._covariances[k, idx, idx], 1e-18)))
                 # degrees of freedom for the marginal of a multivariate t is nu - dim + 1
                 df = float(max(b.nus[k] - D + 1.0, 1.0))
+
+                # Handle unit-cube conversion if applicable
+                if getattr(b, "_is_unit_cube", False):
+                    mu = lo + mu * (hi - lo)
+                    sigma = sigma * (hi - lo)
+
                 # Weighted component PDF
                 pdf_val = float(b.weights[k]) * t.pdf(grid, df=df, loc=mu, scale=sigma)
+                comp_pdfs.append(pdf_val)
+
+            # Row-major: [comp0, comp1, ..., compK-1, total]
+            total_pdf = np.sum(comp_pdfs, axis=0)
+            snapshot_data = np.vstack([comp_pdfs, total_pdf])
+            hist.append(snapshot_data)
+
+        out[scan_param] = (hist, grid)
+    return out
+
+
+def _extract_gaussian_mixture_posterior(
+    snapshots: list, names: list[str]
+) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
+    from scipy.stats import norm
+
+    from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
+
+    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
+    b0 = snapshots[0].belief
+    assert isinstance(b0, GaussianMixtureMarginalDistribution)
+
+    for scan_param in names:
+        idx = b0._param_names.index(scan_param)
+        lo, hi = b0._physical_param_bounds[scan_param]
+        # Generate a grid for PDF evaluation
+        grid = np.linspace(lo, hi, 250)
+
+        hist: list[np.ndarray] = []
+        for s in snapshots:
+            b = s.belief
+            assert isinstance(b, GaussianMixtureMarginalDistribution)
+            K = b.n_components  # noqa: N806
+
+            comp_pdfs = []
+            for k in range(K):
+                mu = float(b.means[k, idx])
+                sigma = float(np.sqrt(max(b._covariances[k, idx, idx], 1e-12)))
+
+                # Handle unit-cube conversion if applicable
+                if getattr(b, "_is_unit_cube", False):
+                    mu = lo + mu * (hi - lo)
+                    sigma = sigma * (hi - lo)
+
+                # Weighted component PDF
+                pdf_val = float(b.weights[k]) * norm.pdf(grid, loc=mu, scale=sigma)
                 comp_pdfs.append(pdf_val)
 
             # Row-major: [comp0, comp1, ..., compK-1, total]

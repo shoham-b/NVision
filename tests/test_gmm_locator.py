@@ -40,3 +40,40 @@ def test_gmm_locator_on_sweep_complete():
     locator._acquisition_bounds = lambda: (2.82e9, 2.88e9)
     locator._on_sweep_complete()
     assert locator.belief.physical_param_bounds["frequency"] == (2.82e9, 2.88e9)
+
+
+def test_gmm_locator_unit_cube():
+    import numpy as np
+    from nvision import nv_center_lorentzian_bounds_for_domain
+    from nvision.spectra.unit_cube import UnitCubeSignalModel
+    from nvision.belief.unit_cube_gaussian_marginal import UnitCubeGaussianMixtureMarginalDistribution
+    
+    model = NVCenterLorentzianModel()
+    bounds = nv_center_lorentzian_bounds_for_domain(2.8e9, 2.9e9)
+    wrapped_model = UnitCubeSignalModel(
+        inner=model,
+        param_bounds_phys=bounds,
+        x_bounds_phys=(2.8e9, 2.9e9)
+    )
+    
+    locator = GaussianMixtureLocator.create(
+        signal_model=wrapped_model,
+        parameter_bounds=bounds,
+        scan_param="frequency",
+        max_steps=100
+    )
+    
+    assert locator is not None
+    assert isinstance(locator.belief, UnitCubeGaussianMixtureMarginalDistribution)
+    assert locator.belief._is_unit_cube
+    
+    obs = Observation(x=0.5, signal_value=1.0, noise_std=0.05)
+    locator.observe(obs)
+    
+    locator._acquisition_bounds = lambda: (2.8e9, 2.9e9)
+    next_f = locator._acquire()
+    assert 2.8e9 <= next_f <= 2.9e9
+    
+    pdf_val = locator.belief.marginal_pdf("frequency", np.array([2.85e9]))
+    assert pdf_val[0] > 0.0
+

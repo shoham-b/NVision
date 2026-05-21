@@ -52,12 +52,16 @@ def _bayesian_strategy_names() -> list[str]:
     return ["Bayesian-SBED", "Bayesian-SBED-NoSweep"]
 
 
+def _ekf_strategy_names() -> list[str]:
+    return ["Bayesian-EKF-D", "Bayesian-EKF-A", "Bayesian-EKF-ParticleFrequency"]
+
+
+def _gmm_strategy_names() -> list[str]:
+    return ["GaussianMixture"]
+
+
 def _wide_generators() -> list[str]:
     return ["NVCenter-lorentzian", "NVCenter-voigt"]
-
-
-def _narrow_generators() -> list[str]:
-    return ["NVCenter-lorentzian-narrow", "NVCenter-voigt-narrow"]
 
 
 def _default_noise_names() -> list[str]:
@@ -79,7 +83,7 @@ def _group_all() -> RunGroup:
     strats = _default_strategy_names(gens)
     return RunGroup(
         name="all",
-        description="All allowed generators (Wide + Narrow), noises (Gauss + Poisson), and strategies (Sweep + Staged + SBED).",  # noqa: E501
+        description="All generators (Lorentzian, Voigt), noises (Gauss + Poisson), and strategies (Sweep + Staged + SBED).",  # noqa: E501
         generator_names=gens,
         noise_names=noises,
         strategy_names=strats,
@@ -92,20 +96,7 @@ def _group_wide() -> RunGroup:
     strats = _default_strategy_names(gens)
     return RunGroup(
         name="wide",
-        description="Non-narrow generators (Lorentzian, Voigt) with all allowed noises and strategies.",
-        generator_names=gens,
-        noise_names=noises,
-        strategy_names=strats,
-    )
-
-
-def _group_narrow() -> RunGroup:
-    gens = _narrow_generators()
-    noises = _default_noise_names()
-    strats = _default_strategy_names(gens)
-    return RunGroup(
-        name="narrow",
-        description="Narrow-domain generators with all allowed noises and strategies.",
+        description="Lorentzian and Voigt generators with all allowed noises and strategies.",
         generator_names=gens,
         noise_names=noises,
         strategy_names=strats,
@@ -138,14 +129,41 @@ def _group_sbed_only() -> RunGroup:
     )
 
 
+def _group_ekf_only() -> RunGroup:
+    gens = _all_generator_names()
+    noises = _default_noise_names()
+    strats = _ekf_strategy_names()
+    return RunGroup(
+        name="ekf_only",
+        description="EKF locators only (D-optimal, A-optimal, ParticleFrequency).",
+        generator_names=gens,
+        noise_names=noises,
+        strategy_names=strats,
+    )
+
+
+def _group_gmm_only() -> RunGroup:
+    gens = _all_generator_names()
+    noises = _default_noise_names()
+    strats = _gmm_strategy_names()
+    return RunGroup(
+        name="gmm_only",
+        description="Gaussian Mixture locator only.",
+        generator_names=gens,
+        noise_names=noises,
+        strategy_names=strats,
+    )
+
+
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
         _group_all(),
         _group_wide(),
-        _group_narrow(),
         _group_sweep_only(),
         _group_sbed_only(),
+        _group_ekf_only(),
+        _group_gmm_only(),
     )
 
 

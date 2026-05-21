@@ -241,11 +241,30 @@ class EKFLocator(SequentialBayesianLocator):
         assert hasattr(self.belief, "P"), "`P` is not defined in EKFBelief."
         assert hasattr(self.belief, "R"), "`R` is not defined in EKFBelief."
 
-        # Thompson sampling: pick a frequency particle proportional to its weight to drive exploration
+        # Mix OED with Thompson sampling to prevent sample impoverishment gaps
+        # 20% of the time, explore directly on a sampled particle's frequency
+        if (
+            hasattr(self.belief, "_frequency_particles")
+            and hasattr(self.belief, "_frequency_weights")
+            and np.random.rand() < 0.2
+        ):
+            idx = np.random.choice(len(self.belief._frequency_particles), p=self.belief._frequency_weights)
+            return float(self.belief._frequency_particles[idx])
+
+        # Thompson sampling: pick a parameter sample from the belief distribution to drive exploration
         theta_sample = self.belief.theta_hat.copy()
         if hasattr(self.belief, "_frequency_particles") and hasattr(self.belief, "_frequency_weights"):
             idx = np.random.choice(len(self.belief._frequency_particles), p=self.belief._frequency_weights)
             theta_sample[0] = self.belief._frequency_particles[idx] / 1e6
+        elif hasattr(self.belief, "P"):
+            try:
+                P_reg = self.belief.P.copy()
+                min_eig = np.min(np.linalg.eigvals(P_reg))
+                if min_eig < 1e-12:
+                    P_reg += np.eye(len(P_reg)) * (abs(min_eig) + 1e-10)
+                theta_sample = np.random.multivariate_normal(self.belief.theta_hat, P_reg)
+            except Exception:
+                pass
 
         # Update `select_next_frequency` call to match expected arguments.
         next_f_mhz = self.acquisition_strategy.select_next_frequency(

@@ -27,6 +27,7 @@ NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", 
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
 NVISION_SMC_POINTS_PER_MIN_FEATURE: int = int(os.getenv("NVISION_SMC_POINTS_PER_MIN_FEATURE", "5"))
 NVISION_SMC_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_SMC_MIN_EXPLORATION_FRAC", "0.01"))
+NVISION_SMC_TEMPERING_FACTOR: float = float(os.getenv("NVISION_SMC_TEMPERING_FACTOR", "1.0"))
 
 
 _EIG_CHUNK_SIZE: int = 64
@@ -173,6 +174,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     resample_delay: int = 0
     priors: dict[str, tuple[float, float]] | None = None
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC
+    tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR
 
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
@@ -276,7 +278,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 predicted=predicted,
                 noise_std=obs.noise_std,
                 frequency_noise_model=obs.frequency_noise_model,
-                tempering_factor=1.0,
+                tempering_factor=self.tempering_factor,
             ).astype(FLOAT_DTYPE, copy=False)
 
         # 2. Update weights — paper-compliant likelihood only (Eq. S3) [cite: 117]
@@ -336,7 +338,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         predicted=predicted,
                         noise_std=obs.noise_std,
                         frequency_noise_model=obs.frequency_noise_model,
-                        tempering_factor=1.0,
+                        tempering_factor=self.tempering_factor,
                     )
                     log_weights += np.log(np.maximum(lik, 1e-100))
             else:
@@ -346,6 +348,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
                 ys = np.array([obs.signal_value for obs in observations], dtype=FLOAT_DTYPE)
                 sigmas = np.array([max(float(obs.noise_std), 1e-9) for obs in observations], dtype=FLOAT_DTYPE)
+                if self.tempering_factor != 1.0:
+                    sigmas *= np.sqrt(self.tempering_factor)
 
                 residuals = ys[:, None] - predictions
                 log_liks_matrix = -0.5 * (residuals / sigmas[:, None]) ** 2
@@ -633,6 +637,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             resample_delay=self.resample_delay,
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
+            tempering_factor=self.tempering_factor,
+
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()

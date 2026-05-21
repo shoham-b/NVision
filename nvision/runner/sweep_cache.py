@@ -172,6 +172,41 @@ def has_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> bool:
     return _sync_from_shm(key) is not None
 
 
+def _sobol_baseline_cache_key(experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int) -> str:
+    """Generate cache key for Sobol baseline steps."""
+    return f"sobol_baseline:{seed}:{generator_name}:{noise_name}:{repeat_idx}"
+
+
+def get_cached_sobol_baseline(
+    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
+) -> int | None:
+    """Retrieve cached Sobol baseline steps if available."""
+    key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
+    cached = _DESERIALIZED_CACHE.get(key)
+    if cached is None:
+        cached = _sync_from_shm(key)
+    return cached
+
+
+def put_cached_sobol_baseline(
+    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: int
+) -> None:
+    """Store Sobol baseline steps in shared cache."""
+    key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
+
+    if _SHM_LOCK is not None:
+        with _SHM_LOCK:
+            cached = _sync_from_shm(key)
+            if cached is None:
+                _DESERIALIZED_CACHE[key] = steps
+                _write_to_shm(key, steps)  # type: ignore
+    else:
+        with _LOCK:
+            if key not in _SWEEP_OBSERVATIONS_BY_KEY:
+                _SWEEP_OBSERVATIONS_BY_KEY[key] = steps  # type: ignore
+                _DESERIALIZED_CACHE[key] = steps
+
+
 def clear_sweep_cache() -> None:
     """Clear all cached sweep observations."""
     with _LOCK:
@@ -195,6 +230,16 @@ class SweepCache:
 
     def has(self, experiment: CoreExperiment, sweep_steps: int) -> bool:
         return has_cached_sweep(experiment, sweep_steps)
+
+    def get_sobol_baseline(
+        self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
+    ) -> int | None:
+        return get_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
+
+    def put_sobol_baseline(
+        self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: int
+    ) -> None:
+        put_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx, steps)
 
 
 def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribution:

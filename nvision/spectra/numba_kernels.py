@@ -68,12 +68,17 @@ def nv_center_lorentzian_gradient(
 
     Order: frequency, linewidth, split, k_np, dip_depth
     """
-    lw2 = lw_phys * lw_phys
+    # Guard against degenerate parameters that cause ZeroDivisionError.
+    # Under noisy EKF updates k_np or lw_phys can drift to ~0; clamp them
+    # to a physically meaningful floor before computing any reciprocal.
+    k_safe = k_np if k_np > 1e-10 else 1e-10
+    lw_safe = lw_phys if lw_phys > 1e-10 else 1e-10
+    lw2 = lw_safe * lw_safe
 
     # Amplitudes
     amp_r = dip_depth_phys
-    amp_c = dip_depth_phys / k_np
-    amp_l = dip_depth_phys / (k_np * k_np)
+    amp_c = dip_depth_phys / k_safe
+    amp_l = dip_depth_phys / (k_safe * k_safe)
 
     # Dip centers
     fc, fl, fr = freq_phys, freq_phys - split_phys, freq_phys + split_phys
@@ -81,31 +86,31 @@ def nv_center_lorentzian_gradient(
     # Center dip
     dxc = x_phys - fc
     dxc2 = dxc * dxc
-    den_c = dxc2 + lw2
+    den_c = max(dxc2 + lw2, 1e-30)
     iden_c = 1.0 / den_c
     iden_c2 = iden_c * iden_c
     dt_df_c = 2.0 * lw2 * dxc * iden_c2
-    dt_dlw_c = 2.0 * lw_phys * dxc2 * iden_c2
+    dt_dlw_c = 2.0 * lw_safe * dxc2 * iden_c2
 
     # Left dip
     dxl = x_phys - fl
     dxl2 = dxl * dxl
-    den_l = dxl2 + lw2
+    den_l = max(dxl2 + lw2, 1e-30)
     iden_l = 1.0 / den_l
     iden_l2 = iden_l * iden_l
     tl = lw2 * iden_l
     dt_df_l = 2.0 * lw2 * dxl * iden_l2
-    dt_dlw_l = 2.0 * lw_phys * dxl2 * iden_l2
+    dt_dlw_l = 2.0 * lw_safe * dxl2 * iden_l2
 
     # Right dip
     dxr = x_phys - fr
     dxr2 = dxr * dxr
-    den_r = dxr2 + lw2
+    den_r = max(dxr2 + lw2, 1e-30)
     iden_r = 1.0 / den_r
     iden_r2 = iden_r * iden_r
     tr = lw2 * iden_r
     dt_df_r = 2.0 * lw2 * dxr * iden_r2
-    dt_dlw_r = 2.0 * lw_phys * dxr2 * iden_r2
+    dt_dlw_r = 2.0 * lw_safe * dxr2 * iden_r2
 
     # dS/df
     grad_phys[0] = -(amp_l * dt_df_l + amp_c * dt_df_c + amp_r * dt_df_r)
@@ -114,10 +119,11 @@ def nv_center_lorentzian_gradient(
     # dS/ds
     grad_phys[2] = amp_l * dt_df_l - amp_r * dt_df_r
     # dS/dk
-    k2 = k_np * k_np
-    grad_phys[3] = (2.0 * dip_depth_phys / (k2 * k_np)) * tl + (dip_depth_phys / k2) * (lw2 * iden_c)
+    k2 = k_safe * k_safe
+    grad_phys[3] = (2.0 * dip_depth_phys / (k2 * k_safe)) * tl + (dip_depth_phys / k2) * (lw2 * iden_c)
     # dS/dd
-    grad_phys[4] = -(tl / k2 + (lw2 * iden_c) / k_np + tr)
+    grad_phys[4] = -(tl / k2 + (lw2 * iden_c) / k_safe + tr)
+
 
 
 def gaussian_peak_value(
