@@ -1975,19 +1975,30 @@ function main() {
                         scaledData = data.map(v => v / factor);
                     }
                     
+
+
                     const trace = {
                         x: scaledData,
                         type: 'histogram',
                         name: name,
-                        marker: { color: color },
-                        nbinsx: 35 // Smaller bin size (more bins) to reveal the distribution shape clearly
+                        marker: {
+                            color: color,
+                            line: {
+                                color: 'rgba(0, 0, 0, 0.5)',
+                                width: 1
+                            }
+                        },
+                        opacity: 0.8,
+                        nbinsx: 50 // Use more bins for smoother distribution
                     };
                     const layout = {
-                        title: { text: title, font: { size: 14 } },
-                        margin: { l: 45, r: 20, t: 40, b: 40 },
-                        xaxis: { title: 'Value' + (unit ? ' (' + unit + ')' : ''), showgrid: true, zeroline: true },
-                        yaxis: { title: 'Count', showgrid: true },
-                        showlegend: false
+                        title: { text: title, font: { size: 16, family: 'Arial, sans-serif' } },
+                        margin: { l: 50, r: 20, t: 50, b: 50 },
+                        xaxis: { title: {text: 'Value' + (unit ? ' (' + unit + ')' : ''), font: {size: 14}}, showgrid: true, gridcolor: '#eee', zeroline: true, zerolinecolor: '#999' },
+                        yaxis: { title: {text: 'Count', font: {size: 14}}, showgrid: true, gridcolor: '#eee' },
+                        showlegend: false,
+                        plot_bgcolor: 'white',
+                        paper_bgcolor: 'white'
                     };
                     Plotly.newPlot(div, [trace], layout, {responsive: true});
                 }
