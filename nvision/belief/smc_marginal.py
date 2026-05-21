@@ -468,7 +468,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             min_var = ((hi - lo) * self.min_exploration_frac) ** 2
             nudge_cov[j, j] = max(float(nudge_cov[j, j]), float(min_var))
 
-
         # Make nudge_cov perfectly symmetric and strictly positive definite.
         # Adding a tiny absolute and relative diagonal jitter ensures
         # we don't hit LinAlgError due to float32 numerical precision.
@@ -634,7 +633,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             resample_delay=self.resample_delay,
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
-
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
