@@ -97,11 +97,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
         # Mix EIG with Thompson sampling to prevent sample impoverishment gaps
         # 20% of the time, explore directly on a sampled particle's frequency
-        if (
-            hasattr(self.belief, "_particles")
-            and hasattr(self.belief, "_weights")
-            and np.random.rand() < 0.2
-        ):
+        if hasattr(self.belief, "_particles") and hasattr(self.belief, "_weights") and np.random.rand() < 0.2:
             weights = self.belief._weights
             if np.sum(weights) > 0:
                 idx = int(np.random.choice(len(weights), p=weights))

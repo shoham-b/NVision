@@ -125,6 +125,7 @@ class UnitCubeGaussianMixtureMarginalDistribution(GaussianMixtureMarginalDistrib
         u = (x - lo) / width
 
         from scipy.stats import norm
+
         idx = self._param_names.index(param_name)
         pdf_val = np.zeros_like(u, dtype=np.float64)
         for k in range(self.n_components):
@@ -143,6 +144,7 @@ class UnitCubeGaussianMixtureMarginalDistribution(GaussianMixtureMarginalDistrib
         u = (x - lo) / width
 
         from scipy.stats import norm
+
         idx = self._param_names.index(param_name)
         cdf_val = np.zeros_like(u, dtype=np.float64)
         for k in range(self.n_components):

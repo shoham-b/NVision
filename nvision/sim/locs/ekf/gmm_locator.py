@@ -68,10 +68,12 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
         )
 
         from nvision.spectra.unit_cube import UnitCubeSignalModel
+
         is_unit_cube = isinstance(model, UnitCubeSignalModel) or "UnitCube" in type(model).__name__
 
         if is_unit_cube:
             from nvision.belief.unit_cube_gaussian_marginal import UnitCubeGaussianMixtureMarginalDistribution
+
             belief = UnitCubeGaussianMixtureMarginalDistribution(
                 model=model,
                 n_components=n_components,
@@ -142,8 +144,6 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
         probs /= probs.sum()
         best_idx = int(np.random.choice(len(candidates_hz), p=probs))
         return float(candidates_hz[best_idx])
-
-
 
     def observe(self, obs: Observation) -> None:
         """Route observation, denormalizing the x coordinate if physical belief."""

@@ -1,9 +1,9 @@
 from nvision.sim.locs.bayesian import (
     SequentialBayesianExperimentDesignLocator,
     SequentialBayesianLocator,
+    SimpleSobolBayesianLocator,
     StudentsTLocator,
     UtilitySamplingLocator,
-    SimpleSobolBayesianLocator,
     nv_center_belief,
 )
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
@@ -11,9 +11,9 @@ from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 __all__ = [
     "SequentialBayesianExperimentDesignLocator",
     "SequentialBayesianLocator",
+    "SimpleSobolBayesianLocator",
     "StagedSobolSweepLocator",
     "StudentsTLocator",
     "UtilitySamplingLocator",
-    "SimpleSobolBayesianLocator",
     "nv_center_belief",
 ]

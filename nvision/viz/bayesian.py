@@ -264,22 +264,22 @@ def _trace_one_marginal_posterior(
         # Mixture: each row is a component, last row is total
         K_plus_1 = posterior.shape[0]  # noqa: N806
         traces: list[go.Scatter] = []
-        
+
         # Curated harmonious qualitative colors for the mixture components (experts)
         expert_colors = [
-            "rgba(26, 188, 156, 1.0)",   # Turquoise
-            "rgba(155, 89, 182, 1.0)",   # Amethyst/Purple
-            "rgba(230, 126, 34, 1.0)",   # Orange
-            "rgba(52, 152, 219, 1.0)",   # Bright Blue
-            "rgba(241, 196, 15, 1.0)",   # Sunflower Yellow
-            "rgba(231, 76, 60, 1.0)",    # Alizarin Red
+            "rgba(26, 188, 156, 1.0)",  # Turquoise
+            "rgba(155, 89, 182, 1.0)",  # Amethyst/Purple
+            "rgba(230, 126, 34, 1.0)",  # Orange
+            "rgba(52, 152, 219, 1.0)",  # Bright Blue
+            "rgba(241, 196, 15, 1.0)",  # Sunflower Yellow
+            "rgba(231, 76, 60, 1.0)",  # Alizarin Red
         ]
 
         # Calculate expert weights by numerical integration (sum * dx) over grid support
         dx = grid[1] - grid[0] if len(grid) > 1 else 1.0
         raw_weights = [float(np.sum(posterior[j]) * dx) for j in range(K_plus_1 - 1)]
         sum_w = sum(raw_weights)
-        
+
         # Plot individual experts with distinct colors and semi-transparent lines
         for k in range(K_plus_1 - 1):
             comp_color = expert_colors[k % len(expert_colors)]
@@ -289,7 +289,7 @@ def _trace_one_marginal_posterior(
                     x=grid,
                     y=posterior[k],
                     mode="lines",
-                    name=f"Expert {k+1} (w={weight:.2f})",
+                    name=f"Expert {k + 1} (w={weight:.2f})",
                     line=dict(dash="dash", width=2, color=comp_color),
                     opacity=0.8,
                     legendgroup=param,

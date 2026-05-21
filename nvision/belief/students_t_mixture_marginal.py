@@ -118,7 +118,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
                 sampled_means = np.random.normal(loc=prior_mu, scale=prior_std, size=K)
                 for k in range(K):
                     self.means[k, i] = float(np.clip(sampled_means[k], lo, hi))
-                var = prior_std ** 2
+                var = prior_std**2
                 for k in range(K):
                     self.precisions[k, i, i] = 1.0 / max(var, 1e-20)
             elif name == "frequency":
@@ -129,7 +129,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
                     width = max(hi - lo, 1e-12)
                 part_width = width / K
                 std = part_width / 2.0
-                var = std ** 2
+                var = std**2
                 for k in range(K):
                     center = lo + (k + 0.5) * part_width
                     self.means[k, i] = float(np.clip(center, lo, hi))

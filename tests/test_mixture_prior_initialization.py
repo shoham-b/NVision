@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
 from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
@@ -66,9 +65,9 @@ def test_mixture_prior_initialization():
     # Means should be sampled from the prior, clipped to bounds
     for m in gmm.means[:, idx]:
         assert 2.8e9 <= m <= 2.9e9
-    
+
     # Precision should match prior variance (1 / std^2)
-    expected_prec = 1.0 / (5e6 ** 2)
+    expected_prec = 1.0 / (5e6**2)
     assert np.allclose(gmm.precisions[:, idx, idx], expected_prec)
 
     # 2. Test Student's T Prior sampling
@@ -108,14 +107,14 @@ def test_unit_cube_mixture_prior_initialization():
         _physical_param_bounds=phys_bounds,
     )
     idx = gmm._param_names.index("frequency")
-    
+
     # Internal means should be in [0, 1] unit space
     # Prior mean 2.86e9 -> unit space (2.86e9 - 2.8e9) / 1e8 = 0.6
     # Prior std 5e6 -> unit space 5e6 / 1e8 = 0.05
     for m in gmm.means[:, idx]:
         assert 0.0 <= m <= 1.0
-        
-    expected_prec = 1.0 / (0.05 ** 2)
+
+    expected_prec = 1.0 / (0.05**2)
     assert np.allclose(gmm.precisions[:, idx, idx], expected_prec)
 
     # 2. Test UnitCube Student's T Prior
@@ -209,7 +208,7 @@ def test_frequency_linewidth_uncertainty_constraint():
     model = NVCenterLorentzianModel()
     phys_bounds = {
         "frequency": (2.8e9, 2.9e9),  # width = 1e8
-        "linewidth": (5e6, 15e6),    # width = 1e7
+        "linewidth": (5e6, 15e6),  # width = 1e7
     }
 
     # 1. Test GMM Physical
@@ -315,4 +314,3 @@ def test_frequency_linewidth_uncertainty_constraint():
 
     emp_unc_uc_st = uc_st.uncertainty()
     assert emp_unc_uc_st["frequency"] >= emp_unc_uc_st["linewidth"]
-

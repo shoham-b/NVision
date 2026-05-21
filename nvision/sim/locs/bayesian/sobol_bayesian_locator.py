@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator

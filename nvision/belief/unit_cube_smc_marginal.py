@@ -154,7 +154,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
             tempering_factor=self.tempering_factor,
-
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()

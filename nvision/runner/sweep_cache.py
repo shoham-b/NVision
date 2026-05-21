@@ -172,7 +172,9 @@ def has_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> bool:
     return _sync_from_shm(key) is not None
 
 
-def _sobol_baseline_cache_key(experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int) -> str:
+def _sobol_baseline_cache_key(
+    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
+) -> str:
     """Generate cache key for Sobol baseline steps."""
     return f"sobol_baseline:{seed}:{generator_name}:{noise_name}:{repeat_idx}"
 

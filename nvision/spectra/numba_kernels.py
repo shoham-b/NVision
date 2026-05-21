@@ -125,7 +125,6 @@ def nv_center_lorentzian_gradient(
     grad_phys[4] = -(tl / k2 + (lw2 * iden_c) / k_safe + tr)
 
 
-
 def gaussian_peak_value(
     x: float,
     freq: float,

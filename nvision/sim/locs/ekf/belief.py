@@ -349,6 +349,7 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
             freq_bounds = self._physical_bounds.get("frequency", (2.6e9, 3.1e9))
             freq_range = freq_bounds[1] - freq_bounds[0]
             import os
+
             min_exploration_frac = float(os.getenv("NVISION_EKF_PF_MIN_EXPLORATION_FRAC", "0.0001"))
             min_var = (freq_range * min_exploration_frac) ** 2
             nudge_var = max(nudge_var, min_var)

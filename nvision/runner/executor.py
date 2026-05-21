@@ -585,9 +585,7 @@ class _TaskRunner:
 
     def _rng_for_sobol_baseline(self, repeat_idx: int) -> random.Random:
         """RNG for Sobol baseline measurement noise — strategy-independent."""
-        key = measurement_repeat_key(
-            self.task.seed, self.generator_name, "sobol_baseline", self.noise_name, repeat_idx
-        )
+        key = measurement_repeat_key(self.task.seed, self.generator_name, "sobol_baseline", self.noise_name, repeat_idx)
         return random.Random(repeat_seed_int(key))
 
     def _run_sobol_baseline(
@@ -600,8 +598,8 @@ class _TaskRunner:
         signal_max_span: float | None,
     ) -> int:
         """Simulate the SimpleSobolBayesianLocator until convergence and return step count."""
-        from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
         from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+        from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 
         # Create a fresh RNG for the Sobol baseline measurements
         sobol_rng = self._rng_for_sobol_baseline(rid)
