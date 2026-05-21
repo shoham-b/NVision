@@ -7,9 +7,18 @@
 </head>
 <body>
 <h1>NVision results <span id="out-dir-display"></span></h1>
-<div id="run-status-banner"></div>
+<div id="run-status-banner" role="status" aria-live="polite"></div>
 <p class="last-run" id="last-run-time"></p>
-<p><a download href="locator_results.csv">Download locator_results.csv</a></p>
+<div style="display: flex; gap: 1em; align-items: center; margin-bottom: 1em;">
+    <a download href="locator_results.csv" class="control-button" style="text-decoration: none; display: inline-flex; align-items: center; gap: 0.5em;">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Download CSV
+    </a>
+    <button type="button" id="recalculate-btn" class="control-button" style="display: inline-flex; align-items: center; gap: 0.5em;" title="Keyboard shortcut: r">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+        Recalculate (R)
+    </button>
+</div>
 <div class="tab-bar" role="tablist"></div>
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
     <h2>Scan measurements <span tabindex="0" class="help-icon-visible" title="Individual scan showing measured points (colored by phase) and the inferred signal location.">?</span></h2>
@@ -64,10 +73,10 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>
             </button>
             <div class="timeline-slider-container">
-                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0">
+                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0" aria-label="Timeline step">
                 <span id="global-step-label" class="timeline-label">Step: --</span>
             </div>
-            <select id="global-speed-select" class="speed-select">
+            <select id="global-speed-select" class="speed-select" aria-label="Playback speed">
                 <option value="500">Speed: 0.5x</option>
                 <option value="200" selected>Speed: 1x</option>
                 <option value="100">Speed: 2x</option>
