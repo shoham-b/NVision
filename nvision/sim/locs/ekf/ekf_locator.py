@@ -258,10 +258,10 @@ class EKFLocator(SequentialBayesianLocator):
             theta_sample[0] = self.belief._frequency_particles[idx] / 1e6
         elif hasattr(self.belief, "P"):
             try:
-                P_reg = self.belief.P.copy()
+                P_reg = self.belief.P.copy()  # noqa: N806
                 min_eig = np.min(np.linalg.eigvals(P_reg))
                 if min_eig < 1e-12:
-                    P_reg += np.eye(len(P_reg)) * (abs(min_eig) + 1e-10)
+                    P_reg += np.eye(len(P_reg)) * (abs(min_eig) + 1e-10)  # noqa: N806
                 theta_sample = np.random.multivariate_normal(self.belief.theta_hat, P_reg)
             except Exception:
                 pass
