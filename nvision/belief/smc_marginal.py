@@ -707,13 +707,22 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         and sigma_eta^2 is the measurement noise variance.
         """
         arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
-        # shape: (n_candidates, n_particles) — uses fastmath kernel (acquisition path only)
-        predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
-
         w = self._weights  # already float32, already normalized
-        mean_pred = predictions @ w  # (n_candidates,)
-        diff = predictions - mean_pred[:, None]  # (n_candidates, n_particles)
-        var_pred = (diff**2) @ w  # (n_candidates,)
+        n_candidates = len(candidates)
+        var_pred = np.empty(n_candidates, dtype=FLOAT_DTYPE)
+
+        # Optimization: Process EIG scoring in chunks to prevent massive (n_candidates, n_particles)
+        # memory allocations, reducing peak memory usage from ~1.1GB to ~2MB for 50k candidates * 1k particles.
+        for start in range(0, n_candidates, _EIG_CHUNK_SIZE):
+            end = min(start + _EIG_CHUNK_SIZE, n_candidates)
+            cand_chunk = candidates[start:end]
+
+            # shape: (chunk_size, n_particles) — uses fastmath kernel (acquisition path only)
+            predictions = self.model.compute_vectorized_many_fast(cand_chunk, arrays_in_order)
+
+            mean_pred = predictions @ w  # (chunk_size,)
+            diff = predictions - mean_pred[:, None]  # (chunk_size, n_particles)
+            var_pred[start:end] = (diff**2) @ w  # (chunk_size,)
 
         return var_pred
 
