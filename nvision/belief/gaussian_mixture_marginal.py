@@ -165,13 +165,13 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         the matrix effectively singular after a few EKF updates.
         """
         for k in range(self.n_components):
-            P = self.precisions[k]
+            p_mat = self.precisions[k]
             # Relative epsilon: at least NVISION_GAUSSIAN_EPSILON, but scales
             # with the average diagonal magnitude so every eigenvalue direction
             # is regularised proportionally.
-            trace_val = float(np.trace(P))
+            trace_val = float(np.trace(p_mat))
             eps = max(NVISION_GAUSSIAN_EPSILON, 1e-6 * trace_val / max(self._dim, 1))
-            reg_prec = P + eps * np.eye(self._dim)
+            reg_prec = p_mat + eps * np.eye(self._dim)
             try:
                 c = inv(reg_prec)
             except np.linalg.LinAlgError:
