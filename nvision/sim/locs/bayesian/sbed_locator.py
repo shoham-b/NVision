@@ -91,7 +91,9 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             return float(lo)
 
         # Retrieve candidates directly from the belief (slope-targeted epoch grid)
-        candidates = self.belief.get_candidates()
+        # But if the locator defines an overriding `_generate_candidates` and specifies
+        # `n_candidates`, use it.
+        candidates = self._generate_candidates(self.n_candidates)
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
         eig_choice = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
 
@@ -103,7 +105,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 idx = int(np.random.choice(len(weights), p=weights))
                 if "frequency" in getattr(self.belief, "_param_names", []):
                     f_idx = self.belief._param_names.index("frequency")
-                    return float(self.belief._particles[idx, f_idx])
+                    val = float(self.belief._particles[idx, f_idx])
+                    if hasattr(self.belief, "_to_physical"):
+                        val = float(self.belief._to_physical("frequency", val))
+                    return val
 
         return eig_choice
 
