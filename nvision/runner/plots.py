@@ -150,7 +150,7 @@ def _posterior_animation_inputs(  # noqa: C901
     return None
 
 
-def _posterior_animation_inputs_all_params(
+def _posterior_animation_inputs_all_params(  # noqa: C901
     run_result: RunResult,
     start_idx: int = 0,
 ) -> dict[str, tuple[list[np.ndarray], np.ndarray]] | None:
