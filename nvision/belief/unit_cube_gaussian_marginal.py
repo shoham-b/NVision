@@ -66,6 +66,7 @@ class UnitCubeGaussianMixtureMarginalDistribution(GaussianMixtureMarginalDistrib
         data_phys = {
             name: u_norm * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
             for name, u_norm in raw_norm.items()
+            if name in self.physical_param_bounds
         }
         return ParameterValues.from_mapping(list(raw_norm.keys()), data_phys)
 

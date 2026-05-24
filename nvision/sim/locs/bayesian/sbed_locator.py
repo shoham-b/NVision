@@ -101,9 +101,14 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             weights = self.belief._weights
             if np.sum(weights) > 0:
                 idx = int(np.random.choice(len(weights), p=weights))
-                if "frequency" in getattr(self.belief, "_param_names", []):
-                    f_idx = self.belief._param_names.index("frequency")
-                    return float(self.belief._particles[idx, f_idx])
+                param_names = getattr(self.belief, "_param_names", [])
+                scan_param = self._scan_param
+                if scan_param in param_names:
+                    p_idx = param_names.index(scan_param)
+                    val = float(self.belief._particles[idx, p_idx])
+                    if hasattr(self.belief, "_to_physical"):
+                        val = self.belief._to_physical(scan_param, val)
+                    return val
 
         return eig_choice
 
@@ -121,8 +126,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             if hasattr(self.belief, "_resample"):
                 self.belief._resample()
 
-            if check_convergence and self._target_params_converged():
-                self._is_converged = True
+        if check_convergence and self._target_params_converged():
+            self._is_converged = True
 
     def _acquisition_done(self) -> bool:
         if self._is_converged:
