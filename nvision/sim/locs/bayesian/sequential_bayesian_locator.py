@@ -300,8 +300,10 @@ class SequentialBayesianLocator(Locator):
 
         Convergence requires the uncertainty of each target parameter to be
         below ``convergence_threshold`` as a fraction of its physical bound
-        width (e.g. ``0.01`` = 1 %).  The overall (RMS) relative uncertainty
-        across all target parameters must also be below the same threshold.
+        width (e.g. ``0.01`` = 1 %).  For the frequency parameter specifically,
+        convergence requires its absolute uncertainty to be below 1 KHz (1000 Hz).
+        The overall (RMS) relative uncertainty across all target parameters must also
+        be below the same threshold.
         """
         target_params = (
             list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
@@ -313,8 +315,14 @@ class SequentialBayesianLocator(Locator):
             if name not in physical_uncertainties:
                 continue
             unc = float(physical_uncertainties[name])
-            lo, hi = self.belief.physical_param_bounds.get(name, (0.0, 0.0))
-            bound_width = hi - lo
+            if name == "frequency":
+                # For frequency, convergence threshold is absolute 1 KHz (1000 Hz).
+                # We map this to relative uncertainty using 1000.0 / convergence_threshold
+                # so that (unc / bound_width) < convergence_threshold holds if and only if unc < 1000.0.
+                bound_width = 1000.0 / self.convergence_threshold
+            else:
+                lo, hi = self.belief.physical_param_bounds.get(name, (0.0, 0.0))
+                bound_width = hi - lo
             if bound_width <= 0:
                 return False
             relative_uncertainties[name] = unc / bound_width

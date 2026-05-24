@@ -919,6 +919,9 @@ function main() {
         function renderSweepMetricsPanel(container, metrics) {
             if (!container) return;
             container.innerHTML = '';
+            if (metrics.sobol_baseline_steps != null && metrics.sobol_freq_steps != null && metrics.sobol_conv_diff == null) {
+                metrics.sobol_conv_diff = metrics.sobol_baseline_steps - metrics.sobol_freq_steps;
+            }
             // Build a displayable focus_window string from acquisition bounds,
             // but only for sweep locators that support focus (indicated by
             // the presence of expected_focused_points).
@@ -938,6 +941,8 @@ function main() {
                 { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatFrequency },
                 { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the signal with 2 samples across the effective span.', fmt: formatCount },
                 { key: 'sobol_baseline_steps', label: 'Sobol baseline', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.', fmt: formatCount },
+                { key: 'sobol_freq_steps', label: 'Sobol freq baseline', tip: 'Measurements required by a simple Sobol sweep for the frequency parameter specifically to converge.', fmt: formatCount },
+                { key: 'sobol_conv_diff', label: 'Sobol baseline diff', tip: 'Difference in measurements between Sobol sweep overall convergence and frequency convergence.', fmt: formatCount },
                 { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
                 { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function(v){ return v; } },
             ];
@@ -1679,6 +1684,13 @@ function main() {
                         }
                         if (phaseData.sobol_baseline_steps != null) {
                             items.push({ label: 'Sobol baseline', val: formatCount(phaseData.sobol_baseline_steps), tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.' });
+                        }
+                        if (phaseData.sobol_freq_steps != null) {
+                            items.push({ label: 'Sobol freq baseline', val: formatCount(phaseData.sobol_freq_steps), tip: 'Measurements required by a simple Sobol sweep for the frequency parameter specifically to converge.' });
+                        }
+                        if (phaseData.sobol_baseline_steps != null && phaseData.sobol_freq_steps != null) {
+                            const sobolDiff = phaseData.sobol_conv_diff != null ? phaseData.sobol_conv_diff : (phaseData.sobol_baseline_steps - phaseData.sobol_freq_steps);
+                            items.push({ label: 'Sobol baseline diff', val: formatCount(sobolDiff), tip: 'Difference in measurements between Sobol sweep overall convergence and frequency convergence.' });
                         }
                         
                         // Milestone metrics
@@ -2588,6 +2600,14 @@ function main() {
                     if (sobolBaseline != null && Number.isFinite(sobolBaseline)) {
                         text += ` • Sobol baseline: ${formatCount(sobolBaseline)}`;
                     }
+                    const sobolFreqBaseline = plot.sobol_freq_steps;
+                    if (sobolFreqBaseline != null && Number.isFinite(sobolFreqBaseline)) {
+                        text += ` • Sobol freq baseline: ${formatCount(sobolFreqBaseline)}`;
+                    }
+                    if (sobolBaseline != null && sobolFreqBaseline != null && Number.isFinite(sobolBaseline) && Number.isFinite(sobolFreqBaseline)) {
+                        const diffVal = plot.sobol_conv_diff != null ? plot.sobol_conv_diff : (sobolBaseline - sobolFreqBaseline);
+                        text += ` • Sobol diff: ${formatCount(diffVal)}`;
+                    }
                     el.textContent = text;
                 } else {
                     el.textContent = '';
@@ -2803,60 +2823,74 @@ function main() {
 
     // Keyboard shortcut: 'r' to reload/recalculate results
     let _reloadInProgress = false;
-    document.addEventListener('keydown', async (e) => {
-        if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-            if (_reloadInProgress) {
-                console.log('Reload already in progress...');
-                return;
-            }
-            _reloadInProgress = true;
-            console.log('Reloading results...');
-            // Show notification
-            const notif = document.createElement('div');
-            notif.setAttribute('role', 'status');
-            notif.setAttribute('aria-live', 'polite');
-            notif.id = 'reload-notification';
-            notif.style.cssText = 'position:fixed;top:20px;right:20px;padding:15px 25px;background:#2196F3;color:white;border-radius:4px;z-index:9999;font-family:sans-serif;font-weight:bold;box-shadow:0 2px 10px rgba(0,0,0,0.3);';
-            notif.textContent = 'Reloading results...';
-            document.body.appendChild(notif);
 
-            try {
-                const response = await fetch('/api/reload', { method: 'POST' });
-                const data = await response.json();
-                console.log('Reload response:', data);
+    async function triggerReload() {
+        if (_reloadInProgress) {
+            console.log('Reload already in progress...');
+            return;
+        }
+        _reloadInProgress = true;
+        console.log('Reloading results...');
+        // Show notification
+        const notif = document.createElement('div');
+        notif.setAttribute('role', 'status');
+        notif.setAttribute('aria-live', 'polite');
+        notif.id = 'reload-notification';
+        notif.style.cssText = 'position:fixed;top:20px;right:20px;padding:15px 25px;background:#2196F3;color:white;border-radius:4px;z-index:9999;font-family:sans-serif;font-weight:bold;box-shadow:0 2px 10px rgba(0,0,0,0.3);';
+        notif.textContent = 'Reloading results...';
+        document.body.appendChild(notif);
 
-                if (data.status === 'started') {
-                    notif.style.background = '#4CAF50';
-                    notif.textContent = 'Recalculating... (this may take a moment)';
-                    // Poll for completion
-                    const pollInterval = setInterval(async () => {
-                        try {
-                            const statusResp = await fetch('/api/status');
-                            const status = await statusResp.json();
-                            if (!status.reload_running) {
-                                clearInterval(pollInterval);
-                                notif.style.background = '#4CAF50';
-                                notif.textContent = 'Done! Reloading page...';
-                                setTimeout(() => window.location.reload(), 1000);
-                            }
-                        } catch (e) {
-                            console.error('Poll error:', e);
+        try {
+            const response = await fetch('/api/reload', { method: 'POST' });
+            const data = await response.json();
+            console.log('Reload response:', data);
+
+            if (data.status === 'started') {
+                notif.style.background = '#4CAF50';
+                notif.textContent = 'Recalculating... (this may take a moment)';
+                // Poll for completion
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusResp = await fetch('/api/status');
+                        const status = await statusResp.json();
+                        if (!status.reload_running) {
+                            clearInterval(pollInterval);
+                            notif.style.background = '#4CAF50';
+                            notif.textContent = 'Done! Reloading page...';
+                            setTimeout(() => window.location.reload(), 1000);
                         }
-                    }, 1000);
-                } else if (data.status === 'already_running') {
-                    notif.style.background = '#FF9800';
-                    notif.textContent = 'Reload already in progress';
-                    setTimeout(() => notif.remove(), 3000);
-                }
-            } catch (error) {
-                console.error('Reload failed:', error);
-                notif.style.background = '#f44336';
-                notif.textContent = 'Reload failed (see console)';
-                setTimeout(() => notif.remove(), 5000);
+                    } catch (e) {
+                        console.error('Poll error:', e);
+                    }
+                }, 1000);
+            } else if (data.status === 'already_running') {
+                notif.style.background = '#FF9800';
+                notif.textContent = 'Reload already in progress';
+                setTimeout(() => notif.remove(), 3000);
                 _reloadInProgress = false;
             }
+        } catch (error) {
+            console.error('Reload failed:', error);
+            notif.style.background = '#f44336';
+            notif.textContent = 'Reload failed (see console)';
+            setTimeout(() => notif.remove(), 5000);
+            _reloadInProgress = false;
+        }
+    }
+
+    document.addEventListener('keydown', async (e) => {
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+            return;
+        }
+        if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            triggerReload();
         }
     });
+
+    const recalcBtn = document.getElementById('recalc-btn');
+    if (recalcBtn) {
+        recalcBtn.addEventListener('click', triggerReload);
+    }
 
     const init = () => {
         const lastRunEl = document.getElementById('last-run-time');

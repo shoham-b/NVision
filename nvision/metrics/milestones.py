@@ -23,8 +23,11 @@ def detect_milestone(run_result: RunResult, param: str, threshold: float = 0.01,
     if not run_result.snapshots:
         return None
 
-    # Get bounds for relative threshold
-    if relative:
+    if param == "frequency":
+        # For frequency, convergence is specifically below absolute 1 KHz (1000 Hz)
+        threshold = 1000.0
+    elif relative:
+        # Get bounds for relative threshold
         bounds = run_result.snapshots[0].belief.physical_param_bounds.get(param)
         if bounds:
             lo, hi = bounds

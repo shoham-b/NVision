@@ -29,6 +29,29 @@ body {
             margin-bottom: 1em;
         }
 
+        .header-actions {
+            display: flex;
+            gap: 1em;
+            margin-bottom: 1em;
+            align-items: center;
+        }
+
+        .link-button {
+            color: #0056b3;
+            text-decoration: none;
+            background: none;
+            border: none;
+            padding: 0;
+            font: inherit;
+            cursor: pointer;
+            outline: inherit;
+            display: inline;
+        }
+
+        .link-button:hover {
+            text-decoration: underline;
+        }
+
         .section {
             background-color: #fff;
             border: 1px solid #ddd;
