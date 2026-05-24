@@ -9,7 +9,10 @@
 <h1>NVision results <span id="out-dir-display"></span></h1>
 <div id="run-status-banner"></div>
 <p class="last-run" id="last-run-time"></p>
-<p><a download href="locator_results.csv">Download locator_results.csv</a></p>
+<div class="header-actions">
+    <a download href="locator_results.csv" class="link-button">Download locator_results.csv</a>
+    <button type="button" id="recalc-btn" class="link-button" title="Keyboard shortcut: 'r'">Recalculate results</button>
+</div>
 <div class="tab-bar" role="tablist"></div>
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
     <h2>Scan measurements <span tabindex="0" class="help-icon-visible" title="Individual scan showing measured points (colored by phase) and the inferred signal location.">?</span></h2>
