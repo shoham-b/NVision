@@ -15,6 +15,18 @@
 ## 2025-05-15 - Eliminate Numba Sqrt and Parallelize Noise Models
 **Learning:** Profiling showed that nested evaluations inside Numba jit-compiled Bayesian noise likelihood functions (`_gaussian_composite_ll_jit` and `_poisson_composite_ll_jit`) were slow due to sequential loops and computationally expensive `math.sqrt()` calls inside the loop body. Refactoring to use `@njit(parallel=True)` with `prange` allows the evaluations to run concurrently. Additionally, we algebraically eliminated `math.sqrt()` by using the logarithmic identity `-math.log(sqrt(X)) = -0.5 * math.log(X)` and expanding calculations to operate directly on squared values, significantly reducing computational overhead.
 **Action:** When optimizing Numba `@njit` blocks, eliminate computationally expensive `math.sqrt()` calls in tight inner loops by reformulating equations to operate directly on squared values (e.g., computing `s_eff_sq` instead of `s_eff`) and leveraging logarithmic identities like `- math.log(sqrt(X)) == -0.5 * math.log(X)`.
+
+## 2026-03-01 - Optimize Polars filtering loops using `partition_by`
+**Learning:** In Polars, using `df.filter(pl.col(...) == val)` inside a loop over unique values results in O(M*N) performance, which becomes a major bottleneck for large datasets or high cardinality. Polars provides `.partition_by("col", as_dict=True)` which does this optimally in O(N) time. Note that `as_dict=True` yields keys that are tuples (even for a single partition column), so the value needs to be extracted as `key_tuple[0]`.
+**Action:** When filtering a DataFrame into sub-DataFrames for each unique category, refactor loops using `.filter` into a single `.partition_by(..., as_dict=True)` call followed by an `.items()` iteration.
+
+## 2026-05-24 - Handle fragile numpy asserts with float imprecision
+**Learning:** When using `np.allclose()` in test suites for computationally complex functions (like GMM distributions), avoid default relative tolerances that fail due to floating point imprecision when evaluating mathematical constraints.
+**Action:** Always provide explicit tolerances (e.g. `atol=1e-3`) when validating internal algorithm bounds or covariances.
+
+## 2026-05-24 - Ensure exhaustive mock configuration dicts in tests
+**Learning:** When generating test fixtures with missing dependency bounds (like `phys_bounds` missing keys for `"split"`, `"k_np"`, etc. for `UnitCubeGaussianMixtureMarginalDistribution`), it can cause obscure `KeyError`s deep within execution stacks (like calculating `.uncertainty()`) even if the test is technically focused on other parameters.
+**Action:** Always provide exhaustive configuration dicts mapped to the expected model parameters to ensure test stability, or mock the dictionary's `__getitem__` to fallback gracefully if it is intentional.
 ## 2025-02-12 - Polars Partitioning Optimization
 **Learning:** Looping over unique values of a Polars DataFrame and calling `.filter()` in every iteration takes `O(N * K)` complexity where `K` is the number of groups, as the filter expression is evaluated repeatedly over the entire DataFrame. Using `.partition_by(col, as_dict=True)` performs a native Rust grouping operation yielding exact partitions with `O(N)` performance.
 **Action:** Always prefer `.partition_by(..., as_dict=True)` instead of manual unique-value filtering when extracting DataFrames for every category in a Polars column. When partitioning, remember that the resulting dictionary keys will be tuples, so extract individual group values via unpacking `(gen, noise), sub_df in ...items()`.
