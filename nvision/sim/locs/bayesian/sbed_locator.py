@@ -122,8 +122,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             return
         ess = _inverse_sum_squares(self.belief._weights)
         ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)
-        if ess < ess_threshold:
-            if hasattr(self.belief, "_resample"):
+        if ess < ess_threshold and hasattr(self.belief, "_resample"):
                 self.belief._resample()
 
         if check_convergence and self._target_params_converged():

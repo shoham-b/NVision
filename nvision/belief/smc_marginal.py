@@ -379,7 +379,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Return the current epoch's slope-targeted candidate grid."""
         return self._current_candidates
 
-    def _generate_epoch_candidates(self) -> None:
+    def _generate_epoch_candidates(self) -> None:  # noqa: C901
         """Generate a dense slope-targeted grid and cache it for the current epoch.
 
         Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine

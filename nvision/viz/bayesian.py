@@ -2386,10 +2386,7 @@ class BayesianMixin:
         n_params = len(param_names)
 
         def _subplot_title(p: str) -> str:
-            if p == "frequency":
-                base = f"{p} (absolute uncertainty, Hz)"
-            else:
-                base = f"{p} (relative uncertainty)"
+            base = f"{p} (absolute uncertainty, Hz)" if p == "frequency" else f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
                 base += f"<br><sup>bounds: [{lo:.4g}, {hi:.4g}] (width={hi - lo:.4g})</sup>"

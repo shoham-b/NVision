@@ -154,7 +154,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
         self._recompute_covariances()
 
-    def _recompute_covariances(self) -> None:
+    def _recompute_covariances(self) -> None:  # noqa: C901
         """Invert each component's precision matrix to obtain the covariance.
 
         Uses a **trace-relative** regularisation so that the epsilon floor
