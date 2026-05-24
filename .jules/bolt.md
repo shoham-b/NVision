@@ -19,3 +19,7 @@
 ## 2026-03-01 - Optimize Polars filtering loops using `partition_by`
 **Learning:** In Polars, using `df.filter(pl.col(...) == val)` inside a loop over unique values results in O(M*N) performance, which becomes a major bottleneck for large datasets or high cardinality. Polars provides `.partition_by("col", as_dict=True)` which does this optimally in O(N) time. Note that `as_dict=True` yields keys that are tuples (even for a single partition column), so the value needs to be extracted as `key_tuple[0]`.
 **Action:** When filtering a DataFrame into sub-DataFrames for each unique category, refactor loops using `.filter` into a single `.partition_by(..., as_dict=True)` call followed by an `.items()` iteration.
+
+## 2026-05-24 - Handle fragile numpy asserts with float imprecision
+**Learning:** When using `np.allclose()` in test suites for computationally complex functions (like GMM distributions), avoid default relative tolerances that fail due to floating point imprecision when evaluating mathematical constraints.
+**Action:** Always provide explicit tolerances (e.g. `atol=1e-3`) when validating internal algorithm bounds or covariances.
