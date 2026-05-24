@@ -112,7 +112,7 @@ def test_gmm_and_students_t_damping_and_unweighted_posterior():
     snapshots_gmm = [DummySnapshot(gmm)]
 
     out_gmm = _extract_gaussian_mixture_posterior(snapshots_gmm, ["frequency"])
-    hist_gmm, grid_gmm = out_gmm["frequency"]
+    hist_gmm, _grid_gmm = out_gmm["frequency"]
     post_gmm = hist_gmm[0]
 
     # Shape of posterior should be (2*K + 1, N_grid) = (7, 250)
@@ -137,7 +137,7 @@ def test_gmm_and_students_t_damping_and_unweighted_posterior():
     snapshots_st = [DummySnapshot(st)]
 
     out_st = _extract_mixture_posterior(snapshots_st, ["frequency"])
-    hist_st, grid_st = out_st["frequency"]
+    hist_st, _grid_st = out_st["frequency"]
     post_st = hist_st[0]
 
     assert post_st.shape == (7, 250)
