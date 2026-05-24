@@ -74,16 +74,16 @@ def test_gmm_locator_unit_cube():
 
 def test_gmm_and_students_t_damping_and_unweighted_posterior():
     import numpy as np
-    from scipy.stats import norm, t
+
     from nvision.belief.gaussian_mixture_marginal import (
-        GaussianMixtureMarginalDistribution,
         NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC,
         NVISION_GAUSSIAN_UPDATE_DAMPING,
+        GaussianMixtureMarginalDistribution,
     )
     from nvision.belief.students_t_mixture_marginal import (
-        StudentsTMixtureMarginalDistribution,
         NVISION_STUDENTS_T_MIN_EXPLORATION_FRAC,
         NVISION_STUDENTS_T_UPDATE_DAMPING,
+        StudentsTMixtureMarginalDistribution,
     )
     from nvision.runner.plots import _extract_gaussian_mixture_posterior, _extract_mixture_posterior
 
@@ -112,7 +112,7 @@ def test_gmm_and_students_t_damping_and_unweighted_posterior():
     snapshots_gmm = [DummySnapshot(gmm)]
 
     out_gmm = _extract_gaussian_mixture_posterior(snapshots_gmm, ["frequency"])
-    hist_gmm, grid_gmm = out_gmm["frequency"]
+    hist_gmm, _grid_gmm = out_gmm["frequency"]
     post_gmm = hist_gmm[0]
 
     # Shape of posterior should be (2*K + 1, N_grid) = (7, 250)
@@ -137,7 +137,7 @@ def test_gmm_and_students_t_damping_and_unweighted_posterior():
     snapshots_st = [DummySnapshot(st)]
 
     out_st = _extract_mixture_posterior(snapshots_st, ["frequency"])
-    hist_st, grid_st = out_st["frequency"]
+    hist_st, _grid_st = out_st["frequency"]
     post_st = hist_st[0]
 
     assert post_st.shape == (7, 250)
@@ -149,9 +149,10 @@ def test_gmm_and_students_t_damping_and_unweighted_posterior():
 
 def test_mixture_reflective_boundaries():
     import numpy as np
+
     from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
-    from nvision.spectra.lorentzian import NVCenterLorentzianModel
+    from nvision.spectra.nv_center import NVCenterLorentzianModel
 
     model = NVCenterLorentzianModel()
     bounds = {
@@ -192,4 +193,3 @@ def test_mixture_reflective_boundaries():
     for i, name in enumerate(st._param_names):
         lo, hi = bounds[name]
         assert lo <= st.means[0, i] <= hi
-

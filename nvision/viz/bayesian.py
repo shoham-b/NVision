@@ -295,7 +295,7 @@ def _trace_one_marginal_posterior(
         for k in range(K):
             comp_color = expert_colors[k % len(expert_colors)]
             weight = raw_weights[k] / sum_w if sum_w > 0 else 1.0 / K
-            
+
             # In the new format, posterior[k] is the unweighted expert PDF.
             # In the old format, posterior[k] is the weighted expert PDF.
             y_vals = posterior[k]
@@ -729,6 +729,7 @@ class BayesianMixin:
                 ess_history.append(1.0 / sum_sq if sum_sq > 0.0 else 0.0)
             num_particles = len(weight_history[0])
             from nvision.belief.smc_marginal import NVISION_SMC_ESS_THRESHOLD
+
             ess_threshold_val = NVISION_SMC_ESS_THRESHOLD * num_particles
         else:
             subplot_titles = (

@@ -136,12 +136,12 @@ class ComparisonsMixin:
         """Create and save a box plot comparing strategies for a specific metric."""
         fig = go.Figure()
 
-        strategies = df.select("strategy").unique().to_series().to_list()
-        # Sort strategies for consistent order
-        strategies.sort()
+        partitions = df.partition_by("strategy", as_dict=True)
+        # Extract and sort strategies for consistent order
+        strategies = sorted([k[0] for k in partitions])
 
         for strat in strategies:
-            strat_data = df.filter(pl.col("strategy") == strat)
+            strat_data = partitions[(strat,)]
             vals = strat_data.get_column(metric).to_list()
             display_name = self._strategy_display_name(strat)
             tick_label = self._strategy_tick_label(display_name)
