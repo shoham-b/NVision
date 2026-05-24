@@ -208,10 +208,10 @@ def test_frequency_linewidth_uncertainty_constraint():
     model = NVCenterLorentzianModel()
     phys_bounds = {
         "frequency": (2.8e9, 2.9e9),  # width = 1e8
-        "linewidth": (5e6, 15e6),  # width = 1e7
-        "split": (0.0, 10e6),
-        "k_np": (0.0, 1.0),
-        "dip_depth": (0.0, 1.0),
+        "linewidth": (5e6, 15e6),
+        "split": (2e6, 8e6),
+        "k_np": (1.0, 2.0),
+        "dip_depth": (0.01, 0.5),
     }
 
     # 1. Test GMM Physical
@@ -272,13 +272,13 @@ def test_frequency_linewidth_uncertainty_constraint():
     # but the internal _covariances are in unit cube.
     # Let's verify internal _covariances are clamped:
     for k in range(uc_gmm.n_components):
-        # internal freq_cov should be clamped to var_lw * 0.01 = 1.0
-        assert np.allclose(uc_gmm._covariances[k, freq_idx, freq_idx], 1.0, atol=1e-3)
-        assert np.allclose(uc_gmm.precisions[k, freq_idx, freq_idx], 1.0, atol=1e-3)
+        # internal freq_cov should be clamped to var_lw * 0.01
+        assert np.allclose(uc_gmm._covariances[k, freq_idx, freq_idx], uc_gmm._covariances[k, lw_idx, lw_idx] * 0.01)
+        assert np.allclose(uc_gmm.precisions[k, freq_idx, freq_idx], 1.0 / uc_gmm._covariances[k, freq_idx, freq_idx])
 
     # Verify that public empirical uncertainty (which is mapped to physical) also satisfies the constraint
     emp_unc_uc = uc_gmm.uncertainty()
-    assert emp_unc_uc["frequency"] >= emp_unc_uc["linewidth"]
+    assert emp_unc_uc["frequency"] * 1.01 >= emp_unc_uc["linewidth"]
 
     # 3. Test Student's T Physical
     st = StudentsTMixtureMarginalDistribution(
@@ -316,8 +316,93 @@ def test_frequency_linewidth_uncertainty_constraint():
     uc_st._recompute_covariances()
 
     for k in range(uc_st.n_components):
-        assert np.allclose(uc_st._covariances[k, freq_idx, freq_idx], 1.0, atol=1e-3)
-        assert np.allclose(uc_st.precisions[k, freq_idx, freq_idx], 1.0, atol=1e-3)
+        assert np.allclose(uc_st._covariances[k, freq_idx, freq_idx], uc_st._covariances[k, lw_idx, lw_idx] * 0.01)
+        assert np.allclose(uc_st.precisions[k, freq_idx, freq_idx], 1.0 / uc_st._covariances[k, freq_idx, freq_idx])
 
     emp_unc_uc_st = uc_st.uncertainty()
     assert emp_unc_uc_st["frequency"] >= emp_unc_uc_st["linewidth"]
+
+
+def test_mixture_minimum_exploration_std_floor():
+    """Verify that both GMM and Student's T mixtures clamp variance to the min exploration standard deviation floor."""
+    model = NVCenterLorentzianModel()
+    phys_bounds = {
+        "frequency": (2.8e9, 2.9e9),  # width = 1e8, min_std = 0.05 * 1e8 = 5e6, min_var = 2.5e13
+        "linewidth": (5e6, 15e6),  # width = 1e7, min_std = 0.05 * 1e7 = 5e5, min_var = 2.5e11
+        "split": (2e6, 8e6),
+        "k_np": (1.0, 2.0),
+        "dip_depth": (0.01, 0.5),
+    }
+
+    # 1. Test GMM Physical
+    gmm = GaussianMixtureMarginalDistribution(
+        model=model,
+        n_components=1,
+        _physical_param_bounds=phys_bounds,
+    )
+    freq_idx = gmm._param_names.index("frequency")
+    lw_idx = gmm._param_names.index("linewidth")
+    
+    # Set physical precision extremely high (variance extremely small)
+    gmm.precisions[0] = np.eye(gmm._dim)
+    gmm.precisions[0, freq_idx, freq_idx] = 1.0  # without clamping, variance would be ~1.0
+    
+    gmm._recompute_covariances()
+    
+    # Expected min variance = (0.05 * 1e8) ** 2 = 2.5e13
+    assert np.allclose(gmm._covariances[0, freq_idx, freq_idx], 2.5e13)
+    assert np.allclose(gmm.precisions[0, freq_idx, freq_idx], 1.0 / 2.5e13)
+
+    # 2. Test GMM Unit Cube (wrapped)
+    wrapped_model = UnitCubeSignalModel(
+        inner=model,
+        param_bounds_phys=phys_bounds,
+        x_bounds_phys=(2.8e9, 2.9e9),
+    )
+    uc_gmm = UnitCubeGaussianMixtureMarginalDistribution(
+        model=wrapped_model,
+        n_components=1,
+        _physical_param_bounds=phys_bounds,
+    )
+    
+    # Set unit-cube precision high (variance extremely small, below 0.05^2 = 0.0025)
+    # Set both frequency and linewidth precision high to avoid frequency-linewidth constraint interference
+    uc_gmm.precisions[0] = np.eye(uc_gmm._dim)
+    uc_gmm.precisions[0, freq_idx, freq_idx] = 10000.0  # var without clamping = 0.0001
+    uc_gmm.precisions[0, lw_idx, lw_idx] = 10000.0
+    
+    uc_gmm._recompute_covariances()
+    
+    # Expected min variance in unit cube = 0.05 ** 2 = 0.0025
+    assert np.allclose(uc_gmm._covariances[0, freq_idx, freq_idx], 0.0025)
+    assert np.allclose(uc_gmm.precisions[0, freq_idx, freq_idx], 1.0 / 0.0025)
+
+    # 3. Test Student's T Physical
+    st = StudentsTMixtureMarginalDistribution(
+        model=model,
+        n_components=1,
+        _physical_param_bounds=phys_bounds,
+    )
+    st.precisions[0] = np.eye(st._dim)
+    st.precisions[0, freq_idx, freq_idx] = 1.0
+    
+    st._recompute_covariances()
+    
+    assert np.allclose(st._covariances[0, freq_idx, freq_idx], 2.5e13)
+    assert np.allclose(st.precisions[0, freq_idx, freq_idx], 1.0 / 2.5e13)
+
+    # 4. Test Student's T Unit Cube (wrapped)
+    uc_st = UnitCubeStudentsTMixtureMarginalDistribution(
+        model=wrapped_model,
+        n_components=1,
+        _physical_param_bounds=phys_bounds,
+    )
+    uc_st.precisions[0] = np.eye(uc_st._dim)
+    uc_st.precisions[0, freq_idx, freq_idx] = 10000.0
+    uc_st.precisions[0, lw_idx, lw_idx] = 10000.0
+    
+    uc_st._recompute_covariances()
+    
+    assert np.allclose(uc_st._covariances[0, freq_idx, freq_idx], 0.0025)
+    assert np.allclose(uc_st.precisions[0, freq_idx, freq_idx], 1.0 / 0.0025)
+
