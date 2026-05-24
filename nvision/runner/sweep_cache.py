@@ -196,7 +196,12 @@ def get_cached_sobol_baseline(
 
 
 def put_cached_sobol_baseline(
-    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: dict[str, int | None]
+    experiment: CoreExperiment,
+    seed: int,
+    generator_name: str,
+    noise_name: str,
+    repeat_idx: int,
+    steps: dict[str, int | None],
 ) -> None:
     """Store Sobol baseline steps in shared cache."""
     key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
@@ -244,7 +249,13 @@ class SweepCache:
         return get_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
 
     def put_sobol_baseline(
-        self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: dict[str, int | None]
+        self,
+        experiment: CoreExperiment,
+        seed: int,
+        generator_name: str,
+        noise_name: str,
+        repeat_idx: int,
+        steps: dict[str, int | None],
     ) -> None:
         put_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx, steps)
 

@@ -74,16 +74,16 @@ def test_gmm_locator_unit_cube():
 
 def test_gmm_and_students_t_damping_and_unweighted_posterior():
     import numpy as np
-    from scipy.stats import norm, t
+
     from nvision.belief.gaussian_mixture_marginal import (
-        GaussianMixtureMarginalDistribution,
         NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC,
         NVISION_GAUSSIAN_UPDATE_DAMPING,
+        GaussianMixtureMarginalDistribution,
     )
     from nvision.belief.students_t_mixture_marginal import (
-        StudentsTMixtureMarginalDistribution,
         NVISION_STUDENTS_T_MIN_EXPLORATION_FRAC,
         NVISION_STUDENTS_T_UPDATE_DAMPING,
+        StudentsTMixtureMarginalDistribution,
     )
     from nvision.runner.plots import _extract_gaussian_mixture_posterior, _extract_mixture_posterior
 
@@ -149,9 +149,10 @@ def test_gmm_and_students_t_damping_and_unweighted_posterior():
 
 def test_mixture_reflective_boundaries():
     import numpy as np
+
     from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
     from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
-    from nvision.spectra.lorentzian import NVCenterLorentzianModel
+    from nvision.spectra.nv_center import NVCenterLorentzianModel
 
     model = NVCenterLorentzianModel()
     bounds = {
@@ -192,4 +193,3 @@ def test_mixture_reflective_boundaries():
     for i, name in enumerate(st._param_names):
         lo, hi = bounds[name]
         assert lo <= st.means[0, i] <= hi
-

@@ -431,7 +431,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 3. Compute effective uncertainty and resolution in physical space
         sigma_eff_phys = np.sqrt(sigma_f_phys**2 + sigma_omega_phys**2)
-        
+
         # 10 kHz minimum step in physical space
         min_step_physical = 10000.0
         delta_d_phys = max(sigma_eff_phys / 30.0, min_step_physical)

@@ -764,8 +764,9 @@ def run(  # noqa: C901
                     if effective_bridge is None:
                         temp_bridge = CacheBridge(tree.cache_dir)
                         effective_bridge = temp_bridge
-                    
+
                     from nvision.runner.executor import _TaskRunner
+
                     for task in tasks:
                         runner = _TaskRunner(task, cache_bridge=effective_bridge)
                         # Disable skip_cache temporarily to ensure we actually read the cache
@@ -776,7 +777,7 @@ def run(  # noqa: C901
                             for entries, main_result_row in cached_results:
                                 cached_plot_manifest.extend(entries)
                                 cached_df_rows.append(main_result_row)
-                    
+
                     if cached_df_rows:
                         df_rows = cached_df_rows
                         plot_manifest = cached_plot_manifest

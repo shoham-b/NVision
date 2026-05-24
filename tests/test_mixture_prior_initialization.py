@@ -342,13 +342,13 @@ def test_mixture_minimum_exploration_std_floor():
     )
     freq_idx = gmm._param_names.index("frequency")
     lw_idx = gmm._param_names.index("linewidth")
-    
+
     # Set physical precision extremely high (variance extremely small)
     gmm.precisions[0] = np.eye(gmm._dim)
     gmm.precisions[0, freq_idx, freq_idx] = 1.0  # without clamping, variance would be ~1.0
-    
+
     gmm._recompute_covariances()
-    
+
     # Expected min variance = (0.05 * 1e8) ** 2 = 2.5e13
     assert np.allclose(gmm._covariances[0, freq_idx, freq_idx], 2.5e13)
     assert np.allclose(gmm.precisions[0, freq_idx, freq_idx], 1.0 / 2.5e13)
@@ -364,15 +364,15 @@ def test_mixture_minimum_exploration_std_floor():
         n_components=1,
         _physical_param_bounds=phys_bounds,
     )
-    
+
     # Set unit-cube precision high (variance extremely small, below 0.05^2 = 0.0025)
     # Set both frequency and linewidth precision high to avoid frequency-linewidth constraint interference
     uc_gmm.precisions[0] = np.eye(uc_gmm._dim)
     uc_gmm.precisions[0, freq_idx, freq_idx] = 10000.0  # var without clamping = 0.0001
     uc_gmm.precisions[0, lw_idx, lw_idx] = 10000.0
-    
+
     uc_gmm._recompute_covariances()
-    
+
     # Expected min variance in unit cube = 0.05 ** 2 = 0.0025
     assert np.allclose(uc_gmm._covariances[0, freq_idx, freq_idx], 0.0025)
     assert np.allclose(uc_gmm.precisions[0, freq_idx, freq_idx], 1.0 / 0.0025)
@@ -385,9 +385,9 @@ def test_mixture_minimum_exploration_std_floor():
     )
     st.precisions[0] = np.eye(st._dim)
     st.precisions[0, freq_idx, freq_idx] = 1.0
-    
+
     st._recompute_covariances()
-    
+
     assert np.allclose(st._covariances[0, freq_idx, freq_idx], 2.5e13)
     assert np.allclose(st.precisions[0, freq_idx, freq_idx], 1.0 / 2.5e13)
 
@@ -400,9 +400,8 @@ def test_mixture_minimum_exploration_std_floor():
     uc_st.precisions[0] = np.eye(uc_st._dim)
     uc_st.precisions[0, freq_idx, freq_idx] = 10000.0
     uc_st.precisions[0, lw_idx, lw_idx] = 10000.0
-    
+
     uc_st._recompute_covariances()
-    
+
     assert np.allclose(uc_st._covariances[0, freq_idx, freq_idx], 0.0025)
     assert np.allclose(uc_st.precisions[0, freq_idx, freq_idx], 1.0 / 0.0025)
-

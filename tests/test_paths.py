@@ -105,6 +105,8 @@ def test_find_project_root_fallback(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("nvision.tools.paths.__file__", str(file_path))
 
     assert find_project_root() == Path.cwd()
+
+
 import pytest
 
 from nvision.tools.paths import slugify
