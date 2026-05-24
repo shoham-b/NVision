@@ -155,6 +155,28 @@ def _group_gmm_only() -> RunGroup:
     )
 
 
+def _group_sobol_only() -> RunGroup:
+    gens = _all_generator_names()
+    noises = _default_noise_names()
+    return RunGroup(
+        name="sobol",
+        description="SimpleSobol (van der Corput + Bayesian convergence) locator only.",
+        generator_names=gens,
+        noise_names=noises,
+        strategy_names=["SimpleSobol"],
+    )
+
+
+def _group_lorentzian_gauss_comparison() -> RunGroup:
+    return RunGroup(
+        name="lorentzian_gauss_comparison",
+        description="SBED, GaussianMixture, and SimpleSobol on NVCenter-lorentzian with Gauss(0.01) noise.",
+        generator_names=["NVCenter-lorentzian"],
+        noise_names=["Gauss(0.01)"],
+        strategy_names=["Bayesian-SBED", "GaussianMixture", "SimpleSobol"],
+    )
+
+
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
@@ -164,6 +186,8 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_sbed_only(),
         _group_ekf_only(),
         _group_gmm_only(),
+        _group_sobol_only(),
+        _group_lorentzian_gauss_comparison(),
     )
 
 

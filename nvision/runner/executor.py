@@ -494,15 +494,17 @@ class _TaskRunner:
     def _background_save_repeat(self, rid: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]) -> None:
         """Worker function for background saving."""
         try:
+            # save_repeat and append_cached_repeats do not accept 'repeats' keyword
+            combo_kw = {k: v for k, v in self._combination_cache_kwargs().items() if k != "repeats"}
             self.cache.save_repeat(
-                **self._combination_cache_kwargs(),
+                **combo_kw,
                 repeat_idx=rid,
                 entries=entries,
                 main_result_row=main_result_row,
             )
             # Update pointer
             self.cache.append_cached_repeats(
-                **self._combination_cache_kwargs(),
+                **combo_kw,
                 new_results=[],
                 start_idx=rid + 1,
             )
@@ -522,6 +524,11 @@ class _TaskRunner:
         else:
             effective_max_steps = self.task.loc_max_steps
 
+        # Pad list inputs for generate_attempt_metrics to align with attempt_idx (0 to self.repeats - 1)
+        full_stop_reasons = [""] * start_idx + list(artifacts.stop_reasons)
+        full_start_times = [0.0] * start_idx + list(artifacts.repeat_start_times)
+        full_timestamps = [""] * start_idx + list(artifacts.repeat_timestamps)
+
         for i in range(n_repeats):
             attempt_idx = start_idx + i
             entry_base, main_result_row, current_history_df = generate_attempt_metrics(
@@ -530,10 +537,10 @@ class _TaskRunner:
                 gen_name=self.generator_name,
                 noise_name=self.noise_name,
                 strat_name=self.strategy_name,
-                repeat_stop_reasons=artifacts.stop_reasons,
-                repeat_start_times=artifacts.repeat_start_times,
-                repeat_timestamps=artifacts.repeat_timestamps,
-                current_scan=artifacts.experiments[attempt_idx],
+                repeat_stop_reasons=full_stop_reasons,
+                repeat_start_times=full_start_times,
+                repeat_timestamps=full_timestamps,
+                current_scan=artifacts.experiments[i],
                 final_history_df=artifacts.history_df,
                 finalize_results=artifacts.finalize_df,
                 strat_obj=self.task.strategy,
@@ -546,7 +553,7 @@ class _TaskRunner:
                 viz=self.viz,
                 entry_base=entry_base,
                 attempt_idx_in_combo=attempt_idx,
-                current_scan=artifacts.experiments[attempt_idx],
+                current_scan=artifacts.experiments[i],
                 current_history_df=current_history_df,
                 noise_obj=self.task.noise,
                 strat_obj=self.task.strategy,
@@ -554,7 +561,7 @@ class _TaskRunner:
                 out_dir=self.task.out_dir,
                 scans_dir=self.task.scans_dir,
                 bayes_dir=self.task.bayes_dir,
-                run_result=artifacts.run_results[attempt_idx] if attempt_idx < len(artifacts.run_results) else None,
+                run_result=artifacts.run_results[i] if i < len(artifacts.run_results) else None,
             )
             all_results.append((entries, main_result_row))
 
@@ -596,7 +603,7 @@ class _TaskRunner:
         noise_std: float,
         noise_max_dev: float | None,
         signal_max_span: float | None,
-    ) -> int:
+    ) -> dict[str, int | None]:
         """Simulate the SimpleSobolBayesianLocator until convergence and return step count."""
         from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
         from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
@@ -604,23 +611,20 @@ class _TaskRunner:
         # Create a fresh RNG for the Sobol baseline measurements
         sobol_rng = self._rng_for_sobol_baseline(rid)
 
-        sobol_config = {
-            **locator_config,
-            "max_steps": self.task.loc_max_steps,
-            "parameter_bounds": self._injected_parameter_bounds(experiment),
-            "noise_std": noise_std,
+        parameter_bounds = self._injected_parameter_bounds(experiment)
+
+        # Build belief directly — SimpleSobolBayesianLocator is instantiated
+        # directly because we already have the belief object; create() expects
+        # a builder callable and would raise ValueError if passed a pre-built belief.
+        belief = nv_center_smc_belief(parameter_bounds)
+
+        locator = SimpleSobolBayesianLocator(
+            belief=belief,
+            max_steps=10000,
+            noise_std=noise_std,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
-        }
-
-        # Build belief
-        belief = nv_center_smc_belief(sobol_config["parameter_bounds"])
-        sobol_config["belief"] = belief
-        sobol_config["signal_model"] = experiment.true_signal.model
-        if experiment.true_signal.noise_model is not None:
-            sobol_config["noise_model"] = experiment.true_signal.noise_model
-
-        locator = SimpleSobolBayesianLocator.create(**sobol_config)
+        )
 
         step = 0
         while not locator.done():
@@ -630,7 +634,10 @@ class _TaskRunner:
             obs = experiment.measure(x_current, sobol_rng)
             locator.observe(obs)
 
-        return locator.step_count
+        return {
+            "sobol_baseline_steps": locator.step_count,
+            "sobol_freq_steps": locator.freq_converged_step,
+        }
 
     def _build_experiment(self, rng: random.Random) -> CoreExperiment:
         true_signal = self.task.generator.generate(rng)
@@ -787,17 +794,23 @@ class _TaskRunner:
             model.signal_min_span(domain_width)
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
-        # Run Sobol Sweep baseline for this signal repeat
-        sobol_steps = self._sweep_cache.get_sobol_baseline(
-            experiment, self.task.seed, self.generator_name, self.noise_name, rid
-        )
-        if sobol_steps is None:
-            sobol_steps = self._run_sobol_baseline(
-                rid, experiment, locator_config, noise_std, noise_max_dev, signal_max_span
+        # Run Sobol Sweep baseline for this signal repeat — skip when we ARE the Sobol baseline
+        sobol_baseline_steps: int | None = None
+        sobol_freq_steps: int | None = None
+        if self.strategy_name != "SimpleSobol":
+            sobol_data = self._sweep_cache.get_sobol_baseline(
+                experiment, self.task.seed, self.generator_name, self.noise_name, rid
             )
-            self._sweep_cache.put_sobol_baseline(
-                experiment, self.task.seed, self.generator_name, self.noise_name, rid, sobol_steps
-            )
+            if sobol_data is None:
+                sobol_data = self._run_sobol_baseline(
+                    rid, experiment, locator_config, noise_std, noise_max_dev, signal_max_span
+                )
+                self._sweep_cache.put_sobol_baseline(
+                    experiment, self.task.seed, self.generator_name, self.noise_name, rid, sobol_data
+                )
+            if sobol_data is not None:
+                sobol_baseline_steps = sobol_data.get("sobol_baseline_steps")
+                sobol_freq_steps = sobol_data.get("sobol_freq_steps")
 
         # Check locator class attributes to determine configuration
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
@@ -883,7 +896,12 @@ class _TaskRunner:
                 eff_sweep_steps = step_count
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
-        finalize_record["sobol_baseline_steps"] = sobol_steps
+        finalize_record["sobol_baseline_steps"] = sobol_baseline_steps
+        finalize_record["sobol_freq_steps"] = sobol_freq_steps
+        if sobol_baseline_steps is not None and sobol_freq_steps is not None:
+            finalize_record["sobol_conv_diff"] = sobol_baseline_steps - sobol_freq_steps
+        else:
+            finalize_record["sobol_conv_diff"] = None
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

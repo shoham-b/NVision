@@ -22,6 +22,8 @@ NVISION_GAUSSIAN_NUM_EXPERTS: int = int(os.getenv("NVISION_GAUSSIAN_NUM_EXPERTS"
 NVISION_GAUSSIAN_WEIGHT_FLOOR: float = float(os.getenv("NVISION_GAUSSIAN_WEIGHT_FLOOR", "0.05"))
 NVISION_GAUSSIAN_WEIGHT_FLOOR_STEPS: int = int(os.getenv("NVISION_GAUSSIAN_WEIGHT_FLOOR_STEPS", "30"))
 NVISION_GAUSSIAN_EPSILON: float = float(os.getenv("NVISION_GAUSSIAN_EPSILON", "1e-8"))
+NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC", "0.05"))
+NVISION_GAUSSIAN_UPDATE_DAMPING: float = float(os.getenv("NVISION_GAUSSIAN_UPDATE_DAMPING", "0.2"))
 
 NVISION_GAUSSIAN_DEFAULT_LINEWIDTH: float = float(os.getenv("NVISION_GAUSSIAN_DEFAULT_LINEWIDTH", "1e6"))
 NVISION_GAUSSIAN_DEFAULT_SPLIT: float = float(os.getenv("NVISION_GAUSSIAN_DEFAULT_SPLIT", "5e6"))
@@ -182,6 +184,21 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
             np.fill_diagonal(cov, np.maximum(np.diag(cov), 0.0))
             self._covariances[k] = cov
 
+        # Enforce min exploration standard deviation floor for all parameters
+        for k in range(self.n_components):
+            cov = self._covariances[k]
+            for i, name in enumerate(self._param_names):
+                if self._is_unit_cube:
+                    width = 1.0
+                else:
+                    lo, hi = self._physical_param_bounds.get(name, (0.0, 1.0))
+                    width = max(hi - lo, 1e-12)
+                min_std = NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC * width
+                min_var = min_std ** 2
+                if cov[i, i] < min_var:
+                    cov[i, i] = min_var
+                    self.precisions[k, i, i] = 1.0 / min_var
+
         # Enforce frequency uncertainty >= linewidth uncertainty
         if "frequency" in self._param_names and "linewidth" in self._param_names:
             freq_idx = self._param_names.index("frequency")
@@ -260,6 +277,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         y_preds = self.model.compute_vectorized_samples(x_probe, samples)
         J_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # noqa: N806
 
+        damping = NVISION_GAUSSIAN_UPDATE_DAMPING
         for k in range(K):
             m = self.means[k]
             y_pred = y_preds[k]
@@ -267,7 +285,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
             J = J_all[k]  # noqa: N806
 
             # Standard Gaussian Precision update
-            delta_prec = (1.0 / sigma2) * np.outer(J, J)
+            delta_prec = (damping / sigma2) * np.outer(J, J)
             # Use a forgetting factor to prevent unbounded precision growth (covariance collapse)
             forgetting_factor = 0.95
             new_precisions[k] = self.precisions[k] * forgetting_factor + delta_prec
@@ -278,7 +296,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
             trace_val = float(np.trace(new_precisions[k]))
             eps_solve = max(epsilon, 1e-6 * trace_val / max(D, 1))
             reg_new_prec = new_precisions[k] + eps_solve * np.eye(D)
-            rhs = (1.0 / sigma2) * J * r
+            rhs = (damping / sigma2) * J * r
             try:
                 delta_mu = solve(reg_new_prec, rhs)
             except np.linalg.LinAlgError:
@@ -286,13 +304,22 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
             new_means[k] = m + delta_mu
 
-            # Clip to bounds
+            # Reflective bounds
             for i, name in enumerate(self._param_names):
+                val = new_means[k, i]
                 if self._is_unit_cube:
-                    new_means[k, i] = np.clip(new_means[k, i], 0.0, 1.0)
+                    lo, hi = 0.0, 1.0
                 elif name in self._physical_param_bounds:
                     lo, hi = self._physical_param_bounds[name]
-                    new_means[k, i] = np.clip(new_means[k, i], lo, hi)
+                else:
+                    continue
+
+                if val < lo:
+                    val = 2.0 * lo - val
+                elif val > hi:
+                    val = 2.0 * hi - val
+                # Safe fallback clip in case of an extremely large step
+                new_means[k, i] = np.clip(val, lo, hi)
 
             # Weight responsibility (likelihood of observation under this component)
             # Using just sigma2 prevents heavily penalizing uncertain components
