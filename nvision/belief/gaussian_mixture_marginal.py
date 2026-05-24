@@ -167,7 +167,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         the matrix effectively singular after a few EKF updates.
         """
         for k in range(self.n_components):
-            P = self.precisions[k]
+            P = self.precisions[k]  # noqa: N806
             # Relative epsilon: at least NVISION_GAUSSIAN_EPSILON, but scales
             # with the average diagonal magnitude so every eigenvalue direction
             # is regularised proportionally.
