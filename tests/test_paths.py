@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from nvision.tools.paths import ensure_out_dir, find_project_root, slugify
 
 
@@ -107,9 +109,6 @@ def test_find_project_root_fallback(tmp_path: Path, monkeypatch) -> None:
     assert find_project_root() == Path.cwd()
 
 
-import pytest
-
-
 @pytest.mark.parametrize(
     ("input_value", "expected"),
     [
@@ -127,7 +126,7 @@ import pytest
         (None, "none"),  # Non-string input
     ],
 )
-def test_slugify(input_value, expected):
+def test_slugify_parametrized(input_value, expected):
     """Test slugify function with various edge cases."""
     assert slugify(input_value) == expected
 
