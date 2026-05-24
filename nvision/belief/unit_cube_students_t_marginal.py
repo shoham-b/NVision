@@ -68,15 +68,20 @@ class UnitCubeStudentsTMixtureMarginalDistribution(StudentsTMixtureMarginalDistr
         return {k: self._to_physical(k, v) for k, v in raw_norm.items()}
 
     def _to_physical(self, name: str, u_norm: float) -> float:
-        lo, hi = self.physical_param_bounds[name]
-        return lo + float(u_norm) * (hi - lo)
+        if name in self.physical_param_bounds:
+            lo, hi = self.physical_param_bounds[name]
+            return lo + float(u_norm) * (hi - lo)
+        return float(u_norm)
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         raw_norm = super()._empirical_uncertainty()
-        data_phys = {
-            name: u_norm * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
-            for name, u_norm in raw_norm.items()
-        }
+        data_phys = {}
+        for name, u_norm in raw_norm.items():
+            if name in self.physical_param_bounds:
+                lo, hi = self.physical_param_bounds[name]
+                data_phys[name] = u_norm * (hi - lo)
+            else:
+                data_phys[name] = u_norm
         return ParameterValues.from_mapping(list(raw_norm.keys()), data_phys)
 
     def uncertainty(self) -> ParameterValues[float]:

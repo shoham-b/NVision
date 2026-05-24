@@ -23,7 +23,6 @@ from nvision.sim.locs.bayesian.acquisition_locators import (
     SequentialBayesianExperimentDesignLocator,
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 from nvision.sim.locs.ekf.ekf_locator import (
@@ -111,16 +110,6 @@ class CombinationGrid:
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
                     "config": {"max_steps": 200, **_NV_SMC},
-                },
-            ),
-            (
-                "SimpleSobol",
-                {
-                    "class": SimpleSobolBayesianLocator,
-                    "config": {
-                        "max_steps": 10000,
-                        **_NV_SMC,
-                    },
                 },
             ),
             (

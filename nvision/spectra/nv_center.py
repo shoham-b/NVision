@@ -708,4 +708,3 @@ def nv_center_voigt_bounds_for_domain(
         "dip_depth": (0.001, 1.0),
         "_signal_max_span": (0.0, max_span),
     }
-

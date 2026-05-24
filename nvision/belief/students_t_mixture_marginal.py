@@ -23,8 +23,6 @@ NVISION_STUDENTS_T_WEIGHT_FLOOR: float = float(os.getenv("NVISION_STUDENTS_T_WEI
 NVISION_STUDENTS_T_WEIGHT_FLOOR_STEPS: int = int(os.getenv("NVISION_STUDENTS_T_WEIGHT_FLOOR_STEPS", "30"))
 NVISION_STUDENTS_T_DF_WEIGHT: float = float(os.getenv("NVISION_STUDENTS_T_DF_WEIGHT", "3.0"))
 NVISION_STUDENTS_T_EPSILON: float = float(os.getenv("NVISION_STUDENTS_T_EPSILON", "1e-8"))
-NVISION_STUDENTS_T_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_STUDENTS_T_MIN_EXPLORATION_FRAC", "0.05"))
-NVISION_STUDENTS_T_UPDATE_DAMPING: float = float(os.getenv("NVISION_STUDENTS_T_UPDATE_DAMPING", "0.2"))
 
 NVISION_STUDENTS_T_DEFAULT_LINEWIDTH: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_LINEWIDTH", "1e6"))
 NVISION_STUDENTS_T_DEFAULT_SPLIT: float = float(os.getenv("NVISION_STUDENTS_T_DEFAULT_SPLIT", "5e6"))
@@ -176,21 +174,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             c = inv(reg_prec)
             self._covariances[k] = (c + c.T) / 2.0
 
-        # Enforce min exploration standard deviation floor for all parameters
-        for k in range(self.n_components):
-            cov = self._covariances[k]
-            for i, name in enumerate(self._param_names):
-                if self._is_unit_cube:
-                    width = 1.0
-                else:
-                    lo, hi = self._physical_param_bounds.get(name, (0.0, 1.0))
-                    width = max(hi - lo, 1e-12)
-                min_std = NVISION_STUDENTS_T_MIN_EXPLORATION_FRAC * width
-                min_var = min_std ** 2
-                if cov[i, i] < min_var:
-                    cov[i, i] = min_var
-                    self.precisions[k, i, i] = 1.0 / min_var
-
         # Enforce frequency uncertainty >= linewidth uncertainty
         if "frequency" in self._param_names and "linewidth" in self._param_names:
             freq_idx = self._param_names.index("frequency")
@@ -278,7 +261,6 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         y_preds = self.model.compute_vectorized_samples(x_probe, samples)
         J_all = self.model.gradient_vectorized_many([x_probe], samples)[0]  # noqa: N806
 
-        damping = NVISION_STUDENTS_T_UPDATE_DAMPING
         for k in range(K):
             m = self.means[k]
             y_pred = y_preds[k]
@@ -289,12 +271,12 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             w = (1.0 + (r**2) / (df_weight * sigma2)) ** (-(df_weight + 1.0) / 2.0)
 
             # Precision update
-            delta_prec = (damping * w / sigma2) * np.outer(J, J)
+            delta_prec = (w / sigma2) * np.outer(J, J)
             new_precisions[k] = self.precisions[k] + delta_prec
 
             # Stable Mean update
             reg_new_prec = new_precisions[k] + epsilon * np.eye(D)
-            rhs = (damping * w / sigma2) * J * r
+            rhs = (w / sigma2) * J * r
             try:
                 delta_mu = solve(reg_new_prec, rhs)
             except np.linalg.LinAlgError:
@@ -302,22 +284,13 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
             new_means[k] = m + delta_mu
 
-            # Reflective bounds
+            # Clip to bounds
             for i, name in enumerate(self._param_names):
-                val = new_means[k, i]
                 if self._is_unit_cube:
-                    lo, hi = 0.0, 1.0
+                    new_means[k, i] = np.clip(new_means[k, i], 0.0, 1.0)
                 elif name in self._physical_param_bounds:
                     lo, hi = self._physical_param_bounds[name]
-                else:
-                    continue
-
-                if val < lo:
-                    val = 2.0 * lo - val
-                elif val > hi:
-                    val = 2.0 * hi - val
-                # Safe fallback clip in case of an extremely large step
-                new_means[k, i] = np.clip(val, lo, hi)
+                    new_means[k, i] = np.clip(new_means[k, i], lo, hi)
 
             self.kappas[k] += w
             self.nus[k] += w

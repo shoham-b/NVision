@@ -60,14 +60,3 @@ NVISION_NOISE_OVER_PROBE: float = float(os.getenv("NVISION_NOISE_OVER_PROBE", "0
 
 NVISION_WINDOW_PADDING_FRAC: float = float(os.getenv("NVISION_WINDOW_PADDING_FRAC", "0.05"))
 NVISION_WINDOW_MIN_PADDING_FRAC: float = float(os.getenv("NVISION_WINDOW_MIN_PADDING_FRAC", "0.01"))
-
-# --- NV Center Physical Parameter Bounds (nv_center.py) ----------------------
-
-NVISION_MIN_K_NP: float = float(os.getenv("NVISION_MIN_K_NP", "1.0"))
-NVISION_MAX_K_NP: float = float(os.getenv("NVISION_MAX_K_NP", "5.0"))
-NVISION_MIN_LINEWIDTH: float = float(os.getenv("NVISION_MIN_LINEWIDTH", "200e3"))
-NVISION_MAX_LINEWIDTH: float = float(os.getenv("NVISION_MAX_LINEWIDTH", "5.0e6"))
-NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "3.0e6"))
-NVISION_MAX_SPLIT: float = float(os.getenv("NVISION_MAX_SPLIT", "8.5e6"))
-NVISION_NV_CENTER_FREQ_X_MIN: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_MIN", "2.6e9"))
-NVISION_NV_CENTER_FREQ_X_MAX: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_MAX", "3.1e9"))

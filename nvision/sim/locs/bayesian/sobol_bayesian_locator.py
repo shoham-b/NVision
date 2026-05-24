@@ -25,10 +25,6 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
     Checks Bayesian uncertainty convergence at each step.
     """
 
-    # Tells the executor to inject belief + signal_model automatically,
-    # matching the contract of all other Bayesian locators.
-    REQUIRES_BELIEF = True
-
     def __init__(
         self,
         belief,
@@ -51,7 +47,6 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         if hasattr(self.belief, "auto_resample"):
             self.belief.auto_resample = False
         self._is_converged = False
-        self.freq_converged_step: int | None = None
 
     @classmethod
     def create(
@@ -92,23 +87,14 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
     def _check_and_resample(self, check_convergence: bool = True) -> None:
         if not hasattr(self.belief, "_weights"):
             return
-
-        # Track frequency convergence at every step (absolute uncertainty below 1 KHz)
-        if self.freq_converged_step is None:
-            physical_uncertainties = self.belief.uncertainty()
-            if "frequency" in physical_uncertainties:
-                unc = float(physical_uncertainties["frequency"])
-                if unc < 1000.0:
-                    self.freq_converged_step = self.step_count
-
         ess = _inverse_sum_squares(self.belief._weights)
         ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)
         if ess < ess_threshold:
             if hasattr(self.belief, "_resample"):
                 self.belief._resample()
 
-        if check_convergence and self._target_params_converged():
-            self._is_converged = True
+            if check_convergence and self._target_params_converged():
+                self._is_converged = True
 
     def _acquisition_done(self) -> bool:
         if self._is_converged:
