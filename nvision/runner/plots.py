@@ -18,6 +18,28 @@ from nvision.viz.bayesian import _get_nv_parameter_descriptions, _get_signal_for
 
 log = logging.getLogger(__name__)
 
+# Maximum number of snapshots fed into visualization loops.
+# SimpleSobol and other convergence-driven locators can accumulate thousands of
+# steps; iterating all of them for Fisher info, covariance ellipses, and
+# posterior animations is the dominant post-run cost.  Subsampling to this cap
+# keeps plots informative while cutting render time proportionally.
+_MAX_VIZ_SNAPSHOTS = 500
+
+
+def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) -> list:
+    """Return a uniformly-subsampled view of *snapshots* capped at *max_frames*.
+
+    Always keeps the first and last snapshot so the trajectory endpoints are
+    preserved.  When ``len(snapshots) <= max_frames`` the original list is
+    returned unchanged (no copy).
+    """
+    n = len(snapshots)
+    if n <= max_frames:
+        return snapshots
+    # Pick indices spread evenly across [0, n-1], always including 0 and n-1.
+    indices = sorted(set([0] + [round(i * (n - 1) / (max_frames - 1)) for i in range(1, max_frames - 1)] + [n - 1]))
+    return [snapshots[i] for i in indices]
+
 
 def _resolve_scan_param(strat_obj: Any, run_result: RunResult) -> str:
     """Parameter used for 1D posterior animation (matches BayesianLocator scan axis)."""
@@ -287,6 +309,7 @@ def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, t
             D = b._dim  # noqa: N806
 
             comp_pdfs = []
+            weighted_comp_pdfs = []
             for k in range(K):
                 mu = float(b.means[k, idx])
                 sigma = float(np.sqrt(max(b._covariances[k, idx, idx], 1e-18)))
@@ -298,13 +321,14 @@ def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, t
                     mu = lo + mu * (hi - lo)
                     sigma = sigma * (hi - lo)
 
-                # Weighted component PDF
-                pdf_val = float(b.weights[k]) * t.pdf(grid, df=df, loc=mu, scale=sigma)
-                comp_pdfs.append(pdf_val)
+                # Raw component PDF (unweighted)
+                raw_pdf = t.pdf(grid, df=df, loc=mu, scale=sigma)
+                comp_pdfs.append(raw_pdf)
+                weighted_comp_pdfs.append(float(b.weights[k]) * raw_pdf)
 
-            # Row-major: [comp0, comp1, ..., compK-1, total]
-            total_pdf = np.sum(comp_pdfs, axis=0)
-            snapshot_data = np.vstack([comp_pdfs, total_pdf])
+            # Row-major: [comp0, comp1, ..., compK-1, weighted0, weighted1, ..., weightedK-1, total]
+            total_pdf = np.sum(weighted_comp_pdfs, axis=0)
+            snapshot_data = np.vstack([comp_pdfs, weighted_comp_pdfs, total_pdf])
             hist.append(snapshot_data)
 
         out[scan_param] = (hist, grid)
@@ -335,6 +359,7 @@ def _extract_gaussian_mixture_posterior(
             K = b.n_components  # noqa: N806
 
             comp_pdfs = []
+            weighted_comp_pdfs = []
             for k in range(K):
                 mu = float(b.means[k, idx])
                 sigma = float(np.sqrt(max(b._covariances[k, idx, idx], 1e-12)))
@@ -344,13 +369,14 @@ def _extract_gaussian_mixture_posterior(
                     mu = lo + mu * (hi - lo)
                     sigma = sigma * (hi - lo)
 
-                # Weighted component PDF
-                pdf_val = float(b.weights[k]) * norm.pdf(grid, loc=mu, scale=sigma)
-                comp_pdfs.append(pdf_val)
+                # Raw component PDF (unweighted)
+                raw_pdf = norm.pdf(grid, loc=mu, scale=sigma)
+                comp_pdfs.append(raw_pdf)
+                weighted_comp_pdfs.append(float(b.weights[k]) * raw_pdf)
 
-            # Row-major: [comp0, comp1, ..., compK-1, total]
-            total_pdf = np.sum(comp_pdfs, axis=0)
-            snapshot_data = np.vstack([comp_pdfs, total_pdf])
+            # Row-major: [comp0, comp1, ..., compK-1, weighted0, weighted1, ..., weightedK-1, total]
+            total_pdf = np.sum(weighted_comp_pdfs, axis=0)
+            snapshot_data = np.vstack([comp_pdfs, weighted_comp_pdfs, total_pdf])
             hist.append(snapshot_data)
 
         out[scan_param] = (hist, grid)
@@ -464,13 +490,38 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     true_params = run_result.true_signal.parameter_values()
     experiment_domain = (float(experiment.x_min), float(experiment.x_max))
     interactive_path = bayes_dir / f"{attempt_slug}_posterior.html"
-    # Filter out initial sweep stages from posterior animation
+
+    # Subsample snapshots for all visualization loops.  Locators like SimpleSobol
+    # can produce thousands of steps; iterating all of them for Fisher info,
+    # covariance ellipses, and posterior animations is the dominant post-run cost.
+    # We build a subsampled RunResult used only for viz — the original is untouched.
     sweep_steps = run_result.sweep_steps
-    anim_all = _posterior_animation_inputs_all_params(run_result, start_idx=sweep_steps)
+    all_snapshots = run_result.snapshots
+    bayesian_snapshots_full = all_snapshots[sweep_steps:] if sweep_steps > 0 else all_snapshots
+    bayesian_snapshots = _subsample_snapshots(bayesian_snapshots_full)
+    n_subsampled = len(bayesian_snapshots)
+    if n_subsampled < len(bayesian_snapshots_full):
+        log.info(
+            "Subsampled %d → %d snapshots for visualization (%s)",
+            len(bayesian_snapshots_full),
+            n_subsampled,
+            attempt_slug,
+        )
+
+    # Build a lightweight RunResult with subsampled snapshots for the viz helpers
+    # that call _posterior_animation_inputs_all_params / _posterior_animation_inputs.
+    from dataclasses import replace as _dc_replace
+
+    viz_run_result = _dc_replace(run_result, snapshots=list(all_snapshots[:sweep_steps]) + bayesian_snapshots)
+
+    # Filter out initial sweep stages from posterior animation
+    # Track which steps involved a resampling event (used in both branches below)
+    resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
+
+    anim_all = _posterior_animation_inputs_all_params(viz_run_result, start_idx=sweep_steps)
     log.info("Posterior animation inputs: %s", "available" if anim_all is not None else "None")
     if anim_all is not None:
         # Extract per-step narrowed bounds from snapshots for dynamic UI (only Bayesian stages)
-        bayesian_snapshots = run_result.snapshots[sweep_steps:] if sweep_steps > 0 else run_result.snapshots
         per_step_narrowed_bounds = []
         for snapshot in bayesian_snapshots:
             if snapshot.narrowed_param_bounds:
@@ -507,7 +558,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             weight_history=weight_history,
         )
     else:
-        anim_inputs = _posterior_animation_inputs(run_result, scan_param, start_idx=sweep_steps)
+        anim_inputs = _posterior_animation_inputs(viz_run_result, scan_param, start_idx=sweep_steps)
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
             true_one = true_params.get(scan_param)
@@ -529,8 +580,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         extra.append(ie)
 
     # Filter out initial sweep stages from parameter convergence plot
-    sweep_steps = run_result.sweep_steps
-    bayesian_snapshots = run_result.snapshots[sweep_steps:] if sweep_steps > 0 else run_result.snapshots
+    # (bayesian_snapshots is already subsampled from the block above)
     param_hist = [s.belief.uncertainty().as_dict() for s in bayesian_snapshots]
     estimates_hist = [s.belief.estimates() for s in bayesian_snapshots]
     if param_hist:
@@ -691,7 +741,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
                 extra.append(che)
 
     # Convergence metrics visualization for all Bayesian beliefs
-    if run_result.snapshots:
+    # Use the subsampled bayesian_snapshots for consistency with other plots.
+    viz_snapshots_for_conv = bayesian_snapshots  # already subsampled
+    if viz_snapshots_for_conv:
         # Extract convergence-related metrics from each snapshot
         # Note: The actual convergence threshold and patience are locator config,
         # not stored per-snapshot. We use typical defaults for visualization.
@@ -699,22 +751,28 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         convergence_patience = 8  # Default patience steps
 
         conv_metrics = []
-        for i, s in enumerate(run_result.snapshots):
+        for i, s in enumerate(viz_snapshots_for_conv):
             belief = s.belief
             param_names = list(belief.model.parameter_names())
             uncertainties = belief.uncertainty().as_dict()
             bounds = belief.physical_param_bounds
 
-            # Check which parameters are converged (relative uncertainty < threshold)
+            # Check which parameters are converged
             relative_uncertainties: dict[str, float] = {}
             converged_params: dict[str, bool] = {}
             for name in param_names:
                 unc = float(uncertainties.get(name, float("inf")))
-                lo, hi = bounds.get(name, (0.0, 0.0))
-                bound_width = hi - lo
-                rel_unc = unc / bound_width if bound_width > 0 else float("inf")
-                relative_uncertainties[name] = rel_unc
-                converged_params[name] = rel_unc < convergence_threshold
+                if name == "frequency":
+                    # For frequency, convergence is absolute uncertainty < 1 KHz (1000 Hz)
+                    converged_params[name] = unc < 1000.0
+                    # The graph needs to show the absolute uncertainty
+                    relative_uncertainties[name] = unc
+                else:
+                    lo, hi = bounds.get(name, (0.0, 0.0))
+                    bound_width = hi - lo
+                    rel_unc = unc / bound_width if bound_width > 0 else float("inf")
+                    relative_uncertainties[name] = rel_unc
+                    converged_params[name] = rel_unc < convergence_threshold
 
             # Compute convergence streak (consecutive steps where all params converged)
             all_converged = all(converged_params.values())
@@ -739,7 +797,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             cm["convergence_achieved"] = streak >= convergence_patience
 
         # Collect bound ranges from the first snapshot for display
-        param_bounds = dict(run_result.snapshots[0].belief.physical_param_bounds)
+        param_bounds = dict(viz_snapshots_for_conv[0].belief.physical_param_bounds)
 
         conv_path = bayes_dir / f"{attempt_slug}_convergence_metrics.html"
         viz.plot_convergence_metrics(

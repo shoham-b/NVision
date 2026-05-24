@@ -96,6 +96,8 @@ def generate_attempt_metrics(  # noqa: C901
         "acquisition_lo",
         "acquisition_hi",
         "sobol_baseline_steps",
+        "sobol_freq_steps",
+        "sobol_conv_diff",
     ):
         if _sweep_key in estimate:
             metrics_serialized[_sweep_key] = _maybe_finite(estimate[_sweep_key])
@@ -130,6 +132,8 @@ def generate_attempt_metrics(  # noqa: C901
     sweep_steps: int | None = None
     locator_steps: int | None = None
     sobol_baseline_steps: int | None = None
+    sobol_freq_steps: int | None = None
+    sobol_conv_diff: int | None = None
     if not finalize_row.is_empty():
         if "sweep_steps" in finalize_row.columns:
             val = finalize_row.get_column("sweep_steps")[0]
@@ -143,6 +147,17 @@ def generate_attempt_metrics(  # noqa: C901
             val = finalize_row.get_column("sobol_baseline_steps")[0]
             if val is not None:
                 sobol_baseline_steps = int(val)
+        if "sobol_freq_steps" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_freq_steps")[0]
+            if val is not None:
+                sobol_freq_steps = int(val)
+        if "sobol_conv_diff" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_conv_diff")[0]
+            if val is not None:
+                sobol_conv_diff = int(val)
+
+    if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_freq_steps is not None:
+        sobol_conv_diff = sobol_baseline_steps - sobol_freq_steps
 
     entry_base: dict[str, Any] = {
         "generator": gen_name,
@@ -161,6 +176,8 @@ def generate_attempt_metrics(  # noqa: C901
         "sweep_steps": sweep_steps,
         "locator_steps": locator_steps,
         "sobol_baseline_steps": sobol_baseline_steps,
+        "sobol_freq_steps": sobol_freq_steps,
+        "sobol_conv_diff": sobol_conv_diff,
         "metrics": metrics_serialized,
     }
 
