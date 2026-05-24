@@ -262,7 +262,15 @@ def _trace_one_marginal_posterior(
                 ),
             ]
         # Mixture: each row is a component, last row is total
-        K_plus_1 = posterior.shape[0]  # noqa: N806
+        # Supporting new (2*K + 1) format and backward-compatible (K + 1) format
+        total_rows = posterior.shape[0]
+        if total_rows % 2 == 1 and total_rows >= 3:
+            K = (total_rows - 1) // 2  # noqa: N806
+            is_new_format = True
+        else:
+            K = total_rows - 1  # noqa: N806
+            is_new_format = False
+
         traces: list[go.Scatter] = []
 
         # Curated harmonious qualitative colors for the mixture components (experts)
@@ -277,17 +285,25 @@ def _trace_one_marginal_posterior(
 
         # Calculate expert weights by numerical integration (sum * dx) over grid support
         dx = grid[1] - grid[0] if len(grid) > 1 else 1.0
-        raw_weights = [float(np.sum(posterior[j]) * dx) for j in range(K_plus_1 - 1)]
+        if is_new_format:
+            raw_weights = [float(np.sum(posterior[K + j]) * dx) for j in range(K)]
+        else:
+            raw_weights = [float(np.sum(posterior[j]) * dx) for j in range(K)]
         sum_w = sum(raw_weights)
 
         # Plot individual experts with distinct colors and semi-transparent lines
-        for k in range(K_plus_1 - 1):
+        for k in range(K):
             comp_color = expert_colors[k % len(expert_colors)]
-            weight = raw_weights[k] / sum_w if sum_w > 0 else 1.0 / (K_plus_1 - 1)
+            weight = raw_weights[k] / sum_w if sum_w > 0 else 1.0 / K
+            
+            # In the new format, posterior[k] is the unweighted expert PDF.
+            # In the old format, posterior[k] is the weighted expert PDF.
+            y_vals = posterior[k]
+
             traces.append(
                 go.Scatter(
                     x=grid,
-                    y=posterior[k],
+                    y=y_vals,
                     mode="lines",
                     name=f"Expert {k + 1} (w={weight:.2f})",
                     line=dict(dash="dash", width=2, color=comp_color),
@@ -712,7 +728,8 @@ class BayesianMixin:
                 sum_sq = np.sum(w**2)
                 ess_history.append(1.0 / sum_sq if sum_sq > 0.0 else 0.0)
             num_particles = len(weight_history[0])
-            ess_threshold_val = 0.5 * num_particles
+            from nvision.belief.smc_marginal import NVISION_SMC_ESS_THRESHOLD
+            ess_threshold_val = NVISION_SMC_ESS_THRESHOLD * num_particles
         else:
             subplot_titles = (
                 *tuple(_build_subplot_title(p, param_descriptions) for p in param_names),
@@ -828,7 +845,7 @@ class BayesianMixin:
                         y=[ess_threshold_val, ess_threshold_val],
                         mode="lines",
                         line=dict(color="rgba(231, 76, 60, 0.5)", width=1.5, dash="dash"),
-                        name="Resampling Threshold (50%)",
+                        name=f"Resampling Threshold ({int(NVISION_SMC_ESS_THRESHOLD * 100)}%)",
                         showlegend=False,
                         xaxis=f"x{ess_row}",
                         yaxis=f"y{ess_row}",
@@ -2368,7 +2385,10 @@ class BayesianMixin:
         n_params = len(param_names)
 
         def _subplot_title(p: str) -> str:
-            base = f"{p} (relative uncertainty)"
+            if p == "frequency":
+                base = f"{p} (absolute uncertainty, Hz)"
+            else:
+                base = f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
                 base += f"<br><sup>bounds: [{lo:.4g}, {hi:.4g}] (width={hi - lo:.4g})</sup>"
@@ -2406,23 +2426,32 @@ class BayesianMixin:
             )
 
             # Threshold line
-            fig.add_hline(
-                y=convergence_threshold,
-                line=dict(color="red", dash="dash", width=1.5),
-                annotation_text=f"threshold ({convergence_threshold})",
-                row=row,
-                col=1,
-            )
+            if param == "frequency":
+                fig.add_hline(
+                    y=1000.0,
+                    line=dict(color="red", dash="dash", width=1.5),
+                    annotation_text="1 KHz threshold",
+                    row=row,
+                    col=1,
+                )
+            else:
+                fig.add_hline(
+                    y=convergence_threshold,
+                    line=dict(color="red", dash="dash", width=1.5),
+                    annotation_text=f"threshold ({convergence_threshold})",
+                    row=row,
+                    col=1,
+                )
 
-            # Reference line at y=1.0: uncertainty equal to full bound width
-            fig.add_hline(
-                y=1.0,
-                line=dict(color="gray", dash="dot", width=1),
-                annotation_text="100 % of bound",
-                annotation_font_color="gray",
-                row=row,
-                col=1,
-            )
+                # Reference line at y=1.0: uncertainty equal to full bound width
+                fig.add_hline(
+                    y=1.0,
+                    line=dict(color="gray", dash="dot", width=1),
+                    annotation_text="100 % of bound",
+                    annotation_font_color="gray",
+                    row=row,
+                    col=1,
+                )
 
             # Highlight converged regions
             converged_regions = []

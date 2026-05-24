@@ -16,11 +16,13 @@ class ExperimentsMixin:
         if df.is_empty():
             return []
 
-        generators = df.get_column("generator").unique().to_list()
         plots = []
 
-        for gen in generators:
-            sub = df.filter(pl.col("generator") == gen)
+        # partition_by is O(N) compared to O(M*N) multiple .filter passes
+        partitions = df.partition_by("generator", as_dict=True)
+
+        for gen_tuple, sub in partitions.items():
+            gen = gen_tuple[0]
             # Create a pivot table: Index=Noise, Columns=Strategy, Value=RMSE (mean) or similar metric
             # Using metric 'pair_rmse' or 'abs_err_x' depending on availability
 
@@ -108,16 +110,17 @@ class ExperimentsMixin:
             return []
 
         entries = []
+        partitions = df.partition_by("strategy", as_dict=True)
 
         # 1. Distribution of steps to fb convergence
         if "steps_to_fb" in df.columns:
             out_path = self.out_dir / "milestone_steps_to_fb.html"
             fig = go.Figure()
             # Histogram of steps per strategy
-            for strat in df.get_column("strategy").unique():
-                sub = df.filter(pl.col("strategy") == strat).get_column("steps_to_fb").drop_nans().drop_nulls()
-                if not sub.is_empty():
-                    fig.add_trace(go.Histogram(x=sub.to_list(), name=strat, opacity=0.75))
+            for (strat,), sub in partitions.items():
+                steps = sub.get_column("steps_to_fb").drop_nans().drop_nulls()
+                if not steps.is_empty():
+                    fig.add_trace(go.Histogram(x=steps.to_list(), name=strat, opacity=0.75))
 
             fig.update_layout(
                 title="Steps to Center Frequency (fb) Convergence",
@@ -134,8 +137,7 @@ class ExperimentsMixin:
         if "err_fc_at_milestone" in df.columns and "final_err_fc" in df.columns:
             out_path = self.out_dir / "milestone_error_comparison_fc.html"
             fig = go.Figure()
-            for strat in df.get_column("strategy").unique():
-                sub = df.filter(pl.col("strategy") == strat)
+            for (strat,), sub in partitions.items():
                 m_err = sub.get_column("err_fc_at_milestone").drop_nans().drop_nulls()
                 f_err = sub.get_column("final_err_fc").drop_nans().drop_nulls()
 
@@ -156,10 +158,10 @@ class ExperimentsMixin:
         if "err_fc_diff" in df.columns:
             out_path = self.out_dir / "milestone_error_delta_fc.html"
             fig = go.Figure()
-            for strat in df.get_column("strategy").unique():
-                sub = df.filter(pl.col("strategy") == strat).get_column("err_fc_diff").drop_nans().drop_nulls()
-                if not sub.is_empty():
-                    fig.add_trace(go.Box(y=sub.to_list(), name=strat))
+            for (strat,), sub in partitions.items():
+                err_diff = sub.get_column("err_fc_diff").drop_nans().drop_nulls()
+                if not err_diff.is_empty():
+                    fig.add_trace(go.Box(y=err_diff.to_list(), name=strat))
 
             fig.update_layout(
                 title="Error Reduction after fb Convergence (fc)",

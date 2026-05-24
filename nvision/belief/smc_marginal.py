@@ -6,7 +6,6 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import jax.numpy as jnp
 import numba
 import numpy as np
 from dotenv import load_dotenv
@@ -391,51 +390,77 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         estimates = self._estimates_unit()
         uncertainties = self._uncertainty_unit()
 
-        f_b = estimates["frequency"]
-        df_hf = estimates["split"]
+        # All targeting arithmetic (f_b - df_hf) must be done in physical space,
+        # because the parameters have different bounds/spans and cannot be
+        # algebraically combined in unit space.
+        phys_bounds = self.physical_param_bounds
 
-        # 1. Determine linewidth Omega (HWHM)
+        def _to_phys(name: str, unit_val: float) -> float:
+            lo, hi = phys_bounds.get(name, (0.0, 1.0))
+            return lo + unit_val * (hi - lo)
+
+        def _to_phys_delta(name: str, unit_delta: float) -> float:
+            lo, hi = phys_bounds.get(name, (0.0, 1.0))
+            return unit_delta * (hi - lo)
+
+        def _to_unit_freq(phys_freq: np.ndarray) -> np.ndarray:
+            lo, hi = phys_bounds.get("frequency", (0.0, 1.0))
+            if hi == lo:
+                return np.full_like(phys_freq, 0.5)
+            return (phys_freq - lo) / (hi - lo)
+
+        f_b_phys = _to_phys("frequency", estimates["frequency"])
+        df_hf_phys = _to_phys_delta("split", estimates["split"])
+
+        # 1. Determine linewidth Omega (HWHM) in physical space
         if "linewidth" in estimates:
-            omega = estimates["linewidth"]
+            omega_phys = _to_phys_delta("linewidth", estimates["linewidth"])
         elif "fwhm_total" in estimates:
-            omega = estimates["fwhm_total"] / 2.0
+            omega_phys = _to_phys_delta("fwhm_total", estimates["fwhm_total"] / 2.0)
         else:
             raise KeyError("Linewidth parameter ('linewidth' or 'fwhm_total') not found in estimates")
 
-        # 2. Extract uncertainties
-        sigma_f = uncertainties["frequency"]
+        # 2. Extract uncertainties in physical space
+        sigma_f_phys = _to_phys_delta("frequency", uncertainties["frequency"])
         if "linewidth" in uncertainties:
-            sigma_omega = uncertainties["linewidth"]
+            sigma_omega_phys = _to_phys_delta("linewidth", uncertainties["linewidth"])
         elif "fwhm_total" in uncertainties:
-            sigma_omega = uncertainties["fwhm_total"] / 2.0
+            sigma_omega_phys = _to_phys_delta("fwhm_total", uncertainties["fwhm_total"] / 2.0)
         else:
             raise KeyError("Linewidth uncertainty ('linewidth' or 'fwhm_total') not found in uncertainties")
 
-        # 3. Compute effective uncertainty and resolution
-        sigma_eff = np.sqrt(sigma_f**2 + sigma_omega**2)
-        # 0.01 MHz = 10 kHz minimum step
-        delta_d = max(sigma_eff / 30.0, 10000.0)
-        half_width = 3 * sigma_eff
+        # 3. Compute effective uncertainty and resolution in physical space
+        sigma_eff_phys = np.sqrt(sigma_f_phys**2 + sigma_omega_phys**2)
+        
+        # 10 kHz minimum step in physical space
+        min_step_physical = 10000.0
+        delta_d_phys = max(sigma_eff_phys / 30.0, min_step_physical)
+        half_width_phys = 3 * sigma_eff_phys
 
-        # 4. Slope Targeting: 6 locations (2 per dip)
-        centers = [f_b - df_hf, f_b, f_b + df_hf]
-        slopes = []
-        for c in centers:
-            slopes.append(c - omega)
-            slopes.append(c + omega)
+        # 4. Slope Targeting: 6 locations (2 per dip) in physical space
+        centers_phys = [f_b_phys - df_hf_phys, f_b_phys, f_b_phys + df_hf_phys]
+        slopes_phys = []
+        for c in centers_phys:
+            slopes_phys.append(c - omega_phys)
+            slopes_phys.append(c + omega_phys)
 
+        # 5. Generate local grids in physical space, then map to unit space
         local_grids = []
-        f_lo, f_hi = self.parameter_bounds["frequency"]
-        for s in slopes:
-            start = max(s - half_width, f_lo)
-            stop = min(s + half_width, f_hi)
-            if start >= stop:
-                continue
-            local_grids.append(np.arange(start, stop + delta_d, delta_d))
+        phys_f_lo, phys_f_hi = phys_bounds.get("frequency", (0.0, 1.0))
+        f_lo_unit, f_hi_unit = self.parameter_bounds["frequency"]
 
-        # 5. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
+        for s_phys in slopes_phys:
+            start_phys = max(s_phys - half_width_phys, phys_f_lo)
+            stop_phys = min(s_phys + half_width_phys, phys_f_hi)
+            if start_phys >= stop_phys:
+                continue
+            grid_phys = np.arange(start_phys, stop_phys + delta_d_phys, delta_d_phys)
+            grid_unit = _to_unit_freq(grid_phys)
+            local_grids.append(grid_unit)
+
+        # 6. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
         merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
-        self._current_candidates = np.unique(np.clip(merged, f_lo, f_hi)).astype(np.float32)
+        self._current_candidates = np.unique(np.clip(merged, f_lo_unit, f_hi_unit)).astype(np.float32)
 
     def _resample(self) -> None:
         """Systematic resampling with Gaussian nudging and Liu-West shrinkage.
@@ -715,31 +740,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         diff = predictions - mean_pred[:, None]  # (n_candidates, n_particles)
         var_pred = (diff**2) @ w  # (n_candidates,)
 
-        return var_pred
-
-    def expected_information_gain_jax(self, candidates: Any, noise_std: float = 0.02) -> Any:
-        """Compute the approximate expected information gain using JAX for auto-differentiation."""
-
-        # Broadcast candidates to shape (n_candidates, 1)
-        x_2d = jnp.atleast_1d(candidates)[:, None]
-
-        # Construct params with shape (1, n_particles)
-        data = {}
-        for i, name in enumerate(self._param_names):
-            data[name] = jnp.array(self._particles[:, i])[None, :]
-
-        params = self.model.spec.params_cls(**data)
-
-        # Evaluate model: predictions shape is (n_candidates, n_particles)
-        predictions = self.model.compute_jax(x_2d, params)
-
-        # Weighted variance
-        weights = jnp.array(self._weights)[None, :]
-        mean_pred = jnp.sum(predictions * weights, axis=1, keepdims=True)
-        var_pred = jnp.sum(((predictions - mean_pred) ** 2) * weights, axis=1)
-
-        noise_var = noise_std**2
-        return 0.5 * jnp.log(1.0 + var_pred / (noise_var + 1e-12))
+        noise_var = max(noise_std**2, 1e-12)
+        return 0.5 * np.log1p(var_pred / noise_var)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
         """Shrink physical bounds and clip particles into the new window."""
