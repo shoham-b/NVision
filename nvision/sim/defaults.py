@@ -71,10 +71,6 @@ NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "3.0e6"))
 NVISION_MAX_SPLIT: float = float(os.getenv("NVISION_MAX_SPLIT", "8.5e6"))
 NVISION_NV_CENTER_FREQ_X_MIN: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_MIN", "2.6e9"))
 NVISION_NV_CENTER_FREQ_X_MAX: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_MAX", "3.1e9"))
-<<<<<<< HEAD
-=======
-
 # --- Convergence Defaults ----------------------------------------------------
 
 NVISION_FREQ_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_FREQ_CONVERGENCE_THRESHOLD", "100000.0"))
->>>>>>> 09cde02 (significant sbed improvements and also many other improvements)

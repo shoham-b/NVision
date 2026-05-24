@@ -604,7 +604,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
     if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
         cov_hist = [s.belief.covariance_matrix() for s in bayesian_snapshots]
-        param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
+        param_names = list(bayesian_snapshots[0].belief._param_names)
 
         # Select pairs for 2D visualization (up to 3 distinct pairs for richer coupling analysis)
         pairs = []

@@ -196,13 +196,8 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
                 else:
                     lo, hi = self._physical_param_bounds.get(name, (0.0, 1.0))
                     width = max(hi - lo, 1e-12)
-<<<<<<< HEAD
-                min_std = NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC * width
-                min_var = min_std**2
-=======
                 min_std = NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC * width * decay
                 min_var = min_std ** 2
->>>>>>> 09cde02 (significant sbed improvements and also many other improvements)
                 if cov[i, i] < min_var:
                     cov[i, i] = min_var
                     self.precisions[k, i, i] = 1.0 / min_var
