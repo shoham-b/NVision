@@ -31,19 +31,9 @@ class ComparisonsMixin:
         if not all(col in df.columns for col in required_cols):
             return []
 
-        # Get unique combinations of Generator and Noise
-        # unique() on struct to get unique rows
-        combos = df.select(["generator", "noise"]).unique()
-
         manifest_entries = []
 
-        for row in combos.iter_rows(named=True):
-            gen = row["generator"]
-            noise = row["noise"]
-
-            # Filter data for this combination
-            sub_df = df.filter((pl.col("generator") == gen) & (pl.col("noise") == noise))
-
+        for (gen, noise), sub_df in df.partition_by(["generator", "noise"], as_dict=True).items():
             if sub_df.is_empty():
                 continue
 

@@ -919,6 +919,9 @@ function main() {
         function renderSweepMetricsPanel(container, metrics) {
             if (!container) return;
             container.innerHTML = '';
+            if (metrics.sobol_baseline_steps != null && metrics.sobol_freq_steps != null && metrics.sobol_conv_diff == null) {
+                metrics.sobol_conv_diff = metrics.sobol_baseline_steps - metrics.sobol_freq_steps;
+            }
             // Build a displayable focus_window string from acquisition bounds,
             // but only for sweep locators that support focus (indicated by
             // the presence of expected_focused_points).
@@ -938,6 +941,8 @@ function main() {
                 { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatFrequency },
                 { key: 'expected_uniform_points', label: 'Exp. uniform', tip: 'Uniform points needed to resolve the signal with 2 samples across the effective span.', fmt: formatCount },
                 { key: 'sobol_baseline_steps', label: 'Sobol baseline', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.', fmt: formatCount },
+                { key: 'sobol_freq_steps', label: 'Sobol freq baseline', tip: 'Measurements required by a simple Sobol sweep for the frequency parameter specifically to converge.', fmt: formatCount },
+                { key: 'sobol_conv_diff', label: 'Sobol baseline diff', tip: 'Difference in measurements between Sobol sweep overall convergence and frequency convergence.', fmt: formatCount },
                 { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
                 { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function(v){ return v; } },
             ];
@@ -1679,6 +1684,13 @@ function main() {
                         }
                         if (phaseData.sobol_baseline_steps != null) {
                             items.push({ label: 'Sobol baseline', val: formatCount(phaseData.sobol_baseline_steps), tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.' });
+                        }
+                        if (phaseData.sobol_freq_steps != null) {
+                            items.push({ label: 'Sobol freq baseline', val: formatCount(phaseData.sobol_freq_steps), tip: 'Measurements required by a simple Sobol sweep for the frequency parameter specifically to converge.' });
+                        }
+                        if (phaseData.sobol_baseline_steps != null && phaseData.sobol_freq_steps != null) {
+                            const sobolDiff = phaseData.sobol_conv_diff != null ? phaseData.sobol_conv_diff : (phaseData.sobol_baseline_steps - phaseData.sobol_freq_steps);
+                            items.push({ label: 'Sobol baseline diff', val: formatCount(sobolDiff), tip: 'Difference in measurements between Sobol sweep overall convergence and frequency convergence.' });
                         }
                         
                         // Milestone metrics
@@ -2576,6 +2588,14 @@ function main() {
                     const sobolBaseline = plot.sobol_baseline_steps;
                     if (sobolBaseline != null && Number.isFinite(sobolBaseline)) {
                         text += ` • Sobol baseline: ${formatCount(sobolBaseline)}`;
+                    }
+                    const sobolFreqBaseline = plot.sobol_freq_steps;
+                    if (sobolFreqBaseline != null && Number.isFinite(sobolFreqBaseline)) {
+                        text += ` • Sobol freq baseline: ${formatCount(sobolFreqBaseline)}`;
+                    }
+                    if (sobolBaseline != null && sobolFreqBaseline != null && Number.isFinite(sobolBaseline) && Number.isFinite(sobolFreqBaseline)) {
+                        const diffVal = plot.sobol_conv_diff != null ? plot.sobol_conv_diff : (sobolBaseline - sobolFreqBaseline);
+                        text += ` • Sobol diff: ${formatCount(diffVal)}`;
                     }
                     el.textContent = text;
                 } else {

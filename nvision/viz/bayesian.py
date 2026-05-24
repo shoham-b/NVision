@@ -262,7 +262,15 @@ def _trace_one_marginal_posterior(
                 ),
             ]
         # Mixture: each row is a component, last row is total
-        K_plus_1 = posterior.shape[0]  # noqa: N806
+        # Supporting new (2*K + 1) format and backward-compatible (K + 1) format
+        total_rows = posterior.shape[0]
+        if total_rows % 2 == 1 and total_rows >= 3:
+            K = (total_rows - 1) // 2  # noqa: N806
+            is_new_format = True
+        else:
+            K = total_rows - 1  # noqa: N806
+            is_new_format = False
+
         traces: list[go.Scatter] = []
 
         # Curated harmonious qualitative colors for the mixture components (experts)
@@ -277,17 +285,25 @@ def _trace_one_marginal_posterior(
 
         # Calculate expert weights by numerical integration (sum * dx) over grid support
         dx = grid[1] - grid[0] if len(grid) > 1 else 1.0
-        raw_weights = [float(np.sum(posterior[j]) * dx) for j in range(K_plus_1 - 1)]
+        if is_new_format:
+            raw_weights = [float(np.sum(posterior[K + j]) * dx) for j in range(K)]
+        else:
+            raw_weights = [float(np.sum(posterior[j]) * dx) for j in range(K)]
         sum_w = sum(raw_weights)
 
         # Plot individual experts with distinct colors and semi-transparent lines
-        for k in range(K_plus_1 - 1):
+        for k in range(K):
             comp_color = expert_colors[k % len(expert_colors)]
-            weight = raw_weights[k] / sum_w if sum_w > 0 else 1.0 / (K_plus_1 - 1)
+            weight = raw_weights[k] / sum_w if sum_w > 0 else 1.0 / K
+            
+            # In the new format, posterior[k] is the unweighted expert PDF.
+            # In the old format, posterior[k] is the weighted expert PDF.
+            y_vals = posterior[k]
+
             traces.append(
                 go.Scatter(
                     x=grid,
-                    y=posterior[k],
+                    y=y_vals,
                     mode="lines",
                     name=f"Expert {k + 1} (w={weight:.2f})",
                     line=dict(dash="dash", width=2, color=comp_color),
@@ -427,32 +443,15 @@ class BayesianMixin:
 
         html_path.write_text(content, encoding="utf-8")
 
-    def plot_posterior_animation(  # noqa: C901
+    def _prepare_animation_frames(
         self,
         posterior_history: list[np.ndarray],
         freq_grid: np.ndarray,
-        out_path: Path,
-        model_history: list[np.ndarray] | None = None,
-        *,
-        true_value: float | None = None,
-        acquisition_window: tuple[float, float] | None = None,
-        experiment_domain: tuple[float, float] | None = None,
-        resampled_steps: list[int] | None = None,
-    ) -> None:
-        """Create an interactive Plotly animation of the posterior distribution evolution.
-
-        If ``true_value`` is set, draws a vertical line at the ground-truth parameter value.
-        If ``acquisition_window`` is set, shades the post-sweep search interval (optionally
-        with ``experiment_domain`` widening the x-axis to the full sweep range).
-        """
-        if not posterior_history:
-            return
-
-        is_particles = posterior_history[0].ndim == 2
-
-        # Prepare frames
+        model_history: list[np.ndarray] | None,
+        resampled_steps: list[int] | None,
+        is_particles: bool,
+    ) -> tuple[list[go.Frame], set[int], float]:
         frames = []
-        # Downsample frames if too many for performance (e.g., max 100 frames)
         total_steps = len(posterior_history)
         step_indices = range(total_steps)
         if total_steps > 100:
@@ -474,10 +473,6 @@ class BayesianMixin:
             data = _trace_one_marginal_posterior(posterior, freq_grid, "Posterior")
 
             if model_history and i < len(model_history):
-                # Normalize model for visualization scale if needed, or plotting separately?
-                # Usually model is in signal units, posterior in probability density.
-                # Put model on secondary y-axis?
-                # For simplicity, let's just plot posterior for now or scale model.
                 pass
 
             title_text = f"Step {i + 1}/{total_steps}"
@@ -493,7 +488,10 @@ class BayesianMixin:
                 )
             )
 
-        slider_steps = [
+        return frames, resampling_indices, max_prob
+
+    def _create_slider_steps(self, frames: list[go.Frame], resampling_indices: set[int]) -> list[dict]:
+        return [
             {
                 "args": [
                     [frame.name],
@@ -511,15 +509,7 @@ class BayesianMixin:
             for frame in frames
         ]
 
-        # Initial plot
-        initial_posterior = posterior_history[0]
-        initial_data = _trace_one_marginal_posterior(initial_posterior, freq_grid, "Posterior")
-        if is_particles:
-            yaxis_layout = dict(title="Probability Density", automargin=True)
-        else:
-            yaxis_layout = dict(title="Probability Density", automargin=True, range=[0, max_prob * 1.1])
-
-        # Speed multipliers for single parameter animation
+    def _create_speed_buttons(self) -> list[dict]:
         speed_options_single = [
             ("0.5×", 200),
             ("1×", 100),
@@ -527,7 +517,7 @@ class BayesianMixin:
             ("2×", 50),
         ]
 
-        speed_buttons_single = [
+        return [
             dict(
                 label=label,
                 method="animate",
@@ -544,7 +534,23 @@ class BayesianMixin:
             for label, duration in speed_options_single
         ]
 
-        fig = go.Figure(
+    def _build_animation_figure(
+        self,
+        initial_posterior: np.ndarray,
+        freq_grid: np.ndarray,
+        is_particles: bool,
+        max_prob: float,
+        frames: list[go.Frame],
+        slider_steps: list[dict],
+        speed_buttons_single: list[dict],
+    ) -> go.Figure:
+        initial_data = _trace_one_marginal_posterior(initial_posterior, freq_grid, "Posterior")
+        if is_particles:
+            yaxis_layout = dict(title="Probability Density", automargin=True)
+        else:
+            yaxis_layout = dict(title="Probability Density", automargin=True, range=[0, max_prob * 1.1])
+
+        return go.Figure(
             data=initial_data,
             layout=go.Layout(
                 xaxis=dict(title="Frequency / Parameter"),
@@ -552,7 +558,6 @@ class BayesianMixin:
                 margin=dict(l=80, r=40, t=80, b=80),
                 title="Posterior Evolution",
                 updatemenus=[
-                    # Play/Pause toggle - positioned below slider
                     dict(
                         type="buttons",
                         direction="left",
@@ -589,7 +594,6 @@ class BayesianMixin:
                             ),
                         ],
                     ),
-                    # Speed controls - positioned below slider, right of play/pause
                     dict(
                         type="buttons",
                         direction="left",
@@ -598,7 +602,7 @@ class BayesianMixin:
                         xanchor="left",
                         yanchor="top",
                         showactive=True,
-                        active=1,  # Default to 1×
+                        active=1,
                         pad={"r": 10, "t": 0},
                         buttons=speed_buttons_single,
                     ),
@@ -613,6 +617,39 @@ class BayesianMixin:
                 ],
             ),
             frames=frames,
+        )
+
+    def plot_posterior_animation(
+        self,
+        posterior_history: list[np.ndarray],
+        freq_grid: np.ndarray,
+        out_path: Path,
+        model_history: list[np.ndarray] | None = None,
+        *,
+        true_value: float | None = None,
+        acquisition_window: tuple[float, float] | None = None,
+        experiment_domain: tuple[float, float] | None = None,
+        resampled_steps: list[int] | None = None,
+    ) -> None:
+        """Create an interactive Plotly animation of the posterior distribution evolution.
+
+        If ``true_value`` is set, draws a vertical line at the ground-truth parameter value.
+        If ``acquisition_window`` is set, shades the post-sweep search interval (optionally
+        with ``experiment_domain`` widening the x-axis to the full sweep range).
+        """
+        if not posterior_history:
+            return
+
+        is_particles = posterior_history[0].ndim == 2
+
+        frames, resampling_indices, max_prob = self._prepare_animation_frames(
+            posterior_history, freq_grid, model_history, resampled_steps, is_particles
+        )
+        slider_steps = self._create_slider_steps(frames, resampling_indices)
+        speed_buttons = self._create_speed_buttons()
+
+        fig = self._build_animation_figure(
+            posterior_history[0], freq_grid, is_particles, max_prob, frames, slider_steps, speed_buttons
         )
 
         if acquisition_window is not None:
@@ -691,7 +728,8 @@ class BayesianMixin:
                 sum_sq = np.sum(w**2)
                 ess_history.append(1.0 / sum_sq if sum_sq > 0.0 else 0.0)
             num_particles = len(weight_history[0])
-            ess_threshold_val = 0.5 * num_particles
+            from nvision.belief.smc_marginal import NVISION_SMC_ESS_THRESHOLD
+            ess_threshold_val = NVISION_SMC_ESS_THRESHOLD * num_particles
         else:
             subplot_titles = (
                 *tuple(_build_subplot_title(p, param_descriptions) for p in param_names),
@@ -807,7 +845,7 @@ class BayesianMixin:
                         y=[ess_threshold_val, ess_threshold_val],
                         mode="lines",
                         line=dict(color="rgba(231, 76, 60, 0.5)", width=1.5, dash="dash"),
-                        name="Resampling Threshold (50%)",
+                        name=f"Resampling Threshold ({int(NVISION_SMC_ESS_THRESHOLD * 100)}%)",
                         showlegend=False,
                         xaxis=f"x{ess_row}",
                         yaxis=f"y{ess_row}",
@@ -2347,7 +2385,10 @@ class BayesianMixin:
         n_params = len(param_names)
 
         def _subplot_title(p: str) -> str:
-            base = f"{p} (relative uncertainty)"
+            if p == "frequency":
+                base = f"{p} (absolute uncertainty, Hz)"
+            else:
+                base = f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
                 base += f"<br><sup>bounds: [{lo:.4g}, {hi:.4g}] (width={hi - lo:.4g})</sup>"
@@ -2385,23 +2426,32 @@ class BayesianMixin:
             )
 
             # Threshold line
-            fig.add_hline(
-                y=convergence_threshold,
-                line=dict(color="red", dash="dash", width=1.5),
-                annotation_text=f"threshold ({convergence_threshold})",
-                row=row,
-                col=1,
-            )
+            if param == "frequency":
+                fig.add_hline(
+                    y=1000.0,
+                    line=dict(color="red", dash="dash", width=1.5),
+                    annotation_text="1 KHz threshold",
+                    row=row,
+                    col=1,
+                )
+            else:
+                fig.add_hline(
+                    y=convergence_threshold,
+                    line=dict(color="red", dash="dash", width=1.5),
+                    annotation_text=f"threshold ({convergence_threshold})",
+                    row=row,
+                    col=1,
+                )
 
-            # Reference line at y=1.0: uncertainty equal to full bound width
-            fig.add_hline(
-                y=1.0,
-                line=dict(color="gray", dash="dot", width=1),
-                annotation_text="100 % of bound",
-                annotation_font_color="gray",
-                row=row,
-                col=1,
-            )
+                # Reference line at y=1.0: uncertainty equal to full bound width
+                fig.add_hline(
+                    y=1.0,
+                    line=dict(color="gray", dash="dot", width=1),
+                    annotation_text="100 % of bound",
+                    annotation_font_color="gray",
+                    row=row,
+                    col=1,
+                )
 
             # Highlight converged regions
             converged_regions = []

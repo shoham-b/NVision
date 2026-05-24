@@ -983,11 +983,13 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
         entry["plot_data"] = plot_data
 
 
-def _scan_layout(
+def _setup_scan_layout(  # noqa: C901
     fig: go.Figure,
     has_metrics: bool,
     *,
     focus_window: tuple[float, float] | None = None,
+    narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
+    per_dip_windows: list[tuple[float, float]] | None = None,
 ) -> None:
     # Note: focus_window is used for overlay only, not for setting x-axis range
     # The plot should show the full scan range (scan.x_min to scan.x_max)
@@ -1023,6 +1025,28 @@ def _scan_layout(
         )
     fig.update_layout(**layout_args)
 
+    # Embed narrowed_param_bounds and per_dip_windows in figure meta so the UI can retrieve them
+    # without needing a separate manifest field or extra HTTP request.
+    meta_dict: dict[str, object] = {}
+    if narrowed_param_bounds:
+        safe_meta: dict[str, list[float]] = {}
+        for name, (lo, hi) in narrowed_param_bounds.items():
+            flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
+            if flo is not None and fhi is not None and fhi > flo:
+                safe_meta[name] = [flo, fhi]
+        if safe_meta:
+            meta_dict["narrowed_param_bounds"] = safe_meta
+    if per_dip_windows:
+        safe_windows: list[list[float]] = []
+        for lo, hi in per_dip_windows:
+            flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
+            if flo is not None and fhi is not None and fhi > flo:
+                safe_windows.append([flo, fhi])
+        if safe_windows:
+            meta_dict["per_dip_windows"] = safe_windows
+    if meta_dict:
+        fig.update_layout(meta=meta_dict)
+
 
 class MeasurementsMixin:
     """Mixin for scan measurement plotting."""
@@ -1030,7 +1054,7 @@ class MeasurementsMixin:
     # Typing for mixin dependency (self.out_dir from VizBase)
     out_dir: Path
 
-    def plot_scan_measurements(  # noqa: C901
+    def plot_scan_measurements(
         self,
         scan,
         history: pl.DataFrame,
@@ -1056,16 +1080,8 @@ class MeasurementsMixin:
         """
         ensure_out_dir(out_path.parent)
 
-        history_xs_raw = history.get_column("x").to_list() if "x" in history.columns else []
-        history_ys_raw = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
-        history_xs_arr: np.ndarray | None = None
-        if history_xs_raw:
-            history_xs_arr = np.asarray([float(x) for x in history_xs_raw if x is not None], dtype=float)
-            if history_xs_arr.size == 0:
-                history_xs_arr = None
-
-        xs_base = np.linspace(scan.x_min, scan.x_max, 5000)
-        xs = np.unique(np.concatenate([xs_base, history_xs_arr])) if history_xs_arr is not None else xs_base
+        history_xs_raw, history_ys_raw = _extract_history_xy(history)
+        xs = _dense_xs_with_measurements(scan, history_xs_raw, n_dense=5000)
         ys = [float(scan.signal(x)) for x in xs]
 
         measurement_xs: list[float] = []
@@ -1120,29 +1136,13 @@ class MeasurementsMixin:
             belief_unit_cube=belief_unit_cube,
         )
         _add_metric_traces(fig, history, has_metrics)
-        _scan_layout(fig, has_metrics, focus_window=focus_window)
-
-        # Embed narrowed_param_bounds and per_dip_windows in figure meta so the UI can retrieve them
-        # without needing a separate manifest field or extra HTTP request.
-        meta_dict: dict[str, object] = {}
-        if narrowed_param_bounds:
-            safe_meta: dict[str, list[float]] = {}
-            for name, (lo, hi) in narrowed_param_bounds.items():
-                flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
-                if flo is not None and fhi is not None and fhi > flo:
-                    safe_meta[name] = [flo, fhi]
-            if safe_meta:
-                meta_dict["narrowed_param_bounds"] = safe_meta
-        if per_dip_windows:
-            safe_windows: list[list[float]] = []
-            for lo, hi in per_dip_windows:
-                flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
-                if flo is not None and fhi is not None and fhi > flo:
-                    safe_windows.append([flo, fhi])
-            if safe_windows:
-                meta_dict["per_dip_windows"] = safe_windows
-        if meta_dict:
-            fig.update_layout(meta=meta_dict)
+        _setup_scan_layout(
+            fig,
+            has_metrics,
+            focus_window=focus_window,
+            narrowed_param_bounds=narrowed_param_bounds,
+            per_dip_windows=per_dip_windows,
+        )
 
         fig.write_html(out_path.as_posix(), include_plotlyjs="cdn")
         return out_path
