@@ -209,6 +209,9 @@ def test_frequency_linewidth_uncertainty_constraint():
     phys_bounds = {
         "frequency": (2.8e9, 2.9e9),  # width = 1e8
         "linewidth": (5e6, 15e6),  # width = 1e7
+        "split": (2e6, 8e6),
+        "k_np": (1.0, 2.0),
+        "dip_depth": (0.01, 0.5),
     }
 
     # 1. Test GMM Physical

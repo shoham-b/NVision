@@ -23,3 +23,7 @@
 ## 2026-05-24 - Handle fragile numpy asserts with float imprecision
 **Learning:** When using `np.allclose()` in test suites for computationally complex functions (like GMM distributions), avoid default relative tolerances that fail due to floating point imprecision when evaluating mathematical constraints.
 **Action:** Always provide explicit tolerances (e.g. `atol=1e-3`) when validating internal algorithm bounds or covariances.
+
+## 2026-05-24 - Ensure exhaustive mock configuration dicts in tests
+**Learning:** When generating test fixtures with missing dependency bounds (like `phys_bounds` missing keys for `"split"`, `"k_np"`, etc. for `UnitCubeGaussianMixtureMarginalDistribution`), it can cause obscure `KeyError`s deep within execution stacks (like calculating `.uncertainty()`) even if the test is technically focused on other parameters.
+**Action:** Always provide exhaustive configuration dicts mapped to the expected model parameters to ensure test stability, or mock the dictionary's `__getitem__` to fallback gracefully if it is intentional.
