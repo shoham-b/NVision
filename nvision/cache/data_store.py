@@ -56,3 +56,8 @@ class CategoryDataStore:
 
         self._backend.set(key, payload)
         return self.db_path
+
+    def delete(self, key: str) -> None:
+        """Delete a key from the store."""
+        with suppress(Exception):
+            self._backend.delete(key)

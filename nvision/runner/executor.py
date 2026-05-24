@@ -303,6 +303,8 @@ class _TaskRunner:
     def _restore_cached_results(self) -> tuple[TaskResults, int]:
         """Load results from cache. Handles full matches and partial streaming hits."""
         if self.skip_cache:
+            combo_kw = self._combination_cache_kwargs()
+            self.cache.purge_cached_combination(**combo_kw)
             if self.task.require_cache:
                 log.warning(
                     "Cache miss for %s/%s/%s (seed=%s) with --require-cache + caching disabled. Skipping.",
@@ -406,7 +408,7 @@ class _TaskRunner:
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
 
-        is_streaming = self.repeats > STREAMING_REPEAT_THRESHOLD and not self.skip_cache
+        is_streaming = self.repeats > STREAMING_REPEAT_THRESHOLD
 
         # Determine effective max_steps for metrics/manifest keys
         locator_class = self.task.strategy_spec.locator_class
@@ -568,7 +570,7 @@ class _TaskRunner:
         return all_results
 
     def _save_full_cache(self, results: TaskResults) -> None:
-        if self.skip_cache or not results:
+        if not results:
             return
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
@@ -716,6 +718,7 @@ class _TaskRunner:
             experiment.true_signal.model,
             float(experiment.x_min),
             float(experiment.x_max),
+            max_steps=self.task.loc_max_steps,
         )
 
     def _precompute_sweep_for_task(

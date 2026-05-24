@@ -72,6 +72,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         self.weights = np.ones(K, dtype=FLOAT_DTYPE) / K
         self._covariances = np.zeros((K, D, D), dtype=FLOAT_DTYPE)
         self._update_count = 0
+        self._observations: list[Observation] = []
 
         # Derive a reference frequency range for heuristic scaling.
         freq_bounds = self._physical_param_bounds.get("frequency")
@@ -184,7 +185,9 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
             np.fill_diagonal(cov, np.maximum(np.diag(cov), 0.0))
             self._covariances[k] = cov
 
-        # Enforce min exploration standard deviation floor for all parameters
+        # Enforce min exploration standard deviation floor for all parameters.
+        # Decay the exploration floor over time so it can converge.
+        decay = np.exp(-self._update_count / 25.0)
         for k in range(self.n_components):
             cov = self._covariances[k]
             for i, name in enumerate(self._param_names):
@@ -193,8 +196,13 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
                 else:
                     lo, hi = self._physical_param_bounds.get(name, (0.0, 1.0))
                     width = max(hi - lo, 1e-12)
+<<<<<<< HEAD
                 min_std = NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC * width
                 min_var = min_std**2
+=======
+                min_std = NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC * width * decay
+                min_var = min_std ** 2
+>>>>>>> 09cde02 (significant sbed improvements and also many other improvements)
                 if cov[i, i] < min_var:
                     cov[i, i] = min_var
                     self.precisions[k, i, i] = 1.0 / min_var
@@ -252,6 +260,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
     def update(self, obs: Observation) -> None:
         self.last_obs = obs
+        self._observations.append(obs)
         self._update_mixtures(obs.x, obs.signal_value, obs.noise_std)
         self._recompute_covariances()
 
@@ -259,14 +268,15 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         if not observations:
             return
         for obs in observations:
+            self._observations.append(obs)
             self._update_mixtures(obs.x, obs.signal_value, obs.noise_std)
         self.last_obs = observations[-1]
         self._recompute_covariances()
 
     def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
-        """Perform linearized EKF update for each component."""
+        """Perform EKF update for each component."""
         K, D = self.n_components, self._dim  # noqa: N806
-        sigma2 = sigma_eta**2
+        sigma2 = max(sigma_eta**2, 1e-12)
         epsilon = NVISION_GAUSSIAN_EPSILON
 
         new_means = np.zeros_like(self.means)
@@ -335,18 +345,20 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         else:
             self.weights = np.ones(K) / K
 
-        # Decaying weight floor
-        if self.weight_floor > 0.0 and self._update_count < self.weight_floor_steps:
-            t = self._update_count / max(self.weight_floor_steps, 1)
-            active_floor = self.weight_floor * (1.0 - t)
-            self.weights = np.maximum(self.weights, active_floor)
+        # Permanent minimum weight floor to prevent weight collapse.
+        # We decay this floor exponentially to allow it to fully converge to a single expert if appropriate.
+        decay = np.exp(-self._update_count / 25.0)
+        curr_floor = 0.01 * decay
+        if curr_floor > 0:
+            self.weights = np.maximum(self.weights, curr_floor)
             self.weights /= self.weights.sum()
 
         self._update_count += 1
 
     def estimates(self) -> dict[str, float]:
-        weighted_mean = np.sum(self.weights[:, None] * self.means, axis=0)
-        return {name: float(weighted_mean[i]) for i, name in enumerate(self._param_names)}
+        best_k = np.argmax(self.weights)
+        best_mean = self.means[best_k]
+        return {name: float(best_mean[i]) for i, name in enumerate(self._param_names)}
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         weighted_mean = np.sum(self.weights[:, None] * self.means, axis=0)
@@ -400,6 +412,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         dist.weights, dist._covariances = self.weights.copy(), self._covariances.copy()
         dist._update_count = self._update_count
         dist.last_obs = self.last_obs
+        dist._observations = list(self._observations)
         return dist
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
@@ -416,6 +429,88 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         return ParameterValues.from_mapping(
             self._param_names, {name: samples[:, i] for i, name in enumerate(self._param_names)}
         )
+
+    def get_candidates(self) -> np.ndarray:
+        """Return candidate measurement frequencies in physical space.
+
+        Combines EIG-weighted mean positions and empirically observed dip
+        locations so the locator focuses on regions with true signal, not
+        just regions where the EKF posterior has high uncertainty.
+        """
+        freq_bounds = self._physical_param_bounds.get("frequency")
+        if freq_bounds is None:
+            return np.linspace(0.0, 1.0, 200)
+        f_lo, f_hi = freq_bounds
+        domain = f_hi - f_lo
+
+        # Base: a coarse global sweep as fallback
+        n_global = max(200, int(domain / max(domain * 0.001, 1e5)))
+        candidates = list(np.linspace(f_lo, f_hi, n_global))
+
+        # Add dense grids around each expert's mean frequency
+        if "frequency" in self._param_names:
+            freq_idx = self._param_names.index("frequency")
+            for k in range(self.n_components):
+                mu_f = float(self.means[k, freq_idx])
+                sigma_f = float(np.sqrt(max(self._covariances[k, freq_idx, freq_idx], 0.0)))
+                window = max(sigma_f * 3.0, 5e6)  # at least 5 MHz
+                pts = np.linspace(max(mu_f - window, f_lo), min(mu_f + window, f_hi), 60)
+                candidates.extend(pts.tolist())
+
+        # Add dense grids around empirically observed dip locations
+        if len(self._observations) >= 5:
+            obs_xs = np.array([o.x for o in self._observations])
+            obs_ys = np.array([o.signal_value for o in self._observations])
+            upper_perc = float(np.percentile(obs_ys, 70))
+            flat_pts = obs_ys[obs_ys >= float(np.percentile(obs_ys, 40))]
+            noise_est = float(np.std(flat_pts)) if len(flat_pts) >= 3 else 0.02
+            dip_thresh = upper_perc - max(3.0 * noise_est, 0.015 * upper_perc)
+            dip_xs = obs_xs[obs_ys < dip_thresh]
+            if len(dip_xs) > 0:
+                window = max(10e6, domain * 0.02)  # 10 MHz or 2% of domain
+                for dip_x in dip_xs:
+                    pts = np.linspace(
+                        max(dip_x - window, f_lo),
+                        min(dip_x + window, f_hi),
+                        50,
+                    )
+                    candidates.extend(pts.tolist())
+
+        arr = np.unique(np.clip(np.array(candidates, dtype=np.float64), f_lo, f_hi))
+        return arr
+
+    def select_max_information_gain(self, candidates: np.ndarray, n: int, noise_std: float = 0.02) -> np.ndarray:
+        """Select the top-n candidates by Expected Information Gain (EIG).
+
+        Uses :meth:`expected_information_gain_batch` over the provided candidates
+        and returns the top ``n`` by EIG score.
+
+        Args:
+            candidates: 1D array of candidate frequencies in physical space.
+            n: Number of top candidates to return.
+            noise_std: Measurement noise std for EIG computation.
+
+        Returns:
+            1D array of up to ``n`` candidates ranked by EIG (highest first).
+        """
+        if len(candidates) == 0:
+            return candidates[:0]
+
+        # Override noise_var using provided noise_std so the caller controls it
+        orig_last_obs = self.last_obs
+
+        class _FakeObs:
+            def __init__(self, std: float) -> None:
+                self.noise_std = std
+
+        self.last_obs = _FakeObs(noise_std)  # type: ignore[assignment]
+        eig_scores = self.expected_information_gain_batch(candidates)
+        self.last_obs = orig_last_obs
+
+        top_n = min(n, len(candidates))
+        top_indices = np.argpartition(eig_scores, -top_n)[-top_n:]
+        top_indices = top_indices[np.argsort(eig_scores[top_indices])[::-1]]
+        return candidates[top_indices]
 
     def expected_information_gain_batch(self, xs_phys: np.ndarray) -> np.ndarray:
         """Calculate EIG in physical space.

@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from nvision.models.observer import RunResult
+from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
 
 
 def detect_milestone(run_result: RunResult, param: str, threshold: float = 0.01, relative: bool = True) -> int | None:
@@ -24,8 +25,9 @@ def detect_milestone(run_result: RunResult, param: str, threshold: float = 0.01,
         return None
 
     if param == "frequency":
-        # For frequency, convergence is specifically below absolute 1 KHz (1000 Hz)
-        threshold = 1000.0
+        # For frequency, convergence threshold is set via environment variable
+        threshold = NVISION_FREQ_CONVERGENCE_THRESHOLD
+
     elif relative:
         # Get bounds for relative threshold
         bounds = run_result.snapshots[0].belief.physical_param_bounds.get(param)

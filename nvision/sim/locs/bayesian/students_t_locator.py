@@ -147,7 +147,8 @@ class StudentsTLocator(SequentialBayesianLocator):
 
     def _acquisition_bounds_phys(self) -> tuple[float, float]:
         """Return the focus window in physical frequency [Hz]."""
-        return float(self._acquisition_lo), float(self._acquisition_hi)
+        lo, hi = self._acquisition_bounds()
+        return float(lo), float(hi)
 
     def _generate_candidates_phys(self) -> np.ndarray:
         """Return a slope-targeted candidate grid in Hz."""

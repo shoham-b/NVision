@@ -12,9 +12,11 @@ import polars as pl
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
+from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 from nvision.viz.bayesian import _get_nv_parameter_descriptions, _get_signal_formula
+
 
 log = logging.getLogger(__name__)
 
@@ -763,10 +765,11 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             for name in param_names:
                 unc = float(uncertainties.get(name, float("inf")))
                 if name == "frequency":
-                    # For frequency, convergence is absolute uncertainty < 1 KHz (1000 Hz)
-                    converged_params[name] = unc < 1000.0
+                    # For frequency, convergence is absolute uncertainty < NVISION_FREQ_CONVERGENCE_THRESHOLD Hz
+                    converged_params[name] = unc < NVISION_FREQ_CONVERGENCE_THRESHOLD
                     # The graph needs to show the absolute uncertainty
                     relative_uncertainties[name] = unc
+
                 else:
                     lo, hi = bounds.get(name, (0.0, 0.0))
                     bound_width = hi - lo
@@ -889,7 +892,7 @@ def generate_attempt_plots(  # noqa: C901
     strat_name = str(entry_base.get("strategy", ""))
     mode_estimates: dict[str, float] | None = None
     belief_unit_cube: UnitCubeSignalModel | None = None
-    if run_result is not None and _is_bayesian_run(strat_name, strat_obj) and run_result.snapshots:
+    if run_result is not None and run_result.snapshots:
         last_belief = run_result.snapshots[-1].belief
         me = belief_mode_estimates(last_belief)
         if me:

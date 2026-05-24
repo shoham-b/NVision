@@ -663,6 +663,19 @@ def render(  # noqa: C901
     except Exception as exc:
         log.warning(f"Plotting failed: {exc}")
 
+    metric_plots_meta: list[dict[str, object]] = []
+    try:
+        metric_plots_meta = viz.plot_all_metrics(df_loc) or []
+        relativize_summary_plot_paths(metric_plots_meta, out_dir)
+        log.info(f"Saved {len(metric_plots_meta)} metric plots")
+    except Exception as exc:
+        log.warning(f"Metric plotting failed: {exc}")
+
+    # Add metric plots to manifest
+    plot_manifest.extend(metric_plots_meta)
+
+    # Duplicate metric plotting blocks removed
+
     merge_run_plot_manifest_with_existing_on_disk(plot_manifest, out_dir, log)
     # Keep summary rows fresh for the rendered dataset; keep all non-summary entries (scan, bayesian_interactive, etc.)
     plot_manifest = [

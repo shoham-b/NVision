@@ -21,7 +21,7 @@ from nvision.spectra.noise_model import NoiseSignalModel
 load_dotenv()
 
 NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
-NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.5"))
+NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.2"))
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
 NVISION_SMC_POINTS_PER_MIN_FEATURE: int = int(os.getenv("NVISION_SMC_POINTS_PER_MIN_FEATURE", "5"))
 NVISION_SMC_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_SMC_MIN_EXPLORATION_FRAC", "0.01"))
@@ -186,6 +186,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _global_grid: np.ndarray = field(init=False, repr=False)
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
+    _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
+
 
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
@@ -214,6 +216,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
         self._step_count = 0
         self._rng = np.random.default_rng()
+        self._observations = []
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -250,6 +253,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._generate_epoch_candidates()
 
     def update(self, obs: Observation) -> None:
+        if not hasattr(self, "_observations"):
+            self._observations = []
+        self._observations.append(obs)
         self.last_obs = obs
         self.resampled = False
 
@@ -265,32 +271,40 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             ]
             residuals = obs.signal_value - predicted
             log_liks = self.noise_model.composite_log_likelihood(predicted, residuals, noise_arrays, sigma_epistemic)
-
-            # Numerically stable exponentiation
-            log_liks -= np.max(log_liks)
-            likelihoods = np.exp(log_liks).astype(FLOAT_DTYPE, copy=False)
         else:
-            # Use true aleatoric noise; stability handled by ESS-triggered resampling
-            likelihoods = likelihood_from_observation_model(
-                obs_y=obs.signal_value,
-                predicted=predicted,
-                noise_std=obs.noise_std,
-                frequency_noise_model=obs.frequency_noise_model,
-                tempering_factor=self.tempering_factor,
-            ).astype(FLOAT_DTYPE, copy=False)
+            if getattr(obs, "frequency_noise_model", None) is not None:
+                # Fallback to match custom frequency noise transformations sequentially
+                liks = likelihood_from_observation_model(
+                    obs_y=obs.signal_value,
+                    predicted=predicted,
+                    noise_std=obs.noise_std,
+                    frequency_noise_model=obs.frequency_noise_model,
+                    tempering_factor=self.tempering_factor,
+                )
+                log_liks = np.log(np.maximum(liks, 1e-100))
+            else:
+                # Optimized pure Gaussian path
+                sigma = max(float(obs.noise_std), 1e-9)
+                if self.tempering_factor != 1.0:
+                    sigma *= np.sqrt(self.tempering_factor)
+                residuals = obs.signal_value - predicted
+                log_liks = -0.5 * (residuals / sigma) ** 2
 
-        # 2. Update weights — paper-compliant likelihood only (Eq. S3) [cite: 117]
-        self._weights *= likelihoods
+        # 2. Numerically stable weight update (prevents complete underflow collapse)
+        log_weights = np.log(np.maximum(self._weights, 1e-100))
+        log_weights += log_liks
+        log_weights -= np.max(log_weights)
+
+        raw_weights = np.exp(log_weights).astype(FLOAT_DTYPE, copy=False)
         self._step_count += 1
         self._cov_step = -1
 
-        # 3. Normalize weights safely without redundant array casting allocations
-        weight_sum = np.sum(self._weights)
+        # 3. Normalize weights safely
+        weight_sum = np.sum(raw_weights)
         if weight_sum > 1e-100:
-            self._weights = (self._weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
+            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
         else:
-            # Total filter collapse: likelihood was zero everywhere
-            self._weights = np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles
+            self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
         # 4. Resample if Effective Sample Size (ESS) is too low [cite: 198, 199]
         ess = _inverse_sum_squares(self._weights)
@@ -304,6 +318,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def batch_update(self, observations: list[Observation]) -> None:
         if not observations:
             return
+        if not hasattr(self, "_observations"):
+            self._observations = []
+        self._observations.extend(observations)
 
         self.last_obs = observations[-1]
         self.resampled = False
@@ -356,13 +373,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._step_count += len(observations)
 
         # Convert log-weights back to normalized standard weights safely
+        log_weights += np.log(np.maximum(self._weights, 1e-100))
         log_weights -= np.max(log_weights)
-        raw_weights = np.exp(log_weights) * self._weights.astype(FLOAT_DTYPE)
+        raw_weights = np.exp(log_weights).astype(FLOAT_DTYPE, copy=False)
         weight_sum = np.sum(raw_weights)
 
         # Threshold aligned to 1e-100 to match standard update behavior
         if weight_sum > 1e-100:
-            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE)
+            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
         else:
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
@@ -457,6 +475,34 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             grid_unit = _to_unit_freq(grid_phys)
             local_grids.append(grid_unit)
 
+        # 5b. Observation-driven dip focusing.
+        # Use empirically measured low-signal values to add dense candidates directly
+        # at the true dip locations, correcting for posterior bias when belief is wrong.
+        if len(self._observations) >= 5:
+            obs_xs = np.array([o.x for o in self._observations])
+            obs_ys = np.array([o.signal_value for o in self._observations])
+
+            # Estimate background level from the upper portion of observations
+            upper_perc = float(np.percentile(obs_ys, 70))
+            flat_pts = obs_ys[obs_ys >= float(np.percentile(obs_ys, 40))]
+            noise_est = float(np.std(flat_pts)) if len(flat_pts) >= 3 else 0.02
+            # Dip threshold: at least 3-sigma drop OR 1.5% below background
+            dip_thresh = upper_perc - max(3.0 * noise_est, 0.015 * upper_perc)
+
+            dip_xs = obs_xs[obs_ys < dip_thresh]
+            if len(dip_xs) > 0:
+                # Dense candidates around each observed dip point
+                # Window = max(3x linewidth, effective sigma, 5 MHz minimum)
+                window_phys = max(3.0 * omega_phys, sigma_eff_phys, 5e6)
+                for dip_x in dip_xs:
+                    s = max(dip_x - window_phys, phys_f_lo)
+                    e = min(dip_x + window_phys, phys_f_hi)
+                    if s >= e:
+                        continue
+                    n_pts = max(30, int((e - s) / max(delta_d_phys, 1e4)))
+                    dip_grid_phys = np.linspace(s, e, n_pts)
+                    local_grids.append(_to_unit_freq(dip_grid_phys))
+
         # 6. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
         merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
         self._current_candidates = np.unique(np.clip(merged, f_lo_unit, f_hi_unit)).astype(np.float32)
@@ -486,15 +532,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles = self._particles[new_indices]
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        # 4. Compute nudge covariance: (1 - a^2) * Sigma
-        nudge_cov = (1 - self.a_param**2) * cov
-
-        # 5. Enforce minimum exploration variance based on parameter ranges.
-        # This prevents the filter from getting stuck in a tiny volume.
+        # 4. Enforce minimum exploration variance based on parameter ranges.
+        # We apply this to the total covariance before nudging, so the steady
+        # state variance can properly shrink down to this minimum without exploding.
+        # Decay the exploration floor over time so it can converge.
+        decay_factor = np.exp(-self._step_count / 25.0)
+        curr_min_exploration_frac = self.min_exploration_frac * decay_factor
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
-            min_var = ((hi - lo) * self.min_exploration_frac) ** 2
-            nudge_cov[j, j] = max(float(nudge_cov[j, j]), float(min_var))
+            min_var = ((hi - lo) * curr_min_exploration_frac) ** 2
+            cov[j, j] = max(float(cov[j, j]), float(min_var))
+
+        # 5. Compute nudge covariance: (1 - a^2) * Sigma
+        nudge_cov = (1 - self.a_param**2) * cov
 
         # Make nudge_cov perfectly symmetric and strictly positive definite.
         # Adding a tiny absolute and relative diagonal jitter ensures
@@ -534,6 +584,21 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
             self._particles[:, j] = np.clip(self._particles[:, j], lo, hi)
+
+        # 8.5 Particle Rejuvenation (Rouging): replace some particles with uniform
+        # samples from the prior to prevent filter collapse to incorrect local modes.
+        # We decay the rejuvenation fraction exponentially to allow high-precision convergence.
+        frac_rejuv = 0.05 * decay_factor
+        num_random = int(self.num_particles * frac_rejuv)
+        if num_random > 0:
+            for j, name in enumerate(self._param_names):
+                lo, hi = self.parameter_bounds[name]
+                if self.priors and name in self.priors:
+                    mean_prior, std_prior = self.priors[name]
+                    random_vals = self._rng.normal(mean_prior, std_prior, num_random)
+                    self._particles[-num_random:, j] = np.clip(random_vals, lo, hi)
+                else:
+                    self._particles[-num_random:, j] = self._rng.uniform(lo, hi, num_random)
 
         # 9. Update cached candidate grid for the next epoch
         self._generate_epoch_candidates()
@@ -668,6 +733,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._weights = self._weights.copy()
         dist._step_count = self._step_count
         dist.resampled = self.resampled
+        if hasattr(self, "_observations"):
+            dist._observations = list(self._observations)
         return dist
 
     def _weighted_mean(self, name: str) -> float:
@@ -730,7 +797,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         where sigma_theta^2 is the prediction variance (disagreement for that frequency across particles)
         and sigma_eta^2 is the measurement noise variance.
         """
-        arrays_in_order = [self._particles[:, j] for j in range(len(self._param_names))]
+        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
         # shape: (n_candidates, n_particles) — uses fastmath kernel (acquisition path only)
         predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
 

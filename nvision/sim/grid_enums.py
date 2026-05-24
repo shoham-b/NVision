@@ -12,16 +12,16 @@ class GeneratorCategory(StrEnum):
 
 
 class StrategyFilter(StrEnum):
-    """Substring matched against strategy names in :meth:`nvision.sim.combinations.CombinationGrid.iter`."""
+    """Strategies available in the active simulation grid."""
 
-    SIMPLE_SWEEP = "SimpleSweep"
-    SWEEP = "Sweep,StagedSobolSweep"  # Matches GenericSweep and StagedSobolSweep
-    BAYESIAN = "Bayesian"
+    GENERIC_SWEEP = "GenericSweep"
+    STAGED_SOBOL_SWEEP = "StagedSobolSweep"
     BAYESIAN_SBED = "Bayesian-SBED"
-    BAYESIAN_UCB = "Bayesian-UCB"
-    BAYESIAN_MAX_VARIANCE = "Bayesian-MaxVariance"
-    BAYESIAN_MAXIMUM_LIKELIHOOD = "Bayesian-MaximumLikelihood"
-    BAYESIAN_UTILITY_SAMPLING = "Bayesian-UtilitySampling"
+    SIMPLE_SOBOL = "SimpleSobol"
+    GAUSSIAN_MIXTURE = "GaussianMixture"
+    BAYESIAN_EKF_D = "Bayesian-EKF-D"
+    BAYESIAN_EKF_A = "Bayesian-EKF-A"
+    BAYESIAN_EKF_PARTICLE_FREQUENCY = "Bayesian-EKF-ParticleFrequency"
 
 
 class GeneratorName(StrEnum):

@@ -628,7 +628,17 @@ class StagedSobolSweepLocator(Locator):
         self._stage1_end_step = 0
         self._stage2_end_step = 0
 
-        self._stage1 = Stage1SobolLocator(self._sobol_gen, self.domain_lo, self.domain_hi, self.history)
+        # Adjust Stage 1 min/max points based on max_steps so it doesn't spend the entire budget in Stage 1
+        stage1_max = min(NVISION_SOBOL_MAX_POINTS, max(20, int(self.max_steps * 0.6)))
+        stage1_min = min(NVISION_SOBOL_MIN_POINTS, max(10, int(stage1_max * 0.5)))
+        self._stage1 = Stage1SobolLocator(
+            self._sobol_gen,
+            self.domain_lo,
+            self.domain_hi,
+            self.history,
+            min_points=stage1_min,
+            max_points=stage1_max,
+        )
         self._stage2: Stage2SobolLocator | None = None
         self._stage3: Stage3SobolLocator | None = None
 
@@ -667,6 +677,7 @@ class StagedSobolSweepLocator(Locator):
         self.history.append(obs_physical)
         # Set last_obs so Observer can create snapshots for plotting
         self.belief.last_obs = obs_physical
+        self.belief.update(obs_physical)
         self._active_locator.observe(obs_physical)
 
         if self._active_locator is self._stage1 and self._active_locator.done():

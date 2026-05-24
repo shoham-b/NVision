@@ -123,3 +123,4 @@ gha-creds-*.json
 artifacts/**
 demo_artifacts*/
 beta_artifacts*/
+.\artifacts_many\

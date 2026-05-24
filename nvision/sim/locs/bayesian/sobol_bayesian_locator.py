@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
+from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
 
 
 def van_der_corput(n: int, base: int = 2) -> float:
@@ -93,13 +95,14 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         if not hasattr(self.belief, "_weights"):
             return
 
-        # Track frequency convergence at every step (absolute uncertainty below 1 KHz)
+        # Track frequency convergence at every step (absolute uncertainty below NVISION_FREQ_CONVERGENCE_THRESHOLD)
         if self.freq_converged_step is None:
             physical_uncertainties = self.belief.uncertainty()
             if "frequency" in physical_uncertainties:
                 unc = float(physical_uncertainties["frequency"])
-                if unc < 1000.0:
+                if unc < NVISION_FREQ_CONVERGENCE_THRESHOLD:
                     self.freq_converged_step = self.step_count
+
 
         ess = _inverse_sum_squares(self.belief._weights)
         ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)

@@ -9,9 +9,11 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
 
 
 @dataclass(frozen=True)
+
 class SubplotOptions:
     row: int
     col: int
@@ -80,12 +82,24 @@ def _get_nv_parameter_descriptions(model: Any) -> dict[str, str]:
 
 def _build_subplot_title(param: str, descriptions: dict[str, str] | None) -> str:
     """Build rich subplot title with parameter name and description."""
+    param_units = {
+        "frequency": " (GHz)",
+        "linewidth": " (MHz)",
+        "split": " (MHz)",
+        "fwhm_total": " (MHz)",
+        "fwhm_lorentz": " (MHz)",
+        "fwhm_gauss": " (MHz)",
+    }
+    unit_str = param_units.get(param, "")
+    param_display = f"{param}{unit_str}"
+
     if descriptions is None:
-        return param
+        return param_display
     desc = descriptions.get(param, "")
     if desc:
-        return f"<b>{param}</b><br><span style='font-size:10px;color:#666;'>{desc}</span>"
-    return param
+        return f"<b>{param_display}</b><br><span style='font-size:10px;color:#666;'>{desc}</span>"
+    return param_display
+
 
 
 def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> None:
@@ -170,6 +184,14 @@ def _add_true_vline_subplots(
 ) -> None:
     if not true_params:
         return
+    param_units = {
+        "frequency": " GHz",
+        "linewidth": " MHz",
+        "split": " MHz",
+        "fwhm_total": " MHz",
+        "fwhm_lorentz": " MHz",
+        "fwhm_gauss": " MHz",
+    }
     for i, name in enumerate(param_names, start=1):
         raw = true_params.get(name)
         if raw is None:
@@ -177,16 +199,18 @@ def _add_true_vline_subplots(
         tv = float(raw)
         if not math.isfinite(tv):
             continue
+        unit_label = param_units.get(name, "")
         fig.add_vline(
             x=tv,
             line_width=2,
             line_dash="dash",
             line_color="green",
-            annotation_text=f"true: {tv:.6g}",
+            annotation_text=f"true: {tv:.6g}{unit_label}",
             annotation_position="top right",
             row=i,
             col=1,
         )
+
 
 
 def _trace_one_marginal_posterior(
@@ -696,7 +720,76 @@ class BayesianMixin:
         if not posterior_inputs_by_param:
             return
 
+        # Define scaling factors for physical parameters to more natural units
+        param_scales = {
+            "frequency": 1e9,
+            "linewidth": 1e6,
+            "split": 1e6,
+            "fwhm_total": 1e6,
+            "fwhm_lorentz": 1e6,
+            "fwhm_gauss": 1e6,
+        }
+
+        # Scale posterior_inputs_by_param
+        posterior_inputs_by_param_scaled = {}
+        for p, (history, grid) in posterior_inputs_by_param.items():
+            scale = param_scales.get(p, 1.0)
+            if scale == 1.0:
+                posterior_inputs_by_param_scaled[p] = (history, grid)
+                continue
+            grid_scaled = grid / scale
+            history_scaled = []
+            for post in history:
+                if post.ndim == 2 and post.shape[1] in (1, 2):
+                    # Particle filter format: [particle_vals, weights]
+                    post_scaled = post.copy()
+                    post_scaled[:, 0] /= scale
+                    history_scaled.append(post_scaled)
+                else:
+                    # Grid / Mixture PDF format: [pdfs]
+                    history_scaled.append(post * scale)
+            posterior_inputs_by_param_scaled[p] = (history_scaled, grid_scaled)
+        posterior_inputs_by_param = posterior_inputs_by_param_scaled
+
+        # Scale true_params
+        if true_params is not None:
+            true_params_scaled = {}
+            for p, val in true_params.items():
+                scale = param_scales.get(p, 1.0)
+                true_params_scaled[p] = val / scale
+            true_params = true_params_scaled
+
+        # Scale acquisition_window
+        if acquisition_window is not None and acquisition_param is not None:
+            scale = param_scales.get(acquisition_param, 1.0)
+            acquisition_window = (acquisition_window[0] / scale, acquisition_window[1] / scale)
+
+        # Scale experiment_domain
+        if experiment_domain is not None and acquisition_param is not None:
+            scale = param_scales.get(acquisition_param, 1.0)
+            experiment_domain = (experiment_domain[0] / scale, experiment_domain[1] / scale)
+
+        # Scale narrowed_param_bounds
+        if narrowed_param_bounds is not None:
+            narrowed_param_bounds_scaled = {}
+            for p, bounds in narrowed_param_bounds.items():
+                scale = param_scales.get(p, 1.0)
+                narrowed_param_bounds_scaled[p] = (bounds[0] / scale, bounds[1] / scale)
+            narrowed_param_bounds = narrowed_param_bounds_scaled
+
+        # Scale per_step_narrowed_bounds
+        if per_step_narrowed_bounds is not None:
+            per_step_narrowed_bounds_scaled = []
+            for bounds_dict in per_step_narrowed_bounds:
+                scaled_dict = {}
+                for p, bounds in bounds_dict.items():
+                    scale = param_scales.get(p, 1.0)
+                    scaled_dict[p] = (bounds[0] / scale, bounds[1] / scale)
+                per_step_narrowed_bounds_scaled.append(scaled_dict)
+            per_step_narrowed_bounds = per_step_narrowed_bounds_scaled
+
         param_names = list(posterior_inputs_by_param.keys())
+
         first_param = param_names[0]
         total_steps = len(posterior_inputs_by_param[first_param][0])
         if total_steps == 0:
@@ -1515,7 +1608,56 @@ class BayesianMixin:
         if not parameter_history:
             return
 
+        # Define scaling factors for physical parameters to more natural units
+        param_scales = {
+            "frequency": 1e9,
+            "linewidth": 1e6,
+            "split": 1e6,
+            "fwhm_total": 1e6,
+            "fwhm_lorentz": 1e6,
+            "fwhm_gauss": 1e6,
+        }
+        param_units = {
+            "frequency": " (GHz)",
+            "linewidth": " (MHz)",
+            "split": " (MHz)",
+            "fwhm_total": " (MHz)",
+            "fwhm_lorentz": " (MHz)",
+            "fwhm_gauss": " (MHz)",
+        }
+
+        # Scale and rename keys in histories
+        parameter_history_scaled = []
+        for d in parameter_history:
+            d_scaled = {}
+            for k, val in d.items():
+                scale = param_scales.get(k, 1.0)
+                unit = param_units.get(k, "")
+                d_scaled[f"{k}{unit}"] = val / scale
+            parameter_history_scaled.append(d_scaled)
+        parameter_history = parameter_history_scaled
+
+        if estimates_history is not None:
+            estimates_history_scaled = []
+            for d in estimates_history:
+                d_scaled = {}
+                for k, val in d.items():
+                    scale = param_scales.get(k, 1.0)
+                    unit = param_units.get(k, "")
+                    d_scaled[f"{k}{unit}"] = val / scale
+                estimates_history_scaled.append(d_scaled)
+            estimates_history = estimates_history_scaled
+
+        if true_params is not None:
+            true_params_scaled = {}
+            for k, val in true_params.items():
+                scale = param_scales.get(k, 1.0)
+                unit = param_units.get(k, "")
+                true_params_scaled[f"{k}{unit}"] = val / scale
+            true_params = true_params_scaled
+
         keys = _collect_param_keys(parameter_history)
+
         if not keys:
             return
 
@@ -1804,7 +1946,52 @@ class BayesianMixin:
         if not covariance_history or not pairs:
             return
 
+        # Define scaling factors for physical parameters to more natural units
+        param_scales = {
+            "frequency": 1e9,
+            "linewidth": 1e6,
+            "split": 1e6,
+            "fwhm_total": 1e6,
+            "fwhm_lorentz": 1e6,
+            "fwhm_gauss": 1e6,
+        }
+        param_units = {
+            "frequency": " (GHz)",
+            "linewidth": " (MHz)",
+            "split": " (MHz)",
+            "fwhm_total": " (MHz)",
+            "fwhm_lorentz": " (MHz)",
+            "fwhm_gauss": " (MHz)",
+        }
+
+        # Create scale matrix
+        scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
+        D = np.diag(1.0 / scales)
+        covariance_history = [D @ cov @ D for cov in covariance_history]
+
+        param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
+
+        if means_history is not None:
+            means_history_scaled = []
+            for d in means_history:
+                d_scaled = {}
+                for idx, p in enumerate(param_names):
+                    d_scaled[param_names_scaled[idx]] = d.get(p, 0.0) / scales[idx]
+                means_history_scaled.append(d_scaled)
+            means_history = means_history_scaled
+
+        if true_params is not None:
+            true_params_scaled = {}
+            for idx, p in enumerate(param_names):
+                val = true_params.get(p)
+                if val is not None:
+                    true_params_scaled[param_names_scaled[idx]] = val / scales[idx]
+            true_params = true_params_scaled
+
+        param_names = param_names_scaled
+
         n_steps = len(covariance_history)
+
 
         # Subsample if too many steps
         step_indices = list(range(n_steps))
@@ -1815,7 +2002,6 @@ class BayesianMixin:
                 means_history = [means_history[i] for i in step_indices]
             n_steps = len(step_indices)
 
-        from plotly.subplots import make_subplots
 
         n_pairs = len(pairs)
         fig = make_subplots(
@@ -2026,7 +2212,50 @@ class BayesianMixin:
         # Guard against degenerate FIM (all NaN or all zero -> nothing to plot)
         if n_steps == 0 or n_params == 0:
             return
+
+        # Define scaling factors for physical parameters to more natural units
+        param_scales = {
+            "frequency": 1e9,
+            "linewidth": 1e6,
+            "split": 1e6,
+            "fwhm_total": 1e6,
+            "fwhm_lorentz": 1e6,
+            "fwhm_gauss": 1e6,
+        }
+        param_units = {
+            "frequency": " (GHz)",
+            "linewidth": " (MHz)",
+            "split": " (MHz)",
+            "fwhm_total": " (MHz)",
+            "fwhm_lorentz": " (MHz)",
+            "fwhm_gauss": " (MHz)",
+        }
+
+        scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
+        fisher_bounds_hist = [fb / scales for fb in fisher_bounds_hist]
+
+        param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
+
+        actual_uncertainty_hist_scaled = []
+        for d in actual_uncertainty_hist:
+            d_scaled = {}
+            for idx, p in enumerate(param_names):
+                d_scaled[param_names_scaled[idx]] = d.get(p, 0.0) / scales[idx]
+            actual_uncertainty_hist_scaled.append(d_scaled)
+        actual_uncertainty_hist = actual_uncertainty_hist_scaled
+
+        if true_params is not None:
+            true_params_scaled = {}
+            for idx, p in enumerate(param_names):
+                val = true_params.get(p)
+                if val is not None:
+                    true_params_scaled[param_names_scaled[idx]] = val / scales[idx]
+            true_params = true_params_scaled
+
+        param_names = param_names_scaled
+
         bounds_stack = np.vstack(fisher_bounds_hist)
+
         if np.all(np.isnan(bounds_stack)) or np.all(bounds_stack == 0):
             return
 
@@ -2138,6 +2367,41 @@ class BayesianMixin:
         if n_steps == 0 or all(np.all(f == 0) for f in fisher_hist):
             return
 
+        # Define scaling factors for physical parameters to more natural units
+        param_scales = {
+            "frequency": 1e9,
+            "linewidth": 1e6,
+            "split": 1e6,
+            "fwhm_total": 1e6,
+            "fwhm_lorentz": 1e6,
+            "fwhm_gauss": 1e6,
+        }
+        param_units = {
+            "frequency": " (GHz)",
+            "linewidth": " (MHz)",
+            "split": " (MHz)",
+            "fwhm_total": " (MHz)",
+            "fwhm_lorentz": " (MHz)",
+            "fwhm_gauss": " (MHz)",
+        }
+
+        scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
+        D_inv = np.diag(scales)
+        fisher_hist = [D_inv @ fim @ D_inv for fim in fisher_hist]
+
+        param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
+
+        if true_params is not None:
+            true_params_scaled = {}
+            for idx, p in enumerate(param_names):
+                val = true_params.get(p)
+                if val is not None:
+                    true_params_scaled[param_names_scaled[idx]] = val / scales[idx]
+            true_params = true_params_scaled
+
+        param_names = param_names_scaled
+
+
         # Subsample if too many steps for performance
         step_indices = list(range(n_steps))
         if n_steps > 100:
@@ -2151,7 +2415,6 @@ class BayesianMixin:
         if n_pairs == 0:
             return
 
-        from plotly.subplots import make_subplots
 
         # Create a compact grid layout: n_rows x n_cols
         n_cols = min(3, n_pairs)
@@ -2385,15 +2648,46 @@ class BayesianMixin:
         n_steps = len(conv_metrics)
         n_params = len(param_names)
 
+        # Define scaling factors for physical parameters to more natural units
+        param_scales = {
+            "frequency": 1e9,
+            "linewidth": 1e6,
+            "split": 1e6,
+            "fwhm_total": 1e6,
+            "fwhm_lorentz": 1e6,
+            "fwhm_gauss": 1e6,
+        }
+        param_units = {
+            "frequency": " GHz",
+            "linewidth": " MHz",
+            "split": " MHz",
+            "fwhm_total": " MHz",
+            "fwhm_lorentz": " MHz",
+            "fwhm_gauss": " MHz",
+        }
+
+        # Scale frequency absolute uncertainty from Hz to KHz for conv_metrics
+        conv_metrics_scaled = []
+        for cm in conv_metrics:
+            cm_scaled = cm.copy()
+            cm_scaled["uncertainties"] = cm["uncertainties"].copy()
+            if "frequency" in cm["uncertainties"]:
+                cm_scaled["uncertainties"]["frequency"] = cm["uncertainties"]["frequency"] / 1000.0
+            conv_metrics_scaled.append(cm_scaled)
+        conv_metrics = conv_metrics_scaled
+
         def _subplot_title(p: str) -> str:
             if p == "frequency":
-                base = f"{p} (absolute uncertainty, Hz)"
+                base = f"frequency (absolute uncertainty, KHz)"
             else:
                 base = f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
-                base += f"<br><sup>bounds: [{lo:.4g}, {hi:.4g}] (width={hi - lo:.4g})</sup>"
+                scale = param_scales.get(p, 1.0)
+                unit = param_units.get(p, "")
+                base += f"<br><sup>bounds: [{lo/scale:.4g}, {hi/scale:.4g}]{unit} (width={(hi - lo)/scale:.4g}{unit})</sup>"
             return base
+
 
         # Create subplots - one row per parameter, plus one for convergence streak
         fig = make_subplots(
@@ -2429,12 +2723,13 @@ class BayesianMixin:
             # Threshold line
             if param == "frequency":
                 fig.add_hline(
-                    y=1000.0,
+                    y=NVISION_FREQ_CONVERGENCE_THRESHOLD / 1000.0,
                     line=dict(color="red", dash="dash", width=1.5),
-                    annotation_text="1 KHz threshold",
+                    annotation_text=f"{NVISION_FREQ_CONVERGENCE_THRESHOLD / 1000.0:.0f} KHz threshold",
                     row=row,
                     col=1,
                 )
+
             else:
                 fig.add_hline(
                     y=convergence_threshold,

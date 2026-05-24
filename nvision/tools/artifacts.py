@@ -104,8 +104,12 @@ def prepare_artifact_tree(out_dir: Path, *, clear_cache: bool = False) -> Artifa
     )
 
 
-def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger) -> pl.DataFrame:  # noqa: C901
-    """Concatenate with on-disk CSV when present, keeping the newest row per scenario key."""
+def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger, *, no_cache: bool = False) -> pl.DataFrame:  # noqa: C901
+    """Concatenate with on-disk CSV when present, keeping the newest row per scenario key.
+
+    When ``no_cache`` is True the old CSV rows for the combinations being
+    updated are discarded entirely — the fresh results replace them wholesale.
+    """
     out_path = locator_results_path(out_dir)
     if not out_path.exists():
         return df_loc
@@ -115,8 +119,38 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
         except Exception as e:
             log.warning("Could not load existing locator_results.csv: %s", e)
             return df_loc
+    # Always merge to ensure we discard all old repeats/attempts for the updated
+    # combinations while fully preserving other combinations on disk.
     try:
         old_df = pl.read_csv(out_path)
+
+        # Purge any old rows for the exact combinations being updated to prevent persisting old/different repeats
+        if "generator" in df_loc.columns and "noise" in df_loc.columns and "strategy" in df_loc.columns:
+            df_loc = df_loc.with_columns([
+                pl.col("generator").cast(pl.String, strict=False),
+                pl.col("noise").cast(pl.String, strict=False),
+                pl.col("strategy").cast(pl.String, strict=False),
+            ])
+            for col in ("max_steps", "seed"):
+                if col in df_loc.columns:
+                    df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+                if col in old_df.columns:
+                    old_df = old_df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+            
+            old_df = old_df.with_columns([
+                pl.col("generator").cast(pl.String, strict=False) if "generator" in old_df.columns else pl.lit(None).alias("generator"),
+                pl.col("noise").cast(pl.String, strict=False) if "noise" in old_df.columns else pl.lit(None).alias("noise"),
+                pl.col("strategy").cast(pl.String, strict=False) if "strategy" in old_df.columns else pl.lit(None).alias("strategy"),
+            ])
+            
+            join_cols = ["generator", "noise", "strategy"]
+            if "max_steps" in df_loc.columns and "max_steps" in old_df.columns:
+                join_cols.append("max_steps")
+            if "seed" in df_loc.columns and "seed" in old_df.columns:
+                join_cols.append("seed")
+                
+            updated_combos = df_loc.select(join_cols).unique()
+            old_df = old_df.join(updated_combos, on=join_cols, how="anti")
 
         # Backward compatibility: map 'repeat' column to 'attempt' if 'attempt' is missing
         if "repeat" in old_df.columns and "attempt" not in old_df.columns:
@@ -191,11 +225,13 @@ def merge_run_plot_manifest_with_existing_on_disk(
     plot_manifest: list[dict[str, object]],
     out_dir: Path,
     log: logging.Logger,
+    *,
+    no_cache: bool = False,
 ) -> None:
     """Merge new plots into the existing manifest while pruning stale/missing entries.
 
-    1. Identifies combinations (gen, noise, strat) in the new manifest and removes
-       ALL old entries matching those combinations.
+    1. Identifies combinations (gen, noise, strat, max_steps, seed) in the new manifest and removes
+       ALL old entries matching those combinations, regardless of the repeat/attempt number.
     2. Prunes any old entry whose referenced file ('path') no longer exists on disk.
     3. Keeps summary plots fresh by excluding old summary rows.
     """
@@ -208,8 +244,7 @@ def merge_run_plot_manifest_with_existing_on_disk(
         # Strip heavy fields from old entries to prevent manifest bloat
         old_manifest = [_strip_heavy_fields(e) for e in old_manifest]
 
-        # Identify (generator, noise) pairs that are being updated.
-        # Identify (generator, noise, strategy, repeat) combinations being updated
+        # Identify combinations being updated: (generator, noise, strategy, max_steps, seed)
         updated_combinations = {
             (
                 str(row.get("generator")),
@@ -217,30 +252,38 @@ def merge_run_plot_manifest_with_existing_on_disk(
                 str(row.get("strategy")),
                 row.get("max_steps"),
                 row.get("seed"),
-                row.get("repeat"),
             )
             for row in plot_manifest
             if all(row.get(k) is not None for k in ["generator", "noise", "strategy"])
         }
 
+        # Keep track of active file paths in the new manifest to avoid unlinking them
+        new_paths = {str(row.get("path")) for row in plot_manifest if row.get("path")}
+
+        import contextlib
         filtered_old: list[dict[str, object]] = []
         for entry in old_manifest:
             # Drop old summaries - they are rebuilt per run
             if entry.get("type") == "summary":
                 continue
 
-            # Drop entries that are part of the NEW (generator, noise, strategy, repeat) combinations being merged
-            # This ensures that we only replace what we are actually updating, preserving other strategies or repeats.
             g = entry.get("generator")
             n = entry.get("noise")
             s = entry.get("strategy")
-            r = entry.get("repeat")
             ms = entry.get("max_steps")
             sd = entry.get("seed")
-            if g and n and s and (str(g), str(n), str(s), ms, sd, r) in updated_combinations:
+
+            # Discard any old entry matching the updated combinations, even for different repeats.
+            if g and n and s and (str(g), str(n), str(s), ms, sd) in updated_combinations:
+                # Delete the old plot file from disk only if it is a stray file (not in the new manifest)
+                path_str = entry.get("path")
+                if path_str and str(path_str) not in new_paths:
+                    file_path = out_dir / str(path_str)
+                    with contextlib.suppress(Exception):
+                        file_path.unlink(missing_ok=True)
                 continue
 
-            # 2. Aggressive pruning: check if file exists
+            # Aggressive pruning: check if file exists
             path_str = entry.get("path")
             if path_str:
                 file_path = out_dir / str(path_str)

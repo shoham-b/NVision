@@ -91,16 +91,17 @@ class SweepingLocator(Locator):
         self._true_signal = None
 
     def observe(self, obs: Observation) -> None:
-        """Record observation for sweep tracking.
+        """Record observation for sweep tracking and update belief.
 
-        Overrides parent to NOT update belief - sweep locators just track
-        observations for signal detection. However, we still set last_obs
-        on the belief so the Observer can create snapshots for plotting.
+        Sweep locators track observations for signal detection, and we also
+        update the belief so we can show parameter estimates and the
+        most likely locator signal in visualizations.
         """
         if self.step_count <= self.max_steps:
             self.history.append(obs)
             # Set last_obs so Observer can create snapshots for plotting
             self.belief.last_obs = obs
+            self.belief.update(obs)
 
     def _inner_model(self):
         """Return the inner physical model (unwraps UnitCubeSignalModel if needed)."""

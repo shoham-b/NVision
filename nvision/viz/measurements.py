@@ -1125,7 +1125,7 @@ class MeasurementsMixin:
         if per_dip_windows is not None and expected_dips is not None and len(per_dip_windows) > expected_dips:
             per_dip_windows = None
         _add_per_dip_windows_overlay(fig, per_dip_windows=per_dip_windows, has_metrics=has_metrics)
-        _add_dip_boundary_lines(fig, xs=xs, ys=ys, has_metrics=has_metrics, max_dips=expected_dips)
+        # _add_dip_boundary_lines(fig, xs=xs, ys=ys, has_metrics=has_metrics, max_dips=expected_dips)
         # Draw last so the curve sits on top of true/noisy/measurements/distribution.
         _add_mode_belief_trace(
             fig,

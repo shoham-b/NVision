@@ -19,6 +19,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     is performed — the chunked EIG search on the belief is sufficient.
     """
 
+    REQUIRES_BELIEF = True
+
     def __init__(
         self,
         belief,
@@ -95,20 +97,44 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
         eig_choice = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
 
-        # Mix EIG with Thompson sampling to prevent sample impoverishment gaps
-        # 20% of the time, explore directly on a sampled particle's frequency
-        if hasattr(self.belief, "_particles") and hasattr(self.belief, "_weights") and np.random.rand() < 0.2:
-            weights = self.belief._weights
-            if np.sum(weights) > 0:
-                idx = int(np.random.choice(len(weights), p=weights))
-                param_names = getattr(self.belief, "_param_names", [])
-                scan_param = self._scan_param
-                if scan_param in param_names:
-                    p_idx = param_names.index(scan_param)
-                    val = float(self.belief._particles[idx, p_idx])
-                    if hasattr(self.belief, "_to_physical"):
-                        val = self.belief._to_physical(scan_param, val)
-                    return val
+        # Mix EIG with dip-observation-biased exploration.
+        # The uniform exploration probability decays exponentially to focus on EIG as the scan progresses.
+        decay = np.exp(-self.inference_step_count / 25.0)
+        rand_val = np.random.rand()
+        if rand_val < 0.1 * decay:
+            # Explore globally uniformly to find missing peaks (probability decays over time)
+            return float(np.random.uniform(lo, hi))
+        elif rand_val < 0.2:
+            # Dip-observation biased sampling: find the empirically lowest measured signal values
+            # and draw near one of them. This corrects for a biased posterior that has drifted
+            # away from the true dip location.
+            obs_list = getattr(self.belief, "_observations", [])
+            if len(obs_list) >= 5:
+                obs_xs = np.array([o.x for o in obs_list])
+                obs_ys = np.array([o.signal_value for o in obs_list])
+                upper_perc = float(np.percentile(obs_ys, 70))
+                flat_pts = obs_ys[obs_ys >= float(np.percentile(obs_ys, 40))]
+                noise_est = float(np.std(flat_pts)) if len(flat_pts) >= 3 else 0.02
+                dip_thresh = upper_perc - max(3.0 * noise_est, 0.015 * upper_perc)
+                dip_xs = obs_xs[obs_ys < dip_thresh]
+                if len(dip_xs) > 0:
+                    # Pick a random dip observation and jitter within ±5 MHz around it
+                    center = float(np.random.choice(dip_xs))
+                    jitter = float(np.random.uniform(-5e6, 5e6))
+                    return float(np.clip(center + jitter, lo, hi))
+            # Fallback: Thompson sampling from posterior particles
+            if hasattr(self.belief, "_particles") and hasattr(self.belief, "_weights"):
+                weights = self.belief._weights
+                if np.sum(weights) > 0:
+                    idx = int(np.random.choice(len(weights), p=weights))
+                    param_names = getattr(self.belief, "_param_names", [])
+                    scan_param = self._scan_param
+                    if scan_param in param_names:
+                        p_idx = param_names.index(scan_param)
+                        val = float(self.belief._particles[idx, p_idx])
+                        if hasattr(self.belief, "_to_physical"):
+                            val = self.belief._to_physical(scan_param, val)
+                        return val
 
         return eig_choice
 

@@ -217,14 +217,13 @@ class NVCenterLorentzianModel(
         )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
-        actual_depth = samples.dip_depth / samples.k_np
         out = self.compute_nvcenter_lorentzian_model_vectorized(
             x,
             samples.frequency,
             samples.linewidth,
             samples.split,
             samples.k_np,
-            actual_depth,
+            samples.dip_depth,
         )
         return out
 

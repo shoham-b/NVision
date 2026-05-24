@@ -101,11 +101,17 @@ def _matches_filter(
     strategy: StrategyFilter | None,
     generator: GeneratorName | None,
     noise: NoiseName | None,
+    max_steps: int | None = None,
+    repeats: int | None = None,
 ) -> bool:
     """Check if a config matches all the given filters."""
     if strategy and config.get("strategy") != strategy:
         return False
     if generator and config.get("generator") != generator:
+        return False
+    if max_steps is not None and config.get("max_steps") != max_steps:
+        return False
+    if repeats is not None and config.get("repeats") != repeats:
         return False
     return not (noise and not str(config.get("noise", "")).startswith(noise))
 
@@ -129,6 +135,14 @@ def cache_clean(
         NoiseName | None,
         typer.Option("--noise", help="Noise preset filter (see NoiseName)."),
     ] = None,
+    max_steps: Annotated[
+        int | None,
+        typer.Option("--max-steps", help="Max steps filter"),
+    ] = None,
+    repeats: Annotated[
+        int | None,
+        typer.Option("--repeats", help="Repeats filter"),
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
     force: Annotated[bool, typer.Option("--force", help="Skip confirmation")] = False,
 ) -> None:
@@ -146,7 +160,7 @@ def cache_clean(
             payload = backend.get(key)
             if isinstance(payload, dict) and "config" in payload:
                 cfg = payload["config"]
-                if _matches_filter(cfg, None, strategy, generator, noise):
+                if _matches_filter(cfg, None, strategy, generator, noise, max_steps, repeats):
                     keys_to_delete.append((cat_name, cat_cache, key))
 
     if not keys_to_delete:
@@ -162,8 +176,23 @@ def cache_clean(
         console.print("[dim]Dry run: no files deleted.[/dim]")
     else:
         deleted_count = 0
+        from nvision.cache.locator_repository import LocatorResultsRepository
         for _, cat_cache, key in keys_to_delete:
-            cat_cache.backend.delete(key)
+            payload = cat_cache.backend.get(key)
+            if isinstance(payload, dict) and "config" in payload:
+                cfg = payload["config"]
+                repo = LocatorResultsRepository(cat_cache)
+                repo.purge_cached_combination(
+                    generator=cfg.get("generator"),
+                    noise=cfg.get("noise"),
+                    strategy=cfg.get("strategy"),
+                    repeats=cfg.get("repeats"),
+                    seed=cfg.get("seed", NVISION_RNG_SEED),
+                    max_steps=cfg.get("max_steps"),
+                    timeout_s=cfg.get("timeout_s"),
+                )
+            else:
+                cat_cache.backend.delete(key)
             deleted_count += 1
 
         console.print(f"[green]Deleted {deleted_count} entries.[/green]")
@@ -245,6 +274,8 @@ def recalculate_metrics(  # noqa: C901
     strategy: Annotated[StrategyFilter | None, typer.Option("--strategy", help="Strategy filter")] = None,
     generator: Annotated[GeneratorName | None, typer.Option("--generator", help="Generator filter")] = None,
     noise: Annotated[NoiseName | None, typer.Option("--noise", help="Noise filter")] = None,
+    max_steps: Annotated[int | None, typer.Option("--max-steps", help="Max steps filter")] = None,
+    repeats: Annotated[int | None, typer.Option("--repeats", help="Repeats filter")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without updating")] = False,
     force: Annotated[bool, typer.Option("--force", help="Update even if metrics already exist")] = False,
 ) -> None:
@@ -275,7 +306,7 @@ def recalculate_metrics(  # noqa: C901
                     continue
 
                 cfg = payload["config"]
-                if not _matches_filter(cfg, None, strategy, generator, noise):
+                if not _matches_filter(cfg, None, strategy, generator, noise, max_steps, repeats):
                     continue
 
                 gen_name = cfg.get("generator")

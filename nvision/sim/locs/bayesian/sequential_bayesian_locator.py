@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
+from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
+
 
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
@@ -25,33 +27,6 @@ load_dotenv()
 # Buffering and flushing as one batch_update (log-space, epistemically tempered)
 # gives the filter a gentler, more robust initial update.
 _WARMUP_BUFFER_SIZE: int = int(os.getenv("NVISION_BAYESIAN_WARMUP_STEPS", "5"))
-
-
-def _posterior_credible_interval(
-    belief: AbstractMarginalDistribution,
-    param_name: str,
-    level: float = _POSTERIOR_CREDIBLE_LEVEL,
-) -> tuple[float, float] | None:
-    """Return a ``level``-credible interval in physical units for ``param_name``.
-
-    Uses weighted SMC particle quantiles when available. Returns ``None`` if the interval
-    cannot be computed or is degenerate.
-    """
-    tail = (1.0 - level) / 2.0
-    lo_phys, hi_phys = belief.physical_param_bounds[param_name]
-    if hi_phys <= lo_phys:
-        return None
-
-    particles = getattr(belief, "_particles", None)
-    param_names = getattr(belief, "_param_names", None)
-    if particles is None or param_names is None:
-        return None
-
-    j = param_names.index(param_name)
-    u_vals = particles[:, j]
-    u_lo = float(np.quantile(u_vals, tail))
-    u_hi = float(np.quantile(u_vals, 1.0 - tail))
-    return (lo_phys + u_lo * (hi_phys - lo_phys), lo_phys + u_hi * (hi_phys - lo_phys))
 
 
 class SequentialBayesianLocator(Locator):
@@ -254,39 +229,6 @@ class SequentialBayesianLocator(Locator):
         physical_value = self._acquire()
         return self._to_experiment_normalized(physical_value)
 
-    def _narrow_non_scan_params_from_posterior(self) -> None:
-        """Periodically tighten non-scan parameter bounds using the current posterior.
-
-        Computes a :data:`_POSTERIOR_CREDIBLE_LEVEL` credible interval from the
-        live marginal posterior for every non-scan parameter and calls
-        :meth:`narrow_scan_parameter_physical_bounds` to shrink the belief.
-        Only narrows by at least :data:`_POSTERIOR_MIN_NARROWING_FRACTION` of the
-        current prior width — never widens.
-        """
-        if not hasattr(self.belief, "_particles"):
-            return
-        param_names = list(self.belief.model.parameter_names())
-        for param in param_names:
-            if param == self._scan_param:
-                continue
-            if param not in self.belief.physical_param_bounds:
-                continue
-            interval = _posterior_credible_interval(self.belief, param)
-            if interval is None:
-                continue
-            new_lo, new_hi = interval
-            cur_lo, cur_hi = self.belief.physical_param_bounds[param]
-            cur_width = cur_hi - cur_lo
-            if cur_width <= 0:
-                continue
-            new_lo = max(new_lo, cur_lo)
-            new_hi = min(new_hi, cur_hi)
-            if new_hi <= new_lo:
-                continue
-            if (cur_width - (new_hi - new_lo)) / cur_width < _POSTERIOR_MIN_NARROWING_FRACTION:
-                continue
-            self.belief.narrow_scan_parameter_physical_bounds(param, new_lo, new_hi)
-
     def observe(self, obs: Observation) -> None:
         """Route observation to the appropriate lifecycle hook."""
         self._observe_acquisition(obs)
@@ -301,7 +243,7 @@ class SequentialBayesianLocator(Locator):
         Convergence requires the uncertainty of each target parameter to be
         below ``convergence_threshold`` as a fraction of its physical bound
         width (e.g. ``0.01`` = 1 %).  For the frequency parameter specifically,
-        convergence requires its absolute uncertainty to be below 1 KHz (1000 Hz).
+        convergence requires its absolute uncertainty to be below NVISION_FREQ_CONVERGENCE_THRESHOLD Hz.
         The overall (RMS) relative uncertainty across all target parameters must also
         be below the same threshold.
         """
@@ -316,10 +258,11 @@ class SequentialBayesianLocator(Locator):
                 continue
             unc = float(physical_uncertainties[name])
             if name == "frequency":
-                # For frequency, convergence threshold is absolute 1 KHz (1000 Hz).
-                # We map this to relative uncertainty using 1000.0 / convergence_threshold
-                # so that (unc / bound_width) < convergence_threshold holds if and only if unc < 1000.0.
-                bound_width = 1000.0 / self.convergence_threshold
+                # For frequency, convergence threshold is absolute NVISION_FREQ_CONVERGENCE_THRESHOLD Hz.
+                # We map this to relative uncertainty using NVISION_FREQ_CONVERGENCE_THRESHOLD / convergence_threshold
+                # so that (unc / bound_width) < convergence_threshold holds if and only if unc < NVISION_FREQ_CONVERGENCE_THRESHOLD.
+                bound_width = NVISION_FREQ_CONVERGENCE_THRESHOLD / self.convergence_threshold
+
             else:
                 lo, hi = self.belief.physical_param_bounds.get(name, (0.0, 0.0))
                 bound_width = hi - lo
@@ -434,7 +377,8 @@ class SequentialBayesianLocator(Locator):
 
     def _acquisition_bounds(self) -> tuple[float, float]:
         """Physical bounds where :meth:`_acquire` searches (post-sweep window)."""
-        lo, hi = self._acquisition_lo, self._acquisition_hi
+        bounds = getattr(self.belief, "physical_param_bounds", self.belief.parameter_bounds)
+        lo, hi = bounds[self._scan_param]
         return (min(lo, hi), max(lo, hi))
 
     def effective_initial_sweep_steps(self) -> int:

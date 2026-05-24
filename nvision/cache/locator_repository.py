@@ -19,7 +19,7 @@ from nvision.cache.repeats_repository import RepeatsRepository
 
 CachedComboResults = list[tuple[list[dict[str, Any]], dict[str, Any]]]
 
-STREAMING_REPEAT_THRESHOLD = int(os.getenv("NVISION_STREAMING_REPEAT_THRESHOLD", "5"))
+STREAMING_REPEAT_THRESHOLD = int(os.getenv("NVISION_STREAMING_REPEAT_THRESHOLD", "0"))
 
 
 class LocatorResultsRepository:
@@ -275,3 +275,45 @@ class LocatorResultsRepository:
         )
         ptr_key = stable_config_hash(ptr_config)
         self._repeats.save_repeat(ptr_key, repeat_idx, entries, main_result_row)
+
+    def purge_cached_combination(
+        self,
+        *,
+        generator: str,
+        noise: str,
+        strategy: str,
+        repeats: int,
+        seed: int,
+        max_steps: int,
+        timeout_s: int,
+    ) -> None:
+        """Purge all cached results (both inline and streaming repeats) for this combination."""
+        # 1. Purge streaming pointer and all possible repeats
+        ptr_config = combination_base_cache_config(
+            generator=generator,
+            noise=noise,
+            strategy=strategy,
+            seed=seed,
+            max_steps=max_steps,
+            timeout_s=timeout_s,
+        )
+        ptr_key = stable_config_hash(ptr_config)
+        self._store.delete(ptr_key)
+        
+        # Purge repeats up to a very large number (e.g. 1000)
+        for i in range(1000):
+            rep_key = self._repeats.make_repeat_key(ptr_key, i)
+            self._store.delete(rep_key)
+
+        # 2. Purge inline configs for this configuration
+        inline_config = locator_combination_cache_config(
+            generator=generator,
+            noise=noise,
+            strategy=strategy,
+            repeats=repeats,
+            seed=seed,
+            max_steps=max_steps,
+            timeout_s=timeout_s,
+        )
+        inline_key = stable_config_hash(inline_config)
+        self._store.delete(inline_key)
