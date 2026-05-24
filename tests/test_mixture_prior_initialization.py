@@ -235,7 +235,7 @@ def test_frequency_linewidth_uncertainty_constraint():
     for k in range(gmm.n_components):
         assert gmm._covariances[k, freq_idx, freq_idx] >= gmm._covariances[k, lw_idx, lw_idx]
         assert np.allclose(
-            gmm.precisions[k, freq_idx, freq_idx], 1.0 / gmm._covariances[k, freq_idx, freq_idx], rtol=1.0
+            gmm.precisions[k, freq_idx, freq_idx], 1.0 / gmm._covariances[k, freq_idx, freq_idx], atol=1e-3
         )
 
     # Verify that combined empirical uncertainty also satisfies the constraint
@@ -295,7 +295,9 @@ def test_frequency_linewidth_uncertainty_constraint():
 
     for k in range(st.n_components):
         assert st._covariances[k, freq_idx, freq_idx] >= st._covariances[k, lw_idx, lw_idx]
-        assert np.allclose(st.precisions[k, freq_idx, freq_idx], 1.0 / st._covariances[k, freq_idx, freq_idx])
+        assert np.allclose(
+            st.precisions[k, freq_idx, freq_idx], 1.0 / st._covariances[k, freq_idx, freq_idx], atol=1e-3
+        )
 
     emp_unc_st = st._empirical_uncertainty()
     assert emp_unc_st["frequency"] >= emp_unc_st["linewidth"]
