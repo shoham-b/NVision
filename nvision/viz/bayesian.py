@@ -443,32 +443,15 @@ class BayesianMixin:
 
         html_path.write_text(content, encoding="utf-8")
 
-    def plot_posterior_animation(  # noqa: C901
+    def _prepare_animation_frames(
         self,
         posterior_history: list[np.ndarray],
         freq_grid: np.ndarray,
-        out_path: Path,
-        model_history: list[np.ndarray] | None = None,
-        *,
-        true_value: float | None = None,
-        acquisition_window: tuple[float, float] | None = None,
-        experiment_domain: tuple[float, float] | None = None,
-        resampled_steps: list[int] | None = None,
-    ) -> None:
-        """Create an interactive Plotly animation of the posterior distribution evolution.
-
-        If ``true_value`` is set, draws a vertical line at the ground-truth parameter value.
-        If ``acquisition_window`` is set, shades the post-sweep search interval (optionally
-        with ``experiment_domain`` widening the x-axis to the full sweep range).
-        """
-        if not posterior_history:
-            return
-
-        is_particles = posterior_history[0].ndim == 2
-
-        # Prepare frames
+        model_history: list[np.ndarray] | None,
+        resampled_steps: list[int] | None,
+        is_particles: bool,
+    ) -> tuple[list[go.Frame], set[int], float]:
         frames = []
-        # Downsample frames if too many for performance (e.g., max 100 frames)
         total_steps = len(posterior_history)
         step_indices = range(total_steps)
         if total_steps > 100:
@@ -490,10 +473,6 @@ class BayesianMixin:
             data = _trace_one_marginal_posterior(posterior, freq_grid, "Posterior")
 
             if model_history and i < len(model_history):
-                # Normalize model for visualization scale if needed, or plotting separately?
-                # Usually model is in signal units, posterior in probability density.
-                # Put model on secondary y-axis?
-                # For simplicity, let's just plot posterior for now or scale model.
                 pass
 
             title_text = f"Step {i + 1}/{total_steps}"
@@ -509,7 +488,10 @@ class BayesianMixin:
                 )
             )
 
-        slider_steps = [
+        return frames, resampling_indices, max_prob
+
+    def _create_slider_steps(self, frames: list[go.Frame], resampling_indices: set[int]) -> list[dict]:
+        return [
             {
                 "args": [
                     [frame.name],
@@ -527,15 +509,7 @@ class BayesianMixin:
             for frame in frames
         ]
 
-        # Initial plot
-        initial_posterior = posterior_history[0]
-        initial_data = _trace_one_marginal_posterior(initial_posterior, freq_grid, "Posterior")
-        if is_particles:
-            yaxis_layout = dict(title="Probability Density", automargin=True)
-        else:
-            yaxis_layout = dict(title="Probability Density", automargin=True, range=[0, max_prob * 1.1])
-
-        # Speed multipliers for single parameter animation
+    def _create_speed_buttons(self) -> list[dict]:
         speed_options_single = [
             ("0.5×", 200),
             ("1×", 100),
@@ -543,7 +517,7 @@ class BayesianMixin:
             ("2×", 50),
         ]
 
-        speed_buttons_single = [
+        return [
             dict(
                 label=label,
                 method="animate",
@@ -560,7 +534,23 @@ class BayesianMixin:
             for label, duration in speed_options_single
         ]
 
-        fig = go.Figure(
+    def _build_animation_figure(
+        self,
+        initial_posterior: np.ndarray,
+        freq_grid: np.ndarray,
+        is_particles: bool,
+        max_prob: float,
+        frames: list[go.Frame],
+        slider_steps: list[dict],
+        speed_buttons_single: list[dict],
+    ) -> go.Figure:
+        initial_data = _trace_one_marginal_posterior(initial_posterior, freq_grid, "Posterior")
+        if is_particles:
+            yaxis_layout = dict(title="Probability Density", automargin=True)
+        else:
+            yaxis_layout = dict(title="Probability Density", automargin=True, range=[0, max_prob * 1.1])
+
+        return go.Figure(
             data=initial_data,
             layout=go.Layout(
                 xaxis=dict(title="Frequency / Parameter"),
@@ -568,7 +558,6 @@ class BayesianMixin:
                 margin=dict(l=80, r=40, t=80, b=80),
                 title="Posterior Evolution",
                 updatemenus=[
-                    # Play/Pause toggle - positioned below slider
                     dict(
                         type="buttons",
                         direction="left",
@@ -605,7 +594,6 @@ class BayesianMixin:
                             ),
                         ],
                     ),
-                    # Speed controls - positioned below slider, right of play/pause
                     dict(
                         type="buttons",
                         direction="left",
@@ -614,7 +602,7 @@ class BayesianMixin:
                         xanchor="left",
                         yanchor="top",
                         showactive=True,
-                        active=1,  # Default to 1×
+                        active=1,
                         pad={"r": 10, "t": 0},
                         buttons=speed_buttons_single,
                     ),
@@ -629,6 +617,39 @@ class BayesianMixin:
                 ],
             ),
             frames=frames,
+        )
+
+    def plot_posterior_animation(
+        self,
+        posterior_history: list[np.ndarray],
+        freq_grid: np.ndarray,
+        out_path: Path,
+        model_history: list[np.ndarray] | None = None,
+        *,
+        true_value: float | None = None,
+        acquisition_window: tuple[float, float] | None = None,
+        experiment_domain: tuple[float, float] | None = None,
+        resampled_steps: list[int] | None = None,
+    ) -> None:
+        """Create an interactive Plotly animation of the posterior distribution evolution.
+
+        If ``true_value`` is set, draws a vertical line at the ground-truth parameter value.
+        If ``acquisition_window`` is set, shades the post-sweep search interval (optionally
+        with ``experiment_domain`` widening the x-axis to the full sweep range).
+        """
+        if not posterior_history:
+            return
+
+        is_particles = posterior_history[0].ndim == 2
+
+        frames, resampling_indices, max_prob = self._prepare_animation_frames(
+            posterior_history, freq_grid, model_history, resampled_steps, is_particles
+        )
+        slider_steps = self._create_slider_steps(frames, resampling_indices)
+        speed_buttons = self._create_speed_buttons()
+
+        fig = self._build_animation_figure(
+            posterior_history[0], freq_grid, is_particles, max_prob, frames, slider_steps, speed_buttons
         )
 
         if acquisition_window is not None:
