@@ -16,11 +16,13 @@ class ExperimentsMixin:
         if df.is_empty():
             return []
 
-        generators = df.get_column("generator").unique().to_list()
         plots = []
 
-        for gen in generators:
-            sub = df.filter(pl.col("generator") == gen)
+        # partition_by is O(N) compared to O(M*N) multiple .filter passes
+        partitions = df.partition_by("generator", as_dict=True)
+
+        for gen_tuple, sub in partitions.items():
+            gen = gen_tuple[0]
             # Create a pivot table: Index=Noise, Columns=Strategy, Value=RMSE (mean) or similar metric
             # Using metric 'pair_rmse' or 'abs_err_x' depending on availability
 
