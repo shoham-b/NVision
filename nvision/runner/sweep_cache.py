@@ -181,17 +181,22 @@ def _sobol_baseline_cache_key(
 
 def get_cached_sobol_baseline(
     experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-) -> int | None:
+) -> dict[str, int | None] | None:
     """Retrieve cached Sobol baseline steps if available."""
     key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
     cached = _DESERIALIZED_CACHE.get(key)
     if cached is None:
         cached = _sync_from_shm(key)
+    if cached is None:
+        return None
+    if isinstance(cached, int):
+        # Backward compatibility for old caches storing only the overall step count
+        return {"sobol_baseline_steps": cached, "sobol_freq_steps": None}
     return cached
 
 
 def put_cached_sobol_baseline(
-    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: int
+    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: dict[str, int | None]
 ) -> None:
     """Store Sobol baseline steps in shared cache."""
     key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
@@ -235,11 +240,11 @@ class SweepCache:
 
     def get_sobol_baseline(
         self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-    ) -> int | None:
+    ) -> dict[str, int | None] | None:
         return get_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
 
     def put_sobol_baseline(
-        self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: int
+        self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int, steps: dict[str, int | None]
     ) -> None:
         put_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx, steps)
 
