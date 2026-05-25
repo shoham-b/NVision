@@ -119,8 +119,8 @@ graphs/
 
 .gemini/
 gha-creds-*.json
-.\junit-result.xml
+junit-result.xml
 artifacts/**
 demo_artifacts*/
 beta_artifacts*/
-.\artifacts_many\
+artifacts_many/
