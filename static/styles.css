@@ -571,6 +571,21 @@ body {
             border-radius: 8px 8px 0 0;
         }
 
+        .scan-metrics-panel .metric-item.expected-card {
+            background-color: #f0fdf4 !important;
+            border-color: #bbf7d0 !important;
+        }
+
+        .scan-metrics-panel .metric-item.expected-card:hover {
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.08) !important;
+            border-color: #86efac !important;
+        }
+
+        .scan-metrics-panel .metric-item.expected-card::before {
+            background: linear-gradient(90deg, #10b981, #34d399) !important;
+        }
+
+
         .scan-metrics-panel .metric-label {
             font-weight: 500;
             color: #64748b;

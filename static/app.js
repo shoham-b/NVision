@@ -1706,24 +1706,30 @@ function main() {
                     const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
                     const absErr = phaseData.abs_err_x != null ? phaseData.abs_err_x : metrics.abs_err_x;
 
+                    const freqStepsExpected = (sobolFreqSteps != null && stepsToFb != null && stepsToFb < sobolFreqSteps);
+                    const sbedFreqErrExpected = (errFb != null && uncertFb != null && errFb < uncertFb);
+                    const sobolFreqErrExpected = (sobolFreqErr != null && sobolFreqUncert != null && sobolFreqErr < sobolFreqUncert);
+                    const uncertFbDiffExpected = (uncertFb != null && uncert != null && uncertFb - uncert > 0);
+                    const errFbDiffExpected = (errFb != null && absErr != null && errFb - absErr > 0);
+
                     return [
                         // Row 1: Steps — sobol - sbed
                         [
-                            { label: 'Sobol freq convergence', val: sobolFreqSteps != null ? formatCount(sobolFreqSteps) : 'N/A', tip: 'Steps needed for simple Sobol frequency uncertainty to drop below threshold.' },
-                            { label: 'Sbed freq convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.' },
-                            { label: 'Freq convergence savings', val: (sobolFreqSteps != null && stepsToFb != null) ? formatCount(sobolFreqSteps - stepsToFb) : 'N/A', tip: 'Difference in steps needed for frequency convergence (positive = Sbed was faster).' }
+                            { label: 'Sobol freq convergence', val: sobolFreqSteps != null ? formatCount(sobolFreqSteps) : 'N/A', tip: 'Steps needed for simple Sobol frequency uncertainty to drop below threshold.', cardClass: freqStepsExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.', cardClass: freqStepsExpected ? 'expected-card' : '' },
+                            { label: 'Freq convergence savings', val: (sobolFreqSteps != null && stepsToFb != null) ? formatCount(sobolFreqSteps - stepsToFb) : 'N/A', tip: 'Difference in steps needed for frequency convergence (positive = Sbed was faster).', cardClass: freqStepsExpected ? 'expected-card' : '' }
                         ],
                         // Row 2: Uncertainty — frequency - overall
                         [
-                            { label: 'Sobol freq uncertainty', val: sobolFreqUncert != null ? formatFrequency(sobolFreqUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol frequency estimate at the moment of convergence.' },
-                            { label: 'Sbed freq uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed frequency estimate at the moment of convergence.' },
-                            { label: 'Freq uncert difference', val: (uncertFb != null && uncert != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Reduction in Sbed frequency uncertainty from freq-convergence milestone to final (positive = uncertainty decreased).' }
+                            { label: 'Sobol freq uncertainty', val: sobolFreqUncert != null ? formatFrequency(sobolFreqUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol frequency estimate at the moment of convergence.', cardClass: sobolFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed frequency estimate at the moment of convergence.', cardClass: sbedFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Freq uncert difference', val: (uncertFb != null && uncert != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Reduction in Sbed frequency uncertainty from freq-convergence milestone to final (positive = uncertainty decreased).', cardClass: uncertFbDiffExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error — frequency - overall
                         [
-                            { label: 'Sobol freq error', val: sobolFreqErr != null ? formatFrequency(sobolFreqErr) : 'N/A', tip: 'Absolute error of Sobol frequency estimate vs ground truth at the moment of convergence.' },
-                            { label: 'Sbed freq error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute error of Sbed frequency estimate vs ground truth at the moment of convergence.' },
-                            { label: 'Freq error difference', val: (errFb != null && absErr != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Change in Sbed absolute frequency error from freq-convergence milestone to final (positive = error decreased, negative = error increased).' }
+                            { label: 'Sobol freq error', val: sobolFreqErr != null ? formatFrequency(sobolFreqErr) : 'N/A', tip: 'Absolute error of Sobol frequency estimate vs ground truth at the moment of convergence.', cardClass: sobolFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute error of Sbed frequency estimate vs ground truth at the moment of convergence.', cardClass: sbedFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Freq error difference', val: (errFb != null && absErr != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Change in Sbed absolute frequency error from freq-convergence milestone to final (positive = error decreased, negative = error increased).', cardClass: errFbDiffExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -1742,24 +1748,30 @@ function main() {
                     const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (phaseData.sobol_freq_uncert_at_conv || metrics.sobol_freq_uncert_at_conv);
                     const sobolOverallErr = sobolPlot ? sobolPlot.abs_err_x : (phaseData.sobol_freq_err_at_conv || metrics.sobol_freq_err_at_conv);
 
+                    const overallStepsExpected = (sobolBaseline != null && measurements != null && measurements < sobolBaseline);
+                    const sbedOverallErrExpected = (absErr != null && uncert != null && absErr < uncert);
+                    const sobolOverallErrExpected = (sobolOverallErr != null && sobolOverallUncert != null && sobolOverallErr < sobolOverallUncert);
+                    const overallUncertDiffExpected = (sobolOverallUncert != null && uncert != null && sobolOverallUncert - uncert > 0);
+                    const overallErrDiffExpected = (sobolOverallErr != null && absErr != null && sobolOverallErr - absErr > 0);
+
                     return [
                         // Row 1: Steps
                         [
-                            { label: 'Sobol baseline', val: sobolBaseline != null ? formatCount(sobolBaseline) : 'N/A', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.' },
-                            { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.' },
-                            { label: 'Overall savings', val: (sobolBaseline != null && measurements != null) ? formatCount(sobolBaseline - measurements) : 'N/A', tip: 'Difference in total measurements required for overall convergence between simple Sobol baseline and Sbed.' }
+                            { label: 'Sobol baseline', val: sobolBaseline != null ? formatCount(sobolBaseline) : 'N/A', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.', cardClass: overallStepsExpected ? 'expected-card' : '' },
+                            { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.', cardClass: overallStepsExpected ? 'expected-card' : '' },
+                            { label: 'Overall savings', val: (sobolBaseline != null && measurements != null) ? formatCount(sobolBaseline - measurements) : 'N/A', tip: 'Difference in total measurements required for overall convergence between simple Sobol baseline and Sbed.', cardClass: overallStepsExpected ? 'expected-card' : '' }
                         ],
                         // Row 2: Uncertainty
                         [
-                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatFrequency(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline frequency estimate.' },
-                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed frequency estimate.' },
-                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatFrequency(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final frequency estimate uncertainty (positive = SBED was more confident).' }
+                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatFrequency(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline frequency estimate.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed frequency estimate.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatFrequency(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final frequency estimate uncertainty (positive = SBED was more confident).', cardClass: overallUncertDiffExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error
                         [
-                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatFrequency(sobolOverallErr) : 'N/A', tip: 'Final absolute frequency error of Sobol baseline.' },
-                            { label: 'Sbed overall error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute frequency error of Sbed.' },
-                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatFrequency(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute frequency error (positive = SBED was more accurate).' }
+                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatFrequency(sobolOverallErr) : 'N/A', tip: 'Final absolute frequency error of Sobol baseline.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed overall error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute frequency error of Sbed.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatFrequency(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute frequency error (positive = SBED was more accurate).', cardClass: overallErrDiffExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -1777,24 +1789,28 @@ function main() {
                     const absErr = phaseData.abs_err_x != null ? phaseData.abs_err_x : metrics.abs_err_x;
                     const errFb = phaseData.err_fb_at_milestone != null ? phaseData.err_fb_at_milestone : metrics.err_fb_at_milestone;
 
+                    const earlyStopStepsExpected = (measurements != null && stepsToFb != null && stepsToFb < measurements);
+                    const earlyStopUncertExpected = (uncert != null && uncertFb != null && uncert < uncertFb);
+                    const earlyStopErrExpected = (absErr != null && errFb != null && absErr < errFb);
+
                     return [
                         // Row 1: Steps
                         [
-                            { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.' },
-                            { label: 'Sbed freq convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.' },
-                            { label: 'Early stopping savings', val: (measurements != null && stepsToFb != null) ? formatCount(measurements - stepsToFb) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after frequency converges.' }
+                            { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
+                            { label: 'Early stopping savings', val: (measurements != null && stepsToFb != null) ? formatCount(measurements - stepsToFb) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after frequency converges.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' }
                         ],
                         // Row 2: Uncertainty
                         [
-                            { label: 'Sbed final uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final frequency estimate uncertainty (standard deviation) at locator termination.' },
-                            { label: 'Sbed freq uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Frequency estimate uncertainty (standard deviation) at the moment fb converged.' },
-                            { label: 'Freq to final uncert diff', val: (uncert != null && uncertFb != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from fb convergence until locator termination.' }
+                            { label: 'Sbed final uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final frequency estimate uncertainty (standard deviation) at locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Frequency estimate uncertainty (standard deviation) at the moment fb converged.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Freq to final uncert diff', val: (uncert != null && uncertFb != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from fb convergence until locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error
                         [
-                            { label: 'Sbed final error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute frequency error vs ground truth at locator termination.' },
-                            { label: 'Sbed freq error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute frequency error vs ground truth at the moment fb converged.' },
-                            { label: 'Freq to final error diff', val: (absErr != null && errFb != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from fb convergence until locator termination.' }
+                            { label: 'Sbed final error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute frequency error vs ground truth at locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute frequency error vs ground truth at the moment fb converged.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Freq to final error diff', val: (absErr != null && errFb != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from fb convergence until locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -2083,7 +2099,8 @@ function main() {
                     '</div>';
             }
 
-            return '<div class="metric-item">' +
+            const extraClass = it.cardClass ? ' ' + it.cardClass : '';
+            return '<div class="metric-item' + extraClass + '">' +
                 '<div class="metric-label">' + it.label + icon + '</div>' +
                 valueHtml +
                 '</div>';
@@ -2336,6 +2353,28 @@ function main() {
                 });
             }
 
+            function getMean(arr) {
+                if (!arr || arr.length === 0) return null;
+                const sum = arr.reduce((a, b) => a + b, 0);
+                return sum / arr.length;
+            }
+
+            const freqStepsExpected = getMean(stepsToFbList) != null && getMean(sobolFreqStepsList) != null && getMean(stepsToFbList) < getMean(sobolFreqStepsList);
+            const sbedFreqErrExpected = getMean(errFbList) != null && getMean(uncertFbList) != null && getMean(errFbList) < getMean(uncertFbList);
+            const sobolFreqErrExpected = getMean(sobolFreqErrList) != null && getMean(sobolFreqUncertList) != null && getMean(sobolFreqErrList) < getMean(sobolFreqUncertList);
+            const uncertFbDiffExpected = getMean(freqUncertDiffList) != null && getMean(freqUncertDiffList) > 0;
+            const errFbDiffExpected = getMean(freqErrDiffList) != null && getMean(freqErrDiffList) > 0;
+
+            const overallStepsExpected = getMean(measurementsList) != null && getMean(sobolBaselineList) != null && getMean(measurementsList) < getMean(sobolBaselineList);
+            const sbedOverallErrExpected = getMean(overallErrList) != null && getMean(overallUncertList) != null && getMean(overallErrList) < getMean(overallUncertList);
+            const sobolOverallErrExpected = getMean(sobolOverallErrList) != null && getMean(sobolOverallUncertList) != null && getMean(sobolOverallErrList) < getMean(sobolOverallUncertList);
+            const overallUncertDiffExpected = getMean(overallUncertDiffList) != null && getMean(overallUncertDiffList) > 0;
+            const overallErrDiffExpected = getMean(overallErrDiffList) != null && getMean(overallErrDiffList) > 0;
+
+            const earlyStopStepsExpected = getMean(earlyStopStepsToFbList) != null && getMean(earlyStopMeasurementsList) != null && getMean(earlyStopStepsToFbList) < getMean(earlyStopMeasurementsList);
+            const earlyStopUncertExpected = getMean(earlyStopUncertDiffList) != null && getMean(earlyStopUncertDiffList) > 0;
+            const earlyStopErrExpected = getMean(earlyStopErrDiffList) != null && getMean(earlyStopErrDiffList) > 0;
+
             const subjects = [];
 
             if (stepsToFbExist) {
@@ -2343,19 +2382,19 @@ function main() {
                     title: 'Frequency Convergence Comparison',
                     rows: [
                         [
-                            { label: 'Sobol freq convergence', data: sobolFreqStepsList, color: '#f472b6', type: 'steps' },
-                            { label: 'Sbed freq convergence', data: stepsToFbList, color: '#60a5fa', type: 'steps' },
-                            { label: 'Freq convergence savings', data: freqSavingsList, color: '#22c55e', type: 'steps' }
+                            { label: 'Sobol freq convergence', data: sobolFreqStepsList, color: '#f472b6', type: 'steps', cardClass: freqStepsExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq convergence', data: stepsToFbList, color: '#60a5fa', type: 'steps', cardClass: freqStepsExpected ? 'expected-card' : '' },
+                            { label: 'Freq convergence savings', data: freqSavingsList, color: '#22c55e', type: 'steps', cardClass: freqStepsExpected ? 'expected-card' : '' }
                         ],
                         [
-                            { label: 'Sobol freq uncertainty', data: sobolFreqUncertList, color: '#a78bfa', type: 'frequency' },
-                            { label: 'Sbed freq uncertainty', data: uncertFbList, color: '#34d399', type: 'frequency' },
-                            { label: 'Freq uncert difference', data: freqUncertDiffList, color: '#f59e0b', type: 'frequency' }
+                            { label: 'Sobol freq uncertainty', data: sobolFreqUncertList, color: '#a78bfa', type: 'frequency', cardClass: sobolFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq uncertainty', data: uncertFbList, color: '#34d399', type: 'frequency', cardClass: sbedFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Freq uncert difference', data: freqUncertDiffList, color: '#f59e0b', type: 'frequency', cardClass: uncertFbDiffExpected ? 'expected-card' : '' }
                         ],
                         [
-                            { label: 'Sobol freq error', data: sobolFreqErrList, color: '#c084fc', type: 'frequency' },
-                            { label: 'Sbed freq error', data: errFbList, color: '#10b981', type: 'frequency' },
-                            { label: 'Freq error difference', data: freqErrDiffList, color: '#6366f1', type: 'frequency' }
+                            { label: 'Sobol freq error', data: sobolFreqErrList, color: '#c084fc', type: 'frequency', cardClass: sobolFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq error', data: errFbList, color: '#10b981', type: 'frequency', cardClass: sbedFreqErrExpected ? 'expected-card' : '' },
+                            { label: 'Freq error difference', data: freqErrDiffList, color: '#6366f1', type: 'frequency', cardClass: errFbDiffExpected ? 'expected-card' : '' }
                         ]
                     ]
                 });
@@ -2365,19 +2404,19 @@ function main() {
                 title: 'Overall Convergence Comparison',
                 rows: [
                     [
-                        { label: 'Sobol baseline', data: sobolBaselineList, color: '#f472b6', type: 'measurements' },
-                        { label: 'Sbed overall steps', data: measurementsList, color: '#60a5fa', type: 'measurements' },
-                        { label: 'Overall savings', data: overallSavingsList, color: '#22c55e', type: 'measurements' }
+                        { label: 'Sobol baseline', data: sobolBaselineList, color: '#f472b6', type: 'measurements', cardClass: overallStepsExpected ? 'expected-card' : '' },
+                        { label: 'Sbed overall steps', data: measurementsList, color: '#60a5fa', type: 'measurements', cardClass: overallStepsExpected ? 'expected-card' : '' },
+                        { label: 'Overall savings', data: overallSavingsList, color: '#22c55e', type: 'measurements', cardClass: overallStepsExpected ? 'expected-card' : '' }
                     ],
                     [
-                        { label: 'Sobol overall uncertainty', data: sobolOverallUncertList, color: '#a78bfa', type: 'frequency' },
-                        { label: 'Sbed overall uncertainty', data: overallUncertList, color: '#34d399', type: 'frequency' },
-                        { label: 'Overall uncert difference', data: overallUncertDiffList, color: '#f59e0b', type: 'frequency' }
+                        { label: 'Sobol overall uncertainty', data: sobolOverallUncertList, color: '#a78bfa', type: 'frequency', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                        { label: 'Sbed overall uncertainty', data: overallUncertList, color: '#34d399', type: 'frequency', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                        { label: 'Overall uncert difference', data: overallUncertDiffList, color: '#f59e0b', type: 'frequency', cardClass: overallUncertDiffExpected ? 'expected-card' : '' }
                     ],
                     [
-                        { label: 'Sobol overall error', data: sobolOverallErrList, color: '#c084fc', type: 'frequency' },
-                        { label: 'Sbed overall error', data: overallErrList, color: '#10b981', type: 'frequency' },
-                        { label: 'Overall error difference', data: overallErrDiffList, color: '#6366f1', type: 'frequency' }
+                        { label: 'Sobol overall error', data: sobolOverallErrList, color: '#c084fc', type: 'frequency', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                        { label: 'Sbed overall error', data: overallErrList, color: '#10b981', type: 'frequency', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                        { label: 'Overall error difference', data: overallErrDiffList, color: '#6366f1', type: 'frequency', cardClass: overallErrDiffExpected ? 'expected-card' : '' }
                     ]
                 ]
             });
@@ -2387,19 +2426,19 @@ function main() {
                     title: 'Frequency vs. Overall Convergence Comparison',
                     rows: [
                         [
-                            { label: 'Sbed overall steps', data: earlyStopMeasurementsList, color: '#60a5fa', type: 'measurements' },
-                            { label: 'Sbed freq convergence', data: earlyStopStepsToFbList, color: '#f472b6', type: 'steps' },
-                            { label: 'Early stopping savings', data: earlyStopSavingsList, color: '#22c55e', type: 'measurements' }
+                            { label: 'Sbed overall steps', data: earlyStopMeasurementsList, color: '#60a5fa', type: 'measurements', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq convergence', data: earlyStopStepsToFbList, color: '#f472b6', type: 'steps', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
+                            { label: 'Early stopping savings', data: earlyStopSavingsList, color: '#22c55e', type: 'measurements', cardClass: earlyStopStepsExpected ? 'expected-card' : '' }
                         ],
                         [
-                            { label: 'Sbed final uncertainty', data: earlyStopFinalUncertList, color: '#34d399', type: 'frequency' },
-                            { label: 'Sbed freq uncertainty', data: earlyStopFreqUncertList, color: '#a78bfa', type: 'frequency' },
-                            { label: 'Freq to final uncert diff', data: earlyStopUncertDiffList, color: '#f59e0b', type: 'frequency' }
+                            { label: 'Sbed final uncertainty', data: earlyStopFinalUncertList, color: '#34d399', type: 'frequency', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq uncertainty', data: earlyStopFreqUncertList, color: '#a78bfa', type: 'frequency', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Freq to final uncert diff', data: earlyStopUncertDiffList, color: '#f59e0b', type: 'frequency', cardClass: earlyStopUncertExpected ? 'expected-card' : '' }
                         ],
                         [
-                            { label: 'Sbed final error', data: earlyStopFinalErrList, color: '#10b981', type: 'frequency' },
-                            { label: 'Sbed freq error', data: earlyStopFreqErrList, color: '#c084fc', type: 'frequency' },
-                            { label: 'Freq to final error diff', data: earlyStopErrDiffList, color: '#6366f1', type: 'frequency' }
+                            { label: 'Sbed final error', data: earlyStopFinalErrList, color: '#10b981', type: 'frequency', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed freq error', data: earlyStopFreqErrList, color: '#c084fc', type: 'frequency', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Freq to final error diff', data: earlyStopErrDiffList, color: '#6366f1', type: 'frequency', cardClass: earlyStopErrExpected ? 'expected-card' : '' }
                         ]
                     ]
                 });
@@ -2424,7 +2463,7 @@ function main() {
 
                         for (const card of row) {
                             const cardDiv = document.createElement('div');
-                            cardDiv.className = 'metric-item';
+                            cardDiv.className = 'metric-item' + (card.cardClass ? ' ' + card.cardClass : '');
                             rowDiv.appendChild(cardDiv);
 
                             const labelDiv = document.createElement('div');
