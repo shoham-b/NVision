@@ -72,6 +72,7 @@ def extract_milestone_metrics(
         "est_fc": est_fc,
         "err_fb": abs(est_fb - true_fb) if not math.isnan(est_fb) else math.nan,
         "err_fc": abs(est_fc - true_fc) if not math.isnan(est_fc) else math.nan,
+        "uncert_fb": uncertainties.get(fb_param, math.nan),
         "overall_uncert": overall_uncert,
     }
 
@@ -95,7 +96,9 @@ def calculate_zeeman_metrics(
                 "steps_to_fb": ms["step"],
                 "err_fb_at_milestone": ms["err_fb"],
                 "err_fc_at_milestone": ms["err_fc"],
+                "fb_at_milestone": ms["est_fb"],
                 "fc_at_milestone": ms["est_fc"],
+                "uncert_fb_at_milestone": ms["uncert_fb"],
                 "overall_uncert_at_milestone": ms["overall_uncert"],
             }
         )
@@ -105,7 +108,9 @@ def calculate_zeeman_metrics(
                 "steps_to_fb": None,
                 "err_fb_at_milestone": None,
                 "err_fc_at_milestone": None,
+                "fb_at_milestone": None,
                 "fc_at_milestone": None,
+                "uncert_fb_at_milestone": None,
                 "overall_uncert_at_milestone": None,
             }
         )

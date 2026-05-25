@@ -113,6 +113,11 @@ def generate_attempt_metrics(  # noqa: C901
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
 
+    # Copy final estimates for parameters
+    for param_name in ("frequency", "linewidth", "split", "dip_depth", "k_np", "fwhm_total", "lorentz_frac"):
+        if param_name in estimate:
+            metrics_serialized[f"final_est_{param_name}"] = _maybe_finite(estimate[param_name])
+
     if duration_ms_value is None:
         duration_ms_value = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
     metrics_serialized["duration_ms"] = _maybe_finite(duration_ms_value)
@@ -134,6 +139,8 @@ def generate_attempt_metrics(  # noqa: C901
     sobol_baseline_steps: int | None = None
     sobol_freq_steps: int | None = None
     sobol_conv_diff: int | None = None
+    sobol_freq_uncert_at_conv: float | None = None
+    sobol_freq_err_at_conv: float | None = None
     if not finalize_row.is_empty():
         if "sweep_steps" in finalize_row.columns:
             val = finalize_row.get_column("sweep_steps")[0]
@@ -155,6 +162,14 @@ def generate_attempt_metrics(  # noqa: C901
             val = finalize_row.get_column("sobol_conv_diff")[0]
             if val is not None:
                 sobol_conv_diff = int(val)
+        if "sobol_freq_uncert_at_conv" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_freq_uncert_at_conv")[0]
+            if val is not None:
+                sobol_freq_uncert_at_conv = float(val)
+        if "sobol_freq_err_at_conv" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_freq_err_at_conv")[0]
+            if val is not None:
+                sobol_freq_err_at_conv = float(val)
 
     if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_freq_steps is not None:
         sobol_conv_diff = sobol_baseline_steps - sobol_freq_steps
@@ -178,6 +193,11 @@ def generate_attempt_metrics(  # noqa: C901
         "sobol_baseline_steps": sobol_baseline_steps,
         "sobol_freq_steps": sobol_freq_steps,
         "sobol_conv_diff": sobol_conv_diff,
+        "sobol_freq_uncert_at_conv": _maybe_finite(sobol_freq_uncert_at_conv),
+        "sobol_freq_err_at_conv": _maybe_finite(sobol_freq_err_at_conv),
+        "steps_to_fb": metrics_serialized.get("steps_to_fb"),
+        "err_fb_at_milestone": metrics_serialized.get("err_fb_at_milestone"),
+        "uncert_fb_at_milestone": metrics_serialized.get("uncert_fb_at_milestone"),
         "metrics": metrics_serialized,
     }
 

@@ -752,40 +752,6 @@ def run(  # noqa: C901
             monitor.stop()
             console.print("\n[yellow]Interrupted by user. Saving partial results and generating UI...[/yellow]")
             log.warning("Run interrupted by user (Ctrl-C). Saving partial results...")
-
-            # Reconstruct df_rows and plot_manifest by reading whatever is in the cache for all tasks!
-            if not no_cache:
-                cached_df_rows = []
-                cached_plot_manifest = []
-                temp_bridge = None
-                try:
-                    # Use existing cache_bridge if active (sequentially), else open a temporary one
-                    effective_bridge = cache_bridge
-                    if effective_bridge is None:
-                        temp_bridge = CacheBridge(tree.cache_dir)
-                        effective_bridge = temp_bridge
-
-                    from nvision.runner.executor import _TaskRunner
-
-                    for task in tasks:
-                        runner = _TaskRunner(task, cache_bridge=effective_bridge)
-                        # Disable skip_cache temporarily to ensure we actually read the cache
-                        runner.skip_cache = False
-                        cached_results, n = runner._restore_cached_results()
-                        if n > 0:
-                            log.info(f"Loaded {n} partial/full repeats from cache for task: {task.slug}")
-                            for entries, main_result_row in cached_results:
-                                cached_plot_manifest.extend(entries)
-                                cached_df_rows.append(main_result_row)
-
-                    if cached_df_rows:
-                        df_rows = cached_df_rows
-                        plot_manifest = cached_plot_manifest
-                except Exception as e:
-                    log.warning(f"Could not load partial results from cache: {e}")
-                finally:
-                    if temp_bridge is not None:
-                        temp_bridge.close()
         finally:
             if cache_bridge is not None:
                 cache_bridge.close()
@@ -845,7 +811,7 @@ def run(  # noqa: C901
         _update_run_status("complete")
 
     df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
-    df_loc = merge_locator_results_with_existing(df_loc, out_dir, log, no_cache=no_cache)
+    df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
     out_path = write_locator_results_csv(df_loc, out_dir)
     log.info(f"Wrote locator results to: {out_path}")
 
@@ -858,7 +824,7 @@ def run(  # noqa: C901
     except Exception as exc:
         log.warning(f"Plotting failed: {exc}")
 
-    merge_run_plot_manifest_with_existing_on_disk(plot_manifest, out_dir, log, no_cache=no_cache)
+    merge_run_plot_manifest_with_existing_on_disk(plot_manifest, out_dir, log)
     plot_manifest.extend(summary_plots_meta)
     ensure_plot_manifest_non_empty(plot_manifest, log)
     write_plots_manifest(plot_manifest, out_dir)

@@ -169,17 +169,30 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         """
         for k in range(self.n_components):
             p_mat = self.precisions[k]
+            # Guard against non-finite values in precisions to prevent ValueError in linear algebra operations.
+            if not np.all(np.isfinite(p_mat)):
+                p_mat = np.nan_to_num(p_mat, nan=0.0, posinf=1e14, neginf=-1e14)
+                self.precisions[k] = p_mat
+
             # Relative epsilon: at least NVISION_GAUSSIAN_EPSILON, but scales
             # with the average diagonal magnitude so every eigenvalue direction
             # is regularised proportionally.
             trace_val = float(np.trace(p_mat))
+            if not np.isfinite(trace_val):
+                trace_val = 0.0
             eps = max(NVISION_GAUSSIAN_EPSILON, 1e-6 * trace_val / max(self._dim, 1))
             reg_prec = p_mat + eps * np.eye(self._dim)
             try:
                 c = inv(reg_prec)
-            except np.linalg.LinAlgError:
+            except (np.linalg.LinAlgError, ValueError):
                 # Last-resort: pseudo-inverse (drops near-zero singular values).
-                c = np.linalg.pinv(reg_prec)
+                try:
+                    c = np.linalg.pinv(reg_prec)
+                except (np.linalg.LinAlgError, ValueError):
+                    c = np.eye(self._dim)
+            
+            if not np.all(np.isfinite(c)):
+                c = np.nan_to_num(c, nan=0.0, posinf=1e14, neginf=-1e14)
             cov = (c + c.T) / 2.0
             # Ensure positive semi-definite by clamping the diagonal floor.
             np.fill_diagonal(cov, np.maximum(np.diag(cov), 0.0))
@@ -289,22 +302,51 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
             r = y_obs - y_pred
             J = J_all[k]  # noqa: N806
 
+            # Guard against non-finite values in observation gradients or residuals.
+            if not np.all(np.isfinite(J)) or not np.isfinite(r):
+                new_precisions[k] = self.precisions[k]
+                new_means[k] = m
+                continue
+
             # Standard Gaussian Precision update
             delta_prec = (damping / sigma2) * np.outer(J, J)
+            if not np.all(np.isfinite(delta_prec)):
+                delta_prec = np.zeros_like(delta_prec)
+
             # Use a forgetting factor to prevent unbounded precision growth (covariance collapse)
             forgetting_factor = 0.95
-            new_precisions[k] = self.precisions[k] * forgetting_factor + delta_prec
+            candidate_prec = self.precisions[k] * forgetting_factor + delta_prec
+
+            # Cap the precision matrix elements to prevent exponential growth and numerical overflow.
+            if not np.all(np.isfinite(candidate_prec)) or np.any(np.abs(candidate_prec) > 1e14):
+                candidate_prec = np.clip(candidate_prec, -1e14, 1e14)
+                for i in range(D):
+                    candidate_prec[i, i] = max(candidate_prec[i, i], 1e-8)
+
+            new_precisions[k] = candidate_prec
 
             # Stable Mean update — use the same trace-relative epsilon as
             # _recompute_covariances to keep the solve well-conditioned across
             # the mixed physical/dimensionless parameter scales.
             trace_val = float(np.trace(new_precisions[k]))
+            if not np.isfinite(trace_val):
+                trace_val = 0.0
             eps_solve = max(epsilon, 1e-6 * trace_val / max(D, 1))
             reg_new_prec = new_precisions[k] + eps_solve * np.eye(D)
             rhs = (damping / sigma2) * J * r
+            
+            if not np.all(np.isfinite(rhs)):
+                rhs = np.zeros_like(rhs)
+
             try:
-                delta_mu = solve(reg_new_prec, rhs)
-            except np.linalg.LinAlgError:
+                if np.all(np.isfinite(reg_new_prec)) and np.all(np.isfinite(rhs)):
+                    delta_mu = solve(reg_new_prec, rhs)
+                else:
+                    delta_mu = np.zeros(D)
+            except (np.linalg.LinAlgError, ValueError):
+                delta_mu = np.zeros(D)
+
+            if not np.all(np.isfinite(delta_mu)):
                 delta_mu = np.zeros(D)
 
             new_means[k] = m + delta_mu

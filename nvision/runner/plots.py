@@ -820,6 +820,128 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     return extra
 
 
+def get_or_run_sobol_baseline(
+    experiment: Any,
+    seed: int,
+    generator_name: str,
+    noise_name: str,
+    repeat_idx: int,
+) -> dict[str, Any] | None:
+    """Retrieve Sobol baseline data from cache, or run the simulation if not cached or missing detailed data."""
+    from nvision.runner.sweep_cache import get_cached_sobol_baseline, put_cached_sobol_baseline
+    
+    sobol_data = get_cached_sobol_baseline(
+        experiment,
+        seed,
+        generator_name,
+        noise_name,
+        repeat_idx,
+    )
+    
+    if sobol_data is not None and "sobol_xs" in sobol_data:
+        return sobol_data
+        
+    # Otherwise, simulate it dynamically!
+    import random
+    import math
+    from nvision.runner.repeat_keys import repeat_seed_int, measurement_repeat_key
+    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+    from nvision.runner.convert import belief_mode_estimates
+    
+    # 1. Setup locator noise/bounds
+    noise_std = 0.05
+    noise_max_dev = None
+    if experiment.noise is not None:
+        noise_std = float(experiment.noise.estimated_noise_std())
+        if hasattr(experiment.noise, "estimated_max_noise_deviation"):
+            noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
+            
+    domain_width = float(experiment.x_max - experiment.x_min)
+    signal_max_span = None
+    model = experiment.true_signal.model
+    if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
+        signal_max_span = model.signal_max_span(domain_width)
+        
+    # Inject bounds (replicating Executor._injected_parameter_bounds(experiment))
+    bounds: dict[str, tuple[float, float]] = {}
+    for name, bounds_val in experiment.true_signal.bounds.items():
+        if name == "_priors":
+            bounds[name] = bounds_val
+            continue
+        if name.startswith("_"):
+            continue
+        lo_raw, hi_raw = bounds_val
+        lo, hi = float(lo_raw), float(hi_raw)
+        if hi > lo:
+            name_lc = name.lower()
+            if ("amplitude" in name_lc or "depth" in name_lc) and hi > noise_std:
+                lo = max(lo, noise_std)
+                if lo >= hi:
+                    lo = float(lo_raw)
+        bounds[name] = (lo, hi)
+        
+    if experiment.true_signal.noise_bounds:
+        bounds.update(experiment.true_signal.noise_bounds)
+        
+    belief = nv_center_smc_belief(bounds)
+    
+    locator = SimpleSobolBayesianLocator(
+        belief=belief,
+        max_steps=10000,
+        noise_std=noise_std,
+        **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
+        **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
+    )
+    
+    key = measurement_repeat_key(seed, generator_name, "sobol_baseline", noise_name, repeat_idx)
+    sobol_rng = random.Random(repeat_seed_int(key))
+    
+    sobol_xs = []
+    sobol_ys = []
+    sobol_freq_steps = None
+    sobol_freq_uncert_at_conv = None
+    sobol_freq_err_at_conv = None
+    true_freq = experiment.true_signal.get_param_value("frequency")
+    
+    while not locator.done():
+        x_current = locator.next()
+        obs = experiment.measure(x_current, sobol_rng)
+        locator.observe(obs)
+        sobol_xs.append(float(obs.x))
+        sobol_ys.append(float(obs.signal_value))
+        
+        # Record metrics at the exact moment of frequency convergence
+        if sobol_freq_steps is None and locator.freq_converged_step is not None:
+            sobol_freq_steps = locator.freq_converged_step
+            sobol_freq_uncert_at_conv = float(locator.belief.uncertainty().get("frequency", math.nan))
+            est_f = float(locator.belief.estimates().get("frequency", math.nan))
+            sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
+            
+    sobol_mode_estimates = belief_mode_estimates(locator.belief)
+    
+    new_sobol_data = {
+        "sobol_baseline_steps": locator.step_count,
+        "sobol_freq_steps": sobol_freq_steps,
+        "sobol_freq_uncert_at_conv": sobol_freq_uncert_at_conv,
+        "sobol_freq_err_at_conv": sobol_freq_err_at_conv,
+        "sobol_xs": sobol_xs,
+        "sobol_ys": sobol_ys,
+        "sobol_mode_estimates": sobol_mode_estimates,
+    }
+    
+    put_cached_sobol_baseline(
+        experiment,
+        seed,
+        generator_name,
+        noise_name,
+        repeat_idx,
+        new_sobol_data,
+    )
+    
+    return new_sobol_data
+
+
 def generate_attempt_plots(  # noqa: C901
     viz: Viz,
     entry_base: dict[str, Any],
@@ -901,6 +1023,29 @@ def generate_attempt_plots(  # noqa: C901
         if isinstance(m, UnitCubeSignalModel):
             belief_unit_cube = m
 
+    # Retrieve Sobol baseline measurements & estimates if this strategy is not SimpleSobol itself!
+    sobol_xs: list[float] | None = None
+    sobol_ys: list[float] | None = None
+    sobol_mode_estimates: dict[str, float] | None = None
+    if strat_name != "SimpleSobol":
+        try:
+            seed = int(entry_base.get("seed", 0))
+            generator_name = str(entry_base.get("generator", ""))
+            noise_name = str(entry_base.get("noise", ""))
+            sobol_data = get_or_run_sobol_baseline(
+                current_scan,
+                seed,
+                generator_name,
+                noise_name,
+                attempt_idx_in_combo,
+            )
+            if sobol_data:
+                sobol_xs = sobol_data.get("sobol_xs")
+                sobol_ys = sobol_data.get("sobol_ys")
+                sobol_mode_estimates = sobol_data.get("sobol_mode_estimates")
+        except Exception as exc:
+            log.warning("Failed to retrieve or simulate Sobol baseline for plotting: %s", exc)
+
     viz.plot_scan_measurements(
         current_scan,
         history_with_phase,
@@ -911,6 +1056,9 @@ def generate_attempt_plots(  # noqa: C901
         per_dip_windows=per_dip_windows,
         belief_unit_cube=belief_unit_cube,
         narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
+        sobol_xs=sobol_xs,
+        sobol_ys=sobol_ys,
+        sobol_mode_estimates=sobol_mode_estimates,
     )
 
     scan_entry = entry_base.copy()

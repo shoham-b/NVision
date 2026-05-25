@@ -281,7 +281,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     frequency_noise_model=obs.frequency_noise_model,
                     tempering_factor=self.tempering_factor,
                 )
-                log_liks = np.log(np.maximum(liks, 1e-100))
+                log_liks = np.log(np.maximum(liks, 1e-30))
             else:
                 # Optimized pure Gaussian path
                 sigma = max(float(obs.noise_std), 1e-9)
@@ -291,7 +291,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 log_liks = -0.5 * (residuals / sigma) ** 2
 
         # 2. Numerically stable weight update (prevents complete underflow collapse)
-        log_weights = np.log(np.maximum(self._weights, 1e-100))
+        log_weights = np.log(np.maximum(self._weights, 1e-30))
         log_weights += log_liks
         log_weights -= np.max(log_weights)
 
@@ -301,7 +301,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 3. Normalize weights safely
         weight_sum = np.sum(raw_weights)
-        if weight_sum > 1e-100:
+        if weight_sum > 1e-30:
             self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
         else:
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
@@ -355,7 +355,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         frequency_noise_model=obs.frequency_noise_model,
                         tempering_factor=self.tempering_factor,
                     )
-                    log_weights += np.log(np.maximum(lik, 1e-100))
+                    log_weights += np.log(np.maximum(lik, 1e-30))
             else:
                 # Optimized pure Gaussian path via vectorized matrix operations
                 all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
@@ -373,13 +373,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._step_count += len(observations)
 
         # Convert log-weights back to normalized standard weights safely
-        log_weights += np.log(np.maximum(self._weights, 1e-100))
+        log_weights += np.log(np.maximum(self._weights, 1e-30))
         log_weights -= np.max(log_weights)
         raw_weights = np.exp(log_weights).astype(FLOAT_DTYPE, copy=False)
         weight_sum = np.sum(raw_weights)
 
-        # Threshold aligned to 1e-100 to match standard update behavior
-        if weight_sum > 1e-100:
+        # Threshold aligned to 1e-30 to match standard update behavior
+        if weight_sum > 1e-30:
             self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
         else:
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)

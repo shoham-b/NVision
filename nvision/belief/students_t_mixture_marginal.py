@@ -172,8 +172,23 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         """Cache Σ = Λ⁻¹ for all components with ridge regularization."""
         epsilon = NVISION_STUDENTS_T_EPSILON
         for k in range(self.n_components):
-            reg_prec = self.precisions[k] + epsilon * np.eye(self._dim)
-            c = inv(reg_prec)
+            p_mat = self.precisions[k]
+            # Guard against non-finite values in precisions to prevent ValueError in linear algebra operations.
+            if not np.all(np.isfinite(p_mat)):
+                p_mat = np.nan_to_num(p_mat, nan=0.0, posinf=1e14, neginf=-1e14)
+                self.precisions[k] = p_mat
+
+            reg_prec = p_mat + epsilon * np.eye(self._dim)
+            try:
+                c = inv(reg_prec)
+            except (np.linalg.LinAlgError, ValueError):
+                try:
+                    c = np.linalg.pinv(reg_prec)
+                except (np.linalg.LinAlgError, ValueError):
+                    c = np.eye(self._dim)
+
+            if not np.all(np.isfinite(c)):
+                c = np.nan_to_num(c, nan=0.0, posinf=1e14, neginf=-1e14)
             self._covariances[k] = (c + c.T) / 2.0
 
         # Enforce min exploration standard deviation floor for all parameters
@@ -285,19 +300,48 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
             r = y_obs - y_pred
             J = J_all[k]  # noqa: N806
 
+            # Guard against non-finite values in observation gradients or residuals.
+            if not np.all(np.isfinite(J)) or not np.isfinite(r):
+                new_precisions[k] = self.precisions[k]
+                new_means[k] = m
+                continue
+
             # Weighting
             w = (1.0 + (r**2) / (df_weight * sigma2)) ** (-(df_weight + 1.0) / 2.0)
+            if not np.isfinite(w):
+                w = 1.0
 
             # Precision update
             delta_prec = (damping * w / sigma2) * np.outer(J, J)
-            new_precisions[k] = self.precisions[k] + delta_prec
+            if not np.all(np.isfinite(delta_prec)):
+                delta_prec = np.zeros_like(delta_prec)
+
+            candidate_prec = self.precisions[k] + delta_prec
+            
+            # Cap the precision matrix elements to prevent exponential growth and numerical overflow.
+            if not np.all(np.isfinite(candidate_prec)) or np.any(np.abs(candidate_prec) > 1e14):
+                candidate_prec = np.clip(candidate_prec, -1e14, 1e14)
+                for i in range(D):
+                    candidate_prec[i, i] = max(candidate_prec[i, i], 1e-8)
+
+            new_precisions[k] = candidate_prec
 
             # Stable Mean update
             reg_new_prec = new_precisions[k] + epsilon * np.eye(D)
             rhs = (damping * w / sigma2) * J * r
+
+            if not np.all(np.isfinite(rhs)):
+                rhs = np.zeros_like(rhs)
+
             try:
-                delta_mu = solve(reg_new_prec, rhs)
-            except np.linalg.LinAlgError:
+                if np.all(np.isfinite(reg_new_prec)) and np.all(np.isfinite(rhs)):
+                    delta_mu = solve(reg_new_prec, rhs)
+                else:
+                    delta_mu = np.zeros(D)
+            except (np.linalg.LinAlgError, ValueError):
+                delta_mu = np.zeros(D)
+
+            if not np.all(np.isfinite(delta_mu)):
                 delta_mu = np.zeros(D)
 
             new_means[k] = m + delta_mu

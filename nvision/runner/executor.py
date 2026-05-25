@@ -605,19 +605,19 @@ class _TaskRunner:
         noise_std: float,
         noise_max_dev: float | None,
         signal_max_span: float | None,
-    ) -> dict[str, int | None]:
-        """Simulate the SimpleSobolBayesianLocator until convergence and return step count."""
+    ) -> dict[str, Any]:
+        """Simulate the SimpleSobolBayesianLocator until convergence and return detailed stats."""
+        import math
         from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
         from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+        from nvision.runner.convert import belief_mode_estimates
 
         # Create a fresh RNG for the Sobol baseline measurements
         sobol_rng = self._rng_for_sobol_baseline(rid)
 
         parameter_bounds = self._injected_parameter_bounds(experiment)
 
-        # Build belief directly — SimpleSobolBayesianLocator is instantiated
-        # directly because we already have the belief object; create() expects
-        # a builder callable and would raise ValueError if passed a pre-built belief.
+        # Build belief directly
         belief = nv_center_smc_belief(parameter_bounds)
 
         locator = SimpleSobolBayesianLocator(
@@ -629,16 +629,39 @@ class _TaskRunner:
         )
 
         step = 0
+        sobol_xs = []
+        sobol_ys = []
+        sobol_freq_steps = None
+        sobol_freq_uncert_at_conv = None
+        sobol_freq_err_at_conv = None
+        true_freq = experiment.true_signal.get_param_value("frequency")
+
         while not locator.done():
             _check_memory_limit()
             step += 1
             x_current = locator.next()
             obs = experiment.measure(x_current, sobol_rng)
             locator.observe(obs)
+            sobol_xs.append(float(obs.x))
+            sobol_ys.append(float(obs.signal_value))
+
+            # Record metrics at the exact moment of frequency convergence
+            if sobol_freq_steps is None and locator.freq_converged_step is not None:
+                sobol_freq_steps = locator.freq_converged_step
+                sobol_freq_uncert_at_conv = float(locator.belief.uncertainty().get("frequency", math.nan))
+                est_f = float(locator.belief.estimates().get("frequency", math.nan))
+                sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
+
+        sobol_mode_estimates = belief_mode_estimates(locator.belief)
 
         return {
             "sobol_baseline_steps": locator.step_count,
-            "sobol_freq_steps": locator.freq_converged_step,
+            "sobol_freq_steps": sobol_freq_steps,
+            "sobol_freq_uncert_at_conv": sobol_freq_uncert_at_conv,
+            "sobol_freq_err_at_conv": sobol_freq_err_at_conv,
+            "sobol_xs": sobol_xs,
+            "sobol_ys": sobol_ys,
+            "sobol_mode_estimates": sobol_mode_estimates,
         }
 
     def _build_experiment(self, rng: random.Random) -> CoreExperiment:
@@ -905,6 +928,14 @@ class _TaskRunner:
             finalize_record["sobol_conv_diff"] = sobol_baseline_steps - sobol_freq_steps
         else:
             finalize_record["sobol_conv_diff"] = None
+
+        if self.strategy_name != "SimpleSobol" and sobol_data is not None:
+            finalize_record["sobol_freq_uncert_at_conv"] = sobol_data.get("sobol_freq_uncert_at_conv")
+            finalize_record["sobol_freq_err_at_conv"] = sobol_data.get("sobol_freq_err_at_conv")
+        else:
+            finalize_record["sobol_freq_uncert_at_conv"] = None
+            finalize_record["sobol_freq_err_at_conv"] = None
+
         return history_df, finalize_record, stop_reason, result
 
     @staticmethod

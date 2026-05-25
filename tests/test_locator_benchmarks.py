@@ -32,7 +32,6 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 from nvision.sim.locs.bayesian.utility_sampling_locator import UtilitySamplingLocator
 from nvision.sim.locs.coarse import SimpleSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
-from nvision.sim.locs.ekf.ekf_locator import EKFLocator
 
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
@@ -95,6 +94,7 @@ def _overall_bayesian_ms(
                 max_steps=max_steps,
                 builder=builder,
                 parameter_bounds=None,
+                initial_sweep_steps=5,
                 noise_std=0.02,
                 **extra,
             )
@@ -179,6 +179,7 @@ class TestSBEDAcquireBottleneck:
             n_candidates=8,
             num_particles=1024,
             parameter_bounds=None,
+            initial_sweep_steps=4,
             noise_std=0.02,
         )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 import re
 from collections.abc import Mapping
@@ -618,7 +619,7 @@ def _add_measurement_distribution_trace(
         return
 
     # Histogram-based density in the physical x-domain.
-    n_bins = max(24, min(80, int(np.sqrt(x_meas.size) * 8)))
+    n_bins = max(40, min(150, int(np.sqrt(x_meas.size) * 12)))
     counts, edges = np.histogram(x_meas, bins=n_bins, range=(float(xs_dense.min()), float(xs_dense.max())))
     if counts.sum() <= 0:
         return
@@ -626,8 +627,8 @@ def _add_measurement_distribution_trace(
     centers = 0.5 * (edges[:-1] + edges[1:])
     density = counts.astype(float) / max(1.0, float(counts.max()))
 
-    # Light smoothing for readability.
-    kernel = np.array([0.2, 0.6, 0.2], dtype=float)
+    # Light smoothing for readability - relaxed to see the fine details.
+    kernel = np.array([0.05, 0.9, 0.05], dtype=float)
     density_smooth = np.convolve(density, kernel, mode="same")
 
     # Map normalized density to a small vertical band near the lower part of the scan.
@@ -848,11 +849,30 @@ def _parse_figure_from_scan_html(html: str) -> go.Figure | None:
     return go.Figure(data=data, layout=layout)
 
 
+def _decode_plotly_array(v: Any) -> list[Any] | None:
+    if v is None:
+        return None
+    if hasattr(v, "to_plotly_json"):
+        v = v.to_plotly_json()
+    if isinstance(v, dict) and "bdata" in v and "dtype" in v:
+        import base64
+        import numpy as np
+        try:
+            raw = base64.b64decode(v["bdata"])
+            arr = np.frombuffer(raw, dtype=v["dtype"])
+            return arr.tolist()
+        except Exception:
+            pass
+    return v
+
+
 def _trace_xy_lists(tr: Any) -> tuple[list[float], list[float | None]]:
     xs: list[float] = []
     ys: list[float | None] = []
     tx = getattr(tr, "x", None)
     ty = getattr(tr, "y", None)
+    tx = _decode_plotly_array(tx)
+    ty = _decode_plotly_array(ty)
     if tx is not None:
         for v in tx:
             xs.append(float(v))
@@ -880,6 +900,9 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
     has_metrics = any(getattr(t, "name", None) in ("Entropy", "Uncertainty") for t in fig.data)
 
     y_dense_mode: list[float] | None = None
+    y_dense_sobol_mode: list[float] | None = None
+    sobol_x: list[float] = []
+    sobol_y: list[float | None] = []
     for tr in fig.data:
         name = getattr(tr, "name", None) or ""
         mode = getattr(tr, "mode", "") or ""
@@ -887,6 +910,11 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
             _, ym = _trace_xy_lists(tr)
             if ym and all(v is not None for v in ym):
                 y_dense_mode = [float(v) for v in ym if v is not None]
+            continue
+        if name == "sobol most likely signal" and "lines" in mode:
+            _, ym = _trace_xy_lists(tr)
+            if ym and all(v is not None for v in ym):
+                y_dense_sobol_mode = [float(v) for v in ym if v is not None]
             continue
         if name == "true signal" and "lines" in mode:
             x_dense, y_dense = _trace_xy_lists(tr)
@@ -910,6 +938,7 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
             mk = getattr(tr, "marker", None)
             if mk is not None:
                 c = getattr(mk, "color", None)
+                c = _decode_plotly_array(c)
                 if c is not None and hasattr(c, "__iter__") and not isinstance(c, str | bytes):
                     fine_step = [float(v) for v in c]
             continue
@@ -918,8 +947,12 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
             mk = getattr(tr, "marker", None)
             if mk is not None:
                 c = getattr(mk, "color", None)
+                c = _decode_plotly_array(c)
                 if c is not None and hasattr(c, "__iter__") and not isinstance(c, str | bytes):
                     step_idx = [float(v) for v in c]
+            continue
+        if name == "sobol measurements (noisy)":
+            sobol_x, sobol_y = _trace_xy_lists(tr)
             continue
 
     if x_dense is None or y_dense is None:
@@ -932,8 +965,16 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
     }
     if y_dense_mode is not None and len(y_dense_mode) == len(out["x_dense"]):
         out["y_dense_mode"] = y_dense_mode
+    if y_dense_sobol_mode is not None and len(y_dense_sobol_mode) == len(out["x_dense"]):
+        out["y_dense_sobol_mode"] = y_dense_sobol_mode
     if y_dense_noisy is not None and len(y_dense_noisy) == len(out["x_dense"]):
         out["y_dense_noisy"] = y_dense_noisy
+
+    if sobol_x:
+        out["sobol_measurements"] = {
+            "x": sobol_x,
+            "y": [float(y) for y in sobol_y if y is not None],
+        }
 
     if coarse_x or fine_x:
         if len(fine_step) != len(fine_x):
@@ -977,7 +1018,8 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
         if fig is None:
             return
         plot_data = plot_data_from_scan_figure(fig)
-    except Exception:
+    except Exception as exc:
+        logging.warning("Failed to backfill scan plot data for %s: %s", rel, exc)
         return
     if plot_data:
         entry["plot_data"] = plot_data
@@ -1065,6 +1107,9 @@ class MeasurementsMixin:
         per_dip_windows: list[tuple[float, float]] | None = None,
         belief_unit_cube: UnitCubeSignalModel | None = None,
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
+        sobol_xs: list[float] | None = None,
+        sobol_ys: list[float] | None = None,
+        sobol_mode_estimates: Mapping[str, float] | None = None,
     ) -> Path:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
@@ -1135,6 +1180,51 @@ class MeasurementsMixin:
             has_metrics=has_metrics,
             belief_unit_cube=belief_unit_cube,
         )
+
+        # Draw Sobol baseline measurements & estimates if provided
+        if sobol_xs and sobol_ys:
+            row, col = _row_col(has_metrics)
+            finite_ys = [float(y) for y in history_ys_raw if y is not None and np.isfinite(float(y))]
+            baseline = max(finite_ys) if finite_ys else 1.0
+            baseline = baseline if baseline > 1e-12 else 1.0
+
+            def depth_percent(value: float) -> float:
+                return max(0.0, (baseline - float(value)) / baseline * 100.0)
+
+            fig.add_trace(
+                go.Scatter(
+                    x=sobol_xs,
+                    y=sobol_ys,
+                    mode="markers",
+                    name="sobol measurements (noisy)",
+                    marker=dict(
+                        size=6,
+                        color="rgba(100, 116, 139, 0.4)",
+                        line=dict(width=0.8, color="rgba(30, 41, 59, 0.7)"),
+                    ),
+                    customdata=[depth_percent(y) for y in sobol_ys],
+                    hovertemplate="sobol x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
+                ),
+                row=row,
+                col=col,
+            )
+
+        if sobol_mode_estimates:
+            y_sobol_mode = _mode_belief_dense_y(scan, xs, sobol_mode_estimates, belief_unit_cube=belief_unit_cube)
+            if y_sobol_mode:
+                row, col = _row_col(has_metrics)
+                fig.add_trace(
+                    go.Scatter(
+                        x=xs,
+                        y=y_sobol_mode,
+                        mode="lines",
+                        name="sobol most likely signal",
+                        line=dict(color="#805ad5", width=2, dash="dashdot"),
+                    ),
+                    row=row,
+                    col=col,
+                )
+
         _add_metric_traces(fig, history, has_metrics)
         _setup_scan_layout(
             fig,

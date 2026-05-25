@@ -167,13 +167,13 @@ def _group_sobol_only() -> RunGroup:
     )
 
 
-def _group_lorentzian_gauss_comparison() -> RunGroup:
+def _group_lorentzian_sbed() -> RunGroup:
     return RunGroup(
-        name="lorentzian_gauss_comparison",
-        description="SBED, GaussianMixture, and SimpleSobol on NVCenter-lorentzian with Gauss(0.01) noise.",
+        name="lorentzian-sbed",
+        description="SBED,  and StagedSobolSweep on NVCenter-lorentzian with Gauss(0.01) noise.",
         generator_names=["NVCenter-lorentzian"],
         noise_names=["Gauss(0.01)"],
-        strategy_names=["Bayesian-SBED", "GaussianMixture", "SimpleSobol"],
+        strategy_names=["Bayesian-SBED", "StagedSobolSweep"],
     )
 
 
@@ -187,7 +187,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_ekf_only(),
         _group_gmm_only(),
         _group_sobol_only(),
-        _group_lorentzian_gauss_comparison(),
+        _group_lorentzian_sbed(),
     )
 
 
