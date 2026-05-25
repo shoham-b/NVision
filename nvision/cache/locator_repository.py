@@ -78,7 +78,7 @@ class LocatorResultsRepository:
     ) -> CachedComboResults | None:
         """Retrieve cached simulation results for one combination.
 
-        Checks for streaming pointers first, then falls back to inline entries.
+        Checks for streaming pointers first, then falls back to inline entries for backward compatibility.
         """
         # 1. Check streaming pointer
         ptr_config = combination_base_cache_config(
@@ -186,38 +186,19 @@ class LocatorResultsRepository:
     ) -> Path:
         """Persist full combination results.
 
-        Uses streaming format if repeats > threshold, otherwise inline.
+        Uses streaming format always to prevent duplicate entries and allow resumes.
         """
-        if repeats > STREAMING_REPEAT_THRESHOLD:
-            # Streaming path: write pointer and all repeats
-            self.append_cached_repeats(
-                generator=generator,
-                noise=noise,
-                strategy=strategy,
-                seed=seed,
-                max_steps=max_steps,
-                timeout_s=timeout_s,
-                new_results=results,
-                start_idx=0,
-            )
-            return self._store.db_path
-
-        # Inline path
-        config = locator_combination_cache_config(
+        self.append_cached_repeats(
             generator=generator,
             noise=noise,
             strategy=strategy,
-            repeats=repeats,
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            new_results=results,
+            start_idx=0,
         )
-        key = stable_config_hash(config)
-        combo_payload = [
-            {"entries": entries, "main_result_row": main_result_row} for entries, main_result_row in results
-        ]
-        combo_df = pl.DataFrame({"results": [json.dumps(combo_payload)]})
-        return self._store.save_df(combo_df, key, metadata={"config": config})
+        return self._store.db_path
 
     def append_cached_repeats(
         self,
@@ -232,6 +213,9 @@ class LocatorResultsRepository:
         start_idx: int,
     ) -> None:
         """Append new repeats to a streaming cache entry and update pointer."""
+        import datetime
+        updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         ptr_config = combination_base_cache_config(
             generator=generator,
             noise=noise,
@@ -249,7 +233,8 @@ class LocatorResultsRepository:
         # Update pointer row
         new_total = start_idx + len(new_results)
         ptr_df = pl.DataFrame({"achieved_repeats": [new_total], "streaming": [True]})
-        self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config})
+        self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config, "updated_at": updated_at})
+
 
     def save_repeat(
         self,

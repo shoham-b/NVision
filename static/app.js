@@ -2100,8 +2100,17 @@ function main() {
         );
     }
 
+    let lastSummaryKey = null;
+
     function renderRepeatsSummary(generator, noise, strategy) {
         const container = document.getElementById('summary-subjects-container');
+        const currentKey = `${generator}|${noise}|${strategy}`;
+        if (currentKey === lastSummaryKey) {
+            // Already rendered, dispatch resize to ensure proper dimensions
+            window.dispatchEvent(new Event('resize'));
+            return;
+        }
+
         if (container) {
             container.innerHTML = '';
         }
@@ -2110,6 +2119,7 @@ function main() {
             (p) => p.generator === generator && p.noise === noise && p.strategy === strategy
         );
         if (summaryPlots.length === 0) {
+            lastSummaryKey = null;
             if (container) {
                 const placeholder = document.createElement('div');
                 placeholder.style.padding = '3em 2em';
@@ -2124,6 +2134,7 @@ function main() {
             }
             return;
         }
+        lastSummaryKey = currentKey;
 
         ensurePlotly().then(() => {
             // Aggregate arrays of values for all metrics
@@ -2314,7 +2325,9 @@ function main() {
                     showlegend: false,
                     plot_bgcolor: 'transparent',
                     paper_bgcolor: 'transparent',
-                    bargap: 0.05
+                    bargap: 0.05,
+                    dragmode: false,
+                    hovermode: 'x'
                 };
 
                 Plotly.newPlot(plotDiv, [trace], layout, {

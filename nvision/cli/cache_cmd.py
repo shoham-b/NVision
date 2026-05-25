@@ -41,6 +41,7 @@ def list_cache(
     found_any = False
     grouped: dict[tuple[str, str, str, str, str, str, str], set[str]] = defaultdict(set)
     row_counts: dict[tuple[str, str, str, str, str, str, str], int] = defaultdict(int)
+    updated_dates: dict[tuple[str, str, str, str, str, str, str], str] = {}
     for cat_name, cat_cache in _get_caches(cache_root):
         backend = cat_cache.backend
         for key in backend:
@@ -48,19 +49,32 @@ def list_cache(
             if isinstance(payload, dict) and "config" in payload:
                 config = payload["config"]
                 kind = config.get("kind")
-                if kind == "locator_combination":
+                if kind in ("locator_combination", "locator_combination_pointer"):
                     found_any = True
+                    # Extract achieved repeats for pointer kind
+                    if kind == "locator_combination_pointer":
+                        repeats_val = "-"
+                        if "data" in payload and isinstance(payload["data"], list) and len(payload["data"]) > 0:
+                            repeats_val = str(payload["data"][0].get("achieved_repeats", "-"))
+                    else:
+                        repeats_val = str(config.get("repeats", "-"))
+
                     group_key = (
                         cat_name,
                         str(config.get("generator", "-")),
                         str(config.get("strategy", "-")),
-                        str(config.get("repeats", "-")),
+                        repeats_val,
                         str(config.get("max_steps", "-")),
                         str(config.get("timeout_s", "-")),
                         str(config.get("schema_version", "-")),
                     )
                     grouped[group_key].add(str(config.get("noise", "-")))
                     row_counts[group_key] += 1
+
+                    # Track the latest updated date
+                    updated_at_val = payload.get("updated_at", "-")
+                    if group_key not in updated_dates or (updated_at_val != "-" and (updated_dates[group_key] == "-" or updated_at_val > updated_dates[group_key])):
+                        updated_dates[group_key] = updated_at_val
 
     if found_any:
         grouped_by_category: dict[str, list[tuple[str, str, str, str, str, str]]] = defaultdict(list)
@@ -77,6 +91,7 @@ def list_cache(
             table.add_column("Schema", justify="right")
             table.add_column("Noises", justify="right")
             table.add_column("Rows", justify="right")
+            table.add_column("Updated", justify="right")
 
             for generator, strategy, repeats, max_steps, timeout_s, schema in grouped_by_category[cat_name]:
                 group_key = (cat_name, generator, strategy, repeats, max_steps, timeout_s, schema)
@@ -89,6 +104,7 @@ def list_cache(
                     schema,
                     str(len(grouped[group_key])),
                     str(row_counts[group_key]),
+                    updated_dates.get(group_key, "-"),
                 )
             console.print(table)
     else:
@@ -160,8 +176,13 @@ def cache_clean(
             payload = backend.get(key)
             if isinstance(payload, dict) and "config" in payload:
                 cfg = payload["config"]
-                if _matches_filter(cfg, None, strategy, generator, noise, max_steps, repeats):
-                    keys_to_delete.append((cat_name, cat_cache, key))
+                kind = cfg.get("kind")
+                if kind in ("locator_combination", "locator_combination_pointer"):
+                    cfg_copy = dict(cfg)
+                    if kind == "locator_combination_pointer" and "data" in payload and len(payload["data"]) > 0:
+                        cfg_copy["repeats"] = payload["data"][0].get("achieved_repeats")
+                    if _matches_filter(cfg_copy, None, strategy, generator, noise, max_steps, repeats):
+                        keys_to_delete.append((cat_name, cat_cache, key))
 
     if not keys_to_delete:
         console.print("[yellow]No matching cache entries found.[/yellow]")
@@ -181,12 +202,18 @@ def cache_clean(
             payload = cat_cache.backend.get(key)
             if isinstance(payload, dict) and "config" in payload:
                 cfg = payload["config"]
+                # Resolve repeats if pointer config
+                resolved_repeats = cfg.get("repeats")
+                if cfg.get("kind") == "locator_combination_pointer" and "data" in payload and len(payload["data"]) > 0:
+                    resolved_repeats = payload["data"][0].get("achieved_repeats")
+                if resolved_repeats is None:
+                    resolved_repeats = 0
                 repo = LocatorResultsRepository(cat_cache)
                 repo.purge_cached_combination(
                     generator=cfg.get("generator"),
                     noise=cfg.get("noise"),
                     strategy=cfg.get("strategy"),
-                    repeats=cfg.get("repeats"),
+                    repeats=resolved_repeats,
                     seed=cfg.get("seed", NVISION_RNG_SEED),
                     max_steps=cfg.get("max_steps"),
                     timeout_s=cfg.get("timeout_s"),
@@ -306,7 +333,10 @@ def recalculate_metrics(  # noqa: C901
                     continue
 
                 cfg = payload["config"]
-                if not _matches_filter(cfg, None, strategy, generator, noise, max_steps, repeats):
+                cfg_copy = dict(cfg)
+                if cfg.get("kind") == "locator_combination_pointer" and "data" in payload and len(payload["data"]) > 0:
+                    cfg_copy["repeats"] = payload["data"][0].get("achieved_repeats")
+                if not _matches_filter(cfg_copy, None, strategy, generator, noise, max_steps, repeats):
                     continue
 
                 gen_name = cfg.get("generator")

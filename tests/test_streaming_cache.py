@@ -38,22 +38,21 @@ def test_repeats_repository_roundtrip(store):
     assert all_loaded[0] == (entries, main_result_row)
 
 
-def test_locator_repository_threshold_inline(repo):
-    # Threshold is 5. 3 repeats should be inline.
+def test_locator_repository_standardized_pointer(repo):
+    # Standardized: all repeats should use the streaming pointer format to prevent duplication
     results = [([{"p": f"p{i}"}], {"idx": i}) for i in range(3)]
     repo.save_cached_combination(
         generator="gen", noise="noise", strategy="strat", repeats=3, seed=1, max_steps=10, timeout_s=10, results=results
     )
 
-    # Verify it's inline (no streaming pointer)
-    # We can check by seeing if load_df on the base config key returns None
+    # Verify it has a streaming pointer
     from nvision.cache.hashing import stable_config_hash
     from nvision.cache.locator_keys import combination_base_cache_config
 
     ptr_cfg = combination_base_cache_config(
         generator="gen", noise="noise", strategy="strat", seed=1, max_steps=10, timeout_s=10
     )
-    assert repo._store.load_df(stable_config_hash(ptr_cfg)) is None
+    assert repo._store.load_df(stable_config_hash(ptr_cfg)) is not None
 
     # But it should load normally
     loaded = repo.get_cached_combination(
@@ -133,3 +132,23 @@ def test_append_repeats(repo):
     )
     assert n == count1 + count2
     assert partial[4][1]["idx"] == 4
+
+
+def test_locator_repository_updated_date(repo):
+    results = [([{"p": "p0"}], {"idx": 0})]
+    repo.save_cached_combination(
+        generator="gen", noise="noise", strategy="strat", repeats=1, seed=1, max_steps=10, timeout_s=10, results=results
+    )
+
+    from nvision.cache.hashing import stable_config_hash
+    from nvision.cache.locator_keys import combination_base_cache_config
+
+    ptr_cfg = combination_base_cache_config(
+        generator="gen", noise="noise", strategy="strat", seed=1, max_steps=10, timeout_s=10
+    )
+    ptr_key = stable_config_hash(ptr_cfg)
+    payload = repo._store._backend.get(ptr_key)
+    assert payload is not None
+    assert "updated_at" in payload
+    assert isinstance(payload["updated_at"], str)
+    assert len(payload["updated_at"]) > 0

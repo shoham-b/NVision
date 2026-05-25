@@ -303,8 +303,6 @@ class _TaskRunner:
     def _restore_cached_results(self) -> tuple[TaskResults, int]:
         """Load results from cache. Handles full matches and partial streaming hits."""
         if self.skip_cache:
-            combo_kw = self._combination_cache_kwargs()
-            self.cache.purge_cached_combination(**combo_kw)
             if self.task.require_cache:
                 log.warning(
                     "Cache miss for %s/%s/%s (seed=%s) with --require-cache + caching disabled. Skipping.",
@@ -433,6 +431,10 @@ class _TaskRunner:
             stop_reasons[i] = stop_reason
             run_results.append(run_result)
             finalize_records.append(finalize_record)
+
+            if self.skip_cache and rid == 0:
+                combo_kw = self._combination_cache_kwargs()
+                self.cache.purge_cached_combination(**combo_kw)
 
             # Incremental streaming save for long runs
             if is_streaming:
