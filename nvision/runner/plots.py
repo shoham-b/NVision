@@ -12,7 +12,12 @@ import polars as pl
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
-from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
+from nvision.sim.defaults import (
+    NVISION_CONVERGENCE_THRESHOLD,
+    PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
+    param_converged,
+    param_convergence_bound_width,
+)
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 from nvision.viz.bayesian import _get_nv_parameter_descriptions, _get_signal_formula
@@ -749,7 +754,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         # Extract convergence-related metrics from each snapshot
         # Note: The actual convergence threshold and patience are locator config,
         # not stored per-snapshot. We use typical defaults for visualization.
-        convergence_threshold = 0.01  # Default from SequentialBayesianLocator
+        convergence_threshold = NVISION_CONVERGENCE_THRESHOLD
         convergence_patience = 8  # Default patience steps
 
         conv_metrics = []
@@ -764,18 +769,12 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             converged_params: dict[str, bool] = {}
             for name in param_names:
                 unc = float(uncertainties.get(name, float("inf")))
-                if name == "frequency":
-                    # For frequency, convergence is absolute uncertainty < NVISION_FREQ_CONVERGENCE_THRESHOLD Hz
-                    converged_params[name] = unc < NVISION_FREQ_CONVERGENCE_THRESHOLD
-                    # The graph needs to show the absolute uncertainty
+                converged_params[name] = param_converged(name, unc, convergence_threshold, bounds)
+                if name in PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS:
                     relative_uncertainties[name] = unc
-
                 else:
-                    lo, hi = bounds.get(name, (0.0, 0.0))
-                    bound_width = hi - lo
-                    rel_unc = unc / bound_width if bound_width > 0 else float("inf")
-                    relative_uncertainties[name] = rel_unc
-                    converged_params[name] = rel_unc < convergence_threshold
+                    bound_width = param_convergence_bound_width(name, convergence_threshold, bounds)
+                    relative_uncertainties[name] = unc / bound_width if bound_width > 0 else float("inf")
 
             # Compute convergence streak (consecutive steps where all params converged)
             all_converged = all(converged_params.values())
@@ -1087,6 +1086,15 @@ def generate_attempt_plots(  # noqa: C901
                 "uncert": scan_entry.get("uncert"),
                 "duration_ms": scan_entry.get("duration_ms"),
                 "last_run": scan_entry.get("last_run"),
+                "steps_to_fb": scan_entry.get("steps_to_fb"),
+                "sobol_freq_steps": scan_entry.get("sobol_freq_steps"),
+                "sobol_baseline_steps": scan_entry.get("sobol_baseline_steps"),
+                "sobol_freq_uncert_at_conv": scan_entry.get("sobol_freq_uncert_at_conv"),
+                "sobol_freq_err_at_conv": scan_entry.get("sobol_freq_err_at_conv"),
+                "uncert_fb_at_milestone": scan_entry.get("uncert_fb_at_milestone"),
+                "err_fb_at_milestone": scan_entry.get("err_fb_at_milestone"),
+                "err_fc_at_milestone": scan_entry.get("err_fc_at_milestone"),
+                "err_fc_diff": scan_entry.get("err_fc_diff"),
             }
 
         if run_result is not None and run_result.true_signal:

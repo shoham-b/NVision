@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -22,7 +23,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         self,
         belief: AbstractMarginalDistribution,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         initial_sweep_steps: int | None = None,
         convergence_params: Sequence[str] | None = None,
@@ -45,7 +46,7 @@ class MaximumLikelihoodLocator(SequentialBayesianLocator):
         cls,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         initial_sweep_steps: int | None = None,

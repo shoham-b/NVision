@@ -956,9 +956,6 @@ function main() {
             { key: 'dips_merged', label: 'Dips merged', tip: 'Whether detected dips are close enough to be treated as one combined range.', fmt: function (v) { return v ? 'Yes' : 'No'; } },
             { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatFrequency },
             { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatFrequency },
-            { key: 'sobol_baseline_steps', label: 'Sobol baseline', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.', fmt: formatCount },
-            { key: 'sobol_freq_steps', label: 'Sobol freq baseline', tip: 'Measurements required by a simple Sobol sweep for the frequency parameter specifically to converge.', fmt: formatCount },
-            { key: 'sobol_conv_diff', label: 'Sobol baseline diff', tip: 'Difference in measurements between Sobol sweep overall convergence and frequency convergence.', fmt: formatCount },
             { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
             { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function (v) { return v; } },
         ];
@@ -1695,48 +1692,128 @@ function main() {
                     return items;
                 }
 
-                function buildComparisonItems(phaseData) {
-                    if (!phaseData) return [];
-                    const items = [];
-                    if (phaseData.sobol_baseline_steps != null) {
-                        items.push({ label: 'Sobol baseline', val: formatCount(phaseData.sobol_baseline_steps), tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.' });
-                    }
-                    if (phaseData.measurements != null) {
-                        items.push({ label: 'Sbed overall steps', val: formatCount(phaseData.measurements), tip: 'Total measurements taken during Sbed localization run.' });
-                    }
-                    if (phaseData.sobol_baseline_steps != null && phaseData.measurements != null) {
-                        const overallSavings = phaseData.sobol_baseline_steps - phaseData.measurements;
-                        items.push({ label: 'Overall savings', val: formatCount(overallSavings), tip: 'Difference in total measurements required for overall convergence between simple Sobol baseline and Sbed.' });
-                    }
-                    return items;
+                function findSobolBaselineForPlot(plot) {
+                    if (!window.MANIFEST || !plot) return null;
+                    return window.MANIFEST.find(p => 
+                        p.strategy === "SimpleSobol" &&
+                        p.generator === plot.generator &&
+                        p.noise === plot.noise &&
+                        p.repeat === plot.repeat
+                    );
                 }
 
-                function buildFreqConvergenceItems(phaseData) {
+                function buildFreqConvergenceRows(phaseData) {
                     if (!phaseData) return [];
-                    const items = [];
-                    if (phaseData.steps_to_fb != null) {
-                        items.push({ label: 'Sbed freq convergence', val: formatCount(phaseData.steps_to_fb), tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.' });
+                    const metrics = phaseData.metrics || {};
+                    const sobolFreqSteps = phaseData.sobol_freq_steps != null ? phaseData.sobol_freq_steps : metrics.sobol_freq_steps;
+                    const stepsToFb = phaseData.steps_to_fb != null ? phaseData.steps_to_fb : metrics.steps_to_fb;
+                    const uncertFb = phaseData.uncert_fb_at_milestone != null ? phaseData.uncert_fb_at_milestone : metrics.uncert_fb_at_milestone;
+                    const errFb = phaseData.err_fb_at_milestone != null ? phaseData.err_fb_at_milestone : metrics.err_fb_at_milestone;
+                    const sobolFreqUncert = phaseData.sobol_freq_uncert_at_conv != null ? phaseData.sobol_freq_uncert_at_conv : metrics.sobol_freq_uncert_at_conv;
+                    const sobolFreqErr = phaseData.sobol_freq_err_at_conv != null ? phaseData.sobol_freq_err_at_conv : metrics.sobol_freq_err_at_conv;
+
+                    return [
+                        // Row 1: Steps
+                        [
+                            { label: 'Sobol freq convergence', val: sobolFreqSteps != null ? formatCount(sobolFreqSteps) : 'N/A', tip: 'Steps needed for simple Sobol frequency uncertainty to drop below threshold.' },
+                            { label: 'Sbed freq convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.' },
+                            { label: 'Freq convergence savings', val: (sobolFreqSteps != null && stepsToFb != null) ? formatCount(sobolFreqSteps - stepsToFb) : 'N/A', tip: 'Difference in steps needed for frequency convergence (positive = Sbed was faster).' }
+                        ],
+                        // Row 2: Uncertainty
+                        [
+                            { label: 'Sobol freq uncertainty', val: sobolFreqUncert != null ? formatFrequency(sobolFreqUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol frequency estimate at the moment of convergence.' },
+                            { label: 'Sbed freq uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed frequency estimate at the moment of convergence.' },
+                            { label: 'Freq uncert difference', val: (sobolFreqUncert != null && uncertFb != null) ? formatFrequency(sobolFreqUncert - uncertFb) : 'N/A', tip: 'Difference in frequency estimate uncertainty at convergence (positive = SBED was more confident).' }
+                        ],
+                        // Row 3: Absolute Error
+                        [
+                            { label: 'Sobol freq error', val: sobolFreqErr != null ? formatFrequency(sobolFreqErr) : 'N/A', tip: 'Absolute error of Sobol frequency estimate vs ground truth at the moment of convergence.' },
+                            { label: 'Sbed freq error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute error of Sbed frequency estimate vs ground truth at the moment of convergence.' },
+                            { label: 'Freq error difference', val: (sobolFreqErr != null && errFb != null) ? formatFrequency(sobolFreqErr - errFb) : 'N/A', tip: 'Difference in absolute frequency error at convergence (positive = SBED was more accurate).' }
+                        ]
+                    ];
+                }
+
+                function buildComparisonRows(phaseData, plotContext) {
+                    if (!phaseData) return [];
+                    const metrics = phaseData.metrics || {};
+                    const sobolBaseline = phaseData.sobol_baseline_steps != null ? phaseData.sobol_baseline_steps : metrics.sobol_baseline_steps;
+                    const measurements = phaseData.measurements != null ? phaseData.measurements : metrics.measurements;
+
+                    const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
+                    const absErr = phaseData.abs_err_x != null ? phaseData.abs_err_x : metrics.abs_err_x;
+
+                    // Sobol baseline final uncertainty and error
+                    const sobolPlot = findSobolBaselineForPlot(plotContext);
+                    const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (phaseData.sobol_baseline_uncert || metrics.sobol_baseline_uncert);
+                    const sobolOverallErr = sobolPlot ? sobolPlot.abs_err_x : (phaseData.sobol_baseline_err || metrics.sobol_baseline_err);
+
+                    return [
+                        // Row 1: Steps
+                        [
+                            { label: 'Sobol baseline', val: sobolBaseline != null ? formatCount(sobolBaseline) : 'N/A', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.' },
+                            { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.' },
+                            { label: 'Overall savings', val: (sobolBaseline != null && measurements != null) ? formatCount(sobolBaseline - measurements) : 'N/A', tip: 'Difference in total measurements required for overall convergence between simple Sobol baseline and Sbed.' }
+                        ],
+                        // Row 2: Uncertainty
+                        [
+                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatFrequency(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline frequency estimate.' },
+                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed frequency estimate.' },
+                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatFrequency(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final frequency estimate uncertainty (positive = SBED was more confident).' }
+                        ],
+                        // Row 3: Absolute Error
+                        [
+                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatFrequency(sobolOverallErr) : 'N/A', tip: 'Final absolute frequency error of Sobol baseline.' },
+                            { label: 'Sbed overall error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute frequency error of Sbed.' },
+                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatFrequency(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute frequency error (positive = SBED was more accurate).' }
+                        ]
+                    ];
+                }
+
+                function buildEarlyStopComparisonRows(phaseData) {
+                    if (!phaseData) return [];
+                    const metrics = phaseData.metrics || {};
+                    
+                    const measurements = phaseData.measurements != null ? phaseData.measurements : metrics.measurements;
+                    const stepsToFb = phaseData.steps_to_fb != null ? phaseData.steps_to_fb : metrics.steps_to_fb;
+                    
+                    const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
+                    const uncertFb = phaseData.uncert_fb_at_milestone != null ? phaseData.uncert_fb_at_milestone : metrics.uncert_fb_at_milestone;
+                    
+                    const absErr = phaseData.abs_err_x != null ? phaseData.abs_err_x : metrics.abs_err_x;
+                    const errFb = phaseData.err_fb_at_milestone != null ? phaseData.err_fb_at_milestone : metrics.err_fb_at_milestone;
+
+                    return [
+                        // Row 1: Steps
+                        [
+                            { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.' },
+                            { label: 'Sbed freq convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.' },
+                            { label: 'Early stopping savings', val: (measurements != null && stepsToFb != null) ? formatCount(measurements - stepsToFb) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after frequency converges.' }
+                        ],
+                        // Row 2: Uncertainty
+                        [
+                            { label: 'Sbed final uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final frequency estimate uncertainty (standard deviation) at locator termination.' },
+                            { label: 'Sbed freq uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Frequency estimate uncertainty (standard deviation) at the moment fb converged.' },
+                            { label: 'Freq to final uncert diff', val: (uncert != null && uncertFb != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from fb convergence until locator termination.' }
+                        ],
+                        // Row 3: Absolute Error
+                        [
+                            { label: 'Sbed final error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute frequency error vs ground truth at locator termination.' },
+                            { label: 'Sbed freq error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute frequency error vs ground truth at the moment fb converged.' },
+                            { label: 'Freq to final error diff', val: (absErr != null && errFb != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from fb convergence until locator termination.' }
+                        ]
+                    ];
+                }
+
+                function renderRowsToHtml(rows) {
+                    if (!rows || rows.length === 0) return '';
+                    let html = '';
+                    for (const row of rows) {
+                        if (row && row.length > 0) {
+                            html += '<div class="scan-metrics-panel" style="margin-bottom:0.5em;">' + renderItemsToHtml(row) + '</div>';
+                        }
                     }
-                    if (phaseData.sobol_freq_steps != null) {
-                        items.push({ label: 'Sobol freq convergence', val: formatCount(phaseData.sobol_freq_steps), tip: 'Steps needed for simple Sobol frequency uncertainty to drop below threshold.' });
-                    }
-                    if (phaseData.sobol_freq_steps != null && phaseData.steps_to_fb != null) {
-                        const diff = phaseData.sobol_freq_steps - phaseData.steps_to_fb;
-                        items.push({ label: 'Sobol - Sbed freq diff', val: formatCount(diff), tip: 'Difference in steps needed for frequency convergence (positive = Sbed was faster).' });
-                    }
-                    if (phaseData.uncert_fb_at_milestone != null) {
-                        items.push({ label: 'Sbed freq uncertainty', val: formatFrequency(phaseData.uncert_fb_at_milestone), tip: 'Uncertainty (standard deviation) of Sbed frequency estimate at the moment of convergence.' });
-                    }
-                    if (phaseData.err_fb_at_milestone != null) {
-                        items.push({ label: 'Sbed freq error', val: formatFrequency(phaseData.err_fb_at_milestone), tip: 'Absolute error of Sbed frequency estimate vs ground truth at the moment of convergence.' });
-                    }
-                    if (phaseData.sobol_freq_uncert_at_conv != null) {
-                        items.push({ label: 'Sobol freq uncertainty', val: formatFrequency(phaseData.sobol_freq_uncert_at_conv), tip: 'Uncertainty (standard deviation) of Sobol frequency estimate at the moment of convergence.' });
-                    }
-                    if (phaseData.sobol_freq_err_at_conv != null) {
-                        items.push({ label: 'Sobol freq error', val: formatFrequency(phaseData.sobol_freq_err_at_conv), tip: 'Absolute error of Sobol frequency estimate vs ground truth at the moment of convergence.' });
-                    }
-                    return items;
+                    return html;
                 }
 
                 if (plot.coarse && plot.fine) {
@@ -1748,16 +1825,23 @@ function main() {
                         '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.fine.label) + '</div>' +
                         '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
 
-                    const freqItems = buildFreqConvergenceItems(plot.fine);
-                    if (freqItems.length > 0) {
+                    const stepsToFb = plot.fine.steps_to_fb != null ? plot.fine.steps_to_fb : (plot.fine.metrics && plot.fine.metrics.steps_to_fb);
+                    const freqRows = buildFreqConvergenceRows(plot.fine);
+                    if (freqRows.length > 0 && stepsToFb != null) {
                         html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Frequency Convergence Comparison</div>' +
-                            '<div class="scan-metrics-panel">' + renderItemsToHtml(freqItems) + '</div>';
+                            renderRowsToHtml(freqRows);
                     }
 
-                    const compItems = buildComparisonItems(plot.fine);
-                    if (compItems.length > 0) {
-                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Sobol and Convergence Comparison</div>' +
-                            '<div class="scan-metrics-panel">' + renderItemsToHtml(compItems) + '</div>';
+                    const compRows = buildComparisonRows(plot.fine, plot);
+                    if (compRows.length > 0) {
+                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Overall Convergence Comparison</div>' +
+                            renderRowsToHtml(compRows);
+                    }
+
+                    const earlyStopRows = buildEarlyStopComparisonRows(plot.fine);
+                    if (earlyStopRows.length > 0 && stepsToFb != null) {
+                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Frequency vs. Overall Convergence Comparison</div>' +
+                            renderRowsToHtml(earlyStopRows);
                     }
 
                     if (plot.true_params) {
@@ -1769,16 +1853,23 @@ function main() {
                     scanMetrics.className = 'scan-metrics-wrapper';
                     let html = '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot, true)) + '</div>';
 
-                    const freqItems = buildFreqConvergenceItems(plot);
-                    if (freqItems.length > 0) {
+                    const stepsToFb = plot.steps_to_fb != null ? plot.steps_to_fb : (plot.metrics && plot.metrics.steps_to_fb);
+                    const freqRows = buildFreqConvergenceRows(plot);
+                    if (freqRows.length > 0 && stepsToFb != null) {
                         html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Frequency Convergence Comparison</div>' +
-                            '<div class="scan-metrics-panel">' + renderItemsToHtml(freqItems) + '</div>';
+                            renderRowsToHtml(freqRows);
                     }
 
-                    const compItems = buildComparisonItems(plot);
-                    if (compItems.length > 0) {
-                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Sobol and Convergence Comparison</div>' +
-                            '<div class="scan-metrics-panel">' + renderItemsToHtml(compItems) + '</div>';
+                    const compRows = buildComparisonRows(plot, plot);
+                    if (compRows.length > 0) {
+                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Overall Convergence Comparison</div>' +
+                            renderRowsToHtml(compRows);
+                    }
+
+                    const earlyStopRows = buildEarlyStopComparisonRows(plot);
+                    if (earlyStopRows.length > 0 && stepsToFb != null) {
+                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">Frequency vs. Overall Convergence Comparison</div>' +
+                            renderRowsToHtml(earlyStopRows);
                     }
 
                     if (plot.true_params) {

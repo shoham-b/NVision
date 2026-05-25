@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
+from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
 
 @dataclass(frozen=True)
@@ -2721,11 +2721,18 @@ class BayesianMixin:
             )
 
             # Threshold line
-            if param == "frequency":
+            absolute_threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param)
+            if absolute_threshold is not None:
+                if param == "frequency":
+                    y_thresh = absolute_threshold / 1000.0
+                    thresh_label = f"{y_thresh:.0f} KHz threshold"
+                else:
+                    y_thresh = absolute_threshold
+                    thresh_label = f"threshold ({absolute_threshold:g})"
                 fig.add_hline(
-                    y=NVISION_FREQ_CONVERGENCE_THRESHOLD / 1000.0,
+                    y=y_thresh,
                     line=dict(color="red", dash="dash", width=1.5),
-                    annotation_text=f"{NVISION_FREQ_CONVERGENCE_THRESHOLD / 1000.0:.0f} KHz threshold",
+                    annotation_text=thresh_label,
                     row=row,
                     col=1,
                 )

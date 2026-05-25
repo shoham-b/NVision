@@ -11,8 +11,10 @@ from dotenv import load_dotenv
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
-from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
-
+from nvision.sim.defaults import (
+    NVISION_CONVERGENCE_THRESHOLD,
+    param_convergence_bound_width,
+)
 
 _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
@@ -63,7 +65,7 @@ class SequentialBayesianLocator(Locator):
         self,
         belief: AbstractMarginalDistribution,
         max_steps: int = 450,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
@@ -118,7 +120,7 @@ class SequentialBayesianLocator(Locator):
         cls,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         convergence_params: Sequence[str] | None = None,
@@ -242,30 +244,24 @@ class SequentialBayesianLocator(Locator):
 
         Convergence requires the uncertainty of each target parameter to be
         below ``convergence_threshold`` as a fraction of its physical bound
-        width (e.g. ``0.01`` = 1 %).  For the frequency parameter specifically,
-        convergence requires its absolute uncertainty to be below NVISION_FREQ_CONVERGENCE_THRESHOLD Hz.
-        The overall (RMS) relative uncertainty across all target parameters must also
-        be below the same threshold.
+        width (e.g. ``0.01`` = 1 %).  Parameters listed in
+        ``PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS`` (from env, e.g.
+        ``NVISION_FREQ_CONVERGENCE_THRESHOLD``) use an absolute uncertainty
+        ceiling instead.  The overall (RMS) relative uncertainty across all
+        target parameters must also be below the same threshold.
         """
         target_params = (
             list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
         )
         physical_uncertainties = self.belief.uncertainty()
+        bounds = self.belief.physical_param_bounds
 
         relative_uncertainties: dict[str, float] = {}
         for name in target_params:
             if name not in physical_uncertainties:
                 continue
             unc = float(physical_uncertainties[name])
-            if name == "frequency":
-                # For frequency, convergence threshold is absolute NVISION_FREQ_CONVERGENCE_THRESHOLD Hz.
-                # We map this to relative uncertainty using NVISION_FREQ_CONVERGENCE_THRESHOLD / convergence_threshold
-                # so that (unc / bound_width) < convergence_threshold holds if and only if unc < NVISION_FREQ_CONVERGENCE_THRESHOLD.
-                bound_width = NVISION_FREQ_CONVERGENCE_THRESHOLD / self.convergence_threshold
-
-            else:
-                lo, hi = self.belief.physical_param_bounds.get(name, (0.0, 0.0))
-                bound_width = hi - lo
+            bound_width = param_convergence_bound_width(name, self.convergence_threshold, bounds)
             if bound_width <= 0:
                 return False
             relative_uncertainties[name] = unc / bound_width

@@ -9,6 +9,7 @@ from numba import njit
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.grid_marginal import ParameterValues
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -53,7 +54,7 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         self,
         belief: AbstractMarginalDistribution,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         initial_sweep_steps: int | None = None,
         pickiness: float = 4.0,
@@ -81,7 +82,7 @@ class UtilitySamplingLocator(SequentialBayesianLocator):
         cls,
         builder: Callable[..., AbstractMarginalDistribution],
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         initial_sweep_steps: int | None = None,

@@ -8,6 +8,7 @@ import numpy as np
 
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -25,7 +26,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self,
         belief,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         noise_std: float = 0.02,
         n_candidates: int | None = None,
@@ -49,7 +50,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         cls,
         builder=None,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds=None,
         noise_std: float | None = None,

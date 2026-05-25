@@ -5,6 +5,7 @@ import numpy as np
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
 from nvision.models.observation import Observation
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.ekf.parameter_bounds import prepare_ekf_parameter_bounds
 
@@ -16,7 +17,7 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
         self,
         belief: GaussianMixtureMarginalDistribution,
         max_steps: int = 200,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
@@ -42,7 +43,7 @@ class GaussianMixtureLocator(SequentialBayesianLocator):
         signal_model=None,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 200,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         convergence_params: Sequence[str] | None = None,

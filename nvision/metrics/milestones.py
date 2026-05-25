@@ -6,10 +6,15 @@ import math
 from typing import Any
 
 from nvision.models.observer import RunResult
-from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
 
-def detect_milestone(run_result: RunResult, param: str, threshold: float = 0.01, relative: bool = True) -> int | None:
+def detect_milestone(
+    run_result: RunResult,
+    param: str,
+    threshold: float = NVISION_CONVERGENCE_THRESHOLD,
+    relative: bool = True,
+) -> int | None:
     """Find the first step where a parameter's uncertainty drops below a threshold.
 
     Args:
@@ -24,10 +29,8 @@ def detect_milestone(run_result: RunResult, param: str, threshold: float = 0.01,
     if not run_result.snapshots:
         return None
 
-    if param == "frequency":
-        # For frequency, convergence threshold is set via environment variable
-        threshold = NVISION_FREQ_CONVERGENCE_THRESHOLD
-
+    if param in PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS:
+        threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS[param]
     elif relative:
         # Get bounds for relative threshold
         bounds = run_result.snapshots[0].belief.physical_param_bounds.get(param)
@@ -78,7 +81,10 @@ def extract_milestone_metrics(
 
 
 def calculate_zeeman_metrics(
-    run_result: RunResult, threshold: float = 0.01, fb_param: str = "frequency", fc_param: str = "split"
+    run_result: RunResult,
+    threshold: float = NVISION_CONVERGENCE_THRESHOLD,
+    fb_param: str = "frequency",
+    fc_param: str = "split",
 ) -> dict[str, Any]:
     """Compare the fb milestone to the final state.
 

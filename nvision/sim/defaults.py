@@ -7,6 +7,7 @@ and refocus strategies are defined here via environment variables.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 from dotenv import load_dotenv
 
@@ -73,4 +74,69 @@ NVISION_NV_CENTER_FREQ_X_MIN: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_
 NVISION_NV_CENTER_FREQ_X_MAX: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_MAX", "3.1e9"))
 # --- Convergence Defaults ----------------------------------------------------
 
+# Default relative convergence threshold (fraction of parameter bound width; 0.01 = 1%).
+NVISION_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_CONVERGENCE_THRESHOLD", "0.01"))
+
+# Absolute convergence ceilings for specific parameters (physical units).
+# Unset optional vars fall back to relative NVISION_CONVERGENCE_THRESHOLD × bound width.
 NVISION_FREQ_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_FREQ_CONVERGENCE_THRESHOLD", "100000.0"))
+
+
+def _optional_env_float(name: str) -> float | None:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return None
+    return float(raw)
+
+
+def _param_absolute_convergence_thresholds() -> dict[str, float]:
+    thresholds: dict[str, float] = {"frequency": NVISION_FREQ_CONVERGENCE_THRESHOLD}
+    for param_name, env_name in (
+        ("k_np", "NVISION_K_NP_CONVERGENCE_THRESHOLD"),
+        ("linewidth", "NVISION_LINEWIDTH_CONVERGENCE_THRESHOLD"),
+        ("split", "NVISION_SPLIT_CONVERGENCE_THRESHOLD"),
+        ("dip_depth", "NVISION_DIP_DEPTH_CONVERGENCE_THRESHOLD"),
+        ("fwhm_total", "NVISION_FWHM_TOTAL_CONVERGENCE_THRESHOLD"),
+        ("lorentz_frac", "NVISION_LORENTZ_FRAC_CONVERGENCE_THRESHOLD"),
+    ):
+        value = _optional_env_float(env_name)
+        if value is not None:
+            thresholds[param_name] = value
+    return thresholds
+
+
+PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS: dict[str, float] = _param_absolute_convergence_thresholds()
+
+
+def param_convergence_bound_width(
+    param_name: str,
+    relative_threshold: float,
+    physical_bounds: Mapping[str, tuple[float, float]],
+) -> float:
+    """Effective bound width for relative convergence comparison.
+
+    Parameters with an entry in ``PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS`` use
+    ``absolute_threshold / relative_threshold`` so that
+    ``unc / bound_width < relative_threshold`` iff ``unc < absolute_threshold``.
+    """
+    absolute = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param_name)
+    if absolute is not None:
+        return absolute / relative_threshold
+    lo, hi = physical_bounds.get(param_name, (0.0, 0.0))
+    return hi - lo
+
+
+def param_converged(
+    param_name: str,
+    uncertainty: float,
+    relative_threshold: float,
+    physical_bounds: Mapping[str, tuple[float, float]],
+) -> bool:
+    """Return whether ``uncertainty`` meets convergence for ``param_name``."""
+    absolute = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param_name)
+    if absolute is not None:
+        return uncertainty < absolute
+    bound_width = param_convergence_bound_width(param_name, relative_threshold, physical_bounds)
+    if bound_width <= 0:
+        return False
+    return uncertainty / bound_width < relative_threshold

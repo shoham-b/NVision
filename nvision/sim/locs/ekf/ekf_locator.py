@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.observation import Observation
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.ekf.belief import EKFBelief
 
@@ -22,7 +23,7 @@ class EKFLocator(SequentialBayesianLocator):
         self,
         belief: EKFBelief,
         max_steps: int = 200,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         initial_sweep_steps: int | None = None,
         convergence_params: Sequence[str] | None = None,
@@ -76,7 +77,7 @@ class EKFLocator(SequentialBayesianLocator):
         cls,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 200,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         initial_sweep_steps: int | None = None,
@@ -362,7 +363,7 @@ class EKFParticleFrequencyLocator(EKFLocator):
         self,
         belief: EKFBelief,
         max_steps: int = 200,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         initial_sweep_steps: int | None = None,
         convergence_params: Sequence[str] | None = None,

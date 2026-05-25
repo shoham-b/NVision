@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
-from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
@@ -35,7 +35,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         self,
         belief,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         noise_std: float = 0.02,
         noise_max_dev: float | None = None,
@@ -60,7 +60,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         cls,
         builder=None,
         max_steps: int = 150,
-        convergence_threshold: float = 0.01,
+        convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds=None,
         noise_std: float | None = None,
@@ -95,13 +95,15 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         if not hasattr(self.belief, "_weights"):
             return
 
-        # Track frequency convergence at every step (absolute uncertainty below NVISION_FREQ_CONVERGENCE_THRESHOLD)
+        # Track frequency convergence at every step (absolute threshold from env).
         if self.freq_converged_step is None:
-            physical_uncertainties = self.belief.uncertainty()
-            if "frequency" in physical_uncertainties:
-                unc = float(physical_uncertainties["frequency"])
-                if unc < NVISION_FREQ_CONVERGENCE_THRESHOLD:
-                    self.freq_converged_step = self.step_count
+            freq_threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get("frequency")
+            if freq_threshold is not None:
+                physical_uncertainties = self.belief.uncertainty()
+                if "frequency" in physical_uncertainties:
+                    unc = float(physical_uncertainties["frequency"])
+                    if unc < freq_threshold:
+                        self.freq_converged_step = self.step_count
 
 
         ess = _inverse_sum_squares(self.belief._weights)

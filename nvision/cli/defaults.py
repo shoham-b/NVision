@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 
 from nvision.sim import presets as sim_presets
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 
 # Load environment variables from .env here so it's guaranteed to load
 # before any of these constants are evaluated, regardless of where
@@ -39,3 +40,8 @@ DEMO_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEMO_LOC_TIMEOUT_S", "300"))
 DEMO_OUT: str | None = os.getenv("NVISION_DEMO_OUT", None)
 DEMO_LOGS_ROOT: str | None = os.getenv("NVISION_DEMO_LOGS_ROOT", None)
 BETA_OUT: str | None = os.getenv("NVISION_BETA_OUT", None)
+
+# Locator convergence (relative fraction of parameter bound width; 0.01 = 1%).
+# Per-parameter absolute overrides: NVISION_FREQ_CONVERGENCE_THRESHOLD,
+# NVISION_K_NP_CONVERGENCE_THRESHOLD, etc. (see nvision.sim.defaults).
+DEFAULT_CONVERGENCE_THRESHOLD: float = NVISION_CONVERGENCE_THRESHOLD
