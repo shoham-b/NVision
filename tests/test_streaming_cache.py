@@ -152,3 +152,50 @@ def test_locator_repository_updated_date(repo):
     assert "updated_at" in payload
     assert isinstance(payload["updated_at"], str)
     assert len(payload["updated_at"]) > 0
+
+
+def test_locator_repository_repeat_offset(repo):
+    # Test that save and load correctly partitions and indexes based on repeat_offset
+    results = [([{"p": "p0"}], {"idx": 0})]
+    
+    # Save with repeat_offset=15
+    repo.save_cached_combination(
+        generator="gen",
+        noise="noise",
+        strategy="strat",
+        repeats=1,
+        seed=1,
+        max_steps=10,
+        timeout_s=10,
+        repeat_offset=15,
+        results=results,
+    )
+    
+    # Verify that it is partitioned separately from repeat_offset=0
+    # Loading with repeat_offset=0 should miss
+    loaded_0 = repo.get_cached_combination(
+        generator="gen",
+        noise="noise",
+        strategy="strat",
+        repeats=1,
+        seed=1,
+        max_steps=10,
+        timeout_s=10,
+        repeat_offset=0,
+    )
+    assert loaded_0 is None
+    
+    # Loading with repeat_offset=15 should hit
+    loaded_15 = repo.get_cached_combination(
+        generator="gen",
+        noise="noise",
+        strategy="strat",
+        repeats=1,
+        seed=1,
+        max_steps=10,
+        timeout_s=10,
+        repeat_offset=15,
+    )
+    assert loaded_15 is not None
+    assert len(loaded_15) == 1
+    assert loaded_15[0][1]["idx"] == 0

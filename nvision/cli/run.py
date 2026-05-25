@@ -26,6 +26,7 @@ from nvision.cli import defaults as cli_defaults
 from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
+from nvision.models.task import LocatorTask
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import run_groups as sim_run_groups
 from nvision.sim.grid_enums import GeneratorName, NoiseName
@@ -80,6 +81,144 @@ def _worker_init(
         logging.getLogger(noisy_logger).setLevel(logging.INFO)
 
 
+def _split_oversized_tasks(tasks: list[LocatorTask], runners: int, min_chunk: int = 3) -> list[LocatorTask]:
+    """Split tasks with many repeats across multiple sub-tasks.
+
+    Small tasks (``repeats <= runners * min_chunk``) are kept intact so that all
+    repeats of the same combination stay in one process — the sweep and signal
+    caches benefit from process-local reuse.
+
+    Large tasks are split into sub-tasks so that idle workers can help process
+    repeats from the same combination.  Each sub-task carries a ``repeat_offset``
+    so the executor knows which global repeat indices it owns, and the original
+    ``task_id`` so that progress tracking aggregates correctly across sub-tasks.
+
+    Parameters
+    ----------
+    tasks:
+        The original task list from ``build_task_list``.
+    runners:
+        Number of runner processes available.
+    min_chunk:
+        Minimum repeats per chunk.  Tasks with ``repeats <= runners * min_chunk``
+        are never split.  Default 3.
+    """
+    split: list[LocatorTask] = []
+    for task in tasks:
+        repeats = task.repeats
+        if repeats <= runners * min_chunk:
+            split.append(task)
+            continue
+
+        n_chunks = min(runners, repeats)
+        base, extra = divmod(repeats, n_chunks)
+        offset = 0
+        for i in range(n_chunks):
+            chunk_size = base + (1 if i < extra else 0)
+            sub = LocatorTask(
+                combination=task.combination,
+                repeats=chunk_size,
+                seed=task.seed,
+                slug=task.slug,
+                out_dir=task.out_dir,
+                scans_dir=task.scans_dir,
+                bayes_dir=task.bayes_dir,
+                loc_max_steps=task.loc_max_steps,
+                sweep_max_steps=task.sweep_max_steps,
+                loc_timeout_s=task.loc_timeout_s,
+                use_cache=task.use_cache,
+                cache_dir=task.cache_dir,
+                log_queue=task.log_queue,
+                log_level=task.log_level,
+                ignore_cache_strategy=task.ignore_cache_strategy,
+                require_cache=task.require_cache,
+                progress_queue=task.progress_queue,
+                task_id=task.task_id,
+                repeat_offset=offset,
+                repeat_total=task.repeat_total,
+            )
+            split.append(sub)
+            offset += chunk_size
+
+    return split
+
+
+def _harvest_partial_results_from_cache(
+    tasks: list[LocatorTask],
+    cache_bridge: CacheBridge | None,
+    df_rows: list[dict],
+    plot_manifest: list[dict[str, object]],
+    log: logging.Logger,
+) -> None:
+    """Query cache database for completed repeats of tasks and append to results."""
+    if not tasks:
+        return
+
+    # Track existing repeats to avoid duplicates
+    existing_repeats = set()
+    for row in df_rows:
+        key = (
+            row.get("generator"),
+            row.get("noise"),
+            row.get("strategy"),
+            row.get("seed"),
+            row.get("attempt"),
+        )
+        existing_repeats.add(key)
+
+    # If cache_bridge is not provided, open a temporary one using the first task's cache_dir
+    bridge = cache_bridge
+    owns_bridge = False
+    if bridge is None:
+        cache_dir = tasks[0].cache_dir
+        if cache_dir:
+            try:
+                bridge = CacheBridge(cache_dir)
+                owns_bridge = True
+            except Exception as exc:
+                log.warning("Failed to open temporary CacheBridge for harvesting: %s", exc)
+                return
+        else:
+            return
+
+    from nvision.runner.executor import _TaskRunner
+
+    try:
+        for locator_task in tasks:
+            try:
+                runner = _TaskRunner(locator_task, cache_bridge=bridge)
+                try:
+                    partial_results, n = runner._restore_cached_results(allow_gaps=True)
+                    harvested_count = 0
+                    for entries, main_result_row in partial_results:
+                        key = (
+                            main_result_row.get("generator"),
+                            main_result_row.get("noise"),
+                            main_result_row.get("strategy"),
+                            main_result_row.get("seed"),
+                            main_result_row.get("attempt"),
+                        )
+                        if key not in existing_repeats:
+                            plot_manifest.extend(entries)
+                            df_rows.append(main_result_row)
+                            existing_repeats.add(key)
+                            harvested_count += 1
+                    if harvested_count > 0:
+                        log.info(
+                            "Harvested %s partial repeat(s) from cache for %s (offset %s)",
+                            harvested_count,
+                            locator_task.slug,
+                            locator_task.repeat_offset,
+                        )
+                finally:
+                    runner._saver_pool.shutdown(wait=False)
+            except Exception as exc:
+                log.warning("Failed to harvest partial results from cache for %s: %s", locator_task.slug, exc)
+    finally:
+        if owns_bridge and bridge is not None:
+            bridge.close()
+
+
 def _run_tasks_process_pool(  # noqa: C901
     tasks: list[object],
     *,
@@ -128,6 +267,21 @@ def _run_tasks_process_pool(  # noqa: C901
                     started_at=started_at,
                 )
 
+    # Split tasks with many repeats so idle workers can help.
+    # Tasks with few repeats are kept intact for cache locality.
+    total_repeats_before = sum(t.repeats for t in pending_tasks)
+    pending_tasks = _split_oversized_tasks(pending_tasks, runners)
+    total_repeats_after = sum(t.repeats for t in pending_tasks)
+    if len(pending_tasks) > total_count:
+        log.info(
+            "Split %s tasks into %s sub-tasks (%s total repeats) across %s runner(s).",
+            total_count,
+            len(pending_tasks),
+            total_repeats_after,
+            runners,
+        )
+    total_count = len(pending_tasks)
+
     while pending_tasks and current_runners > 0:
         executor = concurrent.futures.ProcessPoolExecutor(
             max_workers=current_runners,
@@ -153,6 +307,9 @@ def _run_tasks_process_pool(  # noqa: C901
                     if not shutdown_called:
                         executor.shutdown(wait=False, cancel_futures=True)
                         shutdown_called = True
+                    _harvest_partial_results_from_cache(
+                        list(future_to_task.values()), cache_bridge, df_rows, plot_manifest, log
+                    )
                     return plot_manifest, df_rows, errors, completed_count, True
 
                 locator_task = future_to_task[future]
@@ -250,6 +407,9 @@ def _run_tasks_process_pool(  # noqa: C901
                 if sys.platform == "win32":
                     time.sleep(0.5)
 
+            _harvest_partial_results_from_cache(
+                list(future_to_task.values()), cache_bridge, df_rows, plot_manifest, log
+            )
             return plot_manifest, df_rows, errors, completed_count, True
         finally:
             # If we didn't terminate early, wait for workers to finish.
@@ -752,6 +912,7 @@ def run(  # noqa: C901
             monitor.stop()
             console.print("\n[yellow]Interrupted by user. Saving partial results and generating UI...[/yellow]")
             log.warning("Run interrupted by user (Ctrl-C). Saving partial results...")
+            _harvest_partial_results_from_cache(tasks, cache_bridge, df_rows, plot_manifest, log)
         finally:
             if cache_bridge is not None:
                 cache_bridge.close()

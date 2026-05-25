@@ -112,6 +112,7 @@ def build_task_list(
                 require_cache=config.require_cache,
                 progress_queue=config.progress_queue,
                 task_id=task_id,
+                repeat_total=config.repeats,
             )
         )
 

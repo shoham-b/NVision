@@ -38,7 +38,13 @@ class StrategySpec:
 
 @dataclass(slots=True)
 class LocatorTask:
-    """A Combination plus runtime config — everything needed to execute a run."""
+    """A Combination plus runtime config — everything needed to execute a run.
+
+    When a combination's repeats are split across multiple sub-tasks (for
+    work-stealing parallelisation), each sub-task carries a ``repeat_offset``
+    so that the executor knows which global repeat indices it owns without
+    needing a separate total_repeats field.
+    """
 
     combination: Combination
     repeats: int
@@ -59,6 +65,8 @@ class LocatorTask:
     progress_queue: Any = None
     task_id: Any = None
     strategy_spec: StrategySpec = field(init=False, repr=False)
+    repeat_offset: int = 0
+    repeat_total: int = 0
 
     def __post_init__(self) -> None:
         self.strategy_spec = StrategySpec.from_raw(self.combination.strategy)

@@ -49,6 +49,7 @@ class LocatorResultsRepository:
         seed: int,
         max_steps: int,
         timeout_s: int,
+        repeat_offset: int = 0,
     ) -> str:
         """Storage key hash for a full (generator, noise, strategy) combination (executor / render)."""
         cfg = locator_combination_cache_config(
@@ -59,6 +60,7 @@ class LocatorResultsRepository:
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
         )
         return stable_config_hash(cfg)
 
@@ -75,6 +77,8 @@ class LocatorResultsRepository:
         seed: int,
         max_steps: int,
         timeout_s: int,
+        repeat_offset: int = 0,
+        allow_gaps: bool = False,
     ) -> CachedComboResults | None:
         """Retrieve cached simulation results for one combination.
 
@@ -88,14 +92,15 @@ class LocatorResultsRepository:
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
         )
         ptr_key = stable_config_hash(ptr_config)
         ptr_df = self._store.load_df(ptr_key)
         if ptr_df is not None and not ptr_df.is_empty():
             achieved = int(ptr_df.get_column("achieved_repeats")[0])
-            if achieved >= repeats:
+            if achieved >= repeat_offset + repeats:
                 # Full streaming hit
-                return self._repeats.load_repeats(ptr_key, repeats)
+                return self._repeats.load_repeats(ptr_key, repeats, start_idx=repeat_offset, allow_gaps=allow_gaps)
 
         # 2. Fall back to inline entry
         inline_config = locator_combination_cache_config(
@@ -106,6 +111,7 @@ class LocatorResultsRepository:
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
         )
         return self._get_cached_results_for_config(inline_config)
 
@@ -119,6 +125,8 @@ class LocatorResultsRepository:
         seed: int,
         max_steps: int,
         timeout_s: int,
+        repeat_offset: int = 0,
+        allow_gaps: bool = False,
     ) -> tuple[CachedComboResults, int]:
         """Retrieve partial cached results and count for resumable runs.
 
@@ -131,15 +139,17 @@ class LocatorResultsRepository:
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
         )
         ptr_key = stable_config_hash(ptr_config)
         ptr_df = self._store.load_df(ptr_key)
         if ptr_df is not None and not ptr_df.is_empty():
             achieved = int(ptr_df.get_column("achieved_repeats")[0])
-            # Return up to requested repeats
-            count = min(achieved, repeats)
-            results = self._repeats.load_repeats(ptr_key, count)
-            return results, len(results)
+            # Return up to requested repeats in the range [repeat_offset, repeat_offset + repeats]
+            if achieved > repeat_offset:
+                count = min(achieved - repeat_offset, repeats)
+                results = self._repeats.load_repeats(ptr_key, count, start_idx=repeat_offset, allow_gaps=allow_gaps)
+                return results, len(results)
 
         return [], 0
 
@@ -182,6 +192,7 @@ class LocatorResultsRepository:
         seed: int,
         max_steps: int,
         timeout_s: int,
+        repeat_offset: int = 0,
         results: CachedComboResults,
     ) -> Path:
         """Persist full combination results.
@@ -195,6 +206,7 @@ class LocatorResultsRepository:
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
             new_results=results,
             start_idx=0,
         )
@@ -209,6 +221,7 @@ class LocatorResultsRepository:
         seed: int,
         max_steps: int,
         timeout_s: int,
+        repeat_offset: int = 0,
         new_results: CachedComboResults,
         start_idx: int,
     ) -> None:
@@ -223,6 +236,7 @@ class LocatorResultsRepository:
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
         )
         ptr_key = stable_config_hash(ptr_config)
 
@@ -230,10 +244,16 @@ class LocatorResultsRepository:
         for i, (entries, main_result_row) in enumerate(new_results):
             self._repeats.save_repeat(ptr_key, start_idx + i, entries, main_result_row)
 
-        # Update pointer row
+        # Update pointer row safely
         new_total = start_idx + len(new_results)
-        ptr_df = pl.DataFrame({"achieved_repeats": [new_total], "streaming": [True]})
-        self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config, "updated_at": updated_at})
+        existing_total = 0
+        existing_df = self._store.load_df(ptr_key)
+        if existing_df is not None and not existing_df.is_empty():
+            existing_total = int(existing_df.get_column("achieved_repeats")[0])
+
+        if new_total > existing_total:
+            ptr_df = pl.DataFrame({"achieved_repeats": [new_total], "streaming": [True]})
+            self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config, "updated_at": updated_at})
 
 
     def save_repeat(
@@ -245,6 +265,7 @@ class LocatorResultsRepository:
         seed: int,
         max_steps: int,
         timeout_s: int,
+        repeat_offset: int = 0,
         repeat_idx: int,
         entries: list[dict[str, Any]],
         main_result_row: dict[str, Any],
@@ -257,6 +278,7 @@ class LocatorResultsRepository:
             seed=seed,
             max_steps=max_steps,
             timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
         )
         ptr_key = stable_config_hash(ptr_config)
         self._repeats.save_repeat(ptr_key, repeat_idx, entries, main_result_row)
@@ -271,34 +293,29 @@ class LocatorResultsRepository:
         seed: int,
         max_steps: int,
         timeout_s: int,
+        repeat_offset: int = 0,
     ) -> None:
-        """Purge all cached results (both inline and streaming repeats) for this combination."""
-        # 1. Purge streaming pointer and all possible repeats
-        ptr_config = combination_base_cache_config(
-            generator=generator,
-            noise=noise,
-            strategy=strategy,
-            seed=seed,
-            max_steps=max_steps,
-            timeout_s=timeout_s,
-        )
-        ptr_key = stable_config_hash(ptr_config)
-        self._store.delete(ptr_key)
-        
-        # Purge repeats up to a very large number (e.g. 1000)
-        for i in range(1000):
-            rep_key = self._repeats.make_repeat_key(ptr_key, i)
-            self._store.delete(rep_key)
+        """Purge all cached results (both inline and streaming repeats) for this combination across all partitions."""
+        backend = self._store.backend
+        keys_to_delete = []
+        for k in backend:
+            payload = backend.get(k)
+            if isinstance(payload, dict) and "config" in payload:
+                config = payload["config"]
+                # Match the combination base params, independent of repeat_offset and repeats
+                if (
+                    config.get("generator") == generator
+                    and config.get("noise") == noise
+                    and config.get("strategy") == strategy
+                    and config.get("seed") == seed
+                    and config.get("max_steps") == max_steps
+                    and config.get("timeout_s") == timeout_s
+                ):
+                    keys_to_delete.append(k)
 
-        # 2. Purge inline configs for this configuration
-        inline_config = locator_combination_cache_config(
-            generator=generator,
-            noise=noise,
-            strategy=strategy,
-            repeats=repeats,
-            seed=seed,
-            max_steps=max_steps,
-            timeout_s=timeout_s,
-        )
-        inline_key = stable_config_hash(inline_config)
-        self._store.delete(inline_key)
+        # Delete all matching pointer/inline keys and all associated repeat rows
+        for k in keys_to_delete:
+            self._store.delete(k)
+            for i in range(1000):
+                rep_key = self._repeats.make_repeat_key(k, i)
+                self._store.delete(rep_key)

@@ -218,7 +218,7 @@ class _TaskRunner:
             "generator": self.generator_name,
             "noise": self.noise_name,
             "strategy": self.strategy_name,
-            "repeats": self.repeats,
+            "repeats": self.task.repeat_total or self.repeats,
             "seed": self.task.seed,
             "max_steps": effective_max_steps,
             "timeout_s": self.task.loc_timeout_s,
@@ -300,7 +300,44 @@ class _TaskRunner:
             if self._owns_bridge:
                 self.bridge.close()
 
-    def _restore_cached_results(self) -> tuple[TaskResults, int]:
+    def _purge_cache_if_needed(self) -> None:
+        """Purge the entire cached combination once across all partitions if skip_cache is active."""
+        if not self.skip_cache:
+            return
+
+        from nvision.cache.locator_keys import combination_base_cache_config
+        from nvision.cache.hashing import stable_config_hash
+        import polars as pl
+
+        # Resolve effective max_steps
+        locator_class = self.task.strategy_spec.locator_class
+        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+        if uses_sweep_max_steps:
+            experiment = self._build_experiment(self._rng_for_measurement(0))
+            effective_max_steps = self._resolve_sweep_max_steps(experiment)
+        else:
+            effective_max_steps = self.task.loc_max_steps
+
+        # Use a standardized purged flag key independent of repeat_offset
+        base_cfg = combination_base_cache_config(
+            generator=self.generator_name,
+            noise=self.noise_name,
+            strategy=self.strategy_name,
+            seed=self.task.seed,
+            max_steps=effective_max_steps,
+            timeout_s=self.task.loc_timeout_s,
+            repeat_offset=0,
+        )
+        purged_key = f"purged:{stable_config_hash(base_cfg)}"
+
+        if purged_key not in self.cache._store.backend:
+            # Purge all partitions of this combination
+            combo_kw = self._combination_cache_kwargs()
+            self.cache.purge_cached_combination(**combo_kw, repeat_offset=self.task.repeat_offset)
+            # Write standardized purged flag to cache DB so other parallel workers don't purge again
+            self.cache._store.save_df(pl.DataFrame({"purged": [True]}), purged_key)
+
+    def _restore_cached_results(self, allow_gaps: bool = False) -> tuple[TaskResults, int]:
         """Load results from cache. Handles full matches and partial streaming hits."""
         if self.skip_cache:
             if self.task.require_cache:
@@ -315,9 +352,10 @@ class _TaskRunner:
             return [], 0
 
         combo_kw = self._combination_cache_kwargs()
+        ro = self.task.repeat_offset
 
         # 1. Try exact full match (Inline or already complete Streaming)
-        cached = self.cache.get_cached_combination(**combo_kw)
+        cached = self.cache.get_cached_combination(**combo_kw, repeat_offset=ro, allow_gaps=allow_gaps)
         if cached:
             restore_graphs(cached, self.task.out_dir)
             log.debug(
@@ -332,7 +370,7 @@ class _TaskRunner:
             return results, len(results)
 
         # 2. Try partial streaming match (only if not using --require-cache, or if miss)
-        partial, n = self.cache.get_cached_combination_partial(**combo_kw)
+        partial, n = self.cache.get_cached_combination_partial(**combo_kw, repeat_offset=ro, allow_gaps=allow_gaps)
         if n > 0:
             restore_graphs(partial, self.task.out_dir)
             log.debug(
@@ -389,8 +427,9 @@ class _TaskRunner:
         repeat_timestamps: list[str] = [""] * n_missing
         stop_reasons: list[str] = [""] * n_missing
 
+        offset = self.task.repeat_offset
         for i in range(n_missing):
-            rid = start_idx + i
+            rid = offset + start_idx + i
             measurement_rng = self._rng_for_measurement(rid)
             repeat_rngs.append(measurement_rng)
             experiments.append(get_shared_core_experiment(self.task, rid, self._build_experiment))
@@ -406,7 +445,8 @@ class _TaskRunner:
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
 
-        is_streaming = self.repeats > STREAMING_REPEAT_THRESHOLD
+        total_repeats = self.task.repeat_total or self.repeats
+        is_streaming = total_repeats > STREAMING_REPEAT_THRESHOLD
 
         # Determine effective max_steps for metrics/manifest keys
         locator_class = self.task.strategy_spec.locator_class
@@ -417,7 +457,7 @@ class _TaskRunner:
             pass
 
         for i in range(n_missing):
-            rid = start_idx + i
+            rid = offset + start_idx + i
             repeat_start_times[i] = time.perf_counter()
             repeat_timestamps[i] = datetime.datetime.now(datetime.UTC).isoformat()
             hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
@@ -432,9 +472,8 @@ class _TaskRunner:
             run_results.append(run_result)
             finalize_records.append(finalize_record)
 
-            if self.skip_cache and rid == 0:
-                combo_kw = self._combination_cache_kwargs()
-                self.cache.purge_cached_combination(**combo_kw)
+            if self.skip_cache:
+                self._purge_cache_if_needed()
 
             # Incremental streaming save for long runs
             if is_streaming:
@@ -502,6 +541,7 @@ class _TaskRunner:
             combo_kw = {k: v for k, v in self._combination_cache_kwargs().items() if k != "repeats"}
             self.cache.save_repeat(
                 **combo_kw,
+                repeat_offset=0,
                 repeat_idx=rid,
                 entries=entries,
                 main_result_row=main_result_row,
@@ -509,6 +549,7 @@ class _TaskRunner:
             # Update pointer
             self.cache.append_cached_repeats(
                 **combo_kw,
+                repeat_offset=0,
                 new_results=[],
                 start_idx=rid + 1,
             )
@@ -576,16 +617,17 @@ class _TaskRunner:
             return
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
+        ro = self.task.repeat_offset
 
         if self.repeats > STREAMING_REPEAT_THRESHOLD:
             # Pointers are updated incrementally in _run_repeats,
             # but we call this to ensure the final state is consistent.
             # (Results passed here are already partially saved).
-            self.cache.save_cached_combination(**self._combination_cache_kwargs(), results=results)
+            self.cache.save_cached_combination(**self._combination_cache_kwargs(), repeat_offset=ro, results=results)
             return
 
         full_results = [(embed_graph_content(entries, self.task.out_dir), row) for entries, row in results]
-        self.cache.save_cached_combination(**self._combination_cache_kwargs(), results=full_results)
+        self.cache.save_cached_combination(**self._combination_cache_kwargs(), repeat_offset=ro, results=full_results)
 
     def _rng_for_measurement(self, repeat_idx: int) -> random.Random:
         """RNG for measurement noise — still strategy-specific."""

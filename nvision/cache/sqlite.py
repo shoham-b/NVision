@@ -85,8 +85,8 @@ class SqliteCache:
                 (key, json.dumps(value)),
             )
             conn.commit()
-        except Exception:
-            pass
+        except Exception as exc:
+            raise exc
 
     def delete(self, key: str):
         try:
@@ -95,6 +95,14 @@ class SqliteCache:
             conn.commit()
         except Exception:
             pass
+
+    def __contains__(self, key: str) -> bool:
+        try:
+            conn = self._get_conn()
+            cur = conn.execute("SELECT 1 FROM cache WHERE key = ?", (key,))
+            return cur.fetchone() is not None
+        except Exception:
+            return False
 
     def __iter__(self):
         try:
@@ -328,8 +336,8 @@ class ShardedSqliteCache:
             )
             conn.commit()
             self._index_set_shard_id(key, shard_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise exc
 
     def delete(self, key: str):
         try:
@@ -351,6 +359,20 @@ class ShardedSqliteCache:
                 conn.commit()
         except Exception:
             pass
+
+    def __contains__(self, key: str) -> bool:
+        try:
+            shard_id = self._index_get_shard_id(key)
+            if shard_id is not None:
+                return True
+            if self._legacy_path is not None:
+                conn = self._get_conn_for_path(self._legacy_path)
+                self._ensure_cache_table(conn)
+                cur = conn.execute("SELECT 1 FROM cache WHERE key = ?", (key,))
+                return cur.fetchone() is not None
+            return False
+        except Exception:
+            return False
 
     def __iter__(self):
         # Primary source of truth is the index DB.

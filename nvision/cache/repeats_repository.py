@@ -48,14 +48,15 @@ class RepeatsRepository:
                     pass
         return None
 
-    def load_repeats(self, combo_key: str, count: int) -> list[RepeatResult]:
-        """Load N repeats in order. Missing repeats are skipped (returning a shorter list)."""
+    def load_repeats(self, combo_key: str, count: int, start_idx: int = 0, allow_gaps: bool = False) -> list[RepeatResult]:
+        """Load N repeats in order. If allow_gaps is True, missing repeats are skipped but we continue loading.
+        Otherwise, we stop at the first missing repeat (gap)."""
         results: list[RepeatResult] = []
         for i in range(count):
-            res = self.load_repeat(combo_key, i)
+            res = self.load_repeat(combo_key, start_idx + i)
             if res:
                 results.append(res)
-            else:
+            elif not allow_gaps:
                 # If we hit a gap, stop (assume sequential)
                 break
         return results
