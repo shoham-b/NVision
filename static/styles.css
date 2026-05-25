@@ -590,6 +590,18 @@ body {
             margin-bottom: 0.1em;
         }
 
+        .scan-metrics-panel.summary-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+            font-size: 0.85em;
+        }
+
+        @media (max-width: 850px) {
+            .scan-metrics-panel.summary-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
+
+
         /* ---- Run status banner ---- */
         .run-status-banner {
             padding: 0.75em 1em;

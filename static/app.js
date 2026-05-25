@@ -1692,15 +1692,7 @@ function main() {
                     return items;
                 }
 
-                function findSobolBaselineForPlot(plot) {
-                    if (!window.MANIFEST || !plot) return null;
-                    return window.MANIFEST.find(p => 
-                        p.strategy === "SimpleSobol" &&
-                        p.generator === plot.generator &&
-                        p.noise === plot.noise &&
-                        p.repeat === plot.repeat
-                    );
-                }
+
 
                 function buildFreqConvergenceRows(phaseData) {
                     if (!phaseData) return [];
@@ -1711,25 +1703,27 @@ function main() {
                     const errFb = phaseData.err_fb_at_milestone != null ? phaseData.err_fb_at_milestone : metrics.err_fb_at_milestone;
                     const sobolFreqUncert = phaseData.sobol_freq_uncert_at_conv != null ? phaseData.sobol_freq_uncert_at_conv : metrics.sobol_freq_uncert_at_conv;
                     const sobolFreqErr = phaseData.sobol_freq_err_at_conv != null ? phaseData.sobol_freq_err_at_conv : metrics.sobol_freq_err_at_conv;
+                    const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
+                    const absErr = phaseData.abs_err_x != null ? phaseData.abs_err_x : metrics.abs_err_x;
 
                     return [
-                        // Row 1: Steps
+                        // Row 1: Steps — sobol - sbed
                         [
                             { label: 'Sobol freq convergence', val: sobolFreqSteps != null ? formatCount(sobolFreqSteps) : 'N/A', tip: 'Steps needed for simple Sobol frequency uncertainty to drop below threshold.' },
                             { label: 'Sbed freq convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed frequency uncertainty to drop below threshold.' },
                             { label: 'Freq convergence savings', val: (sobolFreqSteps != null && stepsToFb != null) ? formatCount(sobolFreqSteps - stepsToFb) : 'N/A', tip: 'Difference in steps needed for frequency convergence (positive = Sbed was faster).' }
                         ],
-                        // Row 2: Uncertainty
+                        // Row 2: Uncertainty — frequency - overall
                         [
                             { label: 'Sobol freq uncertainty', val: sobolFreqUncert != null ? formatFrequency(sobolFreqUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol frequency estimate at the moment of convergence.' },
                             { label: 'Sbed freq uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed frequency estimate at the moment of convergence.' },
-                            { label: 'Freq uncert difference', val: (sobolFreqUncert != null && uncertFb != null) ? formatFrequency(sobolFreqUncert - uncertFb) : 'N/A', tip: 'Difference in frequency estimate uncertainty at convergence (positive = SBED was more confident).' }
+                            { label: 'Freq uncert difference', val: (uncertFb != null && uncert != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Reduction in Sbed frequency uncertainty from freq-convergence milestone to final (positive = uncertainty decreased).' }
                         ],
-                        // Row 3: Absolute Error
+                        // Row 3: Absolute Error — frequency - overall
                         [
                             { label: 'Sobol freq error', val: sobolFreqErr != null ? formatFrequency(sobolFreqErr) : 'N/A', tip: 'Absolute error of Sobol frequency estimate vs ground truth at the moment of convergence.' },
                             { label: 'Sbed freq error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute error of Sbed frequency estimate vs ground truth at the moment of convergence.' },
-                            { label: 'Freq error difference', val: (sobolFreqErr != null && errFb != null) ? formatFrequency(sobolFreqErr - errFb) : 'N/A', tip: 'Difference in absolute frequency error at convergence (positive = SBED was more accurate).' }
+                            { label: 'Freq error difference', val: (errFb != null && absErr != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Change in Sbed absolute frequency error from freq-convergence milestone to final (positive = error decreased, negative = error increased).' }
                         ]
                     ];
                 }
@@ -1745,8 +1739,8 @@ function main() {
 
                     // Sobol baseline final uncertainty and error
                     const sobolPlot = findSobolBaselineForPlot(plotContext);
-                    const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (phaseData.sobol_baseline_uncert || metrics.sobol_baseline_uncert);
-                    const sobolOverallErr = sobolPlot ? sobolPlot.abs_err_x : (phaseData.sobol_baseline_err || metrics.sobol_baseline_err);
+                    const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (phaseData.sobol_freq_uncert_at_conv || metrics.sobol_freq_uncert_at_conv);
+                    const sobolOverallErr = sobolPlot ? sobolPlot.abs_err_x : (phaseData.sobol_freq_err_at_conv || metrics.sobol_freq_err_at_conv);
 
                     return [
                         // Row 1: Steps
@@ -2096,58 +2090,168 @@ function main() {
         }).join('');
     }
 
+    function findSobolBaselineForPlot(plot) {
+        if (!window.MANIFEST || !plot) return null;
+        return window.MANIFEST.find(p => 
+            p.strategy === "SimpleSobol" &&
+            p.generator === plot.generator &&
+            p.noise === plot.noise &&
+            p.repeat === plot.repeat
+        );
+    }
+
     function renderRepeatsSummary(generator, noise, strategy) {
+        const container = document.getElementById('summary-subjects-container');
+        if (container) {
+            container.innerHTML = '';
+        }
+
         const summaryPlots = scanPlots.filter(
             (p) => p.generator === generator && p.noise === noise && p.strategy === strategy
         );
-        if (summaryPlots.length === 0) return;
+        if (summaryPlots.length === 0) {
+            if (container) {
+                const placeholder = document.createElement('div');
+                placeholder.style.padding = '3em 2em';
+                placeholder.style.color = '#64748b';
+                placeholder.style.textAlign = 'center';
+                placeholder.style.background = '#f8fafc';
+                placeholder.style.border = '1px dashed #cbd5e1';
+                placeholder.style.borderRadius = '8px';
+                placeholder.style.margin = '1em 0';
+                placeholder.innerHTML = `💡 <strong>No repeats summary data available for this selection.</strong><br><span style="font-size:0.9em;color:#94a3b8;margin-top:0.5em;display:block;">Ensure you have run experiments for strategy <code>${strategy}</code> with this generator and noise configuration.</span>`;
+                container.appendChild(placeholder);
+            }
+            return;
+        }
 
         ensurePlotly().then(() => {
-            const metricsList = summaryPlots.map(p => p.metrics || {});
+            // Aggregate arrays of values for all metrics
+            const sobolFreqStepsList = [];
+            const stepsToFbList = [];
+            const freqSavingsList = [];
 
-            // Extract metrics arrays
-            const final_err_fb = metricsList.map(m => m.final_err_fb).filter(v => v != null);
-            const final_err_fc = metricsList.map(m => m.final_err_fc).filter(v => v != null);
-            const abs_err_x = metricsList.map(m => m.abs_err_x).filter(v => v != null);
+            const sobolFreqUncertList = [];
+            const uncertFbList = [];
+            const freqUncertDiffList = [];
 
-            const err_fb_at_milestone = metricsList.map(m => m.err_fb_at_milestone).filter(v => v != null);
-            const err_fc_at_milestone = metricsList.map(m => m.err_fc_at_milestone).filter(v => v != null);
+            const sobolFreqErrList = [];
+            const errFbList = [];
+            const freqErrDiffList = [];
 
-            const err_fb_diff = metricsList.map(m => m.err_fb_diff).filter(v => v != null);
-            const err_fc_diff = metricsList.map(m => m.err_fc_diff).filter(v => v != null);
+            const sobolBaselineList = [];
+            const measurementsList = [];
+            const overallSavingsList = [];
 
-            const final_overall_uncert = metricsList.map(m => m.final_overall_uncert || m.uncert).filter(v => v != null);
-            const sobol_difference = metricsList.map(m => m.sobol_difference).filter(v => v != null);
+            const sobolOverallUncertList = [];
+            const overallUncertList = [];
+            const overallUncertDiffList = [];
 
-            // Extract new convergence metrics with fallbacks
-            const steps_to_fb = summaryPlots.map(p => p.steps_to_fb != null ? p.steps_to_fb : (p.metrics ? p.metrics.steps_to_fb : null)).filter(v => v != null);
-            const sobol_freq_steps = summaryPlots.map(p => p.sobol_freq_steps).filter(v => v != null);
-            const uncert_fb_at_milestone = summaryPlots.map(p => p.uncert_fb_at_milestone != null ? p.uncert_fb_at_milestone : (p.metrics ? p.metrics.uncert_fb_at_milestone : null)).filter(v => v != null);
-            const sobol_freq_uncert_at_conv = summaryPlots.map(p => p.sobol_freq_uncert_at_conv).filter(v => v != null);
-            const sobol_freq_err_at_conv = summaryPlots.map(p => p.sobol_freq_err_at_conv).filter(v => v != null);
+            const sobolOverallErrList = [];
+            const overallErrList = [];
+            const overallErrDiffList = [];
 
-            const sobol_sbed_freq_diff = [];
+            const earlyStopMeasurementsList = [];
+            const earlyStopStepsToFbList = [];
+            const earlyStopSavingsList = [];
+
+            const earlyStopFinalUncertList = [];
+            const earlyStopFreqUncertList = [];
+            const earlyStopUncertDiffList = [];
+
+            const earlyStopFinalErrList = [];
+            const earlyStopFreqErrList = [];
+            const earlyStopErrDiffList = [];
+
             for (const p of summaryPlots) {
-                const sbed_steps = p.steps_to_fb != null ? p.steps_to_fb : (p.metrics ? p.metrics.steps_to_fb : null);
-                if (p.sobol_freq_steps != null && sbed_steps != null) {
-                    sobol_sbed_freq_diff.push(p.sobol_freq_steps - sbed_steps);
-                }
+                const target = (p.coarse && p.fine) ? p.fine : p;
+                const metrics = target.metrics || {};
+
+                // Subject 1: Freq convergence
+                const sobolFreqSteps = target.sobol_freq_steps != null ? target.sobol_freq_steps : metrics.sobol_freq_steps;
+                const stepsToFb = target.steps_to_fb != null ? target.steps_to_fb : metrics.steps_to_fb;
+                const uncertFb = target.uncert_fb_at_milestone != null ? target.uncert_fb_at_milestone : metrics.uncert_fb_at_milestone;
+                const errFb = target.err_fb_at_milestone != null ? target.err_fb_at_milestone : metrics.err_fb_at_milestone;
+                const sobolFreqUncert = target.sobol_freq_uncert_at_conv != null ? target.sobol_freq_uncert_at_conv : metrics.sobol_freq_uncert_at_conv;
+                const sobolFreqErr = target.sobol_freq_err_at_conv != null ? target.sobol_freq_err_at_conv : metrics.sobol_freq_err_at_conv;
+                const uncert = target.uncert != null ? target.uncert : metrics.uncert;
+                const absErr = target.abs_err_x != null ? target.abs_err_x : metrics.abs_err_x;
+
+                if (sobolFreqSteps != null) sobolFreqStepsList.push(sobolFreqSteps);
+                if (stepsToFb != null) stepsToFbList.push(stepsToFb);
+                if (sobolFreqSteps != null && stepsToFb != null) freqSavingsList.push(sobolFreqSteps - stepsToFb);
+
+                if (sobolFreqUncert != null) sobolFreqUncertList.push(sobolFreqUncert);
+                if (uncertFb != null) uncertFbList.push(uncertFb);
+                if (uncertFb != null && uncert != null) freqUncertDiffList.push(uncertFb - uncert);
+
+                if (sobolFreqErr != null) sobolFreqErrList.push(sobolFreqErr);
+                if (errFb != null) errFbList.push(errFb);
+                if (errFb != null && absErr != null) freqErrDiffList.push(errFb - absErr);
+
+                // Subject 2: Overall convergence
+                const sobolBaseline = target.sobol_baseline_steps != null ? target.sobol_baseline_steps : metrics.sobol_baseline_steps;
+                const measurements = target.measurements != null ? target.measurements : metrics.measurements;
+
+                const sobolPlot = findSobolBaselineForPlot(p);
+                const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (target.sobol_freq_uncert_at_conv || metrics.sobol_freq_uncert_at_conv);
+                const sobolOverallErr = sobolPlot ? sobolPlot.abs_err_x : (target.sobol_freq_err_at_conv || metrics.sobol_freq_err_at_conv);
+
+                if (sobolBaseline != null) sobolBaselineList.push(sobolBaseline);
+                if (measurements != null) measurementsList.push(measurements);
+                if (sobolBaseline != null && measurements != null) overallSavingsList.push(sobolBaseline - measurements);
+
+                if (sobolOverallUncert != null) sobolOverallUncertList.push(sobolOverallUncert);
+                if (uncert != null) overallUncertList.push(uncert);
+                if (sobolOverallUncert != null && uncert != null) overallUncertDiffList.push(sobolOverallUncert - uncert);
+
+                if (sobolOverallErr != null) sobolOverallErrList.push(sobolOverallErr);
+                if (absErr != null) overallErrList.push(absErr);
+                if (sobolOverallErr != null && absErr != null) overallErrDiffList.push(sobolOverallErr - absErr);
+
+                // Subject 3: Freq vs. Overall
+                if (measurements != null) earlyStopMeasurementsList.push(measurements);
+                if (stepsToFb != null) earlyStopStepsToFbList.push(stepsToFb);
+                if (measurements != null && stepsToFb != null) earlyStopSavingsList.push(measurements - stepsToFb);
+
+                if (uncert != null) earlyStopFinalUncertList.push(uncert);
+                if (uncertFb != null) earlyStopFreqUncertList.push(uncertFb);
+                if (uncert != null && uncertFb != null) earlyStopUncertDiffList.push(uncertFb - uncert);
+
+                if (absErr != null) earlyStopFinalErrList.push(absErr);
+                if (errFb != null) earlyStopFreqErrList.push(errFb);
+                if (absErr != null && errFb != null) earlyStopErrDiffList.push(errFb - absErr);
             }
 
-            function createHistogram(containerId, title, data, name, color, customUnit = null) {
-                if (!data || data.length === 0) return;
-                const div = document.createElement('div');
-                div.style.flex = '1 1 400px';
-                div.style.minWidth = '300px';
-                document.getElementById(containerId).appendChild(div);
+            const stepsToFbExist = summaryPlots.some(p => {
+                const target = (p.coarse && p.fine) ? p.fine : p;
+                return (target.steps_to_fb != null || (target.metrics && target.metrics.steps_to_fb != null));
+            });
+
+            function createCardHistogram(cardContainer, data, name, color, unitType = null) {
+                if (!data || data.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.style.height = '140px';
+                    empty.style.display = 'flex';
+                    empty.style.alignItems = 'center';
+                    empty.style.justifyContent = 'center';
+                    empty.style.color = '#94a3b8';
+                    empty.style.fontSize = '0.9em';
+                    empty.style.fontWeight = '500';
+                    empty.textContent = 'N/A';
+                    cardContainer.appendChild(empty);
+                    return;
+                }
+
+                const plotDiv = document.createElement('div');
+                plotDiv.style.height = '140px';
+                plotDiv.style.width = '100%';
+                cardContainer.appendChild(plotDiv);
 
                 let scaledData = data;
                 let unit = '';
 
-                if (customUnit !== null) {
-                    unit = customUnit;
-                } else {
-                    // Automatically determine the optimal frequency scale and unit based on the maximum absolute value
+                if (unitType === 'frequency') {
                     let maxAbs = 0;
                     for (let i = 0; i < data.length; i++) {
                         const abs = Math.abs(data[i]);
@@ -2168,6 +2272,10 @@ function main() {
                     }
 
                     scaledData = data.map(v => v / factor);
+                } else if (unitType === 'steps') {
+                    unit = 'steps';
+                } else if (unitType === 'measurements') {
+                    unit = 'meas.';
                 }
 
                 const trace = {
@@ -2177,75 +2285,143 @@ function main() {
                     marker: {
                         color: color,
                         line: {
-                            color: 'rgba(0, 0, 0, 0.5)',
-                            width: 1
+                            color: 'rgba(255, 255, 255, 0.6)',
+                            width: 0.5
                         }
                     },
-                    opacity: 0.8,
-                    nbinsx: 50 // Use more bins for smoother distribution
+                    opacity: 0.85,
+                    autobinx: true
                 };
+
                 const layout = {
-                    title: { text: title, font: { size: 16, family: 'Arial, sans-serif' } },
-                    margin: { l: 50, r: 20, t: 50, b: 50 },
-                    xaxis: { title: { text: 'Value' + (unit ? ' (' + unit + ')' : ''), font: { size: 14 } }, showgrid: true, gridcolor: '#eee', zeroline: true, zerolinecolor: '#999' },
-                    yaxis: { title: { text: 'Count', font: { size: 14 } }, showgrid: true, gridcolor: '#eee' },
+                    margin: { l: 25, r: 10, t: 10, b: 25 },
+                    xaxis: {
+                        title: {
+                            text: unit,
+                            font: { size: 9, color: '#64748b', family: 'system-ui, sans-serif' }
+                        },
+                        tickfont: { size: 8, color: '#64748b' },
+                        showgrid: true,
+                        gridcolor: '#f1f5f9',
+                        zeroline: true,
+                        zerolinecolor: '#cbd5e1'
+                    },
+                    yaxis: {
+                        tickfont: { size: 8, color: '#64748b' },
+                        showgrid: true,
+                        gridcolor: '#f1f5f9'
+                    },
                     showlegend: false,
-                    plot_bgcolor: 'white',
-                    paper_bgcolor: 'white'
+                    plot_bgcolor: 'transparent',
+                    paper_bgcolor: 'transparent',
+                    bargap: 0.05
                 };
-                Plotly.newPlot(div, [trace], layout, { responsive: true });
+
+                Plotly.newPlot(plotDiv, [trace], layout, {
+                    displayModeBar: false,
+                    responsive: true
+                });
             }
 
-            const absErrContainer = document.getElementById('summary-abs-error-charts');
-            absErrContainer.innerHTML = '';
-            if (abs_err_x.length > 0) createHistogram('summary-abs-error-charts', 'Overall Absolute Frequency Error', abs_err_x, 'Overall', '#3b82f6');
-            if (final_err_fb.length > 0) createHistogram('summary-abs-error-charts', 'Final Center Frequency Error (fb)', final_err_fb, 'fb', '#10b981');
-            if (final_err_fc.length > 0) createHistogram('summary-abs-error-charts', 'Final Splitting Error (fc)', final_err_fc, 'fc', '#8b5cf6');
-            if (err_fb_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Sbed Center Frequency Error at Milestone', err_fb_at_milestone, 'Sbed Milestone fb', '#f59e0b');
-            if (sobol_freq_err_at_conv.length > 0) createHistogram('summary-abs-error-charts', 'Sobol Freq Error at Convergence', sobol_freq_err_at_conv, 'Sobol Freq Error', '#c084fc');
-            if (err_fc_at_milestone.length > 0) createHistogram('summary-abs-error-charts', 'Splitting Error at Milestone (fc)', err_fc_at_milestone, 'fc Milestone', '#ef4444');
-            if (err_fb_diff.length > 0) createHistogram('summary-abs-error-charts', 'Center Frequency Error Reduction (fb)', err_fb_diff, 'fb Diff', '#6366f1');
-            if (err_fc_diff.length > 0) createHistogram('summary-abs-error-charts', 'Splitting Error Reduction (fc)', err_fc_diff, 'fc Diff', '#ec4899');
+            const subjects = [];
 
-            const uncertContainer = document.getElementById('summary-uncertainty-charts');
-            uncertContainer.innerHTML = '';
-            if (final_overall_uncert.length > 0) createHistogram('summary-uncertainty-charts', 'Overall Uncertainty', final_overall_uncert, 'Uncertainty', '#64748b');
-            if (uncert_fb_at_milestone.length > 0) createHistogram('summary-uncertainty-charts', 'Sbed Freq Uncertainty at Convergence', uncert_fb_at_milestone, 'Sbed Freq Uncert', '#34d399');
-            if (sobol_freq_uncert_at_conv.length > 0) createHistogram('summary-uncertainty-charts', 'Sobol Freq Uncertainty at Convergence', sobol_freq_uncert_at_conv, 'Sobol Freq Uncert', '#a78bfa');
+            if (stepsToFbExist) {
+                subjects.push({
+                    title: 'Frequency Convergence Comparison',
+                    rows: [
+                        [
+                            { label: 'Sobol freq convergence', data: sobolFreqStepsList, color: '#f472b6', type: 'steps' },
+                            { label: 'Sbed freq convergence', data: stepsToFbList, color: '#60a5fa', type: 'steps' },
+                            { label: 'Freq convergence savings', data: freqSavingsList, color: '#22c55e', type: 'steps' }
+                        ],
+                        [
+                            { label: 'Sobol freq uncertainty', data: sobolFreqUncertList, color: '#a78bfa', type: 'frequency' },
+                            { label: 'Sbed freq uncertainty', data: uncertFbList, color: '#34d399', type: 'frequency' },
+                            { label: 'Freq uncert difference', data: freqUncertDiffList, color: '#f59e0b', type: 'frequency' }
+                        ],
+                        [
+                            { label: 'Sobol freq error', data: sobolFreqErrList, color: '#c084fc', type: 'frequency' },
+                            { label: 'Sbed freq error', data: errFbList, color: '#10b981', type: 'frequency' },
+                            { label: 'Freq error difference', data: freqErrDiffList, color: '#6366f1', type: 'frequency' }
+                        ]
+                    ]
+                });
+            }
 
-            const efficiencyContainer = document.getElementById('summary-efficiency-charts');
-            if (efficiencyContainer) {
-                efficiencyContainer.innerHTML = '';
-                if (sobol_difference.length > 0) {
-                    createHistogram(
-                        'summary-efficiency-charts',
-                        'Sobol Sweep Measurement Savings',
-                        sobol_difference,
-                        'Savings',
-                        '#f59e0b',
-                        'measurements'
-                    );
-                }
-                if (steps_to_fb.length > 0) {
-                    createHistogram('summary-efficiency-charts', 'Sbed Frequency Convergence Steps', steps_to_fb, 'Sbed Freq Steps', '#60a5fa', 'steps');
-                }
-                if (sobol_freq_steps.length > 0) {
-                    createHistogram('summary-efficiency-charts', 'Sobol Frequency Convergence Steps', sobol_freq_steps, 'Sobol Freq Steps', '#f472b6', 'steps');
-                }
-                if (sobol_sbed_freq_diff.length > 0) {
-                    createHistogram('summary-efficiency-charts', 'Sobol - Sbed Freq Steps Diff', sobol_sbed_freq_diff, 'Steps Diff', '#22c55e', 'steps');
-                }
+            subjects.push({
+                title: 'Overall Convergence Comparison',
+                rows: [
+                    [
+                        { label: 'Sobol baseline', data: sobolBaselineList, color: '#f472b6', type: 'measurements' },
+                        { label: 'Sbed overall steps', data: measurementsList, color: '#60a5fa', type: 'measurements' },
+                        { label: 'Overall savings', data: overallSavingsList, color: '#22c55e', type: 'measurements' }
+                    ],
+                    [
+                        { label: 'Sobol overall uncertainty', data: sobolOverallUncertList, color: '#a78bfa', type: 'frequency' },
+                        { label: 'Sbed overall uncertainty', data: overallUncertList, color: '#34d399', type: 'frequency' },
+                        { label: 'Overall uncert difference', data: overallUncertDiffList, color: '#f59e0b', type: 'frequency' }
+                    ],
+                    [
+                        { label: 'Sobol overall error', data: sobolOverallErrList, color: '#c084fc', type: 'frequency' },
+                        { label: 'Sbed overall error', data: overallErrList, color: '#10b981', type: 'frequency' },
+                        { label: 'Overall error difference', data: overallErrDiffList, color: '#6366f1', type: 'frequency' }
+                    ]
+                ]
+            });
 
-                if (sobol_difference.length === 0 && steps_to_fb.length === 0 && sobol_freq_steps.length === 0) {
-                    const placeholder = document.createElement('div');
-                    placeholder.style.padding = '3em 2em';
-                    placeholder.style.color = '#718096';
-                    placeholder.style.textAlign = 'center';
-                    placeholder.style.width = '100%';
-                    placeholder.style.fontSize = '1.1em';
-                    placeholder.style.gridColumn = '1 / -1';
-                    placeholder.innerHTML = '💡 <strong>No sweep savings data available for this strategy.</strong><br><span style="font-size:0.95em;color:#a0aec0;margin-top:0.5em;display:block;">Sweep savings are computed for locator strategies that utilize a sweep phase (e.g., <code>StagedSobolSweep</code> or <code>GenericSweep</code>). Select one of these strategies to view the savings distribution.</span>';
-                    efficiencyContainer.appendChild(placeholder);
+            if (stepsToFbExist) {
+                subjects.push({
+                    title: 'Frequency vs. Overall Convergence Comparison',
+                    rows: [
+                        [
+                            { label: 'Sbed overall steps', data: earlyStopMeasurementsList, color: '#60a5fa', type: 'measurements' },
+                            { label: 'Sbed freq convergence', data: earlyStopStepsToFbList, color: '#f472b6', type: 'steps' },
+                            { label: 'Early stopping savings', data: earlyStopSavingsList, color: '#22c55e', type: 'measurements' }
+                        ],
+                        [
+                            { label: 'Sbed final uncertainty', data: earlyStopFinalUncertList, color: '#34d399', type: 'frequency' },
+                            { label: 'Sbed freq uncertainty', data: earlyStopFreqUncertList, color: '#a78bfa', type: 'frequency' },
+                            { label: 'Freq to final uncert diff', data: earlyStopUncertDiffList, color: '#f59e0b', type: 'frequency' }
+                        ],
+                        [
+                            { label: 'Sbed final error', data: earlyStopFinalErrList, color: '#10b981', type: 'frequency' },
+                            { label: 'Sbed freq error', data: earlyStopFreqErrList, color: '#c084fc', type: 'frequency' },
+                            { label: 'Freq to final error diff', data: earlyStopErrDiffList, color: '#6366f1', type: 'frequency' }
+                        ]
+                    ]
+                });
+            }
+
+            const container = document.getElementById('summary-subjects-container');
+            if (container) {
+                container.innerHTML = '';
+
+                for (const subj of subjects) {
+                    const titleEl = document.createElement('h3');
+                    titleEl.style.marginTop = '1.5em';
+                    titleEl.style.marginBottom = '0.5em';
+                    titleEl.textContent = subj.title;
+                    container.appendChild(titleEl);
+
+                    for (const row of subj.rows) {
+                        const rowDiv = document.createElement('div');
+                        rowDiv.className = 'scan-metrics-panel summary-grid';
+                        rowDiv.style.marginBottom = '0.75em';
+                        container.appendChild(rowDiv);
+
+                        for (const card of row) {
+                            const cardDiv = document.createElement('div');
+                            cardDiv.className = 'metric-item';
+                            rowDiv.appendChild(cardDiv);
+
+                            const labelDiv = document.createElement('div');
+                            labelDiv.className = 'metric-label';
+                            labelDiv.textContent = card.label;
+                            cardDiv.appendChild(labelDiv);
+
+                            createCardHistogram(cardDiv, card.data, card.label, card.color, card.type);
+                        }
+                    }
                 }
             }
         });

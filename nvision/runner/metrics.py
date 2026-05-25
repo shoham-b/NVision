@@ -113,34 +113,15 @@ def generate_attempt_metrics(  # noqa: C901
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
 
-    # Copy final estimates for parameters
-    for param_name in ("frequency", "linewidth", "split", "dip_depth", "k_np", "fwhm_total", "lorentz_frac"):
-        if param_name in estimate:
-            metrics_serialized[f"final_est_{param_name}"] = _maybe_finite(estimate[param_name])
-
-    if duration_ms_value is None:
-        duration_ms_value = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
-    metrics_serialized["duration_ms"] = _maybe_finite(duration_ms_value)
-
-    main_result_row: dict[str, Any] = {
-        "generator": gen_name,
-        "noise": noise_name,
-        "strategy": strat_name,
-        "repeats": n_repeats,
-        "max_steps": max_steps,
-        "seed": seed,
-        "attempt": attempt_idx_in_combo + 1,
-        "stop_reason": repeat_stop_reasons[attempt_idx_in_combo],
-        **metrics_serialized,
-    }
+    # Initialise Sobol convergence variables before they are populated from finalize_row
+    sobol_freq_uncert_at_conv: float | None = None
+    sobol_freq_err_at_conv: float | None = None
 
     sweep_steps: int | None = None
     locator_steps: int | None = None
     sobol_baseline_steps: int | None = None
     sobol_freq_steps: int | None = None
     sobol_conv_diff: int | None = None
-    sobol_freq_uncert_at_conv: float | None = None
-    sobol_freq_err_at_conv: float | None = None
     if not finalize_row.is_empty():
         if "sweep_steps" in finalize_row.columns:
             val = finalize_row.get_column("sweep_steps")[0]
@@ -173,6 +154,33 @@ def generate_attempt_metrics(  # noqa: C901
 
     if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_freq_steps is not None:
         sobol_conv_diff = sobol_baseline_steps - sobol_freq_steps
+
+    # Forward Sobol freq uncertainty/error to metrics (for UI fallback via metrics.*)
+    if sobol_freq_uncert_at_conv is not None:
+        metrics_serialized["sobol_freq_uncert_at_conv"] = sobol_freq_uncert_at_conv
+    if sobol_freq_err_at_conv is not None:
+        metrics_serialized["sobol_freq_err_at_conv"] = sobol_freq_err_at_conv
+
+    # Copy final estimates for parameters
+    for param_name in ("frequency", "linewidth", "split", "dip_depth", "k_np", "fwhm_total", "lorentz_frac"):
+        if param_name in estimate:
+            metrics_serialized[f"final_est_{param_name}"] = _maybe_finite(estimate[param_name])
+
+    if duration_ms_value is None:
+        duration_ms_value = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
+    metrics_serialized["duration_ms"] = _maybe_finite(duration_ms_value)
+
+    main_result_row: dict[str, Any] = {
+        "generator": gen_name,
+        "noise": noise_name,
+        "strategy": strat_name,
+        "repeats": n_repeats,
+        "max_steps": max_steps,
+        "seed": seed,
+        "attempt": attempt_idx_in_combo + 1,
+        "stop_reason": repeat_stop_reasons[attempt_idx_in_combo],
+        **metrics_serialized,
+    }
 
     entry_base: dict[str, Any] = {
         "generator": gen_name,

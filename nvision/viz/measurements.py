@@ -1043,6 +1043,7 @@ def _setup_scan_layout(  # noqa: C901
         layout_args.update(
             dict(
                 xaxis_title="frequency",
+                xaxis_tickformat="~s",
                 yaxis_title="intensity",
                 xaxis2_title="step",
                 yaxis2_title="metric value",
@@ -1054,6 +1055,7 @@ def _setup_scan_layout(  # noqa: C901
         layout_args.update(
             dict(
                 xaxis_title="frequency",
+                xaxis_tickformat="~s",
                 yaxis_title="intensity (photon count)",
                 legend=dict(
                     orientation="h",
@@ -1188,14 +1190,19 @@ class MeasurementsMixin:
             baseline = max(finite_ys) if finite_ys else 1.0
             baseline = baseline if baseline > 1e-12 else 1.0
 
+            # Convert sobol_xs from normalized [0, 1] to physical domain
+            width = float(scan.x_max - scan.x_min)
+            sobol_xs_phys = [float(scan.x_min + float(x) * width) for x in sobol_xs]
+
             def depth_percent(value: float) -> float:
                 return max(0.0, (baseline - float(value)) / baseline * 100.0)
 
             fig.add_trace(
                 go.Scatter(
-                    x=sobol_xs,
+                    x=sobol_xs_phys,
                     y=sobol_ys,
                     mode="markers",
+                    visible="legendonly",
                     name="sobol measurements (noisy)",
                     marker=dict(
                         size=6,
@@ -1218,6 +1225,7 @@ class MeasurementsMixin:
                         x=xs,
                         y=y_sobol_mode,
                         mode="lines",
+                        visible="legendonly",
                         name="sobol most likely signal",
                         line=dict(color="#805ad5", width=2, dash="dashdot"),
                     ),
