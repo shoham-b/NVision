@@ -143,7 +143,7 @@ def _split_oversized_tasks(tasks: list[LocatorTask], runners: int, min_chunk: in
     return split
 
 
-def _harvest_partial_results_from_cache(
+def _harvest_partial_results_from_cache(  # noqa: C901
     tasks: list[LocatorTask],
     cache_bridge: CacheBridge | None,
     df_rows: list[dict],

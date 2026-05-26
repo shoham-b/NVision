@@ -27,6 +27,7 @@ from nvision.sim.locs.bayesian.belief_builders import (
     nv_center_belief,
     nv_center_smc_belief,
 )
+from nvision.sim.locs.bayesian.maximum_likelihood_locator import MaximumLikelihoodLocator
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator as SbedLocator
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.bayesian.utility_sampling_locator import UtilitySamplingLocator
@@ -118,7 +119,7 @@ class TestOverallNVCenter:
         exp = _nv_center_experiment()
         _overall_bayesian_ms(
             benchmark,
-            EKFLocator,  # Updated locator
+            MaximumLikelihoodLocator,  # Updated locator
             exp,
             builder=nv_center_belief,
             max_steps=20,

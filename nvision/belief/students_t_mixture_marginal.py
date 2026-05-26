@@ -168,7 +168,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
 
         self._recompute_covariances()
 
-    def _recompute_covariances(self) -> None:
+    def _recompute_covariances(self) -> None:  # noqa: C901
         """Cache Σ = Λ⁻¹ for all components with ridge regularization."""
         epsilon = NVISION_STUDENTS_T_EPSILON
         for k in range(self.n_components):
@@ -277,7 +277,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
         self.last_obs = observations[-1]
         self._recompute_covariances()
 
-    def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
+    def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:  # noqa: C901
         """Perform linearized update with Student's t weighting."""
         K, D = self.n_components, self._dim  # noqa: N806
         sigma2 = sigma_eta**2

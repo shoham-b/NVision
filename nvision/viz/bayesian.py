@@ -1964,7 +1964,7 @@ class BayesianMixin:
 
         # Create scale matrix
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D = np.diag(1.0 / scales)
+        D = np.diag(1.0 / scales)  # noqa: N806
         covariance_history = [D @ cov @ D for cov in covariance_history]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
@@ -2382,7 +2382,7 @@ class BayesianMixin:
         }
 
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D_inv = np.diag(scales)
+        D_inv = np.diag(scales)  # noqa: N806
         fisher_hist = [D_inv @ fim @ D_inv for fim in fisher_hist]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
@@ -2676,7 +2676,7 @@ class BayesianMixin:
                 lo, hi = param_bounds[p]
                 scale = param_scales.get(p, 1.0)
                 unit = param_units.get(p, "")
-                base += f"<br><sup>bounds: [{lo / scale:.4g}, {hi / scale:.4g}]{unit} (width={(hi - lo) / scale:.4g}{unit})</sup>"
+                base += f"<br><sup>bounds: [{lo / scale:.4g}, {hi / scale:.4g}]{unit} (width={(hi - lo) / scale:.4g}{unit})</sup>"  # noqa: E501
             return base
 
         # Create subplots - one row per parameter, plus one for convergence streak

@@ -246,7 +246,7 @@ class _TaskRunner:
                 self.strategy_name,
             )
 
-    def run(self) -> TaskResults:
+    def run(self) -> TaskResults:  # noqa: C901
         """Main pipeline: cache -> repeats -> outputs -> cache."""
         _check_memory_limit()
         try:
@@ -450,7 +450,7 @@ class _TaskRunner:
 
         return [], 0
 
-    def _explain_cache_miss_total(self, total_achieved: int, total_requested: int) -> None:
+    def _explain_cache_miss_total(self, total_achieved: int, total_requested: int) -> None:  # noqa: C901
         """Explain why there was a cache miss or partial cache hit at the global total level."""
         if self.skip_cache:
             log.info("Cache miss reason: Caching was bypassed/disabled via task config (skip_cache=True).")

@@ -818,7 +818,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     return extra
 
 
-def get_or_run_sobol_baseline(
+def get_or_run_sobol_baseline(  # noqa: C901
     experiment: Any,
     seed: int,
     generator_name: str,

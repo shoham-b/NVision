@@ -457,7 +457,7 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
 
         ptr_df = pl.DataFrame({"achieved_repeats": [5], "streaming": [True]})
         repo._store.save_df(
-            ptr_df, ptr_key, metadata={"config": config, "updated_at": datetime.datetime.now().isoformat()}
+            ptr_df, ptr_key, metadata={"config": config, "updated_at": datetime.datetime.now(datetime.UTC).isoformat()}
         )
     finally:
         bridge.close()

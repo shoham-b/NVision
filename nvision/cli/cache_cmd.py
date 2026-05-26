@@ -32,7 +32,7 @@ def _get_caches(root: Path) -> list[tuple[str, CategoryDataStore]]:
 
 
 @cache_app.command(name="list")
-def list_cache(
+def list_cache(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
 ) -> None:
     """List cached simulations grouped for readability."""
@@ -136,7 +136,7 @@ def _matches_filter(
 
 
 @cache_app.command(name="clean")
-def cache_clean(
+def cache_clean(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     category: Annotated[
         str | None,

@@ -138,7 +138,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if sync_x:
             self.physical_x_bounds = (nl, nh)
 
-    def _resample(self) -> None:
+    def _resample(self) -> None:  # noqa: C901
         """Perform systematic resampling and automatically narrow the frequency bounds.
 
         Only the scan axis (``frequency``) is narrowed. All other parameters keep

@@ -155,7 +155,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
         self._recompute_covariances()
 
-    def _recompute_covariances(self) -> None:
+    def _recompute_covariances(self) -> None:  # noqa: C901
         """Invert each component's precision matrix to obtain the covariance.
 
         Uses a **trace-relative** regularisation so that the epsilon floor
@@ -281,7 +281,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         self.last_obs = observations[-1]
         self._recompute_covariances()
 
-    def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
+    def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:  # noqa: C901
         """Perform EKF update for each component."""
         K, D = self.n_components, self._dim  # noqa: N806
         sigma2 = max(sigma_eta**2, 1e-12)
