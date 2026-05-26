@@ -286,7 +286,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Regenerate the epoch candidates using the updated physical frequency bounds.
         self._generate_epoch_candidates()
 
-
     def copy(self) -> UnitCubeSMCMarginalDistribution:
         dist = UnitCubeSMCMarginalDistribution(
             model=self.model,
