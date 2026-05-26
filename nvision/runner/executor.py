@@ -289,9 +289,10 @@ class _TaskRunner:
                         ptr_key_v8 = stable_config_hash(ptr_config_v8)
                         ptr_df_v8 = self.cache._store.load_df(ptr_key_v8)
                         if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
+                            ptr_key = ptr_key_v8
                             ptr_df = ptr_df_v8
                     if ptr_df is not None and not ptr_df.is_empty():
-                        total_achieved_in_cache = int(ptr_df.get_column("achieved_repeats")[0])
+                        total_achieved_in_cache = self.cache._repeats.count_saved(ptr_key, max_expected=total_requested)
                 except Exception:
                     pass
 
@@ -424,7 +425,7 @@ class _TaskRunner:
         )
         if n > 0:
             restore_graphs(partial, self.task.out_dir)
-            log.info(
+            log.debug(
                 "Partial cache hit for %s/%s/%s (seed=%s); restoring %s/%s repeats.",
                 self.generator_name,
                 self.noise_name,

@@ -207,9 +207,34 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             lo, hi = self.parameter_bounds[name]
 
             if self.priors and name in self.priors:
-                mean, std = self.priors[name]
-                self._particles[:, i] = np.random.normal(mean, std, self.num_particles)
-                self._particles[:, i] = np.clip(self._particles[:, i], lo, hi)
+                prior_val = self.priors[name]
+                if isinstance(prior_val, tuple) and len(prior_val) >= 2 and prior_val[0] == "sin^2":
+                    k = prior_val[1]
+                    phys_bounds = getattr(self, "physical_param_bounds", None)
+                    if phys_bounds and name in phys_bounds:
+                        f_min, f_max = phys_bounds[name]
+                    else:
+                        f_min, f_max = lo, hi
+
+                    # Rejection sampling in physical space
+                    sampled = []
+                    while len(sampled) < self.num_particles:
+                        candidates = np.random.uniform(f_min, f_max, self.num_particles)
+                        probs = np.sin(k * candidates) ** 2
+                        u = np.random.uniform(0.0, 1.0, self.num_particles)
+                        accepted = candidates[u < probs]
+                        sampled.extend(accepted)
+                    sampled = np.array(sampled[:self.num_particles])
+
+                    # Map back to unit space if in UnitCubeSMCMarginalDistribution
+                    if phys_bounds and name in phys_bounds:
+                        self._particles[:, i] = (sampled - f_min) / (f_max - f_min)
+                    else:
+                        self._particles[:, i] = sampled
+                else:
+                    mean, std = prior_val
+                    self._particles[:, i] = np.random.normal(mean, std, self.num_particles)
+                    self._particles[:, i] = np.clip(self._particles[:, i], lo, hi)
             else:
                 self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
@@ -594,9 +619,32 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             for j, name in enumerate(self._param_names):
                 lo, hi = self.parameter_bounds[name]
                 if self.priors and name in self.priors:
-                    mean_prior, std_prior = self.priors[name]
-                    random_vals = self._rng.normal(mean_prior, std_prior, num_random)
-                    self._particles[-num_random:, j] = np.clip(random_vals, lo, hi)
+                    prior_val = self.priors[name]
+                    if isinstance(prior_val, tuple) and len(prior_val) >= 2 and prior_val[0] == "sin^2":
+                        k = prior_val[1]
+                        phys_bounds = getattr(self, "physical_param_bounds", None)
+                        if phys_bounds and name in phys_bounds:
+                            f_min, f_max = phys_bounds[name]
+                        else:
+                            f_min, f_max = lo, hi
+
+                        sampled = []
+                        while len(sampled) < num_random:
+                            candidates = np.random.uniform(f_min, f_max, num_random)
+                            probs = np.sin(k * candidates) ** 2
+                            u = np.random.uniform(0.0, 1.0, num_random)
+                            accepted = candidates[u < probs]
+                            sampled.extend(accepted)
+                        sampled = np.array(sampled[:num_random])
+
+                        if phys_bounds and name in phys_bounds:
+                            self._particles[-num_random:, j] = (sampled - f_min) / (f_max - f_min)
+                        else:
+                            self._particles[-num_random:, j] = sampled
+                    else:
+                        mean_prior, std_prior = prior_val
+                        random_vals = self._rng.normal(mean_prior, std_prior, num_random)
+                        self._particles[-num_random:, j] = np.clip(random_vals, lo, hi)
                 else:
                     self._particles[-num_random:, j] = self._rng.uniform(lo, hi, num_random)
 

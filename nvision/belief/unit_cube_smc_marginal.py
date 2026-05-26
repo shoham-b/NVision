@@ -231,8 +231,10 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 # Add a small guard margin (1 × linewidth) so the locator can
                 # still sample just outside the shoulders for EIG computation.
                 guard = omega_phys
-                new_lo = left_shoulder_x - guard
-                new_hi = right_shoulder_x + guard
+                left_shoulder_phys = lo_phys + left_shoulder_x * cur_width
+                right_shoulder_phys = lo_phys + right_shoulder_x * cur_width
+                new_lo = left_shoulder_phys - guard
+                new_hi = right_shoulder_phys + guard
             else:
                 # Dip frequencies list was populated but no consecutive
                 # observations are flagged in_dip — fall through to percentile.

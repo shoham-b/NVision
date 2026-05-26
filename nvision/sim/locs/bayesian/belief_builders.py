@@ -267,12 +267,16 @@ def nv_center_smc_belief(  # noqa: C901
     unit_priors = None
     if phys_priors:
         unit_priors = {}
-        for name, (mu, std) in phys_priors.items():
+        for name, prior_val in phys_priors.items():
             if name in merged_bounds:
-                lo, hi = merged_bounds[name]
-                unit_mu = (mu - lo) / (hi - lo)
-                unit_std = std / (hi - lo)
-                unit_priors[name] = (float(unit_mu), float(unit_std))
+                if isinstance(prior_val, tuple) and len(prior_val) >= 2 and prior_val[0] == "sin^2":
+                    unit_priors[name] = prior_val
+                else:
+                    mu, std = prior_val
+                    lo, hi = merged_bounds[name]
+                    unit_mu = (mu - lo) / (hi - lo)
+                    unit_std = std / (hi - lo)
+                    unit_priors[name] = (float(unit_mu), float(unit_std))
 
     x_phys = merged_bounds["frequency"]
     wrapped = UnitCubeSignalModel(model, merged_bounds, x_phys)

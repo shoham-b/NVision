@@ -125,3 +125,5 @@ demo_artifacts*/
 beta_artifacts*/
 .\artifacts_many\
 artifact*
+check_*.py
+.\scratch\

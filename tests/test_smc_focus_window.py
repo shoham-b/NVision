@@ -96,7 +96,7 @@ def test_shoulder_based_narrowing_single_dip():
     obs_ys -= 0.45 * np.exp(-0.5 * ((obs_xs - dip_center) / dip_sigma) ** 2)
 
     smc._observations = [
-        Observation(x=float(x), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
+        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
     ]
     # Uniform particles — no prior knowledge.
     smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
@@ -135,7 +135,7 @@ def test_shoulder_based_narrowing_connected_dips():
     obs_ys -= 0.4 * np.exp(-0.5 * ((obs_xs - dip_b) / dip_sigma) ** 2)
 
     smc._observations = [
-        Observation(x=float(x), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
+        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
     ]
     smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
 
