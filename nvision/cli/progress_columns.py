@@ -81,4 +81,7 @@ class EstimatedTimeRemainingColumn(ProgressColumn):
 
 class DotsColumn(ProgressColumn):
     def render(self, task: Task) -> object:
-        return "." * int(task.completed)
+        completed_val = int(task.completed)
+        if completed_val > 4:
+            return f"x{completed_val}"
+        return "." * completed_val

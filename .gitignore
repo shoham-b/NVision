@@ -120,10 +120,6 @@ graphs/
 .gemini/
 gha-creds-*.json
 .\junit-result.xml
-artifacts/**
-demo_artifacts*/
-beta_artifacts*/
-.\artifacts_many\
-artifact*
+*artifact*/
 check_*.py
 .\scratch\
