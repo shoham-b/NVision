@@ -251,26 +251,73 @@ class _TaskRunner:
         _check_memory_limit()
         try:
             cached, n_cached = self._restore_cached_results()
+            
+            # Resolve the total requested and total achieved in cache across the entire task (total level)
+            total_requested = self.task.repeat_total or self.repeats
+            total_achieved_in_cache = 0
+
+            if not self.skip_cache:
+                locator_class = self.task.strategy_spec.locator_class
+                uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+                if uses_sweep_max_steps:
+                    try:
+                        experiment = self._build_experiment(self._rng_for_measurement(0))
+                        effective_max_steps = self._resolve_sweep_max_steps(experiment)
+                    except Exception:
+                        effective_max_steps = self.task.loc_max_steps
+                else:
+                    effective_max_steps = self.task.loc_max_steps
+
+                from nvision.cache.locator_keys import combination_base_cache_config
+                from nvision.cache.hashing import stable_config_hash
+
+                ptr_config = combination_base_cache_config(
+                    generator=self.generator_name,
+                    noise=self.noise_name,
+                    strategy=self.strategy_name,
+                    seed=self.task.seed,
+                    max_steps=effective_max_steps,
+                    timeout_s=self.task.loc_timeout_s,
+                    repeat_offset=0,  # Pointer totals are always at offset 0
+                )
+                ptr_key = stable_config_hash(ptr_config)
+                try:
+                    ptr_df = self.cache._store.load_df(ptr_key)
+                    if ptr_df is None or ptr_df.is_empty():
+                        ptr_config_v8 = dict(ptr_config)
+                        ptr_config_v8["schema_version"] = 8
+                        ptr_key_v8 = stable_config_hash(ptr_config_v8)
+                        ptr_df_v8 = self.cache._store.load_df(ptr_key_v8)
+                        if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
+                            ptr_df = ptr_df_v8
+                    if ptr_df is not None and not ptr_df.is_empty():
+                        total_achieved_in_cache = int(ptr_df.get_column("achieved_repeats")[0])
+                except Exception:
+                    pass
+
+            if self.task.repeat_offset == 0:
+                if total_achieved_in_cache >= total_requested:
+                    log.info(
+                        "Cache hit — skipped run: %s/%s/%s (%s repeats)",
+                        self.generator_name,
+                        self.noise_name,
+                        self.strategy_name,
+                        total_requested,
+                    )
+                else:
+                    log.info(
+                        "Running task: %s/%s/%s (%s total repeats, %s loaded from cache)",
+                        self.generator_name,
+                        self.noise_name,
+                        self.strategy_name,
+                        total_requested,
+                        total_achieved_in_cache,
+                    )
+                    self._explain_cache_miss_total(total_achieved_in_cache, total_requested)
+
             if n_cached == self.repeats:
                 self._flush_task_progress()
-                log.info(
-                    "Cache hit — skipped run: %s/%s/%s (%s repeats)",
-                    self.generator_name,
-                    self.noise_name,
-                    self.strategy_name,
-                    self.repeats,
-                )
                 return cached
-
-            log.info(
-                "Running task: %s/%s/%s (%s total repeats, %s loaded from cache)",
-                self.generator_name,
-                self.noise_name,
-                self.strategy_name,
-                self.repeats,
-                n_cached,
-            )
-            self._explain_cache_miss(n_cached)
 
             # Inform progress bar about cached repeats
             if n_cached > 0:
@@ -401,14 +448,21 @@ class _TaskRunner:
 
         return [], 0
 
-    def _explain_cache_miss(self, n_cached: int) -> None:
-        """Explain why there was a cache miss or partial cache hit."""
+    def _explain_cache_miss_total(self, total_achieved: int, total_requested: int) -> None:
+        """Explain why there was a cache miss or partial cache hit at the global total level."""
         if self.skip_cache:
             log.info("Cache miss reason: Caching was bypassed/disabled via task config (skip_cache=True).")
             return
 
+        if total_achieved > 0:
+            log.info(
+                "Cache miss reason: Partial cache hit. Only %s repeats exist in cache of the %s requested. "
+                "The remaining %s repeats must be run.",
+                total_achieved, total_requested, total_requested - total_achieved
+            )
+            return
+
         combo_kw = self._combination_cache_kwargs()
-        ro = self.task.repeat_offset
 
         # Resolve effective max_steps
         locator_class = self.task.strategy_spec.locator_class
@@ -422,53 +476,10 @@ class _TaskRunner:
         else:
             effective_max_steps = self.task.loc_max_steps
 
-        # Check if the exact combination pointer exists
-        from nvision.cache.locator_keys import combination_base_cache_config, CACHE_SCHEMA_VERSION
-        from nvision.cache.hashing import stable_config_hash
-
-        ptr_config = combination_base_cache_config(
-            generator=self.generator_name,
-            noise=self.noise_name,
-            strategy=self.strategy_name,
-            seed=self.task.seed,
-            max_steps=effective_max_steps,
-            timeout_s=self.task.loc_timeout_s,
-            repeat_offset=ro,
-        )
-        ptr_key = stable_config_hash(ptr_config)
-
-        try:
-            ptr_df = self.cache._store.load_df(ptr_key)
-            if ptr_df is None or ptr_df.is_empty():
-                ptr_config_v8 = dict(ptr_config)
-                ptr_config_v8["schema_version"] = 8
-                ptr_key_v8 = stable_config_hash(ptr_config_v8)
-                ptr_df_v8 = self.cache._store.load_df(ptr_key_v8)
-                if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
-                    ptr_key = ptr_key_v8
-                    ptr_df = ptr_df_v8
-        except Exception:
-            ptr_df = None
-
-        if ptr_df is not None and not ptr_df.is_empty():
-            achieved = int(ptr_df.get_column("achieved_repeats")[0])
-            if n_cached > 0:
-                log.info(
-                    "Cache miss reason: Partial cache hit. Only %s repeats exist in cache starting at repeat_offset %s, "
-                    "but %s repeats were requested. The remaining %s repeats must be run.",
-                    n_cached, ro, self.repeats, self.repeats - n_cached
-                )
-            else:
-                log.info(
-                    "Cache miss reason: Cache pointer exists with %s achieved repeats, "
-                    "but requested repeat_offset is %s. No cached repeats are available starting at this offset.",
-                    achieved, ro
-                )
-            return
-
         # Exact pointer doesn't exist. Let's look for similar combinations in the database
         similar_configs = []
         try:
+            from nvision.cache.locator_keys import CACHE_SCHEMA_VERSION
             backend = self.cache.backend
             for k in backend:
                 payload = backend.get(k)

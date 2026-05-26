@@ -293,13 +293,18 @@ class LocatorResultsRepository:
 
         # Update pointer row safely
         new_total = start_idx + len(new_results)
+        
+        # Calculate the true sequential achieved_repeats by counting from 0
+        # This prevents holes in the cache if sub-tasks finish out of order
+        actual_achieved = self._repeats.count_saved(ptr_key, max_expected=new_total + 100)
+        
         existing_total = 0
         existing_df = self._store.load_df(ptr_key)
         if existing_df is not None and not existing_df.is_empty():
             existing_total = int(existing_df.get_column("achieved_repeats")[0])
 
-        if new_total > existing_total:
-            ptr_df = pl.DataFrame({"achieved_repeats": [new_total], "streaming": [True]})
+        if actual_achieved > existing_total:
+            ptr_df = pl.DataFrame({"achieved_repeats": [actual_achieved], "streaming": [True]})
             self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config, "updated_at": updated_at})
 
 

@@ -408,8 +408,10 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             main_result_row={"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)", "strategy": "Bayesian-SBED", "seed": 1, "attempt": 3}
         )
         
-        # Update pointer row to achieved=5
-        repo.append_cached_repeats(
+        # Update pointer row to achieved=5 manually to simulate a hole from an older version
+        from nvision.cache.locator_keys import combination_base_cache_config
+        from nvision.cache.hashing import stable_config_hash
+        config = combination_base_cache_config(
             generator="NVCenter-lorentzian",
             noise="Gauss(0.01)",
             strategy="Bayesian-SBED",
@@ -417,9 +419,12 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             max_steps=10,
             timeout_s=10,
             repeat_offset=0,
-            new_results=[],
-            start_idx=5,
         )
+        ptr_key = stable_config_hash(config)
+        import polars as pl
+        import datetime
+        ptr_df = pl.DataFrame({"achieved_repeats": [5], "streaming": [True]})
+        repo._store.save_df(ptr_df, ptr_key, metadata={"config": config, "updated_at": datetime.datetime.now().isoformat()})
     finally:
         bridge.close()
 
@@ -491,7 +496,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
 
     runner_no_cache = _TaskRunner(task_no_cache)
     with caplog.at_level(logging.INFO):
-        runner_no_cache._explain_cache_miss(0)
+        runner_no_cache._explain_cache_miss_total(0, 1)
     assert "Caching was bypassed/disabled via task config" in caplog.text
 
     caplog.clear()
@@ -518,7 +523,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
 
     runner_empty_cache = _TaskRunner(task_empty_cache)
     with caplog.at_level(logging.INFO):
-        runner_empty_cache._explain_cache_miss(0)
+        runner_empty_cache._explain_cache_miss_total(0, 1)
     assert "No prior cache entries exist for combination" in caplog.text
 
     caplog.clear()
@@ -548,6 +553,19 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
     bridge = CacheBridge(task_diff_seed.cache_dir)
     try:
         repo = bridge.get_cache_for_category("NVCenter")
+        # Save the repeat first so count_saved finds it
+        repo.save_repeat(
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="SimpleSweep",
+            seed=2,
+            max_steps=10,
+            timeout_s=10,
+            repeat_offset=0,
+            repeat_idx=0,
+            entries=[],
+            main_result_row={"test": 1},
+        )
         repo.append_cached_repeats(
             generator="NVCenter-lorentzian",
             noise="Gauss(0.01)",
@@ -583,7 +601,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
     )
     runner_target = _TaskRunner(task_target)
     with caplog.at_level(logging.INFO):
-        runner_target._explain_cache_miss(0)
+        runner_target._explain_cache_miss_total(0, 1)
     assert "Prior runs found" in caplog.text
     assert "seed mismatch" in caplog.text
 
@@ -613,7 +631,7 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
     )
 
     task = LocatorTask(
-        combo=combo,
+        combination=combo,
         repeats=1,
         seed=1,
         slug="test_slug",
