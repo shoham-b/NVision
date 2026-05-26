@@ -1503,7 +1503,18 @@ function main() {
         const currentIndex = currentRepeatItems.indexOf(currentValue);
         const hasValidSelection = currentIndex !== -1;
         scanRepeatPrev.disabled = !hasValidSelection || currentIndex <= 0;
+        if (scanRepeatPrev.disabled) {
+            scanRepeatPrev.title = "Already at first repeat";
+        } else {
+            scanRepeatPrev.title = "Previous repeat (Shortcut: ArrowLeft)";
+        }
+
         scanRepeatNext.disabled = !hasValidSelection || currentIndex >= currentRepeatItems.length - 1;
+        if (scanRepeatNext.disabled) {
+            scanRepeatNext.title = "Already at last repeat";
+        } else {
+            scanRepeatNext.title = "Next repeat (Shortcut: ArrowRight)";
+        }
     }
 
     function selectRepeatByIndex(index) {
@@ -3305,8 +3316,24 @@ document.addEventListener('keydown', async (e) => {
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
         return;
     }
+    // Also ignore if the user is focused on a button or a tab, so we don't interfere with standard keyboard navigation of tabs/radios.
+    if (['BUTTON'].includes(document.activeElement.tagName) || document.activeElement.getAttribute('role') === 'tab' || document.activeElement.getAttribute('role') === 'radio') {
+        return;
+    }
     if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         triggerReload();
+    }
+    if (e.key === 'ArrowLeft' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const prevBtn = document.getElementById('scan-repeat-prev');
+        if (prevBtn && !prevBtn.disabled) {
+            prevBtn.click();
+        }
+    }
+    if (e.key === 'ArrowRight' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const nextBtn = document.getElementById('scan-repeat-next');
+        if (nextBtn && !nextBtn.disabled) {
+            nextBtn.click();
+        }
     }
 });
 
