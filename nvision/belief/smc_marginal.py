@@ -188,8 +188,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _d_signal: int = field(init=False, repr=False, default=0)
     _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
 
-
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901
         self._param_names = list(self.model.parameter_names())
         if self.noise_model is not None:
             # Append noise parameters to the state space
@@ -224,7 +223,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
                         accepted = candidates[u < probs]
                         sampled.extend(accepted)
-                    sampled = np.array(sampled[:self.num_particles])
+                    sampled = np.array(sampled[: self.num_particles])
 
                     # Map back to unit space if in UnitCubeSMCMarginalDistribution
                     if phys_bounds and name in phys_bounds:
@@ -422,7 +421,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Return the current epoch's slope-targeted candidate grid."""
         return self._current_candidates
 
-    def _generate_epoch_candidates(self) -> None:
+    def _generate_epoch_candidates(self) -> None:  # noqa: C901
         """Generate a dense slope-targeted grid and cache it for the current epoch.
 
         Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine
@@ -532,7 +531,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
         self._current_candidates = np.unique(np.clip(merged, f_lo_unit, f_hi_unit)).astype(np.float32)
 
-    def _resample(self) -> None:
+    def _resample(self) -> None:  # noqa: C901
         """Systematic resampling with Gaussian nudging and Liu-West shrinkage.
 
         All particles are resampled using systematic sampling (low variance),

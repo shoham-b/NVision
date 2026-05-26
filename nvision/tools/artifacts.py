@@ -104,7 +104,9 @@ def prepare_artifact_tree(out_dir: Path, *, clear_cache: bool = False) -> Artifa
     )
 
 
-def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger, *, no_cache: bool = False) -> pl.DataFrame:  # noqa: C901
+def merge_locator_results_with_existing(  # noqa: C901
+    df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger, *, no_cache: bool = False
+) -> pl.DataFrame:
     """Concatenate with on-disk CSV when present, keeping the newest row per scenario key.
 
     When ``no_cache`` is True the old CSV rows for the combinations being
@@ -126,29 +128,39 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
 
         # Purge any old rows for the exact combinations being updated to prevent persisting old/different repeats
         if "generator" in df_loc.columns and "noise" in df_loc.columns and "strategy" in df_loc.columns:
-            df_loc = df_loc.with_columns([
-                pl.col("generator").cast(pl.String, strict=False),
-                pl.col("noise").cast(pl.String, strict=False),
-                pl.col("strategy").cast(pl.String, strict=False),
-            ])
+            df_loc = df_loc.with_columns(
+                [
+                    pl.col("generator").cast(pl.String, strict=False),
+                    pl.col("noise").cast(pl.String, strict=False),
+                    pl.col("strategy").cast(pl.String, strict=False),
+                ]
+            )
             for col in ("max_steps", "seed"):
                 if col in df_loc.columns:
                     df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
                 if col in old_df.columns:
                     old_df = old_df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
-            
-            old_df = old_df.with_columns([
-                pl.col("generator").cast(pl.String, strict=False) if "generator" in old_df.columns else pl.lit(None).alias("generator"),
-                pl.col("noise").cast(pl.String, strict=False) if "noise" in old_df.columns else pl.lit(None).alias("noise"),
-                pl.col("strategy").cast(pl.String, strict=False) if "strategy" in old_df.columns else pl.lit(None).alias("strategy"),
-            ])
-            
+
+            old_df = old_df.with_columns(
+                [
+                    pl.col("generator").cast(pl.String, strict=False)
+                    if "generator" in old_df.columns
+                    else pl.lit(None).alias("generator"),
+                    pl.col("noise").cast(pl.String, strict=False)
+                    if "noise" in old_df.columns
+                    else pl.lit(None).alias("noise"),
+                    pl.col("strategy").cast(pl.String, strict=False)
+                    if "strategy" in old_df.columns
+                    else pl.lit(None).alias("strategy"),
+                ]
+            )
+
             join_cols = ["generator", "noise", "strategy"]
             if "max_steps" in df_loc.columns and "max_steps" in old_df.columns:
                 join_cols.append("max_steps")
             if "seed" in df_loc.columns and "seed" in old_df.columns:
                 join_cols.append("seed")
-                
+
             updated_combos = df_loc.select(join_cols).unique()
             old_df = old_df.join(updated_combos, on=join_cols, how="anti")
 
@@ -261,6 +273,7 @@ def merge_run_plot_manifest_with_existing_on_disk(
         new_paths = {str(row.get("path")) for row in plot_manifest if row.get("path")}
 
         import contextlib
+
         filtered_old: list[dict[str, object]] = []
         for entry in old_manifest:
             # Drop old summaries - they are rebuilt per run

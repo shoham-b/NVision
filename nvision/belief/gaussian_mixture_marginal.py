@@ -155,7 +155,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
 
         self._recompute_covariances()
 
-    def _recompute_covariances(self) -> None:
+    def _recompute_covariances(self) -> None:  # noqa: C901
         """Invert each component's precision matrix to obtain the covariance.
 
         Uses a **trace-relative** regularisation so that the epsilon floor
@@ -190,7 +190,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
                     c = np.linalg.pinv(reg_prec)
                 except (np.linalg.LinAlgError, ValueError):
                     c = np.eye(self._dim)
-            
+
             if not np.all(np.isfinite(c)):
                 c = np.nan_to_num(c, nan=0.0, posinf=1e14, neginf=-1e14)
             cov = (c + c.T) / 2.0
@@ -210,7 +210,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
                     lo, hi = self._physical_param_bounds.get(name, (0.0, 1.0))
                     width = max(hi - lo, 1e-12)
                 min_std = NVISION_GAUSSIAN_MIN_EXPLORATION_FRAC * width * decay
-                min_var = min_std ** 2
+                min_var = min_std**2
                 if cov[i, i] < min_var:
                     cov[i, i] = min_var
                     self.precisions[k, i, i] = 1.0 / min_var
@@ -281,7 +281,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
         self.last_obs = observations[-1]
         self._recompute_covariances()
 
-    def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:
+    def _update_mixtures(self, x_probe: float, y_obs: float, sigma_eta: float) -> None:  # noqa: C901
         """Perform EKF update for each component."""
         K, D = self.n_components, self._dim  # noqa: N806
         sigma2 = max(sigma_eta**2, 1e-12)
@@ -334,7 +334,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
             eps_solve = max(epsilon, 1e-6 * trace_val / max(D, 1))
             reg_new_prec = new_precisions[k] + eps_solve * np.eye(D)
             rhs = (damping / sigma2) * J * r
-            
+
             if not np.all(np.isfinite(rhs)):
                 rhs = np.zeros_like(rhs)
 

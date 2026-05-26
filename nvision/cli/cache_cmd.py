@@ -32,7 +32,7 @@ def _get_caches(root: Path) -> list[tuple[str, CategoryDataStore]]:
 
 
 @cache_app.command(name="list")
-def list_cache(
+def list_cache(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
 ) -> None:
     """List cached simulations grouped for readability."""
@@ -73,7 +73,10 @@ def list_cache(
 
                     # Track the latest updated date
                     updated_at_val = payload.get("updated_at", "-")
-                    if group_key not in updated_dates or (updated_at_val != "-" and (updated_dates[group_key] == "-" or updated_at_val > updated_dates[group_key])):
+                    if group_key not in updated_dates or (
+                        updated_at_val != "-"
+                        and (updated_dates[group_key] == "-" or updated_at_val > updated_dates[group_key])
+                    ):
                         updated_dates[group_key] = updated_at_val
 
     if found_any:
@@ -133,7 +136,7 @@ def _matches_filter(
 
 
 @cache_app.command(name="clean")
-def cache_clean(
+def cache_clean(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     category: Annotated[
         str | None,
@@ -198,6 +201,7 @@ def cache_clean(
     else:
         deleted_count = 0
         from nvision.cache.locator_repository import LocatorResultsRepository
+
         for _, cat_cache, key in keys_to_delete:
             payload = cat_cache.backend.get(key)
             if isinstance(payload, dict) and "config" in payload:

@@ -406,7 +406,9 @@ class ProgressMonitor:
                 continue
             except Exception as exc:
                 # Log a debug message and exit loop cleanly if queue becomes inaccessible/exhausted
-                logging.getLogger("nvision").debug("Progress queue closed or inaccessible (exiting monitor loop): %s", exc)
+                logging.getLogger("nvision").debug(
+                    "Progress queue closed or inaccessible (exiting monitor loop): %s", exc
+                )
                 break
 
             if item is None:
@@ -572,10 +574,7 @@ def _locator_row_markup(task: object) -> str:
     """Combo path + dots; color by state (matches task_builder `[cyan]…[/cyan]` descriptions)."""
     desc = getattr(task, "description", None) or ""
     completed_val = int(getattr(task, "completed", 0))
-    if completed_val > 4:
-        dots = f"x{completed_val}"
-    else:
-        dots = "." * completed_val
+    dots = f"x{completed_val}" if completed_val > 4 else "." * completed_val
     inner = desc
     if desc.startswith("[cyan]") and desc.endswith("[/cyan]"):
         inner = desc[6:-7]

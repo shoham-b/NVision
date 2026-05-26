@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
-import numpy as np
 from collections.abc import Callable, Sequence
+
+import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.observation import Observation

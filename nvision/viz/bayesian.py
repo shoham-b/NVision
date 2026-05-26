@@ -9,11 +9,11 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
 
 @dataclass(frozen=True)
-
 class SubplotOptions:
     row: int
     col: int
@@ -99,7 +99,6 @@ def _build_subplot_title(param: str, descriptions: dict[str, str] | None) -> str
     if desc:
         return f"<b>{param_display}</b><br><span style='font-size:10px;color:#666;'>{desc}</span>"
     return param_display
-
 
 
 def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> None:
@@ -210,7 +209,6 @@ def _add_true_vline_subplots(
             row=i,
             col=1,
         )
-
 
 
 def _trace_one_marginal_posterior(
@@ -1966,7 +1964,7 @@ class BayesianMixin:
 
         # Create scale matrix
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D = np.diag(1.0 / scales)
+        D = np.diag(1.0 / scales)  # noqa: N806
         covariance_history = [D @ cov @ D for cov in covariance_history]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
@@ -1992,7 +1990,6 @@ class BayesianMixin:
 
         n_steps = len(covariance_history)
 
-
         # Subsample if too many steps
         step_indices = list(range(n_steps))
         if n_steps > 150:
@@ -2001,7 +1998,6 @@ class BayesianMixin:
             if means_history:
                 means_history = [means_history[i] for i in step_indices]
             n_steps = len(step_indices)
-
 
         n_pairs = len(pairs)
         fig = make_subplots(
@@ -2386,7 +2382,7 @@ class BayesianMixin:
         }
 
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D_inv = np.diag(scales)
+        D_inv = np.diag(scales)  # noqa: N806
         fisher_hist = [D_inv @ fim @ D_inv for fim in fisher_hist]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
@@ -2401,7 +2397,6 @@ class BayesianMixin:
 
         param_names = param_names_scaled
 
-
         # Subsample if too many steps for performance
         step_indices = list(range(n_steps))
         if n_steps > 100:
@@ -2414,7 +2409,6 @@ class BayesianMixin:
         n_pairs = len(pairs)
         if n_pairs == 0:
             return
-
 
         # Create a compact grid layout: n_rows x n_cols
         n_cols = min(3, n_pairs)
@@ -2677,17 +2671,13 @@ class BayesianMixin:
         conv_metrics = conv_metrics_scaled
 
         def _subplot_title(p: str) -> str:
-            if p == "frequency":
-                base = f"frequency (absolute uncertainty, KHz)"
-            else:
-                base = f"{p} (relative uncertainty)"
+            base = "frequency (absolute uncertainty, KHz)" if p == "frequency" else f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
                 scale = param_scales.get(p, 1.0)
                 unit = param_units.get(p, "")
-                base += f"<br><sup>bounds: [{lo/scale:.4g}, {hi/scale:.4g}]{unit} (width={(hi - lo)/scale:.4g}{unit})</sup>"
+                base += f"<br><sup>bounds: [{lo / scale:.4g}, {hi / scale:.4g}]{unit} (width={(hi - lo) / scale:.4g}{unit})</sup>"  # noqa: E501
             return base
-
 
         # Create subplots - one row per parameter, plus one for convergence streak
         fig = make_subplots(

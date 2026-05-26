@@ -138,7 +138,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if sync_x:
             self.physical_x_bounds = (nl, nh)
 
-    def _resample(self) -> None:
+    def _resample(self) -> None:  # noqa: C901
         """Perform systematic resampling and automatically narrow the frequency bounds.
 
         Only the scan axis (``frequency``) is narrowed. All other parameters keep
@@ -287,7 +287,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         self._cov_step = -1
         # Regenerate the epoch candidates using the updated physical frequency bounds.
         self._generate_epoch_candidates()
-
 
     def copy(self) -> UnitCubeSMCMarginalDistribution:
         dist = UnitCubeSMCMarginalDistribution(
