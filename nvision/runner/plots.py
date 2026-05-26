@@ -956,11 +956,6 @@ def generate_attempt_plots(  # noqa: C901
     run_result: RunResult | None = None,
 ) -> list[dict[str, Any]]:
     """Generate visualizations and graph manifest entries for a single repeat."""
-    log.warning(f"DEBUG: generate_attempt_plots called for {entry_base.get('strategy')}")
-    log.warning(f"DEBUG: run_result is {type(run_result)}")
-    if run_result:
-        log.warning(f"DEBUG: run_result.snapshots count: {len(run_result.snapshots)}")
-        log.warning(f"DEBUG: run_result.sweep_steps: {run_result.sweep_steps}")
     attempt_slug = f"{slug_base}_r{attempt_idx_in_combo + 1}"
     out_path = scans_dir / f"{attempt_slug}.html"
 

@@ -96,6 +96,17 @@ class LocatorResultsRepository:
         )
         ptr_key = stable_config_hash(ptr_config)
         ptr_df = self._store.load_df(ptr_key)
+
+        # Temporary fallback for schema version 8
+        if ptr_df is None or ptr_df.is_empty():
+            ptr_config_v8 = dict(ptr_config)
+            ptr_config_v8["schema_version"] = 8
+            ptr_key_v8 = stable_config_hash(ptr_config_v8)
+            ptr_df_v8 = self._store.load_df(ptr_key_v8)
+            if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
+                ptr_key = ptr_key_v8
+                ptr_df = ptr_df_v8
+
         if ptr_df is not None and not ptr_df.is_empty():
             achieved = int(ptr_df.get_column("achieved_repeats")[0])
             if achieved >= repeat_offset + repeats:
@@ -113,7 +124,13 @@ class LocatorResultsRepository:
             timeout_s=timeout_s,
             repeat_offset=repeat_offset,
         )
-        return self._get_cached_results_for_config(inline_config)
+        inline_res = self._get_cached_results_for_config(inline_config)
+        if inline_res is not None:
+            return inline_res
+
+        inline_config_v8 = dict(inline_config)
+        inline_config_v8["schema_version"] = 8
+        return self._get_cached_results_for_config(inline_config_v8)
 
     def get_cached_combination_partial(
         self,
@@ -126,11 +143,21 @@ class LocatorResultsRepository:
         max_steps: int,
         timeout_s: int,
         repeat_offset: int = 0,
+        chunk_size: int | None = None,
         allow_gaps: bool = False,
     ) -> tuple[CachedComboResults, int]:
         """Retrieve partial cached results and count for resumable runs.
 
         Only checks the streaming pointer path.
+
+        Parameters
+        ----------
+        chunk_size:
+            When this task is a sub-task split from a larger one, ``chunk_size``
+            is the number of repeats this sub-task owns.  The returned count is
+            capped at ``chunk_size`` so that a sub-task never claims more cached
+            repeats than it is responsible for.  If ``None``, defaults to
+            ``repeats`` (no sub-task splitting).
         """
         ptr_config = combination_base_cache_config(
             generator=generator,
@@ -143,11 +170,23 @@ class LocatorResultsRepository:
         )
         ptr_key = stable_config_hash(ptr_config)
         ptr_df = self._store.load_df(ptr_key)
+
+        # Temporary fallback for schema version 8
+        if ptr_df is None or ptr_df.is_empty():
+            ptr_config_v8 = dict(ptr_config)
+            ptr_config_v8["schema_version"] = 8
+            ptr_key_v8 = stable_config_hash(ptr_config_v8)
+            ptr_df_v8 = self._store.load_df(ptr_key_v8)
+            if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
+                ptr_key = ptr_key_v8
+                ptr_df = ptr_df_v8
+
         if ptr_df is not None and not ptr_df.is_empty():
             achieved = int(ptr_df.get_column("achieved_repeats")[0])
-            # Return up to requested repeats in the range [repeat_offset, repeat_offset + repeats]
+            # Cap to this sub-task's own chunk, not the total repeats
+            max_count = chunk_size if chunk_size is not None else repeats
             if achieved > repeat_offset:
-                count = min(achieved - repeat_offset, repeats)
+                count = min(achieved - repeat_offset, max_count)
                 results = self._repeats.load_repeats(ptr_key, count, start_idx=repeat_offset, allow_gaps=allow_gaps)
                 return results, len(results)
 
@@ -194,10 +233,18 @@ class LocatorResultsRepository:
         timeout_s: int,
         repeat_offset: int = 0,
         results: CachedComboResults,
+        start_idx: int = 0,
     ) -> Path:
         """Persist full combination results.
 
         Uses streaming format always to prevent duplicate entries and allow resumes.
+
+        Parameters
+        ----------
+        start_idx:
+            Global repeat index of the first result in ``results``.  For
+            sub-tasks this must be ``repeat_offset + n_already_cached`` so that
+            results land at the correct positions in the shared pointer.
         """
         self.append_cached_repeats(
             generator=generator,
@@ -208,7 +255,7 @@ class LocatorResultsRepository:
             timeout_s=timeout_s,
             repeat_offset=repeat_offset,
             new_results=results,
-            start_idx=0,
+            start_idx=start_idx,
         )
         return self._store.db_path
 

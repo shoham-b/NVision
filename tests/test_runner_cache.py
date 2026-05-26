@@ -443,3 +443,237 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
     assert len(plot_manifest) == 2
     assert plot_manifest[0]["path"] == "p0.png"
     assert plot_manifest[1]["path"] == "p2.png"
+
+
+def test_cache_miss_explanations(tmp_path: Path, caplog):
+    from nvision.runner.executor import _TaskRunner
+    from nvision.models.task import LocatorTask
+    from nvision.sim.combinations import Combination
+    import logging
+
+    from nvision import SimpleSweepLocator
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.noises import OverFrequencyGaussianNoise
+
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    noise = CompositeNoise(
+        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)])
+    )
+    combo = Combination(
+        generator=sig,
+        noise=noise,
+        strategy=SimpleSweepLocator,
+        generator_name="NVCenter-lorentzian",
+        noise_name="Gauss(0.01)",
+        strategy_name="SimpleSweep",
+    )
+
+    # Task with cache disabled
+    task_no_cache = LocatorTask(
+        combination=combo,
+        repeats=1,
+        seed=1,
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "out/scans",
+        bayes_dir=tmp_path / "out/bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=False,  # Skip cache!
+        cache_dir=tmp_path / "cache",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+    runner_no_cache = _TaskRunner(task_no_cache)
+    with caplog.at_level(logging.INFO):
+        runner_no_cache._explain_cache_miss(0)
+    assert "Caching was bypassed/disabled via task config" in caplog.text
+
+    caplog.clear()
+
+    # Task with cache enabled, but database is completely empty
+    task_empty_cache = LocatorTask(
+        combination=combo,
+        repeats=1,
+        seed=1,
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "out/scans",
+        bayes_dir=tmp_path / "out/bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=True,
+        cache_dir=tmp_path / "cache_empty",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+    runner_empty_cache = _TaskRunner(task_empty_cache)
+    with caplog.at_level(logging.INFO):
+        runner_empty_cache._explain_cache_miss(0)
+    assert "No prior cache entries exist for combination" in caplog.text
+
+    caplog.clear()
+
+    # Now let's save a runner result for a DIFFERENT seed (e.g. seed=2)
+    task_diff_seed = LocatorTask(
+        combination=combo,
+        repeats=1,
+        seed=2, # DIFFERENT seed!
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "out/scans",
+        bayes_dir=tmp_path / "out/bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=True,
+        cache_dir=tmp_path / "cache_shared",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+    runner_diff_seed = _TaskRunner(task_diff_seed)
+    # Save seed=2 to the cache database
+    from nvision.cache import CacheBridge
+    bridge = CacheBridge(task_diff_seed.cache_dir)
+    try:
+        repo = bridge.get_cache_for_category("NVCenter")
+        repo.append_cached_repeats(
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="SimpleSweep",
+            seed=2,
+            max_steps=10,
+            timeout_s=10,
+            repeat_offset=0,
+            new_results=[],
+            start_idx=1,
+        )
+    finally:
+        bridge.close()
+
+    # Now let's try to load/explain for seed=1
+    task_target = LocatorTask(
+        combination=combo,
+        repeats=1,
+        seed=1, # target seed is 1
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "out/scans",
+        bayes_dir=tmp_path / "out/bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=True,
+        cache_dir=tmp_path / "cache_shared",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+    runner_target = _TaskRunner(task_target)
+    with caplog.at_level(logging.INFO):
+        runner_target._explain_cache_miss(0)
+    assert "Prior runs found" in caplog.text
+    assert "seed mismatch" in caplog.text
+
+
+def test_schema_version_8_fallback(tmp_path: Path, caplog):
+    from nvision.runner.executor import _TaskRunner
+    from nvision.models.task import LocatorTask
+    from nvision.sim.combinations import Combination
+    import logging
+
+    from nvision import SimpleSweepLocator
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.noises import OverFrequencyGaussianNoise
+
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    noise = CompositeNoise(
+        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)])
+    )
+    combo = Combination(
+        generator=sig,
+        noise=noise,
+        strategy=SimpleSweepLocator,
+        generator_name="NVCenter-lorentzian",
+        noise_name="Gauss(0.01)",
+        strategy_name="SimpleSweep",
+    )
+
+    task = LocatorTask(
+        combo=combo,
+        repeats=1,
+        seed=1,
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "out/scans",
+        bayes_dir=tmp_path / "out/bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=True,
+        cache_dir=tmp_path / "cache_v8",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+    # Save a schema version 8 pointer and repeat to the database
+    from nvision.cache import CacheBridge
+    bridge = CacheBridge(task.cache_dir)
+    try:
+        repo = bridge.get_cache_for_category("NVCenter")
+        
+        # Pointer for version 8
+        from nvision.cache.locator_keys import combination_base_cache_config
+        from nvision.cache.hashing import stable_config_hash
+        
+        ptr_config = combination_base_cache_config(
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="SimpleSweep",
+            seed=1,
+            max_steps=10,
+            timeout_s=10,
+            repeat_offset=0,
+        )
+        ptr_config_v8 = dict(ptr_config)
+        ptr_config_v8["schema_version"] = 8
+        ptr_key_v8 = stable_config_hash(ptr_config_v8)
+        
+        # Save pointer
+        import polars as pl
+        ptr_df = pl.DataFrame({"achieved_repeats": [1], "streaming": [True]})
+        repo._store.save_df(ptr_df, ptr_key_v8, metadata={"config": ptr_config_v8})
+        
+        # Save repeat 0
+        repo._repeats.save_repeat(
+            ptr_key_v8,
+            0,
+            [{"path": "p0.png"}],
+            {"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)", "strategy": "SimpleSweep", "seed": 1, "attempt": 1}
+        )
+    finally:
+        bridge.close()
+
+    # Now load and run the TaskRunner with current version 9
+    runner = _TaskRunner(task)
+    cached, n_cached = runner._restore_cached_results()
+    
+    # It should successfully load the schema version 8 repeat!
+    assert n_cached == 1
+    assert len(cached) == 1
+    assert cached[0][0][0]["path"] == "p0.png"

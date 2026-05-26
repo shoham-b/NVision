@@ -262,14 +262,15 @@ class _TaskRunner:
                 )
                 return cached
 
-            log.debug(
-                "Running task: %s/%s/%s (%s total repeats, %s already cached)",
+            log.info(
+                "Running task: %s/%s/%s (%s total repeats, %s loaded from cache)",
                 self.generator_name,
                 self.noise_name,
                 self.strategy_name,
                 self.repeats,
                 n_cached,
             )
+            self._explain_cache_miss(n_cached)
 
             # Inform progress bar about cached repeats
             if n_cached > 0:
@@ -293,7 +294,7 @@ class _TaskRunner:
             full_results = cached + new_results
 
             # Final save (handles both inline full save and streaming pointer updates)
-            self._save_full_cache(full_results)
+            self._save_full_cache(full_results, n_cached=n_cached)
             return full_results
         finally:
             self._saver_pool.shutdown(wait=True)
@@ -370,10 +371,13 @@ class _TaskRunner:
             return results, len(results)
 
         # 2. Try partial streaming match (only if not using --require-cache, or if miss)
-        partial, n = self.cache.get_cached_combination_partial(**combo_kw, repeat_offset=ro, allow_gaps=allow_gaps)
+        # Pass chunk_size=self.repeats so sub-tasks only claim their own slice of cache
+        partial, n = self.cache.get_cached_combination_partial(
+            **combo_kw, repeat_offset=ro, chunk_size=self.repeats, allow_gaps=allow_gaps
+        )
         if n > 0:
             restore_graphs(partial, self.task.out_dir)
-            log.debug(
+            log.info(
                 "Partial cache hit for %s/%s/%s (seed=%s); restoring %s/%s repeats.",
                 self.generator_name,
                 self.noise_name,
@@ -396,6 +400,132 @@ class _TaskRunner:
             return [], self.repeats  # "Pretend" finished so it returns empty
 
         return [], 0
+
+    def _explain_cache_miss(self, n_cached: int) -> None:
+        """Explain why there was a cache miss or partial cache hit."""
+        if self.skip_cache:
+            log.info("Cache miss reason: Caching was bypassed/disabled via task config (skip_cache=True).")
+            return
+
+        combo_kw = self._combination_cache_kwargs()
+        ro = self.task.repeat_offset
+
+        # Resolve effective max_steps
+        locator_class = self.task.strategy_spec.locator_class
+        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
+        if uses_sweep_max_steps:
+            try:
+                experiment = self._build_experiment(self._rng_for_measurement(0))
+                effective_max_steps = self._resolve_sweep_max_steps(experiment)
+            except Exception:
+                effective_max_steps = self.task.loc_max_steps
+        else:
+            effective_max_steps = self.task.loc_max_steps
+
+        # Check if the exact combination pointer exists
+        from nvision.cache.locator_keys import combination_base_cache_config, CACHE_SCHEMA_VERSION
+        from nvision.cache.hashing import stable_config_hash
+
+        ptr_config = combination_base_cache_config(
+            generator=self.generator_name,
+            noise=self.noise_name,
+            strategy=self.strategy_name,
+            seed=self.task.seed,
+            max_steps=effective_max_steps,
+            timeout_s=self.task.loc_timeout_s,
+            repeat_offset=ro,
+        )
+        ptr_key = stable_config_hash(ptr_config)
+
+        try:
+            ptr_df = self.cache._store.load_df(ptr_key)
+            if ptr_df is None or ptr_df.is_empty():
+                ptr_config_v8 = dict(ptr_config)
+                ptr_config_v8["schema_version"] = 8
+                ptr_key_v8 = stable_config_hash(ptr_config_v8)
+                ptr_df_v8 = self.cache._store.load_df(ptr_key_v8)
+                if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
+                    ptr_key = ptr_key_v8
+                    ptr_df = ptr_df_v8
+        except Exception:
+            ptr_df = None
+
+        if ptr_df is not None and not ptr_df.is_empty():
+            achieved = int(ptr_df.get_column("achieved_repeats")[0])
+            if n_cached > 0:
+                log.info(
+                    "Cache miss reason: Partial cache hit. Only %s repeats exist in cache starting at repeat_offset %s, "
+                    "but %s repeats were requested. The remaining %s repeats must be run.",
+                    n_cached, ro, self.repeats, self.repeats - n_cached
+                )
+            else:
+                log.info(
+                    "Cache miss reason: Cache pointer exists with %s achieved repeats, "
+                    "but requested repeat_offset is %s. No cached repeats are available starting at this offset.",
+                    achieved, ro
+                )
+            return
+
+        # Exact pointer doesn't exist. Let's look for similar combinations in the database
+        similar_configs = []
+        try:
+            backend = self.cache.backend
+            for k in backend:
+                payload = backend.get(k)
+                if isinstance(payload, dict) and "config" in payload:
+                    config = payload["config"]
+                    if (
+                        config.get("generator") == self.generator_name
+                        and config.get("noise") == self.noise_name
+                        and config.get("strategy") == self.strategy_name
+                    ):
+                        similar_configs.append(config)
+        except Exception as e:
+            log.debug("Failed to scan cache for similar configs: %s", e)
+
+        if not similar_configs:
+            log.info(
+                "Cache miss reason: No prior cache entries exist for combination: %s/%s/%s (first run).",
+                self.generator_name, self.noise_name, self.strategy_name
+            )
+            return
+
+        # We have similar configs, let's explain the mismatch
+        mismatch_reasons = []
+        seen_seeds = set()
+        seen_max_steps = set()
+        seen_timeouts = set()
+        seen_schemas = set()
+
+        for cfg in similar_configs:
+            if cfg.get("seed") != self.task.seed:
+                seen_seeds.add(cfg.get("seed"))
+            if cfg.get("max_steps") != effective_max_steps:
+                seen_max_steps.add(cfg.get("max_steps"))
+            if cfg.get("timeout_s") != self.task.loc_timeout_s:
+                seen_timeouts.add(cfg.get("timeout_s"))
+            if cfg.get("schema_version") not in (CACHE_SCHEMA_VERSION, 8):
+                seen_schemas.add(cfg.get("schema_version"))
+
+        if seen_seeds:
+            mismatch_reasons.append(f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})")
+        if seen_max_steps:
+            mismatch_reasons.append(f"max_steps mismatch (target: {effective_max_steps}, cached: {list(seen_max_steps)})")
+        if seen_timeouts:
+            mismatch_reasons.append(f"timeout_s mismatch (target: {self.task.loc_timeout_s}, cached: {list(seen_timeouts)})")
+        if seen_schemas:
+            mismatch_reasons.append(f"schema_version mismatch (target: {CACHE_SCHEMA_VERSION}, cached: {list(seen_schemas)})")
+
+        if mismatch_reasons:
+            log.info(
+                "Cache miss reason: Prior runs found for %s/%s/%s, but parameters differed: %s",
+                self.generator_name, self.noise_name, self.strategy_name, ", ".join(mismatch_reasons)
+            )
+        else:
+            log.info(
+                "Cache miss reason: Prior runs found for %s/%s/%s, but no matching repeats were found.",
+                self.generator_name, self.noise_name, self.strategy_name
+            )
 
     def _run_repeats(
         self, locator_class: type[Locator], locator_config: dict[str, Any], start_idx: int = 0
@@ -577,7 +707,7 @@ class _TaskRunner:
         for i in range(n_repeats):
             attempt_idx = start_idx + i
             entry_base, main_result_row, current_history_df = generate_attempt_metrics(
-                n_repeats=self.repeats,
+                n_repeats=self.task.repeat_total or self.repeats,
                 attempt_idx_in_combo=attempt_idx,
                 gen_name=self.generator_name,
                 noise_name=self.noise_name,
@@ -612,22 +742,47 @@ class _TaskRunner:
 
         return all_results
 
-    def _save_full_cache(self, results: TaskResults) -> None:
+    def _save_full_cache(self, results: TaskResults, n_cached: int = 0) -> None:
+        """Persist results to cache.
+
+        Parameters
+        ----------
+        n_cached:
+            Number of results that were already in cache (and thus already
+            saved at the correct indices).  Only the *new* results (starting
+            at index ``repeat_offset + n_cached``) need to be written.
+        """
         if not results:
             return
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
         ro = self.task.repeat_offset
+        # The global index of the first NEW result
+        first_new_idx = ro + n_cached
 
         if self.repeats > STREAMING_REPEAT_THRESHOLD:
-            # Pointers are updated incrementally in _run_repeats,
-            # but we call this to ensure the final state is consistent.
-            # (Results passed here are already partially saved).
-            self.cache.save_cached_combination(**self._combination_cache_kwargs(), repeat_offset=ro, results=results)
+            # Streaming: each repeat is already saved by _background_save_repeat.
+            # Call save_cached_combination to ensure the pointer reflects the final
+            # count (in case any background save raced).  Pass only the NEW results
+            # so we don't overwrite already-saved entries at wrong indices.
+            new_results = results[n_cached:]
+            if new_results:
+                final_idx = first_new_idx + len(new_results)
+                self.cache.save_cached_combination(
+                    **self._combination_cache_kwargs(),
+                    repeat_offset=ro,
+                    results=[],  # Do not overwrite repeats, just update the pointer
+                    start_idx=final_idx,
+                )
             return
 
         full_results = [(embed_graph_content(entries, self.task.out_dir), row) for entries, row in results]
-        self.cache.save_cached_combination(**self._combination_cache_kwargs(), repeat_offset=ro, results=full_results)
+        self.cache.save_cached_combination(
+            **self._combination_cache_kwargs(),
+            repeat_offset=ro,
+            results=full_results,
+            start_idx=ro,
+        )
 
     def _rng_for_measurement(self, repeat_idx: int) -> random.Random:
         """RNG for measurement noise — still strategy-specific."""

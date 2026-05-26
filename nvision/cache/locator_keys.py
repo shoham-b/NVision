@@ -9,8 +9,8 @@ from typing import Any
 # v4: same ground-truth draw for all noise models (noise only affects measurement RNG stream).
 # v5: NV Bayesian belief uses unit-cube parameter grids + physical signal wrapper (likelihood x-mapping).
 # v6: Streaming repeat cache (pointer rows + separate repeat rows).
-# v8: Standardized de-duplication attempt keys (attempt instead of repeat_id) and gap-resilient partial result harvesting.
-CACHE_SCHEMA_VERSION = 8
+# v9: Sub-task cache slicing fix — partial loads capped to chunk_size, saves start at repeat_offset+n_cached.
+CACHE_SCHEMA_VERSION = 9
 
 
 def combination_base_cache_config(

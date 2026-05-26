@@ -155,47 +155,81 @@ def test_locator_repository_updated_date(repo):
 
 
 def test_locator_repository_repeat_offset(repo):
-    # Test that save and load correctly partitions and indexes based on repeat_offset
-    results = [([{"p": "p0"}], {"idx": 0})]
-    
-    # Save with repeat_offset=15
+    # Sub-tasks all share a single streaming pointer (repeat_offset always 0 in ptr_key).
+    # save_cached_combination with repeat_offset=N and start_idx=N lands data at global index N.
+
+    # Simulate 10 repeats already in cache (0..9)
+    results_initial = [([{"p": f"p{i}"}], {"idx": i}) for i in range(10)]
     repo.save_cached_combination(
         generator="gen",
         noise="noise",
         strategy="strat",
-        repeats=1,
+        repeats=10,
         seed=1,
         max_steps=10,
         timeout_s=10,
-        repeat_offset=15,
-        results=results,
+        repeat_offset=0,
+        results=results_initial,
+        start_idx=0,
     )
-    
-    # Verify that it is partitioned separately from repeat_offset=0
-    # Loading with repeat_offset=0 should miss
-    loaded_0 = repo.get_cached_combination(
+
+    # Pointer should now be at 10
+    from nvision.cache.hashing import stable_config_hash
+    from nvision.cache.locator_keys import combination_base_cache_config
+
+    ptr_cfg = combination_base_cache_config(
+        generator="gen", noise="noise", strategy="strat", seed=1, max_steps=10, timeout_s=10
+    )
+    ptr_key = stable_config_hash(ptr_cfg)
+    ptr_df = repo._store.load_df(ptr_key)
+    assert int(ptr_df.get_column("achieved_repeats")[0]) == 10
+
+    # Simulate a sub-task that owns slice 10..14 (repeat_offset=10, chunk_size=5)
+    results_subtask = [([{"p": f"p{10 + i}"}], {"idx": 10 + i}) for i in range(5)]
+    repo.save_cached_combination(
         generator="gen",
         noise="noise",
         strategy="strat",
-        repeats=1,
+        repeats=15,
+        seed=1,
+        max_steps=10,
+        timeout_s=10,
+        repeat_offset=0,
+        results=results_subtask,
+        start_idx=10,  # global start index for new results
+    )
+
+    # Pointer should now be at 15
+    ptr_df = repo._store.load_df(ptr_key)
+    assert int(ptr_df.get_column("achieved_repeats")[0]) == 15
+
+    # Sub-task partial load with chunk_size=5 should return exactly 5 items from offset 10
+    partial, n = repo.get_cached_combination_partial(
+        generator="gen",
+        noise="noise",
+        strategy="strat",
+        repeats=15,
+        seed=1,
+        max_steps=10,
+        timeout_s=10,
+        repeat_offset=10,
+        chunk_size=5,
+    )
+    assert n == 5
+    assert len(partial) == 5
+    assert partial[0][1]["idx"] == 10
+    assert partial[4][1]["idx"] == 14
+
+    # Full load of all 15 repeats should work
+    loaded = repo.get_cached_combination(
+        generator="gen",
+        noise="noise",
+        strategy="strat",
+        repeats=15,
         seed=1,
         max_steps=10,
         timeout_s=10,
         repeat_offset=0,
     )
-    assert loaded_0 is None
-    
-    # Loading with repeat_offset=15 should hit
-    loaded_15 = repo.get_cached_combination(
-        generator="gen",
-        noise="noise",
-        strategy="strat",
-        repeats=1,
-        seed=1,
-        max_steps=10,
-        timeout_s=10,
-        repeat_offset=15,
-    )
-    assert loaded_15 is not None
-    assert len(loaded_15) == 1
-    assert loaded_15[0][1]["idx"] == 0
+    assert loaded is not None
+    assert len(loaded) == 15
