@@ -406,7 +406,9 @@ class ProgressMonitor:
                 continue
             except Exception as exc:
                 # Log a debug message and exit loop cleanly if queue becomes inaccessible/exhausted
-                logging.getLogger("nvision").debug("Progress queue closed or inaccessible (exiting monitor loop): %s", exc)
+                logging.getLogger("nvision").debug(
+                    "Progress queue closed or inaccessible (exiting monitor loop): %s", exc
+                )
                 break
 
             if item is None:
