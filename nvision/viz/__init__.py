@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import polars as pl
+
 from nvision.viz.base import VizBase
 from nvision.viz.bayesian import BayesianMixin
 from nvision.viz.comparisons import ComparisonsMixin
@@ -9,7 +10,6 @@ from nvision.viz.measurements import MeasurementsMixin
 from nvision.viz.metrics import MetricsVizMixin
 
 # Removed duplicate plot_all_metrics implementation
-
 
 
 class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, ComparisonsMixin, MetricsVizMixin):
@@ -23,18 +23,11 @@ class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, Compariso
         if df_loc.is_empty():
             return []
         entries: list[dict[str, object]] = []
-        # Iterate over unique combinations of generator, noise, and strategy
-        unique = df_loc.select(["generator", "noise", "strategy"]).unique()
-        for row in unique.iter_rows(named=True):
-            gen = row["generator"]
-            noise = row["noise"]
-            strat = row["strategy"]
-            # Retrieve metrics for this combo from the dataframe rows
-            subset = df_loc.filter(
-                (pl.col("generator") == gen)
-                & (pl.col("noise") == noise)
-                & (pl.col("strategy") == strat)
-            )
+
+        # partition_by is O(N) compared to O(M*N) multiple .filter passes
+        partitions = df_loc.partition_by(["generator", "noise", "strategy"], as_dict=True)
+
+        for (gen, noise, _strat), subset in partitions.items():
             # Metrics are stored in the "metrics" column as a struct; extract first if any
             if "metrics" not in subset.columns:
                 continue
