@@ -3302,7 +3302,12 @@ async function triggerReload() {
 }
 
 document.addEventListener('keydown', async (e) => {
-    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    const activeEl = document.activeElement;
+    if (
+        ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(activeEl.tagName) ||
+        activeEl.getAttribute('role') === 'tab' ||
+        activeEl.getAttribute('role') === 'radio'
+    ) {
         return;
     }
     if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
