@@ -101,7 +101,14 @@ class EKFLocator(SequentialBayesianLocator):
         linewidth_bounds = bounds_phys.get("linewidth", (50e3, 400e3))
         split_bounds = bounds_phys.get("split", (2.0e6, 3.5e6))
         k_np_bounds = bounds_phys.get("k_np", (2.0, 4.0))
-        dip_depth_bounds = bounds_phys.get("dip_depth", (0.1, 1.0))
+
+        if "c_total" in bounds_phys:
+            c_total_bounds = bounds_phys["c_total"]
+            k_np_init = (k_np_bounds[0] + k_np_bounds[1]) / 2.0
+            sum_factors = (1.0 / k_np_init**2 + 1.0 / k_np_init + 1.0)
+            dip_depth_bounds = (c_total_bounds[0] / sum_factors, c_total_bounds[1] / sum_factors)
+        else:
+            dip_depth_bounds = bounds_phys.get("dip_depth", (0.1, 1.0))
 
         # Check for prior distributions
         priors = bounds_phys.get("_priors") if isinstance(bounds_phys, dict) else None
@@ -143,7 +150,15 @@ class EKFLocator(SequentialBayesianLocator):
                 P_knp = (k_NP_hi - k_NP_lo) ** 2 / 12.0  # noqa: N806
 
             # 5. Amplitude / Dip Depth scale factor: a = dip_depth * k_NP * Omega**2
-            if "dip_depth" in priors:
+            if "c_total" in priors:
+                c_val, c_std = priors["c_total"]
+                knp_val = priors.get("k_np", (3.0, 0.1))[0]
+                sum_factors = (1.0 / knp_val**2 + 1.0 / knp_val + 1.0)
+                dd_val = c_val / sum_factors
+                dd_std = c_std / sum_factors
+                a = dd_val * k_NP * (Omega**2)
+                P_a = (dd_std * k_NP * (Omega**2)) ** 2  # noqa: N806
+            elif "dip_depth" in priors:
                 dd_val, dd_std = priors["dip_depth"]
                 a = dd_val * k_NP * (Omega**2)
                 P_a = (dd_std * k_NP * (Omega**2)) ** 2  # noqa: N806
@@ -221,7 +236,14 @@ class EKFLocator(SequentialBayesianLocator):
         linewidth_bounds = bounds.get("linewidth", (50e3, 400e3))
         split_bounds = bounds.get("split", (2.0e6, 3.5e6))
         k_np_bounds = bounds.get("k_np", (2.0, 4.0))
-        dip_depth_bounds = bounds.get("dip_depth", (0.1, 1.0))
+
+        if "c_total" in bounds:
+            c_total_bounds = bounds["c_total"]
+            k_np_init = (k_np_bounds[0] + k_np_bounds[1]) / 2.0
+            sum_factors = (1.0 / k_np_init**2 + 1.0 / k_np_init + 1.0)
+            dip_depth_bounds = (c_total_bounds[0] / sum_factors, c_total_bounds[1] / sum_factors)
+        else:
+            dip_depth_bounds = bounds.get("dip_depth", (0.1, 1.0))
 
         # 1. Frequency (always flat over the newly narrowed bounds)
         f_B = (freq_bounds[0] + freq_bounds[1]) / 2.0 / 1e6  # noqa: N806
@@ -257,7 +279,17 @@ class EKFLocator(SequentialBayesianLocator):
             k_NP_lo = 1.0 / k_np_bounds[1]  # noqa: N806
             P_k_NP = (k_NP_hi - k_NP_lo) ** 2 / 12.0  # noqa: N806
 
-        if priors and "dip_depth" in priors and "linewidth" in priors and "k_np" in priors:
+        if priors and "c_total" in priors and "linewidth" in priors and "k_np" in priors:
+            c_val, c_std = priors["c_total"]
+            lw_val, lw_std = priors["linewidth"]
+            knp_val, knp_std = priors["k_np"]
+            sum_factors = (1.0 / knp_val**2 + 1.0 / knp_val + 1.0)
+            dd_val = c_val / sum_factors
+            dd_std = c_std / sum_factors
+            a = dd_val * (1.0 / knp_val) * ((lw_val / 1e6) ** 2)
+            rel_var = (dd_std / dd_val) ** 2 + (knp_std / knp_val) ** 2 + 4.0 * (lw_std / lw_val) ** 2
+            P_a = (a**2) * rel_var  # noqa: N806
+        elif priors and "dip_depth" in priors and "linewidth" in priors and "k_np" in priors:
             dd_val, dd_std = priors["dip_depth"]
             lw_val, lw_std = priors["linewidth"]
             knp_val, knp_std = priors["k_np"]
@@ -314,7 +346,8 @@ class EKFLocator(SequentialBayesianLocator):
         # Ensure `priors` contains expected keys and values.
         assert isinstance(self.belief.parameter_bounds.get("_priors"), dict), "priors must be a dictionary."
         priors = self.belief.parameter_bounds["_priors"]
-        for key in ["split", "linewidth", "k_np", "dip_depth"]:
+        contrast_key = "c_total" if "c_total" in priors else "dip_depth"
+        for key in ["split", "linewidth", "k_np", contrast_key]:
             assert key in priors, f"Missing key in priors: {key}"
             assert isinstance(priors[key], tuple), f"Invalid value for {key} in priors: not a tuple."
             assert len(priors[key]) == 2, f"Invalid value for {key} in priors: tuple length is not 2."

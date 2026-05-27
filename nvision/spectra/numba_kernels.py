@@ -41,88 +41,26 @@ def nv_center_lorentzian_eval(
     linewidth: float,
     split: float,
     k_np: float,
-    dip_depth: float,
+    c_total: float,
     background: float,
 ) -> float:
-    """NV triple-Lorentzian ODMR contrast using decoupled dip_depth."""
-    if split < 1e-10:
-        combined_depth = dip_depth * (k_np + 1.0 + 1.0 / k_np)
-        return background - lorentzian_dip_term(x, freq, linewidth, combined_depth)
-    left = lorentzian_dip_term(x, freq - split, linewidth, dip_depth / k_np)
-    center = lorentzian_dip_term(x, freq, linewidth, dip_depth)
-    right = lorentzian_dip_term(x, freq + split, linewidth, dip_depth * k_np)
-    return background - (left + center + right)
+    """NV triple-Lorentzian ODMR contrast using Population-Normalized Geometric Reparameterization."""
+    omega = linewidth if linewidth > 1e-10 else 1e-10
+    x_dim = (x - freq) / omega
+    alpha = split / omega
 
+    k = k_np if k_np > 1e-10 else 1e-10
+    p_sum = (1.0 / k) + 1.0 + k
 
-@njit(cache=True, fastmath=True)
-def nv_center_lorentzian_gradient(
-    x_phys: float,
-    freq_phys: float,
-    lw_phys: float,
-    split_phys: float,
-    k_np: float,
-    dip_depth_phys: float,
-    grad_phys: np.ndarray,
-) -> None:
-    """Analytical gradient of NV Lorentzian signal model (in-place).
+    p_0 = c_total / p_sum
+    p_L = c_total * ((1.0 / k) / p_sum)
+    p_R = c_total * (k / p_sum)
 
-    Order: frequency, linewidth, split, k_np, dip_depth
-    """
-    # Guard against degenerate parameters that cause ZeroDivisionError.
-    # Under noisy EKF updates k_np or lw_phys can drift to ~0; clamp them
-    # to a physically meaningful floor before computing any reciprocal.
-    k_safe = k_np if k_np > 1e-10 else 1e-10
-    lw_safe = lw_phys if lw_phys > 1e-10 else 1e-10
-    lw2 = lw_safe * lw_safe
-
-    # Amplitudes
-    amp_r = dip_depth_phys
-    amp_c = dip_depth_phys / k_safe
-    amp_l = dip_depth_phys / (k_safe * k_safe)
-
-    # Dip centers
-    fc, fl, fr = freq_phys, freq_phys - split_phys, freq_phys + split_phys
-
-    # Center dip
-    dxc = x_phys - fc
-    dxc2 = dxc * dxc
-    den_c = max(dxc2 + lw2, 1e-30)
-    iden_c = 1.0 / den_c
-    iden_c2 = iden_c * iden_c
-    dt_df_c = 2.0 * lw2 * dxc * iden_c2
-    dt_dlw_c = 2.0 * lw_safe * dxc2 * iden_c2
-
-    # Left dip
-    dxl = x_phys - fl
-    dxl2 = dxl * dxl
-    den_l = max(dxl2 + lw2, 1e-30)
-    iden_l = 1.0 / den_l
-    iden_l2 = iden_l * iden_l
-    tl = lw2 * iden_l
-    dt_df_l = 2.0 * lw2 * dxl * iden_l2
-    dt_dlw_l = 2.0 * lw_safe * dxl2 * iden_l2
-
-    # Right dip
-    dxr = x_phys - fr
-    dxr2 = dxr * dxr
-    den_r = max(dxr2 + lw2, 1e-30)
-    iden_r = 1.0 / den_r
-    iden_r2 = iden_r * iden_r
-    tr = lw2 * iden_r
-    dt_df_r = 2.0 * lw2 * dxr * iden_r2
-    dt_dlw_r = 2.0 * lw_safe * dxr2 * iden_r2
-
-    # dS/df
-    grad_phys[0] = -(amp_l * dt_df_l + amp_c * dt_df_c + amp_r * dt_df_r)
-    # dS/dlw
-    grad_phys[1] = -(amp_l * dt_dlw_l + amp_c * dt_dlw_c + amp_r * dt_dlw_r)
-    # dS/ds
-    grad_phys[2] = amp_l * dt_df_l - amp_r * dt_df_r
-    # dS/dk
-    k2 = k_safe * k_safe
-    grad_phys[3] = (2.0 * dip_depth_phys / (k2 * k_safe)) * tl + (dip_depth_phys / k2) * (lw2 * iden_c)
-    # dS/dd
-    grad_phys[4] = -(tl / k2 + (lw2 * iden_c) / k_safe + tr)
+    return background - (
+        p_L / ((x_dim + alpha) ** 2 + 1.0)
+        + p_0 / (x_dim ** 2 + 1.0)
+        + p_R / ((x_dim - alpha) ** 2 + 1.0)
+    )
 
 
 def gaussian_peak_value(
@@ -144,7 +82,7 @@ def nv_center_lorentzian_vectorized_many(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
-    dip_depth: np.ndarray,
+    c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
@@ -161,26 +99,28 @@ def nv_center_lorentzian_vectorized_many(
         x = xs[i]
         for j in range(n):
             lw = linewidth[j]
-            lw2 = lw * lw
             f = freq[j]
             s = split[j]
             k = k_np[j]
-            d = dip_depth[j]
+            c = c_total[j]
             bg = background[j]
 
-            amp_c = (d / k) * lw2
-            amp_l = amp_c / k
-            amp_r = amp_c * k
+            omega = lw if lw > 1e-10 else 1e-10
+            x_dim = (x - f) / omega
+            alpha = s / omega
 
-            dx_c = x - f
-            dx_l = dx_c + s
-            dx_r = dx_c - s
+            k_safe = k if k > 1e-10 else 1e-10
+            p_sum = (1.0 / k_safe) + 1.0 + k_safe
 
-            denom_l = dx_l * dx_l + lw2
-            denom_c = dx_c * dx_c + lw2
-            denom_r = dx_r * dx_r + lw2
+            p_0 = c / p_sum
+            p_L = c * ((1.0 / k_safe) / p_sum)
+            p_R = c * (k_safe / p_sum)
 
-            out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
+            out[i, j] = bg - (
+                p_L / ((x_dim + alpha) ** 2 + 1.0)
+                + p_0 / (x_dim ** 2 + 1.0)
+                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+            )
 
 
 @njit(cache=True, parallel=True)
@@ -190,7 +130,7 @@ def nv_center_lorentzian_vectorized_one(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
-    dip_depth: np.ndarray,
+    c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
@@ -204,26 +144,28 @@ def nv_center_lorentzian_vectorized_one(
     n = freq.shape[0]
     for j in prange(n):
         lw = linewidth[j]
-        lw2 = lw * lw
         f = freq[j]
         s = split[j]
         k = k_np[j]
-        d = dip_depth[j]
+        c = c_total[j]
         bg = background[j]
 
-        amp_c = (d / k) * lw2
-        amp_l = amp_c / k
-        amp_r = amp_c * k
+        omega = lw if lw > 1e-10 else 1e-10
+        x_dim = (x - f) / omega
+        alpha = s / omega
 
-        dx_c = x - f
-        dx_l = dx_c + s
-        dx_r = dx_c - s
+        k_safe = k if k > 1e-10 else 1e-10
+        p_sum = (1.0 / k_safe) + 1.0 + k_safe
 
-        denom_l = dx_l * dx_l + lw2
-        denom_c = dx_c * dx_c + lw2
-        denom_r = dx_r * dx_r + lw2
+        p_0 = c / p_sum
+        p_L = c * ((1.0 / k_safe) / p_sum)
+        p_R = c * (k_safe / p_sum)
 
-        out[j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
+        out[j] = bg - (
+            p_L / ((x_dim + alpha) ** 2 + 1.0)
+            + p_0 / (x_dim ** 2 + 1.0)
+            + p_R / ((x_dim - alpha) ** 2 + 1.0)
+        )
 
 
 @njit(cache=True, parallel=True)
@@ -310,32 +252,7 @@ def nv_center_pseudo_voigt_vectorized_one(
             out[j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
 
 
-@njit(cache=True, parallel=True)
-def nv_center_lorentzian_gradient_vectorized_many(
-    x_phys_array: np.ndarray,
-    freq_phys: np.ndarray,
-    lw_phys: np.ndarray,
-    split_phys: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth_phys: np.ndarray,
-    grad_phys_out: np.ndarray,
-) -> None:
-    """Vectorized analytical gradient for many probe positions and many parameter sets.
 
-    Writes into ``grad_phys_out`` which must have shape ``(len(x_phys_array), len(freq_phys), 5)``.
-    """
-    m = x_phys_array.shape[0]
-    n = freq_phys.shape[0]
-    for j in prange(n):
-        f = freq_phys[j]
-        lw = lw_phys[j]
-        s = split_phys[j]
-        knp = k_np[j]
-        d = dip_depth_phys[j]
-
-        for i in range(m):
-            x = x_phys_array[i]
-            nv_center_lorentzian_gradient(x, f, lw, s, knp, d, grad_phys_out[i, j])
 
 
 _SQRT2PI = math.sqrt(2.0 * math.pi)
@@ -498,7 +415,7 @@ def nv_center_lorentzian_vectorized_many_fast(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
-    dip_depth: np.ndarray,
+    c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
@@ -514,26 +431,28 @@ def nv_center_lorentzian_vectorized_many_fast(
         x = xs[i]
         for j in range(n):
             lw = linewidth[j]
-            lw2 = lw * lw
             f = freq[j]
             s = split[j]
             k = k_np[j]
-            d = dip_depth[j]
+            c = c_total[j]
             bg = background[j]
 
-            amp_c = (d / k) * lw2
-            amp_l = amp_c / k
-            amp_r = amp_c * k
+            omega = lw if lw > 1e-10 else 1e-10
+            x_dim = (x - f) / omega
+            alpha = s / omega
 
-            dx_c = x - f
-            dx_l = dx_c + s
-            dx_r = dx_c - s
+            k_safe = k if k > 1e-10 else 1e-10
+            p_sum = (1.0 / k_safe) + 1.0 + k_safe
 
-            denom_l = dx_l * dx_l + lw2
-            denom_c = dx_c * dx_c + lw2
-            denom_r = dx_r * dx_r + lw2
+            p_0 = c / p_sum
+            p_L = c * ((1.0 / k_safe) / p_sum)
+            p_R = c * (k_safe / p_sum)
 
-            out[i, j] = bg - (amp_l / denom_l + amp_c / denom_c + amp_r / denom_r)
+            out[i, j] = bg - (
+                p_L / ((x_dim + alpha) ** 2 + 1.0)
+                + p_0 / (x_dim ** 2 + 1.0)
+                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+            )
 
 
 @njit(cache=True, parallel=True, fastmath=True)

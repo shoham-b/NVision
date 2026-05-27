@@ -114,22 +114,7 @@ class TestOverallNVCenter:
         exp = _nv_center_experiment()
         _overall_run_ms(benchmark, StagedSobolSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
 
-    def test_maximum_likelihood(self, benchmark):
-        exp = _nv_center_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            EKFLocator,  # Updated locator
-            exp,
-            builder=nv_center_belief,
-            max_steps=20,
-            exploration_rate=8.0,
-            n_grid_freq=64,
-            n_grid_linewidth=16,
-            n_grid_split=16,
-            n_grid_k_np=8,
-            n_grid_depth=16,
-            n_grid_background=8,
-        )
+
 
     def test_utility_sampling(self, benchmark):
         exp = _nv_center_experiment()

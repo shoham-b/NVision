@@ -81,6 +81,16 @@ class EKFBelief(AbstractMarginalDistribution):
         k_np = 1.0 / k_NP if k_NP != 0 else 1.0
         dip_depth = a / (k_NP * Omega**2) if (k_NP != 0 and Omega != 0) else 0.0
 
+        if "c_total" in self.model.parameter_names():
+            c_total = dip_depth * (1.0 / k_np**2 + 1.0 / k_np + 1.0)
+            return {
+                "frequency": frequency,
+                "linewidth": linewidth,
+                "split": split,
+                "k_np": k_np,
+                "c_total": c_total,
+            }
+
         return {
             "frequency": frequency,
             "linewidth": linewidth,
@@ -112,13 +122,24 @@ class EKFBelief(AbstractMarginalDistribution):
         std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega**2) if k_NP != 0 and Omega != 0 else 0.0
 
         names = list(self.model.parameter_names())
-        data = {
-            "frequency": std_freq,
-            "linewidth": std_lw,
-            "split": std_split,
-            "k_np": std_k_np,
-            "dip_depth": std_dip_depth,
-        }
+        if "c_total" in names:
+            k_np = 1.0 / k_NP if k_NP != 0 else 1.0
+            std_c_total = std_dip_depth * (1.0 / k_np**2 + 1.0 / k_np + 1.0)
+            data = {
+                "frequency": std_freq,
+                "linewidth": std_lw,
+                "split": std_split,
+                "k_np": std_k_np,
+                "c_total": std_c_total,
+            }
+        else:
+            data = {
+                "frequency": std_freq,
+                "linewidth": std_lw,
+                "split": std_split,
+                "k_np": std_k_np,
+                "dip_depth": std_dip_depth,
+            }
         return ParameterValues.from_mapping(names, data)
 
     def entropy(self) -> float:
@@ -189,13 +210,23 @@ class EKFBelief(AbstractMarginalDistribution):
         dip_depth[mask_d] = a_s[mask_d] / (k_NP_s[mask_d] * Omega_s[mask_d] ** 2)
 
         names = list(self.model.parameter_names())
-        data = {
-            "frequency": frequency,
-            "linewidth": linewidth,
-            "split": split,
-            "k_np": k_np,
-            "dip_depth": dip_depth,
-        }
+        if "c_total" in names:
+            c_total = dip_depth * (1.0 / k_np**2 + 1.0 / k_np + 1.0)
+            data = {
+                "frequency": frequency,
+                "linewidth": linewidth,
+                "split": split,
+                "k_np": k_np,
+                "c_total": c_total,
+            }
+        else:
+            data = {
+                "frequency": frequency,
+                "linewidth": linewidth,
+                "split": split,
+                "k_np": k_np,
+                "dip_depth": dip_depth,
+            }
         return ParameterValues.from_mapping(names, data)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
@@ -391,6 +422,16 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         k_np = 1.0 / k_NP if k_NP != 0 else 1.0
         dip_depth = a / (k_NP * Omega**2) if (k_NP != 0 and Omega != 0) else 0.0
 
+        if "c_total" in self.model.parameter_names():
+            c_total = dip_depth * (1.0 / k_np**2 + 1.0 / k_np + 1.0)
+            return {
+                "frequency": frequency,
+                "linewidth": linewidth,
+                "split": split,
+                "k_np": k_np,
+                "c_total": c_total,
+            }
+
         return {
             "frequency": frequency,
             "linewidth": linewidth,
@@ -425,13 +466,24 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         std_dip_depth = math.sqrt(max(0.0, var_a)) / (k_NP * Omega**2) if k_NP != 0 and Omega != 0 else 0.0
 
         names = list(self.model.parameter_names())
-        data = {
-            "frequency": std_freq,
-            "linewidth": std_lw,
-            "split": std_split,
-            "k_np": std_k_np,
-            "dip_depth": std_dip_depth,
-        }
+        if "c_total" in names:
+            k_np = 1.0 / k_NP if k_NP != 0 else 1.0
+            std_c_total = std_dip_depth * (1.0 / k_np**2 + 1.0 / k_np + 1.0)
+            data = {
+                "frequency": std_freq,
+                "linewidth": std_lw,
+                "split": std_split,
+                "k_np": std_k_np,
+                "c_total": std_c_total,
+            }
+        else:
+            data = {
+                "frequency": std_freq,
+                "linewidth": std_lw,
+                "split": std_split,
+                "k_np": std_k_np,
+                "dip_depth": std_dip_depth,
+            }
         return ParameterValues.from_mapping(names, data)
 
     def entropy(self) -> float:
@@ -510,13 +562,23 @@ class EKFParticleFrequencyBelief(AbstractMarginalDistribution):
         dip_depth[mask_d] = a_s[mask_d] / (k_NP_s[mask_d] * Omega_s[mask_d] ** 2)
 
         names = list(self.model.parameter_names())
-        data = {
-            "frequency": frequency,
-            "linewidth": linewidth,
-            "split": split,
-            "k_np": k_np,
-            "dip_depth": dip_depth,
-        }
+        if "c_total" in names:
+            c_total = dip_depth * (1.0 / k_np**2 + 1.0 / k_np + 1.0)
+            data = {
+                "frequency": frequency,
+                "linewidth": linewidth,
+                "split": split,
+                "k_np": k_np,
+                "c_total": c_total,
+            }
+        else:
+            data = {
+                "frequency": frequency,
+                "linewidth": linewidth,
+                "split": split,
+                "k_np": k_np,
+                "dip_depth": dip_depth,
+            }
         return ParameterValues.from_mapping(names, data)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:

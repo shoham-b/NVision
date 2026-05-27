@@ -90,24 +90,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
     def compute_from_params(self, x: float, params: ParamsT) -> float:
         return self.compute(x, params)
 
-    def compute_jax(self, x: float, params: ParamsT) -> Any:
-        import jax.numpy as jnp
 
-        u_values = self.spec.pack_params(params)
-        names = self.parameter_names()
-        x_lo, x_hi = self.x_bounds_phys
-        x_phys = x_lo + x * (x_hi - x_lo)
-
-        phys_values = []
-        for name, u in zip(names, u_values, strict=True):
-            lo, hi = self.param_bounds_phys[name]
-            v = lo + u * (hi - lo)
-            # JAX-compatible clip (can't raise exceptions inside JAX trace)
-            v = jnp.clip(v, lo, hi)
-            phys_values.append(v)
-
-        phys_typed = self.inner.spec.unpack_params(phys_values)
-        return self.inner.compute_jax(x_phys, phys_typed)
 
     def compute_vectorized(self, x_unit: float, *param_arrays: object) -> np.ndarray:
         """Vectorized one-x evaluation over many unit-cube parameter samples.
@@ -170,37 +153,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
         return self.inner.compute_vectorized_many(xs_phys, typed_samples_phys)
 
-    def gradient_vectorized_many(
-        self,
-        x_norm_array: Sequence[float],
-        samples_norm: VectorizedManySamplesInput[object],
-    ) -> np.ndarray:
-        """Vectorized analytical gradient evaluation at many unit x positions over unit samples."""
-        xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
-        param_arrays_norm = self._get_param_arrays_norm(samples_norm)
 
-        names = self.parameter_names()
-
-        phys_arrays: list[np.ndarray] = []
-        widths: list[float] = []
-        for name, u_arr in zip(names, param_arrays_norm, strict=True):
-            lo, hi = self.param_bounds_phys[name]
-            widths.append(hi - lo)
-            u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
-            phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
-
-        x_lo, x_hi = self.x_bounds_phys
-        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
-
-        typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
-        # grad_phys has shape (n_x, n_p, dim)
-        grad_phys = self.inner.gradient_vectorized_many(xs_phys, typed_samples_phys)
-
-        # Chain rule: dS/du = dS/dv * dv/du = dS/dv * (hi - lo)
-        # We need to scale each parameter column by its width
-        widths_arr = np.array(widths, dtype=FLOAT_DTYPE)
-        # Broadcasting widths (dim,) across (n_x, n_p, dim)
-        return grad_phys * widths_arr
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

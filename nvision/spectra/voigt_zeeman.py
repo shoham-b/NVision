@@ -10,7 +10,6 @@ from typing import Any
 import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
-from nvision.spectra.jax_kernels import nv_center_pseudo_voigt_jax
 from nvision.spectra.numba_kernels import (
     nv_center_pseudo_voigt_eval,
     nv_center_pseudo_voigt_vectorized_many,
@@ -165,17 +164,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         )
         return out.astype(FLOAT_DTYPE, copy=False)
 
-    def compute_jax(self, x: float, params: VoigtZeemanSpectrum) -> Any:
-        return nv_center_pseudo_voigt_jax(
-            x,
-            params.frequency,
-            params.fwhm_total,
-            params.lorentz_frac,
-            params.split,
-            params.k_np,
-            params.dip_depth,
-            params.background,
-        )
+
 
     def sample_params(self, rng: random.Random) -> VoigtZeemanSpectrum:
         """Sample parameters that keep the signal within [0, 1]."""

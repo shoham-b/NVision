@@ -77,23 +77,15 @@ class NVCenterCoreGenerator:
         # Normalize NV Center ODMR directly to [0, 1] bounds using exactly 1.0 maximum dip
 
         if self.variant == "lorentzian":
-            unit_dip_depth = rng.uniform(0.3, 0.95)
-            lw2 = linewidth**2
+            c_total = rng.uniform(0.1, 0.4)
             model = NVCenterLorentzianModel()
-            # Scale a desired contrast onto the true peak-shape maximum
-            xs = np.linspace(center_freq - split, center_freq + split, 200)
-            g = (
-                (lw2 / k_np**2) / ((xs - (center_freq - split)) ** 2 + lw2)
-                + (lw2 / k_np) / ((xs - center_freq) ** 2 + lw2)
-                + lw2 / ((xs - (center_freq + split)) ** 2 + lw2)
-            )
-            dip_depth = unit_dip_depth / float(g.max())
+            
             typed_params = NVCenterLorentzianSpectrum(
                 frequency=center_freq,
                 linewidth=linewidth,
                 split=split,
                 k_np=k_np,
-                dip_depth=dip_depth,
+                c_total=c_total,
             )
             bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
             
@@ -101,13 +93,13 @@ class NVCenterCoreGenerator:
             prior_split = max(MIN_SPLIT, min(MAX_SPLIT, rng.gauss(split, 0.1e6)))
             prior_linewidth = max(MIN_LINEWIDTH, min(MAX_LINEWIDTH, rng.gauss(linewidth, 10e3)))
             prior_k_np = max(MIN_K_NP, min(MAX_K_NP, rng.gauss(k_np, 0.1)))
-            prior_dip_depth = max(0.1, min(1.0, rng.gauss(dip_depth, 0.05)))
+            prior_c_total = max(0.1, min(0.4, rng.gauss(c_total, 0.05)))
             
             bounds["_priors"] = {
                 "split": (prior_split, 0.1e6),
                 "linewidth": (prior_linewidth, 10e3),
                 "k_np": (prior_k_np, 0.1),
-                "dip_depth": (prior_dip_depth, 0.05),
+                "c_total": (prior_c_total, 0.05),
                 "frequency": ("sin^2", np.pi / width),
             }
         else:  # voigt

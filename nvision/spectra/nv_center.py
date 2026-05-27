@@ -12,7 +12,6 @@ from typing import Any
 import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
-from nvision.spectra.jax_kernels import nv_center_lorentzian_jax, nv_center_pseudo_voigt_jax
 from nvision.spectra.numba_kernels import (
     nv_center_lorentzian_eval,
     nv_center_lorentzian_vectorized_many,
@@ -48,12 +47,12 @@ class NVCenterLorentzianSpectrum:
     linewidth: float
     split: float
     k_np: float
-    dip_depth: float
+    c_total: float
 
     @property
     def physical_amplitude(self) -> float:
         """Physical Hz² amplitude (numerator): right peak depth × linewidth²."""
-        return (self.dip_depth / self.k_np) * self.linewidth**2
+        return (self.c_total / self.k_np) * self.linewidth**2
 
 
 @dataclass(frozen=True)
@@ -62,7 +61,7 @@ class NVCenterLorentzianSpectrumSamples:
     linewidth: np.ndarray
     split: np.ndarray
     k_np: np.ndarray
-    dip_depth: np.ndarray
+    c_total: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -71,7 +70,7 @@ class NVCenterLorentzianSpectrumUncertainty:
     linewidth: float
     split: float
     k_np: float
-    dip_depth: float
+    c_total: float
 
 
 class _NVCenterLorentzianSpec(
@@ -131,7 +130,7 @@ class NVCenterLorentzianModel(
         linewidth: float,
         split: float,
         k_np: float,
-        dip_depth: float,
+        c_total: float,
     ) -> float:
         """Triple Lorentzian NV ODMR; parameter order matches :meth:`parameter_names`."""
         return nv_center_lorentzian_eval(
@@ -140,7 +139,7 @@ class NVCenterLorentzianModel(
             float(linewidth),
             float(split),
             float(k_np),
-            float(dip_depth),
+            float(c_total),
             1.0,
         )
 
@@ -151,7 +150,7 @@ class NVCenterLorentzianModel(
         linewidth: np.ndarray,
         split: np.ndarray,
         k_np: np.ndarray,
-        dip_depth: np.ndarray,
+        c_total: np.ndarray,
     ) -> np.ndarray:
         """Vectorized triple-Lorentzian NV evaluation for one probe location."""
         freq = np.asarray(frequency, dtype=FLOAT_DTYPE)
@@ -164,7 +163,7 @@ class NVCenterLorentzianModel(
             np.asarray(linewidth, dtype=FLOAT_DTYPE),
             np.asarray(split, dtype=FLOAT_DTYPE),
             np.asarray(k_np, dtype=FLOAT_DTYPE),
-            np.asarray(dip_depth, dtype=FLOAT_DTYPE),
+            np.asarray(c_total, dtype=FLOAT_DTYPE),
             bg,
             out,
         )
@@ -177,10 +176,10 @@ class NVCenterLorentzianModel(
         return self._SPEC
 
     def is_scale_parameter(self, name: str) -> bool:
-        return name in ("linewidth", "dip_depth")
+        return name in ("linewidth", "c_total")
 
     def parameter_weights(self) -> dict[str, float]:
-        return {"frequency": 2.0, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "dip_depth": 1.0}
+        return {"frequency": 2.0, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         linewidth_lo = domain_width * 0.0001
@@ -202,19 +201,9 @@ class NVCenterLorentzianModel(
             params.linewidth,
             params.split,
             params.k_np,
-            params.dip_depth / params.k_np,
+            params.c_total,
         )
 
-    def compute_jax(self, x: float, params: NVCenterLorentzianSpectrum) -> Any:
-        return nv_center_lorentzian_jax(
-            x,
-            params.frequency,
-            params.linewidth,
-            params.split,
-            params.k_np,
-            params.dip_depth,
-            1.0,
-        )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
         out = self.compute_nvcenter_lorentzian_model_vectorized(
@@ -223,7 +212,7 @@ class NVCenterLorentzianModel(
             samples.linewidth,
             samples.split,
             samples.k_np,
-            samples.dip_depth,
+            samples.c_total,
         )
         return out
 
@@ -249,7 +238,7 @@ class NVCenterLorentzianModel(
             np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
-            np.asarray(samples_phys.dip_depth, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
             np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
             out,
         )
@@ -273,33 +262,11 @@ class NVCenterLorentzianModel(
             np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
-            np.asarray(samples_phys.dip_depth, dtype=FLOAT_DTYPE),
+            np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
             np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
             out,
         )
         return out
-
-    def gradient_vectorized_many(
-        self, x_phys_array: Sequence[float], samples_phys: NVCenterLorentzianSpectrumSamples
-    ) -> np.ndarray:
-        """Analytical gradient evaluation at many physical x positions over physical samples."""
-        from nvision.spectra.numba_kernels import nv_center_lorentzian_gradient_vectorized_many
-
-        xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
-        freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
-        n_x, n_p = xs.shape[0], freq.shape[0]
-        grad_out = np.empty((n_x, n_p, 5), dtype=FLOAT_DTYPE)
-
-        nv_center_lorentzian_gradient_vectorized_many(
-            xs,
-            freq,
-            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-            np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
-            np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
-            np.asarray(samples_phys.dip_depth, dtype=FLOAT_DTYPE),
-            grad_out,
-        )
-        return grad_out
 
 
 @dataclass(frozen=True)
@@ -444,17 +411,6 @@ class NVCenterVoigtModel(
             params.dip_depth,
         )
 
-    def compute_jax(self, x: float, params: NVCenterVoigtSpectrum) -> Any:
-        return nv_center_pseudo_voigt_jax(
-            x,
-            params.frequency,
-            params.fwhm_total,
-            params.lorentz_frac,
-            params.split,
-            params.k_np,
-            params.dip_depth,
-            1.0,
-        )
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
         """Vectorized Voigt evaluation for a single probe position across all particles."""
@@ -547,7 +503,7 @@ def nv_center_lorentzian_bounds_for_domain(
         "linewidth": linewidth_bounds,
         "split": split_bounds,
         "k_np": (MIN_K_NP, MAX_K_NP),
-        "dip_depth": (0.1, 1.0),
+        "c_total": (0.1, 0.4),
         "_signal_max_span": (0.0, max_span),
     }
 
@@ -635,10 +591,6 @@ class NVCenterOnePeakLorentzianModel(
         denom = (float(x) - params.frequency) ** 2 + lw2
         return float(1.0 - (params.dip_depth * lw2) / denom)
 
-    def compute_jax(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> Any:
-        lw2 = params.linewidth**2
-        denom = (x - params.frequency) ** 2 + lw2
-        return 1.0 - (params.dip_depth * lw2) / denom
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
         x_f = float(x)

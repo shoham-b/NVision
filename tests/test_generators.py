@@ -14,7 +14,7 @@ def test_nv_center_lorentzian_has_five_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "split", "k_np", "dip_depth"}
+    assert names == {"frequency", "linewidth", "split", "k_np", "c_total"}
 
 
 def test_nv_center_voigt_has_different_params_than_lorentzian():

@@ -15,7 +15,7 @@ def test_select_max_information_gain_diversity():
         "linewidth": (5e6, 15e6),
         "split": (1e6, 5e6),
         "k_np": (0.5, 1.5),
-        "dip_depth": (0.05, 0.2),
+        "c_total": (0.05, 0.2),
         "background": (0.0, 0.1),
     }
     x_bounds = phys_bounds["frequency"]

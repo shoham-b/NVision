@@ -620,6 +620,8 @@ def _bayesian_auxiliary_entries(  # noqa: C901
                 ("split", "linewidth"),
                 ("frequency", "dip_depth"),
                 ("dip_depth", "linewidth"),
+                ("frequency", "c_total"),
+                ("c_total", "linewidth"),
             ]
             for p1, p2 in priority_pairs:
                 if p1 in param_names and p2 in param_names:

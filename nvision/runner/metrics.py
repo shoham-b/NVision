@@ -162,7 +162,7 @@ def generate_attempt_metrics(  # noqa: C901
         metrics_serialized["sobol_freq_err_at_conv"] = sobol_freq_err_at_conv
 
     # Copy final estimates for parameters
-    for param_name in ("frequency", "linewidth", "split", "dip_depth", "k_np", "fwhm_total", "lorentz_frac"):
+    for param_name in ("frequency", "linewidth", "split", "dip_depth", "c_total", "k_np", "fwhm_total", "lorentz_frac"):
         if param_name in estimate:
             metrics_serialized[f"final_est_{param_name}"] = _maybe_finite(estimate[param_name])
 

@@ -30,8 +30,8 @@ def test_nv_center_default_bounds_align_with_generation_formulas():
     b = nv_center_belief()
     for key in ("frequency", "linewidth", "split", "k_np"):
         assert b.physical_param_bounds[key] == gen[key]
-    glo, ghi = gen["dip_depth"]
-    blo, bhi = b.physical_param_bounds["dip_depth"]
+    glo, ghi = gen["c_total"]
+    blo, bhi = b.physical_param_bounds["c_total"]
     assert bhi == ghi
     assert glo <= blo < bhi
 

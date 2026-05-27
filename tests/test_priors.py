@@ -31,7 +31,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
     assert priors_lor["frequency"] == ("sin^2", expected_k)
     
     # Verify other parameter priors are Gaussian (val, std)
-    for name in ("split", "linewidth", "k_np", "dip_depth"):
+    for name in ("split", "linewidth", "k_np", "c_total"):
         assert name in priors_lor
         val, std = priors_lor[name]
         assert isinstance(val, float)

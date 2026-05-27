@@ -199,7 +199,7 @@ def nv_center_belief(
             ("linewidth", phys["linewidth"], n_grid_linewidth),
             ("split", phys["split"], n_grid_split),
             ("k_np", phys["k_np"], n_grid_k_np),
-            ("dip_depth", phys["dip_depth"], n_grid_depth),
+            ("c_total", phys["c_total"], n_grid_depth),
         ]
 
     return _unit_cube_belief_from_specs(

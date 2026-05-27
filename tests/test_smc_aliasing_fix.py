@@ -12,7 +12,7 @@ def test_smc_stable_update_prevents_uniform_reset():
         "linewidth": (1e6, 3e6),
         "split": (4e6, 6e6),
         "k_np": (1.0, 5.0),
-        "dip_depth": (0.1, 0.9),
+        "c_total": (0.1, 0.9),
     }
     
     # Initialize SMC
