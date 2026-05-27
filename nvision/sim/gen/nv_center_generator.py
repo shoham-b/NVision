@@ -90,16 +90,16 @@ class NVCenterCoreGenerator:
             bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
             
             # Generate Gaussian priors for all parameters except frequency
-            prior_split = max(MIN_SPLIT, min(MAX_SPLIT, rng.gauss(split, 0.1e6)))
-            prior_linewidth = max(MIN_LINEWIDTH, min(MAX_LINEWIDTH, rng.gauss(linewidth, 10e3)))
-            prior_k_np = max(MIN_K_NP, min(MAX_K_NP, rng.gauss(k_np, 0.1)))
-            prior_c_total = max(0.1, min(0.4, rng.gauss(c_total, 0.05)))
+            prior_split = rng.gauss(split, 0.1e6)
+            prior_linewidth = rng.gauss(linewidth, 10e3)
+            prior_k_np = rng.gauss(k_np, 0.1)
+            prior_c_total = rng.gauss(c_total, 0.002)
             
             bounds["_priors"] = {
                 "split": (prior_split, 0.1e6),
                 "linewidth": (prior_linewidth, 10e3),
                 "k_np": (prior_k_np, 0.1),
-                "c_total": (prior_c_total, 0.05),
+                "c_total": (prior_c_total, 0.002),
                 "frequency": ("sin^2", np.pi / width),
             }
         else:  # voigt
@@ -133,18 +133,18 @@ class NVCenterCoreGenerator:
             bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
             
             # Generate Gaussian priors for all parameters except frequency
-            prior_split = max(0.0, min(5.0e6, rng.gauss(split, 0.1e6)))
-            prior_fwhm_total = max(70e3, min(2.8e6, rng.gauss(fwhm_total, 20e3)))
-            prior_lorentz_frac = max(0.05, min(0.98, rng.gauss(lorentz_frac, 0.05)))
-            prior_k_np = max(MIN_K_NP, min(MAX_K_NP, rng.gauss(k_np, 0.1)))
-            prior_dip_depth = max(0.001, min(1.0, rng.gauss(dip_depth, 0.05)))
+            prior_split = rng.gauss(split, 0.1e6)
+            prior_fwhm_total = rng.gauss(fwhm_total, 20e3)
+            prior_lorentz_frac = rng.gauss(lorentz_frac, 0.05)
+            prior_k_np = rng.gauss(k_np, 0.1)
+            prior_dip_depth = rng.gauss(dip_depth, 0.01)
             
             bounds["_priors"] = {
                 "split": (prior_split, 0.1e6),
                 "fwhm_total": (prior_fwhm_total, 20e3),
                 "lorentz_frac": (prior_lorentz_frac, 0.05),
                 "k_np": (prior_k_np, 0.1),
-                "dip_depth": (prior_dip_depth, 0.05),
+                "dip_depth": (prior_dip_depth, 0.01),
                 "frequency": ("sin^2", np.pi / width),
             }
 

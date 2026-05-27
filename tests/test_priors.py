@@ -79,7 +79,7 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     
     # Verify rejection sampling shape: evaluate sin^2(k f)
     k = np.pi / (f_hi - f_lo)
-    probs = np.sin(k * freq_particles_phys) ** 2
+    probs = np.sin(k * (freq_particles_phys - f_lo)) ** 2
     
     # The mean of sin^2(k f) over accepted particles should be significantly higher
     # than the analytical mean of uniform [0, 1] density passing through the sin^2 filter
@@ -104,3 +104,21 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     # Verify that particles are standard deviations-bound and not uniformly distributed
     particle_std = np.std(split_particles_phys)
     assert abs(particle_std - prior_std_phys) < 0.5 * prior_std_phys
+
+    # Let's verify c_total prior as well
+    c_idx = belief._param_names.index("c_total")
+    c_particles_unit = belief._particles[:, c_idx]
+    
+    c_lo, c_hi = belief.physical_param_bounds["c_total"]
+    c_particles_phys = c_lo + c_particles_unit * (c_hi - c_lo)
+    
+    prior_c_mean_phys, prior_c_std_phys = signal.bounds["_priors"]["c_total"]
+    
+    # Check that c_total particle mean is close to its prior mean
+    c_particle_mean = np.mean(c_particles_phys)
+    assert abs(c_particle_mean - prior_c_mean_phys) < 3.0 * prior_c_std_phys
+    
+    # Verify that c_total particles are standard deviations-bound and not uniformly distributed
+    c_particle_std = np.std(c_particles_phys)
+    assert abs(c_particle_std - prior_c_std_phys) < 0.5 * prior_c_std_phys
+

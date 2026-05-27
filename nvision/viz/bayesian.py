@@ -21,6 +21,60 @@ class SubplotOptions:
     zoom_to_window: bool = False
 
 
+def _safe_histogram(vals, bins=80, weights=None, density=True):
+    """Safely calculate histogram without raising ValueError for zero range, NaNs or empty arrays."""
+    vals = np.asarray(vals)
+    # Filter to only finite values
+    if weights is not None:
+        weights = np.asarray(weights)
+        finite_mask = np.isfinite(vals) & np.isfinite(weights)
+        vals = vals[finite_mask]
+        weights = weights[finite_mask]
+    else:
+        vals = vals[np.isfinite(vals)]
+    
+    if vals.size == 0:
+        counts = np.zeros(bins)
+        bin_edges = np.linspace(-1.0, 1.0, bins + 1)
+        return counts, bin_edges
+
+    # Try regular histogram
+    try:
+        counts, bin_edges = np.histogram(vals, bins=bins, weights=weights, density=density)
+        # Check if all counts are finite. If not, fallback
+        if np.all(np.isfinite(counts)) and np.all(np.isfinite(bin_edges)):
+            return counts, bin_edges
+    except ValueError:
+        pass
+
+    # If it fails (flat values or infinite ranges), compute a fallback range
+    v_min = np.min(vals)
+    v_max = np.max(vals)
+    if not np.isfinite(v_min) or not np.isfinite(v_max):
+        counts = np.zeros(bins)
+        bin_edges = np.linspace(-1.0, 1.0, bins + 1)
+        return counts, bin_edges
+
+    diff = v_max - v_min
+    if diff <= 0:
+        half_width = max(0.05 * abs(v_min), 1e-5)
+        hist_range = (float(v_min - half_width), float(v_min + half_width))
+    else:
+        hist_range = (float(v_min), float(v_max))
+
+    try:
+        counts, bin_edges = np.histogram(vals, bins=bins, range=hist_range, weights=weights, density=density)
+        if np.all(np.isfinite(counts)) and np.all(np.isfinite(bin_edges)):
+            return counts, bin_edges
+    except ValueError:
+        pass
+
+    # Complete fallback
+    counts = np.zeros(bins)
+    bin_edges = np.linspace(-1.0, 1.0, bins + 1)
+    return counts, bin_edges
+
+
 def _get_signal_formula(model: Any) -> str:
     """Return a LaTeX string with the full signal formula for the given model.
 
@@ -244,8 +298,9 @@ def _trace_one_marginal_posterior(
         if posterior.shape[1] in (1, 2):
             weights = posterior[:, 1] if posterior.shape[1] == 2 else None
             # Pre-calculate histogram to avoid client-side Plotly animation bugs with go.Histogram/go.Bar
-            counts, bin_edges = np.histogram(
-                posterior[:, 0],
+            vals = posterior[:, 0]
+            counts, bin_edges = _safe_histogram(
+                vals,
                 bins=80,
                 weights=weights,
                 density=True,
@@ -1082,7 +1137,7 @@ class BayesianMixin:
                     x_max_val = max(x_max_val, float(np.max(vals)))
 
                     weights = post[:, 1] if post.shape[1] == 2 else None
-                    counts, _ = np.histogram(vals, bins=80, weights=weights, density=True)
+                    counts, _ = _safe_histogram(vals, bins=80, weights=weights, density=True)
                     m = np.max(counts)
                     if m > max_density:
                         max_density = m

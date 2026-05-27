@@ -155,7 +155,7 @@ def run_preset(
     ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
 ) -> None:
     """Run any registered preset group by name (single entry point for all groups)."""
-    effective_no_cache = (group_name != "all") if no_cache is None else no_cache
+    effective_no_cache = False if no_cache is None else no_cache
     _run_named_group(
         group_name,
         all_experiments=all_experiments,
@@ -229,7 +229,7 @@ def run_all(
 @groups_app.command("sweep-only")
 def sweep_only(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -265,7 +265,7 @@ def sweep_only(
 @groups_app.command("wide")
 def wide_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -301,7 +301,7 @@ def wide_group(
 @groups_app.command("sbed-only")
 def sbed_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -337,7 +337,7 @@ def sbed_only_group(
 @groups_app.command("ekf-only")
 def ekf_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -373,7 +373,7 @@ def ekf_only_group(
 @groups_app.command("gmm-only")
 def gmm_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),

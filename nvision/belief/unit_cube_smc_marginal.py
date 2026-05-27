@@ -50,6 +50,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
         self.parameter_bounds = {name: (0.0, 1.0) for name in all_names}
         super().__post_init__()
+        self._original_physical_x_bounds = self.physical_x_bounds
 
     def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
         """Override to normalize physical candidates to [0, 1] for the UnitCube model."""
@@ -231,8 +232,9 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 # Add a small guard margin (1 × linewidth) so the locator can
                 # still sample just outside the shoulders for EIG computation.
                 guard = omega_phys
-                left_shoulder_phys = lo_phys + left_shoulder_x * cur_width
-                right_shoulder_phys = lo_phys + right_shoulder_x * cur_width
+                lo_orig, hi_orig = self._original_physical_x_bounds
+                left_shoulder_phys = lo_orig + left_shoulder_x * (hi_orig - lo_orig)
+                right_shoulder_phys = lo_orig + right_shoulder_x * (hi_orig - lo_orig)
                 new_lo = left_shoulder_phys - guard
                 new_hi = right_shoulder_phys + guard
             else:
@@ -288,6 +290,46 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Regenerate the epoch candidates using the updated physical frequency bounds.
         self._generate_epoch_candidates()
 
+    def update(self, obs: Observation) -> None:
+        from nvision.models.observation import Observation
+        lo_orig, hi_orig = self._original_physical_x_bounds
+        lo_curr, hi_curr = self.physical_x_bounds
+
+        if (lo_orig != lo_curr) or (hi_orig != hi_curr):
+            x_phys = lo_orig + obs.x * (hi_orig - lo_orig)
+            x_curr_unit = (x_phys - lo_curr) / (hi_curr - lo_curr)
+            from dataclasses import replace
+            obs_eval = replace(obs, x=float(x_curr_unit))
+        else:
+            obs_eval = obs
+
+        super().update(obs_eval)
+        # Restore the original observation in self._observations list
+        self._observations[-1] = obs
+
+    def batch_update(self, observations: list[Observation]) -> None:
+        from nvision.models.observation import Observation
+        if not hasattr(self, "_observations"):
+            self._observations = []
+        self._observations.extend(observations)
+
+        lo_orig, hi_orig = self._original_physical_x_bounds
+        lo_curr, hi_curr = self.physical_x_bounds
+
+        observations_eval = []
+        if (lo_orig != lo_curr) or (hi_orig != hi_curr):
+            from dataclasses import replace
+            for obs in observations:
+                x_phys = lo_orig + obs.x * (hi_orig - lo_orig)
+                x_curr_unit = (x_phys - lo_curr) / (hi_curr - lo_curr)
+                observations_eval.append(replace(obs, x=float(x_curr_unit)))
+        else:
+            observations_eval = observations
+
+        super().batch_update(observations_eval)
+        # Restore the original observations in self._observations list
+        n_obs = len(observations)
+        self._observations[-n_obs:] = observations
 
     def copy(self) -> UnitCubeSMCMarginalDistribution:
         dist = UnitCubeSMCMarginalDistribution(
@@ -311,6 +353,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._weights = self._weights.copy()
         dist._step_count = self._step_count
         dist.resampled = self.resampled
+        dist._original_physical_x_bounds = self._original_physical_x_bounds
         if hasattr(self, "_observations"):
             dist._observations = list(self._observations)
         return dist

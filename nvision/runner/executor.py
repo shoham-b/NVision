@@ -388,7 +388,7 @@ class _TaskRunner:
 
     def _restore_cached_results(self, allow_gaps: bool = False) -> tuple[TaskResults, int]:
         """Load results from cache. Handles full matches and partial streaming hits."""
-        if self.skip_cache:
+        if self.skip_cache and not allow_gaps:
             if self.task.require_cache:
                 log.warning(
                     "Cache miss for %s/%s/%s (seed=%s) with --require-cache + caching disabled. Skipping.",

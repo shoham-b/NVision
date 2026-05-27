@@ -98,7 +98,7 @@ def run_preset(
     ),
 ) -> None:
     """Run any registered preset by name (single entry point for all cases)."""
-    effective_no_cache = (case_name != sim_cases.RunCaseName.ALL) if no_cache is None else no_cache
+    effective_no_cache = False if no_cache is None else no_cache
     _run_named_case(
         case_name,
         all_experiments=all_experiments,
@@ -116,7 +116,7 @@ def run_preset(
 def nvcenter_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
@@ -135,7 +135,7 @@ def nvcenter_case(
 def nvcenter_bayes_sbed_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
@@ -154,7 +154,7 @@ def nvcenter_bayes_sbed_case(
 def nvcenter_bayes_ucb_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
@@ -173,7 +173,7 @@ def nvcenter_bayes_ucb_case(
 def nvcenter_bayes_maxvar_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:
@@ -192,7 +192,7 @@ def nvcenter_bayes_maxvar_case(
 def nvcenter_bayes_utility_case(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this case"),
     all_experiments: bool = typer.Option(False, "--all", help="Run full combination grid"),
-    no_cache: bool = typer.Option(True, "--no-cache/--cache", help="Disable cache for this run"),
+    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
     runners: int = typer.Option(4, "--runners", min=1, help="Number of runner processes passed to `nvision run`."),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> None:

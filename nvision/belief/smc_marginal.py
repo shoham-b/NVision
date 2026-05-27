@@ -220,7 +220,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     sampled = []
                     while len(sampled) < self.num_particles:
                         candidates = np.random.uniform(f_min, f_max, self.num_particles)
-                        probs = np.sin(k * candidates) ** 2
+                        probs = np.sin(k * (candidates - f_min)) ** 2
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
                         accepted = candidates[u < probs]
                         sampled.extend(accepted)
@@ -631,7 +631,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         sampled = []
                         while len(sampled) < num_random:
                             candidates = np.random.uniform(f_min, f_max, num_random)
-                            probs = np.sin(k * candidates) ** 2
+                            probs = np.sin(k * (candidates - f_min)) ** 2
                             u = np.random.uniform(0.0, 1.0, num_random)
                             accepted = candidates[u < probs]
                             sampled.extend(accepted)

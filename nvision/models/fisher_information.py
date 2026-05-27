@@ -53,7 +53,12 @@ def fisher_information_matrix(
 
     Returns ``None`` if :meth:`~nvision.spectra.signal.SignalModel.gradient` is unavailable.
     """
-    grads = model.gradient(x, parameters)
+    if not hasattr(model, "gradient") or not callable(getattr(model, "gradient", None)):
+        return None
+    try:
+        grads = model.gradient(x, parameters)
+    except AttributeError:
+        return None
     if grads is None:
         return None
     grad_vec = np.array([grads[name] for name in model.parameter_names()], dtype=np.float64)
@@ -76,7 +81,12 @@ def gaussian_fisher_information_matrix(
     last_obs: Observation | None,
 ) -> np.ndarray | None:
     """Gaussian FIM only (ignores Poisson metadata). Prefer :func:`fisher_information_matrix`."""
-    grads = model.gradient(x, parameters)
+    if not hasattr(model, "gradient") or not callable(getattr(model, "gradient", None)):
+        return None
+    try:
+        grads = model.gradient(x, parameters)
+    except AttributeError:
+        return None
     if grads is None:
         return None
     grad_vec = np.array([grads[name] for name in model.parameter_names()], dtype=np.float64)
