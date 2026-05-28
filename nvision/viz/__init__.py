@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import polars as pl
+
 from nvision.viz.base import VizBase
 from nvision.viz.bayesian import BayesianMixin
 from nvision.viz.comparisons import ComparisonsMixin
@@ -9,7 +10,6 @@ from nvision.viz.measurements import MeasurementsMixin
 from nvision.viz.metrics import MetricsVizMixin
 
 # Removed duplicate plot_all_metrics implementation
-
 
 
 class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, ComparisonsMixin, MetricsVizMixin):
@@ -31,9 +31,7 @@ class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, Compariso
             strat = row["strategy"]
             # Retrieve metrics for this combo from the dataframe rows
             subset = df_loc.filter(
-                (pl.col("generator") == gen)
-                & (pl.col("noise") == noise)
-                & (pl.col("strategy") == strat)
+                (pl.col("generator") == gen) & (pl.col("noise") == noise) & (pl.col("strategy") == strat)
             )
             # Metrics are stored in the "metrics" column as a struct; extract first if any
             if "metrics" not in subset.columns:
