@@ -2371,19 +2371,16 @@ void main() {
 	vec2 currNormal = vec2(-currTangent.y, currTangent.x);
 	vec2 nextNormal = vec2(-nextTangent.y, nextTangent.x);
 
-	vec2 startJoinDirection = normalize(prevTangent - currTangent);
-	vec2 endJoinDirection = normalize(currTangent - nextTangent);
-
 	// collapsed/unidirectional segment cases
-	// FIXME: there should be more elegant solution
-	vec2 prevTanDiff = abs(prevTangent - currTangent);
-	vec2 nextTanDiff = abs(nextTangent - currTangent);
-	if (max(prevTanDiff.x, prevTanDiff.y) < MIN_DIFF) {
-		startJoinDirection = currNormal;
-	}
-	if (max(nextTanDiff.x, nextTanDiff.y) < MIN_DIFF) {
-		endJoinDirection = currNormal;
-	}
+	vec2 prevTanDiff = prevTangent - currTangent;
+	vec2 nextTanDiff = currTangent - nextTangent;
+
+	float startIsLarge = step(MIN_DIFF, length(prevTanDiff));
+	vec2 startJoinDirection = normalize(mix(currNormal, prevTanDiff, startIsLarge));
+
+	float endIsLarge = step(MIN_DIFF, length(nextTanDiff));
+	vec2 endJoinDirection = normalize(mix(currNormal, nextTanDiff, endIsLarge));
+
 	if (aCoord == bCoord) {
 		endJoinDirection = startJoinDirection;
 		currNormal = prevNormal;
