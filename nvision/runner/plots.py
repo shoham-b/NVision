@@ -22,6 +22,7 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 from nvision.viz.bayesian import _get_nv_parameter_descriptions, _get_signal_formula
 
+
 log = logging.getLogger(__name__)
 
 # Maximum number of snapshots fed into visualization loops.
@@ -842,13 +843,12 @@ def get_or_run_sobol_baseline(
         return sobol_data
 
     # Otherwise, simulate it dynamically!
-    import math
     import random
-
-    from nvision.runner.convert import belief_mode_estimates
-    from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
+    import math
+    from nvision.runner.repeat_keys import repeat_seed_int, measurement_repeat_key
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+    from nvision.runner.convert import belief_mode_estimates
 
     # 1. Setup locator noise/bounds
     noise_std = 0.05

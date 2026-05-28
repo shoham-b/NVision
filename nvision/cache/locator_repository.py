@@ -274,7 +274,6 @@ class LocatorResultsRepository:
     ) -> None:
         """Append new repeats to a streaming cache entry and update pointer."""
         import datetime
-
         updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         ptr_config = combination_base_cache_config(
@@ -307,6 +306,7 @@ class LocatorResultsRepository:
         if actual_achieved > existing_total:
             ptr_df = pl.DataFrame({"achieved_repeats": [actual_achieved], "streaming": [True]})
             self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config, "updated_at": updated_at})
+
 
     def save_repeat(
         self,

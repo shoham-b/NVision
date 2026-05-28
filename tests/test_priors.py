@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import random
-
 import numpy as np
+import pytest
 
 from nvision import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
     NVCenterCoreGenerator,
     nv_center_smc_belief,
+    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    DEFAULT_NV_CENTER_FREQ_X_MAX,
 )
+from nvision.spectra.nv_center import MAX_LINEWIDTH
 
 
 def test_generator_adds_gaussian_and_sin2_priors():

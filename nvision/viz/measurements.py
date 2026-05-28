@@ -856,9 +856,7 @@ def _decode_plotly_array(v: Any) -> list[Any] | None:
         v = v.to_plotly_json()
     if isinstance(v, dict) and "bdata" in v and "dtype" in v:
         import base64
-
         import numpy as np
-
         try:
             raw = base64.b64decode(v["bdata"])
             arr = np.frombuffer(raw, dtype=v["dtype"])

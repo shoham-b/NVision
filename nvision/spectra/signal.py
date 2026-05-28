@@ -157,6 +157,8 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         """
         return self.compute(x, params)
 
+
+
     def compute_from_params(self, x: float, params: ParamsT) -> float:
         """Evaluate the model at ``x`` using a typed parameter bundle."""
 

@@ -188,6 +188,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _d_signal: int = field(init=False, repr=False, default=0)
     _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
 
+
     def __post_init__(self) -> None:
         self._param_names = list(self.model.parameter_names())
         if self.noise_model is not None:
@@ -223,7 +224,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
                         accepted = candidates[u < probs]
                         sampled.extend(accepted)
-                    sampled = np.array(sampled[: self.num_particles])
+                    sampled = np.array(sampled[:self.num_particles])
 
                     # Map back to unit space if in UnitCubeSMCMarginalDistribution
                     if phys_bounds and name in phys_bounds:

@@ -73,10 +73,7 @@ def list_cache(
 
                     # Track the latest updated date
                     updated_at_val = payload.get("updated_at", "-")
-                    if group_key not in updated_dates or (
-                        updated_at_val != "-"
-                        and (updated_dates[group_key] == "-" or updated_at_val > updated_dates[group_key])
-                    ):
+                    if group_key not in updated_dates or (updated_at_val != "-" and (updated_dates[group_key] == "-" or updated_at_val > updated_dates[group_key])):
                         updated_dates[group_key] = updated_at_val
 
     if found_any:
@@ -201,7 +198,6 @@ def cache_clean(
     else:
         deleted_count = 0
         from nvision.cache.locator_repository import LocatorResultsRepository
-
         for _, cat_cache, key in keys_to_delete:
             payload = cat_cache.backend.get(key)
             if isinstance(payload, dict) and "config" in payload:
