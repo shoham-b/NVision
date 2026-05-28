@@ -11,8 +11,10 @@ This document provides essential knowledge for AI coding agents to be productive
 To understand the core design of the inference engine, you **MUST** read the documentation located in the `docs/` folder. `AGENTS.md` is strictly for agent behavioral rules and workflows. 
 
 **Mandatory Reading for Architecture:**
-- **[core_architecture.md](file:///c:/Users/shoha/git/NVision/docs/core_architecture.md)**: Explains the Simulation Orchestration, the Sequential Monte Carlo (SMC) engine, the Bayesian SBED locator, and the critical **Unit-Cube Parameter Scaling** conventions.
-- **[caching.md](file:///c:/Users/shoha/git/NVision/docs/caching.md)**: Explains how the SQLite cache operates and the `--no-cache` / `--dry-run` flag behaviors.
+- **[core_architecture.md](docs/core_architecture.md)**: Explains the Simulation Orchestration, the Sequential Monte Carlo (SMC) engine, the Bayesian SBED locator, and the critical **Unit-Cube Parameter Scaling** conventions. Note: Legacy concepts such as `ParameterWithPosterior` and 1D `BeliefSignal` grids have been fully superseded by the N-dimensional SMC architecture.
+- **[caching.md](docs/caching.md)**: Explains how the SQLite cache operates and the `--no-cache` / `--dry-run` flag behaviors.
+- **[cli_integration.md](docs/cli_integration.md)**: Details CLI tasks, the new `Runner` and `Observer` architecture, and auto-routing logic.
+- **[classmethod_pattern.md](docs/classmethod_pattern.md)**: Explains the `@classmethod create()` factory pattern used for instantiating Locators.
 
 **Brief Repository Map**:
 - `nvision/sim/`: Generators, Noise Models, and Locators.
@@ -48,7 +50,7 @@ To understand the core design of the inference engine, you **MUST** read the doc
 ### 3. Project-Specific Conventions
 - **Scope & Focus**: Do NOT get rabbit-holed or obsessed with micro-optimizations, algorithmic minutiae (like the Welford algorithm), or complex `polars` filtering pipelines unless explicitly requested by the user. If you find yourself spending too much time debugging a tiny isolated detail, step back and address the broader macro-objective.
 - **Reproducibility**: All experiments use a fixed RNG seed (`nvision.tools.utils.NVISION_RNG_SEED`) and a scenario grid for deterministic results.
-- **Caching**: Results and intermediate data are cached in `artifacts/cache/` for efficient repeat runs. Caching is enabled by default. See [caching.md](file:///c:/Users/shoha/git/NVision/docs/caching.md) for details on `--no-cache` and `--dry-run` flag behaviors.
+- **Caching**: Results and intermediate data are cached in `artifacts/cache/` for efficient repeat runs. Caching is enabled by default. See [caching.md](docs/caching.md) for details on `--no-cache` and `--dry-run` flag behaviors.
 - **Locator Protocol**: New locator strategies must implement the `Locator` interface (`propose_next`, `should_stop`, `finalize`).
 - **DataFrames**: Polars is used for all tabular data (not pandas).
 - **Plotting**: All visualizations are generated as HTML/PNG in `artifacts/` using Plotly and custom mixins.
