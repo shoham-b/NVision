@@ -317,7 +317,7 @@ class StudentsTMixtureMarginalDistribution(AbstractMarginalDistribution):
                 delta_prec = np.zeros_like(delta_prec)
 
             candidate_prec = self.precisions[k] + delta_prec
-            
+
             # Cap the precision matrix elements to prevent exponential growth and numerical overflow.
             if not np.all(np.isfinite(candidate_prec)) or np.any(np.abs(candidate_prec) > 1e14):
                 candidate_prec = np.clip(candidate_prec, -1e14, 1e14)

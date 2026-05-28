@@ -1,8 +1,9 @@
 import numpy as np
+
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.observation import Observation
-from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.spectra.gaussian import GaussianModel
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
 def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarginalDistribution:
@@ -12,6 +13,10 @@ def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarg
         def _generate_epoch_candidates(self) -> None:
             self._current_candidates = np.linspace(0.0, 1.0, 10).astype(np.float32)
 
+        def estimates(self):
+            # Return some fake estimates to ensure the shoulder finding has an omega_phys
+            return {"frequency": 2.75e9, "sigma": 2e6, "dip_depth": 0.45, "background": 1.0, "fwhm_total": 4e6}
+
     bounds = {
         "frequency": (freq_lo, freq_hi),
         "dip_depth": (0.0, 1.0),
@@ -20,10 +25,9 @@ def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarg
     }
     base_model = GaussianModel()
     base_model.signal_min_span = lambda w: 1e5
-    model = UnitCubeSignalModel(
-        base_model, param_bounds_phys=bounds, x_bounds_phys=(freq_lo, freq_hi)
-    )
+    model = UnitCubeSignalModel(base_model, param_bounds_phys=bounds, x_bounds_phys=(freq_lo, freq_hi))
     smc = MockSMC(model=model, num_particles=1000, physical_param_bounds=bounds)
+    smc._original_physical_x_bounds = (freq_lo, freq_hi)
     smc._param_names = ["frequency", "sigma", "dip_depth", "background"]
     smc._weights = np.ones(1000, dtype=np.float32) / 1000.0
     return smc
