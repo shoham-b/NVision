@@ -251,7 +251,7 @@ class _TaskRunner:
         _check_memory_limit()
         try:
             cached, n_cached = self._restore_cached_results()
-            
+
             # Resolve the total requested and total achieved in cache across the entire task (total level)
             total_requested = self.task.repeat_total or self.repeats
             total_achieved_in_cache = 0
@@ -268,8 +268,8 @@ class _TaskRunner:
                 else:
                     effective_max_steps = self.task.loc_max_steps
 
-                from nvision.cache.locator_keys import combination_base_cache_config
                 from nvision.cache.hashing import stable_config_hash
+                from nvision.cache.locator_keys import combination_base_cache_config
 
                 ptr_config = combination_base_cache_config(
                     generator=self.generator_name,
@@ -356,9 +356,10 @@ class _TaskRunner:
         if self.task.dry_run:
             return
 
-        from nvision.cache.locator_keys import combination_base_cache_config
-        from nvision.cache.hashing import stable_config_hash
         import polars as pl
+
+        from nvision.cache.hashing import stable_config_hash
+        from nvision.cache.locator_keys import combination_base_cache_config
 
         # Resolve effective max_steps
         locator_class = self.task.strategy_spec.locator_class
@@ -465,8 +466,6 @@ class _TaskRunner:
             )
             return
 
-        combo_kw = self._combination_cache_kwargs()
-
         # Resolve effective max_steps
         locator_class = self.task.strategy_spec.locator_class
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
@@ -522,13 +521,21 @@ class _TaskRunner:
                 seen_schemas.add(cfg.get("schema_version"))
 
         if seen_seeds:
-            mismatch_reasons.append(f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})")
+            mismatch_reasons.append(
+                f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})"
+            )
         if seen_max_steps:
-            mismatch_reasons.append(f"max_steps mismatch (target: {effective_max_steps}, cached: {list(seen_max_steps)})")
+            mismatch_reasons.append(
+                f"max_steps mismatch (target: {effective_max_steps}, cached: {list(seen_max_steps)})"
+            )
         if seen_timeouts:
-            mismatch_reasons.append(f"timeout_s mismatch (target: {self.task.loc_timeout_s}, cached: {list(seen_timeouts)})")
+            mismatch_reasons.append(
+                f"timeout_s mismatch (target: {self.task.loc_timeout_s}, cached: {list(seen_timeouts)})"
+            )
         if seen_schemas:
-            mismatch_reasons.append(f"schema_version mismatch (target: {CACHE_SCHEMA_VERSION}, cached: {list(seen_schemas)})")
+            mismatch_reasons.append(
+                f"schema_version mismatch (target: {CACHE_SCHEMA_VERSION}, cached: {list(seen_schemas)})"
+            )
 
         if mismatch_reasons:
             log.info(
@@ -824,9 +831,10 @@ class _TaskRunner:
     ) -> dict[str, Any]:
         """Simulate the SimpleSobolBayesianLocator until convergence and return detailed stats."""
         import math
+
+        from nvision.runner.convert import belief_mode_estimates
         from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
         from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
-        from nvision.runner.convert import belief_mode_estimates
 
         # Create a fresh RNG for the Sobol baseline measurements
         sobol_rng = self._rng_for_sobol_baseline(rid)

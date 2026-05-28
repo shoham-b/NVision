@@ -189,7 +189,7 @@ def _harvest_partial_results_from_cache(
             try:
                 runner = _TaskRunner(locator_task, cache_bridge=bridge)
                 try:
-                    partial_results, n = runner._restore_cached_results(allow_gaps=True)
+                    partial_results, _ = runner._restore_cached_results(allow_gaps=True)
                     harvested_count = 0
                     for entries, main_result_row in partial_results:
                         key = (
@@ -270,7 +270,6 @@ def _run_tasks_process_pool(  # noqa: C901
 
     # Split tasks with many repeats so idle workers can help.
     # Tasks with few repeats are kept intact for cache locality.
-    total_repeats_before = sum(t.repeats for t in pending_tasks)
     pending_tasks = _split_oversized_tasks(pending_tasks, runners)
     total_repeats_after = sum(t.repeats for t in pending_tasks)
     if len(pending_tasks) > total_count:
@@ -976,6 +975,10 @@ def run(  # noqa: C901
         console.print(f"[cyan]Processing {len(df_rows)} partial result(s)...[/cyan]")
     else:
         _update_run_status("complete")
+
+    if dry_run:
+        log.info("Dry-run complete. Bypassed saving results to cache database and writing permanent artifacts to disk.")
+        return 0
 
     df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
     df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
