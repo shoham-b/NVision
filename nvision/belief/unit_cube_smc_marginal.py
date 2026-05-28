@@ -78,7 +78,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     def estimates(self) -> dict[str, float]:
         raw = super().estimates()
-        return {k: self._to_physical(k, v) for k, v in raw.items()}
+        return {k: (self._to_physical(k, v) if k != "noise_sigma" else v) for k, v in raw.items()}
 
     def _to_physical(self, name: str, u: float) -> float:
         lo, hi = self.physical_param_bounds[name]
@@ -86,10 +86,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         raw = super()._empirical_uncertainty()
-        data = {
-            name: u * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
-            for name, u in raw.items()
-        }
+        data = {}
+        for name, u in raw.items():
+            if name == "noise_sigma":
+                data[name] = u
+            else:
+                data[name] = u * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
         return ParameterValues.from_mapping(list(raw.keys()), data)
 
     def uncertainty(self) -> ParameterValues[float]:
@@ -347,6 +349,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
             tempering_factor=self.tempering_factor,
+            noise_discount_factor=self.noise_discount_factor,
+            noise_prior_strength=self.noise_prior_strength,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
@@ -356,4 +360,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._original_physical_x_bounds = self._original_physical_x_bounds
         if hasattr(self, "_observations"):
             dist._observations = list(self._observations)
+        dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            dist._noise_alphas = self._noise_alphas.copy()
+            dist._noise_betas = self._noise_betas.copy()
         return dist

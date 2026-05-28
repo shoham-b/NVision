@@ -173,6 +173,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     priors: dict[str, tuple[float, float]] | None = None
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR
+    noise_discount_factor: float = 0.99
+    noise_prior_strength: float = 10.0
 
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
@@ -190,8 +192,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
 
     def __post_init__(self) -> None:
+        self._use_rao_blackwell_noise = False
+        if self.noise_model is not None and "noise_sigma" in self.noise_model.spec.names:
+            self._use_rao_blackwell_noise = True
+
         self._param_names = list(self.model.parameter_names())
-        if self.noise_model is not None:
+        if self.noise_model is not None and not self._use_rao_blackwell_noise:
             # Append noise parameters to the state space
             for name in self.noise_model.spec.names:
                 if name not in self._param_names:
@@ -243,6 +249,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._rng = np.random.default_rng()
         self._observations = []
 
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            prior_bounds = self.noise_model.spec.bounds
+            lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
+            nominal_sigma = 0.5 * (lo + hi)
+            self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
+            self._noise_betas = np.full(self.num_particles, self.noise_prior_strength * (nominal_sigma ** 2), dtype=np.float32)
+
         # Detect noise param dimensions
         if self.noise_model is not None:
             noise_names = set(self.noise_model.spec.names)
@@ -288,7 +301,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
-        if self.noise_model is not None and self._noise_param_slice is not None:
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
+            sigmas = np.maximum(sigmas, 1e-9)
+            residuals = obs.signal_value - predicted
+            log_liks = -0.5 * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2)
+            if self.tempering_factor != 1.0:
+                log_liks *= self.tempering_factor
+            self._noise_alphas = self.noise_discount_factor * self._noise_alphas + 0.5
+            self._noise_betas = self.noise_discount_factor * self._noise_betas + 0.5 * (residuals**2)
+        elif self.noise_model is not None and self._noise_param_slice is not None:
             # Epistemic spread is passed to the noise model for its own tempering logic
             sigma_epistemic = float(np.std(predicted))
             noise_arrays = [
@@ -353,7 +375,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
         log_weights = np.zeros(self.num_particles, dtype=FLOAT_DTYPE)
 
-        if self.noise_model is not None and self._noise_param_slice is not None:
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            for obs in observations:
+                predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
+                sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
+                sigmas = np.maximum(sigmas, 1e-9)
+                residuals = obs.signal_value - predicted
+                log_liks = -0.5 * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2)
+                if self.tempering_factor != 1.0:
+                    log_liks *= self.tempering_factor
+                log_weights += log_liks
+                self._noise_alphas = self.noise_discount_factor * self._noise_alphas + 0.5
+                self._noise_betas = self.noise_discount_factor * self._noise_betas + 0.5 * (residuals**2)
+        elif self.noise_model is not None and self._noise_param_slice is not None:
             # Path A: Custom composite noise model evaluating epistemic spread
             noise_arrays = [
                 self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
@@ -557,6 +591,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles = self._particles[new_indices]
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            self._noise_alphas = self._noise_alphas[new_indices]
+            self._noise_betas = self._noise_betas[new_indices]
+
         # 4. Enforce minimum exploration variance based on parameter ranges.
         # We apply this to the total covariance before nudging, so the steady
         # state variance can properly shrink down to this minimum without exploding.
@@ -658,7 +696,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def _estimates_unit(self) -> dict[str, float]:
         """Return parameter estimates in internal unit/belief space."""
         means = _weighted_mean_axis0(self._particles, self._weights)
-        return {name: float(means[i]) for i, name in enumerate(self._param_names)}
+        res = {name: float(means[i]) for i, name in enumerate(self._param_names)}
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            est_sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
+            res["noise_sigma"] = float(np.sum(self._weights * est_sigmas))
+        return res
 
     def estimates(self) -> dict[str, float]:
         """Return parameter estimates (weighted mean)."""
@@ -674,13 +716,26 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         sw = w.sum()
         if sw <= 0.0:
             stds = {name: 0.0 for name in self._param_names}
-            return ParameterValues.from_mapping(self._param_names, stds)
+            if getattr(self, "_use_rao_blackwell_noise", False):
+                stds["noise_sigma"] = 0.0
+            return ParameterValues.from_mapping(list(stds.keys()), stds)
         p = self._particles  # (N, d)
         mean = (w @ p) / sw  # (d,)
         diff = p - mean  # (N, d)
         var = (w @ (diff**2)) / sw  # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
-        return ParameterValues.from_mapping(self._param_names, stds)
+        
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
+            mean_var = np.sum(self._weights * expected_vars)
+            
+            denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
+            within_var = self._noise_betas ** 2 / np.maximum(denom, 1e-15)
+            
+            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(self._weights * (expected_vars - mean_var)**2)
+            stds["noise_sigma"] = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
+            
+        return ParameterValues.from_mapping(list(stds.keys()), stds)
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         return self._uncertainty_unit()
@@ -775,6 +830,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
             tempering_factor=self.tempering_factor,
+            noise_discount_factor=self.noise_discount_factor,
+            noise_prior_strength=self.noise_prior_strength,
         )
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy()
@@ -783,6 +840,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist.resampled = self.resampled
         if hasattr(self, "_observations"):
             dist._observations = list(self._observations)
+        dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            dist._noise_alphas = self._noise_alphas.copy()
+            dist._noise_betas = self._noise_betas.copy()
         return dist
 
     def _weighted_mean(self, name: str) -> float:
@@ -854,7 +915,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         diff = predictions - mean_pred[:, None]  # (n_candidates, n_particles)
         var_pred = (diff**2) @ w  # (n_candidates,)
 
-        noise_var = max(noise_std**2, 1e-12)
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
+            noise_var = float(np.sum(self._weights * est_variances))
+        else:
+            noise_var = max(noise_std**2, 1e-12)
+            
         return 0.5 * np.log1p(var_pred / noise_var)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:

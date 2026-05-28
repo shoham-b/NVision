@@ -201,6 +201,9 @@ def _posterior_animation_inputs_all_params(  # noqa: C901
 
     b0 = snapshots[0].belief
     names = list(b0.model.parameter_names())
+    if getattr(b0, "_use_rao_blackwell_noise", False):
+        if "noise_sigma" not in names:
+            names.append("noise_sigma")
     if not names:
         return None
 
@@ -270,6 +273,16 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     is_unit_cube = hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel)
 
     for scan_param in names:
+        if scan_param == "noise_sigma" and getattr(b0, "_use_rao_blackwell_noise", False):
+            hist: list[np.ndarray] = []
+            for s in snapshots:
+                b = s.belief
+                col = np.sqrt(b._noise_betas / b._noise_alphas)
+                weights = b._weights.copy()
+                hist.append(np.column_stack([col, weights]))
+            out[scan_param] = (hist, stub_grid)
+            continue
+
         idx = b0._param_names.index(scan_param)
         hist: list[np.ndarray] = []
 
@@ -763,6 +776,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         for i, s in enumerate(viz_snapshots_for_conv):
             belief = s.belief
             param_names = list(belief.model.parameter_names())
+            if getattr(belief, "_use_rao_blackwell_noise", False):
+                if "noise_sigma" not in param_names:
+                    param_names.append("noise_sigma")
             uncertainties = belief.uncertainty().as_dict()
             bounds = belief.physical_param_bounds
 
@@ -802,6 +818,10 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
         # Collect bound ranges from the first snapshot for display
         param_bounds = dict(viz_snapshots_for_conv[0].belief.physical_param_bounds)
+        if getattr(viz_snapshots_for_conv[0].belief, "_use_rao_blackwell_noise", False):
+            noise_spec = viz_snapshots_for_conv[0].belief.noise_model.spec
+            if "noise_sigma" in noise_spec.bounds:
+                param_bounds["noise_sigma"] = noise_spec.bounds["noise_sigma"]
 
         conv_path = bayes_dir / f"{attempt_slug}_convergence_metrics.html"
         viz.plot_convergence_metrics(
