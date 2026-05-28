@@ -9,11 +9,11 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
 
 @dataclass(frozen=True)
-
 class SubplotOptions:
     row: int
     col: int
@@ -32,7 +32,7 @@ def _safe_histogram(vals, bins=80, weights=None, density=True):
         weights = weights[finite_mask]
     else:
         vals = vals[np.isfinite(vals)]
-    
+
     if vals.size == 0:
         counts = np.zeros(bins)
         bin_edges = np.linspace(-1.0, 1.0, bins + 1)
@@ -155,7 +155,6 @@ def _build_subplot_title(param: str, descriptions: dict[str, str] | None) -> str
     return param_display
 
 
-
 def _add_true_vline_single_axis(fig: go.Figure, true_value: float | None) -> None:
     if true_value is None or not math.isfinite(float(true_value)):
         return
@@ -264,7 +263,6 @@ def _add_true_vline_subplots(
             row=i,
             col=1,
         )
-
 
 
 def _trace_one_marginal_posterior(
@@ -2021,7 +2019,7 @@ class BayesianMixin:
 
         # Create scale matrix
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D = np.diag(1.0 / scales)
+        D = np.diag(1.0 / scales)  # noqa: N806
         covariance_history = [D @ cov @ D for cov in covariance_history]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
@@ -2047,7 +2045,6 @@ class BayesianMixin:
 
         n_steps = len(covariance_history)
 
-
         # Subsample if too many steps
         step_indices = list(range(n_steps))
         if n_steps > 150:
@@ -2056,7 +2053,6 @@ class BayesianMixin:
             if means_history:
                 means_history = [means_history[i] for i in step_indices]
             n_steps = len(step_indices)
-
 
         n_pairs = len(pairs)
         fig = make_subplots(
@@ -2441,7 +2437,7 @@ class BayesianMixin:
         }
 
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D_inv = np.diag(scales)
+        D_inv = np.diag(scales)  # noqa: N806
         fisher_hist = [D_inv @ fim @ D_inv for fim in fisher_hist]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
@@ -2456,7 +2452,6 @@ class BayesianMixin:
 
         param_names = param_names_scaled
 
-
         # Subsample if too many steps for performance
         step_indices = list(range(n_steps))
         if n_steps > 100:
@@ -2469,7 +2464,6 @@ class BayesianMixin:
         n_pairs = len(pairs)
         if n_pairs == 0:
             return
-
 
         # Create a compact grid layout: n_rows x n_cols
         n_cols = min(3, n_pairs)
@@ -2683,7 +2677,116 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(out_path, include_mathjax="cdn")
 
-    def plot_convergence_metrics(  # noqa: C901
+    def _add_param_convergence_trace(
+        self,
+        fig: go.Figure,
+        param: str,
+        row: int,
+        n_steps: int,
+        conv_metrics: list[dict],
+        steps: list[int],
+        convergence_threshold: float,
+    ) -> None:
+        """Helper method to add convergence traces and annotations for a single parameter."""
+        # Uncertainty values
+        uncertainties = [float(cm["uncertainties"].get(param, np.nan)) for cm in conv_metrics]
+        fig.add_trace(
+            go.Scatter(
+                x=steps,
+                y=uncertainties,
+                name=f"{param} σ",
+                line=dict(width=2),
+                showlegend=False,
+            ),
+            row=row,
+            col=1,
+        )
+
+        # Threshold line
+        absolute_threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param)
+        if absolute_threshold is not None:
+            if param == "frequency":
+                y_thresh = absolute_threshold / 1000.0
+                thresh_label = f"{y_thresh:.0f} KHz threshold"
+            else:
+                y_thresh = absolute_threshold
+                thresh_label = f"threshold ({absolute_threshold:g})"
+            fig.add_hline(
+                y=y_thresh,
+                line=dict(color="red", dash="dash", width=1.5),
+                annotation_text=thresh_label,
+                row=row,
+                col=1,
+            )
+
+        else:
+            fig.add_hline(
+                y=convergence_threshold,
+                line=dict(color="red", dash="dash", width=1.5),
+                annotation_text=f"threshold ({convergence_threshold})",
+                row=row,
+                col=1,
+            )
+
+            # Reference line at y=1.0: uncertainty equal to full bound width
+            fig.add_hline(
+                y=1.0,
+                line=dict(color="gray", dash="dot", width=1),
+                annotation_text="100 % of bound",
+                annotation_font_color="gray",
+                row=row,
+                col=1,
+            )
+
+        # Highlight converged regions
+        converged_regions = []
+        in_converged = False
+        start_idx = 0
+        for idx, cm in enumerate(conv_metrics):
+            is_conv = cm["converged_params"].get(param, False)
+            if is_conv and not in_converged:
+                in_converged = True
+                start_idx = idx
+            elif not is_conv and in_converged:
+                in_converged = False
+                converged_regions.append((start_idx, idx - 1))
+        if in_converged:
+            converged_regions.append((start_idx, n_steps - 1))
+
+        for start, end in converged_regions:
+            fig.add_vrect(
+                x0=start,
+                x1=end,
+                fillcolor="green",
+                opacity=0.1,
+                layer="below",
+                line_width=0,
+                row=row,
+                col=1,
+            )
+
+        # Status badge on the right
+        is_conv_end = conv_metrics[-1]["converged_params"].get(param, False)
+        status_text = "CONVERGED" if is_conv_end else "NOT CONVERGED"
+        status_color = "#2ecc71" if is_conv_end else "#e74c3c"
+
+        fig.add_annotation(
+            text=f"<b>{status_text}</b>",
+            xref=f"x{row if row > 1 else ''} domain",
+            yref=f"y{row if row > 1 else ''} domain",
+            x=0.98,
+            y=0.95,
+            showarrow=False,
+            font=dict(color="white", size=9),
+            xanchor="right",
+            yanchor="top",
+            bgcolor=status_color,
+            bordercolor=status_color,
+            borderwidth=1,
+            borderpad=4,
+        )
+
+    def plot_convergence_metrics(
         self,
         conv_metrics: list[dict],
         param_names: list[str],
@@ -2732,17 +2835,15 @@ class BayesianMixin:
         conv_metrics = conv_metrics_scaled
 
         def _subplot_title(p: str) -> str:
-            if p == "frequency":
-                base = f"frequency (absolute uncertainty, KHz)"
-            else:
-                base = f"{p} (relative uncertainty)"
+            base = "frequency (absolute uncertainty, KHz)" if p == "frequency" else f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
                 scale = param_scales.get(p, 1.0)
                 unit = param_units.get(p, "")
-                base += f"<br><sup>bounds: [{lo/scale:.4g}, {hi/scale:.4g}]{unit} (width={(hi - lo)/scale:.4g}{unit})</sup>"
+                bounds_str = f"bounds: [{lo / scale:.4g}, {hi / scale:.4g}]{unit}"
+                width_str = f"width={(hi - lo) / scale:.4g}{unit}"
+                base += f"<br><sup>{bounds_str} ({width_str})</sup>"
             return base
-
 
         # Create subplots - one row per parameter, plus one for convergence streak
         fig = make_subplots(
@@ -2760,103 +2861,14 @@ class BayesianMixin:
         # Plot per-parameter uncertainties with threshold line
         for i, param in enumerate(param_names):
             row = i + 1
-
-            # Uncertainty values
-            uncertainties = [float(cm["uncertainties"].get(param, np.nan)) for cm in conv_metrics]
-            fig.add_trace(
-                go.Scatter(
-                    x=steps,
-                    y=uncertainties,
-                    name=f"{param} σ",
-                    line=dict(width=2),
-                    showlegend=False,
-                ),
-                row=row,
-                col=1,
-            )
-
-            # Threshold line
-            absolute_threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param)
-            if absolute_threshold is not None:
-                if param == "frequency":
-                    y_thresh = absolute_threshold / 1000.0
-                    thresh_label = f"{y_thresh:.0f} KHz threshold"
-                else:
-                    y_thresh = absolute_threshold
-                    thresh_label = f"threshold ({absolute_threshold:g})"
-                fig.add_hline(
-                    y=y_thresh,
-                    line=dict(color="red", dash="dash", width=1.5),
-                    annotation_text=thresh_label,
-                    row=row,
-                    col=1,
-                )
-
-            else:
-                fig.add_hline(
-                    y=convergence_threshold,
-                    line=dict(color="red", dash="dash", width=1.5),
-                    annotation_text=f"threshold ({convergence_threshold})",
-                    row=row,
-                    col=1,
-                )
-
-                # Reference line at y=1.0: uncertainty equal to full bound width
-                fig.add_hline(
-                    y=1.0,
-                    line=dict(color="gray", dash="dot", width=1),
-                    annotation_text="100 % of bound",
-                    annotation_font_color="gray",
-                    row=row,
-                    col=1,
-                )
-
-            # Highlight converged regions
-            converged_regions = []
-            in_converged = False
-            start_idx = 0
-            for idx, cm in enumerate(conv_metrics):
-                is_conv = cm["converged_params"].get(param, False)
-                if is_conv and not in_converged:
-                    in_converged = True
-                    start_idx = idx
-                elif not is_conv and in_converged:
-                    in_converged = False
-                    converged_regions.append((start_idx, idx - 1))
-            if in_converged:
-                converged_regions.append((start_idx, n_steps - 1))
-
-            for start, end in converged_regions:
-                fig.add_vrect(
-                    x0=start,
-                    x1=end,
-                    fillcolor="green",
-                    opacity=0.1,
-                    layer="below",
-                    line_width=0,
-                    row=row,
-                    col=1,
-                )
-
-            # Status badge on the right
-            is_conv_end = conv_metrics[-1]["converged_params"].get(param, False)
-            status_text = "CONVERGED" if is_conv_end else "NOT CONVERGED"
-            status_color = "#2ecc71" if is_conv_end else "#e74c3c"
-
-            fig.add_annotation(
-                text=f"<b>{status_text}</b>",
-                xref=f"x{row if row > 1 else ''} domain",
-                yref=f"y{row if row > 1 else ''} domain",
-                x=0.98,
-                y=0.95,
-                showarrow=False,
-                font=dict(color="white", size=9),
-                xanchor="right",
-                yanchor="top",
-                bgcolor=status_color,
-                bordercolor=status_color,
-                borderwidth=1,
-                borderpad=4,
+            self._add_param_convergence_trace(
+                fig,
+                param,
+                row,
+                n_steps,
+                conv_metrics,
+                steps,
+                convergence_threshold,
             )
 
         # Convergence streak plot (bottom subplot)
