@@ -619,6 +619,20 @@ def run(  # noqa: C901
             help="Run a single combination of generator, noise, and strategy (overrides other filters)",
         ),
     ] = False,
+    max_noise_std: Annotated[
+        float | None,
+        typer.Option(
+            "--max-noise-std",
+            help="Custom maximum Gaussian noise standard deviation level",
+        ),
+    ] = None,
+    noise_steps: Annotated[
+        int | None,
+        typer.Option(
+            "--noise-steps",
+            help="Number of standard deviation steps to split the Gaussian range into",
+        ),
+    ] = None,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -776,6 +790,15 @@ def run(  # noqa: C901
 
         out_dir: Path = out
         tree = prepare_artifact_tree(out_dir, clear_cache=False)
+
+        # Apply noise config CLI overrides to simulation defaults
+        import nvision.sim.defaults as sim_defaults
+        if max_noise_std is not None:
+            sim_defaults.NVISION_NOISE_MAX_GAUSS = max_noise_std
+            log.info("Overriding max Gaussian noise standard deviation to %s", max_noise_std)
+        if noise_steps is not None:
+            sim_defaults.NVISION_NOISE_GAUSS_STEPS = noise_steps
+            log.info("Overriding Gaussian noise steps to %s", noise_steps)
 
         log.debug("Starting simulations...")
 

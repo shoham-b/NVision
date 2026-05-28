@@ -1537,6 +1537,82 @@ function main() {
         selectRepeatByIndex(targetIndex);
     }
 
+    // Gaussian noise standard deviation slider state and selectors
+    const gaussStdSliderRow = document.getElementById('gaussian-noise-slider-row');
+    const gaussStdSlider = document.getElementById('gauss-std-slider');
+    const gaussStdValue = document.getElementById('gauss-std-value');
+    const gaussStdPrev = document.getElementById('gauss-std-prev');
+    const gaussStdNext = document.getElementById('gauss-std-next');
+    let currentGaussSigmas = [];
+
+    function getEffectiveScanNoise() {
+        const selectedScanNoise = controlValue(scanNoise);
+        if (selectedScanNoise === 'Gauss' && currentGaussSigmas.length > 0) {
+            const idx = parseInt(gaussStdSlider.value, 10);
+            const sigma = currentGaussSigmas[idx];
+            return `Gauss(${sigma})`;
+        }
+        return selectedScanNoise;
+    }
+
+    function updateGaussStdSlider() {
+        const selectedScanGenerator = controlValue(scanGenerator);
+        const selectedScanNoise = controlValue(scanNoise);
+        
+        if (selectedScanNoise === 'Gauss') {
+            const rawNoises = [...new Set(
+                scanPlots
+                    .filter((p) => p.generator === selectedScanGenerator && p.noise.includes('Gauss'))
+                    .map((p) => p.noise)
+            )];
+            
+            const sigmas = rawNoises
+                .map(n => {
+                    const match = n.match(/Gauss\(([\d.]+)\)/);
+                    return match ? parseFloat(match[1]) : null;
+                })
+                .filter(v => v !== null)
+                .sort((a, b) => a - b);
+            
+            currentGaussSigmas = sigmas;
+            
+            if (sigmas.length > 0) {
+                gaussStdSliderRow.style.display = 'flex';
+                gaussStdSlider.min = 0;
+                gaussStdSlider.max = sigmas.length - 1;
+                gaussStdSlider.step = 1;
+                
+                let savedIdx = parseInt(gaussStdSlider.dataset.index, 10);
+                if (isNaN(savedIdx) || savedIdx < 0 || savedIdx >= sigmas.length) {
+                    if (scanDefault && scanDefault.noise && scanDefault.noise.includes('Gauss') && scanDefault.generator === selectedScanGenerator) {
+                        const match = scanDefault.noise.match(/Gauss\(([\d.]+)\)/);
+                        if (match) {
+                            const targetSigma = parseFloat(match[1]);
+                            const closestIdx = sigmas.findIndex(s => Math.abs(s - targetSigma) < 1e-6);
+                            if (closestIdx !== -1) {
+                                savedIdx = closestIdx;
+                            }
+                        }
+                    }
+                }
+                if (isNaN(savedIdx) || savedIdx < 0 || savedIdx >= sigmas.length) {
+                    savedIdx = 0;
+                }
+                
+                gaussStdSlider.value = savedIdx;
+                gaussStdSlider.dataset.index = savedIdx;
+                gaussStdValue.textContent = sigmas[savedIdx].toFixed(4).replace(/\.?0+$/, '');
+                
+                gaussStdPrev.disabled = savedIdx === 0;
+                gaussStdNext.disabled = savedIdx === sigmas.length - 1;
+            } else {
+                gaussStdSliderRow.style.display = 'none';
+            }
+        } else {
+            gaussStdSliderRow.style.display = 'none';
+        }
+    }
+
     /** Left column: generator, noise (signal / experiment path). */
     function updateScanSignalControls() {
         const scanGeneratorItems = [...new Set(scanPlots.map((p) => p.generator))].sort();
@@ -1546,20 +1622,28 @@ function main() {
             controlValue(scanGenerator),
         );
 
-        const scanNoiseItems = scanPlots
-            .filter((p) => p.generator === selectedScanGenerator)
-            .map((p) => p.noise);
+        const rawNoiseItems = [...new Set(
+            scanPlots
+                .filter((p) => p.generator === selectedScanGenerator)
+                .map((p) => p.noise)
+        )];
+        
+        const hasGauss = rawNoiseItems.some(n => n.includes("Gauss"));
+        const nonGaussItems = rawNoiseItems.filter(n => !n.includes("Gauss"));
+        const scanNoiseItems = hasGauss ? ["Gauss", ...nonGaussItems] : nonGaussItems;
+
         renderSegmentedControl(
             scanNoise,
             scanNoiseItems,
             controlValue(scanNoise),
         );
+
+        updateGaussStdSlider();
     }
 
-    /** Right column: strategies for selected generator (grid + cached scans). */
     function updateScanStrategyControl() {
         const selectedScanGenerator = controlValue(scanGenerator);
-        const selectedScanNoise = controlValue(scanNoise);
+        const selectedScanNoise = getEffectiveScanNoise();
         const availableFromPlots = new Set(
             scanPlots
                 .filter((p) => p.generator === selectedScanGenerator && p.noise === selectedScanNoise)
@@ -1578,10 +1662,9 @@ function main() {
         });
     }
 
-    /** Repeat options for the full (signal × locator) selection. */
     function updateScanRepeatControl() {
         const selectedScanGenerator = controlValue(scanGenerator);
-        const selectedScanNoise = controlValue(scanNoise);
+        const selectedScanNoise = getEffectiveScanNoise();
         const selectedScanStrategy = controlValue(scanStrategy);
 
         const scanRepeatItems = scanPlots
@@ -1623,7 +1706,7 @@ function main() {
 
     function findAndDisplayPlot() {
         const scanGeneratorValue = controlValue(scanGenerator);
-        const scanNoiseValue = controlValue(scanNoise);
+        const scanNoiseValue = getEffectiveScanNoise();
         const scanStrategyValue = controlValue(scanStrategy);
         const scanRepeatValue = controlValue(scanRepeat);
 
@@ -2503,7 +2586,7 @@ function main() {
                 } else {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'block';
-                    renderRepeatsSummary(controlValue(scanGenerator), controlValue(scanNoise), controlValue(scanStrategy));
+                    renderRepeatsSummary(controlValue(scanGenerator), getEffectiveScanNoise(), controlValue(scanStrategy));
                 }
             }
         });
@@ -3181,12 +3264,12 @@ function main() {
         setupScanComparison();
     }
 
-
     scanGenerator.addEventListener('controlchange', () => {
         updateAllScanControls();
         findAndDisplayPlot();
     });
     scanNoise.addEventListener('controlchange', () => {
+        updateGaussStdSlider();
         updateScanStrategyControl();
         updateScanRepeatControl();
         findAndDisplayPlot();
@@ -3201,6 +3284,57 @@ function main() {
         findAndDisplayPlot();
     });
 
+    if (gaussStdSlider) {
+        gaussStdSlider.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.value, 10);
+            gaussStdSlider.dataset.index = idx;
+            if (currentGaussSigmas[idx] !== undefined) {
+                gaussStdValue.textContent = currentGaussSigmas[idx].toFixed(4).replace(/\.?0+$/, '');
+                gaussStdPrev.disabled = idx === 0;
+                gaussStdNext.disabled = idx === currentGaussSigmas.length - 1;
+            }
+            updateScanStrategyControl();
+            updateScanRepeatControl();
+            findAndDisplayPlot();
+        });
+    }
+
+    if (gaussStdPrev) {
+        gaussStdPrev.addEventListener('click', () => {
+            const currentIdx = parseInt(gaussStdSlider.value, 10);
+            if (currentIdx > 0) {
+                const nextIdx = currentIdx - 1;
+                gaussStdSlider.value = nextIdx;
+                gaussStdSlider.dataset.index = nextIdx;
+                gaussStdValue.textContent = currentGaussSigmas[nextIdx].toFixed(4).replace(/\.?0+$/, '');
+                gaussStdPrev.disabled = nextIdx === 0;
+                gaussStdNext.disabled = nextIdx === currentGaussSigmas.length - 1;
+                
+                updateScanStrategyControl();
+                updateScanRepeatControl();
+                findAndDisplayPlot();
+            }
+        });
+    }
+
+    if (gaussStdNext) {
+        gaussStdNext.addEventListener('click', () => {
+            const currentIdx = parseInt(gaussStdSlider.value, 10);
+            if (currentIdx < currentGaussSigmas.length - 1) {
+                const nextIdx = currentIdx + 1;
+                gaussStdSlider.value = nextIdx;
+                gaussStdSlider.dataset.index = nextIdx;
+                gaussStdValue.textContent = currentGaussSigmas[nextIdx].toFixed(4).replace(/\.?0+$/, '');
+                gaussStdPrev.disabled = nextIdx === 0;
+                gaussStdNext.disabled = nextIdx === currentGaussSigmas.length - 1;
+                
+                updateScanStrategyControl();
+                updateScanRepeatControl();
+                findAndDisplayPlot();
+            }
+        });
+    }
+
     if (scanRepeatPrev) {
         scanRepeatPrev.addEventListener('click', () => {
             selectRepeatByOffset(-1);
@@ -3214,7 +3348,14 @@ function main() {
 
     if (scanDefault) {
         scanGenerator.dataset.value = scanDefault.generator ?? '';
-        scanNoise.dataset.value = scanDefault.noise ?? '';
+        
+        const defaultNoise = scanDefault.noise ?? '';
+        if (defaultNoise.includes('Gauss')) {
+            scanNoise.dataset.value = 'Gauss';
+        } else {
+            scanNoise.dataset.value = defaultNoise;
+        }
+
         scanStrategy.dataset.value = scanDefault.strategy ?? '';
         scanRepeat.dataset.value =
             scanDefault.repeat === undefined || scanDefault.repeat === null

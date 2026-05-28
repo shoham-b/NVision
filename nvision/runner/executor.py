@@ -959,6 +959,21 @@ class _TaskRunner:
         """
         if self.task.sweep_max_steps is not None:
             return self.task.sweep_max_steps
+
+        # Specific override for SimpleSweep (GenericSweepLocator)
+        locator_class = self.task.strategy_spec.locator_class
+        if self.strategy_name == "SimpleSweep" or locator_class.__name__ in ("SimpleSweepLocator", "GenericSweepLocator"):
+            bounds = self._injected_parameter_bounds(experiment)
+            f_lo, f_hi = bounds["frequency"]
+            domain_width = f_hi - f_lo
+            if "linewidth" in bounds:
+                min_linewidth = bounds["linewidth"][0]
+            elif "fwhm_total" in bounds:
+                min_linewidth = bounds["fwhm_total"][0]
+            else:
+                min_linewidth = 200e3  # fallback
+            return int(np.ceil(domain_width / min_linewidth))
+
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
 
         return compute_sweep_max_steps(

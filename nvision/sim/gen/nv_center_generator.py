@@ -100,7 +100,7 @@ class NVCenterCoreGenerator:
                 "linewidth": (prior_linewidth, 10e3),
                 "k_np": (prior_k_np, 0.1),
                 "c_total": (prior_c_total, 0.002),
-                "frequency": ("sin^2", np.pi / width),
+                "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
         else:  # voigt
             lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
@@ -145,7 +145,7 @@ class NVCenterCoreGenerator:
                 "lorentz_frac": (prior_lorentz_frac, 0.05),
                 "k_np": (prior_k_np, 0.1),
                 "dip_depth": (prior_dip_depth, 0.01),
-                "frequency": ("sin^2", np.pi / width),
+                "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)

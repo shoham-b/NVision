@@ -918,6 +918,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if getattr(self, "_use_rao_blackwell_noise", False):
             est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
             noise_var = float(np.sum(self._weights * est_variances))
+            noise_var = max(noise_var, 1e-12)
         else:
             noise_var = max(noise_std**2, 1e-12)
             

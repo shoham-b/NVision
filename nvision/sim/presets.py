@@ -52,13 +52,33 @@ def noises_none() -> list[tuple[str, CompositeNoise | None]]:
 
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
-    return [
-        (
-            f"Gauss({NVISION_NOISE_GAUSS})",
-            CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NVISION_NOISE_GAUSS)])
-            ),
-        ),
+    import numpy as np
+    from nvision.sim.defaults import (
+        NVISION_NOISE_MAX_GAUSS,
+        NVISION_NOISE_GAUSS_STEPS,
+        NVISION_NOISE_POISSON,
+    )
+
+    noises = []
+    if NVISION_NOISE_GAUSS_STEPS > 1:
+        sigmas = np.linspace(0.0, NVISION_NOISE_MAX_GAUSS, NVISION_NOISE_GAUSS_STEPS)
+    elif NVISION_NOISE_GAUSS_STEPS == 1:
+        sigmas = [NVISION_NOISE_MAX_GAUSS]
+    else:
+        sigmas = []
+
+    for sigma in sigmas:
+        sigma_val = float(round(sigma, 4))
+        noises.append(
+            (
+                f"Gauss({sigma_val})",
+                CompositeNoise(
+                    over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma_val)])
+                ),
+            )
+        )
+
+    noises.append(
         (
             f"Poisson({NVISION_NOISE_POISSON})",
             CompositeNoise(
@@ -66,13 +86,9 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
                     [OverFrequencyPoissonNoise(scale=NVISION_NOISE_POISSON)]
                 )
             ),
-        ),
-        # ARCHIVED: OverProbeDrift is archived.
-        # (
-        #     f"OverProbeDrift({NVISION_NOISE_OVER_PROBE})",
-        #     CompositeNoise(over_probe_noise=CompositeOverProbeNoise([OverProbeDriftNoise(NVISION_NOISE_OVER_PROBE)])),
-        # ),
-    ]
+        )
+    )
+    return noises
 
 
 def noises_complex() -> list[tuple[str, CompositeNoise | None]]:

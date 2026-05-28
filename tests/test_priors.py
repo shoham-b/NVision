@@ -12,7 +12,7 @@ from nvision import (
     DEFAULT_NV_CENTER_FREQ_X_MIN,
     DEFAULT_NV_CENTER_FREQ_X_MAX,
 )
-from nvision.spectra.nv_center import MAX_LINEWIDTH
+from nvision.spectra.nv_center import MAX_LINEWIDTH, MIN_LINEWIDTH
 
 
 def test_generator_adds_gaussian_and_sin2_priors():
@@ -27,7 +27,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
     
     # Verify frequency prior
     assert "frequency" in priors_lor
-    expected_k = np.pi / (DEFAULT_NV_CENTER_FREQ_X_MAX - DEFAULT_NV_CENTER_FREQ_X_MIN)
+    expected_k = np.pi / (2.0 * MIN_LINEWIDTH)
     assert priors_lor["frequency"] == ("sin^2", expected_k)
     
     # Verify other parameter priors are Gaussian (val, std)
@@ -78,7 +78,7 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     freq_particles_phys = f_lo + freq_particles_unit * (f_hi - f_lo)
     
     # Verify rejection sampling shape: evaluate sin^2(k f)
-    k = np.pi / (f_hi - f_lo)
+    k = np.pi / (2.0 * MIN_LINEWIDTH)
     probs = np.sin(k * (freq_particles_phys - f_lo)) ** 2
     
     # The mean of sin^2(k f) over accepted particles should be significantly higher

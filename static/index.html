@@ -27,6 +27,15 @@
                 <span class="control-label">Noise:</span>
                 <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
             </div>
+            <div class="control-row" id="gaussian-noise-slider-row" style="display: none; margin-top: 0.75rem;">
+                <span class="control-label">Gauss Std:</span>
+                <div class="slider-with-arrows">
+                    <button type="button" class="control-button arrow-btn" id="gauss-std-prev" aria-label="Decrease noise">◀</button>
+                    <input type="range" id="gauss-std-slider" min="0" max="4" step="1" value="0">
+                    <button type="button" class="control-button arrow-btn" id="gauss-std-next" aria-label="Increase noise">▶</button>
+                    <span class="slider-value-display" id="gauss-std-value">0.0000</span>
+                </div>
+            </div>
         </div>
         <div class="panel panel-locator">
             <h3 class="panel-title">Locator</h3>

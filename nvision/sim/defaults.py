@@ -56,6 +56,8 @@ NVISION_SWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SWEEP_MAX_STEPS", "500"))
 NVISION_NOISE_GAUSS: float = float(os.getenv("NVISION_NOISE_GAUSS", "0.01"))
 NVISION_NOISE_POISSON: float = float(os.getenv("NVISION_NOISE_POISSON", "3000.0"))
 NVISION_NOISE_OVER_PROBE: float = float(os.getenv("NVISION_NOISE_OVER_PROBE", "0.001"))
+NVISION_NOISE_MAX_GAUSS: float = float(os.getenv("NVISION_NOISE_MAX_GAUSS", "0.2"))
+NVISION_NOISE_GAUSS_STEPS: int = int(os.getenv("NVISION_NOISE_GAUSS_STEPS", "5"))
 
 # --- Window/Refocus Defaults (window.py) -------------------------------------
 
