@@ -462,7 +462,9 @@ class _TaskRunner:
             log.info(
                 "Cache miss reason: Partial cache hit. Only %s repeats exist in cache of the %s requested. "
                 "The remaining %s repeats must be run.",
-                total_achieved, total_requested, total_requested - total_achieved
+                total_achieved,
+                total_requested,
+                total_requested - total_achieved,
             )
             return
 
@@ -482,6 +484,7 @@ class _TaskRunner:
         similar_configs = []
         try:
             from nvision.cache.locator_keys import CACHE_SCHEMA_VERSION
+
             backend = self.cache.backend
             for k in backend:
                 payload = backend.get(k)
@@ -499,7 +502,9 @@ class _TaskRunner:
         if not similar_configs:
             log.info(
                 "Cache miss reason: No prior cache entries exist for combination: %s/%s/%s (first run).",
-                self.generator_name, self.noise_name, self.strategy_name
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
             )
             return
 
@@ -521,9 +526,7 @@ class _TaskRunner:
                 seen_schemas.add(cfg.get("schema_version"))
 
         if seen_seeds:
-            mismatch_reasons.append(
-                f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})"
-            )
+            mismatch_reasons.append(f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})")
         if seen_max_steps:
             mismatch_reasons.append(
                 f"max_steps mismatch (target: {effective_max_steps}, cached: {list(seen_max_steps)})"
@@ -540,12 +543,17 @@ class _TaskRunner:
         if mismatch_reasons:
             log.info(
                 "Cache miss reason: Prior runs found for %s/%s/%s, but parameters differed: %s",
-                self.generator_name, self.noise_name, self.strategy_name, ", ".join(mismatch_reasons)
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+                ", ".join(mismatch_reasons),
             )
         else:
             log.info(
                 "Cache miss reason: Prior runs found for %s/%s/%s, but no matching repeats were found.",
-                self.generator_name, self.noise_name, self.strategy_name
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
             )
 
     def _run_repeats(
@@ -780,6 +788,7 @@ class _TaskRunner:
             return
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
+
         ro = self.task.repeat_offset
         # The global index of the first NEW result
         first_new_idx = ro + n_cached

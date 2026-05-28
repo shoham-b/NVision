@@ -8,7 +8,6 @@ from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_C
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 
-
 def van_der_corput(n: int, base: int = 2) -> float:
     """Compute the n-th number of the van der Corput sequence in base."""
     vdc = 0.0
@@ -104,7 +103,6 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
                     unc = float(physical_uncertainties["frequency"])
                     if unc < freq_threshold:
                         self.freq_converged_step = self.step_count
-
 
         ess = _inverse_sum_squares(self.belief._weights)
         ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)

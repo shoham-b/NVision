@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
-import numpy as np
 from collections.abc import Callable, Sequence
+
+import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.observation import Observation
@@ -105,7 +106,7 @@ class EKFLocator(SequentialBayesianLocator):
         if "c_total" in bounds_phys:
             c_total_bounds = bounds_phys["c_total"]
             k_np_init = (k_np_bounds[0] + k_np_bounds[1]) / 2.0
-            sum_factors = (1.0 / k_np_init**2 + 1.0 / k_np_init + 1.0)
+            sum_factors = 1.0 / k_np_init**2 + 1.0 / k_np_init + 1.0
             dip_depth_bounds = (c_total_bounds[0] / sum_factors, c_total_bounds[1] / sum_factors)
         else:
             dip_depth_bounds = bounds_phys.get("dip_depth", (0.1, 1.0))
@@ -153,7 +154,7 @@ class EKFLocator(SequentialBayesianLocator):
             if "c_total" in priors:
                 c_val, c_std = priors["c_total"]
                 knp_val = priors.get("k_np", (3.0, 0.1))[0]
-                sum_factors = (1.0 / knp_val**2 + 1.0 / knp_val + 1.0)
+                sum_factors = 1.0 / knp_val**2 + 1.0 / knp_val + 1.0
                 dd_val = c_val / sum_factors
                 dd_std = c_std / sum_factors
                 a = dd_val * k_NP * (Omega**2)
@@ -240,7 +241,7 @@ class EKFLocator(SequentialBayesianLocator):
         if "c_total" in bounds:
             c_total_bounds = bounds["c_total"]
             k_np_init = (k_np_bounds[0] + k_np_bounds[1]) / 2.0
-            sum_factors = (1.0 / k_np_init**2 + 1.0 / k_np_init + 1.0)
+            sum_factors = 1.0 / k_np_init**2 + 1.0 / k_np_init + 1.0
             dip_depth_bounds = (c_total_bounds[0] / sum_factors, c_total_bounds[1] / sum_factors)
         else:
             dip_depth_bounds = bounds.get("dip_depth", (0.1, 1.0))
@@ -283,7 +284,7 @@ class EKFLocator(SequentialBayesianLocator):
             c_val, c_std = priors["c_total"]
             lw_val, lw_std = priors["linewidth"]
             knp_val, knp_std = priors["k_np"]
-            sum_factors = (1.0 / knp_val**2 + 1.0 / knp_val + 1.0)
+            sum_factors = 1.0 / knp_val**2 + 1.0 / knp_val + 1.0
             dd_val = c_val / sum_factors
             dd_std = c_std / sum_factors
             a = dd_val * (1.0 / knp_val) * ((lw_val / 1e6) ** 2)

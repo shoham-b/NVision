@@ -35,27 +35,29 @@ _EIG_CHUNK_SIZE: int = 64
 
 @njit(cache=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Weighted mean and variance of ``x`` with weights ``w`` (Welford's 1-pass algorithm)."""
+    """Weighted mean and variance of ``x`` with weights ``w`` (2-pass algorithm for Numba vectorization)."""
     n = x.shape[0]
     if n == 0:
         return 0.0, 0.0
 
     mean = 0.0
-    S = 0.0  # noqa: N806
     sum_weight = 0.0
     for i in range(n):
         wi = w[i]
-        xi = x[i]
+        mean += wi * x[i]
         sum_weight += wi
-        if sum_weight > 0.0:
-            delta = xi - mean
-            mean += (wi / sum_weight) * delta
-            S += wi * delta * (xi - mean)  # noqa: N806
 
     if sum_weight <= 0.0:
         return 0.0, 0.0
 
-    return float(mean), float(S / sum_weight)
+    mean /= sum_weight
+
+    s_var = 0.0
+    for i in range(n):
+        delta = x[i] - mean
+        s_var += w[i] * delta * delta
+
+    return float(mean), float(s_var / sum_weight)
 
 
 @njit(cache=True)
@@ -188,8 +190,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _d_signal: int = field(init=False, repr=False, default=0)
     _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
 
-
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901
         self._param_names = list(self.model.parameter_names())
         if self.noise_model is not None:
             # Append noise parameters to the state space
@@ -224,7 +225,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
                         accepted = candidates[u < probs]
                         sampled.extend(accepted)
-                    sampled = np.array(sampled[:self.num_particles])
+                    sampled = np.array(sampled[: self.num_particles])
 
                     # Map back to unit space if in UnitCubeSMCMarginalDistribution
                     if phys_bounds and name in phys_bounds:
@@ -422,7 +423,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Return the current epoch's slope-targeted candidate grid."""
         return self._current_candidates
 
-    def _generate_epoch_candidates(self) -> None:
+    def _generate_epoch_candidates(self) -> None:  # noqa: C901
         """Generate a dense slope-targeted grid and cache it for the current epoch.
 
         Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine
@@ -532,7 +533,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
         self._current_candidates = np.unique(np.clip(merged, f_lo_unit, f_hi_unit)).astype(np.float32)
 
-    def _resample(self) -> None:
+    def _resample(self) -> None:  # noqa: C901
         """Systematic resampling with Gaussian nudging and Liu-West shrinkage.
 
         All particles are resampled using systematic sampling (low variance),

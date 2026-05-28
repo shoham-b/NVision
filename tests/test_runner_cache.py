@@ -86,15 +86,15 @@ def test_embed_graph_content_read_exception(tmp_path: Path, caplog, monkeypatch)
 
 
 def test_harvest_partial_results_from_cache(tmp_path: Path):
-    from nvision.cli.run import _harvest_partial_results_from_cache
-    from nvision.models.task import LocatorTask
-    from nvision.sim.combinations import Combination
-    from nvision.cache import CacheBridge
     import logging
 
+    from nvision.cache import CacheBridge
+    from nvision.cli.run import _harvest_partial_results_from_cache
+    from nvision.models.task import LocatorTask
+    from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
+    from nvision.sim.combinations import Combination
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
     from nvision.spectra.lorentzian import LorentzianModel
-    from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
 
     sig = LorentzianModel()
     noise = OverFrequencyGaussianNoise(0.01)
@@ -130,7 +130,18 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
     bridge = CacheBridge(task.cache_dir)
     try:
         repo = bridge.get_cache_for_category("NVCenter")
-        results = [([{"path": "p0.png"}], {"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)", "strategy": "Bayesian-SBED", "seed": 1, "attempt": 1})]
+        results = [
+            (
+                [{"path": "p0.png"}],
+                {
+                    "generator": "NVCenter-lorentzian",
+                    "noise": "Gauss(0.01)",
+                    "strategy": "Bayesian-SBED",
+                    "seed": 1,
+                    "attempt": 1,
+                },
+            )
+        ]
         repo.save_cached_combination(
             generator="NVCenter-lorentzian",
             noise="Gauss(0.01)",
@@ -149,13 +160,9 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
     df_rows = []
     plot_manifest = []
     logger = logging.getLogger("test_harvest")
-    
+
     _harvest_partial_results_from_cache(
-        tasks=[task],
-        cache_bridge=None,
-        df_rows=df_rows,
-        plot_manifest=plot_manifest,
-        log=logger
+        tasks=[task], cache_bridge=None, df_rows=df_rows, plot_manifest=plot_manifest, log=logger
     )
 
     # 4. Verify results were successfully harvested!
@@ -167,23 +174,32 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
 
 def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
-    monkeypatch.setattr("nvision.runner.executor._TaskRunner._run_sobol_baseline", lambda *args, **kwargs: {"sobol_baseline_steps": 1, "sobol_freq_steps": 1, "sobol_freq_uncert_at_conv": 0.0, "sobol_freq_err_at_conv": 0.0, "sobol_xs": [], "sobol_ys": [], "sobol_mode_estimates": {}})
+    monkeypatch.setattr(
+        "nvision.runner.executor._TaskRunner._run_sobol_baseline",
+        lambda *args, **kwargs: {
+            "sobol_baseline_steps": 1,
+            "sobol_freq_steps": 1,
+            "sobol_freq_uncert_at_conv": 0.0,
+            "sobol_freq_err_at_conv": 0.0,
+            "sobol_xs": [],
+            "sobol_ys": [],
+            "sobol_mode_estimates": {},
+        },
+    )
 
-    from nvision.runner.executor import _TaskRunner
-    from nvision.models.task import LocatorTask
-    from nvision.sim.combinations import Combination
-    from nvision.cache import CacheBridge
     import logging
-    
+
     from nvision import SimpleSweepLocator
-    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.cache import CacheBridge
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
     sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
-    noise = CompositeNoise(
-        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)])
-    )
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
@@ -237,10 +253,11 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
         ignore_cache_strategy=None,
         repeat_offset=0,
     )
-    
+
     # Print database tables to debug
     db_path = tmp_path / "cache" / "nv_center.db"
     import sqlite3
+
     if db_path.exists():
         conn = sqlite3.connect(db_path)
         print("nv_center.db cache table:")
@@ -268,7 +285,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     cached, n_cached = runner2._restore_cached_results()
     assert n_cached == 3
     assert len(cached) == 3
-    
+
     results2 = runner2.run()
     assert len(results2) == 5
 
@@ -285,18 +302,18 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
         loc_max_steps=10,
         sweep_max_steps=10,
         loc_timeout_s=10,
-        use_cache=False, # no-cache!
+        use_cache=False,  # no-cache!
         cache_dir=tmp_path / "cache",
         log_queue=None,
         log_level=logging.INFO,
         ignore_cache_strategy=None,
         repeat_offset=0,
     )
-    
+
     runner3 = _TaskRunner(task3)
-    cached3, n_cached3 = runner3._restore_cached_results()
-    assert n_cached3 == 0 # skip cache should not restore anything!
-    
+    _cached3, n_cached3 = runner3._restore_cached_results()
+    assert n_cached3 == 0  # skip cache should not restore anything!
+
     results3 = runner3.run()
     assert len(results3) == 2
 
@@ -315,7 +332,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
             repeat_offset=0,
         )
         assert len(final_loaded) == 2
-        
+
         # Requesting 5 should now result in partial hit of only 2 repeats (since the old ones were purged)
         partial_loaded, n_partial = repo.get_cached_combination_partial(
             generator="NVCenter-lorentzian",
@@ -334,15 +351,15 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
 
 
 def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
-    from nvision.cli.run import _harvest_partial_results_from_cache
-    from nvision.models.task import LocatorTask
-    from nvision.sim.combinations import Combination
-    from nvision.cache import CacheBridge
     import logging
 
+    from nvision.cache import CacheBridge
+    from nvision.cli.run import _harvest_partial_results_from_cache
+    from nvision.models.task import LocatorTask
+    from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
+    from nvision.sim.combinations import Combination
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
     from nvision.spectra.lorentzian import LorentzianModel
-    from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
 
     sig = LorentzianModel()
     noise = OverFrequencyGaussianNoise(0.01)
@@ -379,7 +396,7 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
     bridge = CacheBridge(task.cache_dir)
     try:
         repo = bridge.get_cache_for_category("NVCenter")
-        
+
         # Save repeat 0
         repo.save_repeat(
             generator="NVCenter-lorentzian",
@@ -391,9 +408,15 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             repeat_offset=0,
             repeat_idx=0,
             entries=[{"path": "p0.png"}],
-            main_result_row={"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)", "strategy": "Bayesian-SBED", "seed": 1, "attempt": 1}
+            main_result_row={
+                "generator": "NVCenter-lorentzian",
+                "noise": "Gauss(0.01)",
+                "strategy": "Bayesian-SBED",
+                "seed": 1,
+                "attempt": 1,
+            },
         )
-        
+
         # Save repeat 2
         repo.save_repeat(
             generator="NVCenter-lorentzian",
@@ -405,12 +428,19 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             repeat_offset=0,
             repeat_idx=2,
             entries=[{"path": "p2.png"}],
-            main_result_row={"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)", "strategy": "Bayesian-SBED", "seed": 1, "attempt": 3}
+            main_result_row={
+                "generator": "NVCenter-lorentzian",
+                "noise": "Gauss(0.01)",
+                "strategy": "Bayesian-SBED",
+                "seed": 1,
+                "attempt": 3,
+            },
         )
-        
+
         # Update pointer row to achieved=5 manually to simulate a hole from an older version
-        from nvision.cache.locator_keys import combination_base_cache_config
         from nvision.cache.hashing import stable_config_hash
+        from nvision.cache.locator_keys import combination_base_cache_config
+
         config = combination_base_cache_config(
             generator="NVCenter-lorentzian",
             noise="Gauss(0.01)",
@@ -421,24 +451,26 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             repeat_offset=0,
         )
         ptr_key = stable_config_hash(config)
-        import polars as pl
         import datetime
+
+        import polars as pl
+
         ptr_df = pl.DataFrame({"achieved_repeats": [5], "streaming": [True]})
-        repo._store.save_df(ptr_df, ptr_key, metadata={"config": config, "updated_at": datetime.datetime.now().isoformat()})
+        repo._store.save_df(
+            ptr_df,
+            ptr_key,
+            metadata={"config": config, "updated_at": datetime.datetime.now(datetime.UTC).isoformat()},
+        )
     finally:
         bridge.close()
 
     df_rows = []
     plot_manifest = []
     logger = logging.getLogger("test_harvest_gaps")
-    
+
     # Run harvest with allow_gaps=True (which is our new default in harvesting)
     _harvest_partial_results_from_cache(
-        tasks=[task],
-        cache_bridge=None,
-        df_rows=df_rows,
-        plot_manifest=plot_manifest,
-        log=logger
+        tasks=[task], cache_bridge=None, df_rows=df_rows, plot_manifest=plot_manifest, log=logger
     )
 
     # Both non-contiguous repeats (0 and 2) should be successfully harvested!
@@ -451,20 +483,18 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
 
 
 def test_cache_miss_explanations(tmp_path: Path, caplog):
-    from nvision.runner.executor import _TaskRunner
-    from nvision.models.task import LocatorTask
-    from nvision.sim.combinations import Combination
     import logging
 
     from nvision import SimpleSweepLocator
-    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
     sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
-    noise = CompositeNoise(
-        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)])
-    )
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
@@ -532,7 +562,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
     task_diff_seed = LocatorTask(
         combination=combo,
         repeats=1,
-        seed=2, # DIFFERENT seed!
+        seed=2,  # DIFFERENT seed!
         slug="test_slug",
         out_dir=tmp_path / "out",
         scans_dir=tmp_path / "out/scans",
@@ -547,9 +577,10 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
         ignore_cache_strategy=None,
         repeat_offset=0,
     )
-    runner_diff_seed = _TaskRunner(task_diff_seed)
+    _TaskRunner(task_diff_seed)
     # Save seed=2 to the cache database
     from nvision.cache import CacheBridge
+
     bridge = CacheBridge(task_diff_seed.cache_dir)
     try:
         repo = bridge.get_cache_for_category("NVCenter")
@@ -584,7 +615,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
     task_target = LocatorTask(
         combination=combo,
         repeats=1,
-        seed=1, # target seed is 1
+        seed=1,  # target seed is 1
         slug="test_slug",
         out_dir=tmp_path / "out",
         scans_dir=tmp_path / "out/scans",
@@ -607,20 +638,18 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
 
 
 def test_schema_version_8_fallback(tmp_path: Path, caplog):
-    from nvision.runner.executor import _TaskRunner
-    from nvision.models.task import LocatorTask
-    from nvision.sim.combinations import Combination
     import logging
 
     from nvision import SimpleSweepLocator
-    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
     sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
-    noise = CompositeNoise(
-        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)])
-    )
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
@@ -651,14 +680,15 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
 
     # Save a schema version 8 pointer and repeat to the database
     from nvision.cache import CacheBridge
+
     bridge = CacheBridge(task.cache_dir)
     try:
         repo = bridge.get_cache_for_category("NVCenter")
-        
+
         # Pointer for version 8
-        from nvision.cache.locator_keys import combination_base_cache_config
         from nvision.cache.hashing import stable_config_hash
-        
+        from nvision.cache.locator_keys import combination_base_cache_config
+
         ptr_config = combination_base_cache_config(
             generator="NVCenter-lorentzian",
             noise="Gauss(0.01)",
@@ -671,18 +701,25 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
         ptr_config_v8 = dict(ptr_config)
         ptr_config_v8["schema_version"] = 8
         ptr_key_v8 = stable_config_hash(ptr_config_v8)
-        
+
         # Save pointer
         import polars as pl
+
         ptr_df = pl.DataFrame({"achieved_repeats": [1], "streaming": [True]})
         repo._store.save_df(ptr_df, ptr_key_v8, metadata={"config": ptr_config_v8})
-        
+
         # Save repeat 0
         repo._repeats.save_repeat(
             ptr_key_v8,
             0,
             [{"path": "p0.png"}],
-            {"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)", "strategy": "SimpleSweep", "seed": 1, "attempt": 1}
+            {
+                "generator": "NVCenter-lorentzian",
+                "noise": "Gauss(0.01)",
+                "strategy": "SimpleSweep",
+                "seed": 1,
+                "attempt": 1,
+            },
         )
     finally:
         bridge.close()
@@ -690,7 +727,7 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
     # Now load and run the TaskRunner with current version 9
     runner = _TaskRunner(task)
     cached, n_cached = runner._restore_cached_results()
-    
+
     # It should successfully load the schema version 8 repeat!
     assert n_cached == 1
     assert len(cached) == 1
@@ -699,23 +736,32 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
 
 def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
-    monkeypatch.setattr("nvision.runner.executor._TaskRunner._run_sobol_baseline", lambda *args, **kwargs: {"sobol_baseline_steps": 1, "sobol_freq_steps": 1, "sobol_freq_uncert_at_conv": 0.0, "sobol_freq_err_at_conv": 0.0, "sobol_xs": [], "sobol_ys": [], "sobol_mode_estimates": {}})
+    monkeypatch.setattr(
+        "nvision.runner.executor._TaskRunner._run_sobol_baseline",
+        lambda *args, **kwargs: {
+            "sobol_baseline_steps": 1,
+            "sobol_freq_steps": 1,
+            "sobol_freq_uncert_at_conv": 0.0,
+            "sobol_freq_err_at_conv": 0.0,
+            "sobol_xs": [],
+            "sobol_ys": [],
+            "sobol_mode_estimates": {},
+        },
+    )
 
-    from nvision.runner.executor import _TaskRunner
-    from nvision.models.task import LocatorTask
-    from nvision.sim.combinations import Combination
-    from nvision.cache import CacheBridge
     import logging
 
     from nvision import SimpleSweepLocator
-    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.cache import CacheBridge
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
     sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
-    noise = CompositeNoise(
-        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)])
-    )
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
@@ -738,7 +784,7 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
         sweep_max_steps=10,
         loc_timeout_s=10,
         use_cache=True,
-        dry_run=True, # Dry Run!
+        dry_run=True,  # Dry Run!
         cache_dir=tmp_path / "cache_dry",
         log_queue=None,
         log_level=logging.INFO,
@@ -767,4 +813,3 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
         assert loaded is None
     finally:
         bridge.close()
-
