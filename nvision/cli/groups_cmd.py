@@ -34,6 +34,7 @@ def run_single(
         typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
     ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
     runners: int = typer.Option(
         1,
         "--runners",
@@ -60,6 +61,7 @@ def run_single(
         filter_strategy=strategy,
         all_experiments=True,
         no_cache=no_cache,
+        dry_run=dry_run,
         runners=runners,
         no_progress=no_progress,
         open_browser=open_browser,
@@ -72,6 +74,7 @@ def _run_named_group(
     all_experiments: bool = False,
     repeats_override: int | None = None,
     no_cache: bool = False,
+    dry_run: bool = False,
     runners: int = cli_defaults.DEFAULT_RUNNERS,
     open_browser: bool = False,
     loc_max_steps: int = cli_defaults.DEFAULT_LOC_MAX_STEPS,
@@ -85,6 +88,7 @@ def _run_named_group(
         repeats=repeats_override if repeats_override is not None else 5,
         run_group=group.name,
         no_cache=no_cache,
+        dry_run=dry_run,
         loc_max_steps=loc_max_steps,
         ignore_cache_strategy=None,
         all_experiments=all_experiments,
@@ -128,6 +132,11 @@ def run_preset(
         "--no-cache/--cache",
         help="Cache mode override (default: no-cache for specific groups, cache for 'all').",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Do not write results to cache",
+    ),
     runners: int = typer.Option(
         4,
         "--runners",
@@ -161,6 +170,7 @@ def run_preset(
         all_experiments=all_experiments,
         repeats_override=repeats,
         no_cache=effective_no_cache,
+        dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,
@@ -186,6 +196,7 @@ def run_all(
         help="Timeout in seconds for a single locator run",
     ),
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS,
         "--runners",
@@ -216,6 +227,7 @@ def run_all(
         loc_timeout_s=loc_timeout_s,
         run_group="all",
         no_cache=no_cache,
+        dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         gcp=gcp,
@@ -230,6 +242,7 @@ def run_all(
 def sweep_only(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -254,6 +267,7 @@ def sweep_only(
         "sweep_only",
         repeats_override=repeats,
         no_cache=no_cache,
+        dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,
@@ -266,6 +280,7 @@ def sweep_only(
 def wide_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -290,6 +305,7 @@ def wide_group(
         "wide",
         repeats_override=repeats,
         no_cache=no_cache,
+        dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,
@@ -302,6 +318,7 @@ def wide_group(
 def sbed_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -326,6 +343,7 @@ def sbed_only_group(
         "sbed_only",
         repeats_override=repeats,
         no_cache=no_cache,
+        dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,
@@ -338,6 +356,7 @@ def sbed_only_group(
 def ekf_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -362,6 +381,7 @@ def ekf_only_group(
         "ekf_only",
         repeats_override=repeats,
         no_cache=no_cache,
+        dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,
@@ -374,6 +394,7 @@ def ekf_only_group(
 def gmm_only_group(
     repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
     no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
     runners: int = typer.Option(
         cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
     ),
@@ -398,6 +419,7 @@ def gmm_only_group(
         "gmm_only",
         repeats_override=repeats,
         no_cache=no_cache,
+        dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,

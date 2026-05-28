@@ -132,6 +132,7 @@ def _split_oversized_tasks(tasks: list[LocatorTask], runners: int, min_chunk: in
                 log_level=task.log_level,
                 ignore_cache_strategy=task.ignore_cache_strategy,
                 require_cache=task.require_cache,
+                dry_run=task.dry_run,
                 progress_queue=task.progress_queue,
                 task_id=task.task_id,
                 repeat_offset=offset,
@@ -521,6 +522,10 @@ def run(  # noqa: C901
         bool,
         typer.Option("--no-cache", help="Disable caching for this run"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Do not write results to cache"),
+    ] = False,
     ignore_cache_strategy: Annotated[
         str | None,
         typer.Option(
@@ -793,6 +798,7 @@ def run(  # noqa: C901
                 sweep_max_steps=sweep_max_steps,
                 loc_timeout_s=loc_timeout_s,
                 no_cache=no_cache,
+                dry_run=dry_run,
                 ignore_cache_strategy=ignore_cache_strategy,
                 require_cache=require_cache,
                 filter_category=filter_category_str,

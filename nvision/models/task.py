@@ -62,6 +62,7 @@ class LocatorTask:
     log_level: int
     ignore_cache_strategy: str | None
     require_cache: bool = False
+    dry_run: bool = False
     progress_queue: Any = None
     task_id: Any = None
     strategy_spec: StrategySpec = field(init=False, repr=False)

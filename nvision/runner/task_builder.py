@@ -42,6 +42,7 @@ class TaskListBuildConfig:
     filter_generator: str | None
     filter_noise: str | None
     filter_signal: str | None
+    dry_run: bool = False
     # When set, overrides filter_* and resolves explicit (gen, noise, strat) triples.
     combination_names: list[tuple[str, str, str]] | None = None
 
@@ -110,6 +111,7 @@ def build_task_list(
                 log_level=config.log_level_value,
                 ignore_cache_strategy=config.ignore_cache_strategy,
                 require_cache=config.require_cache,
+                dry_run=config.dry_run,
                 progress_queue=config.progress_queue,
                 task_id=task_id,
                 repeat_total=config.repeats,

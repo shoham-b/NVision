@@ -695,3 +695,76 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
     assert n_cached == 1
     assert len(cached) == 1
     assert cached[0][0][0]["path"] == "p0.png"
+
+
+def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
+    monkeypatch.setattr("nvision.runner.executor._TaskRunner._run_sobol_baseline", lambda *args, **kwargs: {"sobol_baseline_steps": 1, "sobol_freq_steps": 1, "sobol_freq_uncert_at_conv": 0.0, "sobol_freq_err_at_conv": 0.0, "sobol_xs": [], "sobol_ys": [], "sobol_mode_estimates": {}})
+
+    from nvision.runner.executor import _TaskRunner
+    from nvision.models.task import LocatorTask
+    from nvision.sim.combinations import Combination
+    from nvision.cache import CacheBridge
+    import logging
+
+    from nvision import SimpleSweepLocator
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.noises import OverFrequencyGaussianNoise
+
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    noise = CompositeNoise(
+        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)])
+    )
+    combo = Combination(
+        generator=sig,
+        noise=noise,
+        strategy=SimpleSweepLocator,
+        generator_name="NVCenter-lorentzian",
+        noise_name="Gauss(0.01)",
+        strategy_name="SimpleSweep",
+    )
+
+    # Run with dry_run = True
+    task = LocatorTask(
+        combination=combo,
+        repeats=1,
+        seed=1,
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "out/scans",
+        bayes_dir=tmp_path / "out/bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=True,
+        dry_run=True, # Dry Run!
+        cache_dir=tmp_path / "cache_dry",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+    runner = _TaskRunner(task)
+    results = runner.run()
+    assert len(results) == 1
+
+    # Verify that the cache DB does not have any saved combination
+    bridge = CacheBridge(task.cache_dir)
+    try:
+        repo = bridge.get_cache_for_category("NVCenter")
+        loaded = repo.get_cached_combination(
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="SimpleSweep",
+            repeats=1,
+            seed=1,
+            max_steps=10,
+            timeout_s=10,
+            repeat_offset=0,
+        )
+        assert loaded is None
+    finally:
+        bridge.close()
+

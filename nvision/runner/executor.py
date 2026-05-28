@@ -353,6 +353,8 @@ class _TaskRunner:
         """Purge the entire cached combination once across all partitions if skip_cache is active."""
         if not self.skip_cache:
             return
+        if self.task.dry_run:
+            return
 
         from nvision.cache.locator_keys import combination_base_cache_config
         from nvision.cache.hashing import stable_config_hash
@@ -636,14 +638,15 @@ class _TaskRunner:
                 light_entries = [strip_heavy_fields(e) for e in entries]
                 streaming_results.append((light_entries, main_result_row))
 
-                # Background save the full version (with base64 plots)
-                entries_embedded = embed_graph_content(entries, self.task.out_dir)
-                self._saver_pool.submit(
-                    self._background_save_repeat,
-                    rid=rid,
-                    entries=entries_embedded,
-                    main_result_row=main_result_row,
-                )
+                if not self.task.dry_run:
+                    # Background save the full version (with base64 plots)
+                    entries_embedded = embed_graph_content(entries, self.task.out_dir)
+                    self._saver_pool.submit(
+                        self._background_save_repeat,
+                        rid=rid,
+                        entries=entries_embedded,
+                        main_result_row=main_result_row,
+                    )
 
                 # FREE MEMORY: hist_df is no longer needed locally
                 del hist_df
@@ -764,6 +767,8 @@ class _TaskRunner:
             saved at the correct indices).  Only the *new* results (starting
             at index ``repeat_offset + n_cached``) need to be written.
         """
+        if self.task.dry_run:
+            return
         if not results:
             return
 
