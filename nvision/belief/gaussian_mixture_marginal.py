@@ -190,7 +190,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
                     c = np.linalg.pinv(reg_prec)
                 except (np.linalg.LinAlgError, ValueError):
                     c = np.eye(self._dim)
-            
+
             if not np.all(np.isfinite(c)):
                 c = np.nan_to_num(c, nan=0.0, posinf=1e14, neginf=-1e14)
             cov = (c + c.T) / 2.0
@@ -334,7 +334,7 @@ class GaussianMixtureMarginalDistribution(AbstractMarginalDistribution):
             eps_solve = max(epsilon, 1e-6 * trace_val / max(D, 1))
             reg_new_prec = new_precisions[k] + eps_solve * np.eye(D)
             rhs = (damping / sigma2) * J * r
-            
+
             if not np.all(np.isfinite(rhs)):
                 rhs = np.zeros_like(rhs)
 

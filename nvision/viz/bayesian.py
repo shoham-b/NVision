@@ -32,7 +32,7 @@ def _safe_histogram(vals, bins=80, weights=None, density=True):
         weights = weights[finite_mask]
     else:
         vals = vals[np.isfinite(vals)]
-    
+
     if vals.size == 0:
         counts = np.zeros(bins)
         bin_edges = np.linspace(-1.0, 1.0, bins + 1)

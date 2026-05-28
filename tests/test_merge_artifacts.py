@@ -161,7 +161,7 @@ def test_merge_plot_manifest_keeps_other_combinations_and_overrides_updated_comp
 
     # Verify that the Sweep plot is preserved, and the old Bayesian plot is removed from disk and manifest.
     assert len(new_manifest) == 2
-    
+
     # Check that old Bayesian plot (plot1.html) was deleted from disk
     assert not old_plot_1.exists()
     # Check that Sweep plot (plot2.html) is still on disk

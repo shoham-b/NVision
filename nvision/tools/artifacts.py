@@ -136,19 +136,19 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
                     df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
                 if col in old_df.columns:
                     old_df = old_df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
-            
+
             old_df = old_df.with_columns([
                 pl.col("generator").cast(pl.String, strict=False) if "generator" in old_df.columns else pl.lit(None).alias("generator"),
                 pl.col("noise").cast(pl.String, strict=False) if "noise" in old_df.columns else pl.lit(None).alias("noise"),
                 pl.col("strategy").cast(pl.String, strict=False) if "strategy" in old_df.columns else pl.lit(None).alias("strategy"),
             ])
-            
+
             join_cols = ["generator", "noise", "strategy"]
             if "max_steps" in df_loc.columns and "max_steps" in old_df.columns:
                 join_cols.append("max_steps")
             if "seed" in df_loc.columns and "seed" in old_df.columns:
                 join_cols.append("seed")
-                
+
             updated_combos = df_loc.select(join_cols).unique()
             old_df = old_df.join(updated_combos, on=join_cols, how="anti")
 
