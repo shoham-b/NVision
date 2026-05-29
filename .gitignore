@@ -119,7 +119,7 @@ graphs/
 
 .gemini/
 gha-creds-*.json
-.\junit-result.xml
+/junit-result.xml
 *artifact*/
 check_*.py
 /scratch/
