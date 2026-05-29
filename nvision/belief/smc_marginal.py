@@ -35,27 +35,28 @@ _EIG_CHUNK_SIZE: int = 64
 
 @njit(cache=True)
 def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Weighted mean and variance of ``x`` with weights ``w`` (Welford's 1-pass algorithm)."""
+    """Weighted mean and variance of ``x`` with weights ``w`` (using a 2-pass algorithm)."""
     n = x.shape[0]
     if n == 0:
         return 0.0, 0.0
 
     mean = 0.0
-    S = 0.0  # noqa: N806
     sum_weight = 0.0
     for i in range(n):
-        wi = w[i]
-        xi = x[i]
-        sum_weight += wi
-        if sum_weight > 0.0:
-            delta = xi - mean
-            mean += (wi / sum_weight) * delta
-            S += wi * delta * (xi - mean)  # noqa: N806
+        sum_weight += w[i]
+        mean += w[i] * x[i]
 
     if sum_weight <= 0.0:
         return 0.0, 0.0
 
-    return float(mean), float(S / sum_weight)
+    mean /= sum_weight
+
+    var = 0.0
+    for i in range(n):
+        delta = x[i] - mean
+        var += w[i] * delta * delta
+
+    return mean, var / sum_weight
 
 
 @njit(cache=True)
@@ -125,20 +126,26 @@ def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
 
 @njit(parallel=True, cache=True, fastmath=True)
 def _weighted_variance_rows(predictions: np.ndarray, w: np.ndarray) -> np.ndarray:
-    """Compute row-wise weighted variance of 2D matrix predictions with weights w."""
+    """Compute row-wise weighted variance of 2D matrix predictions with weights w.
+
+    Uses a 2-pass algorithm to allow vectorization and avoid catastrophic cancellation.
+    """
     m = predictions.shape[0]
     n = predictions.shape[1]
     out = np.empty(m, dtype=predictions.dtype)
     for i in prange(m):
-        sum_p = 0.0
-        sum_p2 = 0.0
+        # Pass 1: Mean
+        mean = 0.0
         for j in range(n):
-            val = predictions[i, j]
-            wi = w[j]
-            sum_p += wi * val
-            sum_p2 += wi * val * val
-        v = sum_p2 - sum_p * sum_p
-        out[i] = v if v > 0.0 else 0.0
+            mean += w[j] * predictions[i, j]
+
+        # Pass 2: Variance
+        var = 0.0
+        for j in range(n):
+            delta = predictions[i, j] - mean
+            var += w[j] * delta * delta
+
+        out[i] = var if var > 0.0 else 0.0
     return out
 
 
@@ -209,7 +216,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _d_signal: int = field(init=False, repr=False, default=0)
     _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
 
-
     def __post_init__(self) -> None:
         self._use_rao_blackwell_noise = False
         if self.noise_model is not None and "noise_sigma" in self.noise_model.spec.names:
@@ -249,7 +255,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
                         accepted = candidates[u < probs]
                         sampled.extend(accepted)
-                    sampled = np.array(sampled[:self.num_particles])
+                    sampled = np.array(sampled[: self.num_particles])
 
                     # Map back to unit space if in UnitCubeSMCMarginalDistribution
                     if phys_bounds and name in phys_bounds:
@@ -273,7 +279,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
             nominal_sigma = 0.5 * (lo + hi)
             self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
-            self._noise_betas = np.full(self.num_particles, self.noise_prior_strength * (nominal_sigma ** 2), dtype=np.float32)
+            self._noise_betas = np.full(
+                self.num_particles, self.noise_prior_strength * (nominal_sigma**2), dtype=np.float32
+            )
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -743,17 +751,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         diff = p - mean  # (N, d)
         var = (w @ (diff**2)) / sw  # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
-        
+
         if getattr(self, "_use_rao_blackwell_noise", False):
             expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
             mean_var = np.sum(self._weights * expected_vars)
-            
+
             denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-            within_var = self._noise_betas ** 2 / np.maximum(denom, 1e-15)
-            
-            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(self._weights * (expected_vars - mean_var)**2)
+            within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+
+            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
+                self._weights * (expected_vars - mean_var) ** 2
+            )
             stds["noise_sigma"] = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
-            
+
         return ParameterValues.from_mapping(list(stds.keys()), stds)
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
@@ -938,7 +948,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_var = max(noise_var, 1e-12)
         else:
             noise_var = max(noise_std**2, 1e-12)
-            
+
         return 0.5 * np.log1p(var_pred / noise_var)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
