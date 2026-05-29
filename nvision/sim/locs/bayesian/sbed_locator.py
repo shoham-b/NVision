@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 
@@ -10,6 +11,10 @@ from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
 from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
+# Expose a default maximum candidate limit to protect against massive EIG scoring grids
+_env_max = os.getenv("NVISION_SMC_MAX_CANDIDATES")
+NVISION_SMC_MAX_CANDIDATES: int | None = int(_env_max) if _env_max is not None else 2000
 
 
 class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
@@ -38,7 +43,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             scan_param,
             noise_std=noise_std,
         )
-        self.n_candidates = int(n_candidates) if n_candidates is not None else None
+        self.n_candidates = int(n_candidates) if n_candidates is not None else NVISION_SMC_MAX_CANDIDATES
 
         # We handle resampling manually to check convergence at the right moment
         if hasattr(self.belief, "auto_resample"):
@@ -95,6 +100,14 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
         # Retrieve candidates directly from the belief (slope-targeted epoch grid)
         candidates = self.belief.get_candidates()
+
+        # If candidate grid is exceptionally large, thin it out uniformly to accelerate EIG evaluation
+        if self.n_candidates is not None and len(candidates) > self.n_candidates:
+            step_size = len(candidates) / self.n_candidates
+            indices = np.arange(0, len(candidates), step_size).astype(int)
+            indices = np.minimum(indices, len(candidates) - 1)
+            candidates = candidates[indices]
+
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
         eig_choice = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
 

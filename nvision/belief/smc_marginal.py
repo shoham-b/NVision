@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import numba
 import numpy as np
 from dotenv import load_dotenv
-from numba import njit
+from numba import njit, prange
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.models.observation import Observation
@@ -121,6 +121,25 @@ def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
                 best_idx = k
         winners[c] = best_idx
     return winners
+
+
+@njit(parallel=True, cache=True, fastmath=True)
+def _weighted_variance_rows(predictions: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """Compute row-wise weighted variance of 2D matrix predictions with weights w."""
+    m = predictions.shape[0]
+    n = predictions.shape[1]
+    out = np.empty(m, dtype=predictions.dtype)
+    for i in prange(m):
+        sum_p = 0.0
+        sum_p2 = 0.0
+        for j in range(n):
+            val = predictions[i, j]
+            wi = w[j]
+            sum_p += wi * val
+            sum_p2 += wi * val * val
+        v = sum_p2 - sum_p * sum_p
+        out[i] = v if v > 0.0 else 0.0
+    return out
 
 
 @njit(cache=True)
@@ -911,9 +930,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
 
         w = self._weights  # already float32, already normalized
-        mean_pred = predictions @ w  # (n_candidates,)
-        diff = predictions - mean_pred[:, None]  # (n_candidates, n_particles)
-        var_pred = (diff**2) @ w  # (n_candidates,)
+        var_pred = _weighted_variance_rows(predictions, w)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
             est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
