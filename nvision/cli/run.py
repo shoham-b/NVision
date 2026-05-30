@@ -793,6 +793,7 @@ def run(  # noqa: C901
 
         # Apply noise config CLI overrides to simulation defaults
         import nvision.sim.defaults as sim_defaults
+
         if max_noise_std is not None:
             sim_defaults.NVISION_NOISE_MAX_GAUSS = max_noise_std
             log.info("Overriding max Gaussian noise standard deviation to %s", max_noise_std)

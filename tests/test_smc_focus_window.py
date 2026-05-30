@@ -1,8 +1,9 @@
 import numpy as np
+
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.models.observation import Observation
-from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.spectra.gaussian import GaussianModel
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
 def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarginalDistribution:
@@ -20,9 +21,7 @@ def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarg
     }
     base_model = GaussianModel()
     base_model.signal_min_span = lambda w: 1e5
-    model = UnitCubeSignalModel(
-        base_model, param_bounds_phys=bounds, x_bounds_phys=(freq_lo, freq_hi)
-    )
+    model = UnitCubeSignalModel(base_model, param_bounds_phys=bounds, x_bounds_phys=(freq_lo, freq_hi))
     smc = MockSMC(model=model, num_particles=1000, physical_param_bounds=bounds)
     smc._param_names = ["frequency", "sigma", "dip_depth", "background"]
     smc._weights = np.ones(1000, dtype=np.float32) / 1000.0
@@ -96,7 +95,8 @@ def test_shoulder_based_narrowing_single_dip():
     obs_ys -= 0.45 * np.exp(-0.5 * ((obs_xs - dip_center) / dip_sigma) ** 2)
 
     smc._observations = [
-        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
+        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y))
+        for x, y in zip(obs_xs, obs_ys, strict=False)
     ]
     # Uniform particles — no prior knowledge.
     smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
@@ -135,7 +135,8 @@ def test_shoulder_based_narrowing_connected_dips():
     obs_ys -= 0.4 * np.exp(-0.5 * ((obs_xs - dip_b) / dip_sigma) ** 2)
 
     smc._observations = [
-        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
+        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y))
+        for x, y in zip(obs_xs, obs_ys, strict=False)
     ]
     smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
 

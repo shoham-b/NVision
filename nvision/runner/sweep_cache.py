@@ -131,7 +131,7 @@ def _sweep_cache_key(experiment: CoreExperiment, sweep_steps: int) -> str:
     sig_bounds = getattr(experiment.true_signal, "bounds", {})
     noise_name = experiment.noise.__class__.__name__ if experiment.noise else "none"
     noise_seed = getattr(experiment.noise, "seed", "noseed") if experiment.noise else "noseed"
-    
+
     # Extract noise standard deviation to separate dynamic levels
     noise_std = 0.0
     if experiment.noise is not None:

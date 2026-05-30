@@ -79,7 +79,7 @@ class NVCenterCoreGenerator:
         if self.variant == "lorentzian":
             c_total = rng.uniform(0.1, 0.4)
             model = NVCenterLorentzianModel()
-            
+
             typed_params = NVCenterLorentzianSpectrum(
                 frequency=center_freq,
                 linewidth=linewidth,
@@ -88,13 +88,13 @@ class NVCenterCoreGenerator:
                 c_total=c_total,
             )
             bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
-            
+
             # Generate Gaussian priors for all parameters except frequency
             prior_split = rng.gauss(split, 0.1e6)
             prior_linewidth = rng.gauss(linewidth, 10e3)
             prior_k_np = rng.gauss(k_np, 0.1)
             prior_c_total = rng.gauss(c_total, 0.002)
-            
+
             bounds["_priors"] = {
                 "split": (prior_split, 0.1e6),
                 "linewidth": (prior_linewidth, 10e3),
@@ -131,14 +131,14 @@ class NVCenterCoreGenerator:
                 dip_depth=dip_depth,
             )
             bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
-            
+
             # Generate Gaussian priors for all parameters except frequency
             prior_split = rng.gauss(split, 0.1e6)
             prior_fwhm_total = rng.gauss(fwhm_total, 20e3)
             prior_lorentz_frac = rng.gauss(lorentz_frac, 0.05)
             prior_k_np = rng.gauss(k_np, 0.1)
             prior_dip_depth = rng.gauss(dip_depth, 0.01)
-            
+
             bounds["_priors"] = {
                 "split": (prior_split, 0.1e6),
                 "fwhm_total": (prior_fwhm_total, 20e3),

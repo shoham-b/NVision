@@ -57,9 +57,7 @@ def nv_center_lorentzian_eval(
     p_R = c_total * (k / p_sum)
 
     return background - (
-        p_L / ((x_dim + alpha) ** 2 + 1.0)
-        + p_0 / (x_dim ** 2 + 1.0)
-        + p_R / ((x_dim - alpha) ** 2 + 1.0)
+        p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
     )
 
 
@@ -117,9 +115,7 @@ def nv_center_lorentzian_vectorized_many(
             p_R = c * (k_safe / p_sum)
 
             out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0)
-                + p_0 / (x_dim ** 2 + 1.0)
-                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
             )
 
 
@@ -161,11 +157,7 @@ def nv_center_lorentzian_vectorized_one(
         p_L = c * ((1.0 / k_safe) / p_sum)
         p_R = c * (k_safe / p_sum)
 
-        out[j] = bg - (
-            p_L / ((x_dim + alpha) ** 2 + 1.0)
-            + p_0 / (x_dim ** 2 + 1.0)
-            + p_R / ((x_dim - alpha) ** 2 + 1.0)
-        )
+        out[j] = bg - (p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0))
 
 
 @njit(cache=True, parallel=True)
@@ -250,9 +242,6 @@ def nv_center_pseudo_voigt_vectorized_one(
             pr = lorentz_r + gauss_r
 
             out[j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
-
-
-
 
 
 _SQRT2PI = math.sqrt(2.0 * math.pi)
@@ -449,9 +438,7 @@ def nv_center_lorentzian_vectorized_many_fast(
             p_R = c * (k_safe / p_sum)
 
             out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0)
-                + p_0 / (x_dim ** 2 + 1.0)
-                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
             )
 
 
