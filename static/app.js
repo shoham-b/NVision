@@ -3443,7 +3443,13 @@ async function triggerReload() {
 }
 
 document.addEventListener('keydown', async (e) => {
-    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    const activeTagName = document.activeElement ? document.activeElement.tagName : '';
+    const activeRole = document.activeElement ? document.activeElement.getAttribute('role') : '';
+
+    if (
+        ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(activeTagName) ||
+        ['tab', 'radio'].includes(activeRole)
+    ) {
         return;
     }
     if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
