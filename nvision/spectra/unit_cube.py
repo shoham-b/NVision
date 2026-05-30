@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
 
 import numpy as np
 
@@ -90,8 +89,6 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
     def compute_from_params(self, x: float, params: ParamsT) -> float:
         return self.compute(x, params)
 
-
-
     def compute_vectorized(self, x_unit: float, *param_arrays: object) -> np.ndarray:
         """Vectorized one-x evaluation over many unit-cube parameter samples.
 
@@ -152,8 +149,6 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
 
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
         return self.inner.compute_vectorized_many(xs_phys, typed_samples_phys)
-
-
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

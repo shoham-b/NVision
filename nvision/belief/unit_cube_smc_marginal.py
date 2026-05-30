@@ -293,7 +293,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         self._generate_epoch_candidates()
 
     def update(self, obs: Observation) -> None:
-        from nvision.models.observation import Observation
         lo_orig, hi_orig = self._original_physical_x_bounds
         lo_curr, hi_curr = self.physical_x_bounds
 
@@ -301,6 +300,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             x_phys = lo_orig + obs.x * (hi_orig - lo_orig)
             x_curr_unit = (x_phys - lo_curr) / (hi_curr - lo_curr)
             from dataclasses import replace
+
             obs_eval = replace(obs, x=float(x_curr_unit))
         else:
             obs_eval = obs
@@ -310,7 +310,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         self._observations[-1] = obs
 
     def batch_update(self, observations: list[Observation]) -> None:
-        from nvision.models.observation import Observation
         if not hasattr(self, "_observations"):
             self._observations = []
         self._observations.extend(observations)
@@ -321,6 +320,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         observations_eval = []
         if (lo_orig != lo_curr) or (hi_orig != hi_curr):
             from dataclasses import replace
+
             for obs in observations:
                 x_phys = lo_orig + obs.x * (hi_orig - lo_orig)
                 x_curr_unit = (x_phys - lo_curr) / (hi_curr - lo_curr)

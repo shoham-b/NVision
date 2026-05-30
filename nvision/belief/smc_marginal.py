@@ -209,7 +209,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _d_signal: int = field(init=False, repr=False, default=0)
     _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
 
-
     def __post_init__(self) -> None:
         self._use_rao_blackwell_noise = False
         if self.noise_model is not None and "noise_sigma" in self.noise_model.spec.names:
@@ -249,7 +248,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
                         accepted = candidates[u < probs]
                         sampled.extend(accepted)
-                    sampled = np.array(sampled[:self.num_particles])
+                    sampled = np.array(sampled[: self.num_particles])
 
                     # Map back to unit space if in UnitCubeSMCMarginalDistribution
                     if phys_bounds and name in phys_bounds:
@@ -273,7 +272,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
             nominal_sigma = 0.5 * (lo + hi)
             self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
-            self._noise_betas = np.full(self.num_particles, self.noise_prior_strength * (nominal_sigma ** 2), dtype=np.float32)
+            self._noise_betas = np.full(
+                self.num_particles, self.noise_prior_strength * (nominal_sigma**2), dtype=np.float32
+            )
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -743,17 +744,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         diff = p - mean  # (N, d)
         var = (w @ (diff**2)) / sw  # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
-        
+
         if getattr(self, "_use_rao_blackwell_noise", False):
             expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
             mean_var = np.sum(self._weights * expected_vars)
-            
+
             denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-            within_var = self._noise_betas ** 2 / np.maximum(denom, 1e-15)
-            
-            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(self._weights * (expected_vars - mean_var)**2)
+            within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+
+            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
+                self._weights * (expected_vars - mean_var) ** 2
+            )
             stds["noise_sigma"] = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
-            
+
         return ParameterValues.from_mapping(list(stds.keys()), stds)
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
@@ -938,7 +941,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_var = max(noise_var, 1e-12)
         else:
             noise_var = max(noise_std**2, 1e-12)
-            
+
         return 0.5 * np.log1p(var_pred / noise_var)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:

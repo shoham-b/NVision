@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
+import math
 import random
 import time
 from collections.abc import Iterator
@@ -462,7 +463,9 @@ class _TaskRunner:
             log.info(
                 "Cache miss reason: Partial cache hit. Only %s repeats exist in cache of the %s requested. "
                 "The remaining %s repeats must be run.",
-                total_achieved, total_requested, total_requested - total_achieved
+                total_achieved,
+                total_requested,
+                total_requested - total_achieved,
             )
             return
 
@@ -482,6 +485,7 @@ class _TaskRunner:
         similar_configs = []
         try:
             from nvision.cache.locator_keys import CACHE_SCHEMA_VERSION
+
             backend = self.cache.backend
             for k in backend:
                 payload = backend.get(k)
@@ -499,7 +503,9 @@ class _TaskRunner:
         if not similar_configs:
             log.info(
                 "Cache miss reason: No prior cache entries exist for combination: %s/%s/%s (first run).",
-                self.generator_name, self.noise_name, self.strategy_name
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
             )
             return
 
@@ -521,9 +527,7 @@ class _TaskRunner:
                 seen_schemas.add(cfg.get("schema_version"))
 
         if seen_seeds:
-            mismatch_reasons.append(
-                f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})"
-            )
+            mismatch_reasons.append(f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})")
         if seen_max_steps:
             mismatch_reasons.append(
                 f"max_steps mismatch (target: {effective_max_steps}, cached: {list(seen_max_steps)})"
@@ -540,12 +544,17 @@ class _TaskRunner:
         if mismatch_reasons:
             log.info(
                 "Cache miss reason: Prior runs found for %s/%s/%s, but parameters differed: %s",
-                self.generator_name, self.noise_name, self.strategy_name, ", ".join(mismatch_reasons)
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+                ", ".join(mismatch_reasons),
             )
         else:
             log.info(
                 "Cache miss reason: Prior runs found for %s/%s/%s, but no matching repeats were found.",
-                self.generator_name, self.noise_name, self.strategy_name
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
             )
 
     def _run_repeats(
@@ -726,8 +735,14 @@ class _TaskRunner:
         full_start_times = [0.0] * start_idx + list(artifacts.repeat_start_times)
         full_timestamps = [""] * start_idx + list(artifacts.repeat_timestamps)
 
-        hist_parts = artifacts.history_df.partition_by("repeat_id", as_dict=True) if not artifacts.history_df.is_empty() else {}
-        fin_parts = artifacts.finalize_df.partition_by("repeat_id", as_dict=True) if not artifacts.finalize_df.is_empty() else {}
+        hist_parts = (
+            artifacts.history_df.partition_by("repeat_id", as_dict=True) if not artifacts.history_df.is_empty() else {}
+        )
+        fin_parts = (
+            artifacts.finalize_df.partition_by("repeat_id", as_dict=True)
+            if not artifacts.finalize_df.is_empty()
+            else {}
+        )
 
         for i in range(n_repeats):
             attempt_idx = start_idx + i
@@ -788,6 +803,7 @@ class _TaskRunner:
             return
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
+
         ro = self.task.repeat_offset
         # The global index of the first NEW result
         first_new_idx = ro + n_cached
@@ -970,7 +986,10 @@ class _TaskRunner:
 
         # Specific override for SimpleSweep (GenericSweepLocator)
         locator_class = self.task.strategy_spec.locator_class
-        if self.strategy_name == "SimpleSweep" or locator_class.__name__ in ("SimpleSweepLocator", "GenericSweepLocator"):
+        if self.strategy_name == "SimpleSweep" or locator_class.__name__ in (
+            "SimpleSweepLocator",
+            "GenericSweepLocator",
+        ):
             bounds = self._injected_parameter_bounds(experiment)
             f_lo, f_hi = bounds["frequency"]
             domain_width = f_hi - f_lo
@@ -980,7 +999,7 @@ class _TaskRunner:
                 min_linewidth = bounds["fwhm_total"][0]
             else:
                 min_linewidth = 200e3  # fallback
-            return int(np.ceil(domain_width / min_linewidth))
+            return math.ceil(domain_width / min_linewidth)
 
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
 
