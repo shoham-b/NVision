@@ -15,8 +15,6 @@ from typing import Any
 import numpy as np
 from rich.console import Console
 
-# Trace imports
-t0 = time.perf_counter()
 from nvision import (
     CoreExperiment,
     NVCenterCoreGenerator,
@@ -24,6 +22,8 @@ from nvision import (
 )
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
+# Trace imports
+t0 = time.perf_counter()
 t_import = time.perf_counter() - t0
 
 
@@ -117,7 +117,8 @@ def main(
 ):
     console = Console()
     console.print(
-        f"[bold blue]SBED Benchmark[/bold blue]: steps={steps}, particles={particles}, points_per_feature={points_per_feature}"
+        f"[bold blue]SBED Benchmark[/bold blue]: steps={steps}, "
+        f"particles={particles}, points_per_feature={points_per_feature}"
     )
 
     if profile:
