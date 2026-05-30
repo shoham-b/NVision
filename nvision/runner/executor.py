@@ -846,7 +846,7 @@ class _TaskRunner:
 
         locator = SimpleSobolBayesianLocator(
             belief=belief,
-            max_steps=10000,
+            max_steps=1500,
             noise_std=noise_std,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
@@ -1062,7 +1062,10 @@ class _TaskRunner:
         # Run Sobol Sweep baseline for this signal repeat — skip when we ARE the Sobol baseline
         sobol_baseline_steps: int | None = None
         sobol_freq_steps: int | None = None
-        if self.strategy_name != "SimpleSobol":
+        sobol_data: dict[str, Any] | None = None
+        
+        from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+        if issubclass(locator_class, SequentialBayesianLocator) and self.strategy_name != "SimpleSobol":
             sobol_data = self._sweep_cache.get_sobol_baseline(
                 experiment, self.task.seed, self.generator_name, self.noise_name, rid
             )

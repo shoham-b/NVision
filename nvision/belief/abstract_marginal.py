@@ -247,3 +247,11 @@ class AbstractMarginalDistribution(ABC):
         Unit-cube beliefs override to return the raw unit-cube uncertainties before scaling.
         """
         return self._empirical_uncertainty()
+
+    def _to_physical(self, param_name: str, val: float) -> float:
+        """Convert an internal coordinate back to physical space.
+
+        Default implementation returns the value unmodified (for beliefs operating in physical space).
+        Unit-cube wrappers override this to map [0, 1] back to the physical bounds.
+        """
+        return float(val)

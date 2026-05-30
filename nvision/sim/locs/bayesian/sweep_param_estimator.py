@@ -194,7 +194,7 @@ def estimate_non_scan_param_bounds(
         new_hi = min(hi_pr, est_bg + half_pad)
         if _is_useful_narrowing(new_lo, new_hi, lo_pr, hi_pr):
             result["background"] = (new_lo, new_hi)
-            log.debug("Narrowed background: [%.4g, %.4g] → [%.4g, %.4g]", lo_pr, hi_pr, new_lo, new_hi)
+            log.debug("Narrowed background: [%.4g, %.4g] -> [%.4g, %.4g]", lo_pr, hi_pr, new_lo, new_hi)
 
     # NOTE: linewidth / fwhm_lorentz are intentionally NOT narrowed from the
     # coarse sweep.  The sweep spacing is typically much larger than the dip
@@ -223,7 +223,7 @@ def estimate_non_scan_param_bounds(
             if _is_useful_narrowing(new_lo, new_hi, lo_pr, hi_pr):
                 result["split"] = (new_lo, new_hi)
                 log.debug(
-                    "Narrowed split: [%.4g, %.4g] → [%.4g, %.4g]",
+                    "Narrowed split: [%.4g, %.4g] -> [%.4g, %.4g]",
                     lo_pr,
                     hi_pr,
                     new_lo,

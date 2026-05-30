@@ -50,7 +50,15 @@ def run_single(
     ),
     open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
 ) -> int:
-    """Run a single (generator, noise, strategy) combination."""
+    """Run a single (generator, noise, strategy) combination.
+
+    Accepts any noise descriptor (e.g. ``Gauss(0.15)``, ``Poisson(5000)``) even
+    if it is not in the active preset noise grid.  The noise is built dynamically
+    from the descriptor string via :func:`~nvision.sim.combinations._parse_noise`.
+    """
+    # Use single_run=True which routes through resolve() for an exact triple lookup.
+    # This supports any noise value (Gauss(sigma), Poisson(scale)) regardless
+    # of the active .env grid configuration.
     return run(
         out=ARTIFACTS_ROOT,
         repeats=repeats,
@@ -59,6 +67,7 @@ def run_single(
         filter_generator=generator,
         filter_noise=noise,
         filter_strategy=strategy,
+        single_run=True,
         all_experiments=True,
         no_cache=no_cache,
         dry_run=dry_run,
@@ -66,6 +75,8 @@ def run_single(
         no_progress=no_progress,
         open_browser=open_browser,
     )
+
+
 
 
 def _run_named_group(

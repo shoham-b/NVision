@@ -94,11 +94,8 @@ def test_smc_joint_parameter_tracking():
         num_particles=100,
     )
 
-    assert "noise_sigma" in belief._param_names
-    assert belief._noise_param_slice is not None
-    # noise_sigma should be the last parameter
-    assert belief._param_names[-1] == "noise_sigma"
-    assert belief._noise_param_slice.start == len(belief._param_names) - 1
+    assert "noise_sigma" not in belief._param_names
+    assert hasattr(belief, "_noise_alphas")
 
     # Perform a dummy update
     obs = Observation(x=0.5, signal_value=0.9, noise_std=0.05)

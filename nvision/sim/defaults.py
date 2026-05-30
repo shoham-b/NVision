@@ -19,6 +19,14 @@ load_dotenv()
 
 NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", "1500"))
 
+# --- Robust Dip Detection Defaults -----------------------------------------
+
+NVISION_DIP_N_SIGMA: float = float(os.getenv("NVISION_DIP_N_SIGMA", "3.0"))
+NVISION_DIP_MIN_CLUSTER: int = int(os.getenv("NVISION_DIP_MIN_CLUSTER", "2"))
+NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD: float = float(os.getenv("NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD", "0.15"))
+
+
+
 # --- Grid Resolution Defaults (belief_builders.py) -------------------------
 
 NVISION_GRID_FREQ: int = int(os.getenv("NVISION_GRID_FREQ", "96"))

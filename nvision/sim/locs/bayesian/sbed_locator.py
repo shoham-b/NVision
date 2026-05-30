@@ -11,10 +11,16 @@ from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
 from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
+
 
 # Expose a default maximum candidate limit to protect against massive EIG scoring grids
 _env_max = os.getenv("NVISION_SMC_MAX_CANDIDATES")
 NVISION_SMC_MAX_CANDIDATES: int | None = int(_env_max) if _env_max is not None else 2000
+
+# Minimum number of consecutive converged checks before declaring convergence.
+# Prevents false early stops on the first measurement, especially with no noise.
+NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
 
 
 class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
@@ -35,6 +41,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         scan_param: str | None = None,
         noise_std: float = 0.02,
         n_candidates: int | None = None,
+        convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
     ) -> None:
         super().__init__(
             belief,
@@ -42,6 +49,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             convergence_threshold,
             scan_param,
             noise_std=noise_std,
+            convergence_patience_steps=convergence_patience_steps,
         )
         self.n_candidates = int(n_candidates) if n_candidates is not None else NVISION_SMC_MAX_CANDIDATES
 
@@ -60,6 +68,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         parameter_bounds=None,
         noise_std: float | None = None,
         n_candidates: int | None = None,
+        convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
         **grid_config,
     ):
         if builder is None:
@@ -72,6 +81,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             scan_param=scan_param,
             noise_std=noise_std,
             n_candidates=n_candidates,
+            convergence_patience_steps=convergence_patience_steps,
         )
 
     def _generate_candidates(self, num_candidates: int | None = None) -> np.ndarray:
@@ -124,18 +134,33 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             # away from the true dip location.
             obs_list = getattr(self.belief, "_observations", [])
             if len(obs_list) >= 5:
-                obs_xs = np.array([o.x for o in obs_list])
-                obs_ys = np.array([o.signal_value for o in obs_list])
-                upper_perc = float(np.percentile(obs_ys, 70))
-                flat_pts = obs_ys[obs_ys >= float(np.percentile(obs_ys, 40))]
-                noise_est = float(np.std(flat_pts)) if len(flat_pts) >= 3 else 0.02
-                dip_thresh = upper_perc - max(3.0 * noise_est, 0.015 * upper_perc)
-                dip_xs = obs_xs[obs_ys < dip_thresh]
-                if len(dip_xs) > 0:
-                    # Pick a random dip observation and jitter within ±5 MHz around it
-                    center = float(np.random.choice(dip_xs))
+                # Use precomputed/cached dip centers from the belief (calculated only during resampling)
+                # to satisfy "dip detection only upon resampling" and avoid massive sorting overhead.
+                dip_centers = getattr(self.belief, "_dip_centers", None)
+                if dip_centers is None:
+                    # Fallback (e.g. if using a belief type that does not precompute them)
+                    obs_xs = np.array([o.x for o in obs_list])
+                    obs_ys = np.array([o.signal_value for o in obs_list])
+                    if hasattr(self.belief, "estimated_noise_std") and getattr(self.belief, "noise_model", None) is not None:
+                        noise_std = self.belief.estimated_noise_std()
+                        noise_std_unc = self.belief.noise_std_uncertainty(noise_std)
+                    else:
+                        noise_std = self._noise_std
+                        noise_std_unc = 0.0
+
+                    phys_bounds = getattr(self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {}))
+                    lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
+                    max_linewidth_hz = phys_bounds[lw_key][1]
+                    dip_centers = identify_dip_candidates(
+                        obs_xs, obs_ys, noise_std, max_linewidth_hz, noise_std_unc=noise_std_unc
+                    )
+
+                if dip_centers:
+                    # Pick a random dip centroid and jitter within ±5 MHz around it
+                    center = float(np.random.choice(dip_centers))
                     jitter = float(np.random.uniform(-5e6, 5e6))
                     return float(np.clip(center + jitter, lo, hi))
+
             # Fallback: Thompson sampling from posterior particles
             if hasattr(self.belief, "_particles") and hasattr(self.belief, "_weights"):
                 weights = self.belief._weights
@@ -146,11 +171,9 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                     if scan_param in param_names:
                         p_idx = param_names.index(scan_param)
                         val = float(self.belief._particles[idx, p_idx])
-                        if hasattr(self.belief, "_to_physical"):
-                            val = self.belief._to_physical(scan_param, val)
-                        return val
+                        return self.belief._to_physical(scan_param, val)
 
-        return eig_choice
+        return self.belief._to_physical(self._scan_param, eig_choice)
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks."""
@@ -166,8 +189,14 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             if hasattr(self.belief, "_resample"):
                 self.belief._resample()
 
-        if check_convergence and self._target_params_converged():
-            self._is_converged = True
+        if check_convergence:
+            if self._target_params_converged():
+                self._convergence_streak += 1
+                if self._convergence_streak >= self._convergence_patience_steps:
+                    self._is_converged = True
+            else:
+                # Reset streak on any non-converged check
+                self._convergence_streak = 0
 
     def _acquisition_done(self) -> bool:
         if self._is_converged:

@@ -234,7 +234,12 @@ def merge_run_plot_manifest_with_existing_on_disk(
        ALL old entries matching those combinations, regardless of the repeat/attempt number.
     2. Prunes any old entry whose referenced file ('path') no longer exists on disk.
     3. Keeps summary plots fresh by excluding old summary rows.
+    4. When a new run changes the Gauss noise grid for a generator (e.g. max_noise went from
+       0.2 to 0.1), drops old Gauss entries for that generator whose sigma is no longer in the
+       current run's noise set.  This prevents stale ``Gauss(0.2)`` entries from appearing in
+       the UI slider when newer runs only go up to ``Gauss(0.1)``.
     """
+
     manifest_path = plots_manifest_path(out_dir)
     if not manifest_path.exists():
         return
@@ -256,6 +261,16 @@ def merge_run_plot_manifest_with_existing_on_disk(
             for row in plot_manifest
             if all(row.get(k) is not None for k in ["generator", "noise", "strategy"])
         }
+
+        # Build the set of (generator, noise) Gauss pairs present in the NEW run.
+        # If the new run includes ANY Gauss entries for a generator, we treat that generator's
+        # Gauss noise grid as authoritative and prune old levels that are no longer present.
+        new_gauss_noises_by_generator: dict[str, set[str]] = {}
+        for row in plot_manifest:
+            g = row.get("generator")
+            n = row.get("noise")
+            if g and n and isinstance(n, str) and "Gauss" in n:
+                new_gauss_noises_by_generator.setdefault(str(g), set()).add(str(n))
 
         # Keep track of active file paths in the new manifest to avoid unlinking them
         new_paths = {str(row.get("path")) for row in plot_manifest if row.get("path")}
@@ -283,6 +298,24 @@ def merge_run_plot_manifest_with_existing_on_disk(
                         file_path.unlink(missing_ok=True)
                 continue
 
+            # Prune stale Gauss entries: if the new run changed the Gauss noise grid for this
+            # generator, drop any old Gauss level that is no longer in the new run.
+            if g and n and isinstance(n, str) and "Gauss" in n:
+                new_gauss_set = new_gauss_noises_by_generator.get(str(g))
+                if new_gauss_set is not None and str(n) not in new_gauss_set:
+                    # Old Gauss level no longer in current run — prune it and its file
+                    path_str = entry.get("path")
+                    if path_str and str(path_str) not in new_paths:
+                        file_path = out_dir / str(path_str)
+                        with contextlib.suppress(Exception):
+                            file_path.unlink(missing_ok=True)
+                    log.debug(
+                        "Pruning stale Gauss entry noise=%s for generator=%s (not in current noise grid).",
+                        n,
+                        g,
+                    )
+                    continue
+
             # Aggressive pruning: check if file exists
             path_str = entry.get("path")
             if path_str:
@@ -299,6 +332,7 @@ def merge_run_plot_manifest_with_existing_on_disk(
         plot_manifest[:] = filtered_old + plot_manifest
     except Exception as e:
         log.warning("Could not merge with existing plots_manifest.json: %s", e)
+
 
 
 def dummy_scan_plot_manifest_entry() -> dict[str, object]:

@@ -16,6 +16,8 @@ from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.noise_model import NoiseSignalModel
 
+
+
 # --- Environment-driven defaults ---------------------------------------------
 
 load_dotenv()
@@ -267,11 +269,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._step_count = 0
         self._rng = np.random.default_rng()
         self._observations = []
+        self._dip_centers = []
 
         if getattr(self, "_use_rao_blackwell_noise", False):
             prior_bounds = self.noise_model.spec.bounds
             lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
-            nominal_sigma = 0.5 * (lo + hi)
+            nominal_sigma = float(np.sqrt(max(lo * hi, 0.0)))
             self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
             self._noise_betas = np.full(self.num_particles, self.noise_prior_strength * (nominal_sigma ** 2), dtype=np.float32)
 
@@ -329,6 +332,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 log_liks *= self.tempering_factor
             self._noise_alphas = self.noise_discount_factor * self._noise_alphas + 0.5
             self._noise_betas = self.noise_discount_factor * self._noise_betas + 0.5 * (residuals**2)
+
         elif self.noise_model is not None and self._noise_param_slice is not None:
             # Epistemic spread is passed to the noise model for its own tempering logic
             sigma_epistemic = float(np.std(predicted))
@@ -406,6 +410,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 log_weights += log_liks
                 self._noise_alphas = self.noise_discount_factor * self._noise_alphas + 0.5
                 self._noise_betas = self.noise_discount_factor * self._noise_betas + 0.5 * (residuals**2)
+
         elif self.noise_model is not None and self._noise_param_slice is not None:
             # Path A: Custom composite noise model evaluating epistemic spread
             noise_arrays = [
@@ -475,12 +480,92 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Return the current epoch's slope-targeted candidate grid."""
         return self._current_candidates
 
+    def estimated_noise_std(self) -> float:
+        """Conservative (90th percentile highest) noise σ estimate.
+
+        Returns the 90th percentile of the noise standard deviation posterior
+        distribution across the weighted particle population. Under Rao-Blackwell,
+        uses the mode of each particle's Inverse-Gamma posterior.
+        """
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            sigmas = np.sqrt(self._noise_betas / (self._noise_alphas + 0.5))
+        elif hasattr(self, "_param_names") and "noise_sigma" in self._param_names:
+            idx = self._param_names.index("noise_sigma")
+            sigmas = self._particles[:, idx]
+        else:
+            # Retrieve nominal noise std from the noise model spec itself
+            if self.noise_model is not None and hasattr(self.noise_model, "spec") and self.noise_model.spec is not None:
+                bounds = getattr(self.noise_model.spec, "bounds", {})
+                if "noise_sigma" in bounds:
+                    lo, hi = bounds["noise_sigma"]
+                    return float(np.sqrt(max(lo * hi, 0.0)))
+            raise ValueError(
+                "estimated_noise_std() called but no active noise model or noise parameters are configured in the belief."
+            )
+
+        # Compute the 90th percentile of the weighted sigmas distribution
+        weights = self._weights
+        sum_w = np.sum(weights)
+        if sum_w > 1e-30:
+            norm_weights = weights / sum_w
+        else:
+            norm_weights = np.ones_like(weights) / len(weights)
+
+        sort_idx = np.argsort(sigmas)
+        sorted_sigmas = sigmas[sort_idx]
+        sorted_weights = norm_weights[sort_idx]
+
+        cdf = np.cumsum(sorted_weights)
+        cdf_vals = np.concatenate((np.array([0.0], dtype=np.float32), cdf))
+        sorted_samples = np.concatenate((np.array([sorted_sigmas[0]], dtype=np.float32), sorted_sigmas))
+
+        return float(np.interp(0.90, cdf_vals, sorted_samples))
+
+    def noise_std_uncertainty(self, est_std: float | None = None) -> float:
+        """Return the posterior uncertainty (standard deviation) of the noise parameter.
+
+        If Rao-Blackwell is active, calculates the uncertainty of the standard
+        deviation sigma using the Delta method:
+        Uncertainty(sigma) = Uncertainty(sigma^2) / (2 * estimated_noise_std).
+        Otherwise, returns the empirical uncertainty from the particle population
+        if noise is a regular particle parameter.
+        """
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            # overall_var_sigma_sq is the variance of variance (sigma^2).
+            # From _uncertainty_unit():
+            expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
+            mean_var = np.sum(self._weights * expected_vars)
+            
+            denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
+            within_var = self._noise_betas ** 2 / np.maximum(denom, 1e-15)
+            
+            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(self._weights * (expected_vars - mean_var)**2)
+            var_sigma_sq_std = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
+            
+            if est_std is None:
+                est_std = self.estimated_noise_std()
+            if est_std > 1e-9:
+                return var_sigma_sq_std / (2.0 * est_std)
+            return var_sigma_sq_std
+        
+        if hasattr(self, "_param_names") and "noise_sigma" in self._param_names:
+            uncs = self._uncertainty_unit()
+            return float(uncs["noise_sigma"])
+
+        raise ValueError(
+            "noise_std_uncertainty() called but no active noise model or noise parameters are configured in the belief."
+        )
+
+
+
+
     def _generate_epoch_candidates(self) -> None:
         """Generate a dense slope-targeted grid and cache it for the current epoch.
 
         Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine
         dips. Resolution and search windows scale with posterior uncertainty.
         """
+        self._dip_centers = []
         # Use unit-space estimates and uncertainties to avoid physical-unit mismatch in subclasses
         estimates = self._estimates_unit()
         uncertainties = self._uncertainty_unit()
@@ -556,30 +641,32 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 5b. Observation-driven dip focusing.
         # Use empirically measured low-signal values to add dense candidates directly
         # at the true dip locations, correcting for posterior bias when belief is wrong.
-        if len(self._observations) >= 5:
+        if len(self._observations) >= 5 and self.noise_model is not None:
+
+            from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
+
             obs_xs = np.array([o.x for o in self._observations])
             obs_ys = np.array([o.signal_value for o in self._observations])
+            noise_std = self.estimated_noise_std()
+            noise_std_unc = self.noise_std_uncertainty(noise_std)
+            # Derive cluster radius from the linewidth prior upper bound
+            lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
+            max_linewidth_hz = phys_bounds[lw_key][1]
+            dip_centers = identify_dip_candidates(
+                obs_xs, obs_ys, noise_std, max_linewidth_hz, noise_std_unc=noise_std_unc
+            )
+            self._dip_centers = dip_centers
 
-            # Estimate background level from the upper portion of observations
-            upper_perc = float(np.percentile(obs_ys, 70))
-            flat_pts = obs_ys[obs_ys >= float(np.percentile(obs_ys, 40))]
-            noise_est = float(np.std(flat_pts)) if len(flat_pts) >= 3 else 0.02
-            # Dip threshold: at least 3-sigma drop OR 1.5% below background
-            dip_thresh = upper_perc - max(3.0 * noise_est, 0.015 * upper_perc)
-
-            dip_xs = obs_xs[obs_ys < dip_thresh]
-            if len(dip_xs) > 0:
-                # Dense candidates around each observed dip point
-                # Window = max(3x linewidth, effective sigma, 5 MHz minimum)
+            for dip_x in dip_centers:
                 window_phys = max(3.0 * omega_phys, sigma_eff_phys, 5e6)
-                for dip_x in dip_xs:
-                    s = max(dip_x - window_phys, phys_f_lo)
-                    e = min(dip_x + window_phys, phys_f_hi)
-                    if s >= e:
-                        continue
-                    n_pts = max(30, int((e - s) / max(delta_d_phys, 1e4)))
-                    dip_grid_phys = np.linspace(s, e, n_pts)
-                    local_grids.append(_to_unit_freq(dip_grid_phys))
+                s = max(dip_x - window_phys, phys_f_lo)
+                e = min(dip_x + window_phys, phys_f_hi)
+                if s >= e:
+                    continue
+                n_pts = max(30, int((e - s) / max(delta_d_phys, 1e4)))
+                dip_grid_phys = np.linspace(s, e, n_pts)
+                local_grids.append(_to_unit_freq(dip_grid_phys))
+
 
         # 6. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
         merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
@@ -613,6 +700,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if getattr(self, "_use_rao_blackwell_noise", False):
             self._noise_alphas = self._noise_alphas[new_indices]
             self._noise_betas = self._noise_betas[new_indices]
+
 
         # 4. Enforce minimum exploration variance based on parameter ranges.
         # We apply this to the total covariance before nudging, so the steady
@@ -859,11 +947,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist.resampled = self.resampled
         if hasattr(self, "_observations"):
             dist._observations = list(self._observations)
+        if hasattr(self, "_epoch_observations"):
+            dist._epoch_observations = list(self._epoch_observations)
         dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
         if getattr(self, "_use_rao_blackwell_noise", False):
             dist._noise_alphas = self._noise_alphas.copy()
             dist._noise_betas = self._noise_betas.copy()
+        if hasattr(self, "_dip_centers"):
+            dist._dip_centers = list(self._dip_centers)
         return dist
+
 
     def _weighted_mean(self, name: str) -> float:
         if name not in self.parameter_bounds:

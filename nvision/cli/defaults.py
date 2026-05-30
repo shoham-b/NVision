@@ -25,7 +25,7 @@ STREAMING_REPEAT_THRESHOLD: int = int(os.getenv("NVISION_STREAMING_REPEAT_THRESH
 DEFAULT_OPEN_BROWSER: bool = os.getenv("NVISION_DEFAULT_OPEN_BROWSER", "False").lower() in ("true", "1", "yes")
 
 # Noise presets limits
-DEFAULT_NOISE_MAX_GAUSS: float = float(os.getenv("NVISION_NOISE_MAX_GAUSS", "0.2"))
+DEFAULT_NOISE_MAX_GAUSS: float = float(os.getenv("NVISION_NOISE_MAX_GAUSS", "0.01"))
 DEFAULT_NOISE_GAUSS_STEPS: int = int(os.getenv("NVISION_NOISE_GAUSS_STEPS", "5"))
 
 # Output & Logs Config

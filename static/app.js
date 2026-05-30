@@ -1550,7 +1550,11 @@ function main() {
         if (selectedScanNoise === 'Gauss' && currentGaussSigmas.length > 0) {
             const idx = parseInt(gaussStdSlider.value, 10);
             const sigma = currentGaussSigmas[idx];
-            return `Gauss(${sigma})`;
+            let sigmaStr = sigma.toString();
+            if (!sigmaStr.includes('.')) {
+                sigmaStr += '.0';
+            }
+            return `Gauss(${sigmaStr})`;
         }
         return selectedScanNoise;
     }

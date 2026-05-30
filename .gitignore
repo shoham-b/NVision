@@ -123,3 +123,4 @@ gha-creds-*.json
 *artifact*/
 check_*.py
 .\scratch\
+scratch/

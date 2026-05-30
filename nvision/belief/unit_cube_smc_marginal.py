@@ -360,8 +360,13 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._original_physical_x_bounds = self._original_physical_x_bounds
         if hasattr(self, "_observations"):
             dist._observations = list(self._observations)
+        if hasattr(self, "_epoch_observations"):
+            dist._epoch_observations = list(self._epoch_observations)
         dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
         if getattr(self, "_use_rao_blackwell_noise", False):
             dist._noise_alphas = self._noise_alphas.copy()
             dist._noise_betas = self._noise_betas.copy()
+        if hasattr(self, "_dip_centers"):
+            dist._dip_centers = list(self._dip_centers)
         return dist
+

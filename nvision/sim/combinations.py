@@ -17,7 +17,8 @@ from nvision.belief.smc_marginal import (
     NVISION_SMC_ESS_THRESHOLD,
     NVISION_SMC_NUM_PARTICLES,
 )
-from nvision.models.noise import CompositeNoise
+from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+from nvision.noises import OverFrequencyGaussianNoise, OverFrequencyPoissonNoise
 from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.acquisition_locators import (
     SequentialBayesianExperimentDesignLocator,
@@ -52,6 +53,39 @@ _NV_SMC: dict[str, object] = {
     "ess_threshold": NVISION_SMC_ESS_THRESHOLD,
     "a_param": NVISION_SMC_A_PARAM,
 }
+
+_GAUSS_RE = re.compile(r"^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)$")
+_POISSON_RE = re.compile(r"^Poisson\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)$")
+
+
+def _parse_noise(name: str) -> CompositeNoise | None:
+    """Dynamically parse a noise descriptor string into a :class:`CompositeNoise`.
+
+    Handles any ``Gauss(sigma)`` or ``Poisson(scale)`` string, regardless of
+    whether the sigma/scale is currently in the registered preset grid.  This
+    makes ``run-single`` work for any valid noise value even when
+    :envvar:`NVISION_NOISE_MAX_GAUSS` caps the grid below the requested level.
+
+    Args:
+        name: A string like ``'Gauss(0.05)'`` or ``'Poisson(3000.0)'``.
+
+    Returns:
+        A :class:`CompositeNoise` for the parsed descriptor, or ``None`` if
+        *name* does not match any supported pattern.
+    """
+    m = _GAUSS_RE.match(name)
+    if m is not None:
+        sigma = float(m.group(1))
+        return CompositeNoise(
+            over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)])
+        )
+    m = _POISSON_RE.match(name)
+    if m is not None:
+        scale = float(m.group(1))
+        return CompositeNoise(
+            over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyPoissonNoise(scale=scale)])
+        )
+    return None
 
 
 def _strategy_matches(pattern: str, strat_name: str) -> bool:
@@ -248,15 +282,26 @@ class CombinationGrid:
     def resolve(self, gen_name: str, noise_name: str, strat_name: str) -> Combination | None:
         """Resolve three preset names to a single :class:`Combination`.
 
-        Returns ``None`` if any name is not registered or the strategy is
-        not valid for the generator.
+        Returns ``None`` if the generator name or strategy name is not registered.
+
+        For *noise_name*, the registered grid is checked first.  If the name is not
+        found there (e.g. because :envvar:`NVISION_NOISE_MAX_GAUSS` caps the preset
+        grid below the requested sigma), :func:`_parse_noise` is used to build the
+        noise object on the fly from the descriptor string (e.g. ``'Gauss(0.15)'``,
+        ``'Poisson(5000)'``).  This ensures ``run-single`` works for any valid noise
+        value regardless of the active grid configuration.
         """
         gen_obj = self._generators.get(gen_name)
         if gen_obj is None:
             return None
-        noise_obj = self._noises.get(noise_name)
-        if noise_obj is None and noise_name not in self._noises:
-            return None
+        noise_obj: CompositeNoise | None
+        if noise_name in self._noises:
+            noise_obj = self._noises[noise_name]
+        else:
+            # Build the noise on the fly for any descriptor not in the current grid.
+            noise_obj = _parse_noise(noise_name)
+            if noise_obj is None:
+                return None
         for s_name, s_obj in self.strategies_for(gen_name):
             if s_name == strat_name:
                 return Combination(
@@ -268,3 +313,4 @@ class CombinationGrid:
                     strategy=s_obj,
                 )
         return None
+
