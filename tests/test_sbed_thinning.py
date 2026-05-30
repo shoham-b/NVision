@@ -1,9 +1,7 @@
-import numpy as np
-
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
-from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
 
 def test_sbed_candidate_thinning():
