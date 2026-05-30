@@ -50,7 +50,10 @@ def generate_attempt_metrics(  # noqa: C901
     from nvision.metrics.milestones import calculate_zeeman_metrics
 
     if not final_history_df.is_empty():
-        current_history_df = final_history_df.filter(pl.col("repeat_id") == attempt_idx_in_combo).drop("repeat_id")
+        if "repeat_id" in final_history_df.columns:
+            current_history_df = final_history_df.filter(pl.col("repeat_id") == attempt_idx_in_combo).drop("repeat_id")
+        else:
+            current_history_df = final_history_df
     else:
         current_history_df = pl.DataFrame(
             {
@@ -66,7 +69,10 @@ def generate_attempt_metrics(  # noqa: C901
             repeat_stop_reasons[attempt_idx_in_combo],
         )
 
-    finalize_row = finalize_results.filter(pl.col("repeat_id") == attempt_idx_in_combo)
+    if "repeat_id" in finalize_results.columns:
+        finalize_row = finalize_results.filter(pl.col("repeat_id") == attempt_idx_in_combo)
+    else:
+        finalize_row = finalize_results
     # Prefer per-repeat duration stored in `locator_results.csv` metadata (written by the executor).
     # Fall back to the legacy `repeat_start_times` timing for backward compatibility.
     duration_ms_value: float | None = None

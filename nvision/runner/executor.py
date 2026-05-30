@@ -726,8 +726,16 @@ class _TaskRunner:
         full_start_times = [0.0] * start_idx + list(artifacts.repeat_start_times)
         full_timestamps = [""] * start_idx + list(artifacts.repeat_timestamps)
 
+        hist_parts = artifacts.history_df.partition_by("repeat_id", as_dict=True) if not artifacts.history_df.is_empty() else {}
+        fin_parts = artifacts.finalize_df.partition_by("repeat_id", as_dict=True) if not artifacts.finalize_df.is_empty() else {}
+
         for i in range(n_repeats):
             attempt_idx = start_idx + i
+
+            # Pass pre-partitioned slices down, avoiding O(N^2) filter performance
+            current_history_df_part = hist_parts.get((attempt_idx,), pl.DataFrame())
+            finalize_row_part = fin_parts.get((attempt_idx,), pl.DataFrame())
+
             entry_base, main_result_row, current_history_df = generate_attempt_metrics(
                 n_repeats=self.task.repeat_total or self.repeats,
                 attempt_idx_in_combo=attempt_idx,
@@ -738,8 +746,8 @@ class _TaskRunner:
                 repeat_start_times=full_start_times,
                 repeat_timestamps=full_timestamps,
                 current_scan=artifacts.experiments[i],
-                final_history_df=artifacts.history_df,
-                finalize_results=artifacts.finalize_df,
+                final_history_df=current_history_df_part,
+                finalize_results=finalize_row_part,
                 strat_obj=self.task.strategy,
                 max_steps=effective_max_steps,
                 seed=self.task.seed,
