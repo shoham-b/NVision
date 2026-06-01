@@ -139,7 +139,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 dip_centers = getattr(self.belief, "_dip_centers", None)
                 if dip_centers is None:
                     # Fallback (e.g. if using a belief type that does not precompute them)
-                    obs_xs = np.array([o.x for o in obs_list])
+                    lo_orig_phys, hi_orig_phys = getattr(self.belief, "_original_physical_x_bounds", self.belief.parameter_bounds.get("frequency", (0.0, 1.0)))
+                    obs_xs_phys = np.array([lo_orig_phys + o.x * (hi_orig_phys - lo_orig_phys) for o in obs_list])
                     obs_ys = np.array([o.signal_value for o in obs_list])
                     if hasattr(self.belief, "estimated_noise_std") and getattr(self.belief, "noise_model", None) is not None:
                         noise_std = self.belief.estimated_noise_std()
@@ -151,15 +152,53 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                     phys_bounds = getattr(self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {}))
                     lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
                     max_linewidth_hz = phys_bounds[lw_key][1]
-                    dip_centers = identify_dip_candidates(
-                        obs_xs, obs_ys, noise_std, max_linewidth_hz, noise_std_unc=noise_std_unc
-                    )
+                    max_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else None
 
-                if dip_centers:
-                    # Pick a random dip centroid and jitter within ±5 MHz around it
-                    center = float(np.random.choice(dip_centers))
-                    jitter = float(np.random.uniform(-5e6, 5e6))
-                    return float(np.clip(center + jitter, lo, hi))
+                    per_particle_sigmas = None
+                    particle_weights = None
+                    if hasattr(self.belief, "_weights"):
+                        particle_weights = self.belief._weights
+                        if getattr(self.belief, "_use_rao_blackwell_noise", False):
+                            per_particle_sigmas = np.sqrt(self.belief._noise_betas / (self.belief._noise_alphas + 0.5))
+                        elif hasattr(self.belief, "_param_names") and "noise_sigma" in self.belief._param_names:
+                            idx = self.belief._param_names.index("noise_sigma")
+                            raw_sigmas = self.belief._particles[:, idx]
+                            if hasattr(self.belief, "physical_param_bounds") and "noise_sigma" in self.belief.physical_param_bounds:
+                                lo_ns, hi_ns = self.belief.physical_param_bounds["noise_sigma"]
+                                per_particle_sigmas = lo_ns + raw_sigmas * (hi_ns - lo_ns)
+                            else:
+                                per_particle_sigmas = raw_sigmas
+
+                    dip_candidates = identify_dip_candidates(
+                        obs_xs_phys,
+                        obs_ys,
+                        noise_std,
+                        max_linewidth_hz,
+                        noise_std_unc=noise_std_unc,
+                        per_particle_sigmas=per_particle_sigmas,
+                        particle_weights=particle_weights,
+                        max_split_hz=max_split_hz,
+                    )
+                    dip_centers = [c.centroid_hz for c in dip_candidates]
+
+
+
+                valid_dip_centers = [c for c in dip_centers if lo <= c <= hi]
+                if valid_dip_centers:
+                    # Pick a random dip centroid and jitter within ±5 MHz around it, keeping it strictly within [lo, hi]
+                    center = float(np.random.choice(valid_dip_centers))
+                    j_min = max(-5e6, lo - center)
+                    j_max = min(5e6, hi - center)
+                    if j_max >= j_min:
+                        jitter = float(np.random.uniform(j_min, j_max))
+                        val = center + jitter
+                        if not (lo <= val <= hi):
+                            raise ValueError(f"Jittered dip value {val} is outside acquisition bounds {(lo, hi)}")
+                        return val
+                    else:
+                        if not (lo <= center <= hi):
+                            raise ValueError(f"Dip center {center} is outside acquisition bounds {(lo, hi)}")
+                        return center
 
             # Fallback: Thompson sampling from posterior particles
             if hasattr(self.belief, "_particles") and hasattr(self.belief, "_weights"):
@@ -173,7 +212,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                         val = float(self.belief._particles[idx, p_idx])
                         return self.belief._to_physical(scan_param, val)
 
-        return self.belief._to_physical(self._scan_param, eig_choice)
+        return eig_choice
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks."""

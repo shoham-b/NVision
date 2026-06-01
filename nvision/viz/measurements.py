@@ -69,22 +69,7 @@ def _row_col(has_metrics: bool) -> tuple[int | None, int | None]:
 
 
 def _noise_scale_for_scan(scan: Any, over_frequency_noise: CompositeOverFrequencyNoise | None) -> float:
-    """Return noise scale so max noise deviation never exceeds the signal's smallest dip.
-
-    Mirrors the scaling logic in :meth:`~nvision.models.experiment.CoreExperiment.measure`.
-    """
-    if over_frequency_noise is None:
-        return 1.0
-    true_signal = getattr(scan, "true_signal", None)
-    if true_signal is None:
-        return 1.0
-    min_dip = true_signal.min_dip_amplitude()
-    if min_dip is None:
-        return 1.0
-    max_allowed_std = min_dip / 5.0
-    current_std = over_frequency_noise.noise_std()
-    if current_std > max_allowed_std:
-        return max_allowed_std / current_std
+    """Return noise scale (fixed to 1.0 to match the non-scaling CoreExperiment.measure)."""
     return 1.0
 
 

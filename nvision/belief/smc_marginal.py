@@ -491,7 +491,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             sigmas = np.sqrt(self._noise_betas / (self._noise_alphas + 0.5))
         elif hasattr(self, "_param_names") and "noise_sigma" in self._param_names:
             idx = self._param_names.index("noise_sigma")
-            sigmas = self._particles[:, idx]
+            raw_sigmas = self._particles[:, idx]
+            if hasattr(self, "physical_param_bounds") and "noise_sigma" in self.physical_param_bounds:
+                lo, hi = self.physical_param_bounds["noise_sigma"]
+                sigmas = lo + raw_sigmas * (hi - lo)
+            else:
+                sigmas = raw_sigmas
         else:
             # Retrieve nominal noise std from the noise model spec itself
             if self.noise_model is not None and hasattr(self.noise_model, "spec") and self.noise_model.spec is not None:
@@ -549,7 +554,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             return var_sigma_sq_std
         
         if hasattr(self, "_param_names") and "noise_sigma" in self._param_names:
-            uncs = self._uncertainty_unit()
+            uncs = self.uncertainty()
             return float(uncs["noise_sigma"])
 
         raise ValueError(
@@ -645,27 +650,53 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
 
-            obs_xs = np.array([o.x for o in self._observations])
+            lo_orig_phys, hi_orig_phys = getattr(self, "_original_physical_x_bounds", self.parameter_bounds.get("frequency", (0.0, 1.0)))
+            obs_xs_phys = np.array([lo_orig_phys + o.x * (hi_orig_phys - lo_orig_phys) for o in self._observations])
             obs_ys = np.array([o.signal_value for o in self._observations])
             noise_std = self.estimated_noise_std()
             noise_std_unc = self.noise_std_uncertainty(noise_std)
             # Derive cluster radius from the linewidth prior upper bound
             lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
             max_linewidth_hz = phys_bounds[lw_key][1]
-            dip_centers = identify_dip_candidates(
-                obs_xs, obs_ys, noise_std, max_linewidth_hz, noise_std_unc=noise_std_unc
-            )
-            self._dip_centers = dip_centers
+            max_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else None
 
-            for dip_x in dip_centers:
-                window_phys = max(3.0 * omega_phys, sigma_eff_phys, 5e6)
-                s = max(dip_x - window_phys, phys_f_lo)
-                e = min(dip_x + window_phys, phys_f_hi)
-                if s >= e:
-                    continue
-                n_pts = max(30, int((e - s) / max(delta_d_phys, 1e4)))
-                dip_grid_phys = np.linspace(s, e, n_pts)
-                local_grids.append(_to_unit_freq(dip_grid_phys))
+            # Extract per-particle noise sigmas
+            if getattr(self, "_use_rao_blackwell_noise", False):
+                per_particle_sigmas = np.sqrt(self._noise_betas / (self._noise_alphas + 0.5))
+            elif "noise_sigma" in self._param_names:
+                idx = self._param_names.index("noise_sigma")
+                per_particle_sigmas = self._particles[:, idx]
+            else:
+                per_particle_sigmas = None
+
+            dip_candidates = identify_dip_candidates(
+                obs_xs_phys,
+                obs_ys,
+                noise_std,
+                max_linewidth_hz,
+                noise_std_unc=noise_std_unc,
+                per_particle_sigmas=per_particle_sigmas,
+                particle_weights=self._weights,
+                max_split_hz=max_split_hz,
+            )
+
+            self._dip_centers = [c.centroid_hz for c in dip_candidates]
+
+            # Proportional candidate density
+            if dip_candidates:
+                total_sig = sum(c.significance for c in dip_candidates)
+                total_budget = 100  # total candidate points across all dip grids
+                for candidate in dip_candidates:
+                    frac = candidate.significance / total_sig if total_sig > 0 else 1.0/len(dip_candidates)
+                    n_pts = max(10, int(frac * total_budget))
+                    window_phys = max(3.0 * omega_phys, sigma_eff_phys, 5e6)
+                    s = max(candidate.centroid_hz - window_phys, phys_f_lo)
+                    e = min(candidate.centroid_hz + window_phys, phys_f_hi)
+                    if s >= e:
+                        continue
+                    dip_grid_phys = np.linspace(s, e, n_pts)
+                    local_grids.append(_to_unit_freq(dip_grid_phys))
+
 
 
         # 6. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]

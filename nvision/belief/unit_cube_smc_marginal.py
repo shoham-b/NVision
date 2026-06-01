@@ -3,12 +3,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 
 import numpy as np
 
 from nvision.belief.abstract_marginal import ParameterValues
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+from nvision.spectra.noise_model import NoiseSignalModel
+
+
+class UnitCubeNoiseSignalModelWrapper(NoiseSignalModel):
+    """Wrap a physical NoiseSignalModel to map unit-cube particles to physical space for likelihood evaluation."""
+
+    def __init__(self, inner: NoiseSignalModel, physical_param_bounds: dict[str, tuple[float, float]]):
+        self.inner = inner
+        self.physical_param_bounds = physical_param_bounds
+
+    @property
+    def spec(self):
+        return self.inner.spec
+
+    def composite_log_likelihood(
+        self,
+        predicted: np.ndarray,
+        residuals: np.ndarray,
+        noise_param_arrays: Sequence[np.ndarray],
+        sigma_epistemic: float,
+    ) -> np.ndarray:
+        phys_arrays = []
+        names = self.inner.spec.names
+        for name, arr in zip(names, noise_param_arrays, strict=True):
+            lo, hi = self.physical_param_bounds[name]
+            phys_arr = lo + arr * (hi - lo)
+            phys_arrays.append(phys_arr)
+        return self.inner.composite_log_likelihood(predicted, residuals, phys_arrays, sigma_epistemic)
 
 
 @dataclass
@@ -40,6 +69,9 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
     def __post_init__(self) -> None:
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("UnitCubeSMCMarginalDistribution requires a UnitCubeSignalModel")
+
+        if self.noise_model is not None and not isinstance(self.noise_model, UnitCubeNoiseSignalModelWrapper):
+            self.noise_model = UnitCubeNoiseSignalModelWrapper(self.noise_model, self.physical_param_bounds)
 
         # Ensure all parameters (including noise) are in unit space [0, 1].
         # We must detect noise parameters here because super().__post_init__
@@ -78,7 +110,10 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     def estimates(self) -> dict[str, float]:
         raw = super().estimates()
-        return {k: (self._to_physical(k, v) if k != "noise_sigma" else v) for k, v in raw.items()}
+        return {
+            k: (self._to_physical(k, v) if (k != "noise_sigma" or not getattr(self, "_use_rao_blackwell_noise", False)) else v)
+            for k, v in raw.items()
+        }
 
     def _to_physical(self, name: str, u: float) -> float:
         lo, hi = self.physical_param_bounds[name]
@@ -88,10 +123,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         raw = super()._empirical_uncertainty()
         data = {}
         for name, u in raw.items():
-            if name == "noise_sigma":
+            if name == "noise_sigma" and getattr(self, "_use_rao_blackwell_noise", False):
                 data[name] = u
-            else:
+            elif name in self.physical_param_bounds:
                 data[name] = u * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
+            else:
+                data[name] = u
         return ParameterValues.from_mapping(list(raw.keys()), data)
 
     def uncertainty(self) -> ParameterValues[float]:
@@ -134,7 +171,30 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         u_col = self._particles[:, j]
         f = old_lo + u_col * w_old
         u_new = (f - nl) / w_new
+
+        out_of_bounds = (u_new < 0.0) | (u_new > 1.0)
+        n_out = int(np.sum(out_of_bounds))
+        if n_out > 0:
+            in_bounds_indices = np.where(~out_of_bounds)[0]
+            if len(in_bounds_indices) > 0:
+                replacement_indices = np.random.choice(in_bounds_indices, size=n_out, replace=True)
+                # Copy entire particle rows for out-of-bounds particles to preserve joint parameter dependencies
+                self._particles[out_of_bounds] = self._particles[replacement_indices]
+                # Re-evaluate u_col for the narrowed scan parameter
+                u_col = self._particles[:, j]
+                f = old_lo + u_col * w_old
+                u_new = (f - nl) / w_new
+            else:
+                raise ValueError("All particles are out of bounds during narrow_scan_parameter_physical_bounds")
+
+        # Verify that all particles are now within [0, 1] with a tiny tolerance for numerical precision
+        tol = 1e-7
+        if np.any((u_new < -tol) | (u_new > 1.0 + tol)):
+            raise ValueError(
+                f"Particles out of bounds after resampling in narrow_scan_parameter_physical_bounds: min {np.min(u_new)}, max {np.max(u_new)}"
+            )
         self._particles[:, j] = np.clip(u_new, 0.0, 1.0)
+
 
         self.model.narrow_physical_interval_for_param(param_name, nl, nh, update_x_axis=sync_x)
         self.physical_param_bounds[param_name] = (nl, nh)

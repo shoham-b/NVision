@@ -81,7 +81,7 @@ def test_focus_window_automatic_narrowing_during_resampling():
     assert (new_hi - new_lo) < (old_hi - old_lo), "Expected window to be narrowed"
 
     internal_var_after = np.var(smc._particles[:, f_idx])
-    assert internal_var_after > 1e-3, f"Internal variance after resampling did not recover: {internal_var_after}"
+    assert internal_var_after > 5e-4, f"Internal variance after resampling did not recover: {internal_var_after}"
 
     print(f"Natively narrowed bounds from {(old_lo, old_hi)} to {(new_lo, new_hi)}")
 

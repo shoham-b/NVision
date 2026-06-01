@@ -851,8 +851,8 @@ class BayesianMixin:
             return
 
         step_indices = list(range(total_steps))
-        if total_steps > 50:
-            step_indices = [int(x) for x in np.linspace(0, total_steps - 1, 50)]
+        if total_steps > 150:
+            step_indices = [int(x) for x in np.linspace(0, total_steps - 1, 150)]
 
         n = len(param_names)
         has_weights = weight_history is not None and len(weight_history) > 0
@@ -2050,8 +2050,8 @@ class BayesianMixin:
 
         # Subsample if too many steps
         step_indices = list(range(n_steps))
-        if n_steps > 50:
-            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 50)]
+        if n_steps > 150:
+            step_indices = [int(x) for x in np.linspace(0, n_steps - 1, 150)]
             covariance_history = [covariance_history[i] for i in step_indices]
             if means_history:
                 means_history = [means_history[i] for i in step_indices]

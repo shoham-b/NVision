@@ -58,6 +58,10 @@ To understand the core design of the inference engine, you **MUST** read the doc
 - **Array Documentation**: When adding or modifying functions that process multi-dimensional numpy/polars arrays, always document the expected array shape and physical meaning in the docstring (e.g., `shape: (n_particles, n_parameters)`).
 - **Plotting**: Always use **Plotly** for visualizations to maintain UI interactivity. Do NOT use static Matplotlib unless explicitly requested for an academic paper.
 - **Scratch & Debug Files**: All temporary scratch files, check scripts, or refactoring scripts MUST be placed inside the `scratch/` directory. All debug or reproduction scripts MUST be placed inside the `debug/` directory. Do not write scratch or debug files in the repository root.
+- **Unit vs Physical Coordinate Suffixes**: Always strictly suffix variables, getters, and setters with `_phys` (physical space, e.g. Hz) or `_unit` (normalized space, in `[0, 1]`) when dealing with parameter bounds, observations, or candidates (e.g. `obs_xs_phys`, `obs_xs_unit`, `lo_phys`, `lo_unit`). This prevents coordinate space mismatches between normalized SMC particles/observations and physical algorithms.
+- **No Algorithmic Fallbacks & Fail Fast**: Fallbacks that silently alter the algorithmic behavior (e.g. swallowing errors, parameter truncations, or coordinate scaling fallbacks) are strictly forbidden. When an inconsistency is encountered (like a coordinate mismatch, shape mismatch, or invalid parameter state), the code must **fail fast** by raising an explicit exception (like `ValueError` or `AssertionError`). This ensures logic bugs are caught immediately rather than causing hard-to-debug silent failures.
+
+
 
 ---
 

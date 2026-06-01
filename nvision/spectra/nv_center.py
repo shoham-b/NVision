@@ -40,6 +40,14 @@ MAX_SPLIT: float = 8.5e6  # 3.5 MHz — maximum split generated / searched
 DEFAULT_NV_CENTER_FREQ_X_MIN = 2.6e9
 DEFAULT_NV_CENTER_FREQ_X_MAX = 3.1e9
 
+# Gaussian prior std as a fraction of parameter range (1/10 of range by default)
+# Can be configured via NVISION_PRIOR_STD_FRACTION environment variable
+import os
+from dotenv import load_dotenv
+
+_load_env = load_dotenv()  # Ensure .env is loaded
+PRIOR_STD_FRACTION: float = float(os.getenv("NVISION_PRIOR_STD_FRACTION", "0.1"))
+
 
 @dataclass(frozen=True)
 class NVCenterLorentzianSpectrum:
