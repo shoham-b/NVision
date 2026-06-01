@@ -21,6 +21,7 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtModel,
     NVCenterVoigtSpectrum,
     NVCenterVoigtSpectrumSamples,
+    PRIOR_STD_FRACTION,
     nv_center_lorentzian_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
 )
@@ -89,17 +90,23 @@ class NVCenterCoreGenerator:
             )
             bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
             
+            # Calculate prior std as a fraction of parameter range
+            split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
+            linewidth_std = (MAX_LINEWIDTH - MIN_LINEWIDTH) * PRIOR_STD_FRACTION
+            k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
+            c_total_std = 0.3 * PRIOR_STD_FRACTION  # c_total range is roughly [0.1, 0.4]
+            
             # Generate Gaussian priors for all parameters except frequency
-            prior_split = rng.gauss(split, 0.1e6)
-            prior_linewidth = rng.gauss(linewidth, 10e3)
-            prior_k_np = rng.gauss(k_np, 0.1)
-            prior_c_total = rng.gauss(c_total, 0.002)
+            prior_split = rng.gauss(split, split_std)
+            prior_linewidth = rng.gauss(linewidth, linewidth_std)
+            prior_k_np = rng.gauss(k_np, k_np_std)
+            prior_c_total = rng.gauss(c_total, c_total_std)
             
             bounds["_priors"] = {
-                "split": (prior_split, 0.1e6),
-                "linewidth": (prior_linewidth, 10e3),
-                "k_np": (prior_k_np, 0.1),
-                "c_total": (prior_c_total, 0.002),
+                "split": (prior_split, split_std),
+                "linewidth": (prior_linewidth, linewidth_std),
+                "k_np": (prior_k_np, k_np_std),
+                "c_total": (prior_c_total, c_total_std),
                 "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
         else:  # voigt
@@ -132,19 +139,26 @@ class NVCenterCoreGenerator:
             )
             bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
             
+            # Calculate prior std as a fraction of parameter range
+            split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
+            fwhm_total_std = (MAX_LINEWIDTH * 2 - MIN_LINEWIDTH * 2) * PRIOR_STD_FRACTION
+            lorentz_frac_std = 0.2 * PRIOR_STD_FRACTION  # lorentz_frac roughly in [0.1, 0.3]
+            k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
+            dip_depth_std = 0.65 * PRIOR_STD_FRACTION  # dip_depth roughly in [0.3, 0.95]
+            
             # Generate Gaussian priors for all parameters except frequency
-            prior_split = rng.gauss(split, 0.1e6)
-            prior_fwhm_total = rng.gauss(fwhm_total, 20e3)
-            prior_lorentz_frac = rng.gauss(lorentz_frac, 0.05)
-            prior_k_np = rng.gauss(k_np, 0.1)
-            prior_dip_depth = rng.gauss(dip_depth, 0.01)
+            prior_split = rng.gauss(split, split_std)
+            prior_fwhm_total = rng.gauss(fwhm_total, fwhm_total_std)
+            prior_lorentz_frac = rng.gauss(lorentz_frac, lorentz_frac_std)
+            prior_k_np = rng.gauss(k_np, k_np_std)
+            prior_dip_depth = rng.gauss(dip_depth, dip_depth_std)
             
             bounds["_priors"] = {
-                "split": (prior_split, 0.1e6),
-                "fwhm_total": (prior_fwhm_total, 20e3),
-                "lorentz_frac": (prior_lorentz_frac, 0.05),
-                "k_np": (prior_k_np, 0.1),
-                "dip_depth": (prior_dip_depth, 0.01),
+                "split": (prior_split, split_std),
+                "fwhm_total": (prior_fwhm_total, fwhm_total_std),
+                "lorentz_frac": (prior_lorentz_frac, lorentz_frac_std),
+                "k_np": (prior_k_np, k_np_std),
+                "dip_depth": (prior_dip_depth, dip_depth_std),
                 "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
 
