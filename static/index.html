@@ -31,7 +31,7 @@
                 <span class="control-label">Gauss Std:</span>
                 <div class="slider-with-arrows">
                     <button type="button" class="control-button arrow-btn" id="gauss-std-prev" aria-label="Decrease noise">◀</button>
-                    <input type="range" id="gauss-std-slider" min="0" max="4" step="1" value="0">
+                    <input type="range" id="gauss-std-slider" min="0" max="4" step="1" value="0" aria-label="Gaussian noise standard deviation">
                     <button type="button" class="control-button arrow-btn" id="gauss-std-next" aria-label="Increase noise">▶</button>
                     <span class="slider-value-display" id="gauss-std-value">0.0000</span>
                 </div>
@@ -76,10 +76,10 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>
             </button>
             <div class="timeline-slider-container">
-                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0">
+                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0" aria-label="Timeline step">
                 <span id="global-step-label" class="timeline-label">Step: --</span>
             </div>
-            <select id="global-speed-select" class="speed-select">
+            <select id="global-speed-select" class="speed-select" aria-label="Timeline speed">
                 <option value="500">Speed: 0.5x</option>
                 <option value="200" selected>Speed: 1x</option>
                 <option value="100">Speed: 2x</option>
@@ -210,15 +210,15 @@
     <div id="milestone-plots-container" style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 2em; border-top: 1px solid #e2e8f0; padding-top: 2em;">
         <div style="flex: 1; min-width: 400px;">
             <h3>Steps to fb Convergence <span tabindex="0" class="help-icon-visible" title="Distribution of steps required for the center frequency uncertainty to drop below the threshold.">?</span></h3>
-            <iframe id="milestone-iframe-steps" style="height: 500px;"></iframe>
+            <iframe id="milestone-iframe-steps" style="height: 500px;" title="Strategy comparison: Steps to fb Convergence"></iframe>
         </div>
         <div style="flex: 1; min-width: 400px;">
             <h3>fc Error: Milestone vs Final <span tabindex="0" class="help-icon-visible" title="Comparison of splitting absolute error at the fb convergence milestone vs the final end-of-run error.">?</span></h3>
-            <iframe id="milestone-iframe-err-fc" style="height: 500px;"></iframe>
+            <iframe id="milestone-iframe-err-fc" style="height: 500px;" title="Strategy comparison: fc Error Milestone vs Final"></iframe>
         </div>
         <div style="flex: 1; min-width: 400px;">
             <h3>Zeeman Resolution Gain <span tabindex="0" class="help-icon-visible" title="Reduction in splitting absolute error achieved by continuing the simulation after fb convergence.">?</span></h3>
-            <iframe id="milestone-iframe-delta-fc" style="height: 500px;"></iframe>
+            <iframe id="milestone-iframe-delta-fc" style="height: 500px;" title="Strategy comparison: Zeeman Resolution Gain"></iframe>
         </div>
     </div>
 </div>
