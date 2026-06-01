@@ -185,9 +185,16 @@ class SequentialBayesianLocator(Locator):
             if param_names is not None and scan in param_names:
                 idx = param_names.index(scan)
                 vals = np.asarray(belief._particles[:, idx], dtype=float)
-                mask = (vals >= lo) & (vals <= hi)
+                # Map internal particles (which may be unit-cube) to physical space
+                if hasattr(belief, "physical_param_bounds") and scan in belief.physical_param_bounds:
+                    p_lo, p_hi = belief.physical_param_bounds[scan]
+                    phys_vals = p_lo + vals * (p_hi - p_lo)
+                else:
+                    phys_vals = vals
+
+                mask = (phys_vals >= lo) & (phys_vals <= hi)
                 if mask.any():
-                    candidates = vals[mask]
+                    candidates = phys_vals[mask]
                     probs = np.asarray(belief._weights, dtype=float)[mask]
                     total = float(probs.sum())
                     if total > 0:
@@ -499,4 +506,10 @@ class SequentialBayesianLocator(Locator):
     def _to_experiment_normalized(self, physical_value: float) -> float:
         """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""
         lo, hi = self._full_domain_lo, self._full_domain_hi
-        return float(np.clip((physical_value - lo) / (hi - lo), 0.0, 1.0))
+        tol = 1e-7 * (hi - lo)
+        if physical_value < lo - tol or physical_value > hi + tol:
+            raise ValueError(
+                f"Proposed physical scan position {physical_value} is outside the full domain bounds {(lo, hi)}"
+            )
+        unit_val = (physical_value - lo) / (hi - lo)
+        return float(np.clip(unit_val, 0.0, 1.0))

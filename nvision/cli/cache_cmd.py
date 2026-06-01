@@ -218,6 +218,20 @@ def cache_clean(
                     max_steps=cfg.get("max_steps"),
                     timeout_s=cfg.get("timeout_s"),
                 )
+
+                # Also clean up artifact graphs and plots_manifest.json entries
+                import logging
+
+                from nvision.tools.artifacts import purge_artifacts_for_combination
+                purge_artifacts_for_combination(
+                    out_dir=out,
+                    generator=cfg.get("generator"),
+                    noise=cfg.get("noise"),
+                    strategy=cfg.get("strategy"),
+                    max_steps=cfg.get("max_steps"),
+                    seed=cfg.get("seed", NVISION_RNG_SEED),
+                    log=logging.getLogger("nvision.cache.clean"),
+                )
             else:
                 cat_cache.backend.delete(key)
             deleted_count += 1

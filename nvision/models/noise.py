@@ -63,7 +63,8 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
         for part in self._parts:
             name = part.__class__.__name__
             if name == "OverFrequencyGaussianNoise":
-                specs.append({"type": "gaussian", "sigma": float(getattr(part, "sigma", 0.0))})
+                sigma_val = getattr(part, "std", getattr(part, "sigma", 0.0))
+                specs.append({"type": "gaussian", "sigma": float(sigma_val)})
             elif name == "OverFrequencyPoissonNoise":
                 specs.append({"type": "poisson", "scale": float(getattr(part, "scale", 0.0))})
             elif name == "OverFrequencyOutlierSpikes":

@@ -386,6 +386,19 @@ class _TaskRunner:
             # Purge all partitions of this combination
             combo_kw = self._combination_cache_kwargs()
             self.cache.purge_cached_combination(**combo_kw, repeat_offset=self.task.repeat_offset)
+
+            # Clean up artifact repeat graphs and update plots_manifest.json
+            from nvision.tools.artifacts import purge_artifacts_for_combination
+            purge_artifacts_for_combination(
+                out_dir=self.task.out_dir,
+                generator=self.generator_name,
+                noise=self.noise_name,
+                strategy=self.strategy_name,
+                max_steps=effective_max_steps,
+                seed=self.task.seed,
+                log=log,
+            )
+
             # Write standardized purged flag to cache DB so other parallel workers don't purge again
             self.cache._store.save_df(pl.DataFrame({"purged": [True]}), purged_key)
 
@@ -972,6 +985,7 @@ class _TaskRunner:
                 min_linewidth = bounds["fwhm_total"][0]
             else:
                 min_linewidth = 200e3  # fallback
+            import numpy as np
             return int(np.ceil(domain_width / min_linewidth))
 
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
@@ -1063,7 +1077,7 @@ class _TaskRunner:
         sobol_baseline_steps: int | None = None
         sobol_freq_steps: int | None = None
         sobol_data: dict[str, Any] | None = None
-        
+
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
         if issubclass(locator_class, SequentialBayesianLocator) and self.strategy_name != "SimpleSobol":
             sobol_data = self._sweep_cache.get_sobol_baseline(

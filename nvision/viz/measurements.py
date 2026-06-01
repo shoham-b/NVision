@@ -69,22 +69,7 @@ def _row_col(has_metrics: bool) -> tuple[int | None, int | None]:
 
 
 def _noise_scale_for_scan(scan: Any, over_frequency_noise: CompositeOverFrequencyNoise | None) -> float:
-    """Return noise scale so max noise deviation never exceeds the signal's smallest dip.
-
-    Mirrors the scaling logic in :meth:`~nvision.models.experiment.CoreExperiment.measure`.
-    """
-    if over_frequency_noise is None:
-        return 1.0
-    true_signal = getattr(scan, "true_signal", None)
-    if true_signal is None:
-        return 1.0
-    min_dip = true_signal.min_dip_amplitude()
-    if min_dip is None:
-        return 1.0
-    max_allowed_std = min_dip / 5.0
-    current_std = over_frequency_noise.noise_std()
-    if current_std > max_allowed_std:
-        return max_allowed_std / current_std
+    """Return noise scale (fixed to 1.0 to match the non-scaling CoreExperiment.measure)."""
     return 1.0
 
 
@@ -118,20 +103,9 @@ def _add_true_and_noisy_traces(
             noisy_values.append(ys[i] + (fv - ys[i]) * noise_scale)
         else:
             noisy_values.append(fv)
-    # UI expectation: noisy curve should visually pass through the sampled measurement points.
-    # We "splice" the noisy curve values at the measurement x locations.
-    if measurement_xs and measurement_ys and len(measurement_xs) == len(measurement_ys):
-        for x_m, y_m in zip(measurement_xs, measurement_ys, strict=False):
-            try:
-                xm = float(x_m)
-                ym = float(y_m)
-            except (TypeError, ValueError):
-                continue
-            if not np.isfinite(ym):
-                continue
-            idxs = np.nonzero(np.isclose(xs, xm, rtol=0.0, atol=1e-12))[0]
-            if idxs.size:
-                noisy_values[int(idxs[0])] = ym
+    # Bypassed splicing to prevent wrong noise / spurious spikes artifact
+    # in physical experiments with drift and coordinate/time dependencies.
+    pass
     fig.add_trace(
         go.Scatter(
             x=xs,
@@ -714,17 +688,9 @@ def _splice_noisy_dense_at_measurements(
     history_ys: list[Any],
 ) -> None:
     """In-place splice noisy dense curve so it passes through measurement points."""
-    for x_m, y_m in zip(history_xs, history_ys, strict=False):
-        try:
-            xm = float(x_m)
-            ym = float(y_m)
-        except (TypeError, ValueError):
-            continue
-        if not np.isfinite(ym):
-            continue
-        idxs = np.nonzero(np.isclose(xs, xm, rtol=0.0, atol=1e-12))[0]
-        if idxs.size:
-            noisy_vals[int(idxs[0])] = ym
+    # Bypassed splicing to prevent wrong noise / spurious spikes artifact
+    # in physical experiments with drift and coordinate/time dependencies.
+    return
 
 
 def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:

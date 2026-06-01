@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 # steps; iterating all of them for Fisher info, covariance ellipses, and
 # posterior animations is the dominant post-run cost.  Subsampling to this cap
 # keeps plots informative while cutting render time proportionally.
-_MAX_VIZ_SNAPSHOTS = 50
+_MAX_VIZ_SNAPSHOTS = 500
 
 
 def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) -> list:
@@ -909,7 +909,7 @@ def get_or_run_sobol_baseline(
     
     locator = SimpleSobolBayesianLocator(
         belief=belief,
-        max_steps=1500,
+        max_steps=10000,
         noise_std=noise_std,
         **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
         **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),

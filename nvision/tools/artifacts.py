@@ -136,19 +136,19 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
                     df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
                 if col in old_df.columns:
                     old_df = old_df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
-            
+
             old_df = old_df.with_columns([
                 pl.col("generator").cast(pl.String, strict=False) if "generator" in old_df.columns else pl.lit(None).alias("generator"),
                 pl.col("noise").cast(pl.String, strict=False) if "noise" in old_df.columns else pl.lit(None).alias("noise"),
                 pl.col("strategy").cast(pl.String, strict=False) if "strategy" in old_df.columns else pl.lit(None).alias("strategy"),
             ])
-            
+
             join_cols = ["generator", "noise", "strategy"]
             if "max_steps" in df_loc.columns and "max_steps" in old_df.columns:
                 join_cols.append("max_steps")
             if "seed" in df_loc.columns and "seed" in old_df.columns:
                 join_cols.append("seed")
-                
+
             updated_combos = df_loc.select(join_cols).unique()
             old_df = old_df.join(updated_combos, on=join_cols, how="anti")
 
@@ -366,3 +366,67 @@ def write_plots_manifest(plot_manifest: list[dict[str, object]], out_dir: Path) 
     with path.open("w", encoding="utf-8") as f:
         json.dump(plot_manifest, f, indent=2)
     return path
+
+
+def purge_artifacts_for_combination(
+    out_dir: Path,
+    generator: str,
+    noise: str,
+    strategy: str,
+    max_steps: int | None,
+    seed: int | None,
+    log: logging.Logger,
+) -> None:
+    """Delete repeat graphs and plots manifest entries for a purged combination."""
+    # 1. Generate task slug corresponding to this combination
+    from nvision.tools.paths import slugify
+    slug = "_".join(slugify(p) for p in (generator, noise, strategy))
+
+    # 2. Delete individual repeat graphs from graphs/scans and graphs/bayes directories
+    prefix = f"{slug}_r"
+    scans_dir = out_dir / "graphs" / "scans"
+    bayes_dir = out_dir / "graphs" / "bayes"
+    for directory in [scans_dir, bayes_dir]:
+        if directory.exists():
+            for p in directory.iterdir():
+                if p.is_file() and p.name.startswith(prefix):
+                    try:
+                        p.unlink()
+                        log.debug("Purged old artifact graph: %s", p.name)
+                    except Exception as exc:
+                        log.warning("Failed to delete old artifact graph %s: %s", p.name, exc)
+
+    # 3. Update plots_manifest.json to remove entries matching this combination
+    manifest_path = plots_manifest_path(out_dir)
+    if manifest_path.exists():
+        try:
+            with manifest_path.open("r", encoding="utf-8") as f:
+                manifest = json.load(f)
+
+            new_manifest = []
+            removed_count = 0
+            for entry in manifest:
+                g = entry.get("generator")
+                n = entry.get("noise")
+                s = entry.get("strategy")
+                ms = entry.get("max_steps")
+                sd = entry.get("seed")
+
+                # Check for match (cast to string for safe comparison)
+                if (str(g) == str(generator) and
+                    str(n) == str(noise) and
+                    str(s) == str(strategy) and
+                    (ms is None or max_steps is None or int(ms) == int(max_steps)) and
+                    (sd is None or seed is None or int(sd) == int(seed))):
+                    removed_count += 1
+                    continue
+                new_manifest.append(entry)
+
+            if removed_count > 0:
+                with manifest_path.open("w", encoding="utf-8") as f:
+                    json.dump(new_manifest, f, indent=2)
+                log.debug("Removed %s entries from plots_manifest.json for combination %s/%s/%s",
+                          removed_count, generator, noise, strategy)
+        except Exception as exc:
+            log.warning("Failed to update plots_manifest.json during cache purge: %s", exc)
+

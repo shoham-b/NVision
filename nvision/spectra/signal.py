@@ -243,14 +243,20 @@ class TrueSignal[ParamsT]:
         """
         params = self.typed_parameters
 
-        # NV center models with k_np and dip_depth
+        # NV center models with k_np and dip_depth or c_total
         try:
             k_np = float(params.k_np)
-            dip_depth = float(params.dip_depth)
+            if hasattr(params, "dip_depth"):
+                dip_depth = float(params.dip_depth)
+                return dip_depth / (k_np**2)
+            elif hasattr(params, "c_total"):
+                c_total = float(params.c_total)
+                # For Lorentzian model, the population-normalized reparameterization
+                # has the left dip amplitude as c_total / (1.0 + k_np + k_np**2)
+                return c_total / (1.0 + k_np + k_np**2)
         except AttributeError:
-            return None
-        # For 3-dip Zeeman splitting, smallest dip is left dip: dip_depth / k_np^2
-        return dip_depth / (k_np**2)
+            pass
+        return None
 
     def all_bounds(self) -> dict[str, tuple[float, float]]:
         """Merge signal and noise bounds for joint Bayesian inference."""
