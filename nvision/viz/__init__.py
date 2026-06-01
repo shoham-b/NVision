@@ -12,6 +12,7 @@ from nvision.viz.metrics import MetricsVizMixin
 # Removed duplicate plot_all_metrics implementation
 
 
+
 class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, ComparisonsMixin, MetricsVizMixin):
     """Visualization facade combining all plotting capabilities."""
 
