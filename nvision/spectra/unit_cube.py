@@ -197,11 +197,10 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         interval without rebuilding the model. When ``update_x_axis`` is true, probe
         position maps to the same narrowed physical interval as ``param_name``.
         """
-        cur_lo, cur_hi = self.param_bounds_phys[param_name]
-        nl = float(max(min(new_lo, new_hi), cur_lo))
-        nh = float(min(max(new_lo, new_hi), cur_hi))
+        nl = float(min(new_lo, new_hi))
+        nh = float(max(new_lo, new_hi))
         if nh <= nl:
-            return (cur_lo, cur_hi)
+            return self.param_bounds_phys[param_name]
 
         self.param_bounds_phys[param_name] = (nl, nh)
         if update_x_axis:

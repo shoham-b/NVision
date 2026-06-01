@@ -8,6 +8,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from nvision.belief.abstract_marginal import ParameterValues
+from nvision.belief.coordinate import RescaleMap
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.spectra.noise_model import NoiseSignalModel
@@ -65,6 +66,39 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
     @physical_param_bounds.setter
     def physical_param_bounds(self, value: dict[str, tuple[float, float]]) -> None:
         self._physical_param_bounds = value
+
+    @property
+    def _rescale_maps(self) -> dict[str, RescaleMap]:
+        """Return a ``RescaleMap`` per parameter using the *original* physical bounds.
+
+        For the frequency axis this uses ``_original_physical_x_bounds`` — the
+        full domain set at construction and never narrowed — so that
+        ``freq_rescale.to_phys(o.x)`` always converts the stored [0, 1]
+        observation coordinate correctly, even after the focus window has
+        shrunk ``physical_param_bounds["frequency"]``.
+
+        For all other parameters the current ``physical_param_bounds`` is
+        used (those bounds are never narrowed).
+        """
+        if not hasattr(self, "_original_physical_x_bounds"):
+            raise RuntimeError(
+                "UnitCubeSMCMarginalDistribution._rescale_maps called before "
+                "__post_init__ set _original_physical_x_bounds."
+            )
+        phys = self.physical_param_bounds
+        maps: dict[str, RescaleMap] = {}
+        for name in self._param_names:
+            if name == "frequency":
+                lo, hi = self._original_physical_x_bounds
+            elif name in phys:
+                lo, hi = phys[name]
+            else:
+                raise RuntimeError(
+                    f"UnitCubeSMCMarginalDistribution is missing physical_param_bounds "
+                    f"for parameter '{name}'. All parameters must have physical bounds at construction."
+                )
+            maps[name] = RescaleMap(lo=float(lo), hi=float(hi))
+        return maps
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, UnitCubeSignalModel):
@@ -159,8 +193,9 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if w_old <= 0:
             return
 
-        nl = float(max(min(new_lo, new_hi), old_lo))
-        nh = float(min(max(new_lo, new_hi), old_hi))
+        lo_orig, hi_orig = self._original_physical_x_bounds
+        nl = float(max(min(new_lo, new_hi), lo_orig))
+        nh = float(min(max(new_lo, new_hi), hi_orig))
         if nh <= nl:
             return
 
@@ -185,7 +220,13 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 f = old_lo + u_col * w_old
                 u_new = (f - nl) / w_new
             else:
-                raise ValueError("All particles are out of bounds during narrow_scan_parameter_physical_bounds")
+                import logging
+                logging.getLogger(__name__).warning(
+                    "All particles are out of bounds during narrow_scan_parameter_physical_bounds (%s, %s). "
+                    "Rejecting narrowing proposal to protect filter stability.",
+                    nl, nh
+                )
+                return
 
         # Verify that all particles are now within [0, 1] with a tiny tolerance for numerical precision
         tol = 1e-7
@@ -231,111 +272,103 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         omega_phys = float(estimates.get("linewidth", estimates.get("fwhm_total", 2.0e6) / 2.0))
         omega_phys = max(omega_phys, 1.0e5)  # at least 100 kHz
 
-        dip_frequencies = []
-        if hasattr(self, "_observations") and len(self._observations) > 0:
-            ys = np.array([o.signal_value for o in self._observations])
-            if len(ys) >= 3:
-                p30 = float(np.percentile(ys, 30))
-                noise_pts = ys[ys >= p30]
-                bg_est = float(np.median(noise_pts))
-                noise_std_est = float(np.std(noise_pts))
-            else:
-                bg_est = float(np.max(ys))
-                noise_std_est = 0.02
+        # --- Active Boundary-Escape Guard ----------------------------------
+        # If particles are piling up near the unit boundaries [0.0, 1.0], it
+        # means the true frequency is outside the currently narrowed window.
+        # We proactively expand the physical bounds in that direction.
+        j = self._param_names.index(scan_param)
+        u_vals = self._particles[:, j]
 
-            dip_threshold = bg_est - max(3.0 * noise_std_est, 0.015 * bg_est)
-            for o in self._observations:
-                if o.signal_value < dip_threshold:
-                    dip_frequencies.append(o.x)
+        left_piling = float(np.mean(u_vals < 0.05)) > 0.15
+        right_piling = float(np.mean(u_vals > 0.95)) > 0.15
 
-        if dip_frequencies:
-            # --- Shoulder-based dip span detection --------------------------
-            # Instead of a fixed "N × linewidth" buffer, we find the actual
-            # physical span of each dip by walking outward from its minimum
-            # until the signal recovers to near-baseline (the shoulder).
-            # Connected dips (no clear recovery between them) are treated as
-            # one span.  The focus window wraps all dip spans + a small guard.
+        lo_orig, hi_orig = self._original_physical_x_bounds
+        import logging
+        import os
 
-            # Sort all observations by frequency for neighbour-walking.
-            obs_sorted = sorted(self._observations, key=lambda o: o.x)
-            xs = np.array([o.x for o in obs_sorted])
-            ys = np.array([o.signal_value for o in obs_sorted])
-            n_obs = len(xs)
+        if left_piling and lo_phys > lo_orig:
+            expansion = max(cur_width, 10.0 * omega_phys)
+            new_lo = max(lo_phys - expansion, lo_orig)
+            new_hi = hi_phys
+            logging.getLogger(__name__).info(
+                "SMC particles piling up at left boundary (%.2f%%). Expanding physical scan window to the left: [%.6f, %.6f] GHz",
+                float(np.mean(u_vals < 0.05)) * 100, new_lo / 1e9, new_hi / 1e9
+            )
+            self._last_expansion_step = self._step_count
+            self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
+            self._cached_cov = None
+            self._cov_step = -1
+            self._generate_epoch_candidates()
+            return
 
-            # Shoulder threshold: signal must recover to within 50% of the
-            # background level above the dip threshold to count as a shoulder.
-            # i.e. the recovery point sits halfway between dip_threshold and bg.
-            shoulder_threshold = 0.5 * (dip_threshold + bg_est)
+        if right_piling and hi_phys < hi_orig:
+            expansion = max(cur_width, 10.0 * omega_phys)
+            new_lo = lo_phys
+            new_hi = min(hi_phys + expansion, hi_orig)
+            logging.getLogger(__name__).info(
+                "SMC particles piling up at right boundary (%.2f%%). Expanding physical scan window to the right: [%.6f, %.6f] GHz",
+                float(np.mean(u_vals > 0.95)) * 100, new_lo / 1e9, new_hi / 1e9
+            )
+            self._last_expansion_step = self._step_count
+            self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
+            self._cached_cov = None
+            self._cov_step = -1
+            self._generate_epoch_candidates()
+            return
 
-            # Mark which observations are "in dip" territory.
-            in_dip = ys < dip_threshold
+        # --- Narrowing Delay Safeguard -------------------------------------
+        # Delay narrowing until we have completed a minimum number of global
+        # measurements (default 8 steps) to resolve multi-modal hyperfine peak
+        # ambiguity and ensure we never focus on the wrong place.
+        min_narrowing_steps = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
+        if self._step_count < min_narrowing_steps:
+            return
 
-            if np.any(in_dip):
-                dip_indices = np.where(in_dip)[0]
+        # Also delay narrowing if we recently expanded the bounds to allow exploration
+        last_exp = getattr(self, "_last_expansion_step", -1)
+        if last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
+            return
 
-                # Find the left shoulder of the leftmost dip cluster:
-                # walk left from the leftmost dip index until signal recovers.
-                left_idx = int(dip_indices[0])
-                left_shoulder_x = xs[0]  # fallback: leftmost observation
-                for k in range(left_idx - 1, -1, -1):
-                    if ys[k] >= shoulder_threshold:
-                        left_shoulder_x = xs[k]
-                        break
+        # --- Unified Active-Range Union Focusing (Zero Fallbacks) -----------
+        # Compute believed active frequency range for each particle i:
+        # [left_i, right_i] = [f_i - split_i - k * omega_i, f_i + split_i + k * omega_i]
+        j_freq = self._param_names.index(scan_param)
+        u_freq = self._particles[:, j_freq]
+        freq_phys = lo_phys + u_freq * cur_width
 
-                # Find the right shoulder of the rightmost dip cluster:
-                # walk right from the rightmost dip index until signal recovers.
-                right_idx = int(dip_indices[-1])
-                right_shoulder_x = xs[-1]  # fallback: rightmost observation
-                for k in range(right_idx + 1, n_obs):
-                    if ys[k] >= shoulder_threshold:
-                        right_shoulder_x = xs[k]
-                        break
-
-                # Add a small guard margin (1 × linewidth) so the locator can
-                # still sample just outside the shoulders for EIG computation.
-                guard = omega_phys
-                lo_orig, hi_orig = self._original_physical_x_bounds
-                left_shoulder_phys = lo_orig + left_shoulder_x * (hi_orig - lo_orig)
-                right_shoulder_phys = lo_orig + right_shoulder_x * (hi_orig - lo_orig)
-                new_lo = left_shoulder_phys - guard
-                new_hi = right_shoulder_phys + guard
-            else:
-                # Dip frequencies list was populated but no consecutive
-                # observations are flagged in_dip — fall through to percentile.
-                j = self._param_names.index(scan_param)
-                u_vals = self._particles[:, j]
-                u_lo = float(np.percentile(u_vals, 1.0))
-                u_hi = float(np.percentile(u_vals, 99.0))
-                new_lo = lo_phys + u_lo * cur_width
-                new_hi = lo_phys + u_hi * cur_width
-                pad = 3.0 * (new_hi - new_lo)
-                new_lo -= pad
-                new_hi += pad
+        if "split" in self._param_names:
+            j_split = self._param_names.index("split")
+            u_split = self._particles[:, j_split]
+            lo_s, hi_s = self.physical_param_bounds["split"]
+            split_phys = lo_s + u_split * (hi_s - lo_s)
         else:
-            # --- Fallback: particle-percentile narrowing --------------------
-            # No dips seen yet; prune parts of the spectrum with almost no
-            # particles using a 1% tail cutoff, then add conservative padding
-            # (300% on each side) so we never clip the true peak.
-            j = self._param_names.index(scan_param)
-            u_vals = self._particles[:, j]
-            decay_factor = np.exp(-self._step_count / 25.0)
-            frac_rejuv = 0.05 * decay_factor
-            num_random = int(len(u_vals) * frac_rejuv)
-            u_vals_real = u_vals[:-num_random] if num_random > 0 else u_vals
+            split_phys = np.zeros_like(freq_phys)
 
-            u_lo = float(np.percentile(u_vals_real, 1.0))
-            u_hi = float(np.percentile(u_vals_real, 99.0))
-            new_lo = lo_phys + u_lo * cur_width
-            new_hi = lo_phys + u_hi * cur_width
+        if "linewidth" in self._param_names:
+            j_line = self._param_names.index("linewidth")
+            u_line = self._particles[:, j_line]
+            lo_l, hi_l = self.physical_param_bounds["linewidth"]
+            linewidth_phys = lo_l + u_line * (hi_l - lo_l)
+        elif "fwhm_total" in self._param_names:
+            j_fwhm = self._param_names.index("fwhm_total")
+            u_fwhm = self._particles[:, j_fwhm]
+            lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
+            linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
+        else:
+            linewidth_phys = np.full_like(freq_phys, 2.0e6)
 
-            # Conservative padding so we never clip the true peak while the
-            # posterior is still spreading (300% on each side).
-            pad = 3.0 * (new_hi - new_lo)
-            new_lo -= pad
-            new_hi += pad
+        cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+        tail_percentile = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))
 
-        new_lo = max(new_lo, lo_phys)
-        new_hi = min(new_hi, hi_phys)
+        left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
+        right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
+
+        new_lo = float(np.percentile(left_phys, tail_percentile))
+        new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
+
+        lo_orig, hi_orig = self._original_physical_x_bounds
+        new_lo = max(new_lo, lo_orig)
+        new_hi = min(new_hi, hi_orig)
         if new_hi <= new_lo:
             return
 

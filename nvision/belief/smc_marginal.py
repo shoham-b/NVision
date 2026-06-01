@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from numba import njit, prange
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
+from nvision.belief.coordinate import RescaleMap
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.likelihood import likelihood_from_observation_model
@@ -581,15 +582,30 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         phys_bounds = self.physical_param_bounds
 
         def _to_phys(name: str, unit_val: float) -> float:
-            lo, hi = phys_bounds.get(name, (0.0, 1.0))
+            if name not in phys_bounds:
+                raise RuntimeError(
+                    f"_generate_epoch_candidates: parameter '{name}' is missing from "
+                    f"physical_param_bounds — all parameters must be declared at construction."
+                )
+            lo, hi = phys_bounds[name]
             return lo + unit_val * (hi - lo)
 
         def _to_phys_delta(name: str, unit_delta: float) -> float:
-            lo, hi = phys_bounds.get(name, (0.0, 1.0))
+            if name not in phys_bounds:
+                raise RuntimeError(
+                    f"_generate_epoch_candidates: parameter '{name}' is missing from "
+                    f"physical_param_bounds — all parameters must be declared at construction."
+                )
+            lo, hi = phys_bounds[name]
             return unit_delta * (hi - lo)
 
         def _to_unit_freq(phys_freq: np.ndarray) -> np.ndarray:
-            lo, hi = phys_bounds.get("frequency", (0.0, 1.0))
+            if "frequency" not in phys_bounds:
+                raise RuntimeError(
+                    "_generate_epoch_candidates: 'frequency' is missing from "
+                    "physical_param_bounds — all beliefs must declare frequency bounds at construction."
+                )
+            lo, hi = phys_bounds["frequency"]
             if hi == lo:
                 return np.full_like(phys_freq, 0.5)
             return (phys_freq - lo) / (hi - lo)
@@ -631,7 +647,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 5. Generate local grids in physical space, then map to unit space
         local_grids = []
-        phys_f_lo, phys_f_hi = phys_bounds.get("frequency", (0.0, 1.0))
+        if "frequency" not in phys_bounds:
+            raise RuntimeError(
+                "_generate_epoch_candidates: 'frequency' is missing from "
+                "physical_param_bounds — all beliefs must declare frequency bounds at construction."
+            )
+        phys_f_lo, phys_f_hi = phys_bounds["frequency"]
         f_lo_unit, f_hi_unit = self.parameter_bounds["frequency"]
 
         for s_phys in slopes_phys:
@@ -650,8 +671,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
 
-            lo_orig_phys, hi_orig_phys = getattr(self, "_original_physical_x_bounds", self.parameter_bounds.get("frequency", (0.0, 1.0)))
-            obs_xs_phys = np.array([lo_orig_phys + o.x * (hi_orig_phys - lo_orig_phys) for o in self._observations])
+            rescale_maps = self._rescale_maps
+            if "frequency" not in rescale_maps:
+                raise RuntimeError(
+                    f"{type(self).__name__} is missing _rescale_maps['frequency']. "
+                    "Ensure physical_param_bounds includes 'frequency' at construction."
+                )
+            freq_rescale = rescale_maps["frequency"]
+            obs_xs_phys = np.array([freq_rescale.to_phys(o.x) for o in self._observations])
             obs_ys = np.array([o.signal_value for o in self._observations])
             noise_std = self.estimated_noise_std()
             noise_std_unc = self.noise_std_uncertainty(noise_std)
@@ -1086,6 +1113,29 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
                     self._global_grid = np.linspace(lo, hi, n_global).astype(np.float32)
                 self._generate_epoch_candidates()
+
+    @property
+    def _rescale_maps(self) -> dict[str, RescaleMap]:
+        """Return a ``RescaleMap`` per parameter derived from ``parameter_bounds``.
+
+        For the base ``SMCMarginalDistribution`` particles live in physical
+        space, so ``parameter_bounds`` *is* the physical range and each map is
+        the identity rescaling for that parameter.
+
+        ``UnitCubeSMCMarginalDistribution`` overrides this to build maps from
+        ``physical_param_bounds`` (and ``_original_physical_x_bounds`` for
+        frequency) so that the unit-cube↔physical conversion is always correct
+        even after the focus window has narrowed.
+        """
+        if "frequency" not in self.parameter_bounds:
+            raise RuntimeError(
+                f"{type(self).__name__} is missing 'frequency' in parameter_bounds. "
+                "All beliefs must declare physical frequency bounds at construction."
+            )
+        return {
+            name: RescaleMap(lo=float(lo), hi=float(hi))
+            for name, (lo, hi) in self.parameter_bounds.items()
+        }
 
     @property
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
