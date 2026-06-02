@@ -13,14 +13,15 @@ import numpy as np
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import (
+    get_background_ones,
     nv_center_lorentzian_eval,
     nv_center_lorentzian_vectorized_many,
     nv_center_lorentzian_vectorized_many_fast,
-    nv_center_lorentzian_vectorized_one,
+    nv_center_lorentzian_vectorized_one_serial,
     nv_center_pseudo_voigt_eval,
     nv_center_pseudo_voigt_vectorized_many,
     nv_center_pseudo_voigt_vectorized_many_fast,
-    nv_center_pseudo_voigt_vectorized_one,
+    nv_center_pseudo_voigt_vectorized_one_serial,
 )
 from nvision.spectra.signal import SignalModel
 from nvision.spectra.spec import GenericParamSpec
@@ -164,15 +165,14 @@ class NVCenterLorentzianModel(
         freq = np.asarray(frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
         out = np.empty(n, dtype=FLOAT_DTYPE)
-        bg = np.ones(n, dtype=FLOAT_DTYPE)
-        nv_center_lorentzian_vectorized_one(
+        nv_center_lorentzian_vectorized_one_serial(
             float(x),
             freq,
             np.asarray(linewidth, dtype=FLOAT_DTYPE),
             np.asarray(split, dtype=FLOAT_DTYPE),
             np.asarray(k_np, dtype=FLOAT_DTYPE),
             np.asarray(c_total, dtype=FLOAT_DTYPE),
-            bg,
+            get_background_ones(n),
             out,
         )
         return out
@@ -247,7 +247,7 @@ class NVCenterLorentzianModel(
             np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
+            get_background_ones(freq.shape[0]),
             out,
         )
         return out
@@ -271,7 +271,7 @@ class NVCenterLorentzianModel(
             np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
+            get_background_ones(freq.shape[0]),
             out,
         )
         return out
@@ -425,8 +425,7 @@ class NVCenterVoigtModel(
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
         out = np.empty(n, dtype=FLOAT_DTYPE)
-        bg = np.ones(n, dtype=FLOAT_DTYPE)
-        nv_center_pseudo_voigt_vectorized_one(
+        nv_center_pseudo_voigt_vectorized_one_serial(
             float(x),
             freq,
             np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
@@ -434,7 +433,7 @@ class NVCenterVoigtModel(
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            bg,
+            get_background_ones(n),
             out,
         )
         return out
@@ -459,7 +458,7 @@ class NVCenterVoigtModel(
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
+            get_background_ones(freq.shape[0]),
             out,
         )
         return out
@@ -485,7 +484,7 @@ class NVCenterVoigtModel(
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE),
-            np.ones(freq.shape[0], dtype=FLOAT_DTYPE),
+            get_background_ones(freq.shape[0]),
             out,
         )
         return out

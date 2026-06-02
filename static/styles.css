@@ -939,6 +939,92 @@ body {
             font-weight: 600;
         }
 
+        /* ---- Help-toggle icon state ---- */
+        .help-toggle[aria-expanded="true"] {
+            background: #dbeafe;
+            color: #1d4ed8;
+            border-color: #93c5fd;
+        }
+
+        /* ---- Covariance ellipse container (JS-rendered, replaces iframe) ---- */
+        .bayes-ellipse-container {
+            min-height: 100px;
+            margin-bottom: 1em;
+        }
+
+        /* ---- Covariance explainer blurb (hidden until ? is clicked) ---- */
+        .covariance-explainer {
+            padding: 0.75em 1em;
+            margin: 0 0 1em 0;
+            background: #f0f7ff;
+            border-left: 3px solid #3b82f6;
+            border-radius: 6px;
+            font-size: 0.9em;
+            color: #334155;
+            line-height: 1.5;
+        }
+
+        /* ---- Jitter panel: block layout so the inner metric grid and table render full-width ---- */
+        .bayes-jitter-panel {
+            display: block;
+        }
+
+        .bayes-jitter-panel .jitter-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.5em;
+            padding: 0.65em;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            font-size: 0.8em;
+            margin-bottom: 0.5em;
+        }
+
+        .bayes-jitter-panel .jitter-cards .metric-item {
+            display: flex;
+            flex-direction: column;
+            padding: 0.5em 0.65em;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bayes-jitter-panel .jitter-cards .metric-item::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+            border-radius: 8px 8px 0 0;
+        }
+
+        .bayes-jitter-panel .jitter-cards .metric-label {
+            font-weight: 500;
+            color: #64748b;
+            font-size: 0.72em;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .bayes-jitter-panel .jitter-cards .metric-value {
+            font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', monospace;
+            color: #5b21b6;
+            font-weight: 700;
+            font-size: 1.15em;
+            line-height: 1.1;
+            margin-top: 0.1em;
+        }
+
+        .bayes-jitter-panel h4 {
+            margin: 1em 0 0.4em;
+            font-size: 0.95em;
+            color: #334155;
+        }
+
         /* ---- Correlation Matrix Table Styling ---- */
         .correlation-table-wrapper {
             margin-top: 1.5em;

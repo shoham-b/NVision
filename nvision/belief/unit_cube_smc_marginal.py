@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from nvision.belief.abstract_marginal import ParameterValues
 from nvision.belief.coordinate import RescaleMap
 from nvision.belief.smc_marginal import SMCMarginalDistribution
-from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.spectra.noise_model import NoiseSignalModel
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 
 class UnitCubeNoiseSignalModelWrapper(NoiseSignalModel):
@@ -145,7 +145,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
     def estimates(self) -> dict[str, float]:
         raw = super().estimates()
         return {
-            k: (self._to_physical(k, v) if (k != "noise_sigma" or not getattr(self, "_use_rao_blackwell_noise", False)) else v)
+            k: (
+                self._to_physical(k, v)
+                if (k != "noise_sigma" or not getattr(self, "_use_rao_blackwell_noise", False))
+                else v
+            )
             for k, v in raw.items()
         }
 
@@ -221,10 +225,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 u_new = (f - nl) / w_new
             else:
                 import logging
+
                 logging.getLogger(__name__).warning(
                     "All particles are out of bounds during narrow_scan_parameter_physical_bounds (%s, %s). "
                     "Rejecting narrowing proposal to protect filter stability.",
-                    nl, nh
+                    nl,
+                    nh,
                 )
                 return
 
@@ -235,7 +241,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 f"Particles out of bounds after resampling in narrow_scan_parameter_physical_bounds: min {np.min(u_new)}, max {np.max(u_new)}"
             )
         self._particles[:, j] = np.clip(u_new, 0.0, 1.0)
-
 
         self.model.narrow_physical_interval_for_param(param_name, nl, nh, update_x_axis=sync_x)
         self.physical_param_bounds[param_name] = (nl, nh)
@@ -290,9 +295,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             expansion = max(cur_width, 10.0 * omega_phys)
             new_lo = max(lo_phys - expansion, lo_orig)
             new_hi = hi_phys
-            logging.getLogger(__name__).info(
+            logging.getLogger(__name__).debug(
                 "SMC particles piling up at left boundary (%.2f%%). Expanding physical scan window to the left: [%.6f, %.6f] GHz",
-                float(np.mean(u_vals < 0.05)) * 100, new_lo / 1e9, new_hi / 1e9
+                float(np.mean(u_vals < 0.05)) * 100,
+                new_lo / 1e9,
+                new_hi / 1e9,
             )
             self._last_expansion_step = self._step_count
             self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
@@ -305,9 +312,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             expansion = max(cur_width, 10.0 * omega_phys)
             new_lo = lo_phys
             new_hi = min(hi_phys + expansion, hi_orig)
-            logging.getLogger(__name__).info(
+            logging.getLogger(__name__).debug(
                 "SMC particles piling up at right boundary (%.2f%%). Expanding physical scan window to the right: [%.6f, %.6f] GHz",
-                float(np.mean(u_vals > 0.95)) * 100, new_lo / 1e9, new_hi / 1e9
+                float(np.mean(u_vals > 0.95)) * 100,
+                new_lo / 1e9,
+                new_hi / 1e9,
             )
             self._last_expansion_step = self._step_count
             self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
@@ -386,7 +395,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         self._generate_epoch_candidates()
 
     def update(self, obs: Observation) -> None:
-        from nvision.models.observation import Observation
         lo_orig, hi_orig = self._original_physical_x_bounds
         lo_curr, hi_curr = self.physical_x_bounds
 
@@ -394,6 +402,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             x_phys = lo_orig + obs.x * (hi_orig - lo_orig)
             x_curr_unit = (x_phys - lo_curr) / (hi_curr - lo_curr)
             from dataclasses import replace
+
             obs_eval = replace(obs, x=float(x_curr_unit))
         else:
             obs_eval = obs
@@ -404,7 +413,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         self.last_obs = obs
 
     def batch_update(self, observations: list[Observation]) -> None:
-        from nvision.models.observation import Observation
         if not hasattr(self, "_observations"):
             self._observations = []
         self._observations.extend(observations)
@@ -415,6 +423,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         observations_eval = []
         if (lo_orig != lo_curr) or (hi_orig != hi_curr):
             from dataclasses import replace
+
             for obs in observations:
                 x_phys = lo_orig + obs.x * (hi_orig - lo_orig)
                 x_curr_unit = (x_phys - lo_curr) / (hi_curr - lo_curr)
@@ -465,4 +474,3 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if hasattr(self, "_dip_centers"):
             dist._dip_centers = list(self._dip_centers)
         return dist
-

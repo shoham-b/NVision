@@ -146,7 +146,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                             "Ensure physical_param_bounds includes 'frequency' at construction."
                         )
                     freq_rescale = rescale_maps["frequency"]
-                    obs_xs_phys = np.array([freq_rescale.to_phys(o.x) for o in obs_list])
+                    obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
                     obs_ys = np.array([o.signal_value for o in obs_list])
                     if hasattr(self.belief, "estimated_noise_std") and getattr(self.belief, "noise_model", None) is not None:
                         noise_std = self.belief.estimated_noise_std()

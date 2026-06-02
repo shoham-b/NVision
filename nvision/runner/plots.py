@@ -12,6 +12,13 @@ import polars as pl
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
+from nvision.runner.plots_data import (
+    write_covariance_data,
+    write_convergence_metrics_data,
+    write_fisher_data,
+    write_parameter_convergence_data,
+    write_posterior_data,
+)
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
     PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
@@ -21,7 +28,6 @@ from nvision.sim.defaults import (
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 from nvision.viz.bayesian import _get_nv_parameter_descriptions, _get_signal_formula
-
 
 log = logging.getLogger(__name__)
 
@@ -509,7 +515,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     scan_param = _resolve_scan_param(strat_obj, run_result)
     true_params = run_result.true_signal.parameter_values()
     experiment_domain = (float(experiment.x_min), float(experiment.x_max))
-    interactive_path = bayes_dir / f"{attempt_slug}_posterior.html"
+    posterior_path = bayes_dir / f"{attempt_slug}_posterior.json"
 
     # Subsample snapshots for all visualization loops.  Locators like SimpleSobol
     # can produce thousands of steps; iterating all of them for Fisher info,
@@ -534,86 +540,64 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
     viz_run_result = _dc_replace(run_result, snapshots=list(all_snapshots[:sweep_steps]) + bayesian_snapshots)
 
-    # Filter out initial sweep stages from posterior animation
-    # Track which steps involved a resampling event (used in both branches below)
     resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
 
     anim_all = _posterior_animation_inputs_all_params(viz_run_result, start_idx=sweep_steps)
-    log.info("Posterior animation inputs: %s", "available" if anim_all is not None else "None")
+    log.debug("Posterior animation inputs: %s", "available" if anim_all is not None else "None")
+
     if anim_all is not None:
-        # Extract per-step narrowed bounds from snapshots for dynamic UI (only Bayesian stages)
-        per_step_narrowed_bounds = []
-        for snapshot in bayesian_snapshots:
-            if snapshot.narrowed_param_bounds:
-                per_step_narrowed_bounds.append(snapshot.narrowed_param_bounds)
-            else:
-                per_step_narrowed_bounds.append({})
-        # Generate parameter descriptions and signal formula from the signal model
-        signal_model = run_result.true_signal.model
-        param_descriptions = _get_nv_parameter_descriptions(signal_model)
-        signal_formula = _get_signal_formula(signal_model)
-
-        # Track which steps involved a resampling event
-        resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
-
-        # Extract particle weight history if it is a particle-based filter
-        from nvision.belief.smc_marginal import SMCMarginalDistribution
-
-        weight_history = None
-        if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
-            weight_history = [s.belief._weights.copy() for s in bayesian_snapshots]
-
-        viz.plot_posterior_animation_all_params(
+        physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+        written = write_posterior_data(
             anim_all,
-            interactive_path,
+            posterior_path,
             true_params=true_params,
-            acquisition_window=run_result.focus_window,
-            acquisition_param=scan_param,
-            experiment_domain=experiment_domain,
-            narrowed_param_bounds=run_result.narrowed_param_bounds,
-            per_step_narrowed_bounds=per_step_narrowed_bounds,
-            param_descriptions=param_descriptions,
-            signal_formula=signal_formula,
             resampled_steps=resampled_steps,
-            weight_history=weight_history,
+            physical_bounds=physical_bounds,
         )
+        if written:
+            ie = entry_base.copy()
+            ie["type"] = "bayesian_posterior_data"
+            ie["path"] = posterior_path.relative_to(out_dir).as_posix()
+            ie["param_count"] = len(anim_all)
+            ie["resampled_count"] = len(resampled_steps)
+            extra.append(ie)
     else:
+        # Fallback for non-SMC/grid beliefs: single-param posterior animation
         anim_inputs = _posterior_animation_inputs(viz_run_result, scan_param, start_idx=sweep_steps)
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
-            true_one = true_params.get(scan_param)
-            viz.plot_posterior_animation(
-                posterior_history,
-                freq_grid,
-                interactive_path,
-                true_value=float(true_one) if true_one is not None else None,
-                acquisition_window=run_result.focus_window,
-                experiment_domain=experiment_domain,
+            anim_single = {scan_param: (posterior_history, freq_grid)}
+            physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+            written = write_posterior_data(
+                anim_single,
+                posterior_path,
+                true_params=true_params,
                 resampled_steps=resampled_steps,
+                physical_bounds=physical_bounds,
             )
-    if interactive_path.exists():
-        ie = entry_base.copy()
-        ie["type"] = "bayesian_interactive"
-        ie["path"] = interactive_path.relative_to(out_dir).as_posix()
-        ie["param_count"] = len(anim_all) if anim_all is not None else 1
-        ie["resampled_count"] = len(resampled_steps)
-        extra.append(ie)
+            if written:
+                ie = entry_base.copy()
+                ie["type"] = "bayesian_posterior_data"
+                ie["path"] = posterior_path.relative_to(out_dir).as_posix()
+                ie["param_count"] = 1
+                ie["resampled_count"] = len(resampled_steps)
+                extra.append(ie)
 
     # Filter out initial sweep stages from parameter convergence plot
     # (bayesian_snapshots is already subsampled from the block above)
     param_hist = [s.belief.uncertainty().as_dict() for s in bayesian_snapshots]
     estimates_hist = [s.belief.estimates() for s in bayesian_snapshots]
     if param_hist:
-        conv_path = bayes_dir / f"{attempt_slug}_param_convergence.html"
-        viz.plot_parameter_convergence(
+        conv_path = bayes_dir / f"{attempt_slug}_param_convergence.json"
+        written = write_parameter_convergence_data(
             param_hist,
+            estimates_hist,
             conv_path,
-            estimates_history=estimates_hist,
             true_params=true_params,
         )
-        if conv_path.exists():
+        if written:
             ce = entry_base.copy()
-            ce["type"] = "bayesian_parameter_convergence"
+            ce["type"] = "bayesian_parameter_convergence_data"
             ce["path"] = conv_path.relative_to(out_dir).as_posix()
             extra.append(ce)
 
@@ -662,18 +646,20 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             pairs.append((0, 1))
 
         if pairs:
-            ellipse_path = bayes_dir / f"{attempt_slug}_covariance_ellipses.html"
-            viz.plot_covariance_ellipses(
+            ellipse_path = bayes_dir / f"{attempt_slug}_covariance_ellipses.json"
+            physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+            written = write_covariance_data(
                 cov_hist,
                 param_names,
                 pairs,
+                estimates_hist,
                 ellipse_path,
-                means_history=estimates_hist,
                 true_params=true_params,
+                physical_bounds=physical_bounds,
             )
-            if ellipse_path.exists():
+            if written:
                 ee = entry_base.copy()
-                ee["type"] = "bayesian_covariance_ellipses"
+                ee["type"] = "bayesian_covariance_ellipses_data"
                 ee["path"] = ellipse_path.relative_to(out_dir).as_posix()
                 extra.append(ee)
 
@@ -733,33 +719,19 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         # Skip Fisher plots if no model supports gradients (cum_fim stayed zero)
         fim_is_degenerate = not np.any(cum_fim != 0)
         if fisher_hist and len(param_names) >= 2 and not fim_is_degenerate:
-            # Fisher bounds vs actual uncertainty plot (marginals)
-            fisher_path = bayes_dir / f"{attempt_slug}_fisher_bounds.html"
-            viz.plot_fisher_vs_crlb(
+            fisher_path = bayes_dir / f"{attempt_slug}_fisher.json"
+            written = write_fisher_data(
                 fisher_bounds_hist,
                 actual_uncertainty_hist,
+                fisher_hist,
                 param_names,
                 fisher_path,
                 true_params=true_params,
             )
-            if fisher_path.exists():
+            if written:
                 che = entry_base.copy()
-                che["type"] = "bayesian_fisher_bounds"
+                che["type"] = "bayesian_fisher_data"
                 che["path"] = fisher_path.relative_to(out_dir).as_posix()
-                extra.append(che)
-
-            # Fisher CRLB confidence ellipses for parameter pairs (correlations)
-            fisher_pairs_path = bayes_dir / f"{attempt_slug}_fisher_crlb_pairs.html"
-            viz.plot_fisher_crlb_pairs(
-                fisher_hist,
-                param_names,
-                fisher_pairs_path,
-                true_params=true_params,
-            )
-            if fisher_pairs_path.exists():
-                che = entry_base.copy()
-                che["type"] = "bayesian_fisher_crlb_pairs"
-                che["path"] = fisher_pairs_path.relative_to(out_dir).as_posix()
                 extra.append(che)
 
     # Convergence metrics visualization for all Bayesian beliefs
@@ -823,8 +795,8 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             if "noise_sigma" in noise_spec.bounds:
                 param_bounds["noise_sigma"] = noise_spec.bounds["noise_sigma"]
 
-        conv_path = bayes_dir / f"{attempt_slug}_convergence_metrics.html"
-        viz.plot_convergence_metrics(
+        conv_path = bayes_dir / f"{attempt_slug}_convergence_metrics.json"
+        written = write_convergence_metrics_data(
             conv_metrics,
             param_names,
             convergence_threshold,
@@ -832,9 +804,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             conv_path,
             param_bounds=param_bounds,
         )
-        if conv_path.exists():
+        if written:
             ce = entry_base.copy()
-            ce["type"] = "bayesian_convergence_metrics"
+            ce["type"] = "bayesian_convergence_metrics_data"
             ce["path"] = conv_path.relative_to(out_dir).as_posix()
             extra.append(ce)
 
@@ -850,7 +822,7 @@ def get_or_run_sobol_baseline(
 ) -> dict[str, Any] | None:
     """Retrieve Sobol baseline data from cache, or run the simulation if not cached or missing detailed data."""
     from nvision.runner.sweep_cache import get_cached_sobol_baseline, put_cached_sobol_baseline
-    
+
     sobol_data = get_cached_sobol_baseline(
         experiment,
         seed,
@@ -858,18 +830,19 @@ def get_or_run_sobol_baseline(
         noise_name,
         repeat_idx,
     )
-    
+
     if sobol_data is not None and "sobol_xs" in sobol_data:
         return sobol_data
-        
+
     # Otherwise, simulate it dynamically!
-    import random
     import math
-    from nvision.runner.repeat_keys import repeat_seed_int, measurement_repeat_key
+    import random
+
+    from nvision.runner.convert import belief_mode_estimates
+    from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
-    from nvision.runner.convert import belief_mode_estimates
-    
+
     # 1. Setup locator noise/bounds
     noise_std = 0.05
     noise_max_dev = None
@@ -877,13 +850,13 @@ def get_or_run_sobol_baseline(
         noise_std = float(experiment.noise.estimated_noise_std())
         if hasattr(experiment.noise, "estimated_max_noise_deviation"):
             noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
-            
+
     domain_width = float(experiment.x_max - experiment.x_min)
     signal_max_span = None
     model = experiment.true_signal.model
     if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
         signal_max_span = model.signal_max_span(domain_width)
-        
+
     # Inject bounds (replicating Executor._injected_parameter_bounds(experiment))
     bounds: dict[str, tuple[float, float]] = {}
     for name, bounds_val in experiment.true_signal.bounds.items():
@@ -901,12 +874,12 @@ def get_or_run_sobol_baseline(
                 if lo >= hi:
                     lo = float(lo_raw)
         bounds[name] = (lo, hi)
-        
+
     if experiment.true_signal.noise_bounds:
         bounds.update(experiment.true_signal.noise_bounds)
-        
+
     belief = nv_center_smc_belief(bounds)
-    
+
     locator = SimpleSobolBayesianLocator(
         belief=belief,
         max_steps=10000,
@@ -914,43 +887,49 @@ def get_or_run_sobol_baseline(
         **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
         **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
     )
-    
+
     key = measurement_repeat_key(seed, generator_name, "sobol_baseline", noise_name, repeat_idx)
     sobol_rng = random.Random(repeat_seed_int(key))
-    
+
     sobol_xs = []
     sobol_ys = []
     sobol_freq_steps = None
     sobol_freq_uncert_at_conv = None
     sobol_freq_err_at_conv = None
     true_freq = experiment.true_signal.get_param_value("frequency")
-    
+
     while not locator.done():
         x_current = locator.next()
         obs = experiment.measure(x_current, sobol_rng)
         locator.observe(obs)
         sobol_xs.append(float(obs.x))
         sobol_ys.append(float(obs.signal_value))
-        
+
         # Record metrics at the exact moment of frequency convergence
         if sobol_freq_steps is None and locator.freq_converged_step is not None:
             sobol_freq_steps = locator.freq_converged_step
             sobol_freq_uncert_at_conv = float(locator.belief.uncertainty().get("frequency", math.nan))
             est_f = float(locator.belief.estimates().get("frequency", math.nan))
             sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
-            
+
     sobol_mode_estimates = belief_mode_estimates(locator.belief)
-    
+
+    sobol_final_uncert = float(locator.belief.uncertainty().get("frequency", math.nan))
+    est_f_final = float(locator.belief.estimates().get("frequency", math.nan))
+    sobol_final_err = abs(est_f_final - true_freq) if not math.isnan(est_f_final) else math.nan
+
     new_sobol_data = {
         "sobol_baseline_steps": locator.step_count,
         "sobol_freq_steps": sobol_freq_steps,
         "sobol_freq_uncert_at_conv": sobol_freq_uncert_at_conv,
         "sobol_freq_err_at_conv": sobol_freq_err_at_conv,
+        "sobol_baseline_uncert": sobol_final_uncert,
+        "sobol_baseline_err": sobol_final_err,
         "sobol_xs": sobol_xs,
         "sobol_ys": sobol_ys,
         "sobol_mode_estimates": sobol_mode_estimates,
     }
-    
+
     put_cached_sobol_baseline(
         experiment,
         seed,
@@ -959,8 +938,105 @@ def get_or_run_sobol_baseline(
         repeat_idx,
         new_sobol_data,
     )
-    
+
     return new_sobol_data
+
+
+def get_or_run_simplesweep_baseline(
+    experiment: Any,
+    seed: int,
+    generator_name: str,
+    noise_name: str,
+    repeat_idx: int,
+) -> dict[str, Any] | None:
+    """Retrieve SimpleSweep baseline data from cache, or run the simulation if not cached."""
+    from nvision.runner.sweep_cache import get_cached_simplesweep_baseline, put_cached_simplesweep_baseline
+
+    data = get_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
+    if data is not None and "sweep_xs" in data:
+        return data
+
+    import math
+    import random
+
+    from nvision.runner.convert import belief_mode_estimates
+    from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
+    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+    from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+
+    noise_std = 0.05
+    noise_max_dev = None
+    if experiment.noise is not None:
+        noise_std = float(experiment.noise.estimated_noise_std())
+        if hasattr(experiment.noise, "estimated_max_noise_deviation"):
+            noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
+
+    domain_width = float(experiment.x_max - experiment.x_min)
+    signal_max_span = None
+    model = experiment.true_signal.model
+    if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
+        signal_max_span = model.signal_max_span(domain_width)
+
+    bounds: dict[str, tuple[float, float]] = {}
+    for name, bounds_val in experiment.true_signal.bounds.items():
+        if name == "_priors" or name.startswith("_"):
+            bounds[name] = bounds_val
+            continue
+        lo, hi = float(bounds_val[0]), float(bounds_val[1])
+        if hi > lo:
+            name_lc = name.lower()
+            if ("amplitude" in name_lc or "depth" in name_lc) and hi > noise_std:
+                lo = max(lo, noise_std)
+                if lo >= hi:
+                    lo = float(bounds_val[0])
+        bounds[name] = (lo, hi)
+    if experiment.true_signal.noise_bounds:
+        bounds.update(experiment.true_signal.noise_bounds)
+
+    belief = nv_center_smc_belief(bounds)
+
+    f_lo, f_hi = bounds.get("frequency", (experiment.x_min, experiment.x_max))
+    f_domain_width = float(f_hi - f_lo)
+    if "linewidth" in bounds:
+        min_linewidth = float(bounds["linewidth"][0])
+    elif "fwhm_total" in bounds:
+        min_linewidth = float(bounds["fwhm_total"][0])
+    else:
+        min_linewidth = 200e3
+    max_steps = max(30, math.ceil(f_domain_width / min_linewidth))
+
+    locator = GenericSweepLocator(
+        belief=belief,
+        signal_model=model,
+        max_steps=max_steps,
+        noise_std=noise_std,
+        **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
+        **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
+    )
+
+    key = measurement_repeat_key(seed, generator_name, "simplesweep_baseline", noise_name, repeat_idx)
+    sweep_rng = random.Random(repeat_seed_int(key))
+
+    sweep_xs: list[float] = []
+    sweep_ys: list[float] = []
+
+    while not locator.done():
+        x_current = locator.next()
+        obs = experiment.measure(x_current, sweep_rng)
+        locator.observe(obs)
+        sweep_xs.append(float(obs.x))
+        sweep_ys.append(float(obs.signal_value))
+
+    sweep_mode_estimates = belief_mode_estimates(locator.belief)
+
+    new_data = {
+        "sweep_xs": sweep_xs,
+        "sweep_ys": sweep_ys,
+        "sweep_mode_estimates": sweep_mode_estimates,
+    }
+
+    put_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx, new_data)
+    return new_data
 
 
 def generate_attempt_plots(  # noqa: C901
@@ -1039,11 +1115,14 @@ def generate_attempt_plots(  # noqa: C901
         if isinstance(m, UnitCubeSignalModel):
             belief_unit_cube = m
 
-    # Retrieve Sobol baseline measurements & estimates if this strategy is not SimpleSobol itself!
+    # Retrieve Sobol and SimpleSweep baseline measurements & estimates
     sobol_xs: list[float] | None = None
     sobol_ys: list[float] | None = None
     sobol_mode_estimates: dict[str, float] | None = None
-    if strat_name != "SimpleSobol":
+    sweep_xs: list[float] | None = None
+    sweep_ys: list[float] | None = None
+    sweep_mode_estimates: dict[str, float] | None = None
+    if strat_name not in ("SimpleSobol", "SimpleSweep"):
         try:
             seed = int(entry_base.get("seed", 0))
             generator_name = str(entry_base.get("generator", ""))
@@ -1061,6 +1140,23 @@ def generate_attempt_plots(  # noqa: C901
                 sobol_mode_estimates = sobol_data.get("sobol_mode_estimates")
         except Exception as exc:
             log.warning("Failed to retrieve or simulate Sobol baseline for plotting: %s", exc)
+        try:
+            seed = int(entry_base.get("seed", 0))
+            generator_name = str(entry_base.get("generator", ""))
+            noise_name = str(entry_base.get("noise", ""))
+            simplesweep_data = get_or_run_simplesweep_baseline(
+                current_scan,
+                seed,
+                generator_name,
+                noise_name,
+                attempt_idx_in_combo,
+            )
+            if simplesweep_data:
+                sweep_xs = simplesweep_data.get("sweep_xs")
+                sweep_ys = simplesweep_data.get("sweep_ys")
+                sweep_mode_estimates = simplesweep_data.get("sweep_mode_estimates")
+        except Exception as exc:
+            log.warning("Failed to retrieve or simulate SimpleSweep baseline for plotting: %s", exc)
 
     viz.plot_scan_measurements(
         current_scan,
@@ -1075,6 +1171,9 @@ def generate_attempt_plots(  # noqa: C901
         sobol_xs=sobol_xs,
         sobol_ys=sobol_ys,
         sobol_mode_estimates=sobol_mode_estimates,
+        sweep_xs=sweep_xs,
+        sweep_ys=sweep_ys,
+        sweep_mode_estimates=sweep_mode_estimates,
     )
 
     scan_entry = entry_base.copy()

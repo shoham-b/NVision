@@ -30,6 +30,12 @@ NVISION_SMC_POINTS_PER_MIN_FEATURE: int = int(os.getenv("NVISION_SMC_POINTS_PER_
 NVISION_SMC_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_SMC_MIN_EXPLORATION_FRAC", "0.01"))
 NVISION_SMC_TEMPERING_FACTOR: float = float(os.getenv("NVISION_SMC_TEMPERING_FACTOR", "1.0"))
 
+# Maximum particles used for EIG / acquisition scoring.
+# EIG only estimates prediction variance — that converges with ~200–500 particles.
+# Using all N particles at N=10k produces an 80 MB matrix per EIG call.
+# Subsampling keeps the matrix small (< 4 MB) with negligible quality loss.
+NVISION_SMC_EIG_PARTICLES: int = int(os.getenv("NVISION_SMC_EIG_PARTICLES", "500"))
+
 
 _EIG_CHUNK_SIZE: int = 64
 
@@ -678,7 +684,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     "Ensure physical_param_bounds includes 'frequency' at construction."
                 )
             freq_rescale = rescale_maps["frequency"]
-            obs_xs_phys = np.array([freq_rescale.to_phys(o.x) for o in self._observations])
+            obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in self._observations]))
             obs_ys = np.array([o.signal_value for o in self._observations])
             noise_std = self.estimated_noise_std()
             noise_std_unc = self.noise_std_uncertainty(noise_std)
@@ -1075,12 +1081,32 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         EIG(d) ≈ 1/2 * ln(1 + sigma_theta^2 / sigma_eta^2)
         where sigma_theta^2 is the prediction variance (disagreement for that frequency across particles)
         and sigma_eta^2 is the measurement noise variance.
+
+        When the particle count exceeds ``NVISION_SMC_EIG_PARTICLES``, a weighted
+        subsample is used for the prediction-variance estimate.  EIG only needs
+        to rank candidates — variance estimation converges with ~200–500 particles
+        regardless of the total filter size — so subsampling cuts the matrix from
+        O(n_candidates × n_particles) to O(n_candidates × n_eig) with negligible
+        quality loss.  This is critical at large particle counts (e.g. N=10 000
+        produces an 80 MB matrix at 2000 candidates; subsampling to 500 gives 4 MB).
         """
-        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
-        # shape: (n_candidates, n_particles) — uses fastmath kernel (acquisition path only)
+        n_total = self._particles.shape[0]
+        n_eig = NVISION_SMC_EIG_PARTICLES
+
+        if n_total > n_eig:
+            # Weighted subsample: draw without replacement, proportional to weight.
+            w_norm = self._weights / (self._weights.sum() + 1e-30)
+            idx = np.random.choice(n_total, size=n_eig, replace=False, p=w_norm)
+            arrays_in_order = [self._particles[idx, j] for j in range(self._d_signal)]
+            w = w_norm[idx].astype(np.float32)
+            w /= w.sum()
+        else:
+            arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
+            w = self._weights  # already float32, already normalized
+
+        # shape: (n_candidates, n_eig) — uses fastmath kernel (acquisition path only)
         predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
 
-        w = self._weights  # already float32, already normalized
         var_pred = _weighted_variance_rows(predictions, w)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
@@ -1089,7 +1115,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_var = max(noise_var, 1e-12)
         else:
             noise_var = max(noise_std**2, 1e-12)
-            
+
         return 0.5 * np.log1p(var_pred / noise_var)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:

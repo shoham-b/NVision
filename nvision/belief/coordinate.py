@@ -22,6 +22,11 @@ bounds — is the root coordinate-system defect this module fixes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Union
+
+import numpy as np
+
+_Numeric = Union[float, np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -45,12 +50,12 @@ class RescaleMap:
                 f"RescaleMap requires lo < hi; got lo={self.lo}, hi={self.hi}"
             )
 
-    def to_phys(self, u: float) -> float:
-        """Map a unit-cube value in [0, 1] to physical units."""
+    def to_phys(self, u: _Numeric) -> _Numeric:
+        """Map a unit-cube value (scalar or array) in [0, 1] to physical units."""
         return self.lo + u * (self.hi - self.lo)
 
-    def to_unit(self, phys: float) -> float:
-        """Map a physical value to [0, 1]."""
+    def to_unit(self, phys: _Numeric) -> _Numeric:
+        """Map a physical value (scalar or array) to [0, 1]."""
         return (phys - self.lo) / (self.hi - self.lo)
 
     @property
@@ -108,8 +113,8 @@ class FocusWindow:
             full_hi=self.full_hi,
         )
 
-    def to_measure_x(self, phys_freq: float) -> float:
-        """Map a physical frequency to the [0, 1] value expected by ``CoreExperiment.measure()``.
+    def to_measure_x(self, phys_freq: _Numeric) -> _Numeric:
+        """Map a physical frequency (scalar or array) to [0, 1] for ``CoreExperiment.measure()``.
 
         Always uses ``full_lo`` / ``full_hi`` — never the (possibly narrowed)
         ``lo`` / ``hi``.  This is the **only** correct path into

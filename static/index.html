@@ -25,7 +25,10 @@
             </div>
             <div class="control-row">
                 <span class="control-label">Noise:</span>
-                <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
+                <div style="display: flex; align-items: center; gap: 1em;">
+                    <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
+                    <button type="button" id="toggle-noise-metrics-btn" class="control-button" style="background-color: #f1f5f9; border-color: #cbd5e1; white-space: nowrap;">Noise Metrics</button>
+                </div>
             </div>
             <div class="control-row" id="gaussian-noise-slider-row" style="display: none; margin-top: 0.75rem;">
                 <span class="control-label">Gauss Std:</span>
@@ -64,6 +67,8 @@
         </div>
     </div>
     <div class="metrics" id="scan-metrics"></div>
+    <div id="scan-comparison-selector"></div>
+    <div id="scan-comparison-cards"></div>
     <div class="sweep-metrics-panel" hidden id="scan-sweep-metrics"></div>
     <div class="narrowed-bounds-panel" hidden id="narrowed-bounds-panel"></div>
     <iframe id="scan-iframe" title="Scan measurements plot"></iframe>
@@ -98,9 +103,7 @@
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-convergence-section">
             <h3>Parameter Convergence <span tabindex="0" class="help-icon-visible" title="How parameter uncertainties shrink over inference steps. Lower is better.">?</span></h3>
             <iframe id="bayes-convergence-iframe" title="Parameter convergence plot"></iframe>
-        </div>
-        <div class="bayes-tab-panel" role="tabpanel" id="bayes-conv-metrics-section">
-            <h3>Convergence Metrics <span tabindex="0" class="help-icon-visible" title="Per-parameter convergence status and consecutive converged-steps streak. A streak reaching the patience threshold triggers stopping.">?</span></h3>
+            <h3 style="margin-top:1.5em;">Convergence Metrics <span tabindex="0" class="help-icon-visible" title="Per-parameter convergence status and consecutive converged-steps streak. A streak reaching the patience threshold triggers stopping.">?</span></h3>
             <iframe id="bayes-conv-metrics-iframe" title="Convergence metrics plot"></iframe>
         </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-fisher-section">
@@ -111,13 +114,17 @@
             <h3>Fisher CRLB Parameter Correlations <span tabindex="0" class="help-icon-visible" title="2D joint uncertainty ellipses derived from the Fisher Information Matrix. Tight circles = uncorrelated, well-constrained parameters; elongated ellipses = strong correlations.">?</span></h3>
             <iframe id="bayes-fisher-pairs-iframe" title="Fisher CRLB parameter correlations plot"></iframe>
         </div>
-        <div class="bayes-tab-panel" role="tabpanel" id="bayes-ellipse-section">
-            <h3>Covariance Ellipses <span tabindex="0" class="help-icon-visible" title="Animated 2D covariance ellipses showing how uncertainty regions shrink and move (jitter) toward the true parameter values as more measurements are collected.">?</span></h3>
-            <iframe id="bayes-ellipse-iframe" title="Covariance ellipses plot"></iframe>
-        </div>
-        <div class="bayes-tab-panel" role="tabpanel" id="bayes-jitter-section">
-            <h3>Covariance & Jitter <span tabindex="0" class="help-icon-visible" title="Numerical covariance and jitter statistics. 'Jitter' is the standard deviation of parameter estimates over the last 20 steps, capturing how much the filter is still 'jumping' around.">?</span></h3>
-            <div id="bayes-jitter-content" class="scan-metrics-panel"></div>
+        <div class="bayes-tab-panel" role="tabpanel" id="bayes-covariance-section">
+            <h3>Covariance <span tabindex="0" class="help-icon-visible help-toggle" aria-expanded="false" aria-controls="covariance-explainer" title="What do the ellipses mean?">?</span></h3>
+            <div class="covariance-explainer" id="covariance-explainer" hidden>
+                Each ellipse is the <strong>2σ joint uncertainty region</strong> for a pair of parameters at the current inference step.
+                The red ✕ marks the true value.
+                <strong>Smaller ellipses</strong> = lower uncertainty; a <strong>tilted ellipse</strong> means the two parameters are correlated (knowing one constrains the other).
+                Use the slider or Play button to watch uncertainty shrink as measurements accumulate.
+            </div>
+            <div id="bayes-ellipse-container" class="bayes-ellipse-container"></div>
+            <h3 style="margin-top:1.5em;">Jitter &amp; Correlations <span tabindex="0" class="help-icon-visible" title="Numerical covariance and jitter statistics. 'Jitter' is the standard deviation of parameter estimates over the last 20 steps, capturing how much the filter is still jumping around.">?</span></h3>
+            <div id="bayes-jitter-content" class="bayes-jitter-panel"></div>
         </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-stats-section">
             <h3>Bayesian Inference Statistics <span tabindex="0" class="help-icon-visible" title="Static summary plots capturing posterior and convergence history at key inference steps.">?</span></h3>
@@ -135,7 +142,69 @@
     </div>
     
     <div id="scan-summary-view" style="display:none; margin-top: 1em; padding-top: 1em; border-top: 1px solid #eee;">
+        <div id="summary-comparison-selector"></div>
         <div id="summary-subjects-container"></div>
+    </div>
+    
+    <div id="noise-metrics-view" hidden style="margin-top: 2em; padding-top: 2em; border-top: 1px solid #eee;">
+        <h2>Metrics Across Noises (Aggregated)</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Error vs Noise <span tabindex="0" class="help-icon-visible" title="Average absolute frequency error as a function of the noise level.">?</span></h3>
+                <iframe id="comp-iframe-summary-err" style="height: 500px;" title="Error vs Noise"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Measurements vs Noise <span tabindex="0" class="help-icon-visible" title="Average measurements to convergence as a function of the noise level.">?</span></h3>
+                <iframe id="comp-iframe-summary-meas" style="height: 500px;" title="Measurements vs Noise"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Measurement Savings vs Noise <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as noise increases.">?</span></h3>
+                <iframe id="comp-iframe-summary-savings" style="height: 500px;" title="Savings vs Noise"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as a function of the fractional signal width.">?</span></h3>
+                <iframe id="comp-iframe-summary-span" style="height: 500px;" title="Savings vs Signal Span"></iframe>
+            </div>
+        </div>
+
+        <h2 style="margin-top: 2em; padding-top: 1em; border-top: 1px solid #e2e8f0;">Metrics for Selected Noise</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Absolute Frequency Error <span tabindex="0" class="help-icon-visible" title="Distribution of absolute frequency estimation errors across all repeats. Lower and tighter is better.">?</span></h3>
+                <iframe id="comp-iframe-abs-err" style="height: 500px;" title="Strategy comparison: Absolute frequency error"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Measurements <span tabindex="0" class="help-icon-visible" title="Number of measurements each strategy required to reach its stopping criterion. Fewer is better (more efficient).">?</span></h3>
+                <iframe id="comp-iframe-measurements" style="height: 500px;" title="Strategy comparison: Measurements"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Duration <span tabindex="0" class="help-icon-visible" title="Wall-clock computation time per strategy across all repeats. Lower is better.">?</span></h3>
+                <iframe id="comp-iframe-duration" style="height: 500px;" title="Strategy comparison: Duration"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;" id="comp-savings-container">
+                <h3>Sweep Savings <span tabindex="0" class="help-icon-visible" title="Difference between expected simple Sobol sweep points and actual measurements taken by the locator. Greater is better.">?</span></h3>
+                <iframe id="comp-iframe-savings" style="height: 500px;" title="Strategy comparison: Sweep Savings"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;" id="comp-span-per-noise-container">
+                <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Savings vs span for repeats at this specific noise level.">?</span></h3>
+                <iframe id="comp-iframe-span-per-noise" style="height: 500px;" title="Savings vs Span per Noise"></iframe>
+            </div>
+        </div>
+        
+        <div id="milestone-plots-container" style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 2em; border-top: 1px solid #e2e8f0; padding-top: 2em;">
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Steps to fb Convergence <span tabindex="0" class="help-icon-visible" title="Distribution of steps required for the center frequency uncertainty to drop below the threshold.">?</span></h3>
+                <iframe id="milestone-iframe-steps" style="height: 500px;"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>fc Error: Milestone vs Final <span tabindex="0" class="help-icon-visible" title="Comparison of splitting absolute error at the fb convergence milestone vs the final end-of-run error.">?</span></h3>
+                <iframe id="milestone-iframe-err-fc" style="height: 500px;"></iframe>
+            </div>
+            <div style="flex: 1; min-width: 400px;">
+                <h3>Zeeman Resolution Gain <span tabindex="0" class="help-icon-visible" title="Reduction in splitting absolute error achieved by continuing the simulation after fb convergence.">?</span></h3>
+                <iframe id="milestone-iframe-delta-fc" style="height: 500px;"></iframe>
+            </div>
+        </div>
     </div>
 </div>
 <div aria-labelledby="tab-scan-comparison" class="section tab-panel is-hidden" id="scan-comparison-section" role="tabpanel">
@@ -178,50 +247,7 @@
     </div>
     <div aria-label="Combined head to head scan plot" class="head-to-head-plot" id="head-to-head-plot" role="img"></div>
 </div>
-<div aria-labelledby="tab-model-comparison" class="section tab-panel is-hidden" id="strategy-comparison-section" role="tabpanel">
-    <h2>Strategy Comparison <span tabindex="0" class="help-icon-visible" title="Aggregated performance comparison across all strategies, repeats, and signal configurations.">?</span></h2>
-    <div class="control-row">
-        <span class="control-label">Generator:</span>
-        <div aria-label="Comparison generator" class="segmented-control" id="comp-generator" role="radiogroup"></div>
-    </div>
-    <div class="control-row">
-        <span class="control-label">Noise:</span>
-        <div aria-label="Comparison noise" class="segmented-control" id="comp-noise" role="radiogroup"></div>
-    </div>
-    <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Absolute Frequency Error <span tabindex="0" class="help-icon-visible" title="Distribution of absolute frequency estimation errors across all repeats. Lower and tighter is better.">?</span></h3>
-            <iframe id="comp-iframe-abs-err" style="height: 500px;" title="Strategy comparison: Absolute frequency error"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Measurements <span tabindex="0" class="help-icon-visible" title="Number of measurements each strategy required to reach its stopping criterion. Fewer is better (more efficient).">?</span></h3>
-            <iframe id="comp-iframe-measurements" style="height: 500px;" title="Strategy comparison: Measurements"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Duration <span tabindex="0" class="help-icon-visible" title="Wall-clock computation time per strategy across all repeats. Lower is better.">?</span></h3>
-            <iframe id="comp-iframe-duration" style="height: 500px;" title="Strategy comparison: Duration"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;" id="comp-savings-container">
-            <h3>Sweep Savings <span tabindex="0" class="help-icon-visible" title="Difference between expected simple Sobol sweep points and actual measurements taken by the locator. Greater is better.">?</span></h3>
-            <iframe id="comp-iframe-savings" style="height: 500px;" title="Strategy comparison: Sweep Savings"></iframe>
-        </div>
-    </div>
-    
-    <div id="milestone-plots-container" style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 2em; border-top: 1px solid #e2e8f0; padding-top: 2em;">
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Steps to fb Convergence <span tabindex="0" class="help-icon-visible" title="Distribution of steps required for the center frequency uncertainty to drop below the threshold.">?</span></h3>
-            <iframe id="milestone-iframe-steps" style="height: 500px;"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;">
-            <h3>fc Error: Milestone vs Final <span tabindex="0" class="help-icon-visible" title="Comparison of splitting absolute error at the fb convergence milestone vs the final end-of-run error.">?</span></h3>
-            <iframe id="milestone-iframe-err-fc" style="height: 500px;"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Zeeman Resolution Gain <span tabindex="0" class="help-icon-visible" title="Reduction in splitting absolute error achieved by continuing the simulation after fb convergence.">?</span></h3>
-            <iframe id="milestone-iframe-delta-fc" style="height: 500px;"></iframe>
-        </div>
-    </div>
-</div>
+
 <iframe src="loader.html" style="display:none" title="Background data loader" aria-hidden="true"></iframe>
 </body>
 </html>

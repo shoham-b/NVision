@@ -153,7 +153,36 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
         return self.inner.compute_vectorized_many(xs_phys, typed_samples_phys)
 
+    def compute_vectorized_many_fast(
+        self,
+        x_norm_array: Sequence[float],
+        samples_norm: VectorizedManySamplesInput[object],
+    ) -> np.ndarray:
+        """Fast acquisition-only variant — routes to the inner fastmath kernel.
 
+        Without this override the base class falls through to
+        :meth:`compute_vectorized_many`, silently bypassing the ``fastmath``
+        compiled kernel in the inner model.  Only call from EIG / acquisition
+        scoring paths; never from weight updates.
+        """
+        xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
+        param_arrays_norm = self._get_param_arrays_norm(samples_norm)
+
+        names = self.parameter_names()
+        if len(param_arrays_norm) != len(names):
+            raise ValueError(f"Expected {len(names)} parameter arrays, got {len(param_arrays_norm)}")
+
+        phys_arrays: list[np.ndarray] = []
+        for name, u_arr in zip(names, param_arrays_norm, strict=True):
+            lo, hi = self.param_bounds_phys[name]
+            u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
+            phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
+
+        x_lo, x_hi = self.x_bounds_phys
+        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
+
+        typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
+        return self.inner.compute_vectorized_many_fast(xs_phys, typed_samples_phys)
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

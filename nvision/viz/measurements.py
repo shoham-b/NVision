@@ -593,7 +593,8 @@ def _add_measurement_distribution_trace(
         return
 
     # Histogram-based density in the physical x-domain.
-    n_bins = max(40, min(150, int(np.sqrt(x_meas.size) * 12)))
+    # More bins + no smoothing = finer detail in measurement clustering.
+    n_bins = max(60, min(400, int(np.sqrt(x_meas.size) * 20)))
     counts, edges = np.histogram(x_meas, bins=n_bins, range=(float(xs_dense.min()), float(xs_dense.max())))
     if counts.sum() <= 0:
         return
@@ -601,19 +602,30 @@ def _add_measurement_distribution_trace(
     centers = 0.5 * (edges[:-1] + edges[1:])
     density = counts.astype(float) / max(1.0, float(counts.max()))
 
-    # Light smoothing for readability - relaxed to see the fine details.
-    kernel = np.array([0.05, 0.9, 0.05], dtype=float)
-    density_smooth = np.convolve(density, kernel, mode="same")
-
-    # Map normalized density to a small vertical band near the lower part of the scan.
+    # Map normalized density to a band near the lower part of the scan.
     y_min = float(min(ys_dense))
     y_max = float(max(ys_dense))
     y_span = max(1e-9, y_max - y_min)
     y_band_base = y_min + 0.02 * y_span
-    y_band_height = 0.18 * y_span
-    y_curve = y_band_base + density_smooth * y_band_height
+    y_band_height = 0.25 * y_span
+    y_curve = y_band_base + density * y_band_height
 
     row, col = _row_col(has_metrics)
+
+    # Invisible baseline so fill="tonexty" anchors to y_band_base instead of y=0.
+    # This makes density fluctuations fill the full height of the band and become visible.
+    fig.add_trace(
+        go.Scatter(
+            x=centers,
+            y=np.full(len(centers), y_band_base),
+            mode="lines",
+            line=dict(width=0, color="rgba(111,66,193,0)"),
+            showlegend=False,
+            hoverinfo="skip",
+        ),
+        row=row,
+        col=col,
+    )
     fig.add_trace(
         go.Scatter(
             x=centers,
@@ -621,10 +633,10 @@ def _add_measurement_distribution_trace(
             mode="lines",
             name="measurement distribution",
             visible="legendonly",
-            line=dict(color="rgba(111,66,193,0.95)", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(111,66,193,0.12)",
-            customdata=(density_smooth * 100.0),
+            line=dict(color="rgba(111,66,193,0.95)", width=1.5),
+            fill="tonexty",
+            fillcolor="rgba(111,66,193,0.30)",
+            customdata=(density * 100.0),
             hovertemplate="x=%{x}<br>relative density=%{customdata:.1f}%<extra></extra>",
         ),
         row=row,
@@ -1078,6 +1090,9 @@ class MeasurementsMixin:
         sobol_xs: list[float] | None = None,
         sobol_ys: list[float] | None = None,
         sobol_mode_estimates: Mapping[str, float] | None = None,
+        sweep_xs: list[float] | None = None,
+        sweep_ys: list[float] | None = None,
+        sweep_mode_estimates: Mapping[str, float] | None = None,
     ) -> Path:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
@@ -1194,6 +1209,55 @@ class MeasurementsMixin:
                         visible="legendonly",
                         name="sobol most likely signal",
                         line=dict(color="#805ad5", width=2, dash="dashdot"),
+                    ),
+                    row=row,
+                    col=col,
+                )
+
+        # Draw SimpleSweep baseline measurements & estimates if provided
+        if sweep_xs and sweep_ys:
+            row, col = _row_col(has_metrics)
+            finite_ys = [float(y) for y in history_ys_raw if y is not None and np.isfinite(float(y))]
+            baseline = max(finite_ys) if finite_ys else 1.0
+            baseline = baseline if baseline > 1e-12 else 1.0
+
+            width = float(scan.x_max - scan.x_min)
+            sweep_xs_phys = [float(scan.x_min + float(x) * width) for x in sweep_xs]
+
+            def sweep_depth_percent(value: float) -> float:
+                return max(0.0, (baseline - float(value)) / baseline * 100.0)
+
+            fig.add_trace(
+                go.Scatter(
+                    x=sweep_xs_phys,
+                    y=sweep_ys,
+                    mode="markers",
+                    visible="legendonly",
+                    name="simple sweep measurements (noisy)",
+                    marker=dict(
+                        size=6,
+                        color="rgba(234, 88, 12, 0.4)",
+                        line=dict(width=0.8, color="rgba(154, 52, 18, 0.7)"),
+                    ),
+                    customdata=[sweep_depth_percent(y) for y in sweep_ys],
+                    hovertemplate="sweep x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
+                ),
+                row=row,
+                col=col,
+            )
+
+        if sweep_mode_estimates:
+            y_sweep_mode = _mode_belief_dense_y(scan, xs, sweep_mode_estimates, belief_unit_cube=belief_unit_cube)
+            if y_sweep_mode:
+                row, col = _row_col(has_metrics)
+                fig.add_trace(
+                    go.Scatter(
+                        x=xs,
+                        y=y_sweep_mode,
+                        mode="lines",
+                        visible="legendonly",
+                        name="simple sweep most likely signal",
+                        line=dict(color="#ea580c", width=2, dash="dashdot"),
                     ),
                     row=row,
                     col=col,

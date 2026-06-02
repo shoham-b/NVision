@@ -25,7 +25,7 @@ To understand the core design of the inference engine, you **MUST** read the doc
 ---
 
 ### 2. Developer Workflows
-- **Dependency Management**: Always use [uv](https://github.com/astral-sh/uv) for installing and running Python commands (see `.github/copilot-instructions.md`). Never run python directly (e.g., `python file.py`); always use the `uv run nv <command>` interface.
+- **Dependency Management**: Always use [uv](https://github.com/astral-sh/uv) for installing and running Python commands (see `.github/copilot-instructions.md`). Never run python directly (e.g., `python file.py`); always use the `uv run nv <command>` interface. For full CLI documentation, see **[CLI Reference](file:///c:/Users/shoha/git/NVision/docs/cli_reference.md)**.
 - **Running Experiments & Verification**:
   - Use `uv run nv run --repeats 5 --loc-max-steps 150` to execute regular simulation runs.
   - To quickly verify that the CLI, locators, and task orchestration are working without performing heavy simulations or overwriting cached results, run this lightweight dry-run:
@@ -74,7 +74,7 @@ To understand the core design of the inference engine, you **MUST** read the doc
 
 ### 5. Documentation (`docs/`)
 The `docs/` directory contains permanent project documentation generated via Sphinx (using Markdown/MyST).
-- **When to use**: Write or update files in `docs/` for permanent architectural overviews, complex mathematical/physics derivations (e.g., `dip_depth_reparametrization.md`), core subsystem explanations (e.g., `caching.md`, `cli_integration.md`), and broad design patterns.
+- **When to use**: Write or update files in `docs/` for permanent architectural overviews, complex mathematical/physics derivations (e.g., `dip_depth_reparametrization.md`), core subsystem explanations (e.g., `caching.md`, `cli_integration.md`, `cli_reference.md`), and broad design patterns.
 - **When NOT to use**: Do NOT put quick scratch notes, temporary debug scripts, or task plans here. Do NOT place agent behavior rules here (those go in `AGENTS.md` or `.github/copilot-instructions.md`). 
 - **Format**: Prefer **Markdown (`.md`)** for general explanations and system architecture. Use **LaTeX** inside markdown only for complex math or physics equations.
 - **Index**: When creating a new documentation file, always update `docs/index.md` (or the relevant toctree) to include a link to it.

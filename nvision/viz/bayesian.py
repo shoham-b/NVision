@@ -1580,7 +1580,7 @@ class BayesianMixin:
 
             function updateLabel(idx) {{
               const val = stepValues[idx] !== undefined ? stepValues[idx] : idx;
-              label.textContent = `Step: ${{val}} (${{idx + 1}} / ${{totalFrames}})`;
+              label.innerHTML = `Step: ${{val}} (${{idx + 1}} / ${{totalFrames}})`;
             }}
 
             function showFrame(idx) {{
@@ -2074,6 +2074,11 @@ class BayesianMixin:
             frame_data = []
 
             for pair_idx, (i, j) in enumerate(pairs):
+                # Axis references for this subplot column (col 1 → 'x'/'y', col 2 → 'x2'/'y2', …)
+                ax_suffix = "" if pair_idx == 0 else str(pair_idx + 1)
+                ax_x = f"x{ax_suffix}"
+                ax_y = f"y{ax_suffix}"
+
                 # Get 2x2 covariance for this pair at this step
                 cov_full = covariance_history[step_idx]
                 cov_2d = np.array(
@@ -2133,6 +2138,8 @@ class BayesianMixin:
                         opacity=0.6,
                         name=f"Step {step_indices[step_idx]}",
                         showlegend=(pair_idx == 0),
+                        xaxis=ax_x,
+                        yaxis=ax_y,
                     )
                 )
 
@@ -2149,6 +2156,8 @@ class BayesianMixin:
                                 marker=dict(symbol="x", color="red", size=10),
                                 name="True",
                                 showlegend=(pair_idx == 0 and step_idx == 0),
+                                xaxis=ax_x,
+                                yaxis=ax_y,
                             )
                         )
 

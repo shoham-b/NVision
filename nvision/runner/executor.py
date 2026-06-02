@@ -833,6 +833,11 @@ class _TaskRunner:
         key = measurement_repeat_key(self.task.seed, self.generator_name, "sobol_baseline", self.noise_name, repeat_idx)
         return random.Random(repeat_seed_int(key))
 
+    def _rng_for_simplesweep_baseline(self, repeat_idx: int) -> random.Random:
+        """RNG for SimpleSweep baseline measurement noise — strategy-independent."""
+        key = measurement_repeat_key(self.task.seed, self.generator_name, "simplesweep_baseline", self.noise_name, repeat_idx)
+        return random.Random(repeat_seed_int(key))
+
     def _run_sobol_baseline(
         self,
         rid: int,
@@ -891,14 +896,80 @@ class _TaskRunner:
 
         sobol_mode_estimates = belief_mode_estimates(locator.belief)
 
+        # Capture FINAL belief state after the sweep terminates (separate from the
+        # "at frequency convergence" snapshot above). Without these the UI has no
+        # way to compare Sobol's final uncertainty/error against another locator's.
+        sobol_final_uncert = float(locator.belief.uncertainty().get("frequency", math.nan))
+        est_f_final = float(locator.belief.estimates().get("frequency", math.nan))
+        sobol_final_err = abs(est_f_final - true_freq) if not math.isnan(est_f_final) else math.nan
+
         return {
             "sobol_baseline_steps": locator.step_count,
             "sobol_freq_steps": sobol_freq_steps,
             "sobol_freq_uncert_at_conv": sobol_freq_uncert_at_conv,
             "sobol_freq_err_at_conv": sobol_freq_err_at_conv,
+            "sobol_baseline_uncert": sobol_final_uncert,
+            "sobol_baseline_err": sobol_final_err,
             "sobol_xs": sobol_xs,
             "sobol_ys": sobol_ys,
             "sobol_mode_estimates": sobol_mode_estimates,
+        }
+
+    def _run_simplesweep_baseline(
+        self,
+        rid: int,
+        experiment: CoreExperiment,
+        noise_std: float,
+        noise_max_dev: float | None,
+        signal_max_span: float | None,
+    ) -> dict[str, Any]:
+        """Run GenericSweepLocator baseline and return xs/ys/mode_estimates for visualization."""
+        import math
+
+        from nvision.runner.convert import belief_mode_estimates
+        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+
+        sweep_rng = self._rng_for_simplesweep_baseline(rid)
+        parameter_bounds = self._injected_parameter_bounds(experiment)
+        belief = nv_center_smc_belief(parameter_bounds)
+
+        f_lo, f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
+        domain_width = float(f_hi - f_lo)
+        if "linewidth" in parameter_bounds:
+            min_linewidth = float(parameter_bounds["linewidth"][0])
+        elif "fwhm_total" in parameter_bounds:
+            min_linewidth = float(parameter_bounds["fwhm_total"][0])
+        else:
+            min_linewidth = 200e3
+        max_steps = max(30, math.ceil(domain_width / min_linewidth))
+
+        locator = GenericSweepLocator(
+            belief=belief,
+            signal_model=experiment.true_signal.model,
+            max_steps=max_steps,
+            noise_std=noise_std,
+            **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
+            **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
+        )
+
+        sweep_xs: list[float] = []
+        sweep_ys: list[float] = []
+
+        while not locator.done():
+            _check_memory_limit()
+            x_current = locator.next()
+            obs = experiment.measure(x_current, sweep_rng)
+            locator.observe(obs)
+            sweep_xs.append(float(obs.x))
+            sweep_ys.append(float(obs.signal_value))
+
+        sweep_mode_estimates = belief_mode_estimates(locator.belief)
+
+        return {
+            "sweep_xs": sweep_xs,
+            "sweep_ys": sweep_ys,
+            "sweep_mode_estimates": sweep_mode_estimates,
         }
 
     def _build_experiment(self, rng: random.Random) -> CoreExperiment:
@@ -1094,6 +1165,20 @@ class _TaskRunner:
                 sobol_baseline_steps = sobol_data.get("sobol_baseline_steps")
                 sobol_freq_steps = sobol_data.get("sobol_freq_steps")
 
+            # Run SimpleSweep baseline for visualization (cached only, no manifest metrics)
+            if self._sweep_cache.get_simplesweep_baseline(
+                experiment, self.task.seed, self.generator_name, self.noise_name, rid
+            ) is None:
+                try:
+                    simplesweep_data = self._run_simplesweep_baseline(
+                        rid, experiment, noise_std, noise_max_dev, signal_max_span
+                    )
+                    self._sweep_cache.put_simplesweep_baseline(
+                        experiment, self.task.seed, self.generator_name, self.noise_name, rid, simplesweep_data
+                    )
+                except Exception as exc:
+                    log.warning("Failed to run SimpleSweep baseline: %s", exc)
+
         # Check locator class attributes to determine configuration
         uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
@@ -1188,9 +1273,13 @@ class _TaskRunner:
         if self.strategy_name != "SimpleSobol" and sobol_data is not None:
             finalize_record["sobol_freq_uncert_at_conv"] = sobol_data.get("sobol_freq_uncert_at_conv")
             finalize_record["sobol_freq_err_at_conv"] = sobol_data.get("sobol_freq_err_at_conv")
+            finalize_record["sobol_baseline_uncert"] = sobol_data.get("sobol_baseline_uncert")
+            finalize_record["sobol_baseline_err"] = sobol_data.get("sobol_baseline_err")
         else:
             finalize_record["sobol_freq_uncert_at_conv"] = None
             finalize_record["sobol_freq_err_at_conv"] = None
+            finalize_record["sobol_baseline_uncert"] = None
+            finalize_record["sobol_baseline_err"] = None
 
         return history_df, finalize_record, stop_reason, result
 

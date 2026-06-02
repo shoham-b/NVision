@@ -1,0 +1,306 @@
+"""JSON data writers for time-varying Bayesian visualizations.
+
+Each function replaces a Plotly HTML generator with a compact JSON file.
+The frontend fetches the JSON and renders client-side, avoiding the
+Python Plotly property-validation overhead (~11-18s per run).
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+
+_PARAM_SCALES: dict[str, float] = {
+    "frequency": 1e9,
+    "linewidth": 1e6,
+    "split": 1e6,
+    "fwhm_total": 1e6,
+    "fwhm_lorentz": 1e6,
+    "fwhm_gauss": 1e6,
+}
+
+_PARAM_UNITS: dict[str, str] = {
+    "frequency": "GHz",
+    "linewidth": "MHz",
+    "split": "MHz",
+    "fwhm_total": "MHz",
+    "fwhm_lorentz": "MHz",
+    "fwhm_gauss": "MHz",
+}
+
+
+def _json_default(obj: Any) -> Any:
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.floating, np.integer)):
+        return obj.item()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def _dump(payload: Any, out_path: Path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(payload, default=_json_default, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
+def _scale_param_dict(d: dict[str, float]) -> dict[str, float]:
+    return {k: float(v) / _PARAM_SCALES.get(k, 1.0) for k, v in d.items()}
+
+
+def _subsample_particles(
+    particles: np.ndarray,
+    weights: np.ndarray,
+    n: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a weighted random subsample of particles capped at n."""
+    total = len(particles)
+    if total <= n:
+        return particles, weights
+    weights_norm = weights / (weights.sum() + 1e-30)
+    idx = np.random.choice(total, size=n, replace=False, p=weights_norm)
+    sub_w = weights_norm[idx]
+    sub_w = sub_w / sub_w.sum()
+    return particles[idx], sub_w
+
+
+def write_posterior_data(
+    anim_all: dict[str, tuple[list[np.ndarray], np.ndarray]],
+    out_path: Path,
+    *,
+    true_params: dict[str, float] | None = None,
+    resampled_steps: list[int] | None = None,
+    physical_bounds: dict[str, tuple[float, float]] | None = None,
+    n_particles: int = 200,
+) -> bool:
+    """Write particle posterior history to JSON.
+
+    ``anim_all`` is the output of ``_posterior_animation_inputs_all_params``:
+    ``{param_name: (history, grid)}`` where each ``history[i]`` is either:
+      - ``(N, 2)`` array of ``[particle_val, weight]`` for SMC beliefs
+      - 1-D posterior array for grid beliefs
+
+    Returns True if the file was written.
+    """
+    if not anim_all:
+        return False
+
+    param_names = list(anim_all.keys())
+    n_steps = len(next(iter(anim_all.values()))[0])
+
+    steps: list[dict[str, Any]] = []
+    for i in range(n_steps):
+        step: dict[str, Any] = {}
+        for param in param_names:
+            history, grid = anim_all[param]
+            arr = history[i]
+            scale = _PARAM_SCALES.get(param, 1.0)
+
+            if arr.ndim == 2 and arr.shape[1] == 2:
+                raw_particles = arr[:, 0]
+                raw_weights = arr[:, 1]
+                particles, weights = _subsample_particles(
+                    raw_particles, raw_weights, n_particles
+                )
+                step[param] = {
+                    "type": "particles",
+                    "values": (particles / scale).tolist(),
+                    "weights": weights.tolist(),
+                }
+            else:
+                step[param] = {
+                    "type": "grid",
+                    "axis": (grid / scale).tolist(),
+                    "posterior": arr.tolist(),
+                }
+        steps.append(step)
+
+    bounds_out: dict[str, list[float]] = {}
+    if physical_bounds:
+        for p in param_names:
+            if p in physical_bounds:
+                lo, hi = physical_bounds[p]
+                scale = _PARAM_SCALES.get(p, 1.0)
+                bounds_out[p] = [float(lo) / scale, float(hi) / scale]
+
+    payload = {
+        "schema": "posterior_v1",
+        "param_names": param_names,
+        "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
+        "physical_bounds": bounds_out,
+        "true_params": _scale_param_dict(
+            {k: v for k, v in (true_params or {}).items() if k in param_names}
+        ) if true_params else None,
+        "resampled_steps": resampled_steps or [],
+        "steps": steps,
+    }
+
+    _dump(payload, out_path)
+    return True
+
+
+def write_covariance_data(
+    cov_hist: list[np.ndarray],
+    param_names: list[str],
+    pairs: list[tuple[int, int]],
+    estimates_hist: list[dict[str, float]],
+    out_path: Path,
+    *,
+    true_params: dict[str, float] | None = None,
+    physical_bounds: dict[str, tuple[float, float]] | None = None,
+) -> bool:
+    """Write covariance matrix history (for ellipse animation) to JSON."""
+    if not cov_hist or not pairs:
+        return False
+
+    scales = np.array([_PARAM_SCALES.get(p, 1.0) for p in param_names])
+    scale_outer = np.outer(scales, scales)
+
+    steps = []
+    for cov, means in zip(cov_hist, estimates_hist, strict=False):
+        # Scale covariance to display units
+        cov_scaled = cov / scale_outer
+        steps.append({
+            "covariance": cov_scaled.tolist(),
+            "means": _scale_param_dict(means),
+        })
+
+    bounds_out: dict[str, list[float]] = {}
+    if physical_bounds:
+        for p in param_names:
+            if p in physical_bounds:
+                lo, hi = physical_bounds[p]
+                scale = _PARAM_SCALES.get(p, 1.0)
+                bounds_out[p] = [float(lo) / scale, float(hi) / scale]
+
+    payload = {
+        "schema": "covariance_ellipses_v1",
+        "param_names": param_names,
+        "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
+        "pairs": [list(pair) for pair in pairs],
+        "physical_bounds": bounds_out,
+        "true_params": _scale_param_dict(
+            {k: v for k, v in (true_params or {}).items() if k in param_names}
+        ) if true_params else None,
+        "steps": steps,
+    }
+
+    _dump(payload, out_path)
+    return True
+
+
+def write_parameter_convergence_data(
+    param_hist: list[dict[str, float]],
+    estimates_hist: list[dict[str, float]],
+    out_path: Path,
+    *,
+    true_params: dict[str, float] | None = None,
+) -> bool:
+    """Write per-step uncertainty and estimate history to JSON."""
+    if not param_hist:
+        return False
+
+    param_names = list(param_hist[0].keys()) if param_hist else []
+
+    steps = [
+        {
+            "uncertainties": _scale_param_dict(unc),
+            "estimates": _scale_param_dict(est),
+        }
+        for unc, est in zip(param_hist, estimates_hist, strict=False)
+    ]
+
+    payload = {
+        "schema": "parameter_convergence_v1",
+        "param_names": param_names,
+        "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
+        "true_params": _scale_param_dict(
+            {k: v for k, v in (true_params or {}).items() if k in param_names}
+        ) if true_params else None,
+        "steps": steps,
+    }
+
+    _dump(payload, out_path)
+    return True
+
+
+def write_convergence_metrics_data(
+    conv_metrics: list[dict[str, Any]],
+    param_names: list[str],
+    convergence_threshold: float,
+    convergence_patience: int,
+    out_path: Path,
+    *,
+    param_bounds: dict[str, tuple[float, float]] | None = None,
+) -> bool:
+    """Write per-step convergence metric history to JSON."""
+    if not conv_metrics:
+        return False
+
+    bounds_out: dict[str, list[float]] = {}
+    if param_bounds:
+        for p in param_names:
+            if p in param_bounds:
+                lo, hi = param_bounds[p]
+                scale = _PARAM_SCALES.get(p, 1.0)
+                bounds_out[p] = [float(lo) / scale, float(hi) / scale]
+
+    payload = {
+        "schema": "convergence_metrics_v1",
+        "param_names": param_names,
+        "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
+        "convergence_threshold": float(convergence_threshold),
+        "convergence_patience": int(convergence_patience),
+        "param_bounds": bounds_out,
+        "steps": conv_metrics,
+    }
+
+    _dump(payload, out_path)
+    return True
+
+
+def write_fisher_data(
+    fisher_bounds_hist: list[dict[str, float]],
+    actual_uncertainty_hist: list[dict[str, float]],
+    fisher_hist: list[np.ndarray],
+    param_names: list[str],
+    out_path: Path,
+    *,
+    true_params: dict[str, float] | None = None,
+) -> bool:
+    """Write Fisher information history (bounds + full FIM) to JSON."""
+    if not fisher_hist:
+        return False
+
+    scales = np.array([_PARAM_SCALES.get(p, 1.0) for p in param_names])
+    # FIM scales as 1/variance, so scale FIM by 1/scale² per param pair
+    fim_scale = np.outer(scales, scales)
+
+    steps = []
+    for bounds, actuals, fim in zip(
+        fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, strict=False
+    ):
+        fim_scaled = fim * fim_scale  # scale FIM to display units
+        steps.append({
+            "fisher_bounds": _scale_param_dict(bounds),
+            "actual_uncertainty": _scale_param_dict(actuals),
+            "fisher_matrix": fim_scaled.tolist(),
+        })
+
+    payload = {
+        "schema": "fisher_v1",
+        "param_names": param_names,
+        "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
+        "true_params": _scale_param_dict(
+            {k: v for k, v in (true_params or {}).items() if k in param_names}
+        ) if true_params else None,
+        "steps": steps,
+    }
+
+    _dump(payload, out_path)
+    return True
