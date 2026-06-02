@@ -23,6 +23,7 @@ from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
 from nvision.cli import defaults as cli_defaults
+from nvision.cli import options as cli_options
 from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.gui.report import prepare_static_ui_data
@@ -501,11 +502,8 @@ def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)
     if cli_defaults.DEFAULT_OUT
     else None,
-    repeats: int = cli_defaults.DEFAULT_REPEATS,
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps for Bayesian locator measurement loop"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     sweep_max_steps: Annotated[
         int | None,
         typer.Option(
@@ -513,18 +511,9 @@ def run(  # noqa: C901
             help="Max steps for sweep locator. Omit to auto-compute from signal model.",
         ),
     ] = None,  # Auto-computed from signal model dip properties
-    loc_timeout_s: Annotated[
-        int,
-        typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
-    ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_cache: Annotated[
-        bool,
-        typer.Option("--no-cache", help="Disable caching for this run"),
-    ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help="Do not write results to cache"),
-    ] = False,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
     ignore_cache_strategy: Annotated[
         str | None,
         typer.Option(
@@ -580,38 +569,19 @@ def run(  # noqa: C901
             case_sensitive=False,
         ),
     ] = cli_defaults.DEFAULT_LOG_LEVEL,
-    no_progress: Annotated[
-        bool,
-        typer.Option("--no-progress", help="Disable progress bars"),
-    ] = False,
+    no_progress: cli_options.NoProgressOption = False,
     require_cache: Annotated[
         bool,
         typer.Option("--require-cache", help="Skip simulation if cache is missing"),
     ] = False,
-    runners: Annotated[
-        int,
-        typer.Option(
-            "--runners",
-            min=1,
-            help="Number of runner processes (use 1 for sequential execution).",
-        ),
-    ] = 8,
-    open_browser: Annotated[
-        bool,
-        typer.Option("--open/--no-open", help="Open results in browser after run"),
-    ] = cli_defaults.DEFAULT_OPEN_BROWSER,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
     logs_root: Annotated[
         Path | None,
         typer.Option("--logs-root", help="Custom logs directory (default: logs/ under out)"),
     ] = Path(cli_defaults.DEFAULT_LOGS_ROOT) if cli_defaults.DEFAULT_LOGS_ROOT else None,
-    gcp: Annotated[
-        bool,
-        typer.Option("--gcp", help="Upload results to GCP"),
-    ] = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: Annotated[
-        str | None,
-        typer.Option("--gcp-bucket", help="GCP bucket to upload results to"),
-    ] = cli_defaults.DEFAULT_GCP_BUCKET,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     single_run: Annotated[
         bool,
         typer.Option(

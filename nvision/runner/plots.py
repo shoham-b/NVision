@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # steps; iterating all of them for Fisher info, covariance ellipses, and
 # posterior animations is the dominant post-run cost.  Subsampling to this cap
 # keeps plots informative while cutting render time proportionally.
-_MAX_VIZ_SNAPSHOTS = 500
+_MAX_VIZ_SNAPSHOTS = 1000
 
 
 def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) -> list:
@@ -514,6 +514,11 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     extra: list[dict[str, Any]] = []
     scan_param = _resolve_scan_param(strat_obj, run_result)
     true_params = run_result.true_signal.parameter_values()
+    if experiment is not None and experiment.noise is not None:
+        try:
+            true_params["noise_sigma"] = float(experiment.noise.estimated_noise_std())
+        except Exception:
+            pass
     experiment_domain = (float(experiment.x_min), float(experiment.x_max))
     posterior_path = bayes_dir / f"{attempt_slug}_posterior.json"
 
@@ -542,17 +547,26 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
     resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
 
+    # Calculate parameter uncertainties history
+    param_hist = [s.belief.uncertainty().as_dict() for s in bayesian_snapshots]
+    estimates_hist = [s.belief.estimates() for s in bayesian_snapshots]
+
     anim_all = _posterior_animation_inputs_all_params(viz_run_result, start_idx=sweep_steps)
     log.debug("Posterior animation inputs: %s", "available" if anim_all is not None else "None")
 
     if anim_all is not None:
         physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+        ess_threshold = getattr(bayesian_snapshots[0].belief, "ess_threshold", None) if bayesian_snapshots else None
         written = write_posterior_data(
             anim_all,
             posterior_path,
             true_params=true_params,
             resampled_steps=resampled_steps,
             physical_bounds=physical_bounds,
+            ess_threshold=ess_threshold,
+            param_hist=param_hist,
+            convergence_threshold=NVISION_CONVERGENCE_THRESHOLD,
+            absolute_thresholds=PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
         )
         if written:
             ie = entry_base.copy()
@@ -568,12 +582,17 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             posterior_history, freq_grid = anim_inputs
             anim_single = {scan_param: (posterior_history, freq_grid)}
             physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+            ess_threshold = getattr(bayesian_snapshots[0].belief, "ess_threshold", None) if bayesian_snapshots else None
             written = write_posterior_data(
                 anim_single,
                 posterior_path,
                 true_params=true_params,
                 resampled_steps=resampled_steps,
                 physical_bounds=physical_bounds,
+                ess_threshold=ess_threshold,
+                param_hist=param_hist,
+                convergence_threshold=NVISION_CONVERGENCE_THRESHOLD,
+                absolute_thresholds=PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
             )
             if written:
                 ie = entry_base.copy()
@@ -583,10 +602,6 @@ def _bayesian_auxiliary_entries(  # noqa: C901
                 ie["resampled_count"] = len(resampled_steps)
                 extra.append(ie)
 
-    # Filter out initial sweep stages from parameter convergence plot
-    # (bayesian_snapshots is already subsampled from the block above)
-    param_hist = [s.belief.uncertainty().as_dict() for s in bayesian_snapshots]
-    estimates_hist = [s.belief.estimates() for s in bayesian_snapshots]
     if param_hist:
         conv_path = bayes_dir / f"{attempt_slug}_param_convergence.json"
         written = write_parameter_convergence_data(
@@ -803,6 +818,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
             convergence_patience,
             conv_path,
             param_bounds=param_bounds,
+            absolute_thresholds=PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
         )
         if written:
             ce = entry_base.copy()

@@ -314,6 +314,7 @@ function main() {
     const globalControls = document.getElementById('global-timeline-controls');
     const globalPlayBtn = document.getElementById('global-play-btn');
     const globalSlider = document.getElementById('global-range-slider');
+    const noiseMetricsView = document.getElementById('noise-metrics-view');
     const globalLabel = document.getElementById('global-step-label');
     const globalSpeedSelect = document.getElementById('global-speed-select');
 
@@ -516,6 +517,8 @@ function main() {
 
         // Clear registered iframes/adapters and reset the slider
         activeIframes.clear();
+        const ticksContainer = document.getElementById('timeline-ticks-container');
+        if (ticksContainer) ticksContainer.innerHTML = '';
         globalTotalFrames = 0;
         globalStepValues = [];
         globalSlider.value = 0;
@@ -572,16 +575,26 @@ function main() {
 
         if (paramConvDataPlot || convMetricsDataPlot) {
             bayesConvergenceSection.dataset.available = 'true';
-            if (paramConvDataPlot) {
-                const div = _jsonContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container');
-                renderParameterConvergence(div, paramConvDataPlot.path);
-            } else {
-                _iframeContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container', convergencePlot ? convergencePlot.path : '');
-            }
             if (convMetricsDataPlot) {
+                const topDiv = document.getElementById('bayes-conv-json-container');
+                if (topDiv) topDiv.style.display = 'none';
+                if (bayesConvergenceIframe) {
+                    bayesConvergenceIframe.style.display = 'none';
+                    bayesConvergenceIframe.src = '';
+                }
                 const div = _jsonContainer(bayesConvergenceSection, bayesConvMetricsIframe, 'bayes-conv-metrics-json-container');
-                renderConvergenceMetrics(div, convMetricsDataPlot.path);
+                renderConvergenceMetrics(div, convMetricsDataPlot.path, (adapter) => {
+                    registerTimelineAdapter(adapter);
+                });
             } else {
+                if (paramConvDataPlot) {
+                    const div = _jsonContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container');
+                    renderParameterConvergence(div, paramConvDataPlot.path, (adapter) => {
+                        registerTimelineAdapter(adapter);
+                    });
+                } else {
+                    _iframeContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container', convergencePlot ? convergencePlot.path : '');
+                }
                 _iframeContainer(bayesConvergenceSection, bayesConvMetricsIframe, 'bayes-conv-metrics-json-container', convMetricsPlot ? convMetricsPlot.path : '');
             }
         } else if (convergencePlot || convMetricsPlot) {
@@ -772,6 +785,15 @@ function main() {
                     const el = document.getElementById(sec.id);
                     if (el) el.classList.toggle('is-active', sec.id === s.id);
                 });
+                // Trigger a window resize event so responsive Plotly charts adjust to their visible containers
+                setTimeout(() => {
+                    window.dispatchEvent(new Event('resize'));
+                }, 0);
+                // Sync frames to refresh plots and active step line
+                const currentIdx = parseInt(globalSlider.value, 10);
+                if (!isNaN(currentIdx)) {
+                    syncFrames(currentIdx);
+                }
             });
             btn.addEventListener('keydown', (e) => {
                 const buttons = Array.from(tabBar.querySelectorAll('.bayes-tab-button'));
@@ -1802,7 +1824,20 @@ function main() {
                         items.push({ label: 'Last run', val: formatTimestamp(phaseData.last_run), tip: 'Timestamp when this repeat was executed.' });
                     }
                     if (phaseData.abs_err_x != null) {
-                        items.push({ label: 'Abs error', val: formatFrequency(phaseData.abs_err_x), tip: 'Absolute frequency error vs ground truth. Lower is better.' });
+                        let cardClass = '';
+                        if (phaseData.uncert != null) {
+                            if (phaseData.abs_err_x > 2 * phaseData.uncert) {
+                                cardClass = 'err-high-card';
+                            } else if (phaseData.abs_err_x > phaseData.uncert) {
+                                cardClass = 'err-medium-card';
+                            }
+                        }
+                        items.push({
+                            label: 'Abs error',
+                            val: formatFrequency(phaseData.abs_err_x),
+                            tip: 'Absolute frequency error vs ground truth. Lower is better.',
+                            cardClass: cardClass
+                        });
                     }
                     if (phaseData.uncert != null) {
                         items.push({ label: 'Uncertainty', val: formatFrequency(phaseData.uncert), tip: 'Final estimated standard deviation of the frequency estimate. Lower is better.' });
@@ -2016,8 +2051,12 @@ function main() {
 
         // Check view mode and render summary if needed
         const activeViewModeBtn = document.querySelector('#scan-view-mode button.is-active');
-        if (activeViewModeBtn && activeViewModeBtn.dataset.value === 'summary') {
-            renderRepeatsSummary(scanGeneratorValue, scanNoiseValue, scanStrategyValue);
+        if (activeViewModeBtn) {
+            if (activeViewModeBtn.dataset.value === 'summary') {
+                renderRepeatsSummary(scanGeneratorValue, scanNoiseValue, scanStrategyValue);
+            } else if (activeViewModeBtn.dataset.value === 'noise') {
+                updateCompPlots();
+            }
         }
     }
 
@@ -2160,7 +2199,6 @@ function main() {
             return;
         }
 
-        // Guard against stale renders: if container was cleared while we were fetching, bail out.
         if (!container.isConnected) return;
 
         const { param_names, param_units, pairs, steps, true_params } = data;
@@ -2169,7 +2207,6 @@ function main() {
         await ensurePlotly();
         if (!container.isConnected) return;
 
-        // One div per pair, arranged in a flex row
         container.innerHTML = '';
         container.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;';
 
@@ -2192,6 +2229,93 @@ function main() {
             wrapper.appendChild(plotDiv);
             container.appendChild(wrapper);
             plotDivs.push({ div: plotDiv, i, j, piLabel, pjLabel, pi, pj });
+        }
+
+        function updateJitterAndCorrelations(stepIdx) {
+            const jitterContent = document.getElementById('bayes-jitter-content');
+            if (!jitterContent) return;
+
+            const idx = Math.max(0, Math.min(stepIdx, nSteps - 1));
+            const step = steps[idx];
+            const cov = step.covariance;
+
+            const jitter = {};
+            param_names.forEach(p => {
+                const vals = [];
+                for (let k = Math.max(0, idx - 19); k <= idx; k++) {
+                    const m = steps[k].means[p];
+                    if (m != null) vals.push(m);
+                }
+                if (vals.length > 0) {
+                    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                    const sqDiffSum = vals.reduce((sum, v) => sum + (v - mean) * (v - mean), 0);
+                    jitter[p] = Math.sqrt(sqDiffSum / vals.length);
+                } else {
+                    jitter[p] = 0;
+                }
+            });
+
+            const variances = {};
+            param_names.forEach((p, pIdx) => {
+                variances[p] = cov[pIdx][pIdx];
+            });
+
+            const correlations = {};
+            param_names.forEach((p1, idx1) => {
+                correlations[p1] = {};
+                param_names.forEach((p2, idx2) => {
+                    const std1 = Math.sqrt(cov[idx1][idx1]);
+                    const std2 = Math.sqrt(cov[idx2][idx2]);
+                    const corr = (std1 * std2 > 0) ? cov[idx1][idx2] / (std1 * std2) : 0;
+                    correlations[p1][p2] = Math.max(-1.0, Math.min(1.0, corr));
+                });
+            });
+
+            const jitterItems = param_names.map(name => ({
+                label: name,
+                val: formatMetricValue(jitter[name]),
+                tip: 'Standard deviation of estimates over last 20 steps (physical units).',
+                rawVal: jitter[name]
+            }));
+
+            const varItems = param_names.map(name => ({
+                label: name,
+                val: formatMetricValue(variances[name]),
+                rawVal: variances[name]
+            }));
+
+            let html = '<h4>Jitter (last 20 steps)</h4>';
+            html += '<div class="jitter-cards" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:1.5em;">' + renderItemsToHtml(jitterItems) + '</div>';
+
+            html += '<h4>Variances (diag Σ)</h4>';
+            html += '<div class="jitter-cards" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:1.5em;">' + renderItemsToHtml(varItems) + '</div>';
+
+            html += '<h4>Correlation Matrix <span class="help-icon" tabindex="0" title="Measures how tightly parameters are coupled. +1/-1 = perfect correlation; 0 = independent.">?</span></h4>';
+            html += '<div class="correlation-table-wrapper"><table class="correlation-table">';
+            html += '<thead><tr><th></th>' + param_names.map(n => `<th>${escapeHtml(n)}</th>`).join('') + '</tr></thead>';
+            html += '<tbody>';
+            for (const ni of param_names) {
+                html += `<tr><th>${escapeHtml(ni)}</th>`;
+                for (const nj of param_names) {
+                    const val = (correlations[ni] && correlations[ni][nj] !== undefined) ? correlations[ni][nj] : 0;
+                    let color, textColor;
+                    if (ni === nj) {
+                        color = 'rgba(71, 85, 105, 0.15)';
+                        textColor = '#1e293b';
+                    } else if (val > 0) {
+                        color = `rgba(30, 144, 255, ${0.1 + 0.9 * val})`;
+                        textColor = val > 0.4 ? '#ffffff' : '#1e3a8a';
+                    } else {
+                        color = `rgba(239, 68, 68, ${0.1 + 0.9 * Math.abs(val)})`;
+                        textColor = Math.abs(val) > 0.4 ? '#ffffff' : '#7f1d1d';
+                    }
+                    html += `<td class="corr-cell" style="background-color:${color}; color:${textColor};">${val.toFixed(2)}</td>`;
+                }
+                html += '</tr>';
+            }
+            html += '</tbody></table></div>';
+
+            jitterContent.innerHTML = html;
         }
 
         function updateEllipseStep(stepIdx) {
@@ -2242,6 +2366,9 @@ function main() {
 
                 Plotly.react(div, traces, layout, { displayModeBar: false });
             }
+
+            // Dynamically update the tables cell states
+            updateJitterAndCorrelations(stepIdx);
         }
 
         updateEllipseStep(0);
@@ -2277,7 +2404,7 @@ function main() {
             variance += (weights[i] / wSum) * d * d;
         }
         const sigma = Math.sqrt(Math.max(variance, 1e-30));
-        const bw = Math.max(1.06 * sigma * Math.pow(n, -0.2), (hi - lo) * 1e-4);
+        const bw = Math.max(0.12 * sigma * Math.pow(n, -0.2), (hi - lo) * 1e-5);
 
         const grid = [], kde = [];
         const step = (hi - lo) / (nGrid - 1);
@@ -2323,39 +2450,164 @@ function main() {
         if (!container.isConnected) return;
 
         container.innerHTML = '';
-        container.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;';
+        
+        // Setup Grid Wrapper Container (max 4 columns)
+        const gridWrapper = document.createElement('div');
+        gridWrapper.className = 'posterior-card-grid';
+        container.appendChild(gridWrapper);
 
+        const COLORS = ['#1e90ff', '#e05c00', '#00a878', '#9b59b6', '#e74c3c', '#2ecc71', '#f39c12'];
         const plotDivs = [];
-        for (const param of param_names) {
+        param_names.forEach((param, ci) => {
             const unit = param_units[param] ? ` (${param_units[param]})` : '';
             const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'flex:1; min-width:200px; max-width:420px;';
+            wrapper.className = 'posterior-card';
+            
             const title = document.createElement('div');
-            title.style.cssText = 'text-align:center; font-size:0.78em; color:#64748b; font-weight:600; margin-bottom:2px;';
+            title.style.cssText = 'text-align:center; font-size:0.78em; color:#64748b; font-weight:600; margin-bottom:4px;';
             title.textContent = param + unit;
             wrapper.appendChild(title);
+            
+            const rowWrapper = document.createElement('div');
+            rowWrapper.style.cssText = 'display: flex; gap: 8px; align-items: center; width: 100%;';
+            
             const plotDiv = document.createElement('div');
-            wrapper.appendChild(plotDiv);
-            container.appendChild(wrapper);
-            plotDivs.push({ div: plotDiv, param });
+            plotDiv.style.cssText = 'flex: 6.5; min-width: 0;';
+            
+            const uncDiv = document.createElement('div');
+            uncDiv.style.cssText = 'flex: 3.5; min-width: 0;';
+            
+            rowWrapper.appendChild(plotDiv);
+            rowWrapper.appendChild(uncDiv);
+            wrapper.appendChild(rowWrapper);
+            
+            gridWrapper.appendChild(wrapper);
+            
+            // Calculate parameter uncertainty history across all steps
+            const uncHistory = steps.map(s => (s[param] && s[param].uncertainty != null) ? s[param].uncertainty : null);
+            const color = COLORS[ci % COLORS.length];
+            
+            plotDivs.push({ div: plotDiv, uncDiv: uncDiv, param, uncHistory, color });
+        });
+
+        // SMC Diagnostics plotting setup
+        const diagnosticsContainer = document.getElementById('smc-diagnostics-container');
+        const firstParam = param_names[0];
+        const hasParticles = steps[0] && steps[0][firstParam] && steps[0][firstParam].type === 'particles';
+        
+        let essHistory = [];
+        let thresholdVal = 0;
+        let nParticles = 0;
+        
+        if (hasParticles && diagnosticsContainer) {
+            diagnosticsContainer.style.display = 'block';
+            nParticles = steps[0][firstParam].weights.length;
+            const thresholdPct = data.ess_threshold != null ? data.ess_threshold : 0.2;
+            thresholdVal = thresholdPct * nParticles;
+            
+            for (let s = 0; s < nSteps; s++) {
+                const stepEntry = steps[s][firstParam];
+                if (stepEntry && stepEntry.weights) {
+                    const w = stepEntry.weights;
+                    const wSum = w.reduce((a, b) => a + b, 0);
+                    const normW = wSum > 0 ? w.map(x => x / wSum) : w;
+                    const sumSq = normW.reduce((a, b) => a + b * b, 0);
+                    const ess = sumSq > 0 ? 1 / sumSq : 0;
+                    essHistory.push(ess);
+                } else {
+                    essHistory.push(null);
+                }
+            }
+        } else if (diagnosticsContainer) {
+            diagnosticsContainer.style.display = 'none';
+        }
+
+        // Setup Slider Ticks Overlay
+        const ticksContainer = document.getElementById('timeline-ticks-container');
+        if (ticksContainer) {
+            ticksContainer.innerHTML = '';
+            if (resampled_steps && resampled_steps.length > 0 && nSteps > 1) {
+                resampled_steps.forEach(idx => {
+                    const pct = (idx / (nSteps - 1)) * 100;
+                    const tick = document.createElement('div');
+                    tick.className = 'timeline-tick';
+                    tick.style.left = `calc(${pct}% - 1px)`;
+                    ticksContainer.appendChild(tick);
+                });
+            }
+        }
+
+        // Auto-scale toggle button
+        const autoscaleBtn = document.getElementById('posterior-autoscale-btn');
+        window.POSTERIOR_AUTOSCALE = true; // default true
+        if (autoscaleBtn) {
+            autoscaleBtn.textContent = 'Disable Autoscale';
+            autoscaleBtn.classList.remove('is-active');
+            
+            const newBtn = autoscaleBtn.cloneNode(true);
+            autoscaleBtn.parentNode.replaceChild(newBtn, autoscaleBtn);
+            newBtn.addEventListener('click', () => {
+                window.POSTERIOR_AUTOSCALE = !window.POSTERIOR_AUTOSCALE;
+                newBtn.textContent = window.POSTERIOR_AUTOSCALE ? 'Disable Autoscale' : 'Enable Autoscale';
+                newBtn.classList.toggle('is-active', !window.POSTERIOR_AUTOSCALE);
+                const currentIdx = parseInt(globalSlider.value, 10);
+                if (!isNaN(currentIdx)) {
+                    syncFrames(currentIdx);
+                }
+            });
         }
 
         function updateStep(stepIdx) {
             const step = steps[Math.max(0, Math.min(stepIdx, nSteps - 1))];
             const isResampled = resampled_steps && resampled_steps.includes(stepIdx);
 
-            for (const { div, param } of plotDivs) {
+            for (const { div, uncDiv, param, uncHistory, color } of plotDivs) {
                 const entry = step[param];
                 if (!entry) continue;
 
                 const unit = param_units[param] ? ` (${param_units[param]})` : '';
                 const bounds = physical_bounds[param];
                 const traces = [];
+                let lo = bounds ? bounds[0] : 0;
+                let hi = bounds ? bounds[1] : 1;
 
                 if (entry.type === 'particles') {
-                    const lo = bounds ? bounds[0] : Math.min(...entry.values);
-                    const hi = bounds ? bounds[1] : Math.max(...entry.values);
-                    const { grid, kde } = _weightedKDE(entry.values, entry.weights, lo, hi, 120);
+                    const values = entry.values;
+                    const weights = entry.weights;
+                    const n = values.length;
+
+                    let wSum = 0;
+                    for (let i = 0; i < n; i++) wSum += weights[i];
+
+                    let mean = 0;
+                    for (let i = 0; i < n; i++) mean += (weights[i] / wSum) * values[i];
+                    let variance = 0;
+                    for (let i = 0; i < n; i++) {
+                        const d = values[i] - mean;
+                        variance += (weights[i] / wSum) * d * d;
+                    }
+                    const sigma = Math.sqrt(Math.max(variance, 1e-30));
+                    const bw_est = 0.12 * sigma * Math.pow(n, -0.2);
+
+                    if (window.POSTERIOR_AUTOSCALE !== false) {
+                        if (n > 0) {
+                            const minVal = Math.min(...values);
+                            const maxVal = Math.max(...values);
+                            // Add 3 bandwidths padding to prevent cutoff
+                            lo = minVal - 3 * bw_est;
+                            hi = maxVal + 3 * bw_est;
+                            // Clamp to physical bounds
+                            if (bounds) {
+                                lo = Math.max(lo, bounds[0]);
+                                hi = Math.min(hi, bounds[1]);
+                            }
+                        }
+                    } else {
+                        lo = bounds ? bounds[0] : (n > 0 ? Math.min(...values) : 0);
+                        hi = bounds ? bounds[1] : (n > 0 ? Math.max(...values) : 1);
+                    }
+
+                    const { grid, kde } = _weightedKDE(values, weights, lo, hi, 800);
                     traces.push({
                         type: 'scatter', x: grid, y: kde,
                         mode: 'lines',
@@ -2372,31 +2624,197 @@ function main() {
                     });
                 }
 
+                // Ground truth line using layout shape (stretching full height)
+                const shapes = [];
                 if (true_params && true_params[param] != null) {
                     const tv = true_params[param];
-                    traces.push({
-                        type: 'scatter', x: [tv, tv], y: [0, 1],
-                        mode: 'lines', yaxis: 'y',
-                        line: { color: 'rgba(200,30,30,0.8)', width: 1.5, dash: 'dash' },
-                        hoverinfo: 'skip', showlegend: false,
+                    shapes.push({
+                        type: 'line',
+                        xref: 'x',
+                        yref: 'paper',
+                        x0: tv,
+                        x1: tv,
+                        y0: 0,
+                        y1: 1,
+                        line: {
+                            color: 'rgba(200,30,30,0.8)',
+                            width: 1.5,
+                            dash: 'dash'
+                        }
                     });
                 }
 
-                const xlo = bounds ? bounds[0] : undefined;
-                const xhi = bounds ? bounds[1] : undefined;
+                let xrange;
+                if (window.POSTERIOR_AUTOSCALE !== false) {
+                    if (entry.type === 'particles') {
+                        xrange = [lo, hi];
+                    } else if (entry.type === 'grid' && entry.axis && entry.axis.length > 0) {
+                        xrange = [Math.min(...entry.axis), Math.max(...entry.axis)];
+                    } else {
+                        xrange = bounds ? [bounds[0], bounds[1]] : undefined;
+                    }
+                } else {
+                    xrange = bounds ? [bounds[0], bounds[1]] : undefined;
+                }
+
                 const layout = {
                     template: 'plotly_white',
                     margin: { l: 10, r: 10, t: 4, b: 36 },
-                    xaxis: { title: { text: param + unit, font: { size: 10 } }, range: [xlo, xhi], autorange: xlo == null },
+                    xaxis: {
+                        title: { text: param + unit, font: { size: 10 } },
+                        range: xrange,
+                        autorange: xrange === undefined
+                    },
                     yaxis: { visible: false },
                     height: 180,
                     hovermode: false,
+                    shapes: shapes,
                 };
-                Plotly.react(div, traces, layout, { displayModeBar: false });
+                Plotly.react(div, traces, layout, { responsive: true, displayModeBar: false });
+
+                // Render the small uncertainty line chart
+                if (uncDiv && uncHistory && uncHistory.some(v => v !== null)) {
+                    const uncTraces = [{
+                        type: 'scatter',
+                        x: steps.map((_, idx) => idx),
+                        y: uncHistory,
+                        mode: 'lines',
+                        line: { color: color, width: 1.5 },
+                        hoverinfo: 'skip',
+                        showlegend: false
+                    }];
+
+                    const uncShapes = [];
+                    // Current step vertical indicator line
+                    uncShapes.push({
+                        type: 'line',
+                        x0: stepIdx,
+                        x1: stepIdx,
+                        y0: 0,
+                        y1: 1,
+                        yref: 'paper',
+                        line: { color: 'rgba(59, 130, 246, 0.8)', width: 2 }
+                    });
+
+                    // Add red dashed line for the threshold if available
+                    let threshVal = null;
+                    if (data.absolute_thresholds && data.absolute_thresholds[param] != null) {
+                        threshVal = data.absolute_thresholds[param];
+                    } else if (param === 'frequency') {
+                        threshVal = 100000.0 / 1e9; // 100 KHz in GHz
+                    } else if (data.convergence_threshold != null && bounds) {
+                        threshVal = data.convergence_threshold * (bounds[1] - bounds[0]);
+                    } else if (bounds) {
+                        threshVal = 0.01 * (bounds[1] - bounds[0]);
+                    }
+
+                    if (threshVal !== null) {
+                        uncShapes.push({
+                            type: 'line',
+                            x0: 0,
+                            x1: nSteps - 1,
+                            y0: threshVal,
+                            y1: threshVal,
+                            line: { color: '#ef4444', width: 1.2, dash: 'dash' }
+                        });
+                    }
+
+                    const uncLayout = {
+                        template: 'plotly_white',
+                        margin: { l: 24, r: 5, t: 5, b: 20 },
+                        xaxis: {
+                            visible: true,
+                            tickfont: { size: 8 },
+                            title: { text: 'Step', font: { size: 8 } }
+                        },
+                        yaxis: {
+                            visible: true,
+                            tickfont: { size: 8 },
+                            rangemode: 'tozero'
+                        },
+                        height: 180,
+                        hovermode: false,
+                        shapes: uncShapes
+                    };
+
+                    Plotly.react(uncDiv, uncTraces, uncLayout, { responsive: true, displayModeBar: false });
+                }
+            }
+
+            // Redraw SMC diagnostics plots
+            if (hasParticles && diagnosticsContainer) {
+                // Update ESS chart
+                const essDiv = document.getElementById('smc-ess-chart');
+                const essTraces = [
+                    {
+                        type: 'scatter',
+                        x: steps.map((_, i) => i),
+                        y: essHistory,
+                        mode: 'lines',
+                        name: 'ESS',
+                        line: { color: '#0ea5e9', width: 2 }
+                    }
+                ];
+                const essLayout = {
+                    template: 'plotly_white',
+                    margin: { l: 40, r: 15, t: 15, b: 35 },
+                    xaxis: { title: 'Step' },
+                    yaxis: { title: 'ESS', range: [0, nParticles * 1.05] },
+                    height: 180,
+                    showlegend: false,
+                    shapes: [
+                        {
+                            type: 'line',
+                            x0: 0,
+                            x1: nSteps - 1,
+                            y0: thresholdVal,
+                            y1: thresholdVal,
+                            line: { color: '#f43f5e', width: 1.5, dash: 'dash' }
+                        },
+                        {
+                            type: 'line',
+                            x0: stepIdx,
+                            x1: stepIdx,
+                            y0: 0,
+                            y1: 1,
+                            yref: 'paper',
+                            line: { color: 'rgba(59, 130, 246, 0.8)', width: 2 }
+                        }
+                    ]
+                };
+                Plotly.react(essDiv, essTraces, essLayout, { responsive: true, displayModeBar: false });
+
+                // Update Sorted Weights chart
+                const weightsDiv = document.getElementById('smc-weights-chart');
+                const currentStep = steps[stepIdx];
+                if (currentStep && currentStep[firstParam]) {
+                    const w = currentStep[firstParam].weights;
+                    const sortedW = [...w].sort((a, b) => b - a);
+                    const weightsTraces = [
+                        {
+                            type: 'bar',
+                            x: sortedW.map((_, idx) => idx),
+                            y: sortedW,
+                            marker: { color: '#6366f1' }
+                        }
+                    ];
+                    const weightsLayout = {
+                        template: 'plotly_white',
+                        margin: { l: 40, r: 15, t: 15, b: 35 },
+                        xaxis: { title: 'Sorted Particle Index' },
+                        yaxis: { title: 'Weight', range: [0, Math.max(...sortedW) * 1.1] },
+                        height: 180,
+                        showlegend: false
+                    };
+                    Plotly.react(weightsDiv, weightsTraces, weightsLayout, { responsive: true, displayModeBar: false });
+                }
             }
         }
 
         updateStep(0);
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 50);
 
         const adapter = {
             contentWindow: {
@@ -2409,7 +2827,7 @@ function main() {
         if (onReady) onReady(adapter);
     }
 
-    async function renderParameterConvergence(container, jsonPath) {
+    async function renderParameterConvergence(container, jsonPath, onReady) {
         container.innerHTML = '<div style="padding:1em;color:#64748b;text-align:center;">Loading…</div>';
 
         let data;
@@ -2467,10 +2885,44 @@ function main() {
         container.innerHTML = '';
         const plotDiv = document.createElement('div');
         container.appendChild(plotDiv);
-        Plotly.react(plotDiv, traces, layout, { responsive: true, displayModeBar: false });
+
+        function updateStep(stepIdx) {
+            const activeStep = xs[Math.max(0, Math.min(stepIdx, xs.length - 1))];
+            const updatedLayout = {
+                ...layout,
+                shapes: [
+                    {
+                        type: 'line',
+                        x0: activeStep,
+                        x1: activeStep,
+                        y0: 0,
+                        y1: 1,
+                        yref: 'paper',
+                        line: {
+                            color: 'rgba(59, 130, 246, 0.8)',
+                            width: 2,
+                            dash: 'solid'
+                        }
+                    }
+                ]
+            };
+            Plotly.react(plotDiv, traces, updatedLayout, { responsive: true, displayModeBar: false });
+        }
+
+        updateStep(0);
+
+        const adapter = {
+            contentWindow: {
+                showFrame: updateStep,
+                totalFrames: xs.length,
+                stepValues: xs,
+            },
+            addEventListener: () => {},
+        };
+        if (onReady) onReady(adapter);
     }
 
-    async function renderConvergenceMetrics(container, jsonPath) {
+    async function renderConvergenceMetrics(container, jsonPath, onReady) {
         container.innerHTML = '<div style="padding:1em;color:#64748b;text-align:center;">Loading…</div>';
 
         let data;
@@ -2492,54 +2944,412 @@ function main() {
         await ensurePlotly();
         if (!container.isConnected) return;
 
-        const { param_names, param_units, convergence_threshold, steps } = data;
+        const { param_names, param_units, convergence_threshold, steps, param_bounds } = data;
         const xs = steps.map((s) => s.step);
         const COLORS = ['#1e90ff', '#e05c00', '#00a878', '#9b59b6', '#e74c3c', '#2ecc71', '#f39c12'];
 
-        const traces = [];
-        // Threshold line at 1.0 (uncertainties are already relative to the threshold)
-        traces.push({
-            type: 'scatter', x: [xs[0], xs[xs.length - 1]], y: [1, 1],
-            mode: 'lines', name: 'Threshold',
-            line: { color: 'rgba(200,30,30,0.6)', width: 1.5, dash: 'dash' },
-        });
-
-        param_names.forEach((param, ci) => {
-            const color = COLORS[ci % COLORS.length];
-            const unit = param_units[param] ? ` (${param_units[param]})` : '';
-            const vals = steps.map((s) => s.uncertainties[param] ?? null);
-            traces.push({
-                type: 'scatter', x: xs, y: vals,
-                mode: 'lines', name: `${param}${unit}`,
-                line: { color, width: 2 },
-            });
-        });
-
-        // Shade converged region
-        const convergedStart = steps.findIndex((s) => s.convergence_achieved);
-        if (convergedStart >= 0) {
-            traces.push({
-                type: 'scatter',
-                x: [xs[convergedStart], xs[xs.length - 1], xs[xs.length - 1], xs[convergedStart]],
-                y: [0, 0, Math.max(...steps.map((s) => Math.max(...param_names.map((p) => s.uncertainties[p] ?? 0)))), 0],
-                fill: 'toself', fillcolor: 'rgba(0,180,80,0.08)',
-                mode: 'none', hoverinfo: 'skip', showlegend: false,
-            });
+        // Helper to format float numbers cleanly
+        function formatNum(val) {
+            if (val === null || val === undefined) return '';
+            if (Math.abs(val - Math.round(val)) < 1e-4) {
+                return Math.round(val).toString();
+            }
+            return parseFloat(val.toFixed(3)).toString();
         }
 
-        const layout = {
-            template: 'plotly_white',
-            margin: { l: 60, r: 20, t: 20, b: 50 },
-            xaxis: { title: 'Step' },
-            yaxis: { title: 'Relative uncertainty', rangemode: 'tozero' },
-            legend: { orientation: 'h', y: -0.25 },
-            height: 300,
-        };
+        // Compute per-parameter streaks dynamically
+        const paramStreaks = {};
+        param_names.forEach(p => {
+            paramStreaks[p] = [];
+            let currentStreak = 0;
+            for (let s = 0; s < steps.length; s++) {
+                const isConv = steps[s].converged_params[p];
+                if (isConv) {
+                    currentStreak++;
+                } else {
+                    currentStreak = 0;
+                }
+                paramStreaks[p].push(currentStreak);
+            }
+        });
 
         container.innerHTML = '';
-        const plotDiv = document.createElement('div');
-        container.appendChild(plotDiv);
-        Plotly.react(plotDiv, traces, layout, { responsive: true, displayModeBar: false });
+        
+        // Build cards stack for parameters
+        const paramPlotContexts = [];
+        param_names.forEach((param, ci) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'convergence-card';
+            wrapper.style.cssText = 'background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:flex; flex-direction:column; width:100%; box-sizing:border-box;';
+            
+            // Header
+            const header = document.createElement('div');
+            header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;';
+            
+            // Title Info (Left)
+            const infoDiv = document.createElement('div');
+            infoDiv.style.cssText = 'display:flex; flex-direction:column;';
+            
+            const titleSpan = document.createElement('span');
+            titleSpan.style.cssText = 'font-weight:600; font-size:0.9em; color:#1e293b;';
+            const isAbs = data.absolute_thresholds && data.absolute_thresholds[param] != null;
+            const uncTypeStr = isAbs ? 'absolute uncertainty, KHz' : 'relative uncertainty';
+            titleSpan.textContent = `${param} (${uncTypeStr})`;
+            
+            const subtitleSpan = document.createElement('span');
+            subtitleSpan.style.cssText = 'font-size:0.75em; color:#64748b; margin-top:2px;';
+            
+            // Calculate bounds and width text
+            let boundsText = '';
+            if (param_bounds && param_bounds[param]) {
+                const [lo, hi] = param_bounds[param];
+                const width = hi - lo;
+                const bUnit = param_units[param] || '';
+                boundsText = `bounds: [${formatNum(lo)}, ${formatNum(hi)}] ${bUnit} (width=${formatNum(width)} ${bUnit})`;
+            }
+            subtitleSpan.textContent = boundsText;
+            
+            infoDiv.appendChild(titleSpan);
+            infoDiv.appendChild(subtitleSpan);
+            header.appendChild(infoDiv);
+            
+            // Badge (Right)
+            const badgeSpan = document.createElement('span');
+            header.appendChild(badgeSpan);
+            
+            wrapper.appendChild(header);
+            
+            // Plot div
+            const plotDiv = document.createElement('div');
+            plotDiv.style.cssText = 'width:100%; height:180px;';
+            wrapper.appendChild(plotDiv);
+            
+            container.appendChild(wrapper);
+            
+            // Calculate raw histories
+            const vals = steps.map(s => s.uncertainties[param] ?? null);
+            const color = COLORS[ci % COLORS.length];
+            
+            // Pre-calculate contiguous converged ranges for shaded rects
+            const convergedRanges = [];
+            let rangeStart = null;
+            for (let s = 0; s < steps.length; s++) {
+                const isConv = steps[s].converged_params[param];
+                if (isConv) {
+                    if (rangeStart === null) rangeStart = s;
+                } else {
+                    if (rangeStart !== null) {
+                        convergedRanges.push([rangeStart, s - 1]);
+                        rangeStart = null;
+                    }
+                }
+            }
+            if (rangeStart !== null) {
+                convergedRanges.push([rangeStart, steps.length - 1]);
+            }
+            
+            paramPlotContexts.push({
+                param,
+                plotDiv,
+                badgeSpan,
+                vals,
+                color,
+                convergedRanges,
+                isAbs,
+                bounds: param_bounds ? param_bounds[param] : null
+            });
+        });
+
+        // Overall Convergence Streak Card at the bottom
+        const streakWrapper = document.createElement('div');
+        streakWrapper.className = 'convergence-card';
+        streakWrapper.style.cssText = 'background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:flex; flex-direction:column; width:100%; box-sizing:border-box;';
+        
+        const streakHeader = document.createElement('div');
+        streakHeader.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;';
+        
+        const streakTitle = document.createElement('span');
+        streakTitle.style.cssText = 'font-weight:600; font-size:0.9em; color:#1e293b;';
+        streakTitle.textContent = 'Overall Convergence Streak';
+        streakHeader.appendChild(streakTitle);
+        
+        const streakBadge = document.createElement('span');
+        streakHeader.appendChild(streakBadge);
+        
+        streakWrapper.appendChild(streakHeader);
+        
+        const streakPlotDiv = document.createElement('div');
+        streakPlotDiv.style.cssText = 'width:100%; height:180px;';
+        streakWrapper.appendChild(streakPlotDiv);
+        
+        container.appendChild(streakWrapper);
+        
+        const streakHistory = steps.map(s => s.convergence_streak ?? 0);
+
+        function updateStep(stepIdx) {
+            const idx = Math.max(0, Math.min(stepIdx, steps.length - 1));
+            const activeStepVal = xs[idx];
+            const patience = data.convergence_patience || 8;
+
+            // 1. Update individual parameter cards
+            paramPlotContexts.forEach(({ param, plotDiv, badgeSpan, vals, color, convergedRanges, isAbs, bounds }) => {
+                const isConvEnd = steps[steps.length - 1].converged_params[param];
+                const isConvCurrent = steps[idx].converged_params[param];
+                const streak = paramStreaks[param][idx];
+                
+                const endBg = isConvEnd ? '#dcfce7' : '#fee2e2';
+                const endColor = isConvEnd ? '#15803d' : '#b91c1c';
+                const endBorder = isConvEnd ? '1px solid #bbf7d0' : '1px solid #fca5a5';
+                const endLabel = isConvEnd ? 'CONVERGED (FINAL)' : 'NOT CONVERGED (FINAL)';
+
+                const currBg = isConvCurrent ? '#dcfce7' : '#fee2e2';
+                const currColor = isConvCurrent ? '#15803d' : '#b91c1c';
+                const currBorder = isConvCurrent ? '1px solid #bbf7d0' : '1px solid #fca5a5';
+                const currLabel = isConvCurrent ? 'CONVERGED (NOW)' : 'NOT CONVERGED (NOW)';
+
+                badgeSpan.innerHTML = `
+                    <span style="background-color:${endBg}; color:${endColor}; padding:3px 8px; border-radius:4px; font-weight:600; font-size:0.75em; border: ${endBorder}; margin-right:6px;">${endLabel}</span>
+                    <span style="background-color:${currBg}; color:${currColor}; padding:3px 8px; border-radius:4px; font-weight:600; font-size:0.75em; border: ${currBorder}; margin-right:6px;">${currLabel}</span>
+                    <span style="font-size:0.85em; color:#475569;">Streak: <strong>${streak}</strong> / ${patience} steps</span>
+                `;
+
+                const traces = [{
+                    type: 'scatter',
+                    x: xs,
+                    y: vals,
+                    mode: 'lines',
+                    line: { color: color, width: 2 },
+                    hoverinfo: 'skip',
+                    showlegend: false
+                }];
+
+                const shapes = [];
+
+                // Shaded green rects for converged ranges
+                convergedRanges.forEach(([start, end]) => {
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x',
+                        yref: 'paper',
+                        x0: start,
+                        x1: end,
+                        y0: 0,
+                        y1: 1,
+                        fillcolor: 'rgba(34, 197, 94, 0.35)',
+                        line: { width: 0 }
+                    });
+                });
+
+                // Vertical active step indicator
+                shapes.push({
+                    type: 'line',
+                    x0: activeStepVal,
+                    x1: activeStepVal,
+                    y0: 0,
+                    y1: 1,
+                    yref: 'paper',
+                    line: { color: 'rgba(59, 130, 246, 0.8)', width: 2 }
+                });
+
+                // Red dashed line for the threshold
+                let threshVal = null;
+                let thresholdLabel = '';
+
+                if (isAbs) {
+                    threshVal = data.absolute_thresholds ? data.absolute_thresholds[param] : null;
+                    if (threshVal === null && param === 'frequency') {
+                        threshVal = 100000.0;
+                    }
+                    thresholdLabel = `${formatNum(threshVal / 1000)} KHz threshold`;
+                } else {
+                    threshVal = data.convergence_threshold != null ? data.convergence_threshold : 0.01;
+                    thresholdLabel = `threshold (${formatNum(threshVal)})`;
+                    
+                    // 100% bound line
+                    shapes.push({
+                        type: 'line',
+                        x0: xs[0],
+                        x1: xs[xs.length - 1],
+                        y0: 1.0,
+                        y1: 1.0,
+                        line: { color: 'rgba(100,100,100,0.3)', width: 1, dash: 'dash' }
+                    });
+                }
+
+                if (threshVal !== null) {
+                    shapes.push({
+                        type: 'line',
+                        x0: xs[0],
+                        x1: xs[xs.length - 1],
+                        y0: threshVal,
+                        y1: threshVal,
+                        line: { color: '#ef4444', width: 1.5, dash: 'dash' }
+                    });
+                }
+
+                const annotations = [];
+                if (threshVal !== null) {
+                    annotations.push({
+                        x: xs[xs.length - 1],
+                        y: threshVal,
+                        xref: 'x',
+                        yref: 'y',
+                        text: thresholdLabel,
+                        showarrow: false,
+                        xanchor: 'right',
+                        yanchor: 'bottom',
+                        font: { size: 9, color: '#b91c1c' }
+                    });
+                }
+
+                if (!isAbs) {
+                    annotations.push({
+                        x: xs[xs.length - 1],
+                        y: 1.0,
+                        xref: 'x',
+                        yref: 'y',
+                        text: '100% of bound',
+                        showarrow: false,
+                        xanchor: 'right',
+                        yanchor: 'bottom',
+                        font: { size: 9, color: 'rgba(100,100,100,0.6)' }
+                    });
+                }
+
+                // Add Plotly CONVERGED badge if converged at the active step
+                let yMax = 1.1;
+                if (isAbs) {
+                    const maxVal = Math.max(...vals.filter(v => v !== null), threshVal);
+                    yMax = maxVal * 1.05;
+                } else {
+                    const maxVal = Math.max(...vals.filter(v => v !== null), 1.0);
+                    yMax = maxVal * 1.05;
+                }
+
+                if (isConvCurrent) {
+                    annotations.push({
+                        x: xs[xs.length - 1],
+                        y: yMax * 0.9,
+                        xref: 'x',
+                        yref: 'y',
+                        text: 'CONVERGED',
+                        showarrow: false,
+                        xanchor: 'right',
+                        yanchor: 'top',
+                        font: { size: 10, color: '#15803d', weight: 'bold' },
+                        bgcolor: '#dcfce7',
+                        bordercolor: '#bbf7d0',
+                        borderwidth: 1,
+                        borderpad: 4,
+                        opacity: 0.95
+                    });
+                }
+
+                const layout = {
+                    template: 'plotly_white',
+                    margin: { l: 45, r: 15, t: 15, b: 35 },
+                    xaxis: { title: { text: 'Step', font: { size: 10 } }, tickfont: { size: 9 } },
+                    yaxis: {
+                        title: { text: isAbs ? 'Absolute uncertainty' : 'Relative uncertainty', font: { size: 10 } },
+                        tickfont: { size: 9 },
+                        range: [0, yMax],
+                        rangemode: 'tozero'
+                    },
+                    height: 180,
+                    hovermode: false,
+                    shapes: shapes,
+                    annotations: annotations
+                };
+
+                Plotly.react(plotDiv, traces, layout, { responsive: true, displayModeBar: false });
+            });
+
+            // 2. Update Streak Plot
+            const currentStreak = streakHistory[idx];
+            const isAchieved = currentStreak >= patience;
+            
+            const streakBg = isAchieved ? '#dcfce7' : '#f1f5f9';
+            const streakTextColor = isAchieved ? '#15803d' : '#475569';
+            const streakLabel = isAchieved ? 'ACHIEVED' : 'IN PROGRESS';
+            const streakBorder = isAchieved ? '1px solid #bbf7d0' : '1px solid #cbd5e1';
+            
+            streakBadge.innerHTML = `<span style="background-color:${streakBg}; color:${streakTextColor}; padding:3px 8px; border-radius:4px; font-weight:600; font-size:0.75em; border: ${streakBorder};">${streakLabel}</span> <span style="font-size:0.85em; color:#475569; margin-left:6px;">Current Streak: <strong>${currentStreak}</strong> / ${patience} steps</span>`;
+
+            const streakTraces = [{
+                type: 'scatter',
+                x: xs,
+                y: streakHistory,
+                mode: 'lines',
+                line: { color: '#6366f1', width: 2 },
+                hoverinfo: 'skip',
+                showlegend: false
+            }];
+
+            const streakShapes = [
+                {
+                    type: 'line',
+                    x0: xs[0],
+                    x1: xs[xs.length - 1],
+                    y0: patience,
+                    y1: patience,
+                    line: { color: '#ef4444', width: 1.5, dash: 'dash' }
+                },
+                {
+                    type: 'line',
+                    x0: activeStepVal,
+                    x1: activeStepVal,
+                    y0: 0,
+                    y1: 1,
+                    yref: 'paper',
+                    line: { color: 'rgba(59, 130, 246, 0.8)', width: 2 }
+                }
+            ];
+
+            const streakAnnotations = [{
+                x: xs[xs.length - 1],
+                y: patience,
+                xref: 'x',
+                yref: 'y',
+                text: `patience (${patience} steps)`,
+                showarrow: false,
+                xanchor: 'right',
+                yanchor: 'bottom',
+                font: { size: 9, color: '#b91c1c' }
+            }];
+
+            const streakLayout = {
+                template: 'plotly_white',
+                margin: { l: 45, r: 15, t: 15, b: 35 },
+                xaxis: { title: { text: 'Step', font: { size: 10 } }, tickfont: { size: 9 } },
+                yaxis: {
+                    title: { text: 'Consecutive converged steps', font: { size: 10 } },
+                    tickfont: { size: 9 },
+                    range: [0, Math.max(...streakHistory, patience) * 1.15],
+                    rangemode: 'tozero'
+                },
+                height: 180,
+                hovermode: false,
+                shapes: streakShapes,
+                annotations: streakAnnotations
+            };
+
+            Plotly.react(streakPlotDiv, streakTraces, streakLayout, { responsive: true, displayModeBar: false });
+        }
+
+        updateStep(0);
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 50);
+
+        const adapter = {
+            contentWindow: {
+                showFrame: updateStep,
+                totalFrames: xs.length,
+                stepValues: xs,
+            },
+            addEventListener: () => {},
+        };
+        if (onReady) onReady(adapter);
     }
 
     async function renderFisher(container, jsonPath) {
@@ -2762,112 +3572,160 @@ function main() {
         const all = (window.MANIFEST || []).filter(p =>
             p.generator === generator && p.noise === noise && p.type === 'scan'
         );
-        const map = new Map();
-        for (const p of all) {
-            const d = _phaseData(p);
-            if (!map.has(p.strategy)) {
-                map.set(p.strategy, {
-                    id: p.strategy, label: p.strategy,
-                    steps: [], uncert: [], err: [],
-                    steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
-                    stepsType: 'measurements',
-                });
-            }
-            const e = map.get(p.strategy);
-            const push = (arr, v) => { if (v != null) arr.push(v); };
-            push(e.steps,        _mv(d, 'measurements'));
-            push(e.uncert,       _mv(d, 'uncert'));
-            push(e.err,          _mv(d, 'abs_err_x'));
-            push(e.steps_to_fb,  _mv(d, 'steps_to_fb'));
-            push(e.uncert_at_fb, _mv(d, 'uncert_fb_at_milestone'));
-            push(e.err_at_fb,    _mv(d, 'err_fb_at_milestone'));
-        }
-        const entities = [...map.values()].filter(e => e.steps.length || e.uncert.length);
-        // Synthesize Sobol baseline from embedded fields if not in manifest as own strategy
-        if (!map.has('SimpleSobol')) {
-            const sobol = {
-                id: '__sobol__', label: 'Sobol (baseline)',
+
+        const entities = [];
+        const push = (arr, v) => { if (v != null) arr.push(v); };
+
+        // 1. SBED
+        const sbedRuns = all.filter(p => p.strategy === 'Bayesian-SBED');
+        if (sbedRuns.length > 0) {
+            const sbed = {
+                id: 'sbed', label: 'sbed',
                 steps: [], uncert: [], err: [],
                 steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
                 stepsType: 'measurements',
             };
-            for (const p of all) {
+            const sbedFreq = {
+                id: 'sbed_freq', label: 'sbed freq converged',
+                steps: [], uncert: [], err: [],
+                steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                stepsType: 'steps',
+            };
+            for (const p of sbedRuns) {
                 const d = _phaseData(p);
-                const sp = findSobolBaselineForPlot(p);
-                const push = (arr, v) => { if (v != null) arr.push(v); };
-                push(sobol.steps,        _mv(d, 'sobol_baseline_steps'));
-                push(sobol.steps_to_fb,  _mv(d, 'sobol_freq_steps'));
-                push(sobol.uncert_at_fb, _mv(d, 'sobol_freq_uncert_at_conv'));
-                push(sobol.err_at_fb,    _mv(d, 'sobol_freq_err_at_conv'));
-                // Prefer the explicit final uncert/err captured during the Sobol
-                // baseline run; fall back to a separate SimpleSobol manifest entry
-                // if one exists (older runs without the embedded fields).
-                const sFinUncert = _mv(d, 'sobol_baseline_uncert');
-                const sFinErr    = _mv(d, 'sobol_baseline_err');
-                push(sobol.uncert, sFinUncert != null ? sFinUncert : (sp ? sp.uncert : null));
-                push(sobol.err,    sFinErr    != null ? sFinErr    : (sp ? sp.abs_err_x : null));
+                push(sbed.steps,        _mv(d, 'measurements'));
+                push(sbed.uncert,       _mv(d, 'uncert'));
+                push(sbed.err,          _mv(d, 'abs_err_x'));
+                push(sbed.steps_to_fb,  _mv(d, 'steps_to_fb'));
+                push(sbed.uncert_at_fb, _mv(d, 'uncert_fb_at_milestone'));
+                push(sbed.err_at_fb,    _mv(d, 'err_fb_at_milestone'));
+
+                push(sbedFreq.steps,    _mv(d, 'steps_to_fb'));
+                push(sbedFreq.uncert,   _mv(d, 'uncert_fb_at_milestone'));
+                push(sbedFreq.err,      _mv(d, 'err_fb_at_milestone'));
+            }
+            if (sbed.steps.length) {
+                entities.push(sbed);
+                if (sbedFreq.steps.length) {
+                    entities.push(sbedFreq);
+                }
+            }
+        }
+
+        // 2. Sobol
+        const sobolRuns = all.filter(p => p.strategy === 'SimpleSobol');
+        if (sobolRuns.length > 0) {
+            const sobol = {
+                id: 'sobol', label: 'sobol',
+                steps: [], uncert: [], err: [],
+                steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                stepsType: 'measurements',
+            };
+            for (const p of sobolRuns) {
+                const d = _phaseData(p);
+                push(sobol.steps,        _mv(d, 'measurements'));
+                push(sobol.uncert,       _mv(d, 'uncert'));
+                push(sobol.err,          _mv(d, 'abs_err_x'));
+                push(sobol.steps_to_fb,  _mv(d, 'steps_to_fb'));
+                push(sobol.uncert_at_fb, _mv(d, 'uncert_fb_at_milestone'));
+                push(sobol.err_at_fb,    _mv(d, 'err_fb_at_milestone'));
             }
             if (sobol.steps.length) entities.push(sobol);
         }
+
+        // 3. Simple Sweep
+        const sweepRuns = all.filter(p => p.strategy === 'SimpleSweep');
+        if (sweepRuns.length > 0) {
+            const sweep = {
+                id: 'simple_sweep', label: 'simple sweep',
+                steps: [], uncert: [], err: [],
+                steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                stepsType: 'measurements',
+            };
+            for (const p of sweepRuns) {
+                const d = _phaseData(p);
+                push(sweep.steps,        _mv(d, 'measurements'));
+                push(sweep.uncert,       _mv(d, 'uncert'));
+                push(sweep.err,          _mv(d, 'abs_err_x'));
+                push(sweep.steps_to_fb,  _mv(d, 'steps_to_fb'));
+                push(sweep.uncert_at_fb, _mv(d, 'uncert_fb_at_milestone'));
+                push(sweep.err_at_fb,    _mv(d, 'err_fb_at_milestone'));
+            }
+            if (sweep.steps.length) entities.push(sweep);
+        }
+
         return entities;
     }
 
     function buildRepeatEntities(plot) {
-        const d = _phaseData(plot);
+        if (!window.MANIFEST) return [];
+        const group = window.MANIFEST.filter(p =>
+            p.generator === plot.generator &&
+            p.noise === plot.noise &&
+            p.repeat === plot.repeat
+        );
+
         const entities = [];
-        entities.push({
-            id: 'main', label: plot.strategy || 'Active locator',
-            steps:        _mv(d, 'measurements'),
-            uncert:       _mv(d, 'uncert'),
-            err:          _mv(d, 'abs_err_x'),
-            steps_to_fb:  _mv(d, 'steps_to_fb'),
-            uncert_at_fb: _mv(d, 'uncert_fb_at_milestone'),
-            err_at_fb:    _mv(d, 'err_fb_at_milestone'),
-            stepsType: 'measurements',
-        });
-        const sobolSteps = _mv(d, 'sobol_baseline_steps');
-        if (sobolSteps != null) {
-            const sp = findSobolBaselineForPlot(plot);
-            const sFinUncert = _mv(d, 'sobol_baseline_uncert');
-            const sFinErr    = _mv(d, 'sobol_baseline_err');
+
+        // 1. SBED
+        const sbedPlot = group.find(p => p.strategy === 'Bayesian-SBED');
+        if (sbedPlot) {
+            const sd = _phaseData(sbedPlot);
             entities.push({
-                id: 'sobol', label: 'Sobol (baseline)',
-                steps: sobolSteps,
-                uncert: sFinUncert != null ? sFinUncert : (sp ? sp.uncert : null),
-                err:    sFinErr    != null ? sFinErr    : (sp ? sp.abs_err_x : null),
-                steps_to_fb:  _mv(d, 'sobol_freq_steps'),
-                uncert_at_fb: _mv(d, 'sobol_freq_uncert_at_conv'),
-                err_at_fb:    _mv(d, 'sobol_freq_err_at_conv'),
+                id: 'sbed', label: 'sbed',
+                steps:        _mv(sd, 'measurements'),
+                uncert:       _mv(sd, 'uncert'),
+                err:          _mv(sd, 'abs_err_x'),
+                steps_to_fb:  _mv(sd, 'steps_to_fb'),
+                uncert_at_fb: _mv(sd, 'uncert_fb_at_milestone'),
+                err_at_fb:    _mv(sd, 'err_fb_at_milestone'),
+                stepsType: 'measurements',
+            });
+            const stFb = _mv(sd, 'steps_to_fb');
+            if (stFb != null) {
+                entities.push({
+                    id: 'sbed_freq', label: 'sbed freq converged',
+                    steps: stFb,
+                    uncert: _mv(sd, 'uncert_fb_at_milestone'),
+                    err:    _mv(sd, 'err_fb_at_milestone'),
+                    steps_to_fb: null, uncert_at_fb: null, err_at_fb: null,
+                    stepsType: 'steps',
+                });
+            }
+        }
+
+        // 2. Sobol
+        const sobolPlot = group.find(p => p.strategy === 'SimpleSobol');
+        if (sobolPlot) {
+            const sod = _phaseData(sobolPlot);
+            entities.push({
+                id: 'sobol', label: 'sobol',
+                steps:        _mv(sod, 'measurements'),
+                uncert:       _mv(sod, 'uncert'),
+                err:          _mv(sod, 'abs_err_x'),
+                steps_to_fb:  _mv(sod, 'steps_to_fb'),
+                uncert_at_fb: _mv(sod, 'uncert_fb_at_milestone'),
+                err_at_fb:    _mv(sod, 'err_fb_at_milestone'),
                 stepsType: 'measurements',
             });
         }
-        const stFb = _mv(d, 'steps_to_fb');
-        if (stFb != null) {
+
+        // 3. Simple Sweep
+        const sweepPlot = group.find(p => p.strategy === 'SimpleSweep');
+        if (sweepPlot) {
+            const swd = _phaseData(sweepPlot);
             entities.push({
-                id: 'main_fb', label: (plot.strategy || 'Locator') + ' @ freq conv.',
-                steps: stFb,
-                uncert: _mv(d, 'uncert_fb_at_milestone'),
-                err:    _mv(d, 'err_fb_at_milestone'),
-                steps_to_fb: null, uncert_at_fb: null, err_at_fb: null,
-                stepsType: 'steps',
-            });
-        }
-        // Add any other strategy runs for the same repeat (e.g. SimpleSweep ↔ SBED).
-        for (const other of findOtherStrategyPlots(plot)) {
-            const od = _phaseData(other);
-            if (_mv(od, 'uncert') == null && _mv(od, 'abs_err_x') == null) continue;
-            entities.push({
-                id: `other_${other.strategy}`,
-                label: other.strategy,
-                steps:        _mv(od, 'measurements'),
-                uncert:       _mv(od, 'uncert'),
-                err:          _mv(od, 'abs_err_x'),
-                steps_to_fb:  _mv(od, 'steps_to_fb'),
-                uncert_at_fb: _mv(od, 'uncert_fb_at_milestone'),
-                err_at_fb:    _mv(od, 'err_fb_at_milestone'),
+                id: 'simple_sweep', label: 'simple sweep',
+                steps:        _mv(swd, 'measurements'),
+                uncert:       _mv(swd, 'uncert'),
+                err:          _mv(swd, 'abs_err_x'),
+                steps_to_fb:  _mv(swd, 'steps_to_fb'),
+                uncert_at_fb: _mv(swd, 'uncert_fb_at_milestone'),
+                err_at_fb:    _mv(swd, 'err_fb_at_milestone'),
                 stepsType: 'measurements',
             });
         }
+
         return entities;
     }
 
@@ -3098,14 +3956,24 @@ function main() {
                 const mode = e.target.dataset.value;
                 const repeatView = document.getElementById('scan-repeat-view');
                 const summaryView = document.getElementById('scan-summary-view');
+                const noiseMetricsView = document.getElementById('noise-metrics-view');
 
                 if (mode === 'single') {
                     repeatView.style.display = 'block';
                     summaryView.style.display = 'none';
-                } else {
+                    if (noiseMetricsView) noiseMetricsView.hidden = true;
+                } else if (mode === 'summary') {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'block';
+                    if (noiseMetricsView) noiseMetricsView.hidden = true;
                     renderRepeatsSummary(controlValue(scanGenerator), getEffectiveScanNoise(), controlValue(scanStrategy));
+                } else if (mode === 'noise') {
+                    repeatView.style.display = 'none';
+                    summaryView.style.display = 'none';
+                    if (noiseMetricsView) {
+                        noiseMetricsView.hidden = false;
+                        updateCompPlots();
+                    }
                 }
             }
         });
@@ -3338,17 +4206,7 @@ function main() {
             tabBar.appendChild(button);
         }
 
-        if (hasScans) {
-            const button = document.createElement('button');
-            button.className = 'tab-button';
-            button.textContent = 'Head to head';
-            button.dataset.tab = 'scan-comparison-section';
-            button.setAttribute('role', 'tab');
-            button.setAttribute('id', 'tab-scan-comparison');
-            button.setAttribute('aria-controls', 'scan-comparison-section');
-            button.setAttribute('aria-selected', 'false');
-            tabBar.appendChild(button);
-        }
+
 
 
         const tabButtons = Array.from(tabBar.querySelectorAll('.tab-button'));
@@ -3393,6 +4251,10 @@ function main() {
                     panel.classList.add('is-hidden');
                 }
             });
+            // Trigger a window resize event so responsive Plotly charts adjust to their visible containers
+            setTimeout(() => {
+                window.dispatchEvent(new Event('resize'));
+            }, 0);
         });
 
         tabBar.addEventListener('keydown', (e) => {
@@ -3428,7 +4290,9 @@ function main() {
         const scanNoiseEl = document.getElementById('scan-noise');
         if (!scanGeneratorEl || !scanNoiseEl) return;
         const gen = controlValue(scanGeneratorEl);
-        const noise = controlValue(scanNoiseEl);
+        const noise = getEffectiveScanNoise();
+        console.log('[DEBUG] updateCompPlots called with gen:', gen, 'noise:', noise);
+        console.log('[DEBUG] allAggregatePlots length:', allAggregatePlots.length);
 
         if (!gen || !noise) {
             compIframeAbsErr.src = '';
@@ -3452,6 +4316,7 @@ function main() {
         const durationPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'duration_ms');
         const savingsPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'sobol_difference');
         const spanPerNoisePlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'savings_vs_span_per_noise');
+        console.log('[DEBUG] plot search results - absErrPlot:', absErrPlot, 'savingsPlot:', savingsPlot, 'spanPerNoisePlot:', spanPerNoisePlot);
 
         compIframeAbsErr.src = absErrPlot ? absErrPlot.path : '';
         compIframeMeasurements.src = measurementsPlot ? measurementsPlot.path : '';
@@ -3487,6 +4352,7 @@ function main() {
             const measPlot = summaryPlots.find(p => p.metric === 'measurements');
             const savPlot = summaryPlots.find(p => p.metric === 'savings');
             const spanPlot = summaryPlots.find(p => p.metric === 'savings_vs_span');
+            console.log('[DEBUG] summaryPlots count:', summaryPlots.length, 'savPlot:', savPlot, 'spanPlot:', spanPlot);
             
             summaryErrIframe.src = errPlot ? errPlot.path : '';
             summaryMeasIframe.src = measPlot ? measPlot.path : '';
@@ -3514,301 +4380,7 @@ function main() {
         }
     }
 
-    const toggleNoiseMetricsBtn = document.getElementById('toggle-noise-metrics-btn');
-    const noiseMetricsView = document.getElementById('noise-metrics-view');
-    if (toggleNoiseMetricsBtn && noiseMetricsView) {
-        toggleNoiseMetricsBtn.addEventListener('click', () => {
-            if (noiseMetricsView.hidden) {
-                noiseMetricsView.hidden = false;
-                updateCompPlots();
-            } else {
-                noiseMetricsView.hidden = true;
-            }
-        });
-    }
 
-    // Call updateCompPlots when scan controls change, if panel is visible
-    const scanGeneratorEl = document.getElementById('scan-generator');
-    const scanNoiseEl = document.getElementById('scan-noise');
-    if (scanGeneratorEl) {
-        scanGeneratorEl.addEventListener('controlchange', () => {
-            if (noiseMetricsView && !noiseMetricsView.hidden) {
-                updateCompPlots();
-            }
-        });
-    }
-    if (scanNoiseEl) {
-        scanNoiseEl.addEventListener('controlchange', () => {
-            if (noiseMetricsView && !noiseMetricsView.hidden) {
-                updateCompPlots();
-            }
-        });
-    }
-
-    // --- Scan Comparison: same signal (generator / noise / repeat), two locators ---
-    function setupScanComparison() {
-        const cmpGen = document.getElementById('cmp-shared-generator');
-        const cmpNoise = document.getElementById('cmp-shared-noise');
-        const cmpRepeat = document.getElementById('cmp-shared-repeat');
-        const leftStrat = document.getElementById('left-strategy');
-        const rightStrat = document.getElementById('right-strategy');
-        const headToHeadEl = document.getElementById('head-to-head-plot');
-        const leftMetrics = document.getElementById('left-metrics');
-        const rightMetrics = document.getElementById('right-metrics');
-
-        if (
-            !cmpGen ||
-            !cmpNoise ||
-            !cmpRepeat ||
-            !leftStrat ||
-            !rightStrat ||
-            !headToHeadEl
-        ) {
-            return;
-        }
-
-        function updateCmpSharedSignalControls() {
-            const genItems = [...new Set(scanPlots.map((p) => p.generator))].sort();
-            const selGen = renderSegmentedControl(cmpGen, genItems, controlValue(cmpGen));
-            const noiseItems = scanPlots
-                .filter((p) => p.generator === selGen)
-                .map((p) => p.noise);
-            renderSegmentedControl(cmpNoise, noiseItems, controlValue(cmpNoise));
-        }
-
-        function updateCmpStrategyControls() {
-            const selGen = controlValue(cmpGen);
-            const selNoise = controlValue(cmpNoise);
-            const availableFromPlots = new Set(
-                scanPlots
-                    .filter((p) => p.generator === selGen && p.noise === selNoise)
-                    .map((p) => p.strategy),
-            );
-            const gridStrategies = (window.STRATEGY_GRID && window.STRATEGY_GRID[selGen]) || [];
-            const stratItems = [...new Set([...gridStrategies, ...availableFromPlots])];
-            const disabledItems = new Set(
-                stratItems.filter((strategy) => !availableFromPlots.has(strategy)),
-            );
-            const opts = { disabledItems };
-            renderSegmentedControl(leftStrat, stratItems, controlValue(leftStrat), opts);
-            renderSegmentedControl(rightStrat, stratItems, controlValue(rightStrat), opts);
-        }
-
-        function repeatStringsFor(g, n, strat) {
-            return scanPlots
-                .filter(
-                    (p) =>
-                        p.generator === g &&
-                        p.noise === n &&
-                        p.strategy === strat,
-                )
-                .map((p) => String(p.repeat ?? p.attempt ?? 1));
-        }
-
-        function updateCmpRepeatControl() {
-            const g = controlValue(cmpGen);
-            const n = controlValue(cmpNoise);
-            const sl = controlValue(leftStrat);
-            const sr = controlValue(rightStrat);
-            const repsL = repeatStringsFor(g, n, sl);
-            const repsR = repeatStringsFor(g, n, sr);
-            const setR = new Set(repsR);
-            let common = [...new Set(repsL)].filter((r) => setR.has(r));
-            common.sort((a, b) => Number(a) - Number(b));
-            if (common.length === 0) {
-                common = [...new Set([...repsL, ...repsR])].sort((a, b) => Number(a) - Number(b));
-            }
-            const { value: selRep } = renderSelectControl(
-                cmpRepeat,
-                common,
-                controlValue(cmpRepeat) || cmpRepeat.dataset.value || '',
-            );
-            if (selRep) {
-                cmpRepeat.dataset.value = selRep;
-            }
-        }
-
-        function updateAllCmpControls() {
-            updateCmpSharedSignalControls();
-            updateCmpStrategyControls();
-            updateCmpRepeatControl();
-        }
-
-        function applyMetrics(el, plot) {
-            if (!el) {
-                return;
-            }
-            if (plot) {
-                const absErr = formatFrequency(plot.abs_err_x);
-                const uncertainty = formatFrequency(plot.uncert);
-                const measurements = formatCount(plot.measurements);
-                const duration = formatDuration(plot.duration_ms);
-                let text = `Measurements: ${measurements} • Duration: ${duration} • Abs Error: ${absErr} • Uncertainty: ${uncertainty}`;
-                const expUniform = plot.metrics && plot.metrics.expected_uniform_points;
-                if (expUniform != null && Number.isFinite(expUniform)) {
-                    text += ` • Exp. uniform: ${formatCount(expUniform)}`;
-                }
-                const sobolBaseline = plot.sobol_baseline_steps;
-                if (sobolBaseline != null && Number.isFinite(sobolBaseline)) {
-                    text += ` • Sobol baseline: ${formatCount(sobolBaseline)}`;
-                }
-                const sobolFreqBaseline = plot.sobol_freq_steps;
-                if (sobolFreqBaseline != null && Number.isFinite(sobolFreqBaseline)) {
-                    text += ` • Sobol freq baseline: ${formatCount(sobolFreqBaseline)}`;
-                }
-                if (sobolBaseline != null && sobolFreqBaseline != null && Number.isFinite(sobolBaseline) && Number.isFinite(sobolFreqBaseline)) {
-                    const diffVal = plot.sobol_conv_diff != null ? plot.sobol_conv_diff : (sobolBaseline - sobolFreqBaseline);
-                    text += ` • Sobol diff: ${formatCount(diffVal)}`;
-                }
-                el.textContent = text;
-            } else {
-                el.textContent = '';
-            }
-        }
-
-        function clearHeadToHeadPlot(message) {
-            if (window.Plotly) {
-                try {
-                    window.Plotly.purge(headToHeadEl);
-                } catch (e) {
-                    /* ignore */
-                }
-            }
-            headToHeadEl.innerHTML = message
-                ? `<p class="metrics">${message}</p>`
-                : '';
-        }
-
-        async function updateCmpPlots() {
-            const vGen = controlValue(cmpGen);
-            const vNoise = controlValue(cmpNoise);
-            const vStratL = controlValue(leftStrat);
-            const vStratR = controlValue(rightStrat);
-            const repStr = controlValue(cmpRepeat);
-            const vRep = repStr ? parseInt(repStr, 10) : NaN;
-
-            if (!vGen || !vNoise || !vStratL || !vStratR || !Number.isFinite(vRep)) {
-                clearHeadToHeadPlot('');
-                applyMetrics(leftMetrics, null);
-                applyMetrics(rightMetrics, null);
-                return;
-            }
-
-            const plotL = scanPlots.find(
-                (p) =>
-                    p.generator === vGen &&
-                    p.noise === vNoise &&
-                    p.strategy === vStratL &&
-                    p.repeat === vRep,
-            );
-            const plotR = scanPlots.find(
-                (p) =>
-                    p.generator === vGen &&
-                    p.noise === vNoise &&
-                    p.strategy === vStratR &&
-                    p.repeat === vRep,
-            );
-
-            applyMetrics(leftMetrics, plotL);
-            applyMetrics(rightMetrics, plotR);
-
-            if (!plotL || !plotR) {
-                clearHeadToHeadPlot('No scan data for this selection.');
-                return;
-            }
-
-            // Load plot data on-demand from scan HTML files
-            const [pdL, pdR] = await Promise.all([
-                plotL.plot_data ? Promise.resolve(plotL.plot_data) : loadPlotDataFromScanHtml(plotL),
-                plotR.plot_data ? Promise.resolve(plotR.plot_data) : loadPlotDataFromScanHtml(plotR)
-            ]);
-
-            if (!pdL || !pdR || !pdL.x_dense || !pdR.x_dense) {
-                clearHeadToHeadPlot(
-                    'Could not load plot data from scan files.',
-                );
-                return;
-            }
-
-            try {
-                await ensurePlotly();
-                if (window.Plotly) {
-                    try {
-                        window.Plotly.purge(headToHeadEl);
-                    } catch (e) {
-                        /* ignore */
-                    }
-                }
-                headToHeadEl.innerHTML = '';
-                const traces = buildHeadToHeadTraces(pdL, pdR, vStratL, vStratR);
-                const focusShapes = buildHeadToHeadFocusShapes(pdL, pdR);
-                const layout = {
-                    title: 'Head to head: same signal, two strategies',
-                    template: 'plotly_white',
-                    xaxis: { title: 'frequency' },
-                    yaxis: { title: 'intensity (photon count)' },
-                    legend: {
-                        orientation: 'h',
-                        yanchor: 'top',
-                        y: -0.2,
-                        xanchor: 'center',
-                        x: 0.5,
-                    },
-                    margin: { t: 48, b: 120, l: 56, r: 24 },
-                    shapes: focusShapes,
-                };
-                await window.Plotly.react(headToHeadEl, traces, layout, { responsive: true });
-            } catch (err) {
-                console.error(err);
-                clearHeadToHeadPlot('Could not render combined plot (Plotly failed to load or draw).');
-            }
-        }
-
-        function onSharedChange() {
-            updateCmpSharedSignalControls();
-            updateCmpRepeatControl();
-            updateCmpPlots();
-        }
-
-        cmpGen.addEventListener('controlchange', onSharedChange);
-        cmpNoise.addEventListener('controlchange', onSharedChange);
-        leftStrat.addEventListener('controlchange', () => {
-            updateCmpRepeatControl();
-            updateCmpPlots();
-        });
-        rightStrat.addEventListener('controlchange', () => {
-            updateCmpRepeatControl();
-            updateCmpPlots();
-        });
-        cmpRepeat.addEventListener('change', () => {
-            cmpRepeat.dataset.value = cmpRepeat.value || '';
-            updateCmpPlots();
-        });
-
-        if (scanDefault) {
-            cmpGen.dataset.value = scanDefault.generator ?? '';
-            cmpNoise.dataset.value = scanDefault.noise ?? '';
-            cmpRepeat.dataset.value =
-                scanDefault.repeat === undefined ? '' : String(scanDefault.repeat);
-            const strats = [
-                ...new Set(scanPlots.filter((p) => p.generator === scanDefault.generator && p.noise === scanDefault.noise).map((p) => p.strategy)),
-            ].sort();
-            if (strats.length >= 2) {
-                leftStrat.dataset.value = strats[0];
-                rightStrat.dataset.value = strats[1];
-            } else if (strats.length === 1) {
-                leftStrat.dataset.value = strats[0];
-                rightStrat.dataset.value = strats[0];
-            }
-        }
-
-        updateAllCmpControls();
-        updateCmpPlots();
-    }
-
-    if (document.getElementById('scan-comparison-section')) {
-        setupScanComparison();
-    }
 
     scanGenerator.addEventListener('controlchange', () => {
         updateAllScanControls();

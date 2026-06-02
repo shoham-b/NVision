@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 
 from nvision.cli import defaults as cli_defaults
+from nvision.cli import options as cli_options
 from nvision.cli.app_instance import app
 from nvision.cli.run import run
 from nvision.sim import run_groups as sim_run_groups
@@ -24,31 +25,16 @@ def run_single(
     generator: Annotated[str, typer.Argument(help="Generator name (e.g. NVCenter-lorentzian)")],
     noise: Annotated[str, typer.Argument(help="Noise name (e.g. NoNoise, Gauss(0.01))")],
     strategy: Annotated[str, typer.Argument(help="Strategy name (e.g. Bayesian-SBED-NoSweep)")],
-    repeats: Annotated[int, typer.Option("--repeats", help="Number of repeats")] = 1,
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps for Bayesian locator measurement loop"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-    loc_timeout_s: Annotated[
-        int,
-        typer.Option("--loc-timeout", help="Timeout in seconds for a single locator run"),
-    ] = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
-    runners: int = typer.Option(
-        1,
-        "--runners",
-        min=1,
-        help=(
-            "Number of runner processes. "
-            "1 = live logs/progress in main thread; "
-            ">1 = subprocesses with reliable Ctrl-C but silent until done."
-        ),
-    ),
-    no_progress: bool = typer.Option(
-        False, "--no-progress", help="Disable Rich progress UI; print plain logs to terminal"
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
+    repeats: cli_options.RepeatsOption = 1,
+    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = 1,
+    no_progress: cli_options.NoProgressOption = False,
+    open_browser: cli_options.OpenBrowserOption = False,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> int:
     """Run a single (generator, noise, strategy) combination.
 
@@ -74,6 +60,8 @@ def run_single(
         runners=runners,
         no_progress=no_progress,
         open_browser=open_browser,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
     )
 
 
@@ -89,6 +77,8 @@ def _run_named_group(
     runners: int = cli_defaults.DEFAULT_RUNNERS,
     open_browser: bool = False,
     loc_max_steps: int = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    loc_timeout_s: int = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: bool = False,
     gcp: bool = cli_defaults.DEFAULT_GCP,
     gcp_bucket: str | None = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> None:
@@ -96,11 +86,13 @@ def _run_named_group(
     group = sim_run_groups.get_run_group(group_name)
     run(
         out=ARTIFACTS_ROOT,
-        repeats=repeats_override if repeats_override is not None else 5,
+        repeats=repeats_override if repeats_override is not None else cli_defaults.DEFAULT_REPEATS,
         run_group=group.name,
         no_cache=no_cache,
         dry_run=dry_run,
         loc_max_steps=loc_max_steps,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
         ignore_cache_strategy=None,
         all_experiments=all_experiments,
         runners=runners,
@@ -132,59 +124,34 @@ def run_preset(
             help="Preset group (same values as `nvision groups list`, e.g. all, sweep_only).",
         ),
     ],
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     all_experiments: bool = typer.Option(
         False,
         "--all",
         help="Run full combination grid (disables category/strategy filtering)",
     ),
-    no_cache: bool | None = typer.Option(
-        None,
-        "--no-cache/--cache",
-        help="Cache mode override (default: no-cache for specific groups, cache for 'all').",
-    ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Do not write results to cache",
-    ),
-    runners: int = typer.Option(
-        4,
-        "--runners",
-        min=1,
-        help="Number of runner processes passed to `nvision run` for this group.",
-    ),
-    open_browser: bool = typer.Option(
-        False,
-        "--open/--no-open",
-        help="Open results in browser after run",
-    ),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
 ) -> None:
     """Run any registered preset group by name (single entry point for all groups)."""
-    effective_no_cache = False if no_cache is None else no_cache
     _run_named_group(
         group_name,
         all_experiments=all_experiments,
         repeats_override=repeats,
-        no_cache=effective_no_cache,
+        no_cache=no_cache,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
@@ -195,245 +162,62 @@ def run_preset(
 
 @app.command()
 def run_all(
-    repeats: int = typer.Option(cli_defaults.DEFAULT_REPEATS, "--repeats", help="Number of repeats per scenario"),
-    loc_max_steps: int = typer.Option(
-        cli_defaults.DEFAULT_LOC_MAX_STEPS,
-        "--loc-max-steps",
-        help="Max steps for Bayesian locator measurement loop",
-    ),
-    loc_timeout_s: int = typer.Option(
-        cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-        "--loc-timeout",
-        help="Timeout in seconds for a single locator run",
-    ),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Disable caching for this run"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS,
-        "--runners",
-        min=1,
-        help="Number of runner processes (use 1 for sequential execution).",
-    ),
-    open_browser: bool = typer.Option(
-        False,
-        "--open/--no-open",
-        help="Open results in browser after run",
-    ),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    no_progress: cli_options.NoProgressOption = False,
 ) -> int:
-    """Run all experiments (alias for ``nvision groups run all``)."""
+    """Run all experiments (alias for ``nvision groups run lorentzian-sbed``)."""
     return run(
         out=ARTIFACTS_ROOT,
         repeats=repeats,
         loc_max_steps=loc_max_steps,
         loc_timeout_s=loc_timeout_s,
-        run_group="all",
+        run_group="lorentzian-sbed",
         no_cache=no_cache,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
+        no_progress=no_progress,
     )
 
 
 # --- Shorthand aliases (same as ``groups run <name>``) -------------------------
 
 
-@groups_app.command("sweep-only")
-def sweep_only(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+@groups_app.command("lorentzian-sbed")
+def lorentzian_sbed(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
 ) -> None:
-    """Alias for ``groups run sweep_only``."""
+    """Alias for ``groups run lorentzian-sbed``."""
     _run_named_group(
-        "sweep_only",
+        "lorentzian-sbed",
         repeats_override=repeats,
         no_cache=no_cache,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
         loc_max_steps=loc_max_steps,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
 
-
-@groups_app.command("wide")
-def wide_group(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run wide``."""
-    _run_named_group(
-        "wide",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("sbed-only")
-def sbed_only_group(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run sbed_only``."""
-    _run_named_group(
-        "sbed_only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("ekf-only")
-def ekf_only_group(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run ekf_only`` — runs EKF-D, EKF-A, and EKF-ParticleFrequency locators."""
-    _run_named_group(
-        "ekf_only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )
-
-
-@groups_app.command("gmm-only")
-def gmm_only_group(
-    repeats: int | None = typer.Option(None, "--repeats", help="Override repeats for this run"),
-    no_cache: bool = typer.Option(False, "--no-cache/--cache", help="Disable cache for this run"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Do not write results to cache"),
-    runners: int = typer.Option(
-        cli_defaults.DEFAULT_RUNNERS, "--runners", min=1, help="Number of runner processes passed to `nvision run`."
-    ),
-    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open results in browser after run"),
-    gcp: bool = typer.Option(
-        cli_defaults.DEFAULT_GCP,
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-    gcp_bucket: str | None = typer.Option(
-        cli_defaults.DEFAULT_GCP_BUCKET,
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-    loc_max_steps: Annotated[
-        int,
-        typer.Option("--loc-max-steps", help="Max steps per run"),
-    ] = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-) -> None:
-    """Alias for ``groups run gmm_only`` — runs the Gaussian Mixture locator."""
-    _run_named_group(
-        "gmm_only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
-    )

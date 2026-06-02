@@ -23,13 +23,7 @@
                 <span class="control-label">Generator:</span>
                 <div aria-label="Scan generator" class="segmented-control" id="scan-generator" role="radiogroup"></div>
             </div>
-            <div class="control-row">
-                <span class="control-label">Noise:</span>
-                <div style="display: flex; align-items: center; gap: 1em;">
-                    <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
-                    <button type="button" id="toggle-noise-metrics-btn" class="control-button" style="background-color: #f1f5f9; border-color: #cbd5e1; white-space: nowrap;">Noise Metrics</button>
-                </div>
-            </div>
+                <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
             <div class="control-row" id="gaussian-noise-slider-row" style="display: none; margin-top: 0.75rem;">
                 <span class="control-label">Gauss Std:</span>
                 <div class="slider-with-arrows">
@@ -53,6 +47,7 @@
         <div class="segmented-control" id="scan-view-mode" role="radiogroup" aria-labelledby="scan-view-label">
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0">Single Repeat</button>
             <button type="button" role="radio" aria-checked="false" data-value="summary" tabindex="-1">Repeats Summary</button>
+            <button type="button" role="radio" aria-checked="false" data-value="noise" tabindex="-1">Noise Metrics</button>
         </div>
     </div>
     <div id="scan-repeat-view">
@@ -81,7 +76,10 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span>
             </button>
             <div class="timeline-slider-container">
-                <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0">
+                <div class="slider-wrapper-relative" style="position: relative; flex: 1; display: flex; align-items: center; margin-right: 8px;">
+                    <input type="range" id="global-range-slider" class="timeline-slider" min="0" max="0" value="0" style="width: 100%; margin: 0; position: relative; z-index: 2;">
+                    <div id="timeline-ticks-container" class="timeline-ticks-container"></div>
+                </div>
                 <span id="global-step-label" class="timeline-label">Step: --</span>
             </div>
             <select id="global-speed-select" class="speed-select">
@@ -97,8 +95,23 @@
             No Bayesian analysis data available for this selection.
         </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-interactive-section">
-            <h3>Posterior Evolution <span tabindex="0" class="help-icon-visible" title="Animated heatmap showing how the Bayesian posterior distribution updates as each new measurement is taken.">?</span></h3>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5em; flex-wrap: wrap; gap: 8px; width: 100%;">
+                <h3 style="margin: 0;">Posterior Evolution <span tabindex="0" class="help-icon-visible" title="Animated heatmap showing how the Bayesian posterior distribution updates as each new measurement is taken.">?</span></h3>
+                <button type="button" id="posterior-autoscale-btn" class="control-button" style="padding: 0.25em 0.75em; font-size: 0.8em; white-space: nowrap;">Disable Autoscale</button>
+            </div>
             <iframe id="bayes-interactive-iframe" title="Bayesian posterior evolution plot"></iframe>
+            <div id="smc-diagnostics-container" style="display: none; margin-top: 1.5em; border-top: 1px solid #e2e8f0; padding-top: 1.5em; width: 100%;">
+                <div style="display: flex; flex-wrap: wrap; gap: 1.5em;">
+                    <div style="flex: 1 1 calc(50% - 1em); min-width: 300px;">
+                        <h4 style="margin: 0 0 0.5em 0; font-size: 0.85em; color: #475569; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Sorted Particle Weights (Concentration Profile)</h4>
+                        <div id="smc-weights-chart" style="height: 180px; width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;"></div>
+                    </div>
+                    <div style="flex: 1 1 calc(50% - 1em); min-width: 300px;">
+                        <h4 style="margin: 0 0 0.5em 0; font-size: 0.85em; color: #475569; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Effective Sample Size (ESS) History</h4>
+                        <div id="smc-ess-chart" style="height: 180px; width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;"></div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="bayes-tab-panel" role="tabpanel" id="bayes-convergence-section">
             <h3>Parameter Convergence <span tabindex="0" class="help-icon-visible" title="How parameter uncertainties shrink over inference steps. Lower is better.">?</span></h3>
@@ -207,46 +220,7 @@
         </div>
     </div>
 </div>
-<div aria-labelledby="tab-scan-comparison" class="section tab-panel is-hidden" id="scan-comparison-section" role="tabpanel">
-    <h2>Head to head <span tabindex="0" class="help-icon-visible" title="Side-by-side comparison of two locators on the exact same generated signal and noise realization.">?</span></h2>
-    <div class="comparison-shared-signal">
-        <h3 class="comparison-subheading">Signal</h3>
-        <div class="control-row">
-            <span class="control-label">Generator:</span>
-            <div aria-label="Comparison shared generator" class="segmented-control" id="cmp-shared-generator" role="radiogroup"></div>
-        </div>
-        <div class="control-row">
-            <span class="control-label">Noise:</span>
-            <div aria-label="Comparison shared noise" class="segmented-control" id="cmp-shared-noise" role="radiogroup"></div>
-        </div>
-        <div class="repeat-row">
-            <div class="control-row">
-                <span class="control-label">Repeat:</span>
-                <select aria-label="Comparison shared repeat" class="control-select" id="cmp-shared-repeat"></select>
-            </div>
-        </div>
-    </div>
-    <h3 class="comparison-subheading">Locators</h3>
-    <div class="scan-controls-split comparison-locators">
-        <div class="panel panel-locator">
-            <h4 class="panel-title">Left</h4>
-            <div class="control-row">
-                <span class="control-label">Strategy:</span>
-                <div aria-label="Left comparison strategy" class="segmented-control" id="left-strategy" role="radiogroup"></div>
-            </div>
-            <p class="metrics" id="left-metrics"></p>
-        </div>
-        <div class="panel panel-locator">
-            <h4 class="panel-title">Right</h4>
-            <div class="control-row">
-                <span class="control-label">Strategy:</span>
-                <div aria-label="Right comparison strategy" class="segmented-control" id="right-strategy" role="radiogroup"></div>
-            </div>
-            <p class="metrics" id="right-metrics"></p>
-        </div>
-    </div>
-    <div aria-label="Combined head to head scan plot" class="head-to-head-plot" id="head-to-head-plot" role="img"></div>
-</div>
+
 
 <iframe src="loader.html" style="display:none" title="Background data loader" aria-hidden="true"></iframe>
 </body>

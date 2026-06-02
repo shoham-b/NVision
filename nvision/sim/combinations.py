@@ -138,7 +138,7 @@ class CombinationGrid:
         3. Bayesian-SBED (SBED)
         """
         strats = [
-            ("GenericSweep", GenericSweepLocator),
+            ("SimpleSweep", GenericSweepLocator),
             ("StagedSobolSweep", StagedSobolSweepLocator),
             (
                 "Bayesian-SBED",

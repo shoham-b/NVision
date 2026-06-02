@@ -14,7 +14,7 @@ class GeneratorCategory(StrEnum):
 class StrategyFilter(StrEnum):
     """Strategies available in the active simulation grid."""
 
-    GENERIC_SWEEP = "GenericSweep"
+    SIMPLE_SWEEP = "SimpleSweep"
     STAGED_SOBOL_SWEEP = "StagedSobolSweep"
     BAYESIAN_SBED = "Bayesian-SBED"
     SIMPLE_SOBOL = "SimpleSobol"

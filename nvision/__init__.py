@@ -6,14 +6,17 @@ from nvision.cache.locator_repository import LocatorResultsRepository
 from nvision.cli.app_instance import app
 from nvision.models.experiment import CoreExperiment
 from nvision.models.locator import Locator
-from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+from nvision.models.noise import (
+    CompositeNoise,
+    CompositeOverFrequencyNoise,
+    CompositeOverProbeNoise,
+)
 from nvision.models.observer import Observer, RunResult
 from nvision.noises import (
     OverFrequencyGaussianNoise,
     OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
 )
-from nvision.noises.groups import OverProbeNoises as CompositeOverProbeNoise
 from nvision.noises.over_probe.drift_noise import OverProbeDriftNoise
 from nvision.noises.over_probe.random_walk_noise import OverProbeRandomWalkNoise
 from nvision.runner.executor import run_loop
@@ -96,11 +99,9 @@ __all__ = [
     "NVCenterCoreGenerator",
     "Observer",
     "OverFrequencyGaussianNoise",
-    "OverFrequencyNoises",
     "OverFrequencyOutlierSpikes",
     "OverFrequencyPoissonNoise",
     "OverProbeDriftNoise",
-    "OverProbeNoises",
     "OverProbeRandomWalkNoise",
     "Parameter",
     # Peak specs

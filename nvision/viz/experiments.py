@@ -170,14 +170,14 @@ class ExperimentsMixin:
 
     def plot_savings_vs_span_per_noise(self, df: pl.DataFrame) -> list[dict]:
         plots = []
-        if "measurements" not in df.columns or "repeat" not in df.columns:
+        if "measurements" not in df.columns or "attempt" not in df.columns:
             return plots
 
         partitions = df.partition_by(["generator", "noise"], as_dict=True)
         for (gen, noise), sub in partitions.items():
             try:
                 # Pivot on strategy to get measurements per strategy per repeat
-                pivot_m = sub.pivot(on="strategy", index="repeat", values="measurements")
+                pivot_m = sub.pivot(on="strategy", index="attempt", values="measurements")
                 sweep_col = None
                 for col in pivot_m.columns:
                     if "sweep" in col.lower() or "sobol" in col.lower():
@@ -187,8 +187,8 @@ class ExperimentsMixin:
                     continue
 
                 # get parameters per repeat for this group
-                params_df = sub.group_by("repeat").first() 
-                joined = pivot_m.join(params_df, on="repeat")
+                params_df = sub.group_by("attempt").first() 
+                joined = pivot_m.join(params_df, on="attempt")
 
                 fig = go.Figure()
                 f_spans = []
@@ -212,7 +212,7 @@ class ExperimentsMixin:
                     f_spans.append(f_span)
                 
                 for strat in pivot_m.columns:
-                    if strat == "repeat" or strat == sweep_col:
+                    if strat == "attempt" or strat == sweep_col:
                         continue
                         
                     strat_vals = joined.get_column(strat).to_list()

@@ -77,6 +77,10 @@ def write_posterior_data(
     resampled_steps: list[int] | None = None,
     physical_bounds: dict[str, tuple[float, float]] | None = None,
     n_particles: int = 200,
+    ess_threshold: float | None = None,
+    param_hist: list[dict[str, float]] | None = None,
+    convergence_threshold: float | None = None,
+    absolute_thresholds: dict[str, float] | None = None,
 ) -> bool:
     """Write particle posterior history to JSON.
 
@@ -91,7 +95,8 @@ def write_posterior_data(
         return False
 
     param_names = list(anim_all.keys())
-    n_steps = len(next(iter(anim_all.values()))[0])
+    first_param = param_names[0]
+    n_steps = len(anim_all[first_param][0])
 
     steps: list[dict[str, Any]] = []
     for i in range(n_steps):
@@ -100,6 +105,12 @@ def write_posterior_data(
             history, grid = anim_all[param]
             arr = history[i]
             scale = _PARAM_SCALES.get(param, 1.0)
+
+            unc_val = None
+            if param_hist is not None and i < len(param_hist):
+                val = param_hist[i].get(param)
+                if val is not None:
+                    unc_val = float(val) / scale
 
             if arr.ndim == 2 and arr.shape[1] == 2:
                 raw_particles = arr[:, 0]
@@ -118,6 +129,8 @@ def write_posterior_data(
                     "axis": (grid / scale).tolist(),
                     "posterior": arr.tolist(),
                 }
+            if unc_val is not None:
+                step[param]["uncertainty"] = unc_val
         steps.append(step)
 
     bounds_out: dict[str, list[float]] = {}
@@ -128,6 +141,13 @@ def write_posterior_data(
                 scale = _PARAM_SCALES.get(p, 1.0)
                 bounds_out[p] = [float(lo) / scale, float(hi) / scale]
 
+    abs_thresh_out = {}
+    if absolute_thresholds:
+        for p, val in absolute_thresholds.items():
+            if p in param_names:
+                scale = _PARAM_SCALES.get(p, 1.0)
+                abs_thresh_out[p] = float(val) / scale
+
     payload = {
         "schema": "posterior_v1",
         "param_names": param_names,
@@ -137,6 +157,9 @@ def write_posterior_data(
             {k: v for k, v in (true_params or {}).items() if k in param_names}
         ) if true_params else None,
         "resampled_steps": resampled_steps or [],
+        "ess_threshold": ess_threshold,
+        "convergence_threshold": convergence_threshold,
+        "absolute_thresholds": abs_thresh_out,
         "steps": steps,
     }
 
@@ -237,6 +260,7 @@ def write_convergence_metrics_data(
     out_path: Path,
     *,
     param_bounds: dict[str, tuple[float, float]] | None = None,
+    absolute_thresholds: dict[str, float] | None = None,
 ) -> bool:
     """Write per-step convergence metric history to JSON."""
     if not conv_metrics:
@@ -257,6 +281,7 @@ def write_convergence_metrics_data(
         "convergence_threshold": float(convergence_threshold),
         "convergence_patience": int(convergence_patience),
         "param_bounds": bounds_out,
+        "absolute_thresholds": absolute_thresholds or {},
         "steps": conv_metrics,
     }
 

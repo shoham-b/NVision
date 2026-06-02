@@ -1,5 +1,4 @@
-from .groups import OverFrequencyNoises as OverFrequencyNoises
-from .groups import OverProbeNoises as OverProbeNoises
+
 from .over_frequency import OverFrequencyGaussianNoise as OverFrequencyGaussianNoise
 from .over_frequency import OverFrequencyOutlierSpikes as OverFrequencyOutlierSpikes
 from .over_frequency import OverFrequencyPoissonNoise as OverFrequencyPoissonNoise
