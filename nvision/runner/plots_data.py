@@ -3,15 +3,21 @@
 Each function replaces a Plotly HTML generator with a compact JSON file.
 The frontend fetches the JSON and renders client-side, avoiding the
 Python Plotly property-validation overhead (~11-18s per run).
+
+All files are written as gzip-compressed JSON with Float32 typed-array
+encoding (via ``nvision.viz._f32_json.dump_gz``).  Paths use the
+``.json.gz`` extension.  The JS frontend decompresses on the fly with
+the ``DecompressionStream`` API.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from nvision.viz._f32_json import dump_gz
 
 
 _PARAM_SCALES: dict[str, float] = {
@@ -31,22 +37,6 @@ _PARAM_UNITS: dict[str, str] = {
     "fwhm_lorentz": "MHz",
     "fwhm_gauss": "MHz",
 }
-
-
-def _json_default(obj: Any) -> Any:
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    if isinstance(obj, (np.floating, np.integer)):
-        return obj.item()
-    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
-
-
-def _dump(payload: Any, out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps(payload, default=_json_default, separators=(",", ":")),
-        encoding="utf-8",
-    )
 
 
 def _scale_param_dict(d: dict[str, float]) -> dict[str, float]:
@@ -71,28 +61,24 @@ def _subsample_particles(
 
 def write_posterior_data(
     anim_all: dict[str, tuple[list[np.ndarray], np.ndarray]],
-    out_path: Path,
+    out_path: Path | None = None,
     *,
     true_params: dict[str, float] | None = None,
     resampled_steps: list[int] | None = None,
     physical_bounds: dict[str, tuple[float, float]] | None = None,
-    n_particles: int = 200,
+    n_particles: int = 60,
     ess_threshold: float | None = None,
     param_hist: list[dict[str, float]] | None = None,
     convergence_threshold: float | None = None,
     absolute_thresholds: dict[str, float] | None = None,
-) -> bool:
-    """Write particle posterior history to JSON.
+) -> bytes | None:
+    """Serialise particle posterior history to gzip-compressed Float32 JSON.
 
-    ``anim_all`` is the output of ``_posterior_animation_inputs_all_params``:
-    ``{param_name: (history, grid)}`` where each ``history[i]`` is either:
-      - ``(N, 2)`` array of ``[particle_val, weight]`` for SMC beliefs
-      - 1-D posterior array for grid beliefs
-
-    Returns True if the file was written.
+    Returns the compressed bytes (and writes to *out_path* if given).
+    Returns ``None`` if there is nothing to serialise.
     """
     if not anim_all:
-        return False
+        return None
 
     param_names = list(anim_all.keys())
     first_param = param_names[0]
@@ -163,8 +149,7 @@ def write_posterior_data(
         "steps": steps,
     }
 
-    _dump(payload, out_path)
-    return True
+    return dump_gz(payload, out_path)
 
 
 def write_covariance_data(
@@ -172,14 +157,14 @@ def write_covariance_data(
     param_names: list[str],
     pairs: list[tuple[int, int]],
     estimates_hist: list[dict[str, float]],
-    out_path: Path,
+    out_path: Path | None = None,
     *,
     true_params: dict[str, float] | None = None,
     physical_bounds: dict[str, tuple[float, float]] | None = None,
-) -> bool:
-    """Write covariance matrix history (for ellipse animation) to JSON."""
+) -> bytes | None:
+    """Serialise covariance matrix history to gzip-compressed Float32 JSON."""
     if not cov_hist or not pairs:
-        return False
+        return None
 
     scales = np.array([_PARAM_SCALES.get(p, 1.0) for p in param_names])
     scale_outer = np.outer(scales, scales)
@@ -213,20 +198,19 @@ def write_covariance_data(
         "steps": steps,
     }
 
-    _dump(payload, out_path)
-    return True
+    return dump_gz(payload, out_path)
 
 
 def write_parameter_convergence_data(
     param_hist: list[dict[str, float]],
     estimates_hist: list[dict[str, float]],
-    out_path: Path,
+    out_path: Path | None = None,
     *,
     true_params: dict[str, float] | None = None,
-) -> bool:
+) -> bytes | None:
     """Write per-step uncertainty and estimate history to JSON."""
     if not param_hist:
-        return False
+        return None
 
     param_names = list(param_hist[0].keys()) if param_hist else []
 
@@ -248,8 +232,7 @@ def write_parameter_convergence_data(
         "steps": steps,
     }
 
-    _dump(payload, out_path)
-    return True
+    return dump_gz(payload, out_path)
 
 
 def write_convergence_metrics_data(
@@ -257,14 +240,14 @@ def write_convergence_metrics_data(
     param_names: list[str],
     convergence_threshold: float,
     convergence_patience: int,
-    out_path: Path,
+    out_path: Path | None = None,
     *,
     param_bounds: dict[str, tuple[float, float]] | None = None,
     absolute_thresholds: dict[str, float] | None = None,
-) -> bool:
+) -> bytes | None:
     """Write per-step convergence metric history to JSON."""
     if not conv_metrics:
-        return False
+        return None
 
     bounds_out: dict[str, list[float]] = {}
     if param_bounds:
@@ -285,8 +268,7 @@ def write_convergence_metrics_data(
         "steps": conv_metrics,
     }
 
-    _dump(payload, out_path)
-    return True
+    return dump_gz(payload, out_path)
 
 
 def write_fisher_data(
@@ -294,13 +276,13 @@ def write_fisher_data(
     actual_uncertainty_hist: list[dict[str, float]],
     fisher_hist: list[np.ndarray],
     param_names: list[str],
-    out_path: Path,
+    out_path: Path | None = None,
     *,
     true_params: dict[str, float] | None = None,
-) -> bool:
+) -> bytes | None:
     """Write Fisher information history (bounds + full FIM) to JSON."""
     if not fisher_hist:
-        return False
+        return None
 
     scales = np.array([_PARAM_SCALES.get(p, 1.0) for p in param_names])
     # FIM scales as 1/variance, so scale FIM by 1/scale² per param pair
@@ -327,5 +309,4 @@ def write_fisher_data(
         "steps": steps,
     }
 
-    _dump(payload, out_path)
-    return True
+    return dump_gz(payload, out_path)

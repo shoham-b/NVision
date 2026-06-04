@@ -279,7 +279,9 @@ def _collect_cache_results_from_configs(  # noqa: C901
         # Determine achieved repeats from pointer if available
         achieved_repeats = int(cfg.get("repeats", 0))
         if cfg.get("kind") == "locator_combination_pointer":
-            key = stable_config_hash(cfg)
+            # Pointer was stored without "repeats" in its hash key — strip it before hashing
+            ptr_cfg = {k: v for k, v in cfg.items() if k != "repeats"}
+            key = stable_config_hash(ptr_cfg)
             ptr_df = cache._store.load_df(key)
             if ptr_df is not None and not ptr_df.is_empty():
                 achieved_repeats = int(ptr_df.get_column("achieved_repeats")[0])
@@ -685,7 +687,6 @@ def render(  # noqa: C901
         and not (entry.get("type") == "scan" and entry.get("generator") == "Dummy-Generator" and not entry.get("path"))
     ]
     plot_manifest.extend(summary_plots_meta)
-    _postprocess_manifest_entries(plot_manifest, out_dir)
 
     ensure_plot_manifest_non_empty(plot_manifest, log)
     manifest_path = write_plots_manifest(plot_manifest, out_dir)

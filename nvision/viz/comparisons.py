@@ -93,6 +93,34 @@ class ComparisonsMixin:
                     manifest_entries=manifest_entries,
                 )
 
+            # Metric 5: Frequency convergence step
+            if "freq_converged_step" in sub_df.columns:
+                conv_df = sub_df.filter(pl.col("freq_converged_step").is_not_null())
+                if not conv_df.is_empty():
+                    self._create_comparison_plot(
+                        conv_df,
+                        gen,
+                        noise,
+                        metric="freq_converged_step",
+                        title_metric="Frequency Convergence Step",
+                        y_axis_title="Step #",
+                        manifest_entries=manifest_entries,
+                    )
+
+            # Metric 6: All-parameters convergence step
+            if "all_converged_step" in sub_df.columns:
+                conv_df = sub_df.filter(pl.col("all_converged_step").is_not_null())
+                if not conv_df.is_empty():
+                    self._create_comparison_plot(
+                        conv_df,
+                        gen,
+                        noise,
+                        metric="all_converged_step",
+                        title_metric="All Parameters Convergence Step",
+                        y_axis_title="Step #",
+                        manifest_entries=manifest_entries,
+                    )
+
         return manifest_entries
 
     @staticmethod
@@ -169,13 +197,14 @@ class ComparisonsMixin:
             margin=dict(t=80, b=120, l=50, r=50),
         )
 
-        filename = f"comparison_{gen}_{noise}_{metric}.html"
+        filename = f"comparison_{gen}_{noise}_{metric}.json.gz"
         # Sanitize filename
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        from nvision.viz._f32_json import write_plotly_gz
+        write_plotly_gz(fig, out_path)
 
         # Add entry to manifest list
         manifest_entries.append(

@@ -224,6 +224,7 @@ function main() {
 
     let plots = [];
     let currentPlot = null;
+    let currentStoppingCriteria = 'full'; // 'full' | 'freq_converged' | 'all_converged'
     try {
         plots = window.MANIFEST;
         if (!Array.isArray(plots)) {
@@ -854,64 +855,51 @@ function main() {
         return null;
     }
 
-    function applyMeasurementDistributionPreferenceInScanIframe() {
-        if (!scanIframe || measurementDistributionVisible === null) {
-            return;
+    function _getScanGraphDiv() {
+        const scanPlotDiv = document.getElementById('scan-plot-div');
+        if (scanPlotDiv && scanPlotDiv.style.display !== 'none' && scanPlotDiv.data) {
+            return { graphDiv: scanPlotDiv, plotly: window.Plotly };
         }
-        const frameWindow = scanIframe.contentWindow;
-        const frameDocument = scanIframe.contentDocument;
-        if (!frameWindow || !frameDocument || !frameWindow.Plotly) {
-            return;
-        }
-        const graphDiv = frameDocument.querySelector('.plotly-graph-div');
-        if (!graphDiv || !Array.isArray(graphDiv.data)) {
-            return;
-        }
-        const targetIndices = [];
-        graphDiv.data.forEach((trace, idx) => {
-            if (isMeasurementDistributionTrace(trace)) {
-                targetIndices.push(idx);
+        if (scanIframe && scanIframe.contentWindow && scanIframe.contentWindow.Plotly) {
+            const fd = scanIframe.contentDocument;
+            if (fd) {
+                const gd = fd.querySelector('.plotly-graph-div');
+                if (gd) return { graphDiv: gd, plotly: scanIframe.contentWindow.Plotly };
             }
-        });
-        if (targetIndices.length === 0) {
-            return;
         }
+        return null;
+    }
+
+    function applyMeasurementDistributionPreferenceInScanIframe() {
+        if (measurementDistributionVisible === null) return;
+        const s = _getScanGraphDiv();
+        if (!s || !Array.isArray(s.graphDiv.data)) return;
+        const targetIndices = [];
+        s.graphDiv.data.forEach((trace, idx) => {
+            if (isMeasurementDistributionTrace(trace)) targetIndices.push(idx);
+        });
+        if (targetIndices.length === 0) return;
         const visibleValue = measurementDistributionVisible ? true : 'legendonly';
-        frameWindow.Plotly.restyle(graphDiv, { visible: visibleValue }, targetIndices);
+        s.plotly.restyle(s.graphDiv, { visible: visibleValue }, targetIndices);
     }
 
     function bindScanIframeLegendPreferenceSync() {
-        if (!scanIframe) {
-            return;
-        }
-        const frameDocument = scanIframe.contentDocument;
-        if (!frameDocument) {
-            return;
-        }
-        const graphDiv = frameDocument.querySelector('.plotly-graph-div');
-        if (!graphDiv || graphDiv.dataset.measureDistListenerAttached === '1') {
-            return;
-        }
+        const s = _getScanGraphDiv();
+        if (!s) return;
+        const graphDiv = s.graphDiv;
+        if (graphDiv.dataset.measureDistListenerAttached === '1') return;
         graphDiv.dataset.measureDistListenerAttached = '1';
         graphDiv.on('plotly_restyle', (restyleData) => {
-            if (!Array.isArray(restyleData) || restyleData.length < 2) {
-                return;
-            }
+            if (!Array.isArray(restyleData) || restyleData.length < 2) return;
             const updates = restyleData[0] || {};
             const traceIndices = Array.isArray(restyleData[1]) ? restyleData[1] : [];
-            if (!('visible' in updates) || traceIndices.length === 0 || !Array.isArray(graphDiv.data)) {
-                return;
-            }
+            if (!('visible' in updates) || traceIndices.length === 0 || !Array.isArray(graphDiv.data)) return;
             const visibleUpdate = updates.visible;
             for (const traceIdx of traceIndices) {
                 const trace = graphDiv.data[traceIdx];
-                if (!isMeasurementDistributionTrace(trace)) {
-                    continue;
-                }
+                if (!isMeasurementDistributionTrace(trace)) continue;
                 const nextState = resolveTraceVisibleState(visibleUpdate);
-                if (nextState !== null) {
-                    measurementDistributionVisible = nextState;
-                }
+                if (nextState !== null) measurementDistributionVisible = nextState;
                 break;
             }
         });
@@ -1066,13 +1054,24 @@ function main() {
         return prefix + cleaned;
     }
 
-    // Parse plot data from scan HTML file on-demand (avoids bloating manifest)
+    // Parse plot data from scan file on-demand (handles both .json and legacy .html)
     async function loadPlotDataFromScanHtml(plot) {
         if (!plot || !plot.path) return null;
         try {
             const url = resolveAssetPath(plot.path);
             const response = await fetch(url, { cache: 'no-store' });
             if (!response.ok) return null;
+            if (plot.path.endsWith('.json') || plot.path.endsWith('.json.gz')) {
+                const fig = _decodePlotlyFigure(await _fetchJson(plot.path));
+                if (!fig || !Array.isArray(fig.data)) return null;
+                const out = extractPlotDataFromTraces(fig.data);
+                if (!out) return null;
+                const meta = fig.layout && fig.layout.meta;
+                if (meta && meta.narrowed_param_bounds && typeof meta.narrowed_param_bounds === 'object') {
+                    out.narrowed_param_bounds = meta.narrowed_param_bounds;
+                }
+                return out;
+            }
             const html = await response.text();
             return parsePlotDataFromHtml(html);
         } catch (e) {
@@ -1222,6 +1221,131 @@ function main() {
             });
         }
         return plotlyLoadPromise;
+    }
+
+    async function _fetchJson(url) {
+        const resp = await fetch(resolveAssetPath(url), { cache: 'no-store' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        let parsed;
+        if (url.endsWith('.gz')) {
+            const ds = new DecompressionStream('gzip');
+            const text = await new Response(resp.body.pipeThrough(ds)).text();
+            // JSON spec does not allow Infinity/NaN — replace with null
+            parsed = JSON.parse(text.replace(/\bInfinity\b/g, 'null').replace(/-Infinity\b/g, 'null').replace(/\bNaN\b/g, 'null'));
+        } else {
+            parsed = await resp.json();
+        }
+        return _decodePlotlyFigure(parsed);
+    }
+
+    function _decodeBase64F32(b64) {
+        const bin = atob(b64);
+        const len = bin.length;
+        const u8 = new Uint8Array(len);
+        for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+        return new Float32Array(u8.buffer);
+    }
+
+    function _decodeBase64Typed(b64, dtype) {
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const TypedArray = dtype === 'float32' ? Float32Array : Float64Array;
+        return new TypedArray(u8.buffer);
+    }
+
+    function _decodePlotlyFigure(obj) {
+        if (obj === null || obj === undefined || typeof obj !== 'object') return obj;
+        // TypedArrays (Float32Array, Float64Array) are already decoded — pass through
+        if (ArrayBuffer.isView(obj)) return obj;
+        // Custom f32 encoding (our own format)
+        if (obj.__f32__ !== undefined) return _decodeBase64F32(obj.__f32__);
+        // Plotly Python 5.x numpy serialization: {dtype, bdata[, shape]}
+        if (obj.bdata !== undefined && obj.dtype !== undefined) {
+            return _decodeBase64Typed(obj.bdata, obj.dtype);
+        }
+        if (Array.isArray(obj)) return obj.map(_decodePlotlyFigure);
+        const out = {};
+        for (const k of Object.keys(obj)) out[k] = _decodePlotlyFigure(obj[k]);
+        return out;
+    }
+
+    async function renderPlotFromJson(container, jsonPath) {
+        if (!jsonPath) { container.innerHTML = ''; return; }
+        // Purge any pending Plotly operations on this container before replacing it.
+        // Without this, an in-flight Plotly.restyle blocks the queue and subsequent
+        // Plotly.react calls never execute.
+        try { if (window.Plotly) Plotly.purge(container); } catch (_) {}
+        // Tag this render so a stale fetch doesn't overwrite a newer one
+        const renderToken = {};
+        container._renderToken = renderToken;
+        container.innerHTML = '<div style="padding:1.5em;color:#64748b;text-align:center;">Loading…</div>';
+        try {
+            await ensurePlotly();
+            const raw = await _fetchJson(jsonPath);
+            // Abort if a newer renderPlotFromJson started while we were fetching
+            if (container._renderToken !== renderToken) return;
+            // Convert TypedArrays to plain arrays for Plotly compatibility
+            const toPlain = (o) => {
+                if (o === null || o === undefined) return o;
+                if (ArrayBuffer.isView(o)) return Array.from(o);
+                if (Array.isArray(o)) return o.map(toPlain);
+                if (typeof o === 'object') {
+                    const r = {};
+                    for (const k of Object.keys(o)) r[k] = toPlain(o[k]);
+                    return r;
+                }
+                return o;
+            };
+            const fig = toPlain(raw);
+            const layout = Object.assign({}, fig.layout || {}, { autosize: true });
+            // Plotly.react modifies DOM synchronously; don't await so a concurrent render
+            // on the same container doesn't stall this one.
+            Plotly.react(container, fig.data || [], layout, { responsive: true }).catch((e) => {
+                console.warn('Plotly.react async error for', jsonPath, e);
+            });
+            const isScanPlot = container.id === 'scan-plot-div';
+            if (isScanPlot) {
+                applyMeasurementDistributionPreferenceInScanIframe();
+                bindScanIframeLegendPreferenceSync();
+                renderNarrowedBoundsFromIframe();
+            }
+        } catch (e) {
+            if (container._renderToken !== renderToken) return;
+            console.warn('renderPlotFromJson failed for', jsonPath, e);
+            container.innerHTML = `<div style="padding:1em;color:#ef4444;">Failed to load plot: ${e && e.message ? e.message : String(e)}</div>`;
+        }
+    }
+
+    function _getOrCreateSiblingDiv(iframeEl) {
+        if (!iframeEl) return null;
+        const id = iframeEl.id + '-json-div';
+        let div = document.getElementById(id);
+        if (!div) {
+            div = document.createElement('div');
+            div.id = id;
+            div.style.width = '100%';
+            const h = iframeEl.style.height;
+            if (h) div.style.height = h;
+            iframeEl.parentNode.insertBefore(div, iframeEl);
+        }
+        return div;
+    }
+
+    function setPlotSrc(iframeEl, divElOrNull, path) {
+        const divEl = divElOrNull !== undefined ? divElOrNull : _getOrCreateSiblingDiv(iframeEl);
+        if (!path) {
+            if (divEl) { divEl.style.display = 'none'; divEl.innerHTML = ''; }
+            if (iframeEl) { iframeEl.style.display = 'none'; iframeEl.src = ''; }
+            return;
+        }
+        if (path.endsWith('.json') || path.endsWith('.json.gz')) {
+            if (iframeEl) { iframeEl.style.display = 'none'; iframeEl.src = ''; }
+            if (divEl) { divEl.style.display = ''; renderPlotFromJson(divEl, path); }
+        } else {
+            if (divEl) { divEl.style.display = 'none'; divEl.innerHTML = ''; }
+            if (iframeEl) { iframeEl.style.display = ''; iframeEl.src = path; }
+        }
     }
 
     function addHeadToHeadMeasurementTraces(traces, m, label, side) {
@@ -1793,7 +1917,7 @@ function main() {
                     p.repeat === repeatNumber
             );
             currentPlot = plot;
-            scanIframe.src = plot ? plot.path : '';
+            setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), plot ? plot.path : null);
             if (plot) {
                 function buildScanItems(phaseData, isOverall, totalMeasurements) {
                     const repeatTotal = plot.repeat_total ?? null;
@@ -1801,12 +1925,31 @@ function main() {
                         ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
                         : 'Attempt ' + plot.repeat;
                     // For sweep-only runs, phaseData.measurements is the authoritative total.
-                    const phaseMeasurements = phaseData.measurements != null ? phaseData.measurements : totalMeasurements;
+                    const fullMeasurements = phaseData.measurements != null ? phaseData.measurements : totalMeasurements;
+                    const freqConvergedStep = phaseData.freq_converged_step != null ? phaseData.freq_converged_step : (phaseData.metrics && phaseData.metrics.freq_converged_step != null ? phaseData.metrics.freq_converged_step : null);
+                    const allConvergedStep = phaseData.all_converged_step != null ? phaseData.all_converged_step : (phaseData.metrics && phaseData.metrics.all_converged_step != null ? phaseData.metrics.all_converged_step : null);
+
+                    let phaseMeasurements = fullMeasurements;
+                    let measurementsLabel = 'Measurements';
+                    let measurementsTip = 'Total number of measurements (sweep + acquisition) taken in this repeat.';
+                    if (currentStoppingCriteria === 'freq_converged' && freqConvergedStep != null) {
+                        phaseMeasurements = freqConvergedStep;
+                        measurementsLabel = 'Freq. converged @';
+                        measurementsTip = 'Step at which frequency uncertainty first dropped below the convergence threshold.';
+                    } else if (currentStoppingCriteria === 'all_converged' && allConvergedStep != null) {
+                        phaseMeasurements = allConvergedStep;
+                        measurementsLabel = 'Converged @';
+                        measurementsTip = 'Step at which all tracked parameters first met the convergence threshold.';
+                    }
+
                     const items = [
                         { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to.' },
-                        { label: 'Measurements', val: formatCount(phaseMeasurements), tip: 'Total number of measurements (sweep + acquisition) taken in this repeat.' },
+                        { label: measurementsLabel, val: formatCount(phaseMeasurements), tip: measurementsTip },
                     ];
-                    if (phaseData.steps_to_fb != null) {
+                    if (freqConvergedStep != null && currentStoppingCriteria === 'full') {
+                        items.push({ label: 'Freq. converged', val: formatCount(freqConvergedStep), tip: 'Step at which frequency uncertainty first dropped below the convergence threshold.' });
+                    }
+                    if (phaseData.steps_to_fb != null && freqConvergedStep == null) {
                         items.push({ label: 'Freq. converged', val: formatCount(phaseData.steps_to_fb), tip: 'Measurements taken until center frequency (fb) converged below threshold.' });
                     }
                     // Show total sweep steps (if any)
@@ -2004,6 +2147,7 @@ function main() {
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
                     }
                     scanMetrics.innerHTML = html;
+                    updateStoppingCriteriaVisibility(plot);
                     setupRepeatComparisonUI(plot);
                 } else {
                     scanMetrics.className = 'scan-metrics-wrapper';
@@ -2014,6 +2158,7 @@ function main() {
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
                     }
                     scanMetrics.innerHTML = html;
+                    updateStoppingCriteriaVisibility(plot);
                     setupRepeatComparisonUI(plot);
                 }
                 renderSweepMetricsPanel(scanSweepMetrics, plot.metrics || {});
@@ -2022,7 +2167,7 @@ function main() {
                 updateBayesInteractiveView(plot);
                 updateBayesTabs();
             } else {
-                scanIframe.src = '';
+                setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), null);
                 scanMetrics.className = '';
                 scanMetrics.innerHTML = '';
                 const scanCmpSel = document.getElementById('scan-comparison-selector');
@@ -2036,7 +2181,7 @@ function main() {
                 updateBayesTabs();
             }
         } else {
-            scanIframe.src = '';
+            setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), null);
             scanMetrics.textContent = '';
             const scanCmpSel2 = document.getElementById('scan-comparison-selector');
             if (scanCmpSel2) scanCmpSel2.innerHTML = '';
@@ -2186,9 +2331,7 @@ function main() {
 
         let data;
         try {
-            const resp = await fetch(jsonPath, { cache: 'no-store' });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            data = await resp.json();
+            data = await _fetchJson(jsonPath);
         } catch (e) {
             container.innerHTML = `<div style="padding:2em;color:#ef4444;">Failed to load covariance data: ${escapeHtml(String(e.message))}</div>`;
             return;
@@ -2428,9 +2571,7 @@ function main() {
 
         let data;
         try {
-            const resp = await fetch(jsonPath, { cache: 'no-store' });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            data = await resp.json();
+            data = await _fetchJson(jsonPath);
         } catch (e) {
             container.innerHTML = `<div style="padding:2em;color:#ef4444;">Failed to load posterior data: ${escapeHtml(String(e.message))}</div>`;
             return;
@@ -2832,9 +2973,7 @@ function main() {
 
         let data;
         try {
-            const resp = await fetch(jsonPath, { cache: 'no-store' });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            data = await resp.json();
+            data = await _fetchJson(jsonPath);
         } catch (e) {
             container.innerHTML = `<div style="padding:1em;color:#ef4444;">Failed to load convergence data: ${escapeHtml(String(e.message))}</div>`;
             return;
@@ -2927,9 +3066,7 @@ function main() {
 
         let data;
         try {
-            const resp = await fetch(jsonPath, { cache: 'no-store' });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            data = await resp.json();
+            data = await _fetchJson(jsonPath);
         } catch (e) {
             container.innerHTML = `<div style="padding:1em;color:#ef4444;">Failed to load metrics: ${escapeHtml(String(e.message))}</div>`;
             return;
@@ -3357,9 +3494,7 @@ function main() {
 
         let data;
         try {
-            const resp = await fetch(jsonPath, { cache: 'no-store' });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            data = await resp.json();
+            data = await _fetchJson(jsonPath);
         } catch (e) {
             container.innerHTML = `<div style="padding:1em;color:#ef4444;">Failed to load Fisher data: ${escapeHtml(String(e.message))}</div>`;
             return;
@@ -3572,160 +3707,122 @@ function main() {
         const all = (window.MANIFEST || []).filter(p =>
             p.generator === generator && p.noise === noise && p.type === 'scan'
         );
-
+        const strategies = [...new Set(all.map(p => p.strategy))].sort();
         const entities = [];
-        const push = (arr, v) => { if (v != null) arr.push(v); };
+        for (const strategy of strategies) {
+            const runs = all.filter(p => p.strategy === strategy).map(p => _phaseData(p));
+            if (runs.length) entities.push(..._makeStrategyEntities(runs, strategy, true));
+        }
+        return entities;
+    }
 
-        // 1. SBED
-        const sbedRuns = all.filter(p => p.strategy === 'Bayesian-SBED');
-        if (sbedRuns.length > 0) {
-            const sbed = {
-                id: 'sbed', label: 'sbed',
+    function _shortStratLabel(strategy) {
+        return strategy
+            .replace('Bayesian-', '')
+            .replace('SimpleSobol', 'Sobol')
+            .replace('SimpleSweep', 'Sweep')
+            .replace('StagedSobolSweep', 'StagedSobol')
+            .replace('GaussianMixture', 'GaussMix');
+    }
+
+    function _makeStrategyEntities(d, strategy, isArray) {
+        const push = (arr, v) => { if (v != null) arr.push(v); };
+        const label = _shortStratLabel(strategy);
+        const id = strategy.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+        if (isArray) {
+            const base = {
+                id, label,
                 steps: [], uncert: [], err: [],
                 steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
                 stepsType: 'measurements',
             };
-            const sbedFreq = {
-                id: 'sbed_freq', label: 'sbed freq converged',
+            const freqConv = {
+                id: id + '_freq', label: label + ' freq converged',
                 steps: [], uncert: [], err: [],
                 steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
                 stepsType: 'steps',
             };
-            for (const p of sbedRuns) {
-                const d = _phaseData(p);
-                push(sbed.steps,        _mv(d, 'measurements'));
-                push(sbed.uncert,       _mv(d, 'uncert'));
-                push(sbed.err,          _mv(d, 'abs_err_x'));
-                push(sbed.steps_to_fb,  _mv(d, 'steps_to_fb'));
-                push(sbed.uncert_at_fb, _mv(d, 'uncert_fb_at_milestone'));
-                push(sbed.err_at_fb,    _mv(d, 'err_fb_at_milestone'));
-
-                push(sbedFreq.steps,    _mv(d, 'steps_to_fb'));
-                push(sbedFreq.uncert,   _mv(d, 'uncert_fb_at_milestone'));
-                push(sbedFreq.err,      _mv(d, 'err_fb_at_milestone'));
-            }
-            if (sbed.steps.length) {
-                entities.push(sbed);
-                if (sbedFreq.steps.length) {
-                    entities.push(sbedFreq);
-                }
-            }
-        }
-
-        // 2. Sobol
-        const sobolRuns = all.filter(p => p.strategy === 'SimpleSobol');
-        if (sobolRuns.length > 0) {
-            const sobol = {
-                id: 'sobol', label: 'sobol',
+            const allConv = {
+                id: id + '_conv', label: label + ' converged',
                 steps: [], uncert: [], err: [],
                 steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                stepsType: 'steps',
+            };
+            for (const item of d) {
+                push(base.steps,        _mv(item, 'measurements'));
+                push(base.uncert,       _mv(item, 'uncert'));
+                push(base.err,          _mv(item, 'abs_err_x'));
+                push(base.steps_to_fb,  _mv(item, 'steps_to_fb', 'freq_converged_step'));
+                push(base.uncert_at_fb, _mv(item, 'uncert_fb_at_milestone'));
+                push(base.err_at_fb,    _mv(item, 'err_fb_at_milestone'));
+
+                push(freqConv.steps,    _mv(item, 'freq_converged_step', 'steps_to_fb'));
+                push(freqConv.uncert,   _mv(item, 'uncert_fb_at_milestone'));
+                push(freqConv.err,      _mv(item, 'err_fb_at_milestone'));
+
+                push(allConv.steps,     _mv(item, 'all_converged_step'));
+                push(allConv.uncert,    _mv(item, 'uncert'));
+                push(allConv.err,       _mv(item, 'abs_err_x'));
+            }
+            const results = [];
+            if (base.steps.length) results.push(base);
+            if (freqConv.steps.length) results.push(freqConv);
+            if (allConv.steps.length) results.push(allConv);
+            return results;
+        } else {
+            const base = {
+                id, label,
+                steps:        _mv(d, 'measurements'),
+                uncert:       _mv(d, 'uncert'),
+                err:          _mv(d, 'abs_err_x'),
+                steps_to_fb:  _mv(d, 'steps_to_fb', 'freq_converged_step'),
+                uncert_at_fb: _mv(d, 'uncert_fb_at_milestone'),
+                err_at_fb:    _mv(d, 'err_fb_at_milestone'),
                 stepsType: 'measurements',
             };
-            for (const p of sobolRuns) {
-                const d = _phaseData(p);
-                push(sobol.steps,        _mv(d, 'measurements'));
-                push(sobol.uncert,       _mv(d, 'uncert'));
-                push(sobol.err,          _mv(d, 'abs_err_x'));
-                push(sobol.steps_to_fb,  _mv(d, 'steps_to_fb'));
-                push(sobol.uncert_at_fb, _mv(d, 'uncert_fb_at_milestone'));
-                push(sobol.err_at_fb,    _mv(d, 'err_fb_at_milestone'));
+            const freqStep = _mv(d, 'freq_converged_step', 'steps_to_fb');
+            const allStep  = _mv(d, 'all_converged_step');
+            const results = [base];
+            if (freqStep != null) {
+                results.push({
+                    id: id + '_freq', label: label + ' freq converged',
+                    steps: freqStep,
+                    uncert: _mv(d, 'uncert_fb_at_milestone'),
+                    err:    _mv(d, 'err_fb_at_milestone'),
+                    steps_to_fb: null, uncert_at_fb: null, err_at_fb: null,
+                    stepsType: 'steps',
+                });
             }
-            if (sobol.steps.length) entities.push(sobol);
-        }
-
-        // 3. Simple Sweep
-        const sweepRuns = all.filter(p => p.strategy === 'SimpleSweep');
-        if (sweepRuns.length > 0) {
-            const sweep = {
-                id: 'simple_sweep', label: 'simple sweep',
-                steps: [], uncert: [], err: [],
-                steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
-                stepsType: 'measurements',
-            };
-            for (const p of sweepRuns) {
-                const d = _phaseData(p);
-                push(sweep.steps,        _mv(d, 'measurements'));
-                push(sweep.uncert,       _mv(d, 'uncert'));
-                push(sweep.err,          _mv(d, 'abs_err_x'));
-                push(sweep.steps_to_fb,  _mv(d, 'steps_to_fb'));
-                push(sweep.uncert_at_fb, _mv(d, 'uncert_fb_at_milestone'));
-                push(sweep.err_at_fb,    _mv(d, 'err_fb_at_milestone'));
+            if (allStep != null) {
+                results.push({
+                    id: id + '_conv', label: label + ' converged',
+                    steps: allStep,
+                    uncert: _mv(d, 'uncert'),
+                    err:    _mv(d, 'abs_err_x'),
+                    steps_to_fb: null, uncert_at_fb: null, err_at_fb: null,
+                    stepsType: 'steps',
+                });
             }
-            if (sweep.steps.length) entities.push(sweep);
+            return results;
         }
-
-        return entities;
     }
 
     function buildRepeatEntities(plot) {
         if (!window.MANIFEST) return [];
         const group = window.MANIFEST.filter(p =>
+            p.type === 'scan' &&
             p.generator === plot.generator &&
             p.noise === plot.noise &&
             p.repeat === plot.repeat
         );
 
+        const strategies = [...new Set(group.map(p => p.strategy))].sort();
         const entities = [];
-
-        // 1. SBED
-        const sbedPlot = group.find(p => p.strategy === 'Bayesian-SBED');
-        if (sbedPlot) {
-            const sd = _phaseData(sbedPlot);
-            entities.push({
-                id: 'sbed', label: 'sbed',
-                steps:        _mv(sd, 'measurements'),
-                uncert:       _mv(sd, 'uncert'),
-                err:          _mv(sd, 'abs_err_x'),
-                steps_to_fb:  _mv(sd, 'steps_to_fb'),
-                uncert_at_fb: _mv(sd, 'uncert_fb_at_milestone'),
-                err_at_fb:    _mv(sd, 'err_fb_at_milestone'),
-                stepsType: 'measurements',
-            });
-            const stFb = _mv(sd, 'steps_to_fb');
-            if (stFb != null) {
-                entities.push({
-                    id: 'sbed_freq', label: 'sbed freq converged',
-                    steps: stFb,
-                    uncert: _mv(sd, 'uncert_fb_at_milestone'),
-                    err:    _mv(sd, 'err_fb_at_milestone'),
-                    steps_to_fb: null, uncert_at_fb: null, err_at_fb: null,
-                    stepsType: 'steps',
-                });
-            }
+        for (const strategy of strategies) {
+            const p = group.find(q => q.strategy === strategy);
+            if (p) entities.push(..._makeStrategyEntities(_phaseData(p), strategy, false));
         }
-
-        // 2. Sobol
-        const sobolPlot = group.find(p => p.strategy === 'SimpleSobol');
-        if (sobolPlot) {
-            const sod = _phaseData(sobolPlot);
-            entities.push({
-                id: 'sobol', label: 'sobol',
-                steps:        _mv(sod, 'measurements'),
-                uncert:       _mv(sod, 'uncert'),
-                err:          _mv(sod, 'abs_err_x'),
-                steps_to_fb:  _mv(sod, 'steps_to_fb'),
-                uncert_at_fb: _mv(sod, 'uncert_fb_at_milestone'),
-                err_at_fb:    _mv(sod, 'err_fb_at_milestone'),
-                stepsType: 'measurements',
-            });
-        }
-
-        // 3. Simple Sweep
-        const sweepPlot = group.find(p => p.strategy === 'SimpleSweep');
-        if (sweepPlot) {
-            const swd = _phaseData(sweepPlot);
-            entities.push({
-                id: 'simple_sweep', label: 'simple sweep',
-                steps:        _mv(swd, 'measurements'),
-                uncert:       _mv(swd, 'uncert'),
-                err:          _mv(swd, 'abs_err_x'),
-                steps_to_fb:  _mv(swd, 'steps_to_fb'),
-                uncert_at_fb: _mv(swd, 'uncert_fb_at_milestone'),
-                err_at_fb:    _mv(swd, 'err_fb_at_milestone'),
-                stepsType: 'measurements',
-            });
-        }
-
         return entities;
     }
 
@@ -3768,7 +3865,7 @@ function main() {
     }
 
     // ── Shared selector + card renderer ──────────────────────────────────────
-    function buildTwoDropdownSelector(entities, onPairChange) {
+    function buildTwoDropdownSelector(entities, onPairChange, defaultAId, defaultBId) {
         const wrapper = document.createElement('div');
         wrapper.className = 'control-row';
         wrapper.style.cssText = 'gap:0.5em;margin:0.5em 0 0.75em;flex-wrap:wrap;align-items:center;';
@@ -3790,7 +3887,9 @@ function main() {
                 sel.appendChild(opt);
             });
         }
-        if (entities.length >= 2) selB.selectedIndex = 1;
+        if (defaultAId) { const i = entities.findIndex(e => e.id === defaultAId); if (i >= 0) selA.selectedIndex = i; }
+        if (defaultBId) { const i = entities.findIndex(e => e.id === defaultBId); if (i >= 0) selB.selectedIndex = i; }
+        else if (entities.length >= 2) selB.selectedIndex = 1;
         const notify = () => {
             const eA = entities.find(e => e.id === selA.value);
             const eB = entities.find(e => e.id === selB.value);
@@ -3851,6 +3950,41 @@ function main() {
         }
     }
 
+    function updateStoppingCriteriaVisibility(plot) {
+        const row = document.getElementById('stopping-criteria-row');
+        if (!row) return;
+        const d = plot ? _phaseData(plot) : null;
+        const hasFreq = d && (_mv(d, 'freq_converged_step') != null || _mv(d, 'steps_to_fb') != null);
+        const hasAll  = d && _mv(d, 'all_converged_step') != null;
+        row.style.display = (hasFreq || hasAll) ? '' : 'none';
+        // Disable individual buttons if the data isn't available
+        const btns = row.querySelectorAll('button[data-value]');
+        for (const btn of btns) {
+            const v = btn.dataset.value;
+            if (v === 'freq_converged') btn.disabled = !hasFreq;
+            else if (v === 'all_converged') btn.disabled = !hasAll;
+            else btn.disabled = false;
+        }
+        // If current criteria is now unavailable, reset to 'full'
+        if ((currentStoppingCriteria === 'freq_converged' && !hasFreq) ||
+            (currentStoppingCriteria === 'all_converged' && !hasAll)) {
+            setStoppingCriteria('full');
+        }
+    }
+
+    function setStoppingCriteria(value) {
+        currentStoppingCriteria = value;
+        const group = document.getElementById('scan-stopping-criteria');
+        if (group) {
+            group.querySelectorAll('button').forEach(b => {
+                const active = b.dataset.value === value;
+                b.classList.toggle('is-active', active);
+                b.setAttribute('aria-checked', String(active));
+                b.tabIndex = active ? 0 : -1;
+            });
+        }
+    }
+
     function setupRepeatComparisonUI(plot) {
         const selContainer = document.getElementById('scan-comparison-selector');
         const cardContainer = document.getElementById('scan-comparison-cards');
@@ -3859,9 +3993,29 @@ function main() {
         cardContainer.innerHTML = '';
         const entities = buildRepeatEntities(plot);
         if (entities.length < 2) return;
+
+        // Determine which entity IDs to pre-select based on stopping criteria and current strategy
+        const currentStrategy = plot ? plot.strategy : null;
+        const currentId = currentStrategy
+            ? currentStrategy.toLowerCase().replace(/[^a-z0-9]/g, '_')
+            : null;
+        let defaultAId = entities[0].id;
+        let defaultBId = entities[1].id;
+        if (currentId) {
+            const suffix = currentStoppingCriteria === 'freq_converged' ? '_freq'
+                         : currentStoppingCriteria === 'all_converged'  ? '_conv'
+                         : '';
+            const preferred = currentId + suffix;
+            const found = entities.find(e => e.id === preferred) || entities.find(e => e.id === currentId);
+            if (found) defaultAId = found.id;
+            // Pick a different entity for B
+            const bEntity = entities.find(e => e.id !== defaultAId);
+            if (bEntity) defaultBId = bEntity.id;
+        }
+
         const { wrapper, notify } = buildTwoDropdownSelector(entities, (eA, eB) => {
             renderPairwiseCards(buildPairwiseRows(eA, eB), cardContainer, false);
-        });
+        }, defaultAId, defaultBId);
         selContainer.appendChild(wrapper);
         notify();
     }
@@ -3938,6 +4092,17 @@ function main() {
         });
     }
 
+
+    // Stopping criteria selector
+    const stoppingCriteriaGroup = document.getElementById('scan-stopping-criteria');
+    if (stoppingCriteriaGroup) {
+        stoppingCriteriaGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-value]');
+            if (!btn || btn.disabled) return;
+            setStoppingCriteria(btn.dataset.value);
+            if (currentPlot) findAndDisplayPlot();
+        });
+    }
 
     // Toggle setup
     const scanViewMode = document.getElementById('scan-view-mode');
@@ -4147,7 +4312,16 @@ function main() {
     }
 
     function renderNarrowedBoundsFromIframe() {
-        if (!scanIframe || !narrowedBoundsPanel) return;
+        if (!narrowedBoundsPanel) return;
+        // JSON path: read directly from the Plotly graph div
+        const scanPlotDiv = document.getElementById('scan-plot-div');
+        if (scanPlotDiv && scanPlotDiv.style.display !== 'none' && scanPlotDiv.layout) {
+            const meta = scanPlotDiv.layout.meta;
+            renderNarrowedBoundsPanel(meta && meta.narrowed_param_bounds);
+            return;
+        }
+        // Legacy HTML iframe path
+        if (!scanIframe) return;
         const frameDoc = scanIframe.contentDocument;
         if (!frameDoc) { renderNarrowedBoundsPanel(null); return; }
         const html = frameDoc.documentElement ? frameDoc.documentElement.outerHTML : '';
@@ -4295,19 +4469,19 @@ function main() {
         console.log('[DEBUG] allAggregatePlots length:', allAggregatePlots.length);
 
         if (!gen || !noise) {
-            compIframeAbsErr.src = '';
-            compIframeMeasurements.src = '';
-            compIframeDuration.src = '';
+            setPlotSrc(compIframeAbsErr, undefined, null);
+            setPlotSrc(compIframeMeasurements, undefined, null);
+            setPlotSrc(compIframeDuration, undefined, null);
             const compIframeSavings = document.getElementById('comp-iframe-savings');
-            if (compIframeSavings) compIframeSavings.src = '';
+            if (compIframeSavings) setPlotSrc(compIframeSavings, undefined, null);
             const mIframeSteps = document.getElementById('milestone-iframe-steps');
             const mIframeErrFc = document.getElementById('milestone-iframe-err-fc');
             const mIframeDeltaFc = document.getElementById('milestone-iframe-delta-fc');
-            if (mIframeSteps) mIframeSteps.src = '';
-            if (mIframeErrFc) mIframeErrFc.src = '';
-            if (mIframeDeltaFc) mIframeDeltaFc.src = '';
+            if (mIframeSteps) setPlotSrc(mIframeSteps, undefined, null);
+            if (mIframeErrFc) setPlotSrc(mIframeErrFc, undefined, null);
+            if (mIframeDeltaFc) setPlotSrc(mIframeDeltaFc, undefined, null);
             const spanPerNoiseIframe = document.getElementById('comp-iframe-span-per-noise');
-            if (spanPerNoiseIframe) spanPerNoiseIframe.src = '';
+            if (spanPerNoiseIframe) setPlotSrc(spanPerNoiseIframe, undefined, null);
             return;
         }
 
@@ -4316,16 +4490,15 @@ function main() {
         const durationPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'duration_ms');
         const savingsPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'sobol_difference');
         const spanPerNoisePlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'savings_vs_span_per_noise');
-        console.log('[DEBUG] plot search results - absErrPlot:', absErrPlot, 'savingsPlot:', savingsPlot, 'spanPerNoisePlot:', spanPerNoisePlot);
 
-        compIframeAbsErr.src = absErrPlot ? absErrPlot.path : '';
-        compIframeMeasurements.src = measurementsPlot ? measurementsPlot.path : '';
-        compIframeDuration.src = durationPlot ? durationPlot.path : '';
+        setPlotSrc(compIframeAbsErr, undefined, absErrPlot ? absErrPlot.path : null);
+        setPlotSrc(compIframeMeasurements, undefined, measurementsPlot ? measurementsPlot.path : null);
+        setPlotSrc(compIframeDuration, undefined, durationPlot ? durationPlot.path : null);
 
         const compIframeSavings = document.getElementById('comp-iframe-savings');
         const compSavingsContainer = document.getElementById('comp-savings-container');
         if (compIframeSavings) {
-            compIframeSavings.src = savingsPlot ? savingsPlot.path : '';
+            setPlotSrc(compIframeSavings, undefined, savingsPlot ? savingsPlot.path : null);
             if (compSavingsContainer) {
                 compSavingsContainer.style.display = savingsPlot ? 'block' : 'none';
             }
@@ -4334,7 +4507,7 @@ function main() {
         const spanPerNoiseIframe = document.getElementById('comp-iframe-span-per-noise');
         const spanPerNoiseContainer = document.getElementById('comp-span-per-noise-container');
         if (spanPerNoiseIframe) {
-            spanPerNoiseIframe.src = spanPerNoisePlot ? spanPerNoisePlot.path : '';
+            setPlotSrc(spanPerNoiseIframe, undefined, spanPerNoisePlot ? spanPerNoisePlot.path : null);
             if (spanPerNoiseContainer) {
                 spanPerNoiseContainer.style.display = spanPerNoisePlot ? 'block' : 'none';
             }
@@ -4345,19 +4518,17 @@ function main() {
         const summaryMeasIframe = document.getElementById('comp-iframe-summary-meas');
         const summarySavingsIframe = document.getElementById('comp-iframe-summary-savings');
         const summarySpanIframe = document.getElementById('comp-iframe-summary-span');
-        
+
         if (summaryErrIframe && summaryMeasIframe && summarySavingsIframe && summarySpanIframe) {
             const summaryPlots = plots.filter(p => p.type === 'summary' && p.generator === gen);
             const errPlot = summaryPlots.find(p => p.metric === 'pair_rmse') || summaryPlots.find(p => p.metric === 'abs_err_x');
             const measPlot = summaryPlots.find(p => p.metric === 'measurements');
             const savPlot = summaryPlots.find(p => p.metric === 'savings');
             const spanPlot = summaryPlots.find(p => p.metric === 'savings_vs_span');
-            console.log('[DEBUG] summaryPlots count:', summaryPlots.length, 'savPlot:', savPlot, 'spanPlot:', spanPlot);
-            
-            summaryErrIframe.src = errPlot ? errPlot.path : '';
-            summaryMeasIframe.src = measPlot ? measPlot.path : '';
-            summarySavingsIframe.src = savPlot ? savPlot.path : '';
-            summarySpanIframe.src = spanPlot ? spanPlot.path : '';
+            setPlotSrc(summaryErrIframe, undefined, errPlot ? errPlot.path : null);
+            setPlotSrc(summaryMeasIframe, undefined, measPlot ? measPlot.path : null);
+            setPlotSrc(summarySavingsIframe, undefined, savPlot ? savPlot.path : null);
+            setPlotSrc(summarySpanIframe, undefined, spanPlot ? spanPlot.path : null);
         }
 
         // Update milestone plots
@@ -4371,9 +4542,9 @@ function main() {
         const mIframeDeltaFc = document.getElementById('milestone-iframe-delta-fc');
         const mContainer = document.getElementById('milestone-plots-container');
 
-        if (mIframeSteps) mIframeSteps.src = stepsPlot ? stepsPlot.path : '';
-        if (mIframeErrFc) mIframeErrFc.src = errFcPlot ? errFcPlot.path : '';
-        if (mIframeDeltaFc) mIframeDeltaFc.src = deltaFcPlot ? deltaFcPlot.path : '';
+        if (mIframeSteps) setPlotSrc(mIframeSteps, undefined, stepsPlot ? stepsPlot.path : null);
+        if (mIframeErrFc) setPlotSrc(mIframeErrFc, undefined, errFcPlot ? errFcPlot.path : null);
+        if (mIframeDeltaFc) setPlotSrc(mIframeDeltaFc, undefined, deltaFcPlot ? deltaFcPlot.path : null);
 
         if (mContainer) {
             mContainer.style.display = (stepsPlot || errFcPlot || deltaFcPlot) ? 'flex' : 'none';

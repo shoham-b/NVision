@@ -9,14 +9,9 @@ import numpy as np
 
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
-from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, NVISION_SMC_CANDIDATE_STEP_HZ
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
-
-
-# Expose a default maximum candidate limit to protect against massive EIG scoring grids
-_env_max = os.getenv("NVISION_SMC_MAX_CANDIDATES")
-NVISION_SMC_MAX_CANDIDATES: int | None = int(_env_max) if _env_max is not None else 2000
 
 # Minimum number of consecutive converged checks before declaring convergence.
 # Prevents false early stops on the first measurement, especially with no noise.
@@ -32,6 +27,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     """
 
     REQUIRES_BELIEF = True
+    USES_SWEEP_MAX_STEPS = True
 
     def __init__(
         self,
@@ -40,7 +36,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         noise_std: float = 0.02,
-        n_candidates: int | None = None,
+        candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
     ) -> None:
         super().__init__(
@@ -51,7 +47,9 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             noise_std=noise_std,
             convergence_patience_steps=convergence_patience_steps,
         )
-        self.n_candidates = int(n_candidates) if n_candidates is not None else NVISION_SMC_MAX_CANDIDATES
+        self.candidate_step_hz: float = (
+            float(candidate_step_hz) if candidate_step_hz is not None else NVISION_SMC_CANDIDATE_STEP_HZ
+        )
 
         # We handle resampling manually to check convergence at the right moment
         if hasattr(self.belief, "auto_resample"):
@@ -67,7 +65,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         scan_param: str | None = None,
         parameter_bounds=None,
         noise_std: float | None = None,
-        n_candidates: int | None = None,
+        candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
         **grid_config,
     ):
@@ -80,7 +78,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
             noise_std=noise_std,
-            n_candidates=n_candidates,
+            candidate_step_hz=candidate_step_hz,
             convergence_patience_steps=convergence_patience_steps,
         )
 
@@ -102,6 +100,23 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 num_candidates = max(1, math.ceil(range_val / resolution)) + 1
         return super()._generate_candidates(num_candidates)
 
+    def _thin_candidates_by_step(self, candidates: np.ndarray) -> np.ndarray:
+        """Return a subset of *candidates* (physical space) with minimum physical spacing.
+
+        Walks the sorted candidate array once and keeps a candidate only when it
+        is at least ``candidate_step_hz`` away from the previously kept one.
+        This is O(n) and preserves the first and last candidates so the full
+        acquisition range is always represented.
+        """
+        if len(candidates) <= 1:
+            return candidates
+        kept: list[int] = [0]
+        for i in range(1, len(candidates) - 1):
+            if candidates[i] - candidates[kept[-1]] >= self.candidate_step_hz:
+                kept.append(i)
+        kept.append(len(candidates) - 1)
+        return candidates[np.array(kept, dtype=np.intp)]
+
     def _acquire(self) -> float:
         """Select the next measurement point by maximizing EIG over a frequency grid."""
         lo, hi = self._acquisition_bounds()
@@ -111,12 +126,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # Retrieve candidates directly from the belief (slope-targeted epoch grid)
         candidates = self.belief.get_candidates()
 
-        # If candidate grid is exceptionally large, thin it out uniformly to accelerate EIG evaluation
-        if self.n_candidates is not None and len(candidates) > self.n_candidates:
-            step_size = len(candidates) / self.n_candidates
-            indices = np.arange(0, len(candidates), step_size).astype(int)
-            indices = np.minimum(indices, len(candidates) - 1)
-            candidates = candidates[indices]
+        # Thin candidates to minimum physical step spacing.
+        # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
+        # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
+        candidates = self._thin_candidates_by_step(candidates)
 
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
         eig_choice = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
@@ -240,10 +253,5 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 if self._convergence_streak >= self._convergence_patience_steps:
                     self._is_converged = True
             else:
-                # Reset streak on any non-converged check
                 self._convergence_streak = 0
-
-    def _acquisition_done(self) -> bool:
-        if self._is_converged:
-            return True
-        return super()._acquisition_done()
+            self._check_convergence_milestones()

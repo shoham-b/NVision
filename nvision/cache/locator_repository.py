@@ -132,6 +132,70 @@ class LocatorResultsRepository:
         inline_config_v8["schema_version"] = 8
         return self._get_cached_results_for_config(inline_config_v8)
 
+    def get_cached_combination_fast(
+        self,
+        *,
+        generator: str,
+        noise: str,
+        strategy: str,
+        repeats: int,
+        seed: int,
+        max_steps: int,
+        timeout_s: int,
+        repeat_offset: int = 0,
+        out_dir: Path | None = None,
+    ) -> CachedComboResults | None:
+        """Fast cache restore: use lightweight ``:meta`` sidecars to avoid loading MB of plot bytes.
+
+        Falls back to ``None`` (caller must use :meth:`get_cached_combination`) when:
+        - Sidecars are missing (old cache entries written before the sidecar feature)
+        - ``out_dir`` is not provided
+        - Any referenced gz file does not exist on disk (needs ``restore_graphs``)
+        """
+        if out_dir is None:
+            return None
+
+        ptr_config = combination_base_cache_config(
+            generator=generator,
+            noise=noise,
+            strategy=strategy,
+            seed=seed,
+            max_steps=max_steps,
+            timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
+        )
+        ptr_key = stable_config_hash(ptr_config)
+        ptr_df = self._store.load_df(ptr_key)
+
+        if ptr_df is None or ptr_df.is_empty():
+            ptr_config_v8 = dict(ptr_config)
+            ptr_config_v8["schema_version"] = 8
+            ptr_key_v8 = stable_config_hash(ptr_config_v8)
+            ptr_df_v8 = self._store.load_df(ptr_key_v8)
+            if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
+                ptr_key = ptr_key_v8
+                ptr_df = ptr_df_v8
+
+        if ptr_df is None or ptr_df.is_empty():
+            return None
+
+        achieved = int(ptr_df.get_column("achieved_repeats")[0])
+        if achieved < repeat_offset + repeats:
+            return None
+
+        meta = self._repeats.load_repeats_meta(ptr_key, repeats, start_idx=repeat_offset)
+        if meta is None:
+            return None
+
+        # Only use fast path if every referenced gz file already exists on disk
+        for entries, _ in meta:
+            for entry in entries:
+                p = entry.get("path")
+                if p and p.endswith(".gz") and not (out_dir / p).exists():
+                    return None
+
+        return meta
+
     def get_cached_combination_partial(
         self,
         *,

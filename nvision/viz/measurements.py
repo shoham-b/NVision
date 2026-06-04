@@ -670,6 +670,12 @@ def _dense_xs_with_measurements(scan: Any, history_xs: list[Any], *, n_dense: in
     history_xs_arr = np.asarray([float(x) for x in history_xs if x is not None], dtype=float)
     if history_xs_arr.size == 0:
         return xs_base
+    # Only include measurement xs that fall within the physical scan domain.
+    # Old cached runs may have stored normalized [0, 1] x values; exclude them.
+    in_range = (history_xs_arr >= scan.x_min) & (history_xs_arr <= scan.x_max)
+    history_xs_arr = history_xs_arr[in_range]
+    if history_xs_arr.size == 0:
+        return xs_base
     return np.unique(np.concatenate([xs_base, history_xs_arr]))
 
 
@@ -981,7 +987,7 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa
 
 
 def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> None:
-    """If a scan manifest entry has no ``plot_data``, rebuild it from the saved scan HTML on disk."""
+    """If a scan manifest entry has no ``plot_data``, rebuild it from the saved scan file on disk."""
     if entry.get("type") != "scan" or entry.get("plot_data"):
         return
     rel = entry.get("path")
@@ -991,8 +997,12 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
     if not path.exists():
         return
     try:
-        html = path.read_text(encoding="utf-8")
-        fig = _parse_figure_from_scan_html(html)
+        if rel.endswith(".json.gz"):
+            from nvision.viz._f32_json import figure_from_gz_bytes
+            fig = figure_from_gz_bytes(path.read_bytes())
+        else:
+            html = path.read_text(encoding="utf-8")
+            fig = _parse_figure_from_scan_html(html)
         if fig is None:
             return
         plot_data = plot_data_from_scan_figure(fig)
@@ -1080,7 +1090,7 @@ class MeasurementsMixin:
         self,
         scan,
         history: pl.DataFrame,
-        out_path: Path,
+        out_path: Path | None = None,
         over_frequency_noise: CompositeOverFrequencyNoise | None = None,
         mode_estimates: Mapping[str, float] | None = None,
         focus_window: tuple[float, float] | None = None,
@@ -1093,7 +1103,7 @@ class MeasurementsMixin:
         sweep_xs: list[float] | None = None,
         sweep_ys: list[float] | None = None,
         sweep_mode_estimates: Mapping[str, float] | None = None,
-    ) -> Path:
+    ) -> bytes:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
         - True signal: computed densely across [x_min, x_max].
@@ -1106,7 +1116,8 @@ class MeasurementsMixin:
         - ``narrowed_param_bounds``: non-scan parameters narrowed after the initial sweep.
           Embedded in the figure ``meta`` so the UI can parse and display them.
         """
-        ensure_out_dir(out_path.parent)
+        if out_path is not None:
+            ensure_out_dir(out_path.parent)
 
         history_xs_raw, history_ys_raw = _extract_history_xy(history)
         xs = _dense_xs_with_measurements(scan, history_xs_raw, n_dense=5000)
@@ -1272,5 +1283,5 @@ class MeasurementsMixin:
             per_dip_windows=per_dip_windows,
         )
 
-        fig.write_html(out_path.as_posix(), include_plotlyjs="cdn")
-        return out_path
+        from nvision.viz._f32_json import write_plotly_gz
+        return write_plotly_gz(fig, out_path)

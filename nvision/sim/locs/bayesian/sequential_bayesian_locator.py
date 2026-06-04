@@ -91,6 +91,8 @@ class SequentialBayesianLocator(Locator):
         )
         self._convergence_patience_steps = max(1, int(convergence_patience_steps))
         self._convergence_streak = 0
+        self.freq_converged_step: int | None = None
+        self.all_converged_step: int | None = None
 
         if noise_std is None or float(noise_std) <= 0:
             raise ValueError(f"noise_std must be a positive float; got {noise_std!r}")
@@ -214,9 +216,23 @@ class SequentialBayesianLocator(Locator):
         """
         raise NotImplementedError("Subclasses must implement _acquire()")
 
+    def _check_convergence_milestones(self) -> None:
+        """Record the first step at which frequency and all params converge."""
+        from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+
+        physical_uncertainties = self.belief.uncertainty()
+        if self.freq_converged_step is None and "frequency" in physical_uncertainties:
+            freq_threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get("frequency")
+            if freq_threshold is not None and float(physical_uncertainties["frequency"]) < freq_threshold:
+                self.freq_converged_step = self.step_count
+
+        if self.all_converged_step is None and self._target_params_converged():
+            self.all_converged_step = self.step_count
+
     def _observe_acquisition(self, obs: Observation) -> None:
         """Route acquisition observations to the belief immediately."""
         self.belief.update(obs)
+        self._check_convergence_milestones()
 
     def _acquisition_done(self) -> bool:
         """Return whether the Bayesian acquisition phase should stop.

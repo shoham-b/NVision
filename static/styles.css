@@ -291,6 +291,15 @@ body {
             background-color: #fff;
         }
 
+        .plotly-json-plot, #scan-plot-div, [id$="-json-div"] {
+            width: 100%;
+            min-height: 500px;
+            border: 1px solid #ccc;
+            margin-top: 1.5em;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+
         p {
             margin-top: 1em;
         }

@@ -416,7 +416,11 @@ class ProgressMonitor:
                 break
 
             tid, advance = item
-            self.sub_progress.update(tid, advance=advance)
+            try:
+                self.sub_progress.update(tid, advance=advance)
+            except KeyError:
+                # Task was already removed (completed) before this queued update arrived
+                continue
 
             weight = self._tid_to_weight.get(tid, 1000.0)
             self._completed_weighted += advance * weight

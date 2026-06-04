@@ -93,6 +93,12 @@ NVISION_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_CONVERGENCE_THRE
 # Unset optional vars fall back to relative NVISION_CONVERGENCE_THRESHOLD × bound width.
 NVISION_FREQ_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_FREQ_CONVERGENCE_THRESHOLD", "100000.0"))
 
+# Minimum physical step (Hz) between consecutive EIG-evaluated candidates.
+# Candidate count from the epoch grid ≈ 6·σ_f / NVISION_SMC_CANDIDATE_STEP_HZ,
+# so the budget shrinks automatically as the posterior tightens.
+# Defaults to NVISION_FREQ_CONVERGENCE_THRESHOLD (100 kHz).
+NVISION_SMC_CANDIDATE_STEP_HZ: float = float(os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_FREQ_CONVERGENCE_THRESHOLD)))
+
 
 def _optional_env_float(name: str) -> float | None:
     raw = os.getenv(name)

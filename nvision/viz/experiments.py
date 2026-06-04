@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import plotly.graph_objects as go
+
+from nvision.viz._f32_json import write_plotly_gz
 import polars as pl
 
 
@@ -46,7 +48,7 @@ class ExperimentsMixin:
                 except Exception:
                     pivot = pivot.sort("noise")
 
-                out_path = self.out_dir / f"summary_{gen}_{metric}.html"
+                out_path = self.out_dir / f"summary_{gen}_{metric}.json.gz"
                 self._plot_pivot_from_polars(pivot, f"Summary: {gen} ({metric})", "Noise Level", ylabel, out_path)
                 plots.append({
                     "type": "summary",
@@ -95,9 +97,9 @@ class ExperimentsMixin:
                                 template="plotly_white",
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                             )
-                            out_path = self.out_dir / f"summary_{gen}_savings.html"
+                            out_path = self.out_dir / f"summary_{gen}_savings.json.gz"
                             out_path.parent.mkdir(parents=True, exist_ok=True)
-                            fig.write_html(out_path)
+                            write_plotly_gz(fig, out_path)
                             plots.append({
                                 "type": "summary",
                                 "path": str(out_path),
@@ -137,7 +139,7 @@ class ExperimentsMixin:
         )
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        write_plotly_gz(fig, out_path)
 
     def plot_locator_summary(self, df: pl.DataFrame) -> list[dict]:
         """Create comparison plots for locator sweeps."""
@@ -177,7 +179,7 @@ class ExperimentsMixin:
         for (gen, noise), sub in partitions.items():
             try:
                 # Pivot on strategy to get measurements per strategy per repeat
-                pivot_m = sub.pivot(on="strategy", index="attempt", values="measurements")
+                pivot_m = sub.pivot(on="strategy", index="attempt", values="measurements", aggregate_function="mean")
                 sweep_col = None
                 for col in pivot_m.columns:
                     if "sweep" in col.lower() or "sobol" in col.lower():
@@ -187,13 +189,16 @@ class ExperimentsMixin:
                     continue
 
                 # get parameters per repeat for this group
-                params_df = sub.group_by("attempt").first() 
+                params_df = sub.group_by("attempt").first()
                 joined = pivot_m.join(params_df, on="attempt")
+                for _c in ["final_est_linewidth", "final_est_split", "acquisition_hi", "acquisition_lo", "expected_uniform_points"]:
+                    if _c in joined.columns:
+                        joined = joined.with_columns(pl.col(_c).cast(pl.Float64, strict=False))
 
                 fig = go.Figure()
                 f_spans = []
                 baseline_vals = joined.get_column(sweep_col).to_list()
-                
+
                 has_valid = False
                 for row in joined.iter_rows(named=True):
                     lw = row.get("final_est_linewidth")
@@ -201,14 +206,14 @@ class ExperimentsMixin:
                     hi = row.get("acquisition_hi")
                     lo = row.get("acquisition_lo")
                     exp_pts = row.get("expected_uniform_points")
-                    
+
                     f_span = None
                     if lw is not None and hi is not None and lo is not None and hi > lo:
                         split_val = split if split is not None else 0
                         f_span = max(2 * lw, split_val + lw) / (hi - lo)
                     elif exp_pts is not None and exp_pts > 0:
                         f_span = 1.0 / exp_pts
-                        
+
                     f_spans.append(f_span)
                 
                 for strat in pivot_m.columns:
@@ -238,9 +243,9 @@ class ExperimentsMixin:
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
                     safe_noise = str(noise).replace(".", "_")
-                    out_path = self.out_dir / f"model_comp_{gen}_{safe_noise}_savings_span.html"
+                    out_path = self.out_dir / f"model_comp_{gen}_{safe_noise}_savings_span.json.gz"
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    fig.write_html(out_path)
+                    write_plotly_gz(fig, out_path)
                     plots.append({
                         "type": "model_comparison",
                         "path": str(out_path),
@@ -262,10 +267,15 @@ class ExperimentsMixin:
         partitions = df.partition_by("generator", as_dict=True)
         for gen_tuple, sub in partitions.items():
             gen = gen_tuple[0]
-            
+
+            _numeric_cols = ["final_est_linewidth", "final_est_split", "acquisition_hi", "acquisition_lo", "expected_uniform_points", "measurements"]
+            for _c in _numeric_cols:
+                if _c in sub.columns:
+                    sub = sub.with_columns(pl.col(_c).cast(pl.Float64, strict=False))
+
             agg_exprs = [pl.col("measurements").mean()]
             agg = sub.group_by(["noise", "strategy"]).agg(agg_exprs)
-            
+
             try:
                 pivot_m = agg.pivot(on="strategy", index="noise", values="measurements")
                 sweep_col = None
@@ -281,10 +291,10 @@ class ExperimentsMixin:
                 for c in ["final_est_linewidth", "final_est_split", "acquisition_hi", "acquisition_lo", "expected_uniform_points"]:
                     if c in sub.columns:
                         noise_agg_cols.append(pl.col(c).max().alias(c))
-                
+
                 if not noise_agg_cols:
                     continue
-                    
+
                 noise_df = sub.group_by("noise").agg(noise_agg_cols)
                 joined = pivot_m.join(noise_df, on="noise")
 
@@ -338,9 +348,9 @@ class ExperimentsMixin:
                         xaxis_type="log",
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
-                    out_path = self.out_dir / f"summary_{gen}_savings_vs_span.html"
+                    out_path = self.out_dir / f"summary_{gen}_savings_vs_span.json.gz"
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    fig.write_html(out_path)
+                    write_plotly_gz(fig, out_path)
                     plots.append({
                         "type": "summary",
                         "path": str(out_path),
@@ -376,7 +386,7 @@ class ExperimentsMixin:
 
         # 1. Distribution of steps to fb convergence
         if "steps_to_fb" in df.columns:
-            out_path = self.out_dir / "milestone_steps_to_fb.html"
+            out_path = self.out_dir / "milestone_steps_to_fb.json.gz"
             fig = go.Figure()
             # Histogram of steps per strategy
             for (strat,), sub in partitions.items():
@@ -392,12 +402,12 @@ class ExperimentsMixin:
                 template="plotly_white",
             )
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            fig.write_html(out_path)
+            write_plotly_gz(fig, out_path)
             entries.append({"type": "milestone", "path": str(out_path), "title": "Steps to fb Convergence"})
 
         # 2. Error comparison (Milestone vs Final)
         if "err_fc_at_milestone" in df.columns and "final_err_fc" in df.columns:
-            out_path = self.out_dir / "milestone_error_comparison_fc.html"
+            out_path = self.out_dir / "milestone_error_comparison_fc.json.gz"
             fig = go.Figure()
             for (strat,), sub in partitions.items():
                 m_err = sub.get_column("err_fc_at_milestone").drop_nans().drop_nulls()
@@ -413,12 +423,12 @@ class ExperimentsMixin:
                 yaxis_title="Absolute Error (Hz)",
                 template="plotly_white",
             )
-            fig.write_html(out_path)
+            write_plotly_gz(fig, out_path)
             entries.append({"type": "milestone", "path": str(out_path), "title": "Splitting Error Comparison"})
 
         # 3. Zeeman resolution sufficiency (Error Delta)
         if "err_fc_diff" in df.columns:
-            out_path = self.out_dir / "milestone_error_delta_fc.html"
+            out_path = self.out_dir / "milestone_error_delta_fc.json.gz"
             fig = go.Figure()
             for (strat,), sub in partitions.items():
                 err_diff = sub.get_column("err_fc_diff").drop_nans().drop_nulls()
@@ -430,7 +440,7 @@ class ExperimentsMixin:
                 yaxis_title="Error Reduction (Hz)",
                 template="plotly_white",
             )
-            fig.write_html(out_path)
+            write_plotly_gz(fig, out_path)
             entries.append({"type": "milestone", "path": str(out_path), "title": "Zeeman Resolution Gain"})
 
         return entries

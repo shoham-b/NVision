@@ -6,7 +6,7 @@ import os
 
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
-from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 # Observations are buffered and dispatched to belief.batch_update() every
@@ -65,7 +65,6 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         if hasattr(self.belief, "auto_resample"):
             self.belief.auto_resample = False
         self._is_converged = False
-        self.freq_converged_step: int | None = None
         self._obs_buffer: list[Observation] = []
         self._batch_chunk_size: int = batch_chunk_size
 
@@ -117,24 +116,16 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         if not hasattr(self.belief, "_weights"):
             return
 
-        # Track frequency convergence (absolute threshold from env).
-        if self.freq_converged_step is None:
-            freq_threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get("frequency")
-            if freq_threshold is not None:
-                physical_uncertainties = self.belief.uncertainty()
-                if "frequency" in physical_uncertainties:
-                    unc = float(physical_uncertainties["frequency"])
-                    if unc < freq_threshold:
-                        self.freq_converged_step = self.step_count
-
         ess = _inverse_sum_squares(self.belief._weights)
         ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)
         if ess < ess_threshold:
             if hasattr(self.belief, "_resample"):
                 self.belief._resample()
 
-        if check_convergence and self._target_params_converged():
-            self._is_converged = True
+        if check_convergence:
+            self._check_convergence_milestones()
+            if self._target_params_converged():
+                self._is_converged = True
 
     def done(self) -> bool:
         """Flush pending observations when the chunk is full or budget is exhausted."""
@@ -142,8 +133,3 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         if len(self._obs_buffer) >= self._batch_chunk_size or (self._obs_buffer and exhausted):
             self._flush_buffer(check_convergence=True)
         return self._acquisition_done()
-
-    def _acquisition_done(self) -> bool:
-        if self._is_converged:
-            return True
-        return super()._acquisition_done()

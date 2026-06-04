@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
+
+from nvision.viz._f32_json import write_plotly_gz
 from plotly.subplots import make_subplots
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
@@ -737,7 +739,7 @@ class BayesianMixin:
         _add_true_vline_single_axis(fig, true_value)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
+        write_plotly_gz(fig, out_path)
 
     def plot_posterior_animation_all_params(  # noqa: C901
         self,
@@ -1392,7 +1394,16 @@ class BayesianMixin:
         fig.frames = frames
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        write_plotly_gz(fig, out_path)
 
+    def _plot_posterior_animation_all_params_legacy_html(  # noqa: C901
+        self,
+        frames,
+        slider_steps,
+        fig,
+        out_path,
+    ) -> None:
+        """Legacy HTML writer — kept for reference but not called. Use JSON output instead."""
         import json
 
         html_content = fig.to_html(include_plotlyjs="cdn", include_mathjax="cdn", full_html=True)
@@ -1838,7 +1849,7 @@ class BayesianMixin:
         )
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
+        write_plotly_gz(fig, out_path)
 
     def plot_correlation_heatmap_animation(
         self,
@@ -1980,7 +1991,7 @@ class BayesianMixin:
         fig.frames = frames
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
+        write_plotly_gz(fig, out_path)
 
     def plot_covariance_ellipses(  # noqa: C901
         self,
@@ -2252,8 +2263,7 @@ class BayesianMixin:
                 fig.update_yaxes(scaleanchor=f"x{col if col > 1 else ''}", scaleratio=1, row=1, col=col)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
-        self._inject_timeline_bridge(out_path, step_labels=[str(idx) for idx in step_indices])
+        write_plotly_gz(fig, out_path)
 
     def plot_fisher_vs_crlb(
         self,
@@ -2387,7 +2397,7 @@ class BayesianMixin:
         )
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
+        write_plotly_gz(fig, out_path)
 
     def plot_fisher_crlb_pairs(  # noqa: C901
         self,
@@ -2690,7 +2700,7 @@ class BayesianMixin:
         fig.frames = frames
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
+        write_plotly_gz(fig, out_path)
 
     def plot_convergence_metrics(  # noqa: C901
         self,
@@ -2932,4 +2942,4 @@ class BayesianMixin:
         )
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path, include_mathjax="cdn")
+        write_plotly_gz(fig, out_path)

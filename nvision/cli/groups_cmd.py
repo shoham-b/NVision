@@ -26,7 +26,6 @@ def run_single(
     noise: Annotated[str, typer.Argument(help="Noise name (e.g. NoNoise, Gauss(0.01))")],
     strategy: Annotated[str, typer.Argument(help="Strategy name (e.g. Bayesian-SBED-NoSweep)")],
     repeats: cli_options.RepeatsOption = 1,
-    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: cli_options.NoCacheOption = False,
     dry_run: cli_options.DryRunOption = False,
@@ -48,7 +47,6 @@ def run_single(
     return run(
         out=ARTIFACTS_ROOT,
         repeats=repeats,
-        loc_max_steps=loc_max_steps,
         loc_timeout_s=loc_timeout_s,
         filter_generator=generator,
         filter_noise=noise,
@@ -65,8 +63,6 @@ def run_single(
     )
 
 
-
-
 def _run_named_group(
     group_name: str,
     *,
@@ -76,7 +72,6 @@ def _run_named_group(
     dry_run: bool = False,
     runners: int = cli_defaults.DEFAULT_RUNNERS,
     open_browser: bool = False,
-    loc_max_steps: int = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     loc_timeout_s: int = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: bool = False,
     gcp: bool = cli_defaults.DEFAULT_GCP,
@@ -90,7 +85,6 @@ def _run_named_group(
         run_group=group.name,
         no_cache=no_cache,
         dry_run=dry_run,
-        loc_max_steps=loc_max_steps,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         ignore_cache_strategy=None,
@@ -136,7 +130,6 @@ def run_preset(
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
     gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
     gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
-    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
 ) -> None:
@@ -149,7 +142,6 @@ def run_preset(
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         gcp=gcp,
@@ -163,7 +155,6 @@ def run_preset(
 @app.command()
 def run_all(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: cli_options.NoCacheOption = False,
     dry_run: cli_options.DryRunOption = False,
@@ -177,7 +168,6 @@ def run_all(
     return run(
         out=ARTIFACTS_ROOT,
         repeats=repeats,
-        loc_max_steps=loc_max_steps,
         loc_timeout_s=loc_timeout_s,
         run_group="lorentzian-sbed",
         no_cache=no_cache,
@@ -202,7 +192,6 @@ def lorentzian_sbed(
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
     gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
     gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
-    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
 ) -> None:
@@ -214,10 +203,8 @@ def lorentzian_sbed(
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
-        loc_max_steps=loc_max_steps,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
     )
-

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+from nvision.viz._f32_json import write_plotly_gz
 from typing import Any
 
 import plotly.graph_objects as go
@@ -42,11 +44,11 @@ class MetricsVizMixin:
         )
         fig.update_layout(title=title, yaxis_title="Absolute Error", template="plotly_white")
 
-        filename = f"error_dist_{metrics.strategy_name}_{param_name}.html"
+        filename = f"error_dist_{metrics.strategy_name}_{param_name}.json.gz"
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        write_plotly_gz(fig, out_path)
 
         return {
             "type": "error_distribution",
@@ -75,11 +77,11 @@ class MetricsVizMixin:
         )
         fig.update_layout(title=title, xaxis_title="Steps", yaxis_title="Count", template="plotly_white")
 
-        filename = f"conv_steps_{metrics.strategy_name}_{param_name}.html"
+        filename = f"conv_steps_{metrics.strategy_name}_{param_name}.json.gz"
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        write_plotly_gz(fig, out_path)
 
         return {
             "type": "convergence_steps",
@@ -104,11 +106,11 @@ class MetricsVizMixin:
         )
         fig.update_layout(title=title, xaxis_title="Measurements Saved", yaxis_title="Count", template="plotly_white")
 
-        filename = f"sobol_diff_{metrics.strategy_name}.html"
+        filename = f"sobol_diff_{metrics.strategy_name}.json.gz"
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(out_path)
+        write_plotly_gz(fig, out_path)
 
         return {
             "type": "sobol_difference",

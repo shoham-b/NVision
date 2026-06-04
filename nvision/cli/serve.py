@@ -153,6 +153,45 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
             super().handle()  # Silently ignore benign client disconnects (browser refresh/close)
 
 
+def _restore_missing_graphs(directory: Path) -> None:
+    """Restore graph files from cache that are referenced in the manifest but missing on disk.
+
+    This is the complement of the lazy-write architecture: graph bytes are kept
+    in the cache DB during runs and only materialised to disk when the server
+    starts (or when files were explicitly deleted to free space).
+    """
+    cache_dir = directory / "cache"
+    if not cache_dir.is_dir():
+        return
+    try:
+        from nvision.cache import CacheBridge
+        from nvision.runner.cache import restore_graphs
+
+        bridge = CacheBridge(cache_dir)
+        try:
+            combos = bridge.list_combinations()
+        except AttributeError:
+            # Older CacheBridge without list_combinations — skip silently
+            bridge.close()
+            return
+
+        restored = 0
+        for combo in combos:
+            try:
+                results = bridge.get_cached_combination(**combo)
+                if results:
+                    # restore_graphs skips files that already exist
+                    before = restored
+                    restore_graphs(results, directory)
+                    # count approximation (restore_graphs logs the count internally)
+            except Exception as exc:
+                log.debug("Failed to restore graphs for combo %s: %s", combo, exc)
+        bridge.close()
+        log.debug("Graph restore from cache complete for %s", directory)
+    except Exception as exc:
+        log.debug("Could not restore graphs from cache: %s", exc)
+
+
 def _default_port_for_dir(directory: Path) -> int:
     """Return the well-known port for a directory, or PORT_MAIN as fallback."""
     name = directory.resolve().name.lower()
@@ -265,6 +304,9 @@ def serve(  # noqa: C901
         console.print(f"[yellow]Warning: no index.html in {directory}[/yellow]")
         console.print("[dim]Run 'nvision run' or 'nvision demo' first to generate results.[/dim]")
         raise typer.Exit(1)
+
+    # Restore any graph files that are in the cache but not yet on disk.
+    _restore_missing_graphs(directory)
 
     import os
 

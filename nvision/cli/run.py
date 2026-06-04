@@ -503,14 +503,6 @@ def run(  # noqa: C901
     if cli_defaults.DEFAULT_OUT
     else None,
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    loc_max_steps: cli_options.LocMaxStepsOption = cli_defaults.DEFAULT_LOC_MAX_STEPS,
-    sweep_max_steps: Annotated[
-        int | None,
-        typer.Option(
-            "--sweep-max-steps",
-            help="Max steps for sweep locator. Omit to auto-compute from signal model.",
-        ),
-    ] = None,  # Auto-computed from signal model dip properties
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: cli_options.NoCacheOption = False,
     dry_run: cli_options.DryRunOption = False,
@@ -786,8 +778,8 @@ def run(  # noqa: C901
                 log_queue=worker_log_queue,
                 progress_queue=worker_progress_queue,
                 log_level_value=log_level_value,
-                loc_max_steps=loc_max_steps,
-                sweep_max_steps=sweep_max_steps,
+                loc_max_steps=cli_defaults.DEFAULT_LOC_MAX_STEPS,
+                sweep_max_steps=None,
                 loc_timeout_s=loc_timeout_s,
                 no_cache=no_cache,
                 dry_run=dry_run,

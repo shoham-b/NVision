@@ -152,6 +152,18 @@ def generate_attempt_metrics(  # noqa: C901
             if val is not None:
                 sobol_freq_err_at_conv = float(val)
 
+    freq_converged_step: int | None = None
+    all_converged_step: int | None = None
+    if not finalize_row.is_empty():
+        if "freq_converged_step" in finalize_row.columns:
+            val = finalize_row.get_column("freq_converged_step")[0]
+            if val is not None:
+                freq_converged_step = int(val)
+        if "all_converged_step" in finalize_row.columns:
+            val = finalize_row.get_column("all_converged_step")[0]
+            if val is not None:
+                all_converged_step = int(val)
+
     if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_freq_steps is not None:
         sobol_conv_diff = sobol_baseline_steps - sobol_freq_steps
 
@@ -206,6 +218,8 @@ def generate_attempt_metrics(  # noqa: C901
         "steps_to_fb": metrics_serialized.get("steps_to_fb"),
         "err_fb_at_milestone": metrics_serialized.get("err_fb_at_milestone"),
         "uncert_fb_at_milestone": metrics_serialized.get("uncert_fb_at_milestone"),
+        "freq_converged_step": freq_converged_step,
+        "all_converged_step": all_converged_step,
         "metrics": metrics_serialized,
     }
 

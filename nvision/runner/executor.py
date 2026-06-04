@@ -205,15 +205,8 @@ class _TaskRunner:
         # We must match the actual value used in _run_single_repeat for cache hits.
         # Replicate the logic used to determine `max_steps` during `_run_single_repeat`.
         # Sweep locators use a dynamic step count if --sweep-max-steps is not set.
-        locator_class = self.task.strategy_spec.locator_class
-        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
-
-        if uses_sweep_max_steps:
-            # Reconstruct the experiment to compute the dynamic step count
-            experiment = self._build_experiment(self._rng_for_measurement(0))
-            effective_max_steps = self._resolve_sweep_max_steps(experiment)
-        else:
-            effective_max_steps = self.task.loc_max_steps
+        experiment = self._build_experiment(self._rng_for_measurement(0))
+        effective_max_steps = self._resolve_sweep_max_steps(experiment)
         return {
             "generator": self.generator_name,
             "noise": self.noise_name,
@@ -257,15 +250,10 @@ class _TaskRunner:
             total_achieved_in_cache = 0
 
             if not self.skip_cache:
-                locator_class = self.task.strategy_spec.locator_class
-                uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
-                if uses_sweep_max_steps:
-                    try:
-                        experiment = self._build_experiment(self._rng_for_measurement(0))
-                        effective_max_steps = self._resolve_sweep_max_steps(experiment)
-                    except Exception:
-                        effective_max_steps = self.task.loc_max_steps
-                else:
+                try:
+                    experiment = self._build_experiment(self._rng_for_measurement(0))
+                    effective_max_steps = self._resolve_sweep_max_steps(experiment)
+                except Exception:
                     effective_max_steps = self.task.loc_max_steps
 
                 from nvision.cache.hashing import stable_config_hash
@@ -292,7 +280,8 @@ class _TaskRunner:
                             ptr_key = ptr_key_v8
                             ptr_df = ptr_df_v8
                     if ptr_df is not None and not ptr_df.is_empty():
-                        total_achieved_in_cache = self.cache._repeats.count_saved(ptr_key, max_expected=total_requested)
+                        # achieved_repeats is stored in the pointer record — no need to load every repeat
+                        total_achieved_in_cache = int(ptr_df.get_column("achieved_repeats")[0])
                 except Exception:
                     pass
 
@@ -361,14 +350,8 @@ class _TaskRunner:
         from nvision.cache.hashing import stable_config_hash
         from nvision.cache.locator_keys import combination_base_cache_config
 
-        # Resolve effective max_steps
-        locator_class = self.task.strategy_spec.locator_class
-        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
-        if uses_sweep_max_steps:
-            experiment = self._build_experiment(self._rng_for_measurement(0))
-            effective_max_steps = self._resolve_sweep_max_steps(experiment)
-        else:
-            effective_max_steps = self.task.loc_max_steps
+        experiment = self._build_experiment(self._rng_for_measurement(0))
+        effective_max_steps = self._resolve_sweep_max_steps(experiment)
 
         # Use a standardized purged flag key independent of repeat_offset
         base_cfg = combination_base_cache_config(
@@ -419,7 +402,20 @@ class _TaskRunner:
         combo_kw = self._combination_cache_kwargs()
         ro = self.task.repeat_offset
 
-        # 1. Try exact full match (Inline or already complete Streaming)
+        # 1. Try exact full match — fast path first (no binary content loaded when gz files exist)
+        fast = self.cache.get_cached_combination_fast(
+            **combo_kw, repeat_offset=ro, out_dir=self.task.out_dir
+        )
+        if fast is not None:
+            log.debug(
+                "Full cache hit (fast) for %s/%s/%s (seed=%s); gz files on disk, skipping restore.",
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+                self.task.seed,
+            )
+            return fast, len(fast)
+
         cached = self.cache.get_cached_combination(**combo_kw, repeat_offset=ro, allow_gaps=allow_gaps)
         if cached:
             restore_graphs(cached, self.task.out_dir)
@@ -479,16 +475,10 @@ class _TaskRunner:
             )
             return
 
-        # Resolve effective max_steps
-        locator_class = self.task.strategy_spec.locator_class
-        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
-        if uses_sweep_max_steps:
-            try:
-                experiment = self._build_experiment(self._rng_for_measurement(0))
-                effective_max_steps = self._resolve_sweep_max_steps(experiment)
-            except Exception:
-                effective_max_steps = self.task.loc_max_steps
-        else:
+        try:
+            experiment = self._build_experiment(self._rng_for_measurement(0))
+            effective_max_steps = self._resolve_sweep_max_steps(experiment)
+        except Exception:
             effective_max_steps = self.task.loc_max_steps
 
         # Exact pointer doesn't exist. Let's look for similar combinations in the database
@@ -612,13 +602,7 @@ class _TaskRunner:
         total_repeats = self.task.repeat_total or self.repeats
         is_streaming = total_repeats > STREAMING_REPEAT_THRESHOLD
 
-        # Determine effective max_steps for metrics/manifest keys
         locator_class = self.task.strategy_spec.locator_class
-        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
-        if uses_sweep_max_steps and experiments:
-            self._resolve_sweep_max_steps(experiments[0])
-        else:
-            pass
 
         for i in range(n_missing):
             rid = offset + start_idx + i
@@ -726,13 +710,11 @@ class _TaskRunner:
         all_results: TaskResults = []
         n_repeats = len(artifacts.experiments)
 
-        # Determine effective max_steps for metrics/manifest keys
-        locator_class = self.task.strategy_spec.locator_class
-        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
-        if uses_sweep_max_steps and artifacts.experiments:
-            effective_max_steps = self._resolve_sweep_max_steps(artifacts.experiments[0])
-        else:
-            effective_max_steps = self.task.loc_max_steps
+        effective_max_steps = (
+            self._resolve_sweep_max_steps(artifacts.experiments[0])
+            if artifacts.experiments
+            else self.task.loc_max_steps
+        )
 
         # Pad list inputs for generate_attempt_metrics to align with attempt_idx (0 to self.repeats - 1)
         full_stop_reasons = [""] * start_idx + list(artifacts.stop_reasons)
@@ -1034,30 +1016,31 @@ class _TaskRunner:
         return (x_min, x_max) if x_max > x_min else (None, None)
 
     def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
-        """Return the sweep step count for this experiment.
+        """Return the step count for this experiment, derived from the signal model.
 
-        If the user explicitly provided ``--sweep-max-steps``, that value is
-        used directly.  Otherwise we compute the minimum number of uniformly
-        spaced points required to resolve the narrowest expected dip in the
-        signal model.
+        All locators use the same budget: the number of uniformly-spaced points
+        required to resolve the narrowest expected dip in the signal model.
+        SimpleSweep uses ceil(domain / min_linewidth); all other locators use
+        compute_sweep_max_steps which applies coverage-factor and env-var caps.
         """
-        if self.task.sweep_max_steps is not None:
-            return self.task.sweep_max_steps
+        bounds = self._injected_parameter_bounds(experiment)
+        f_lo, f_hi = bounds["frequency"]
+        domain_width = f_hi - f_lo
+        if "linewidth" in bounds:
+            min_linewidth = bounds["linewidth"][0]
+        elif "fwhm_total" in bounds:
+            min_linewidth = bounds["fwhm_total"][0]
+        else:
+            min_linewidth = 200e3
+        import numpy as np
+        simplesweep_steps = int(np.ceil(domain_width / min_linewidth))
 
-        # Specific override for SimpleSweep (GenericSweepLocator)
         locator_class = self.task.strategy_spec.locator_class
         if self.strategy_name == "SimpleSweep" or locator_class.__name__ in ("SimpleSweepLocator", "GenericSweepLocator"):
-            bounds = self._injected_parameter_bounds(experiment)
-            f_lo, f_hi = bounds["frequency"]
-            domain_width = f_hi - f_lo
-            if "linewidth" in bounds:
-                min_linewidth = bounds["linewidth"][0]
-            elif "fwhm_total" in bounds:
-                min_linewidth = bounds["fwhm_total"][0]
-            else:
-                min_linewidth = 200e3  # fallback
-            import numpy as np
-            return int(np.ceil(domain_width / min_linewidth))
+            return simplesweep_steps
+
+        if locator_class.__name__ == "SequentialBayesianExperimentDesignLocator":
+            return max(1, int(np.ceil(simplesweep_steps / 4)))
 
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
 
@@ -1065,7 +1048,6 @@ class _TaskRunner:
             experiment.true_signal.model,
             float(experiment.x_min),
             float(experiment.x_max),
-            max_steps=self.task.loc_max_steps,
         )
 
     def _precompute_sweep_for_task(
@@ -1096,10 +1078,8 @@ class _TaskRunner:
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
 
-        # Check locator class attributes to determine configuration
-        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
-        max_steps = self._resolve_sweep_max_steps(experiment) if uses_sweep_max_steps else self.task.loc_max_steps
+        max_steps = self._resolve_sweep_max_steps(experiment)
 
         cfg = {
             **locator_config,
@@ -1179,10 +1159,8 @@ class _TaskRunner:
                 except Exception as exc:
                     log.warning("Failed to run SimpleSweep baseline: %s", exc)
 
-        # Check locator class attributes to determine configuration
-        uses_sweep_max_steps = getattr(locator_class, "USES_SWEEP_MAX_STEPS", False)
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
-        max_steps = self._resolve_sweep_max_steps(experiment) if uses_sweep_max_steps else self.task.loc_max_steps
+        max_steps = self._resolve_sweep_max_steps(experiment)
 
         cfg = {
             **locator_config,
@@ -1263,6 +1241,11 @@ class _TaskRunner:
                 eff_sweep_steps = step_count
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
+            finalize_record["freq_converged_step"] = getattr(last_loc, "freq_converged_step", None)
+            finalize_record["all_converged_step"] = getattr(last_loc, "all_converged_step", None)
+        else:
+            finalize_record["freq_converged_step"] = None
+            finalize_record["all_converged_step"] = None
         finalize_record["sobol_baseline_steps"] = sobol_baseline_steps
         finalize_record["sobol_freq_steps"] = sobol_freq_steps
         if sobol_baseline_steps is not None and sobol_freq_steps is not None:

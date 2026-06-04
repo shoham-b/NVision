@@ -16,6 +16,10 @@ from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.noise_model import NoiseSignalModel
+from nvision.spectra.numba_kernels import (
+    nv_center_lorentzian_eig_variance,
+    nv_center_pseudo_voigt_eig_variance,
+)
 
 
 
@@ -217,6 +221,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
     _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
+    _eig_kernel_type: str = field(init=False, repr=False, default="generic")
 
 
     def __post_init__(self) -> None:
@@ -318,6 +323,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self._global_grid = np.linspace(f_lo, f_hi, n_global).astype(np.float32)
         self._generate_epoch_candidates()
+
+        # Cache which fused EIG-variance kernel to use — avoids isinstance checks
+        # and module imports inside the per-step hot path.
+        try:
+            from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterVoigtModel
+            if isinstance(self.model, NVCenterLorentzianModel):
+                self._eig_kernel_type = "lorentzian"
+            elif isinstance(self.model, NVCenterVoigtModel):
+                self._eig_kernel_type = "voigt"
+            else:
+                self._eig_kernel_type = "generic"
+        except ImportError:
+            self._eig_kernel_type = "generic"
 
     def update(self, obs: Observation) -> None:
         if not hasattr(self, "_observations"):
@@ -1094,20 +1112,26 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         n_eig = NVISION_SMC_EIG_PARTICLES
 
         if n_total > n_eig:
-            # Weighted subsample: draw without replacement, proportional to weight.
+            # Stratified resampling — O(n_eig) vs O(n_total) for np.random.choice.
+            # Divides [0,1] into n_eig equal strata; each stratum gets its own
+            # independent U(0, 1/n_eig) draw, so there is no fixed grid pattern
+            # across steps while coverage of the weight distribution is still
+            # guaranteed (one sample per stratum).
             w_norm = self._weights / (self._weights.sum() + 1e-30)
-            idx = np.random.choice(n_total, size=n_eig, replace=False, p=w_norm)
-            arrays_in_order = [self._particles[idx, j] for j in range(self._d_signal)]
-            w = w_norm[idx].astype(np.float32)
-            w /= w.sum()
+            cdf = np.cumsum(w_norm).astype(np.float32)
+            u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
+            positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
+            idx = _systematic_resample_indices(cdf, positions)
+            part = self._particles[idx]          # (n_eig, d) — one copy
+            w_sub = w_norm[idx].astype(np.float32)
+            w_sub /= w_sub.sum()
         else:
-            arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
-            w = self._weights  # already float32, already normalized
+            part = self._particles               # (n_total, d)
+            w_sub = self._weights                # already float32, normalized
 
-        # shape: (n_candidates, n_eig) — uses fastmath kernel (acquisition path only)
-        predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
-
-        var_pred = _weighted_variance_rows(predictions, w)
+        # Fused kernel: compute weighted prediction variance per candidate in one
+        # pass, without materialising the (n_candidates x n_eig) predictions matrix.
+        var_pred = self._eig_variance_fused(candidates, part, w_sub)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
             est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
@@ -1117,6 +1141,56 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_var = max(noise_std**2, 1e-12)
 
         return 0.5 * np.log1p(var_pred / noise_var)
+
+    def _eig_variance_fused(
+        self, candidates: np.ndarray, part: np.ndarray, weights: np.ndarray
+    ) -> np.ndarray:
+        """Dispatch to the model-specific fused EIG-variance kernel.
+
+        The kernel type is resolved once at construction and cached in
+        ``_eig_kernel_type``, so this method has no isinstance checks or
+        module imports in the hot path.
+
+        Falls back to the two-step (matrix + variance) path for models that
+        do not have a fused kernel.
+        """
+        out = np.empty(len(candidates), dtype=np.float32)
+        xs = np.asarray(candidates, dtype=np.float32)
+        w  = np.asarray(weights, dtype=np.float32)
+
+        kernel = self._eig_kernel_type
+
+        if kernel == "lorentzian":
+            nv_center_lorentzian_eig_variance(
+                xs,
+                np.ascontiguousarray(part[:, 0], dtype=np.float32),  # freq
+                np.ascontiguousarray(part[:, 1], dtype=np.float32),  # linewidth
+                np.ascontiguousarray(part[:, 2], dtype=np.float32),  # split
+                np.ascontiguousarray(part[:, 3], dtype=np.float32),  # k_np
+                np.ascontiguousarray(part[:, 4], dtype=np.float32),  # c_total
+                w,
+                out,
+            )
+            return out
+
+        if kernel == "voigt":
+            nv_center_pseudo_voigt_eig_variance(
+                xs,
+                np.ascontiguousarray(part[:, 0], dtype=np.float32),  # freq
+                np.ascontiguousarray(part[:, 1], dtype=np.float32),  # fwhm_total
+                np.ascontiguousarray(part[:, 2], dtype=np.float32),  # lorentz_frac
+                np.ascontiguousarray(part[:, 3], dtype=np.float32),  # split
+                np.ascontiguousarray(part[:, 4], dtype=np.float32),  # k_np
+                np.ascontiguousarray(part[:, 5], dtype=np.float32),  # dip_depth
+                w,
+                out,
+            )
+            return out
+
+        # Generic fallback: two-step path for any other model type.
+        arrays_in_order = [part[:, j] for j in range(self._d_signal)]
+        predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
+        return _weighted_variance_rows(predictions, w)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
         """Shrink physical bounds and clip particles into the new window."""

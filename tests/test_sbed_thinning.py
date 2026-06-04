@@ -34,7 +34,6 @@ def test_sbed_candidate_thinning():
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
-        n_candidates=100,
     )
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it

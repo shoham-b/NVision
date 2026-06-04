@@ -186,6 +186,12 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
                 elif type_old.is_numeric() and type_new.is_numeric():
                     old_df = old_df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
                     df_loc = df_loc.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+                elif type_old.is_numeric() and not type_new.is_numeric():
+                    # e.g. old CSV was Float64 but new data was read/inferred as String
+                    df_loc = df_loc.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+                elif type_new.is_numeric() and not type_old.is_numeric():
+                    # e.g. old CSV was corrupted to String, new data is Float64 — recover
+                    old_df = old_df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
                 else:
                     old_df = old_df.with_columns(pl.col(col).cast(pl.String, strict=False))
                     df_loc = df_loc.with_columns(pl.col(col).cast(pl.String, strict=False))
@@ -316,12 +322,21 @@ def merge_run_plot_manifest_with_existing_on_disk(
                     )
                     continue
 
-            # Aggressive pruning: check if file exists
+            # Aggressive pruning: check if file exists; auto-migrate .json -> .json.gz
             path_str = entry.get("path")
             if path_str:
                 file_path = out_dir / str(path_str)
                 if not file_path.exists():
-                    continue
+                    # Try the .json.gz counterpart before dropping
+                    if str(path_str).endswith(".json") and not str(path_str).endswith(".json.gz"):
+                        gz_path = out_dir / (str(path_str) + ".gz")
+                        if gz_path.exists():
+                            entry = dict(entry)
+                            entry["path"] = str(path_str) + ".gz"
+                        else:
+                            continue
+                    else:
+                        continue
             elif entry.get("type") == "scan" and entry.get("generator") != "Dummy-Generator":
                 # Scan entries without a path (and not the dummy) are invalid
                 continue
@@ -362,9 +377,11 @@ def ensure_plot_manifest_non_empty(plot_manifest: list[dict[str, object]], log: 
 
 def write_plots_manifest(plot_manifest: list[dict[str, object]], out_dir: Path) -> Path:
     path = plots_manifest_path(out_dir)
-    # Stream JSON to disk to avoid MemoryError with large manifests
+    # Strip heavy in-memory fields before writing — plot_data can be 600 KB per entry
+    _MANIFEST_HEAVY = frozenset({"content", "content_bin", "plot_data", "_bytes"})
+    stripped = [{k: v for k, v in e.items() if k not in _MANIFEST_HEAVY} for e in plot_manifest]
     with path.open("w", encoding="utf-8") as f:
-        json.dump(plot_manifest, f, indent=2)
+        json.dump(stripped, f)
     return path
 
 
