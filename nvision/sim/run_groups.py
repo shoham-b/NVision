@@ -60,7 +60,6 @@ def _run_group_by_normalized_name() -> dict[str, RunGroup]:
     return {g.name.lower().replace("-", "_"): g for g in _run_groups_tuple()}
 
 
-
 def get_run_group(name: str) -> RunGroup:
     key = name.strip().lower().replace("-", "_")
     try:
@@ -77,4 +76,3 @@ def clear_run_group_cache() -> None:
 
 def default_run_group() -> RunGroup:
     return _group_lorentzian_sbed()
-

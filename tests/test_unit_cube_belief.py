@@ -131,16 +131,16 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     # Test 1: Narrowing delay safeguard
     # Set the environment variable to 8 steps
     monkeypatch.setenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8")
-    
+
     b = nv_center_smc_belief(num_particles=100)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
-    
+
     # Capture original bounds
     orig_lo, orig_hi = b._original_physical_x_bounds
-    
+
     # Check step count is initially 0
     assert b._step_count == 0
-    
+
     # Trigger _resample directly. Since _step_count < 8, it should return early and not narrow
     # Wait, super()._resample() inside _resample() calls systematic resampling.
     # To run _resample safely, we can just call it directly since particles are already initialized.
@@ -149,42 +149,42 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     new_lo, new_hi = b.physical_param_bounds["frequency"]
     # Bounds should NOT have narrowed
     assert (old_lo, old_hi) == (new_lo, new_hi)
-    
+
     # Test 2: Left boundary piling triggers left expansion
     # First, narrow the bounds manually so there is space to expand to the left
     mid = 0.5 * (orig_lo + orig_hi)
     narrow_lo = mid
     narrow_hi = orig_hi
     b.narrow_scan_parameter_physical_bounds("frequency", narrow_lo, narrow_hi)
-    
+
     # Verify narrowing worked
     lo_phys, hi_phys = b.physical_param_bounds["frequency"]
     assert lo_phys == narrow_lo
-    
+
     # Force particles to pile up near 0.0 in unit space (u_vals < 0.05)
     j = b._param_names.index("frequency")
     b._particles[:, j] = 0.02
-    
+
     # Call _resample. Even though _step_count < 8, the active boundary-escape guard is checked
     # BEFORE the narrowing delay safeguard, so it should trigger expansion!
     b._resample()
-    
+
     # Verify that the bounds expanded to the left (lo boundary decreased)
     lo_expanded, hi_expanded = b.physical_param_bounds["frequency"]
     assert lo_expanded < lo_phys
     assert hi_expanded == hi_phys
-    
+
     # Test 3: Right boundary piling triggers right expansion
     # Reset bounds, narrow to the left, so there is space to expand to the right
     b.narrow_scan_parameter_physical_bounds("frequency", orig_lo, mid)
     lo_phys, hi_phys = b.physical_param_bounds["frequency"]
     assert hi_phys == mid
-    
+
     # Force particles to pile up near 1.0 in unit space (u_vals > 0.95)
     b._particles[:, j] = 0.98
-    
+
     b._resample()
-    
+
     # Verify that the bounds expanded to the right (hi boundary increased)
     lo_expanded, hi_expanded = b.physical_param_bounds["frequency"]
     assert lo_expanded == lo_phys
@@ -194,18 +194,18 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     # Reset step count to 10 (> 8) and set _last_expansion_step to 9 (only 1 step since expansion)
     b._step_count = 10
     b._last_expansion_step = 9
-    
+
     # We will manually set the bounds to be narrow, so if narrowing runs, it would narrow even further
     # We will trigger _resample. Since step_count - last_expansion_step < 8, it should return early
     # without running standard percentile narrowing.
     b.narrow_scan_parameter_physical_bounds("frequency", lo_expanded, hi_expanded)
     old_lo, old_hi = b.physical_param_bounds["frequency"]
-    
+
     # Reset particles so they don't pile up and trigger another expansion
     b._particles[:, j] = 0.5
-    
+
     b._resample()
-    
+
     new_lo, new_hi = b.physical_param_bounds["frequency"]
     assert (old_lo, old_hi) == (new_lo, new_hi)
 
@@ -219,8 +219,8 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
     # Mock the base class _resample to be a no-op so it doesn't resample, shrink,
     # or nudge our manually controlled particles.
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    monkeypatch.setattr(SMCMarginalDistribution, "_resample", lambda self: None)
 
+    monkeypatch.setattr(SMCMarginalDistribution, "_resample", lambda self: None)
 
     b = nv_center_smc_belief(num_particles=100)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
@@ -267,8 +267,10 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 # compute_vectorized_many_fast dispatch
 # ---------------------------------------------------------------------------
 
+
 def _make_unit_cube_nv_model():
     from nvision.spectra.nv_center import NVCenterLorentzianModel
+
     model = NVCenterLorentzianModel()
     phys_bounds = {
         "frequency": (2.86e9, 2.88e9),
@@ -365,4 +367,3 @@ def test_unit_cube_fast_and_exact_outputs_are_close():
 
     assert out_exact.shape == out_fast.shape
     np.testing.assert_allclose(out_fast, out_exact, rtol=1e-4, atol=1e-6)
-

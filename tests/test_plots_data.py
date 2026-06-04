@@ -10,17 +10,17 @@ import numpy as np
 import pytest
 
 from nvision.runner.plots_data import (
-    write_covariance_data,
     write_convergence_metrics_data,
+    write_covariance_data,
     write_fisher_data,
     write_parameter_convergence_data,
     write_posterior_data,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _particle_history(
     rng: np.random.Generator,
@@ -63,6 +63,7 @@ def _load(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 # write_posterior_data
 # ---------------------------------------------------------------------------
+
 
 class TestWritePosteriorData:
     def test_schema_and_basic_structure(self, tmp_path):
@@ -156,7 +157,8 @@ class TestWritePosteriorData:
         anim_all = {"frequency": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(
-            anim_all, out,
+            anim_all,
+            out,
             physical_bounds={"frequency": (2.86e9, 2.88e9)},
         )
         data = _load(out)
@@ -207,6 +209,7 @@ class TestWritePosteriorData:
 # write_covariance_data
 # ---------------------------------------------------------------------------
 
+
 class TestWriteCovarianceData:
     def _make_inputs(self, rng, n_steps=4, d=3):
         param_names = ["frequency", "linewidth", "split"][:d]
@@ -214,10 +217,7 @@ class TestWriteCovarianceData:
         for _ in range(n_steps):
             A = rng.random((d, d))
             cov_hist.append(A @ A.T)
-        means_hist = [
-            {"frequency": 2.87e9, "linewidth": 8e6, "split": 2e6}
-            for _ in range(n_steps)
-        ]
+        means_hist = [{"frequency": 2.87e9, "linewidth": 8e6, "split": 2e6} for _ in range(n_steps)]
         pairs = [(0, 1), (0, 2)]
         return param_names, cov_hist, means_hist, pairs
 
@@ -265,8 +265,8 @@ class TestWriteCovarianceData:
         param_names = ["frequency", "linewidth"]
         # Identity covariance in physical units
         cov_phys = np.eye(d)
-        cov_phys[0, 0] = (1e9) ** 2   # freq variance: (1 GHz)^2
-        cov_phys[1, 1] = (1e6) ** 2   # linewidth variance: (1 MHz)^2
+        cov_phys[0, 0] = (1e9) ** 2  # freq variance: (1 GHz)^2
+        cov_phys[1, 1] = (1e6) ** 2  # linewidth variance: (1 MHz)^2
         cov_hist = [cov_phys]
         means_hist = [{"frequency": 2.87e9, "linewidth": 8e6}]
         out = tmp_path / "cov.json"
@@ -282,7 +282,9 @@ class TestWriteCovarianceData:
         rng = np.random.default_rng(25)
         param_names, cov_hist, means_hist, pairs = self._make_inputs(rng, n_steps=1)
         out = tmp_path / "cov.json"
-        write_covariance_data(cov_hist, param_names, pairs, means_hist, out, true_params={"frequency": 2.871e9, "linewidth": 9e6})
+        write_covariance_data(
+            cov_hist, param_names, pairs, means_hist, out, true_params={"frequency": 2.871e9, "linewidth": 9e6}
+        )
         data = _load(out)
         assert abs(data["true_params"]["frequency"] - 2.871) < 1e-6
         assert abs(data["true_params"]["linewidth"] - 9.0) < 1e-6
@@ -305,16 +307,13 @@ class TestWriteCovarianceData:
 # write_parameter_convergence_data
 # ---------------------------------------------------------------------------
 
+
 class TestWriteParameterConvergenceData:
     def _make_inputs(self, rng, n_steps=6):
         param_hist = [
-            {"frequency": float(rng.random() * 1e6), "linewidth": float(rng.random() * 1e5)}
-            for _ in range(n_steps)
+            {"frequency": float(rng.random() * 1e6), "linewidth": float(rng.random() * 1e5)} for _ in range(n_steps)
         ]
-        estimates_hist = [
-            {"frequency": 2.87e9, "linewidth": 8e6}
-            for _ in range(n_steps)
-        ]
+        estimates_hist = [{"frequency": 2.87e9, "linewidth": 8e6} for _ in range(n_steps)]
         return param_hist, estimates_hist
 
     def test_schema_and_step_count(self, tmp_path):
@@ -385,6 +384,7 @@ class TestWriteParameterConvergenceData:
 # write_convergence_metrics_data
 # ---------------------------------------------------------------------------
 
+
 class TestWriteConvergenceMetricsData:
     def _make_conv_metrics(self, n_steps=5):
         metrics = []
@@ -392,14 +392,16 @@ class TestWriteConvergenceMetricsData:
         for i in range(n_steps):
             all_conv = i >= 3
             streak = streak + 1 if all_conv else 0
-            metrics.append({
-                "step": i,
-                "uncertainties": {"frequency": 0.1 / max(i, 1), "linewidth": 0.2 / max(i, 1)},
-                "converged_params": {"frequency": all_conv, "linewidth": all_conv},
-                "all_converged": all_conv,
-                "convergence_streak": streak,
-                "convergence_achieved": streak >= 3,
-            })
+            metrics.append(
+                {
+                    "step": i,
+                    "uncertainties": {"frequency": 0.1 / max(i, 1), "linewidth": 0.2 / max(i, 1)},
+                    "converged_params": {"frequency": all_conv, "linewidth": all_conv},
+                    "all_converged": all_conv,
+                    "convergence_streak": streak,
+                    "convergence_achieved": streak >= 3,
+                }
+            )
         return metrics
 
     def test_schema_and_step_count(self, tmp_path):
@@ -432,7 +434,11 @@ class TestWriteConvergenceMetricsData:
         conv_metrics = self._make_conv_metrics(n_steps=2)
         out = tmp_path / "conv_metrics.json"
         write_convergence_metrics_data(
-            conv_metrics, ["frequency", "linewidth"], 0.01, 8, out,
+            conv_metrics,
+            ["frequency", "linewidth"],
+            0.01,
+            8,
+            out,
             param_bounds={"frequency": (2.6e9, 3.1e9), "linewidth": (1e6, 20e6)},
         )
         data = _load(out)
@@ -461,17 +467,12 @@ class TestWriteConvergenceMetricsData:
 # write_fisher_data
 # ---------------------------------------------------------------------------
 
+
 class TestWriteFisherData:
     def _make_inputs(self, rng, n_steps=5, n_params=3):
         param_names = ["frequency", "linewidth", "split"][:n_params]
-        fisher_bounds_hist = [
-            {p: float(rng.random() * 1e6) for p in param_names}
-            for _ in range(n_steps)
-        ]
-        actual_uncertainty_hist = [
-            {p: float(rng.random() * 2e6) for p in param_names}
-            for _ in range(n_steps)
-        ]
+        fisher_bounds_hist = [{p: float(rng.random() * 1e6) for p in param_names} for _ in range(n_steps)]
+        actual_uncertainty_hist = [{p: float(rng.random() * 2e6) for p in param_names} for _ in range(n_steps)]
         fisher_hist = []
         for _ in range(n_steps):
             A = rng.random((n_params, n_params))
@@ -569,6 +570,7 @@ class TestWriteFisherData:
 # Cross-cutting: output is always pure Python types (no numpy leaks)
 # ---------------------------------------------------------------------------
 
+
 class TestNoNumpyLeaks:
     """json.loads raises on numpy types — these tests confirm clean serialization."""
 
@@ -600,6 +602,7 @@ class TestNoNumpyLeaks:
 
         for f in (tmp_path / "p.json", tmp_path / "c.json", tmp_path / "pc.json"):
             raw = json.loads(f.read_text())
+
             # Recursively check no NaN/Inf in numeric values
             def check_finite(obj):
                 if isinstance(obj, float):
@@ -610,4 +613,5 @@ class TestNoNumpyLeaks:
                 elif isinstance(obj, dict):
                     for v in obj.values():
                         check_finite(v)
+
             check_finite(raw)

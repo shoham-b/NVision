@@ -6,8 +6,9 @@ by filtering observations using posterior noise estimates and clustering them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+
 import numpy as np
 from scipy.stats import binom, norm
 
@@ -22,6 +23,7 @@ from nvision.sim.defaults import (
 @dataclass
 class DipCandidate:
     """Dataclass holding details of a qualified resonance dip candidate."""
+
     centroid_hz: float
     significance: float
     n_points: int
@@ -68,7 +70,7 @@ def identify_dip_candidates(
     if noise_std_unc is not None:
         if relative_unc_threshold is None:
             relative_unc_threshold = NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD
-        
+
         rel_unc = (noise_std_unc / noise_std) if noise_std > 1e-9 else 0.0
         if rel_unc >= relative_unc_threshold:
             # Noise estimate is still too uncertain
@@ -112,7 +114,7 @@ def identify_dip_candidates(
         # Particle i votes "dip" iff background - y_j > 0.01 * background AND sigma_i < (background - y_j) / n_sigma
         if background - obs_ys[j] > 0.01 * bg_clamp:
             # Find the first index where sigma_i >= required_sigma_j
-            k = np.searchsorted(sorted_sigmas, required_sigmas[j], side='left')
+            k = np.searchsorted(sorted_sigmas, required_sigmas[j], side="left")
             # Particles with indices < k have sigma_i < required_sigma_j -> they vote "dip"
             dip_support[j] = cumulative_w[k - 1] if k > 0 else 0.0
 
@@ -171,7 +173,6 @@ def identify_dip_candidates(
         S = float(np.sum(sups))
         k_binom = int(np.round(S)) - 1
 
-        
         if k_binom < 0:
             p_val = 1.0
         else:

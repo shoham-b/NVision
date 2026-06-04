@@ -19,7 +19,6 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 SOBOL_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SOBOL_BATCH_CHUNK_SIZE", "200"))
 
 
-
 def van_der_corput(n: int, base: int = 2) -> float:
     """Compute the n-th number of the van der Corput sequence in base."""
     vdc = 0.0

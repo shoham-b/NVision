@@ -19,7 +19,6 @@ import numpy as np
 
 from nvision.viz._f32_json import dump_gz
 
-
 _PARAM_SCALES: dict[str, float] = {
     "frequency": 1e9,
     "linewidth": 1e6,
@@ -101,9 +100,7 @@ def write_posterior_data(
             if arr.ndim == 2 and arr.shape[1] == 2:
                 raw_particles = arr[:, 0]
                 raw_weights = arr[:, 1]
-                particles, weights = _subsample_particles(
-                    raw_particles, raw_weights, n_particles
-                )
+                particles, weights = _subsample_particles(raw_particles, raw_weights, n_particles)
                 step[param] = {
                     "type": "particles",
                     "values": (particles / scale).tolist(),
@@ -139,9 +136,9 @@ def write_posterior_data(
         "param_names": param_names,
         "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
         "physical_bounds": bounds_out,
-        "true_params": _scale_param_dict(
-            {k: v for k, v in (true_params or {}).items() if k in param_names}
-        ) if true_params else None,
+        "true_params": _scale_param_dict({k: v for k, v in (true_params or {}).items() if k in param_names})
+        if true_params
+        else None,
         "resampled_steps": resampled_steps or [],
         "ess_threshold": ess_threshold,
         "convergence_threshold": convergence_threshold,
@@ -173,10 +170,12 @@ def write_covariance_data(
     for cov, means in zip(cov_hist, estimates_hist, strict=False):
         # Scale covariance to display units
         cov_scaled = cov / scale_outer
-        steps.append({
-            "covariance": cov_scaled.tolist(),
-            "means": _scale_param_dict(means),
-        })
+        steps.append(
+            {
+                "covariance": cov_scaled.tolist(),
+                "means": _scale_param_dict(means),
+            }
+        )
 
     bounds_out: dict[str, list[float]] = {}
     if physical_bounds:
@@ -192,9 +191,9 @@ def write_covariance_data(
         "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
         "pairs": [list(pair) for pair in pairs],
         "physical_bounds": bounds_out,
-        "true_params": _scale_param_dict(
-            {k: v for k, v in (true_params or {}).items() if k in param_names}
-        ) if true_params else None,
+        "true_params": _scale_param_dict({k: v for k, v in (true_params or {}).items() if k in param_names})
+        if true_params
+        else None,
         "steps": steps,
     }
 
@@ -226,9 +225,9 @@ def write_parameter_convergence_data(
         "schema": "parameter_convergence_v1",
         "param_names": param_names,
         "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
-        "true_params": _scale_param_dict(
-            {k: v for k, v in (true_params or {}).items() if k in param_names}
-        ) if true_params else None,
+        "true_params": _scale_param_dict({k: v for k, v in (true_params or {}).items() if k in param_names})
+        if true_params
+        else None,
         "steps": steps,
     }
 
@@ -289,23 +288,23 @@ def write_fisher_data(
     fim_scale = np.outer(scales, scales)
 
     steps = []
-    for bounds, actuals, fim in zip(
-        fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, strict=False
-    ):
+    for bounds, actuals, fim in zip(fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, strict=False):
         fim_scaled = fim * fim_scale  # scale FIM to display units
-        steps.append({
-            "fisher_bounds": _scale_param_dict(bounds),
-            "actual_uncertainty": _scale_param_dict(actuals),
-            "fisher_matrix": fim_scaled.tolist(),
-        })
+        steps.append(
+            {
+                "fisher_bounds": _scale_param_dict(bounds),
+                "actual_uncertainty": _scale_param_dict(actuals),
+                "fisher_matrix": fim_scaled.tolist(),
+            }
+        )
 
     payload = {
         "schema": "fisher_v1",
         "param_names": param_names,
         "param_units": {p: _PARAM_UNITS.get(p, "") for p in param_names},
-        "true_params": _scale_param_dict(
-            {k: v for k, v in (true_params or {}).items() if k in param_names}
-        ) if true_params else None,
+        "true_params": _scale_param_dict({k: v for k, v in (true_params or {}).items() if k in param_names})
+        if true_params
+        else None,
         "steps": steps,
     }
 

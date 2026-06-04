@@ -46,9 +46,7 @@ class RescaleMap:
 
     def __post_init__(self) -> None:
         if self.hi <= self.lo:
-            raise ValueError(
-                f"RescaleMap requires lo < hi; got lo={self.lo}, hi={self.hi}"
-            )
+            raise ValueError(f"RescaleMap requires lo < hi; got lo={self.lo}, hi={self.hi}")
 
     def to_phys(self, u: _Numeric) -> _Numeric:
         """Map a unit-cube value (scalar or array) in [0, 1] to physical units."""
@@ -91,13 +89,10 @@ class FocusWindow:
 
     def __post_init__(self) -> None:
         if self.hi <= self.lo:
-            raise ValueError(
-                f"FocusWindow requires lo < hi; got lo={self.lo}, hi={self.hi}"
-            )
+            raise ValueError(f"FocusWindow requires lo < hi; got lo={self.lo}, hi={self.hi}")
         if self.full_hi <= self.full_lo:
             raise ValueError(
-                f"FocusWindow requires full_lo < full_hi; "
-                f"got full_lo={self.full_lo}, full_hi={self.full_hi}"
+                f"FocusWindow requires full_lo < full_hi; got full_lo={self.full_lo}, full_hi={self.full_hi}"
             )
 
     def narrowed(self, new_lo: float, new_hi: float) -> FocusWindow:

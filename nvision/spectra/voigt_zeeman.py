@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 
@@ -163,8 +162,6 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             out,
         )
         return out.astype(FLOAT_DTYPE, copy=False)
-
-
 
     def sample_params(self, rng: random.Random) -> VoigtZeemanSpectrum:
         """Sample parameters that keep the signal within [0, 1]."""

@@ -3,6 +3,7 @@
 Run with:
     uv run python scripts/profile_simplesweep2.py
 """
+
 from __future__ import annotations
 
 import random
@@ -11,8 +12,8 @@ import time
 import numpy as np
 
 from nvision import CoreExperiment, NVCenterCoreGenerator, SimpleSweepLocator, run_loop
-from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.models.observation import Observation
+from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 
 
 def make_experiment(seed: int) -> CoreExperiment:
@@ -49,14 +50,17 @@ for i in range(N_REPEATS):
 # ── Baseline: force per-step belief update (monkey-patch observe) ─────────────
 _orig_observe = SweepingLocator.observe
 
+
 def _eager_observe(self, obs: Observation) -> None:
     if self.step_count <= self.max_steps:
         self.history.append(obs)
         self.belief.last_obs = obs
         self.belief.update(obs)
 
+
 # Temporarily swap in the eager observe for GenericSweepLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+
 _gsl_observe_saved = GenericSweepLocator.observe
 GenericSweepLocator.observe = _eager_observe
 
@@ -70,10 +74,12 @@ for i in range(N_REPEATS):
 
 GenericSweepLocator.observe = _gsl_observe_saved  # restore
 
+
 # ── Report ────────────────────────────────────────────────────────────────────
 def stats(label, times):
     arr = np.array(times) * 1000  # ms
     print(f"  {label:<40s}  mean={arr.mean():.1f} ms  min={arr.min():.1f} ms  max={arr.max():.1f} ms")
+
 
 print(f"Warm runs (N={N_STEPS} steps, {N_REPEATS} repeats each)")
 print("=" * 75)

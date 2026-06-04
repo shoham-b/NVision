@@ -35,6 +35,7 @@ def strip_heavy_fields(entry: dict) -> dict:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _decompress_text(entry: dict) -> str:
     """Return the text content from *entry* after zlib+base85 decompression."""
     return zlib.decompress(base64.b85decode(entry["content"])).decode("utf-8")
@@ -62,6 +63,7 @@ def _upgrade_json_to_gz(text: str, out_path: Path) -> bool:
     """
     try:
         from nvision.viz._f32_json import dump_gz
+
         payload = json.loads(text)
         dump_gz(payload, out_path)
         return True
@@ -73,6 +75,7 @@ def _upgrade_json_to_gz(text: str, out_path: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def restore_graphs(cached_results: list, out_dir: Path) -> None:
     """Write cached graph content back to disk.
@@ -173,7 +176,11 @@ def embed_graph_content(
             if raw is None:
                 file_path = out_dir / rel_path
                 if file_path.exists():
-                    raw = file_path.read_bytes() if file_path.suffix == ".gz" else file_path.read_text(encoding="utf-8").encode("utf-8")
+                    raw = (
+                        file_path.read_bytes()
+                        if file_path.suffix == ".gz"
+                        else file_path.read_text(encoding="utf-8").encode("utf-8")
+                    )
 
             if raw is not None:
                 if rel_path.endswith(".gz"):

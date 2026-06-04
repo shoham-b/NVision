@@ -10,8 +10,8 @@ import numpy as np
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
 from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, NVISION_SMC_CANDIDATE_STEP_HZ
-from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 # Minimum number of consecutive converged checks before declaring convergence.
 # Prevents false early stops on the first measurement, especially with no noise.
@@ -161,14 +161,19 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                     freq_rescale = rescale_maps["frequency"]
                     obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
                     obs_ys = np.array([o.signal_value for o in obs_list])
-                    if hasattr(self.belief, "estimated_noise_std") and getattr(self.belief, "noise_model", None) is not None:
+                    if (
+                        hasattr(self.belief, "estimated_noise_std")
+                        and getattr(self.belief, "noise_model", None) is not None
+                    ):
                         noise_std = self.belief.estimated_noise_std()
                         noise_std_unc = self.belief.noise_std_uncertainty(noise_std)
                     else:
                         noise_std = self._noise_std
                         noise_std_unc = 0.0
 
-                    phys_bounds = getattr(self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {}))
+                    phys_bounds = getattr(
+                        self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {})
+                    )
                     lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
                     max_linewidth_hz = phys_bounds[lw_key][1]
                     max_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else None
@@ -182,7 +187,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                         elif hasattr(self.belief, "_param_names") and "noise_sigma" in self.belief._param_names:
                             idx = self.belief._param_names.index("noise_sigma")
                             raw_sigmas = self.belief._particles[:, idx]
-                            if hasattr(self.belief, "physical_param_bounds") and "noise_sigma" in self.belief.physical_param_bounds:
+                            if (
+                                hasattr(self.belief, "physical_param_bounds")
+                                and "noise_sigma" in self.belief.physical_param_bounds
+                            ):
                                 lo_ns, hi_ns = self.belief.physical_param_bounds["noise_sigma"]
                                 per_particle_sigmas = lo_ns + raw_sigmas * (hi_ns - lo_ns)
                             else:
@@ -199,8 +207,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                         max_split_hz=max_split_hz,
                     )
                     dip_centers = [c.centroid_hz for c in dip_candidates]
-
-
 
                 valid_dip_centers = [c for c in dip_centers if lo <= c <= hi]
                 if valid_dip_centers:

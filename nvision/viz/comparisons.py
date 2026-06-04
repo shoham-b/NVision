@@ -204,6 +204,7 @@ class ComparisonsMixin:
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         from nvision.viz._f32_json import write_plotly_gz
+
         write_plotly_gz(fig, out_path)
 
         # Add entry to manifest list

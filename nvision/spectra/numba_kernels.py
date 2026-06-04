@@ -81,9 +81,7 @@ def nv_center_lorentzian_eval(
     p_R = c_total * (k / p_sum)
 
     return background - (
-        p_L / ((x_dim + alpha) ** 2 + 1.0)
-        + p_0 / (x_dim ** 2 + 1.0)
-        + p_R / ((x_dim - alpha) ** 2 + 1.0)
+        p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
     )
 
 
@@ -141,9 +139,7 @@ def nv_center_lorentzian_vectorized_many(
             p_R = c * (k_safe / p_sum)
 
             out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0)
-                + p_0 / (x_dim ** 2 + 1.0)
-                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
             )
 
 
@@ -186,11 +182,7 @@ def nv_center_lorentzian_vectorized_one(
         p_L = c * ((1.0 / k_safe) / p_sum)
         p_R = c * (k_safe / p_sum)
 
-        out[j] = bg - (
-            p_L / ((x_dim + alpha) ** 2 + 1.0)
-            + p_0 / (x_dim ** 2 + 1.0)
-            + p_R / ((x_dim - alpha) ** 2 + 1.0)
-        )
+        out[j] = bg - (p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0))
 
 
 @njit(cache=True)
@@ -235,11 +227,7 @@ def nv_center_lorentzian_vectorized_one_serial(
         p_L = c * ((1.0 / k_safe) / p_sum)
         p_R = c * (k_safe / p_sum)
 
-        out[j] = bg - (
-            p_L / ((x_dim + alpha) ** 2 + 1.0)
-            + p_0 / (x_dim ** 2 + 1.0)
-            + p_R / ((x_dim - alpha) ** 2 + 1.0)
-        )
+        out[j] = bg - (p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0))
 
 
 @njit(cache=True, parallel=True)
@@ -325,9 +313,6 @@ def nv_center_pseudo_voigt_vectorized_one(
             pr = lorentz_r + gauss_r
 
             out[j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
-
-
-
 
 
 _SQRT2PI = math.sqrt(2.0 * math.pi)
@@ -700,9 +685,7 @@ def nv_center_lorentzian_vectorized_many_fast(
             p_R = c * (k_safe / p_sum)
 
             out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0)
-                + p_0 / (x_dim ** 2 + 1.0)
-                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
             )
 
 
@@ -749,9 +732,7 @@ def nv_center_lorentzian_vectorized_many_fast_serial(
             p_R = c * (k_safe / p_sum)
 
             out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0)
-                + p_0 / (x_dim ** 2 + 1.0)
-                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
             )
 
 
@@ -879,14 +860,14 @@ def nv_center_lorentzian_eig_variance(
     n = freq.shape[0]
     for i in prange(m):
         x = xs[i]
-        sum_p  = 0.0
+        sum_p = 0.0
         sum_p2 = 0.0
         for j in range(n):
             lw = linewidth[j]
-            f  = freq[j]
-            s  = split[j]
-            k  = k_np[j]
-            c  = c_total[j]
+            f = freq[j]
+            s = split[j]
+            k = k_np[j]
+            c = c_total[j]
             wi = weights[j]
 
             omega = lw if lw > 1e-10 else 1e-10
@@ -895,7 +876,7 @@ def nv_center_lorentzian_eig_variance(
             alpha = s * inv_omega
 
             k_safe = k if k > 1e-10 else 1e-10
-            inv_k = 1.0 / k_safe                    # 1 div — reused below
+            inv_k = 1.0 / k_safe  # 1 div — reused below
             inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)  # 1 div (was 3)
 
             p_0 = c * inv_p_sum
@@ -903,12 +884,10 @@ def nv_center_lorentzian_eig_variance(
             p_R = c * (k_safe * inv_p_sum)
 
             pred = 1.0 - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0)
-                + p_0 / (x_dim ** 2 + 1.0)
-                + p_R / ((x_dim - alpha) ** 2 + 1.0)
+                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
             )
 
-            sum_p  += wi * pred
+            sum_p += wi * pred
             sum_p2 += wi * pred * pred
 
         v = sum_p2 - sum_p * sum_p
@@ -935,17 +914,17 @@ def nv_center_pseudo_voigt_eig_variance(
     n = freq.shape[0]
     for i in prange(m):
         x = xs[i]
-        sum_p  = 0.0
+        sum_p = 0.0
         sum_p2 = 0.0
         for j in range(n):
             fwhm = fwhm_total[j]
-            lf   = lorentz_frac[j]
+            lf = lorentz_frac[j]
             fwhm_l = lf * fwhm
             fwhm_g = (1.0 - lf) * fwhm
-            f  = freq[j]
-            s  = split[j]
-            k  = k_np[j]
-            d  = dip_depth[j]
+            f = freq[j]
+            s = split[j]
+            k = k_np[j]
+            d = dip_depth[j]
             wi = weights[j]
 
             sigma = fwhm_g / (2.0 * _SQRT2LOG2)
@@ -959,7 +938,7 @@ def nv_center_pseudo_voigt_eig_variance(
 
             has_sigma = abs(sigma) > 1e-12
             if has_sigma:
-                inv_sigma = 1.0 / sigma                      # 1 div — reused twice below
+                inv_sigma = 1.0 / sigma  # 1 div — reused twice below
                 gauss_center = inv_sigma / _SQRT2PI
                 neg_half_inv_sigma2 = -0.5 * inv_sigma * inv_sigma
                 eta_gauss_factor = (1.0 - eta) * gauss_center
@@ -971,39 +950,39 @@ def nv_center_pseudo_voigt_eig_variance(
             center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
             inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
 
-            inv_k = 1.0 / k                                  # 1 div — reused below
+            inv_k = 1.0 / k  # 1 div — reused below
             actual_depth = d * inv_k
             eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-            eta_gauss_factor   = eta_gauss_factor * inv_center_height
+            eta_gauss_factor = eta_gauss_factor * inv_center_height
 
             amp_c = actual_depth
-            amp_l = amp_c * inv_k                            # was amp_c / k
+            amp_l = amp_c * inv_k  # was amp_c / k
             amp_r = amp_c * k
 
-            dx_c  = x - f
+            dx_c = x - f
             dx_c2 = dx_c * dx_c
             lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
-            gauss_c   = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
+            gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
             pc = lorentz_c + gauss_c
 
             if s < 1e-10:
                 pred = 1.0 - amp_c * pc
             else:
-                dx_l  = dx_c + s
+                dx_l = dx_c + s
                 dx_l2 = dx_l * dx_l
                 lorentz_l = eta_lorentz_factor / (dx_l2 + gamma2) if has_gamma else 0.0
-                gauss_l   = eta_gauss_factor * math.exp(dx_l2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                gauss_l = eta_gauss_factor * math.exp(dx_l2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pl = lorentz_l + gauss_l
 
-                dx_r  = dx_c - s
+                dx_r = dx_c - s
                 dx_r2 = dx_r * dx_r
                 lorentz_r = eta_lorentz_factor / (dx_r2 + gamma2) if has_gamma else 0.0
-                gauss_r   = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
+                gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pr = lorentz_r + gauss_r
 
                 pred = 1.0 - (amp_l * pl + amp_c * pc + amp_r * pr)
 
-            sum_p  += wi * pred
+            sum_p += wi * pred
             sum_p2 += wi * pred * pred
 
         v = sum_p2 - sum_p * sum_p

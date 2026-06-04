@@ -840,7 +840,9 @@ def _decode_plotly_array(v: Any) -> list[Any] | None:
         v = v.to_plotly_json()
     if isinstance(v, dict) and "bdata" in v and "dtype" in v:
         import base64
+
         import numpy as np
+
         try:
             raw = base64.b64decode(v["bdata"])
             arr = np.frombuffer(raw, dtype=v["dtype"])
@@ -999,6 +1001,7 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
     try:
         if rel.endswith(".json.gz"):
             from nvision.viz._f32_json import figure_from_gz_bytes
+
             fig = figure_from_gz_bytes(path.read_bytes())
         else:
             html = path.read_text(encoding="utf-8")
@@ -1284,4 +1287,5 @@ class MeasurementsMixin:
         )
 
         from nvision.viz._f32_json import write_plotly_gz
+
         return write_plotly_gz(fig, out_path)

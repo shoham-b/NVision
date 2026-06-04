@@ -21,8 +21,6 @@ from nvision.spectra.numba_kernels import (
     nv_center_pseudo_voigt_eig_variance,
 )
 
-
-
 # --- Environment-driven defaults ---------------------------------------------
 
 load_dotenv()
@@ -223,7 +221,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
     _eig_kernel_type: str = field(init=False, repr=False, default="generic")
 
-
     def __post_init__(self) -> None:
         self._use_rao_blackwell_noise = False
         if self.noise_model is not None and "noise_sigma" in self.noise_model.spec.names:
@@ -263,7 +260,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
                         accepted = candidates[u < probs]
                         sampled.extend(accepted)
-                    sampled = np.array(sampled[:self.num_particles])
+                    sampled = np.array(sampled[: self.num_particles])
 
                     # Map back to unit space if in UnitCubeSMCMarginalDistribution
                     if phys_bounds and name in phys_bounds:
@@ -288,7 +285,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
             nominal_sigma = float(np.sqrt(max(lo * hi, 0.0)))
             self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
-            self._noise_betas = np.full(self.num_particles, self.noise_prior_strength * (nominal_sigma ** 2), dtype=np.float32)
+            self._noise_betas = np.full(
+                self.num_particles, self.noise_prior_strength * (nominal_sigma**2), dtype=np.float32
+            )
 
         # Detect noise param dimensions
         if self.noise_model is not None:
@@ -328,6 +327,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # and module imports inside the per-step hot path.
         try:
             from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterVoigtModel
+
             if isinstance(self.model, NVCenterLorentzianModel):
                 self._eig_kernel_type = "lorentzian"
             elif isinstance(self.model, NVCenterVoigtModel):
@@ -565,19 +565,21 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             # From _uncertainty_unit():
             expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
             mean_var = np.sum(self._weights * expected_vars)
-            
+
             denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-            within_var = self._noise_betas ** 2 / np.maximum(denom, 1e-15)
-            
-            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(self._weights * (expected_vars - mean_var)**2)
+            within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+
+            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
+                self._weights * (expected_vars - mean_var) ** 2
+            )
             var_sigma_sq_std = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
-            
+
             if est_std is None:
                 est_std = self.estimated_noise_std()
             if est_std > 1e-9:
                 return var_sigma_sq_std / (2.0 * est_std)
             return var_sigma_sq_std
-        
+
         if hasattr(self, "_param_names") and "noise_sigma" in self._param_names:
             uncs = self.uncertainty()
             return float(uncs["noise_sigma"])
@@ -585,9 +587,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         raise ValueError(
             "noise_std_uncertainty() called but no active noise model or noise parameters are configured in the belief."
         )
-
-
-
 
     def _generate_epoch_candidates(self) -> None:
         """Generate a dense slope-targeted grid and cache it for the current epoch.
@@ -692,7 +691,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Use empirically measured low-signal values to add dense candidates directly
         # at the true dip locations, correcting for posterior bias when belief is wrong.
         if len(self._observations) >= 5 and self.noise_model is not None:
-
             from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
 
             rescale_maps = self._rescale_maps
@@ -738,7 +736,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 total_sig = sum(c.significance for c in dip_candidates)
                 total_budget = 100  # total candidate points across all dip grids
                 for candidate in dip_candidates:
-                    frac = candidate.significance / total_sig if total_sig > 0 else 1.0/len(dip_candidates)
+                    frac = candidate.significance / total_sig if total_sig > 0 else 1.0 / len(dip_candidates)
                     n_pts = max(10, int(frac * total_budget))
                     window_phys = max(3.0 * omega_phys, sigma_eff_phys, 5e6)
                     s = max(candidate.centroid_hz - window_phys, phys_f_lo)
@@ -747,8 +745,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         continue
                     dip_grid_phys = np.linspace(s, e, n_pts)
                     local_grids.append(_to_unit_freq(dip_grid_phys))
-
-
 
         # 6. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
         merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
@@ -782,7 +778,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if getattr(self, "_use_rao_blackwell_noise", False):
             self._noise_alphas = self._noise_alphas[new_indices]
             self._noise_betas = self._noise_betas[new_indices]
-
 
         # 4. Enforce minimum exploration variance based on parameter ranges.
         # We apply this to the total covariance before nudging, so the steady
@@ -913,17 +908,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         diff = p - mean  # (N, d)
         var = (w @ (diff**2)) / sw  # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
-        
+
         if getattr(self, "_use_rao_blackwell_noise", False):
             expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
             mean_var = np.sum(self._weights * expected_vars)
-            
+
             denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-            within_var = self._noise_betas ** 2 / np.maximum(denom, 1e-15)
-            
-            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(self._weights * (expected_vars - mean_var)**2)
+            within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+
+            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
+                self._weights * (expected_vars - mean_var) ** 2
+            )
             stds["noise_sigma"] = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
-            
+
         return ParameterValues.from_mapping(list(stds.keys()), stds)
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
@@ -1039,7 +1036,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             dist._dip_centers = list(self._dip_centers)
         return dist
 
-
     def _weighted_mean(self, name: str) -> float:
         if name not in self.parameter_bounds:
             raise KeyError(f"Parameter {name} not found")
@@ -1122,12 +1118,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
             positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
             idx = _systematic_resample_indices(cdf, positions)
-            part = self._particles[idx]          # (n_eig, d) — one copy
+            part = self._particles[idx]  # (n_eig, d) — one copy
             w_sub = w_norm[idx].astype(np.float32)
             w_sub /= w_sub.sum()
         else:
-            part = self._particles               # (n_total, d)
-            w_sub = self._weights                # already float32, normalized
+            part = self._particles  # (n_total, d)
+            w_sub = self._weights  # already float32, normalized
 
         # Fused kernel: compute weighted prediction variance per candidate in one
         # pass, without materialising the (n_candidates x n_eig) predictions matrix.
@@ -1142,9 +1138,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         return 0.5 * np.log1p(var_pred / noise_var)
 
-    def _eig_variance_fused(
-        self, candidates: np.ndarray, part: np.ndarray, weights: np.ndarray
-    ) -> np.ndarray:
+    def _eig_variance_fused(self, candidates: np.ndarray, part: np.ndarray, weights: np.ndarray) -> np.ndarray:
         """Dispatch to the model-specific fused EIG-variance kernel.
 
         The kernel type is resolved once at construction and cached in
@@ -1156,7 +1150,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         out = np.empty(len(candidates), dtype=np.float32)
         xs = np.asarray(candidates, dtype=np.float32)
-        w  = np.asarray(weights, dtype=np.float32)
+        w = np.asarray(weights, dtype=np.float32)
 
         kernel = self._eig_kernel_type
 
@@ -1232,10 +1226,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 f"{type(self).__name__} is missing 'frequency' in parameter_bounds. "
                 "All beliefs must declare physical frequency bounds at construction."
             )
-        return {
-            name: RescaleMap(lo=float(lo), hi=float(hi))
-            for name, (lo, hi) in self.parameter_bounds.items()
-        }
+        return {name: RescaleMap(lo=float(lo), hi=float(hi)) for name, (lo, hi) in self.parameter_bounds.items()}
 
     @property
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:

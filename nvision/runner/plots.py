@@ -13,8 +13,8 @@ from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
 from nvision.runner.plots_data import (
-    write_covariance_data,
     write_convergence_metrics_data,
+    write_covariance_data,
     write_fisher_data,
     write_parameter_convergence_data,
     write_posterior_data,
@@ -27,7 +27,6 @@ from nvision.sim.defaults import (
 )
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
-from nvision.viz.bayesian import _get_nv_parameter_descriptions, _get_signal_formula
 
 log = logging.getLogger(__name__)
 
@@ -562,7 +561,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         return path.relative_to(out_dir).as_posix()
 
     if anim_all is not None:
-        physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+        physical_bounds = (
+            getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+        )
         ess_threshold = getattr(bayesian_snapshots[0].belief, "ess_threshold", None) if bayesian_snapshots else None
         data = write_posterior_data(
             anim_all,
@@ -588,7 +589,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
             anim_single = {scan_param: (posterior_history, freq_grid)}
-            physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+            physical_bounds = (
+                getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+            )
             ess_threshold = getattr(bayesian_snapshots[0].belief, "ess_threshold", None) if bayesian_snapshots else None
             data = write_posterior_data(
                 anim_single,
@@ -669,7 +672,9 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
         if pairs:
             ellipse_path = bayes_dir / f"{attempt_slug}_covariance_ellipses.json.gz"
-            physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+            physical_bounds = (
+                getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
+            )
             data = write_covariance_data(
                 cov_hist,
                 param_names,

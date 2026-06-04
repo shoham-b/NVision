@@ -1,8 +1,8 @@
 """Shared CLI option definitions using Typer Annotated types."""
 
 from typing import Annotated
+
 import typer
-from nvision.cli import defaults as cli_defaults
 
 RepeatsOption = Annotated[
     int,

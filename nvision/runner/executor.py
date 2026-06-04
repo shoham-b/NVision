@@ -372,6 +372,7 @@ class _TaskRunner:
 
             # Clean up artifact repeat graphs and update plots_manifest.json
             from nvision.tools.artifacts import purge_artifacts_for_combination
+
             purge_artifacts_for_combination(
                 out_dir=self.task.out_dir,
                 generator=self.generator_name,
@@ -403,9 +404,7 @@ class _TaskRunner:
         ro = self.task.repeat_offset
 
         # 1. Try exact full match — fast path first (no binary content loaded when gz files exist)
-        fast = self.cache.get_cached_combination_fast(
-            **combo_kw, repeat_offset=ro, out_dir=self.task.out_dir
-        )
+        fast = self.cache.get_cached_combination_fast(**combo_kw, repeat_offset=ro, out_dir=self.task.out_dir)
         if fast is not None:
             log.debug(
                 "Full cache hit (fast) for %s/%s/%s (seed=%s); gz files on disk, skipping restore.",
@@ -471,7 +470,9 @@ class _TaskRunner:
             log.info(
                 "Cache miss reason: Partial cache hit. Only %s repeats exist in cache of the %s requested. "
                 "The remaining %s repeats must be run.",
-                total_achieved, total_requested, total_requested - total_achieved
+                total_achieved,
+                total_requested,
+                total_requested - total_achieved,
             )
             return
 
@@ -485,6 +486,7 @@ class _TaskRunner:
         similar_configs = []
         try:
             from nvision.cache.locator_keys import CACHE_SCHEMA_VERSION
+
             backend = self.cache.backend
             for k in backend:
                 payload = backend.get(k)
@@ -502,7 +504,9 @@ class _TaskRunner:
         if not similar_configs:
             log.info(
                 "Cache miss reason: No prior cache entries exist for combination: %s/%s/%s (first run).",
-                self.generator_name, self.noise_name, self.strategy_name
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
             )
             return
 
@@ -524,9 +528,7 @@ class _TaskRunner:
                 seen_schemas.add(cfg.get("schema_version"))
 
         if seen_seeds:
-            mismatch_reasons.append(
-                f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})"
-            )
+            mismatch_reasons.append(f"seed mismatch (target: {self.task.seed}, cached: {list(seen_seeds)})")
         if seen_max_steps:
             mismatch_reasons.append(
                 f"max_steps mismatch (target: {effective_max_steps}, cached: {list(seen_max_steps)})"
@@ -543,12 +545,17 @@ class _TaskRunner:
         if mismatch_reasons:
             log.info(
                 "Cache miss reason: Prior runs found for %s/%s/%s, but parameters differed: %s",
-                self.generator_name, self.noise_name, self.strategy_name, ", ".join(mismatch_reasons)
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
+                ", ".join(mismatch_reasons),
             )
         else:
             log.info(
                 "Cache miss reason: Prior runs found for %s/%s/%s, but no matching repeats were found.",
-                self.generator_name, self.noise_name, self.strategy_name
+                self.generator_name,
+                self.noise_name,
+                self.strategy_name,
             )
 
     def _run_repeats(
@@ -775,6 +782,7 @@ class _TaskRunner:
             return
 
         from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
+
         ro = self.task.repeat_offset
         # The global index of the first NEW result
         first_new_idx = ro + n_cached
@@ -817,7 +825,9 @@ class _TaskRunner:
 
     def _rng_for_simplesweep_baseline(self, repeat_idx: int) -> random.Random:
         """RNG for SimpleSweep baseline measurement noise — strategy-independent."""
-        key = measurement_repeat_key(self.task.seed, self.generator_name, "simplesweep_baseline", self.noise_name, repeat_idx)
+        key = measurement_repeat_key(
+            self.task.seed, self.generator_name, "simplesweep_baseline", self.noise_name, repeat_idx
+        )
         return random.Random(repeat_seed_int(key))
 
     def _run_sobol_baseline(
@@ -1033,10 +1043,14 @@ class _TaskRunner:
         else:
             min_linewidth = 200e3
         import numpy as np
+
         simplesweep_steps = int(np.ceil(domain_width / min_linewidth))
 
         locator_class = self.task.strategy_spec.locator_class
-        if self.strategy_name == "SimpleSweep" or locator_class.__name__ in ("SimpleSweepLocator", "GenericSweepLocator"):
+        if self.strategy_name == "SimpleSweep" or locator_class.__name__ in (
+            "SimpleSweepLocator",
+            "GenericSweepLocator",
+        ):
             return simplesweep_steps
 
         if locator_class.__name__ == "SequentialBayesianExperimentDesignLocator":
@@ -1130,6 +1144,7 @@ class _TaskRunner:
         sobol_data: dict[str, Any] | None = None
 
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
         if issubclass(locator_class, SequentialBayesianLocator) and self.strategy_name != "SimpleSobol":
             sobol_data = self._sweep_cache.get_sobol_baseline(
                 experiment, self.task.seed, self.generator_name, self.noise_name, rid
@@ -1146,9 +1161,12 @@ class _TaskRunner:
                 sobol_freq_steps = sobol_data.get("sobol_freq_steps")
 
             # Run SimpleSweep baseline for visualization (cached only, no manifest metrics)
-            if self._sweep_cache.get_simplesweep_baseline(
-                experiment, self.task.seed, self.generator_name, self.noise_name, rid
-            ) is None:
+            if (
+                self._sweep_cache.get_simplesweep_baseline(
+                    experiment, self.task.seed, self.generator_name, self.noise_name, rid
+                )
+                is None
+            ):
                 try:
                     simplesweep_data = self._run_simplesweep_baseline(
                         rid, experiment, noise_std, noise_max_dev, signal_max_span

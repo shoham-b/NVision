@@ -76,9 +76,7 @@ def _parse_noise(name: str) -> CompositeNoise | None:
     m = _GAUSS_RE.match(name)
     if m is not None:
         sigma = float(m.group(1))
-        return CompositeNoise(
-            over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)])
-        )
+        return CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)]))
     m = _POISSON_RE.match(name)
     if m is not None:
         scale = float(m.group(1))
@@ -313,4 +311,3 @@ class CombinationGrid:
                     strategy=s_obj,
                 )
         return None
-

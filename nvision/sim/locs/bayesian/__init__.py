@@ -16,6 +16,6 @@ __all__ = [
     "SimpleSobolBayesianLocator",
     "StudentsTLocator",
     "UtilitySamplingLocator",
-    "nv_center_belief",
     "identify_dip_candidates",
+    "nv_center_belief",
 ]

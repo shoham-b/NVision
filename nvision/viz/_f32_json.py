@@ -21,7 +21,6 @@ from typing import Any
 
 import numpy as np
 
-
 _MIN_ARRAY_LEN: int = 4
 
 
@@ -137,5 +136,6 @@ def from_gz_bytes(data: bytes) -> Any:
 def figure_from_gz_bytes(data: bytes) -> Any:
     """Deserialize gzip-compressed Float32 JSON bytes to a ``go.Figure``."""
     import plotly.io as pio
+
     decoded = from_gz_bytes(data)
     return pio.from_json(json.dumps(decoded))

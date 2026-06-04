@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 
@@ -44,6 +43,7 @@ DEFAULT_NV_CENTER_FREQ_X_MAX = 3.1e9
 # Gaussian prior std as a fraction of parameter range (1/10 of range by default)
 # Can be configured via NVISION_PRIOR_STD_FRACTION environment variable
 import os
+
 from dotenv import load_dotenv
 
 _load_env = load_dotenv()  # Ensure .env is loaded
@@ -211,7 +211,6 @@ class NVCenterLorentzianModel(
             params.k_np,
             params.c_total,
         )
-
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterLorentzianSpectrumSamples) -> np.ndarray:
         out = self.compute_nvcenter_lorentzian_model_vectorized(
@@ -419,7 +418,6 @@ class NVCenterVoigtModel(
             params.dip_depth,
         )
 
-
     def compute_vectorized_samples(self, x: float, samples: NVCenterVoigtSpectrumSamples) -> np.ndarray:
         """Vectorized Voigt evaluation for a single probe position across all particles."""
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
@@ -597,7 +595,6 @@ class NVCenterOnePeakLorentzianModel(
         lw2 = params.linewidth**2
         denom = (float(x) - params.frequency) ** 2 + lw2
         return float(1.0 - (params.dip_depth * lw2) / denom)
-
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
         x_f = float(x)

@@ -214,9 +214,9 @@ class GenericSweepLocator(SweepingLocator):
                 var_b = float(cov[1, 1])
                 cov_ab = float(cov[0, 1])
                 # x0 = -b/(2a)  →  ∂x0/∂a = b/(2a²),  ∂x0/∂b = -1/(2a)
-                d_a = b / (2.0 * a ** 2)
+                d_a = b / (2.0 * a**2)
                 d_b = -1.0 / (2.0 * a)
-                var_x0 = d_a ** 2 * var_a + d_b ** 2 * var_b + 2.0 * d_a * d_b * cov_ab
+                var_x0 = d_a**2 * var_a + d_b**2 * var_b + 2.0 * d_a * d_b * cov_ab
                 sigma_x0_norm = float(np.sqrt(max(var_x0, 0.0)))
             else:
                 sigma_x0_norm = half_width_norm * 0.1  # rough fallback

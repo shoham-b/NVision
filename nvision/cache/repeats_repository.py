@@ -41,10 +41,7 @@ class RepeatsRepository:
         self._store.save_df(df, key)
 
         # Lightweight sidecar: stripped entries + result row only (no binary blobs)
-        stripped_entries = [
-            {k: v for k, v in e.items() if k not in self._HEAVY_FIELDS}
-            for e in entries
-        ]
+        stripped_entries = [{k: v for k, v in e.items() if k not in self._HEAVY_FIELDS} for e in entries]
         meta_payload = {"entries": stripped_entries, "main_result_row": main_result_row}
         meta_df = pl.DataFrame({"results": [json.dumps(meta_payload)]})
         self._store.save_df(meta_df, key + ":meta")
@@ -67,13 +64,8 @@ class RepeatsRepository:
                     # Backfill sidecar if missing so next load can use fast path
                     meta_key = key + ":meta"
                     if self._store.load_df(meta_key) is None:
-                        stripped = [
-                            {k: v for k, v in e.items() if k not in self._HEAVY_FIELDS}
-                            for e in entries
-                        ]
-                        meta_df = pl.DataFrame(
-                            {"results": [json.dumps({"entries": stripped, "main_result_row": row})]}
-                        )
+                        stripped = [{k: v for k, v in e.items() if k not in self._HEAVY_FIELDS} for e in entries]
+                        meta_df = pl.DataFrame({"results": [json.dumps({"entries": stripped, "main_result_row": row})]})
                         self._store.save_df(meta_df, meta_key)
                     return entries, row
                 except (Exception, KeyError):
@@ -102,7 +94,9 @@ class RepeatsRepository:
                 return None
         return results
 
-    def load_repeats(self, combo_key: str, count: int, start_idx: int = 0, allow_gaps: bool = False) -> list[RepeatResult]:
+    def load_repeats(
+        self, combo_key: str, count: int, start_idx: int = 0, allow_gaps: bool = False
+    ) -> list[RepeatResult]:
         """Load N repeats in order. If allow_gaps is True, missing repeats are skipped but we continue loading.
         Otherwise, we stop at the first missing repeat (gap)."""
         results: list[RepeatResult] = []

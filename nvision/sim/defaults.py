@@ -27,8 +27,6 @@ NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD: float = float(os.getenv("NVISION_DIP_NO
 NVISION_DIP_CONFIDENCE: float = float(os.getenv("NVISION_DIP_CONFIDENCE", "0.99"))
 
 
-
-
 # --- Grid Resolution Defaults (belief_builders.py) -------------------------
 
 NVISION_GRID_FREQ: int = int(os.getenv("NVISION_GRID_FREQ", "96"))
@@ -97,7 +95,9 @@ NVISION_FREQ_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_FREQ_CONVER
 # Candidate count from the epoch grid ≈ 6·σ_f / NVISION_SMC_CANDIDATE_STEP_HZ,
 # so the budget shrinks automatically as the posterior tightens.
 # Defaults to NVISION_FREQ_CONVERGENCE_THRESHOLD (100 kHz).
-NVISION_SMC_CANDIDATE_STEP_HZ: float = float(os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_FREQ_CONVERGENCE_THRESHOLD)))
+NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
+    os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_FREQ_CONVERGENCE_THRESHOLD))
+)
 
 
 def _optional_env_float(name: str) -> float | None:

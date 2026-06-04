@@ -17,7 +17,6 @@ from nvision.noises import (
 )
 from nvision.sim.defaults import (
     NVISION_DEFAULT_LOC_MAX_STEPS,
-    NVISION_NOISE_GAUSS,
     NVISION_NOISE_POISSON,
 )
 
@@ -53,10 +52,10 @@ def noises_none() -> list[tuple[str, CompositeNoise | None]]:
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     import numpy as np
+
     from nvision.sim.defaults import (
-        NVISION_NOISE_MAX_GAUSS,
         NVISION_NOISE_GAUSS_STEPS,
-        NVISION_NOISE_POISSON,
+        NVISION_NOISE_MAX_GAUSS,
     )
 
     noises = []

@@ -104,7 +104,9 @@ def prepare_artifact_tree(out_dir: Path, *, clear_cache: bool = False) -> Artifa
     )
 
 
-def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger, *, no_cache: bool = False) -> pl.DataFrame:  # noqa: C901
+def merge_locator_results_with_existing(
+    df_loc: pl.DataFrame, out_dir: Path, log: logging.Logger, *, no_cache: bool = False
+) -> pl.DataFrame:
     """Concatenate with on-disk CSV when present, keeping the newest row per scenario key.
 
     When ``no_cache`` is True the old CSV rows for the combinations being
@@ -126,22 +128,32 @@ def merge_locator_results_with_existing(df_loc: pl.DataFrame, out_dir: Path, log
 
         # Purge any old rows for the exact combinations being updated to prevent persisting old/different repeats
         if "generator" in df_loc.columns and "noise" in df_loc.columns and "strategy" in df_loc.columns:
-            df_loc = df_loc.with_columns([
-                pl.col("generator").cast(pl.String, strict=False),
-                pl.col("noise").cast(pl.String, strict=False),
-                pl.col("strategy").cast(pl.String, strict=False),
-            ])
+            df_loc = df_loc.with_columns(
+                [
+                    pl.col("generator").cast(pl.String, strict=False),
+                    pl.col("noise").cast(pl.String, strict=False),
+                    pl.col("strategy").cast(pl.String, strict=False),
+                ]
+            )
             for col in ("max_steps", "seed"):
                 if col in df_loc.columns:
                     df_loc = df_loc.with_columns(pl.col(col).cast(pl.Int64, strict=False))
                 if col in old_df.columns:
                     old_df = old_df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
 
-            old_df = old_df.with_columns([
-                pl.col("generator").cast(pl.String, strict=False) if "generator" in old_df.columns else pl.lit(None).alias("generator"),
-                pl.col("noise").cast(pl.String, strict=False) if "noise" in old_df.columns else pl.lit(None).alias("noise"),
-                pl.col("strategy").cast(pl.String, strict=False) if "strategy" in old_df.columns else pl.lit(None).alias("strategy"),
-            ])
+            old_df = old_df.with_columns(
+                [
+                    pl.col("generator").cast(pl.String, strict=False)
+                    if "generator" in old_df.columns
+                    else pl.lit(None).alias("generator"),
+                    pl.col("noise").cast(pl.String, strict=False)
+                    if "noise" in old_df.columns
+                    else pl.lit(None).alias("noise"),
+                    pl.col("strategy").cast(pl.String, strict=False)
+                    if "strategy" in old_df.columns
+                    else pl.lit(None).alias("strategy"),
+                ]
+            )
 
             join_cols = ["generator", "noise", "strategy"]
             if "max_steps" in df_loc.columns and "max_steps" in old_df.columns:
@@ -282,6 +294,7 @@ def merge_run_plot_manifest_with_existing_on_disk(
         new_paths = {str(row.get("path")) for row in plot_manifest if row.get("path")}
 
         import contextlib
+
         filtered_old: list[dict[str, object]] = []
         for entry in old_manifest:
             # Drop old summaries - they are rebuilt per run
@@ -349,7 +362,6 @@ def merge_run_plot_manifest_with_existing_on_disk(
         log.warning("Could not merge with existing plots_manifest.json: %s", e)
 
 
-
 def dummy_scan_plot_manifest_entry() -> dict[str, object]:
     return {
         "type": "scan",
@@ -397,6 +409,7 @@ def purge_artifacts_for_combination(
     """Delete repeat graphs and plots manifest entries for a purged combination."""
     # 1. Generate task slug corresponding to this combination
     from nvision.tools.paths import slugify
+
     slug = "_".join(slugify(p) for p in (generator, noise, strategy))
 
     # 2. Delete individual repeat graphs from graphs/scans and graphs/bayes directories
@@ -430,11 +443,13 @@ def purge_artifacts_for_combination(
                 sd = entry.get("seed")
 
                 # Check for match (cast to string for safe comparison)
-                if (str(g) == str(generator) and
-                    str(n) == str(noise) and
-                    str(s) == str(strategy) and
-                    (ms is None or max_steps is None or int(ms) == int(max_steps)) and
-                    (sd is None or seed is None or int(sd) == int(seed))):
+                if (
+                    str(g) == str(generator)
+                    and str(n) == str(noise)
+                    and str(s) == str(strategy)
+                    and (ms is None or max_steps is None or int(ms) == int(max_steps))
+                    and (sd is None or seed is None or int(sd) == int(seed))
+                ):
                     removed_count += 1
                     continue
                 new_manifest.append(entry)
@@ -442,8 +457,12 @@ def purge_artifacts_for_combination(
             if removed_count > 0:
                 with manifest_path.open("w", encoding="utf-8") as f:
                     json.dump(new_manifest, f, indent=2)
-                log.debug("Removed %s entries from plots_manifest.json for combination %s/%s/%s",
-                          removed_count, generator, noise, strategy)
+                log.debug(
+                    "Removed %s entries from plots_manifest.json for combination %s/%s/%s",
+                    removed_count,
+                    generator,
+                    noise,
+                    strategy,
+                )
         except Exception as exc:
             log.warning("Failed to update plots_manifest.json during cache purge: %s", exc)
-

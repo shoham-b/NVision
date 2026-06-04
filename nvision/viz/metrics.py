@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-from nvision.viz._f32_json import write_plotly_gz
 from typing import Any
 
 import plotly.graph_objects as go
 
 from nvision.metrics.types import StrategyMetrics
+from nvision.viz._f32_json import write_plotly_gz
 
 
 class MetricsVizMixin:

@@ -113,8 +113,9 @@ def test_merge_plot_manifest_keeps_other_combinations_and_overrides_updated_comp
     # Pre-populate plots_manifest.json with two different combinations:
     # 1. NVCenter-lorentzian, strategy Bayesian, repeat 1
     # 2. NVCenter-voigt, strategy Sweep, repeat 1
-    from nvision.tools.artifacts import plots_manifest_path, merge_run_plot_manifest_with_existing_on_disk
     import json
+
+    from nvision.tools.artifacts import merge_run_plot_manifest_with_existing_on_disk, plots_manifest_path
 
     old_manifest = [
         {
@@ -136,7 +137,7 @@ def test_merge_plot_manifest_keeps_other_combinations_and_overrides_updated_comp
             "seed": 12345,
             "repeat": 1,
             "path": "plot2.html",
-        }
+        },
     ]
     plots_manifest_path(out_dir).write_text(json.dumps(old_manifest), encoding="utf-8")
 
@@ -161,7 +162,7 @@ def test_merge_plot_manifest_keeps_other_combinations_and_overrides_updated_comp
 
     # Verify that the Sweep plot is preserved, and the old Bayesian plot is removed from disk and manifest.
     assert len(new_manifest) == 2
-    
+
     # Check that old Bayesian plot (plot1.html) was deleted from disk
     assert not old_plot_1.exists()
     # Check that Sweep plot (plot2.html) is still on disk
