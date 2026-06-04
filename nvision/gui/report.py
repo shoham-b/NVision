@@ -53,9 +53,6 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     manifest_json = _read_manifest_json(out_dir)
     manifest_bytes = len(manifest_json.encode("utf-8"))
 
-    # Cache-bust timestamp
-    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
-
     # Build the data scripts that will be injected into the HTML
     data_scripts = []
 
@@ -94,9 +91,10 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     # Add asset prefix for resolving relative paths
     data_scripts.append('<script>window.NVISION_ASSET_PREFIX = "./";</script>')
 
-    # Inject data scripts before </head>
+    # Inject data scripts at the very start of <head> so window.MANIFEST / window.SETTINGS
+    # are defined before any split JS file (bootstrap.js, etc.) executes.
     data_block = "\n".join(data_scripts)
-    index_html = index_html.replace("</head>", f"{data_block}\n</head>")
+    index_html = index_html.replace("<head>", f"<head>\n{data_block}", 1)
 
     # Inline CSS to avoid file:// URL caching issues
     css_src = _STATIC_DIR / "styles.css"
@@ -106,21 +104,17 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
         css_pattern = '<link rel="stylesheet" href="styles.css">'
         index_html = index_html.replace(css_pattern, css_inline)
 
-    # Replace the iframe loader with direct script tag
-    script_tag = f'<script src="app.js?v={stamp}"></script>'
-
-    # We look for any iframe referencing loader.html and replace it
-    import re
-
-    index_html = re.sub(r'<iframe [^>]*src="[^"]*loader\.html"[^>]*></iframe>', script_tag, index_html)
-
-    # Copy app.js with cache-busting in the URL (content unchanged)
+    # Copy all split JS files to out_dir
     import shutil
 
-    app_js_src = _STATIC_DIR / "app.js"
-    app_js_dest = out_dir / "app.js"
-    if app_js_src.exists():
-        shutil.copy2(app_js_src, app_js_dest)
+    _JS_FILES = [
+        "app.js", "bootstrap.js", "format-utils.js",
+        "plotly-utils.js", "run-status.js", "reload.js",
+    ]
+    for js_file in _JS_FILES:
+        js_src = _STATIC_DIR / js_file
+        if js_src.exists():
+            shutil.copy2(js_src, out_dir / js_file)
 
     # If manifest was too large to inline, write it as JSON for fetching
     if manifest_bytes > _MAX_INLINE_MANIFEST_BYTES:

@@ -140,6 +140,29 @@ function main() {
         onIframeLoaded();
     }
 
+    function getStoppingFrameLimit() {
+        if (!currentPlot || currentStoppingCriteria === 'full') return null;
+        const m = currentPlot.metrics || {};
+        if (currentStoppingCriteria === 'freq_converged' && m.freq_converged_step != null)
+            return Math.max(0, m.freq_converged_step);
+        if (currentStoppingCriteria === 'all_converged' && m.all_converged_step != null)
+            return Math.max(0, m.all_converged_step);
+        return null;
+    }
+
+    function applyStoppingFrameLimit() {
+        if (globalTotalFrames === 0) return;
+        const limit = getStoppingFrameLimit();
+        const cap = limit != null ? Math.min(limit, globalTotalFrames - 1) : globalTotalFrames - 1;
+        globalSlider.max = cap;
+        const cur = parseInt(globalSlider.value, 10);
+        if (cur > cap) {
+            globalSlider.value = cap;
+            syncFrames(cap);
+        }
+        updateGlobalLabel(parseInt(globalSlider.value, 10));
+    }
+
     function updateGlobalTimelineMetadata() {
         let maxFrames = 0;
         let steps = [];
@@ -160,7 +183,7 @@ function main() {
             globalStepValues = steps;
             globalSlider.max = maxFrames - 1;
             globalControls.style.display = 'flex';
-            updateGlobalLabel(parseInt(globalSlider.value, 10));
+            applyStoppingFrameLimit();
             syncFrames(parseInt(globalSlider.value, 10));
         } else {
             globalTotalFrames = 0;
@@ -220,7 +243,7 @@ function main() {
         const intervalMs = parseInt(globalSpeedSelect.value, 10);
         globalPlayInterval = setInterval(() => {
             let nextIdx = parseInt(globalSlider.value, 10) + 1;
-            if (nextIdx >= globalTotalFrames) {
+            if (nextIdx > parseInt(globalSlider.max, 10)) {
                 nextIdx = 0;
             }
             globalSlider.value = nextIdx;
@@ -1393,83 +1416,133 @@ function main() {
         selectRepeatByIndex(targetIndex);
     }
 
-    // Gaussian noise standard deviation slider state and selectors
-    const gaussStdSliderRow = document.getElementById('gaussian-noise-slider-row');
-    const gaussStdSlider = document.getElementById('gauss-std-slider');
-    const gaussStdValue = document.getElementById('gauss-std-value');
-    const gaussStdPrev = document.getElementById('gauss-std-prev');
-    const gaussStdNext = document.getElementById('gauss-std-next');
-    let currentGaussSigmas = [];
+    // ── Noise range-select control ────────────────────────────────────────────
+    // Click 1: sets the anchor (single selection, darker highlight).
+    // Click 2 on a different button: selects the full range from anchor to here.
+    // Hovering while an anchor is set previews the range.
 
-    function getEffectiveScanNoise() {
-        const selectedScanNoise = controlValue(scanNoise);
-        if (selectedScanNoise === 'Gauss' && currentGaussSigmas.length > 0) {
-            const idx = parseInt(gaussStdSlider.value, 10);
-            const sigma = currentGaussSigmas[idx];
-            let sigmaStr = sigma.toString();
-            if (!sigmaStr.includes('.')) {
-                sigmaStr += '.0';
-            }
-            return `Gauss(${sigmaStr})`;
-        }
-        return selectedScanNoise;
+    function _getNoiseSelectedSet(control) {
+        try { return new Set(JSON.parse(control.dataset.selectedValues || '[]')); }
+        catch { return new Set(); }
     }
 
-    function updateGaussStdSlider() {
-        const selectedScanGenerator = controlValue(scanGenerator);
-        const selectedScanNoise = controlValue(scanNoise);
-        
-        if (selectedScanNoise === 'Gauss') {
-            const rawNoises = [...new Set(
-                scanPlots
-                    .filter((p) => p.generator === selectedScanGenerator && p.noise.includes('Gauss'))
-                    .map((p) => p.noise)
-            )];
-            
-            const sigmas = rawNoises
-                .map(n => {
-                    const match = n.match(/Gauss\(([\d.]+)\)/);
-                    return match ? parseFloat(match[1]) : null;
-                })
-                .filter(v => v !== null)
-                .sort((a, b) => a - b);
-            
-            currentGaussSigmas = sigmas;
-            
-            if (sigmas.length > 0) {
-                gaussStdSliderRow.style.display = 'flex';
-                gaussStdSlider.min = 0;
-                gaussStdSlider.max = sigmas.length - 1;
-                gaussStdSlider.step = 1;
-                
-                let savedIdx = parseInt(gaussStdSlider.dataset.index, 10);
-                if (isNaN(savedIdx) || savedIdx < 0 || savedIdx >= sigmas.length) {
-                    if (scanDefault && scanDefault.noise && scanDefault.noise.includes('Gauss') && scanDefault.generator === selectedScanGenerator) {
-                        const match = scanDefault.noise.match(/Gauss\(([\d.]+)\)/);
-                        if (match) {
-                            const targetSigma = parseFloat(match[1]);
-                            const closestIdx = sigmas.findIndex(s => Math.abs(s - targetSigma) < 1e-6);
-                            if (closestIdx !== -1) {
-                                savedIdx = closestIdx;
-                            }
-                        }
+    function _setNoiseSelected(control, values, { silent = false } = {}) {
+        const valSet = new Set(values);
+        control.dataset.selectedValues = JSON.stringify([...valSet]);
+        for (const btn of control.querySelectorAll('button')) {
+            const sel = valSet.has(btn.dataset.value);
+            btn.classList.toggle('is-active', sel);
+            btn.setAttribute('aria-checked', String(sel));
+        }
+        if (!silent) {
+            control.dispatchEvent(new CustomEvent('controlchange', {
+                bubbles: false, detail: { values: [...valSet] },
+            }));
+        }
+    }
+
+    function renderMultiSelectNoiseControl(control, items, previousValues) {
+        const prev = Array.isArray(previousValues) ? previousValues : (previousValues ? [previousValues] : []);
+        const uniqueItems = [...new Set(items.filter(Boolean).map(String))].sort((a, b) => {
+            const ga = a.match(/Gauss\(([\d.]+)\)/);
+            const gb = b.match(/Gauss\(([\d.]+)\)/);
+            if (ga && gb) return parseFloat(ga[1]) - parseFloat(gb[1]);
+            if (ga) return -1; if (gb) return 1;
+            return a.localeCompare(b);
+        });
+
+        control.innerHTML = '';
+        control.setAttribute('role', 'group');
+        control._rangeAnchor = null;
+
+        for (const item of uniqueItems) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.value = item;
+            btn.setAttribute('role', 'checkbox');
+            btn.setAttribute('aria-checked', 'false');
+            btn.tabIndex = 0;
+            btn.textContent = item;
+            btn.className = 'noise-btn';
+
+            btn.addEventListener('click', () => {
+                const allBtns = [...control.querySelectorAll('button')];
+                allBtns.forEach(b => b.classList.remove('is-range-preview'));
+
+                if (!control._rangeAnchor) {
+                    // First click: set anchor, select only this item
+                    control._rangeAnchor = item;
+                    allBtns.forEach(b => b.classList.toggle('is-range-anchor', b.dataset.value === item));
+                    _setNoiseSelected(control, [item]);
+                } else {
+                    const ai = allBtns.findIndex(b => b.dataset.value === control._rangeAnchor);
+                    const bi = allBtns.findIndex(b => b.dataset.value === item);
+                    if (ai === bi) {
+                        // Re-clicked the anchor — keep it as a fresh single-item anchor
+                        return;
                     }
+                    // Second click: commit range from anchor to here
+                    const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
+                    const range = allBtns.slice(lo, hi + 1).map(b => b.dataset.value);
+                    control._rangeAnchor = null;
+                    allBtns.forEach(b => b.classList.remove('is-range-anchor'));
+                    _setNoiseSelected(control, range);
                 }
-                if (isNaN(savedIdx) || savedIdx < 0 || savedIdx >= sigmas.length) {
-                    savedIdx = 0;
-                }
-                
-                gaussStdSlider.value = savedIdx;
-                gaussStdSlider.dataset.index = savedIdx;
-                gaussStdValue.textContent = sigmas[savedIdx].toFixed(4).replace(/\.?0+$/, '');
-                
-                gaussStdPrev.disabled = savedIdx === 0;
-                gaussStdNext.disabled = savedIdx === sigmas.length - 1;
-            } else {
-                gaussStdSliderRow.style.display = 'none';
+            });
+
+            btn.addEventListener('mouseenter', () => {
+                if (!control._rangeAnchor || item === control._rangeAnchor) return;
+                const allBtns = [...control.querySelectorAll('button')];
+                const ai = allBtns.findIndex(b => b.dataset.value === control._rangeAnchor);
+                const bi = allBtns.findIndex(b => b.dataset.value === item);
+                const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
+                allBtns.forEach((b, i) =>
+                    b.classList.toggle('is-range-preview', i >= lo && i <= hi && !b.classList.contains('is-range-anchor'))
+                );
+            });
+
+            btn.addEventListener('mouseleave', () => {
+                if (!control._rangeAnchor) return;
+                control.querySelectorAll('.is-range-preview').forEach(b => b.classList.remove('is-range-preview'));
+            });
+
+            control.appendChild(btn);
+        }
+
+        // Restore previous selection; keep valid items; fallback to first
+        let nextValues = prev.filter(v => uniqueItems.includes(v));
+        if (nextValues.length === 0 && uniqueItems.length > 0) nextValues = [uniqueItems[0]];
+        _setNoiseSelected(control, nextValues, { silent: true });
+        return nextValues;
+    }
+
+    function getSelectedScanNoises() {
+        try { return JSON.parse(scanNoise.dataset.selectedValues || '[]').filter(Boolean); }
+        catch { return []; }
+    }
+
+    function getEffectiveScanNoise() {
+        const noises = getSelectedScanNoises();
+        return noises[0] || '';
+    }
+
+    function isNoiseRangeMode() {
+        return getSelectedScanNoises().length > 1;
+    }
+
+    function updateNoiseViewMode() {
+        const range = isNoiseRangeMode();
+        const singleBtn = document.getElementById('scan-view-single-btn');
+        const noiseBtn = document.getElementById('scan-view-noise-btn');
+        if (singleBtn) singleBtn.style.display = range ? 'none' : '';
+        if (noiseBtn) noiseBtn.style.display = range ? '' : 'none';
+
+        if (range) {
+            const activeBtn = document.querySelector('#scan-view-mode button.is-active');
+            if (activeBtn && activeBtn.dataset.value === 'single') {
+                const summaryBtn = document.querySelector('#scan-view-mode button[data-value="summary"]');
+                if (summaryBtn) summaryBtn.click();
             }
-        } else {
-            gaussStdSliderRow.style.display = 'none';
         }
     }
 
@@ -1482,23 +1555,14 @@ function main() {
             controlValue(scanGenerator),
         );
 
-        const rawNoiseItems = [...new Set(
+        const noiseItems = [...new Set(
             scanPlots
                 .filter((p) => p.generator === selectedScanGenerator)
                 .map((p) => p.noise)
         )];
-        
-        const hasGauss = rawNoiseItems.some(n => n.includes("Gauss"));
-        const nonGaussItems = rawNoiseItems.filter(n => !n.includes("Gauss"));
-        const scanNoiseItems = hasGauss ? ["Gauss", ...nonGaussItems] : nonGaussItems;
 
-        renderSegmentedControl(
-            scanNoise,
-            scanNoiseItems,
-            controlValue(scanNoise),
-        );
-
-        updateGaussStdSlider();
+        const prev = getSelectedScanNoises();
+        renderMultiSelectNoiseControl(scanNoise, noiseItems, prev.length ? prev : null);
     }
 
     function updateScanStrategyControl() {
@@ -1560,6 +1624,7 @@ function main() {
 
     function updateAllScanControls() {
         updateScanSignalControls();
+        updateNoiseViewMode();
         updateScanStrategyControl();
         updateScanRepeatControl();
     }
@@ -1569,6 +1634,36 @@ function main() {
         const scanNoiseValue = getEffectiveScanNoise();
         const scanStrategyValue = controlValue(scanStrategy);
         const scanRepeatValue = controlValue(scanRepeat);
+
+        // In range mode the single-scan display is suppressed; view mode handles everything
+        if (isNoiseRangeMode()) {
+            currentPlot = null;
+            setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), null);
+            if (scanMetrics) scanMetrics.innerHTML = '';
+            if (scanSweepMetrics) scanSweepMetrics.hidden = true;
+            const activeBtn = document.querySelector('#scan-view-mode button.is-active');
+            if (activeBtn) {
+                const mode = activeBtn.dataset.value;
+                const repeatView = document.getElementById('scan-repeat-view');
+                const summaryView = document.getElementById('scan-summary-view');
+                const noiseMetricsView = document.getElementById('noise-metrics-view');
+                if (mode === 'summary') {
+                    if (repeatView) repeatView.style.display = 'none';
+                    if (summaryView) summaryView.style.display = 'block';
+                    if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    renderRepeatsSummary(scanGeneratorValue, getSelectedScanNoises());
+                } else if (mode === 'noise') {
+                    if (repeatView) repeatView.style.display = 'none';
+                    if (summaryView) summaryView.style.display = 'none';
+                    if (noiseMetricsView) {
+                        noiseMetricsView.hidden = false;
+                        updateNoiseMetricsContent(scanGeneratorValue, getSelectedScanNoises());
+                    }
+                }
+            }
+            updateBayesTabs();
+            return;
+        }
 
         if (
             scanGeneratorValue &&
@@ -1820,6 +1915,12 @@ function main() {
                 } else {
                     scanMetrics.className = 'scan-metrics-wrapper';
                     let html = '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot, true)) + '</div>';
+                    // Slim manifest: show phase breakdown from flat fields when available
+                    if (plot.coarse_measurements != null && plot.fine_measurements != null) {
+                        html += '<div class="scan-metrics-panel" style="margin-top:0.5em;font-size:0.85em;color:#64748b;">' +
+                            '<span style="margin-right:1em;">Sweep: ' + formatCount(plot.coarse_measurements) + ' meas.</span>' +
+                            '<span>Inference: ' + formatCount(plot.fine_measurements) + ' meas.</span></div>';
+                    }
 
                     if (plot.true_params) {
                         html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
@@ -1866,11 +1967,15 @@ function main() {
         const activeViewModeBtn = document.querySelector('#scan-view-mode button.is-active');
         if (activeViewModeBtn) {
             if (activeViewModeBtn.dataset.value === 'summary') {
-                renderRepeatsSummary(scanGeneratorValue, scanNoiseValue, scanStrategyValue);
+                renderRepeatsSummary(scanGeneratorValue, [scanNoiseValue]);
             } else if (activeViewModeBtn.dataset.value === 'noise') {
-                updateCompPlots();
+                const noiseMetricsView = document.getElementById('noise-metrics-view');
+                if (noiseMetricsView) noiseMetricsView.hidden = false;
+                updateNoiseMetricsContent(scanGeneratorValue, [scanNoiseValue]);
             }
         }
+        // Apply stopping-criteria cap to posterior animation after plot change
+        applyStoppingFrameLimit();
     }
 
     function buildTrueParamItems(trueData, plot) {
@@ -3355,11 +3460,90 @@ function main() {
         );
     }
 
+    // Reverse-lookup: entity id (lowercase+underscores) → original strategy string
+    const strategyIdMap = new Map(
+        [...new Set(scanPlots.map(p => p.strategy))].map(s =>
+            [s.toLowerCase().replace(/[^a-z0-9]/g, '_'), s])
+    );
+
+    // Overlay B's measurement traces on the primary scan plot (single-repeat view).
+    // Uses Plotly.deleteTraces + Plotly.addTraces; traces are tagged with meta.isComparison.
+    async function applyComparisonOverlay(entityB) {
+        const scanPlotDiv = document.getElementById('scan-plot-div');
+        if (!scanPlotDiv || !window.Plotly || scanPlotDiv.style.display === 'none') return;
+
+        // Remove previous comparison traces
+        if (Array.isArray(scanPlotDiv.data)) {
+            const compIdx = scanPlotDiv.data
+                .map((t, i) => (t.meta && t.meta.isComparison) ? i : -1)
+                .filter(i => i >= 0);
+            if (compIdx.length) await Plotly.deleteTraces(scanPlotDiv, compIdx).catch(() => {});
+        }
+
+        if (!entityB || !currentPlot) return;
+        const baseId = entityB.id.replace(/_freq$|_conv$/, '');
+        const bStrategy = strategyIdMap.get(baseId);
+        if (!bStrategy || bStrategy === currentPlot.strategy) return;
+
+        const bPlot = scanPlots.find(p =>
+            p.generator === currentPlot.generator &&
+            p.noise === currentPlot.noise &&
+            p.strategy === bStrategy &&
+            p.repeat === currentPlot.repeat
+        );
+        if (!bPlot || !bPlot.path) return;
+
+        try {
+            const bFig = await _fetchJson(bPlot.path);
+            if (!bFig || !Array.isArray(bFig.data)) return;
+
+            const MEASUREMENT_NAMES = [
+                'measurements (coarse)', 'measurements (inference)',
+                'measurements (secondary)', 'measurements (tertiary)',
+                'measurements (noisy)', 'locator most likely signal',
+                'locator mode belief signal',
+            ];
+            const isCompTrace = name => name && MEASUREMENT_NAMES.some(n => name.includes(n));
+
+            const toPlain = o => {
+                if (o === null || o === undefined) return o;
+                if (ArrayBuffer.isView(o)) return Array.from(o);
+                if (Array.isArray(o)) return o.map(toPlain);
+                if (typeof o === 'object') { const r = {}; for (const k of Object.keys(o)) r[k] = toPlain(o[k]); return r; }
+                return o;
+            };
+
+            const compTraces = bFig.data
+                .filter(t => isCompTrace(t.name))
+                .map(t => {
+                    const plain = toPlain(t);
+                    return {
+                        ...plain,
+                        name: `${plain.name || ''} (${bStrategy})`,
+                        meta: { isComparison: true },
+                        opacity: 0.55,
+                        marker: plain.marker ? { ...plain.marker, symbol: 'diamond', size: (plain.marker.size || 8) * 0.85 } : undefined,
+                        line: plain.line ? { ...plain.line, dash: 'dot', width: (plain.line.width || 2) * 0.8 } : undefined,
+                    };
+                });
+
+            if (compTraces.length) Plotly.addTraces(scanPlotDiv, compTraces);
+        } catch (e) {
+            console.warn('applyComparisonOverlay failed:', e);
+        }
+    }
+
     let lastSummaryKey = null;
+    let lastComparePairIds = { a: null, b: null };
 
     // ── Entity helpers ────────────────────────────────────────────────────────
     function _phaseData(p) {
-        return (p && p.coarse && p.fine) ? p.fine : p;
+        // Legacy manifest format: nested coarse/fine dicts (pre-slim)
+        if (p && p.coarse && p.fine) return p.fine;
+        // Slim manifest format: flattened coarse_measurements/fine_measurements
+        // For Bayesian 2-phase runs show fine-phase measurement count in comparisons
+        if (p && p.fine_measurements != null) return { ...p, measurements: p.fine_measurements };
+        return p;
     }
     function _mv(obj, ...keys) {
         if (!obj) return null;
@@ -3372,8 +3556,9 @@ function main() {
     }
 
     function buildSummaryEntities(generator, noise) {
+        const noiseSet = new Set(Array.isArray(noise) ? noise : [noise]);
         const all = (window.MANIFEST || []).filter(p =>
-            p.generator === generator && p.noise === noise && p.type === 'scan'
+            p.generator === generator && noiseSet.has(p.noise) && p.type === 'scan'
         );
         const strategies = [...new Set(all.map(p => p.strategy))].sort();
         const entities = [];
@@ -3651,6 +3836,7 @@ function main() {
                 b.tabIndex = active ? 0 : -1;
             });
         }
+        applyStoppingFrameLimit();
     }
 
     function setupRepeatComparisonUI(plot) {
@@ -3681,8 +3867,19 @@ function main() {
             if (bEntity) defaultBId = bEntity.id;
         }
 
+        // Also restore saved pair if nothing explicit was computed
+        if (!currentId && lastComparePairIds.a) {
+            const saved = entities.find(e => e.id === lastComparePairIds.a);
+            if (saved) defaultAId = saved.id;
+        }
+        if (lastComparePairIds.b && entities.find(e => e.id === lastComparePairIds.b && e.id !== defaultAId)) {
+            defaultBId = lastComparePairIds.b;
+        }
+
         const { wrapper, notify } = buildTwoDropdownSelector(entities, (eA, eB) => {
+            lastComparePairIds = { a: eA.id, b: eB.id };
             renderPairwiseCards(buildPairwiseRows(eA, eB), cardContainer, false);
+            applyComparisonOverlay(eB);
         }, defaultAId, defaultBId);
         selContainer.appendChild(wrapper);
         notify();
@@ -3726,10 +3923,11 @@ function main() {
         }, { displayModeBar: false, responsive: true });
     }
 
-    function renderRepeatsSummary(generator, noise /*, strategy — unused: comparison is now across all strategies */) {
+    function renderRepeatsSummary(generator, noise) {
         const selContainer = document.getElementById('summary-comparison-selector');
         const container = document.getElementById('summary-subjects-container');
-        const currentKey = `${generator}|${noise}`;
+        const noiseKey = Array.isArray(noise) ? [...noise].sort().join(',') : (noise || '');
+        const currentKey = `${generator}|${noiseKey}`;
         if (currentKey === lastSummaryKey) {
             window.dispatchEvent(new Event('resize'));
             return;
@@ -3738,7 +3936,7 @@ function main() {
         if (selContainer) selContainer.innerHTML = '';
         if (container) container.innerHTML = '';
 
-        const entities = buildSummaryEntities(generator, noise);
+        const entities = buildSummaryEntities(generator, Array.isArray(noise) ? noise : [noise]);
         if (entities.length < 2) {
             if (container) {
                 const ph = document.createElement('div');
@@ -3749,12 +3947,24 @@ function main() {
             return;
         }
 
+        // Derive A default from currently selected strategy, fall back to saved pair
+        const strategyId = controlValue(scanStrategy)?.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const suffix = currentStoppingCriteria === 'freq_converged' ? '_freq'
+                     : currentStoppingCriteria === 'all_converged'  ? '_conv' : '';
+        const defaultA = entities.find(e => e.id === strategyId + suffix)
+            || entities.find(e => e.id === strategyId)
+            || entities.find(e => e.id === lastComparePairIds.a)
+            || entities[0];
+        const defaultB = entities.find(e => e.id !== defaultA.id && e.id === lastComparePairIds.b)
+            || entities.find(e => e.id !== defaultA.id);
+
         ensurePlotly().then(() => {
             if (!selContainer || !container) return;
 
             const { wrapper: sumWrapper, notify: sumNotify } = buildTwoDropdownSelector(entities, (eA, eB) => {
+                lastComparePairIds = { a: eA.id, b: eB.id };
                 renderPairwiseCards(buildPairwiseRows(eA, eB), container, true);
-            });
+            }, defaultA ? defaultA.id : null, defaultB ? defaultB.id : null);
             selContainer.appendChild(sumWrapper);
             sumNotify();
         });
@@ -3772,11 +3982,99 @@ function main() {
         });
     }
 
+    // ── Per-noise comparison content (shown in "Noise Metrics" view) ────────
+
+    function updateNoiseMetricsContent(generator, selectedNoises) {
+        const container = document.getElementById('noise-metrics-per-noise-container');
+        if (!container) return;
+        container.innerHTML = '';
+        const allAgg = plots.filter(p => p.type === 'model_comparison');
+        const milestones = plots.filter(p => p.type === 'milestone');
+        const metrics = [
+            { id: 'abs_err_x', label: 'Absolute Frequency Error' },
+            { id: 'measurements', label: 'Measurements' },
+            { id: 'duration_ms', label: 'Duration' },
+            { id: 'sobol_difference', label: 'Sweep Savings' },
+            { id: 'savings_vs_span_per_noise', label: 'Savings vs Signal Span' },
+        ];
+        for (const noise of selectedNoises) {
+            const section = document.createElement('div');
+            section.style.cssText = 'margin-bottom:3em;border-top:1px solid #e2e8f0;padding-top:1.5em;';
+            const hdr = document.createElement('h3');
+            hdr.style.cssText = 'margin:0 0 1em 0;color:#334155;';
+            hdr.textContent = `Noise: ${noise}`;
+            section.appendChild(hdr);
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:1.5em;';
+            let hasAny = false;
+            for (const m of metrics) {
+                const plot = allAgg.find(p => p.generator === generator && p.noise === noise && p.metric === m.id);
+                if (!plot) continue;
+                hasAny = true;
+                const cell = document.createElement('div');
+                cell.style.cssText = 'flex:1;min-width:350px;';
+                cell.innerHTML = `<h4 style="margin:0 0 0.5em;font-size:0.9em;color:#475569;">${escapeHtml(m.label)}</h4>`;
+                const iframe = document.createElement('iframe');
+                iframe.style.height = '400px';
+                iframe.title = `${m.label} — ${noise}`;
+                cell.appendChild(iframe);
+                setPlotSrc(iframe, null, plot.path);
+                grid.appendChild(cell);
+            }
+            if (!hasAny) {
+                const msg = document.createElement('p');
+                msg.style.color = '#94a3b8';
+                msg.textContent = 'No comparison data available for this noise level.';
+                grid.appendChild(msg);
+            }
+            section.appendChild(grid);
+            // Milestone plots for this noise
+            const ms = [
+                { plot: milestones.find(p => p.generator === generator && p.noise === noise && p.path.includes('steps_to_fb')), label: 'Steps to fb Convergence' },
+                { plot: milestones.find(p => p.generator === generator && p.noise === noise && p.path.includes('error_comparison_fc')), label: 'fc Error: Milestone vs Final' },
+                { plot: milestones.find(p => p.generator === generator && p.noise === noise && p.path.includes('error_delta_fc')), label: 'Zeeman Resolution Gain' },
+            ].filter(e => e.plot);
+            if (ms.length) {
+                const mGrid = document.createElement('div');
+                mGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:1.5em;margin-top:1.5em;';
+                for (const { plot, label } of ms) {
+                    const cell = document.createElement('div');
+                    cell.style.cssText = 'flex:1;min-width:350px;';
+                    cell.innerHTML = `<h4 style="margin:0 0 0.5em;font-size:0.9em;color:#475569;">${escapeHtml(label)}</h4>`;
+                    const iframe = document.createElement('iframe');
+                    iframe.style.height = '400px';
+                    iframe.title = `${label} — ${noise}`;
+                    cell.appendChild(iframe);
+                    setPlotSrc(iframe, null, plot.path);
+                    mGrid.appendChild(cell);
+                }
+                section.appendChild(mGrid);
+            }
+            container.appendChild(section);
+        }
+    }
+
+    // ── Noise Sweep tab: summary-across-noise plots (generator-level) ────────
+
+    function updateNoiseSweepPlots(generator) {
+        const summaryErrIframe = document.getElementById('comp-iframe-summary-err');
+        if (!summaryErrIframe) return;
+        const summaryPlots = plots.filter(p => p.type === 'summary' && p.generator === generator);
+        const errPlot = summaryPlots.find(p => p.metric === 'pair_rmse') || summaryPlots.find(p => p.metric === 'abs_err_x');
+        const measPlot = summaryPlots.find(p => p.metric === 'measurements');
+        const savPlot = summaryPlots.find(p => p.metric === 'savings');
+        const spanPlot = summaryPlots.find(p => p.metric === 'savings_vs_span');
+        setPlotSrc(summaryErrIframe, undefined, errPlot ? errPlot.path : null);
+        setPlotSrc(document.getElementById('comp-iframe-summary-meas'), undefined, measPlot ? measPlot.path : null);
+        setPlotSrc(document.getElementById('comp-iframe-summary-savings'), undefined, savPlot ? savPlot.path : null);
+        setPlotSrc(document.getElementById('comp-iframe-summary-span'), undefined, spanPlot ? spanPlot.path : null);
+    }
+
     // Toggle setup
     const scanViewMode = document.getElementById('scan-view-mode');
     if (scanViewMode) {
         scanViewMode.addEventListener('click', (e) => {
-            if (e.target.tagName === 'BUTTON') {
+            if (e.target.tagName === 'BUTTON' && !e.target.style.display.includes('none')) {
                 scanViewMode.querySelectorAll('button').forEach(b => {
                     b.classList.remove('is-active');
                     b.setAttribute('aria-checked', 'false');
@@ -3790,6 +4088,7 @@ function main() {
                 const repeatView = document.getElementById('scan-repeat-view');
                 const summaryView = document.getElementById('scan-summary-view');
                 const noiseMetricsView = document.getElementById('noise-metrics-view');
+                const gen = controlValue(scanGenerator);
 
                 if (mode === 'single') {
                     repeatView.style.display = 'block';
@@ -3799,13 +4098,13 @@ function main() {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'block';
                     if (noiseMetricsView) noiseMetricsView.hidden = true;
-                    renderRepeatsSummary(controlValue(scanGenerator), getEffectiveScanNoise(), controlValue(scanStrategy));
+                    renderRepeatsSummary(gen, isNoiseRangeMode() ? getSelectedScanNoises() : getEffectiveScanNoise());
                 } else if (mode === 'noise') {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'none';
                     if (noiseMetricsView) {
                         noiseMetricsView.hidden = false;
-                        updateCompPlots();
+                        updateNoiseMetricsContent(gen, getSelectedScanNoises());
                     }
                 }
             }
@@ -4015,6 +4314,19 @@ function main() {
             tabBar.appendChild(button);
         }
 
+        const hasSummary = plots.some(p => p.type === 'summary');
+        if (hasSummary) {
+            const btn = document.createElement('button');
+            btn.className = 'tab-button';
+            btn.textContent = 'Noise Sweep';
+            btn.dataset.tab = 'noise-sweep-section';
+            btn.setAttribute('role', 'tab');
+            btn.setAttribute('id', 'tab-noise-sweep');
+            btn.setAttribute('aria-controls', 'noise-sweep-section');
+            btn.setAttribute('aria-selected', 'false');
+            tabBar.appendChild(btn);
+        }
+
 
 
 
@@ -4060,6 +4372,9 @@ function main() {
                     panel.classList.add('is-hidden');
                 }
             });
+            if (target.dataset.tab === 'noise-sweep-section') {
+                updateNoiseSweepPlots(controlValue(scanGenerator));
+            }
             // Trigger a window resize event so responsive Plotly charts adjust to their visible containers
             setTimeout(() => {
                 window.dispatchEvent(new Event('resize'));
@@ -4089,111 +4404,22 @@ function main() {
     // --- Strategy metrics (model_comparison bar charts) ---
     const allAggregatePlots = plots.filter(p => p.type === 'model_comparison' || p.type === 'milestone');
 
+    // updateCompPlots: kept for backward compat; delegates to the new helpers
     function updateCompPlots() {
-        const compIframeAbsErr = document.getElementById('comp-iframe-abs-err');
-        const compIframeMeasurements = document.getElementById('comp-iframe-measurements');
-        const compIframeDuration = document.getElementById('comp-iframe-duration');
-        if (!compIframeAbsErr || !compIframeMeasurements || !compIframeDuration) return;
-
-        const scanGeneratorEl = document.getElementById('scan-generator');
-        const scanNoiseEl = document.getElementById('scan-noise');
-        if (!scanGeneratorEl || !scanNoiseEl) return;
-        const gen = controlValue(scanGeneratorEl);
-        const noise = getEffectiveScanNoise();
-        console.log('[DEBUG] updateCompPlots called with gen:', gen, 'noise:', noise);
-        console.log('[DEBUG] allAggregatePlots length:', allAggregatePlots.length);
-
-        if (!gen || !noise) {
-            setPlotSrc(compIframeAbsErr, undefined, null);
-            setPlotSrc(compIframeMeasurements, undefined, null);
-            setPlotSrc(compIframeDuration, undefined, null);
-            const compIframeSavings = document.getElementById('comp-iframe-savings');
-            if (compIframeSavings) setPlotSrc(compIframeSavings, undefined, null);
-            const mIframeSteps = document.getElementById('milestone-iframe-steps');
-            const mIframeErrFc = document.getElementById('milestone-iframe-err-fc');
-            const mIframeDeltaFc = document.getElementById('milestone-iframe-delta-fc');
-            if (mIframeSteps) setPlotSrc(mIframeSteps, undefined, null);
-            if (mIframeErrFc) setPlotSrc(mIframeErrFc, undefined, null);
-            if (mIframeDeltaFc) setPlotSrc(mIframeDeltaFc, undefined, null);
-            const spanPerNoiseIframe = document.getElementById('comp-iframe-span-per-noise');
-            if (spanPerNoiseIframe) setPlotSrc(spanPerNoiseIframe, undefined, null);
-            return;
-        }
-
-        const absErrPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'abs_err_x');
-        const measurementsPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'measurements');
-        const durationPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'duration_ms');
-        const savingsPlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'sobol_difference');
-        const spanPerNoisePlot = allAggregatePlots.find(p => p.generator === gen && p.noise === noise && p.metric === 'savings_vs_span_per_noise');
-
-        setPlotSrc(compIframeAbsErr, undefined, absErrPlot ? absErrPlot.path : null);
-        setPlotSrc(compIframeMeasurements, undefined, measurementsPlot ? measurementsPlot.path : null);
-        setPlotSrc(compIframeDuration, undefined, durationPlot ? durationPlot.path : null);
-
-        const compIframeSavings = document.getElementById('comp-iframe-savings');
-        const compSavingsContainer = document.getElementById('comp-savings-container');
-        if (compIframeSavings) {
-            setPlotSrc(compIframeSavings, undefined, savingsPlot ? savingsPlot.path : null);
-            if (compSavingsContainer) {
-                compSavingsContainer.style.display = savingsPlot ? 'block' : 'none';
-            }
-        }
-
-        const spanPerNoiseIframe = document.getElementById('comp-iframe-span-per-noise');
-        const spanPerNoiseContainer = document.getElementById('comp-span-per-noise-container');
-        if (spanPerNoiseIframe) {
-            setPlotSrc(spanPerNoiseIframe, undefined, spanPerNoisePlot ? spanPerNoisePlot.path : null);
-            if (spanPerNoiseContainer) {
-                spanPerNoiseContainer.style.display = spanPerNoisePlot ? 'block' : 'none';
-            }
-        }
-
-        // Update Trends Across Configurations (Summary plots)
-        const summaryErrIframe = document.getElementById('comp-iframe-summary-err');
-        const summaryMeasIframe = document.getElementById('comp-iframe-summary-meas');
-        const summarySavingsIframe = document.getElementById('comp-iframe-summary-savings');
-        const summarySpanIframe = document.getElementById('comp-iframe-summary-span');
-
-        if (summaryErrIframe && summaryMeasIframe && summarySavingsIframe && summarySpanIframe) {
-            const summaryPlots = plots.filter(p => p.type === 'summary' && p.generator === gen);
-            const errPlot = summaryPlots.find(p => p.metric === 'pair_rmse') || summaryPlots.find(p => p.metric === 'abs_err_x');
-            const measPlot = summaryPlots.find(p => p.metric === 'measurements');
-            const savPlot = summaryPlots.find(p => p.metric === 'savings');
-            const spanPlot = summaryPlots.find(p => p.metric === 'savings_vs_span');
-            setPlotSrc(summaryErrIframe, undefined, errPlot ? errPlot.path : null);
-            setPlotSrc(summaryMeasIframe, undefined, measPlot ? measPlot.path : null);
-            setPlotSrc(summarySavingsIframe, undefined, savPlot ? savPlot.path : null);
-            setPlotSrc(summarySpanIframe, undefined, spanPlot ? spanPlot.path : null);
-        }
-
-        // Update milestone plots
-        const milestonePlots = plots.filter(p => p.type === 'milestone');
-        const stepsPlot = milestonePlots.find(p => p.generator === gen && p.noise === noise && p.path.includes('steps_to_fb'));
-        const errFcPlot = milestonePlots.find(p => p.generator === gen && p.noise === noise && p.path.includes('error_comparison_fc'));
-        const deltaFcPlot = milestonePlots.find(p => p.generator === gen && p.noise === noise && p.path.includes('error_delta_fc'));
-
-        const mIframeSteps = document.getElementById('milestone-iframe-steps');
-        const mIframeErrFc = document.getElementById('milestone-iframe-err-fc');
-        const mIframeDeltaFc = document.getElementById('milestone-iframe-delta-fc');
-        const mContainer = document.getElementById('milestone-plots-container');
-
-        if (mIframeSteps) setPlotSrc(mIframeSteps, undefined, stepsPlot ? stepsPlot.path : null);
-        if (mIframeErrFc) setPlotSrc(mIframeErrFc, undefined, errFcPlot ? errFcPlot.path : null);
-        if (mIframeDeltaFc) setPlotSrc(mIframeDeltaFc, undefined, deltaFcPlot ? deltaFcPlot.path : null);
-
-        if (mContainer) {
-            mContainer.style.display = (stepsPlot || errFcPlot || deltaFcPlot) ? 'flex' : 'none';
-        }
+        const gen = controlValue(scanGenerator);
+        updateNoiseMetricsContent(gen, getSelectedScanNoises());
     }
 
 
 
     scanGenerator.addEventListener('controlchange', () => {
+        lastComparePairIds = { a: null, b: null };
+        lastSummaryKey = null;
         updateAllScanControls();
         findAndDisplayPlot();
     });
     scanNoise.addEventListener('controlchange', () => {
-        updateGaussStdSlider();
+        updateNoiseViewMode();
         updateScanStrategyControl();
         updateScanRepeatControl();
         findAndDisplayPlot();
@@ -4208,56 +4434,6 @@ function main() {
         findAndDisplayPlot();
     });
 
-    if (gaussStdSlider) {
-        gaussStdSlider.addEventListener('input', (e) => {
-            const idx = parseInt(e.target.value, 10);
-            gaussStdSlider.dataset.index = idx;
-            if (currentGaussSigmas[idx] !== undefined) {
-                gaussStdValue.textContent = currentGaussSigmas[idx].toFixed(4).replace(/\.?0+$/, '');
-                gaussStdPrev.disabled = idx === 0;
-                gaussStdNext.disabled = idx === currentGaussSigmas.length - 1;
-            }
-            updateScanStrategyControl();
-            updateScanRepeatControl();
-            findAndDisplayPlot();
-        });
-    }
-
-    if (gaussStdPrev) {
-        gaussStdPrev.addEventListener('click', () => {
-            const currentIdx = parseInt(gaussStdSlider.value, 10);
-            if (currentIdx > 0) {
-                const nextIdx = currentIdx - 1;
-                gaussStdSlider.value = nextIdx;
-                gaussStdSlider.dataset.index = nextIdx;
-                gaussStdValue.textContent = currentGaussSigmas[nextIdx].toFixed(4).replace(/\.?0+$/, '');
-                gaussStdPrev.disabled = nextIdx === 0;
-                gaussStdNext.disabled = nextIdx === currentGaussSigmas.length - 1;
-                
-                updateScanStrategyControl();
-                updateScanRepeatControl();
-                findAndDisplayPlot();
-            }
-        });
-    }
-
-    if (gaussStdNext) {
-        gaussStdNext.addEventListener('click', () => {
-            const currentIdx = parseInt(gaussStdSlider.value, 10);
-            if (currentIdx < currentGaussSigmas.length - 1) {
-                const nextIdx = currentIdx + 1;
-                gaussStdSlider.value = nextIdx;
-                gaussStdSlider.dataset.index = nextIdx;
-                gaussStdValue.textContent = currentGaussSigmas[nextIdx].toFixed(4).replace(/\.?0+$/, '');
-                gaussStdPrev.disabled = nextIdx === 0;
-                gaussStdNext.disabled = nextIdx === currentGaussSigmas.length - 1;
-                
-                updateScanStrategyControl();
-                updateScanRepeatControl();
-                findAndDisplayPlot();
-            }
-        });
-    }
 
     if (scanRepeatPrev) {
         scanRepeatPrev.addEventListener('click', () => {
@@ -4274,10 +4450,8 @@ function main() {
         scanGenerator.dataset.value = scanDefault.generator ?? '';
         
         const defaultNoise = scanDefault.noise ?? '';
-        if (defaultNoise.includes('Gauss')) {
-            scanNoise.dataset.value = 'Gauss';
-        } else {
-            scanNoise.dataset.value = defaultNoise;
+        if (defaultNoise) {
+            scanNoise.dataset.selectedValues = JSON.stringify([defaultNoise]);
         }
 
         scanStrategy.dataset.value = scanDefault.strategy ?? '';

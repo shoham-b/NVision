@@ -207,6 +207,40 @@ body {
             gap: 0.5em;
         }
 
+        /* Compact buttons for noise range selector */
+        #scan-noise .noise-btn {
+            padding: 0.22em 0.55em;
+            font-size: 0.78em;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            background: #f9f9f9;
+            color: #333;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+        #scan-noise .noise-btn:hover { border-color: #888; }
+        #scan-noise .noise-btn.is-active {
+            background: #0056b3;
+            border-color: #0056b3;
+            color: #fff;
+        }
+        #scan-noise .noise-btn.is-range-anchor {
+            background: #003d82;
+            border-color: #003d82;
+            color: #fff;
+            outline: 2px solid #fff;
+            outline-offset: -3px;
+        }
+        #scan-noise .noise-btn.is-range-preview {
+            background: #6db3f5;
+            border-color: #6db3f5;
+            color: #fff;
+        }
+        #scan-noise .noise-btn:focus-visible {
+            outline: 2px solid #0056b3;
+            outline-offset: 2px;
+        }
+
         .segmented-control button {
             padding: 0.4em 0.9em;
             border: 1px solid #ccc;

@@ -196,6 +196,12 @@ class ShardedSqliteCache:
         )
         conn.commit()
 
+    def _ensure_graphs_table(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS graphs (key TEXT PRIMARY KEY, data BLOB)"
+        )
+        conn.commit()
+
     def _get_index_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, "index_conn"):
             self._local.index_conn = sqlite3.connect(self._index_path, timeout=30.0, check_same_thread=False)
@@ -224,18 +230,32 @@ class ShardedSqliteCache:
                 self._local.conn.close()
                 del self._local.conn
 
+    def _get_shard_cache(self) -> dict[str, int]:
+        """Thread-local in-memory cache: key → shard_id.  Avoids SQLite round-trips."""
+        cache = getattr(self._local, "shard_cache", None)
+        if cache is None:
+            self._local.shard_cache = {}
+            cache = self._local.shard_cache
+        return cache
+
     def _index_get_shard_id(self, key: str) -> int | None:
+        cache = self._get_shard_cache()
+        if key in cache:
+            return cache[key]
         try:
             conn = self._get_index_conn()
             cur = conn.execute("SELECT shard_id FROM cache_index WHERE key = ?", (key,))
             row = cur.fetchone()
             if row:
-                return int(row[0])
+                shard_id = int(row[0])
+                cache[key] = shard_id
+                return shard_id
         except Exception:
             pass
         return None
 
     def _index_set_shard_id(self, key: str, shard_id: int) -> None:
+        self._get_shard_cache()[key] = shard_id
         try:
             conn = self._get_index_conn()
             conn.execute(
@@ -255,7 +275,24 @@ class ShardedSqliteCache:
             pass
 
     def _choose_write_shard_id(self) -> int:
-        # Prefer the newest shard file under the cap; otherwise create the next.
+        # Use thread-local cache to avoid repeated filesystem globs.
+        # Re-evaluate only when the cached shard has grown past the cap.
+        cached = getattr(self._local, "write_shard_id", None)
+        if cached is not None:
+            shard_path = self._path_for_shard_id(cached)
+            try:
+                if not shard_path.exists() or shard_path.stat().st_size < self.max_shard_bytes:
+                    return cached
+            except Exception:
+                return cached
+            # Shard is full — fall through to recompute
+
+        shard_id = self._compute_write_shard_id()
+        self._local.write_shard_id = shard_id
+        return shard_id
+
+    def _compute_write_shard_id(self) -> int:
+        """Filesystem glob to find the current best shard for writing (called rarely)."""
         try:
             shards = sorted(self.base_db_path.parent.glob(f"{self.base_db_path.stem}_shard*{self.base_db_path.suffix}"))
         except Exception:
@@ -269,15 +306,13 @@ class ShardedSqliteCache:
             except Exception:
                 pass
 
-        # No shards yet, or last shard too large. Decide whether legacy can be used.
         if self._legacy_path is not None:
             try:
                 if self._legacy_path.stat().st_size < self.max_shard_bytes:
-                    return 0  # legacy-as-shard0
+                    return 0
             except Exception:
                 pass
 
-        # Create a fresh shard file.
         next_id = 1
         if shards:
             try:
@@ -320,12 +355,140 @@ class ShardedSqliteCache:
         except Exception:
             return None
 
+    def batch_get(self, keys: list[str]) -> dict[str, dict]:
+        """Fetch multiple keys in a single round-trip per shard.
+
+        Reduces N×2 sequential queries to 1 index query + 1 data query per shard.
+        Returns {key: parsed_value} for all found keys; missing keys are absent.
+        """
+        if not keys:
+            return {}
+
+        result: dict[str, dict] = {}
+
+        # 1. Batch index lookup: get all shard IDs in one query
+        shard_to_keys: dict[int, list[str]] = {}
+        indexed_keys: set[str] = set()
+        try:
+            conn = self._get_index_conn()
+            placeholders = ",".join("?" * len(keys))
+            cur = conn.execute(
+                f"SELECT key, shard_id FROM cache_index WHERE key IN ({placeholders})",
+                keys,
+            )
+            for k, sid in cur.fetchall():
+                shard_to_keys.setdefault(int(sid), []).append(k)
+                indexed_keys.add(k)
+        except Exception:
+            pass
+
+        # 2. One data query per shard
+        for shard_id, shard_keys in shard_to_keys.items():
+            try:
+                db_path = self._path_for_shard_id(shard_id)
+                conn = self._get_conn_for_path(db_path)
+                self._ensure_cache_table(conn)
+                placeholders = ",".join("?" * len(shard_keys))
+                cur = conn.execute(
+                    f"SELECT key, value FROM cache WHERE key IN ({placeholders})",
+                    shard_keys,
+                )
+                for k, v in cur.fetchall():
+                    try:
+                        result[k] = json.loads(v)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # 3. Legacy fallback for keys not yet in the index
+        missing = [k for k in keys if k not in indexed_keys]
+        if missing and self._legacy_path is not None:
+            try:
+                conn = self._get_conn_for_path(self._legacy_path)
+                self._ensure_cache_table(conn)
+                placeholders = ",".join("?" * len(missing))
+                cur = conn.execute(
+                    f"SELECT key, value FROM cache WHERE key IN ({placeholders})",
+                    missing,
+                )
+                for k, v in cur.fetchall():
+                    try:
+                        result[k] = json.loads(v)
+                        self._index_set_shard_id(k, 0)  # backfill index
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        return result
+
+    def batch_set(self, items: dict[str, dict]) -> None:
+        """Write multiple keys atomically — one executemany per shard, one index commit.
+
+        Reduces N×4 SQLite transactions to 2–3 regardless of N.
+        All items land in the same shard unless the current shard fills mid-batch.
+        """
+        if not items:
+            return
+
+        shard_cache = self._get_shard_cache()
+
+        # Batch index lookup for keys not yet in memory cache
+        unknown = [k for k in items if k not in shard_cache]
+        if unknown:
+            try:
+                conn = self._get_index_conn()
+                placeholders = ",".join("?" * len(unknown))
+                cur = conn.execute(
+                    f"SELECT key, shard_id FROM cache_index WHERE key IN ({placeholders})",
+                    unknown,
+                )
+                for k, sid in cur.fetchall():
+                    shard_cache[k] = int(sid)
+            except Exception:
+                pass
+
+        # Assign shard for each key; new keys go to the current write shard
+        by_shard: dict[int, list[tuple[str, str]]] = {}
+        new_index: list[tuple[str, int]] = []
+        for key, value in items.items():
+            shard_id = shard_cache.get(key)
+            if shard_id is None:
+                shard_id = self._choose_write_shard_id()
+                shard_cache[key] = shard_id
+                new_index.append((key, shard_id))
+            by_shard.setdefault(shard_id, []).append((key, json.dumps(value)))
+
+        # One executemany + commit per shard
+        for shard_id, pairs in by_shard.items():
+            try:
+                db_path = self._path_for_shard_id(shard_id)
+                conn = self._get_conn_for_path(db_path)
+                self._ensure_cache_table(conn)
+                conn.executemany("INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", pairs)
+                conn.commit()
+            except Exception as exc:
+                raise exc
+
+        # One index commit for all new key→shard mappings
+        if new_index:
+            try:
+                conn = self._get_index_conn()
+                conn.executemany(
+                    "INSERT OR REPLACE INTO cache_index (key, shard_id) VALUES (?, ?)",
+                    new_index,
+                )
+                conn.commit()
+            except Exception:
+                pass
+
     def set(self, key: str, value: dict):
         try:
-            # If already assigned, keep writing to that shard to avoid duplication.
             shard_id = self._index_get_shard_id(key)
             if shard_id is None:
                 shard_id = self._choose_write_shard_id()
+                self._get_shard_cache()[key] = shard_id
 
             db_path = self._path_for_shard_id(shard_id)
             conn = self._get_conn_for_path(db_path)

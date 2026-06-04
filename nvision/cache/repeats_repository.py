@@ -30,21 +30,27 @@ class RepeatsRepository:
     def save_repeat(
         self, combo_key: str, repeat_idx: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]
     ) -> None:
-        """Persist one repeat immediately.
+        """Persist one repeat — writes main payload and :meta sidecar in a single batch.
 
-        Also writes a lightweight ``:meta`` sidecar that omits binary content_bin
-        so cache-hit runs can rebuild df_rows without deserialising MB of plot bytes.
+        The batch_set path commits both keys in one transaction per shard (instead of
+        two separate transactions), halving the index and shard I/O overhead.
         """
         key = self.make_repeat_key(combo_key, repeat_idx)
         payload = {"entries": entries, "main_result_row": main_result_row}
-        df = pl.DataFrame({"results": [json.dumps(payload)]})
-        self._store.save_df(df, key)
-
-        # Lightweight sidecar: stripped entries + result row only (no binary blobs)
         stripped_entries = [{k: v for k, v in e.items() if k not in self._HEAVY_FIELDS} for e in entries]
         meta_payload = {"entries": stripped_entries, "main_result_row": main_result_row}
-        meta_df = pl.DataFrame({"results": [json.dumps(meta_payload)]})
-        self._store.save_df(meta_df, key + ":meta")
+
+        def _df_payload(p: dict) -> dict:
+            return {
+                "__nvision_cache__": "dataframe",
+                "columns": ["results"],
+                "data": [{"results": json.dumps(p)}],
+            }
+
+        self._store.save_df_batch({
+            key: _df_payload(payload),
+            key + ":meta": _df_payload(meta_payload),
+        })
 
     def load_repeat(self, combo_key: str, repeat_idx: int) -> RepeatResult | None:
         """Load a single repeat by index.
@@ -73,15 +79,19 @@ class RepeatsRepository:
         return None
 
     def load_repeats_meta(self, combo_key: str, count: int, start_idx: int = 0) -> list[RepeatResult] | None:
-        """Load stripped repeat metadata (no content_bin) using ``:meta`` sidecars.
+        """Load stripped repeat metadata (no content_bin) using ``:meta`` sidecars — batch mode.
 
         Returns ``None`` if any sidecar is missing (old cache — caller must fall back
         to :meth:`load_repeats` to get the full data including restore_graphs bytes).
         """
+        if count == 0:
+            return []
+        keys = [self.make_repeat_key(combo_key, start_idx + i) + ":meta" for i in range(count)]
+        df_map = self._store.load_df_batch(keys)
+
         results: list[RepeatResult] = []
-        for i in range(count):
-            key = self.make_repeat_key(combo_key, start_idx + i) + ":meta"
-            df = self._store.load_df(key)
+        for key in keys:
+            df = df_map.get(key)
             if df is None or df.is_empty():
                 return None  # sidecar missing — fall back to full load
             raw = df.get_column("results")[0]
@@ -97,16 +107,41 @@ class RepeatsRepository:
     def load_repeats(
         self, combo_key: str, count: int, start_idx: int = 0, allow_gaps: bool = False
     ) -> list[RepeatResult]:
-        """Load N repeats in order. If allow_gaps is True, missing repeats are skipped but we continue loading.
-        Otherwise, we stop at the first missing repeat (gap)."""
+        """Load N repeats in order — batch mode.
+
+        If allow_gaps is True, missing repeats are skipped; otherwise stops at first gap.
+        """
+        if count == 0:
+            return []
+        keys = [self.make_repeat_key(combo_key, start_idx + i) for i in range(count)]
+        df_map = self._store.load_df_batch(keys)
+
         results: list[RepeatResult] = []
-        for i in range(count):
-            res = self.load_repeat(combo_key, start_idx + i)
-            if res:
-                results.append(res)
-            elif not allow_gaps:
-                # If we hit a gap, stop (assume sequential)
-                break
+        for key in keys:
+            df = df_map.get(key)
+            if df is None or df.is_empty():
+                if not allow_gaps:
+                    break
+                continue
+            raw = df.get_column("results")[0]
+            if not isinstance(raw, str):
+                if not allow_gaps:
+                    break
+                continue
+            try:
+                payload = json.loads(raw)
+                entries = payload["entries"]
+                row = payload["main_result_row"]
+                # Backfill :meta sidecar if missing so next render can use the fast path
+                meta_key = key + ":meta"
+                if self._store.load_df(meta_key) is None:
+                    stripped = [{k: v for k, v in e.items() if k not in self._HEAVY_FIELDS} for e in entries]
+                    meta_df = pl.DataFrame({"results": [json.dumps({"entries": stripped, "main_result_row": row})]})
+                    self._store.save_df(meta_df, meta_key)
+                results.append((entries, row))
+            except (Exception, KeyError):
+                if not allow_gaps:
+                    break
         return results
 
     def count_saved(self, combo_key: str, max_expected: int = 1000) -> int:

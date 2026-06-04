@@ -67,8 +67,37 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
                 }
             )
             return
+        if self.path == "/api/manifest":
+            self._serve_manifest()
+            return
         # Fall through to static file serving
         super().do_GET()
+
+    def _serve_manifest(self) -> None:
+        """Serve plots_manifest.json.gz (or .json) with appropriate headers."""
+        gz_path = self.directory_to_serve / "plots_manifest.json.gz"
+        json_path = self.directory_to_serve / "plots_manifest.json"
+
+        if gz_path.exists():
+            data = gz_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        elif json_path.exists():
+            data = json_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        else:
+            # No manifest yet — return empty array so UI doesn't block
+            self._send_json([])
 
     def do_POST(self) -> None:
         """Handle POST requests for API endpoints."""

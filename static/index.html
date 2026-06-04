@@ -28,15 +28,6 @@
                 <div aria-label="Scan generator" class="segmented-control" id="scan-generator" role="radiogroup"></div>
             </div>
                 <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
-            <div class="control-row" id="gaussian-noise-slider-row" style="display: none; margin-top: 0.75rem;">
-                <span class="control-label">Gauss Std:</span>
-                <div class="slider-with-arrows">
-                    <button type="button" class="control-button arrow-btn" id="gauss-std-prev" aria-label="Decrease noise">◀</button>
-                    <input type="range" id="gauss-std-slider" min="0" max="4" step="1" value="0">
-                    <button type="button" class="control-button arrow-btn" id="gauss-std-next" aria-label="Increase noise">▶</button>
-                    <span class="slider-value-display" id="gauss-std-value">0.0000</span>
-                </div>
-            </div>
         </div>
         <div class="panel panel-locator">
             <h3 class="panel-title">Locator</h3>
@@ -57,9 +48,9 @@
     <div class="scan-view-toggle" id="scan-view-toggle-container" style="display: none; margin-top: 1em; margin-bottom: 0.5em;">
         <span class="control-label" style="margin-right: 0.5em;" id="scan-view-label">View:</span>
         <div class="segmented-control" id="scan-view-mode" role="radiogroup" aria-labelledby="scan-view-label">
-            <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0">Single Repeat</button>
+            <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Single Repeat</button>
             <button type="button" role="radio" aria-checked="false" data-value="summary" tabindex="-1">Repeats Summary</button>
-            <button type="button" role="radio" aria-checked="false" data-value="noise" tabindex="-1">Noise Metrics</button>
+            <button type="button" role="radio" aria-checked="false" data-value="noise" tabindex="-1" id="scan-view-noise-btn" style="display:none;">Noise Metrics</button>
         </div>
     </div>
     <div id="scan-repeat-view">
@@ -173,69 +164,34 @@
     </div>
     
     <div id="noise-metrics-view" hidden style="margin-top: 2em; padding-top: 2em; border-top: 1px solid #eee;">
-        <h2>Metrics Across Noises (Aggregated)</h2>
-        <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Error vs Noise <span tabindex="0" class="help-icon-visible" title="Average absolute frequency error as a function of the noise level.">?</span></h3>
-                <iframe id="comp-iframe-summary-err" style="height: 500px;" title="Error vs Noise"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Measurements vs Noise <span tabindex="0" class="help-icon-visible" title="Average measurements to convergence as a function of the noise level.">?</span></h3>
-                <iframe id="comp-iframe-summary-meas" style="height: 500px;" title="Measurements vs Noise"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Measurement Savings vs Noise <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as noise increases.">?</span></h3>
-                <iframe id="comp-iframe-summary-savings" style="height: 500px;" title="Savings vs Noise"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as a function of the fractional signal width.">?</span></h3>
-                <iframe id="comp-iframe-summary-span" style="height: 500px;" title="Savings vs Signal Span"></iframe>
-            </div>
-        </div>
+        <!-- Populated dynamically by updateNoiseMetricsContent() for each selected noise -->
+        <div id="noise-metrics-per-noise-container"></div>
+    </div>
+</div>
 
-        <h2 style="margin-top: 2em; padding-top: 1em; border-top: 1px solid #e2e8f0;">Metrics for Selected Noise</h2>
-        <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Absolute Frequency Error <span tabindex="0" class="help-icon-visible" title="Distribution of absolute frequency estimation errors across all repeats. Lower and tighter is better.">?</span></h3>
-                <iframe id="comp-iframe-abs-err" style="height: 500px;" title="Strategy comparison: Absolute frequency error"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Measurements <span tabindex="0" class="help-icon-visible" title="Number of measurements each strategy required to reach its stopping criterion. Fewer is better (more efficient).">?</span></h3>
-                <iframe id="comp-iframe-measurements" style="height: 500px;" title="Strategy comparison: Measurements"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Duration <span tabindex="0" class="help-icon-visible" title="Wall-clock computation time per strategy across all repeats. Lower is better.">?</span></h3>
-                <iframe id="comp-iframe-duration" style="height: 500px;" title="Strategy comparison: Duration"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;" id="comp-savings-container">
-                <h3>Sweep Savings <span tabindex="0" class="help-icon-visible" title="Difference between expected simple Sobol sweep points and actual measurements taken by the locator. Greater is better.">?</span></h3>
-                <iframe id="comp-iframe-savings" style="height: 500px;" title="Strategy comparison: Sweep Savings"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;" id="comp-span-per-noise-container">
-                <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Savings vs span for repeats at this specific noise level.">?</span></h3>
-                <iframe id="comp-iframe-span-per-noise" style="height: 500px;" title="Savings vs Span per Noise"></iframe>
-            </div>
+<div aria-labelledby="tab-noise-sweep" class="section tab-panel" id="noise-sweep-section" role="tabpanel">
+    <h2>Metrics Across Noises <span tabindex="0" class="help-icon-visible" title="How strategies compare across the full noise sweep. Filtered by the currently selected generator.">?</span></h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
+        <div style="flex: 1; min-width: 400px;">
+            <h3>Error vs Noise <span tabindex="0" class="help-icon-visible" title="Average absolute frequency error as a function of the noise level.">?</span></h3>
+            <iframe id="comp-iframe-summary-err" style="height: 500px;" title="Error vs Noise"></iframe>
         </div>
-        
-        <div id="milestone-plots-container" style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 2em; border-top: 1px solid #e2e8f0; padding-top: 2em;">
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Steps to fb Convergence <span tabindex="0" class="help-icon-visible" title="Distribution of steps required for the center frequency uncertainty to drop below the threshold.">?</span></h3>
-                <iframe id="milestone-iframe-steps" style="height: 500px;"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;">
-                <h3>fc Error: Milestone vs Final <span tabindex="0" class="help-icon-visible" title="Comparison of splitting absolute error at the fb convergence milestone vs the final end-of-run error.">?</span></h3>
-                <iframe id="milestone-iframe-err-fc" style="height: 500px;"></iframe>
-            </div>
-            <div style="flex: 1; min-width: 400px;">
-                <h3>Zeeman Resolution Gain <span tabindex="0" class="help-icon-visible" title="Reduction in splitting absolute error achieved by continuing the simulation after fb convergence.">?</span></h3>
-                <iframe id="milestone-iframe-delta-fc" style="height: 500px;"></iframe>
-            </div>
+        <div style="flex: 1; min-width: 400px;">
+            <h3>Measurements vs Noise <span tabindex="0" class="help-icon-visible" title="Average measurements to convergence as a function of the noise level.">?</span></h3>
+            <iframe id="comp-iframe-summary-meas" style="height: 500px;" title="Measurements vs Noise"></iframe>
+        </div>
+        <div style="flex: 1; min-width: 400px;">
+            <h3>Measurement Savings vs Noise <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as noise increases.">?</span></h3>
+            <iframe id="comp-iframe-summary-savings" style="height: 500px;" title="Savings vs Noise"></iframe>
+        </div>
+        <div style="flex: 1; min-width: 400px;">
+            <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as a function of the fractional signal width.">?</span></h3>
+            <iframe id="comp-iframe-summary-span" style="height: 500px;" title="Savings vs Signal Span"></iframe>
         </div>
     </div>
 </div>
 
 
-<iframe src="loader.html" style="display:none" title="Background data loader" aria-hidden="true"></iframe>
 <script src="app.js"></script>
 <script src="reload.js"></script>
 </body>

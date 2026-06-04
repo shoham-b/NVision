@@ -1023,6 +1023,7 @@ def _setup_scan_layout(  # noqa: C901
     focus_window: tuple[float, float] | None = None,
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
     per_dip_windows: list[tuple[float, float]] | None = None,
+    true_params: dict | None = None,
 ) -> None:
     # Note: focus_window is used for overlay only, not for setting x-axis range
     # The plot should show the full scan range (scan.x_min to scan.x_max)
@@ -1079,6 +1080,8 @@ def _setup_scan_layout(  # noqa: C901
                 safe_windows.append([flo, fhi])
         if safe_windows:
             meta_dict["per_dip_windows"] = safe_windows
+    if true_params and isinstance(true_params, dict):
+        meta_dict["true_params"] = true_params
     if meta_dict:
         fig.update_layout(meta=meta_dict)
 
@@ -1106,6 +1109,7 @@ class MeasurementsMixin:
         sweep_xs: list[float] | None = None,
         sweep_ys: list[float] | None = None,
         sweep_mode_estimates: Mapping[str, float] | None = None,
+        true_params: dict | None = None,
     ) -> bytes:
         """Plot the true scan signal distribution and overlay sampled measurements.
 
@@ -1284,6 +1288,7 @@ class MeasurementsMixin:
             focus_window=focus_window,
             narrowed_param_bounds=narrowed_param_bounds,
             per_dip_windows=per_dip_windows,
+            true_params=true_params,
         )
 
         from nvision.viz._f32_json import write_plotly_gz

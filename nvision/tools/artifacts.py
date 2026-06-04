@@ -387,13 +387,45 @@ def ensure_plot_manifest_non_empty(plot_manifest: list[dict[str, object]], log: 
     plot_manifest.append(dummy_scan_plot_manifest_entry())
 
 
+def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
+    """Return a slimmed manifest entry — strips heavy/redundant fields, flattens coarse/fine."""
+    # Binary blobs and plot data (already in .json.gz files)
+    _ALWAYS_DROP = frozenset({
+        "content", "content_bin", "plot_data", "_bytes",
+        # Redundant: all fields already exist at top-level
+        "metrics",
+        # Timing / logging — not used by UI
+        "duration_ms", "last_run",
+        # sobol detail fields — only sobol_baseline_steps is kept for comparison cards
+        "sobol_freq_steps", "sobol_freq_uncert_at_conv", "sobol_freq_err_at_conv",
+    })
+
+    # Flatten coarse/fine measurements before dropping the nested dicts
+    out: dict[str, object] = {}
+    coarse = entry.get("coarse")
+    fine = entry.get("fine")
+    if isinstance(coarse, dict):
+        out["coarse_measurements"] = coarse.get("measurements")
+    if isinstance(fine, dict):
+        out["fine_measurements"] = fine.get("measurements")
+
+    for k, v in entry.items():
+        if k in _ALWAYS_DROP or k in ("coarse", "fine"):
+            continue
+        out[k] = v
+
+    return out
+
+
 def write_plots_manifest(plot_manifest: list[dict[str, object]], out_dir: Path) -> Path:
+    import gzip as _gzip
+
     path = plots_manifest_path(out_dir)
-    # Strip heavy in-memory fields before writing — plot_data can be 600 KB per entry
-    _MANIFEST_HEAVY = frozenset({"content", "content_bin", "plot_data", "_bytes"})
-    stripped = [{k: v for k, v in e.items() if k not in _MANIFEST_HEAVY} for e in plot_manifest]
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(stripped, f)
+    stripped = [_slim_manifest_entry(e) for e in plot_manifest]
+    json_bytes = json.dumps(stripped, separators=(",", ":")).encode("utf-8")
+    path.write_bytes(json_bytes)
+    # Also write a compressed version for fast network transfer
+    path.with_suffix(".json.gz").write_bytes(_gzip.compress(json_bytes, compresslevel=6))
     return path
 
 

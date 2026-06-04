@@ -44,6 +44,39 @@ class CategoryDataStore:
         except Exception:
             return None
 
+    def load_df_batch(self, keys: list[str]) -> dict[str, pl.DataFrame]:
+        """Load multiple DataFrames in a single batch. Returns {key: DataFrame} for found keys."""
+        raw = self._backend.batch_get(keys)
+        result: dict[str, pl.DataFrame] = {}
+        for key, obj in raw.items():
+            if not (isinstance(obj, dict) and obj.get("__nvision_cache__") == "dataframe"):
+                continue
+            try:
+                df = pl.DataFrame(obj.get("data", []))
+                columns = obj.get("columns")
+                if columns:
+                    with suppress(Exception):
+                        df = df.select(columns)
+                result[key] = df
+            except Exception:
+                pass
+        return result
+
+    def save_df_batch(self, items: dict[str, pl.DataFrame | dict]) -> None:
+        """Persist multiple keys atomically — delegates to batch_set for one transaction per shard."""
+        payloads: dict[str, dict] = {}
+        for key, item in items.items():
+            if isinstance(item, pl.DataFrame):
+                payloads[key] = {
+                    "__nvision_cache__": "dataframe",
+                    "columns": list(item.columns),
+                    "data": item.to_dicts(),
+                }
+            else:
+                # Pre-built payload dict (e.g. from save_repeat fast path)
+                payloads[key] = item
+        self._backend.batch_set(payloads)
+
     def save_df(self, df: pl.DataFrame, key: str, metadata: dict[str, Any] | None = None) -> Path:
         """Persist a Polars DataFrame under ``key`` with optional metadata merged into the blob."""
         payload: dict[str, Any] = {

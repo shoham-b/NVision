@@ -46,6 +46,23 @@ def _postprocess_manifest_entries(plot_manifest: list[dict[str, object]], out_di
         backfill_scan_plot_data_if_missing(entry, out_dir)
 
 
+def _any_file_missing(entries: list[dict], out_dir: Path) -> bool:
+    """Return True if any entry's plot file does not yet exist on disk."""
+    for e in entries:
+        path_str = e.get("path")
+        if not path_str:
+            continue
+        p = out_dir / path_str
+        if p.exists():
+            continue
+        # Accept the upgraded .json.gz path in case of legacy .json entries
+        if path_str.endswith(".json") and not path_str.endswith(".json.gz"):
+            if (out_dir / (path_str + ".gz")).exists():
+                continue
+        return True
+    return False
+
+
 def _collect_cache_results(
     bridge,
     grid: CombinationGrid,
@@ -229,14 +246,92 @@ def _config_matches_run_params(
     )
 
 
-def _collect_cache_results_from_configs(  # noqa: C901
+def _load_one_combo(
+    cache,
+    cfg: dict[str, object],
+    out_dir: Path,
+) -> tuple[list[dict], list[dict], tuple | None]:
+    """Load and restore one cached combination. Thread-safe — called from a thread pool.
+
+    Returns (manifest_entries, df_rows, table_row) where table_row is None on a miss.
+    """
+    generator = str(cfg.get("generator", "-"))
+    noise = str(cfg.get("noise", "-"))
+    strategy = str(cfg.get("strategy", "-"))
+    max_steps = int(cfg.get("max_steps", 0))
+    seed = int(cfg.get("seed", 0))
+    achieved_repeats = int(cfg.get("repeats", 0))
+
+    if cfg.get("kind") == "locator_combination_pointer":
+        ptr_cfg = {k: v for k, v in cfg.items() if k != "repeats"}
+        key = stable_config_hash(ptr_cfg)
+        ptr_df = cache._store.load_df(key)
+        if ptr_df is not None and not ptr_df.is_empty():
+            achieved_repeats = int(ptr_df.get_column("achieved_repeats")[0])
+
+        # Fast path: meta sidecars (no binary content deserialization)
+        meta_results = cache._repeats.load_repeats_meta(key, achieved_repeats)
+        if meta_results is not None:
+            # Restore only repeats with files missing — in parallel per repeat
+            missing = [(idx, me) for idx, (me, _) in enumerate(meta_results) if _any_file_missing(me, out_dir)]
+            if missing:
+                def _restore_one(idx_and_entries):
+                    idx, meta_entries = idx_and_entries
+                    full = cache._repeats.load_repeat(key, idx)
+                    if full:
+                        before = [e.get("path") for e in full[0]]
+                        restore_graphs([full], out_dir)
+                        after = [e.get("path") for e in full[0]]
+                        path_map = dict(zip(before, after))
+                        for me in meta_entries:
+                            old = me.get("path")
+                            if old in path_map and path_map[old] != old:
+                                me["path"] = path_map[old]
+
+                n_restore = min(8, len(missing))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=n_restore) as inner:
+                    list(inner.map(_restore_one, missing))
+
+            cached_results = meta_results
+        else:
+            # Old cache: parallel full load + restore per repeat
+            def _load_restore(idx: int):
+                full = cache._repeats.load_repeat(key, idx)
+                if full:
+                    restore_graphs([full], out_dir)
+                return full
+
+            n_workers = min(8, achieved_repeats or 1)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as inner:
+                results = list(inner.map(_load_restore, range(achieved_repeats)))
+            cached_results = [r for r in results if r is not None]
+    else:
+        cached_results = cache.get_cached_combination_by_config(cfg)
+        if cached_results:
+            restore_graphs(cached_results, out_dir)
+
+    if not cached_results:
+        return [], [], None
+
+    manifest_entries: list[dict] = []
+    df_rows: list[dict] = []
+    for entries, main_result_row in cached_results:
+        for entry in entries:
+            manifest_entries.append(strip_heavy_fields(entry))
+        df_rows.append(main_result_row)
+
+    table_row = (generator, noise, strategy, str(max_steps), str(seed), str(achieved_repeats))
+    return manifest_entries, df_rows, table_row
+
+
+def _collect_cache_results_from_configs(
     bridge: CacheBridge,
     discovered_configs: list[tuple[str, dict[str, object]]],
     out_dir: Path,
     progress,
     task_id,
 ) -> tuple[list[dict], list[dict[str, object]], int]:
-    """Hydrate results from discovered cache configs."""
+    """Hydrate results from all discovered cache configs — combos run in parallel."""
     from rich.table import Table
 
     df_rows: list[dict] = []
@@ -251,7 +346,6 @@ def _collect_cache_results_from_configs(  # noqa: C901
     table.add_column("Seed", justify="right")
     table.add_column("Repeats", justify="right")
 
-    # Sort for consistent display
     sorted_configs = sorted(
         discovered_configs,
         key=lambda x: (
@@ -262,60 +356,52 @@ def _collect_cache_results_from_configs(  # noqa: C901
         ),
     )
 
-    for category, cfg in sorted_configs:
-        generator = str(cfg.get("generator", "-"))
-        noise = str(cfg.get("noise", "-"))
-        strategy = str(cfg.get("strategy", "-"))
-        max_steps = int(cfg.get("max_steps", 0))
-        seed = int(cfg.get("seed", 0))
+    # Pre-warm cache objects for each category (avoids dict mutation inside threads)
+    for category, _ in sorted_configs:
+        bridge.get_cache_for_category(category)
 
-        progress.update(
-            task_id,
-            description=f"Loading {generator}/{noise}/{strategy}",
-        )
+    n_workers = min(os.cpu_count() or 4, len(sorted_configs), 12)
+    progress.update(task_id, description=f"Loading {len(sorted_configs)} combos (×{n_workers} parallel)…")
 
-        cache = bridge.get_cache_for_category(category)
+    futures: dict[concurrent.futures.Future, tuple[str, dict]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+        for category, cfg in sorted_configs:
+            cache = bridge.get_cache_for_category(category)
+            fut = pool.submit(_load_one_combo, cache, cfg, out_dir)
+            futures[fut] = (category, cfg)
 
-        # Determine achieved repeats from pointer if available
-        achieved_repeats = int(cfg.get("repeats", 0))
-        if cfg.get("kind") == "locator_combination_pointer":
-            # Pointer was stored without "repeats" in its hash key — strip it before hashing
-            ptr_cfg = {k: v for k, v in cfg.items() if k != "repeats"}
-            key = stable_config_hash(ptr_cfg)
-            ptr_df = cache._store.load_df(key)
-            if ptr_df is not None and not ptr_df.is_empty():
-                achieved_repeats = int(ptr_df.get_column("achieved_repeats")[0])
+        for fut in concurrent.futures.as_completed(futures):
+            category, cfg = futures[fut]
+            try:
+                combo_entries, combo_df_rows, table_row = fut.result()
+            except Exception as exc:
+                gen = cfg.get("generator", "?")
+                noise = cfg.get("noise", "?")
+                strat = cfg.get("strategy", "?")
+                log.warning("Failed to load combo %s/%s/%s: %s", gen, noise, strat, exc)
+                continue
 
-            # Load all achieved repeats
-            cached_results = cache._repeats.load_repeats(key, achieved_repeats)
-        else:
-            cached_results = cache.get_cached_combination_by_config(cfg)
+            if table_row is None:
+                continue
 
-        if not cached_results:
-            continue
+            hits += 1
+            table.add_row(*table_row)
 
-        hits += 1
-        table.add_row(generator, noise, strategy, str(max_steps), str(seed), str(achieved_repeats))
-
-        restore_graphs(cached_results, out_dir)
-        for entries, main_result_row in cached_results:
-            # Strip heavy fields (content, plot_data) to keep manifest small
-            cleaned_entries = []
-            for entry in entries:
-                cleaned = strip_heavy_fields(entry)
-                cleaned_entries.append(cleaned)
+            # Warn about malformed scan entries (logged from main thread to avoid interleaving)
+            for entry in combo_entries:
                 if entry.get("type") == "scan" and (not entry.get("generator") or not entry.get("strategy")):
                     log.warning(
                         "Scan entry missing generator or strategy field: %s",
                         {k: v for k, v in entry.items() if k in ("type", "generator", "strategy", "path", "repeat")},
                     )
-            plot_manifest.extend(cleaned_entries)
-            df_rows.append(main_result_row)
+
+            plot_manifest.extend(combo_entries)
+            df_rows.extend(combo_df_rows)
+            progress.update(task_id, description=f"Loaded {hits}/{len(sorted_configs)} combos")
 
     if hits:
         console.print(table)
 
-    # Debug logging for entry types
     if plot_manifest:
         type_counts: dict[str, int] = {}
         for entry in plot_manifest:
@@ -657,21 +743,32 @@ def render(  # noqa: C901
     log.info(f"Wrote locator results to: {out_path}")
 
     viz = Viz(tree.graphs_dir)
-    summary_plots_meta: list[dict[str, object]] = []
-    try:
-        summary_plots_meta = viz.plot_locator_summary(df_loc) or []
-        relativize_summary_plot_paths(summary_plots_meta, out_dir)
-        log.info(f"Saved {len(summary_plots_meta)} summary plots")
-    except Exception as exc:
-        log.warning(f"Plotting failed: {exc}")
 
-    metric_plots_meta: list[dict[str, object]] = []
-    try:
-        metric_plots_meta = viz.plot_all_metrics(df_loc) or []
-        relativize_summary_plot_paths(metric_plots_meta, out_dir)
-        log.info(f"Saved {len(metric_plots_meta)} metric plots")
-    except Exception as exc:
-        log.warning(f"Metric plotting failed: {exc}")
+    def _run_summary():
+        try:
+            meta = viz.plot_locator_summary(df_loc) or []
+            relativize_summary_plot_paths(meta, out_dir)
+            log.info(f"Saved {len(meta)} summary plots")
+            return meta
+        except Exception as exc:
+            log.warning(f"Plotting failed: {exc}")
+            return []
+
+    def _run_metrics():
+        try:
+            meta = viz.plot_all_metrics(df_loc) or []
+            relativize_summary_plot_paths(meta, out_dir)
+            log.info(f"Saved {len(meta)} metric plots")
+            return meta
+        except Exception as exc:
+            log.warning(f"Metric plotting failed: {exc}")
+            return []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        fut_summary = pool.submit(_run_summary)
+        fut_metrics = pool.submit(_run_metrics)
+        summary_plots_meta: list[dict[str, object]] = fut_summary.result()
+        metric_plots_meta: list[dict[str, object]] = fut_metrics.result()
 
     # Add metric plots to manifest
     plot_manifest.extend(metric_plots_meta)

@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 # steps; iterating all of them for Fisher info, covariance ellipses, and
 # posterior animations is the dominant post-run cost.  Subsampling to this cap
 # keeps plots informative while cutting render time proportionally.
-_MAX_VIZ_SNAPSHOTS = 300
+_MAX_VIZ_SNAPSHOTS = 1000
 
 
 def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) -> list:
@@ -1193,6 +1193,17 @@ def generate_attempt_plots(  # noqa: C901
     scan_entry = entry_base.copy()
     scan_entry["type"] = "scan"
     scan_entry["path"] = out_path.relative_to(out_dir).as_posix()
+
+    # Build true_params for all strategies so it can be embedded in figure meta
+    # (the manifest strips it; UI reads it from fig.layout.meta.true_params)
+    _true_params_dict: dict | None = None
+    if run_result is not None and run_result.true_signal:
+        _true_params_dict = {
+            "label": "True Signal Parameters",
+            "params": run_result.true_signal.parameter_values(),
+            "bounds": run_result.true_signal.all_bounds(),
+        }
+
     scan_entry["_bytes"] = viz.plot_scan_measurements(
         current_scan,
         history_with_phase,
@@ -1208,6 +1219,7 @@ def generate_attempt_plots(  # noqa: C901
         sweep_xs=sweep_xs,
         sweep_ys=sweep_ys,
         sweep_mode_estimates=sweep_mode_estimates,
+        true_params=_true_params_dict,
     )
     # plot_data is loaded on-demand by UI from scan JSON to keep manifest small
 
@@ -1243,12 +1255,13 @@ def generate_attempt_plots(  # noqa: C901
                 "err_fc_diff": scan_entry.get("err_fc_diff"),
             }
 
-        if run_result is not None and run_result.true_signal:
-            scan_entry["true_params"] = {
-                "label": "True Signal Parameters",
-                "params": run_result.true_signal.parameter_values(),
-                "bounds": run_result.true_signal.all_bounds(),
-            }
+        # true_params is now embedded in fig.layout.meta; keep here for backward compat
+        if _true_params_dict is not None:
+            scan_entry["true_params"] = _true_params_dict
+
+    # Also set true_params for non-Bayesian entries (not inside the Bayesian block above)
+    if _true_params_dict is not None and "true_params" not in scan_entry:
+        scan_entry["true_params"] = _true_params_dict
 
     entries: list[dict[str, Any]] = [scan_entry]
 
