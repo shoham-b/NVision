@@ -851,12 +851,24 @@ class _TaskRunner:
 
         parameter_bounds = self._injected_parameter_bounds(experiment)
 
+        from nvision.sim.defaults import NVISION_SOBOL_STEPS_FRACTION
+
+        _f_lo, _f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
+        _domain = float(_f_hi - _f_lo)
+        if "linewidth" in parameter_bounds:
+            _min_lw = float(parameter_bounds["linewidth"][0])
+        elif "fwhm_total" in parameter_bounds:
+            _min_lw = float(parameter_bounds["fwhm_total"][0])
+        else:
+            _min_lw = 200e3
+        _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
+
         # Build belief directly
         belief = nv_center_smc_belief(parameter_bounds)
 
         locator = SimpleSobolBayesianLocator(
             belief=belief,
-            max_steps=1500,
+            max_steps=_sobol_max_steps,
             noise_std=noise_std,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
@@ -1054,7 +1066,9 @@ class _TaskRunner:
             return simplesweep_steps
 
         if locator_class.__name__ == "SequentialBayesianExperimentDesignLocator":
-            return max(1, int(np.ceil(simplesweep_steps / 4)))
+            from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
+
+            return max(1, int(np.ceil(simplesweep_steps * NVISION_SBED_STEPS_FRACTION)))
 
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
 

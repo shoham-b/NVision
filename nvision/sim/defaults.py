@@ -19,6 +19,10 @@ load_dotenv()
 
 NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", "1500"))
 
+# Fraction of SimpleSweep max_steps allocated to SBED and Sobol baseline locators.
+NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "0.32"))
+NVISION_SOBOL_STEPS_FRACTION: float = float(os.getenv("NVISION_SOBOL_STEPS_FRACTION", "0.5"))
+
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 NVISION_DIP_N_SIGMA: float = float(os.getenv("NVISION_DIP_N_SIGMA", "3.0"))

@@ -179,8 +179,8 @@ def merge_locator_results_with_existing(
             if col not in df_loc.columns:
                 df_loc = df_loc.with_columns(pl.lit(None).alias(col))
 
-        # Make sure types are aligned for key columns
-        for col in ("max_steps", "seed", "attempt"):
+        # Make sure types are aligned for key columns and known integer columns
+        for col in ("max_steps", "seed", "attempt", "sweep_steps", "measurements", "repeats"):
             if col in old_df.columns:
                 old_df = old_df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
             if col in df_loc.columns:
@@ -208,7 +208,7 @@ def merge_locator_results_with_existing(
                     old_df = old_df.with_columns(pl.col(col).cast(pl.String, strict=False))
                     df_loc = df_loc.with_columns(pl.col(col).cast(pl.String, strict=False))
 
-        merged = pl.concat([old_df, df_loc], how="diagonal").unique(
+        merged = pl.concat([old_df, df_loc], how="diagonal_relaxed").unique(
             subset=list(key),
             keep="last",
             maintain_order=True,
