@@ -809,24 +809,49 @@ function main() {
     }
 
 
-    // Parse plot data from scan file on-demand (handles both .json and legacy .html)
+    // Parse plot data from scan file on-demand (handles lean data, .json.gz, and legacy .html)
     async function loadPlotDataFromScanHtml(plot) {
         if (!plot || !plot.path) return null;
         try {
-            const url = resolveAssetPath(plot.path);
-            const response = await fetch(url, { cache: 'no-store' });
-            if (!response.ok) return null;
             if (plot.path.endsWith('.json') || plot.path.endsWith('.json.gz')) {
-                const fig = _decodePlotlyFigure(await _fetchJson(plot.path));
-                if (!fig || !Array.isArray(fig.data)) return null;
-                const out = extractPlotDataFromTraces(fig.data);
+                const raw = await _fetchJson(plot.path);
+                if (raw && raw._graph_type === 'scan') {
+                    // Lean scan data — return the plot_data subset as plain arrays
+                    const pd = _decodePlotlyFigure(raw);  // already decoded; re-run is idempotent
+                    const toPlainArr = (v) => ArrayBuffer.isView(v) ? Array.from(v) : v;
+                    const plainMeas = (m) => {
+                        if (!m || typeof m !== 'object') return { mode: 'empty' };
+                        const r = { mode: m.mode };
+                        for (const k of Object.keys(m)) {
+                            if (k === 'mode') continue;
+                            r[k] = ArrayBuffer.isView(m[k]) ? Array.from(m[k]) : m[k];
+                        }
+                        return r;
+                    };
+                    const out = {
+                        x_dense: toPlainArr(raw.x_dense),
+                        y_dense: toPlainArr(raw.y_dense),
+                        has_metrics: !!raw.has_metrics,
+                        measurements: plainMeas(raw.measurements),
+                    };
+                    if (raw.y_dense_noisy) out.y_dense_noisy = toPlainArr(raw.y_dense_noisy);
+                    if (raw.y_dense_mode) out.y_dense_mode = toPlainArr(raw.y_dense_mode);
+                    if (raw.focus_window) out.focus_window = Array.isArray(raw.focus_window) ? raw.focus_window : Array.from(raw.focus_window);
+                    if (raw.narrowed_param_bounds) out.narrowed_param_bounds = raw.narrowed_param_bounds;
+                    return out;
+                }
+                // Full Plotly figure (legacy) — extract from traces
+                if (!raw || !Array.isArray(raw.data)) return null;
+                const out = extractPlotDataFromTraces(raw.data);
                 if (!out) return null;
-                const meta = fig.layout && fig.layout.meta;
+                const meta = raw.layout && raw.layout.meta;
                 if (meta && meta.narrowed_param_bounds && typeof meta.narrowed_param_bounds === 'object') {
                     out.narrowed_param_bounds = meta.narrowed_param_bounds;
                 }
                 return out;
             }
+            const response = await fetch(resolveAssetPath(plot.path), { cache: 'no-store' });
+            if (!response.ok) return null;
             const html = await response.text();
             return parsePlotDataFromHtml(html);
         } catch (e) {
@@ -976,7 +1001,10 @@ function main() {
             const raw = await _fetchJson(jsonPath);
             // Abort if a newer renderPlotFromJson started while we were fetching
             if (container._renderToken !== renderToken) return;
-            // Convert TypedArrays to plain arrays for Plotly compatibility
+
+            // Convert TypedArrays (Float32Array etc.) to plain JS arrays for Plotly compatibility.
+            // Required for fill="tonexty", customdata, marker.color, and other Plotly features
+            // that don't accept typed arrays in all versions.
             const toPlain = (o) => {
                 if (o === null || o === undefined) return o;
                 if (ArrayBuffer.isView(o)) return Array.from(o);
@@ -988,12 +1016,28 @@ function main() {
                 }
                 return o;
             };
-            const fig = toPlain(raw);
-            const layout = Object.assign({}, fig.layout || {}, { autosize: true });
+
+            let figData, figLayout;
+            if (raw && raw._graph_type) {
+                // Lean data file — build figure from static definition.
+                // toPlain applied so builders receive plain arrays throughout.
+                const built = await buildFigureFromData(toPlain(raw));
+                figData = built.data;
+                figLayout = Object.assign({}, built.layout, { autosize: true });
+            } else {
+                // Full Plotly figure (legacy or Bayesian) — render as-is
+                const fig = toPlain(raw);
+                figData = fig.data || [];
+                figLayout = Object.assign({}, fig.layout || {}, { autosize: true });
+            }
+
             // Plotly.react modifies DOM synchronously; don't await so a concurrent render
             // on the same container doesn't stall this one.
-            Plotly.react(container, fig.data || [], layout, { responsive: true }).catch((e) => {
-                console.warn('Plotly.react async error for', jsonPath, e);
+            Plotly.react(container, figData, figLayout, { responsive: true }).catch((e) => {
+                console.error('Plotly.react failed for', jsonPath, e);
+                if (container._renderToken === renderToken) {
+                    container.innerHTML = `<div style="padding:1em;color:#ef4444;">Chart render error: ${e && e.message ? e.message : String(e)}</div>`;
+                }
             });
             const isScanPlot = container.id === 'scan-plot-div';
             if (isScanPlot) {

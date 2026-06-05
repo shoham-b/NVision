@@ -113,7 +113,7 @@ def merge_locator_results_with_existing(
     updated are discarded entirely — the fresh results replace them wholesale.
     """
     out_path = locator_results_path(out_dir)
-    if not out_path.exists():
+    if not out_path.exists() or out_path.stat().st_size == 0:
         return df_loc
     if len(df_loc) == 0:
         try:

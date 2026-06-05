@@ -572,6 +572,38 @@ def _add_metric_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool)
             )
 
 
+def _compute_meas_dist_data(
+    xs: np.ndarray,
+    ys: list[float],
+    history: pl.DataFrame,
+) -> dict[str, Any] | None:
+    """Compute measurement distribution curve data for the lean data format."""
+    if history.height == 0 or "x" not in history.columns:
+        return None
+    x_vals = history.get_column("x").to_list()
+    x_meas = np.asarray([float(x) for x in x_vals if x is not None], dtype=float)
+    if x_meas.size < 2:
+        return None
+    n_bins = max(60, min(400, int(np.sqrt(x_meas.size) * 20)))
+    counts, edges = np.histogram(x_meas, bins=n_bins, range=(float(xs.min()), float(xs.max())))
+    if counts.sum() <= 0:
+        return None
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    density = counts.astype(float) / max(1.0, float(counts.max()))
+    y_min = float(min(ys))
+    y_max = float(max(ys))
+    y_span = max(1e-9, y_max - y_min)
+    y_band_base = y_min + 0.02 * y_span
+    y_band_height = 0.25 * y_span
+    y_curve = y_band_base + density * y_band_height
+    return {
+        "x": [float(c) for c in centers],
+        "y_baseline": float(y_band_base),
+        "y_curve": [float(v) for v in y_curve],
+        "customdata": [float(d * 100.0) for d in density],
+    }
+
+
 def _add_measurement_distribution_trace(
     fig: go.Figure,
     *,
@@ -580,44 +612,15 @@ def _add_measurement_distribution_trace(
     ys_dense: list[float],
     has_metrics: bool,
 ) -> None:
-    """Add a hidden-by-default measurement-density overlay.
-
-    The curve is normalized so higher values mean more measurements in that x-region.
-    """
-    if history.height == 0 or "x" not in history.columns:
+    """Add a hidden-by-default measurement-density overlay."""
+    md = _compute_meas_dist_data(xs_dense, ys_dense, history)
+    if md is None:
         return
-
-    x_vals = history.get_column("x").to_list()
-    x_meas = np.asarray([float(x) for x in x_vals if x is not None], dtype=float)
-    if x_meas.size < 2:
-        return
-
-    # Histogram-based density in the physical x-domain.
-    # More bins + no smoothing = finer detail in measurement clustering.
-    n_bins = max(60, min(400, int(np.sqrt(x_meas.size) * 20)))
-    counts, edges = np.histogram(x_meas, bins=n_bins, range=(float(xs_dense.min()), float(xs_dense.max())))
-    if counts.sum() <= 0:
-        return
-
-    centers = 0.5 * (edges[:-1] + edges[1:])
-    density = counts.astype(float) / max(1.0, float(counts.max()))
-
-    # Map normalized density to a band near the lower part of the scan.
-    y_min = float(min(ys_dense))
-    y_max = float(max(ys_dense))
-    y_span = max(1e-9, y_max - y_min)
-    y_band_base = y_min + 0.02 * y_span
-    y_band_height = 0.25 * y_span
-    y_curve = y_band_base + density * y_band_height
-
     row, col = _row_col(has_metrics)
-
-    # Invisible baseline so fill="tonexty" anchors to y_band_base instead of y=0.
-    # This makes density fluctuations fill the full height of the band and become visible.
     fig.add_trace(
         go.Scatter(
-            x=centers,
-            y=np.full(len(centers), y_band_base),
+            x=md["x"],
+            y=np.full(len(md["x"]), md["y_baseline"]),
             mode="lines",
             line=dict(width=0, color="rgba(111,66,193,0)"),
             showlegend=False,
@@ -628,15 +631,15 @@ def _add_measurement_distribution_trace(
     )
     fig.add_trace(
         go.Scatter(
-            x=centers,
-            y=y_curve,
+            x=md["x"],
+            y=md["y_curve"],
             mode="lines",
             name="measurement distribution",
             visible="legendonly",
             line=dict(color="rgba(111,66,193,0.95)", width=1.5),
             fill="tonexty",
             fillcolor="rgba(111,66,193,0.30)",
-            customdata=(density * 100.0),
+            customdata=md["customdata"],
             hovertemplate="x=%{x}<br>relative density=%{customdata:.1f}%<extra></extra>",
         ),
         row=row,
@@ -1000,14 +1003,30 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
         return
     try:
         if rel.endswith(".json.gz"):
+            from nvision.viz._f32_json import from_gz_bytes
+
+            raw = from_gz_bytes(path.read_bytes())
+            if isinstance(raw, dict) and raw.get("_graph_type") == "scan":
+                # New lean format — plot_data is a subset of the lean data
+                plot_data: dict[str, Any] = {
+                    k: raw[k]
+                    for k in ("x_dense", "y_dense", "has_metrics", "measurements")
+                    if k in raw
+                }
+                for k in ("focus_window", "narrowed_param_bounds", "y_dense_noisy", "y_dense_mode"):
+                    if k in raw:
+                        plot_data[k] = raw[k]
+                entry["plot_data"] = plot_data
+                return
+            # Legacy full Plotly figure JSON
             from nvision.viz._f32_json import figure_from_gz_bytes
 
             fig = figure_from_gz_bytes(path.read_bytes())
         else:
             html = path.read_text(encoding="utf-8")
             fig = _parse_figure_from_scan_html(html)
-        if fig is None:
-            return
+            if fig is None:
+                return
         plot_data = plot_data_from_scan_figure(fig)
     except Exception as exc:
         logging.warning("Failed to backfill scan plot data for %s: %s", rel, exc)
@@ -1086,6 +1105,125 @@ def _setup_scan_layout(  # noqa: C901
         fig.update_layout(meta=meta_dict)
 
 
+def _compute_scan_data_dict(
+    scan: Any,
+    history: pl.DataFrame,
+    over_frequency_noise: CompositeOverFrequencyNoise | None,
+    focus_window: tuple[float, float] | None = None,
+    mode_estimates: Mapping[str, float] | None = None,
+    belief_unit_cube: UnitCubeSignalModel | None = None,
+    narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
+    per_dip_windows: list[tuple[float, float]] | None = None,
+    sobol_xs: list[float] | None = None,
+    sobol_ys: list[float] | None = None,
+    sobol_mode_estimates: Mapping[str, float] | None = None,
+    sweep_xs: list[float] | None = None,
+    sweep_ys: list[float] | None = None,
+    sweep_mode_estimates: Mapping[str, float] | None = None,
+    true_params: dict | None = None,
+) -> dict[str, Any]:
+    """Build the lean scan data dict written to disk (replaces the full Plotly figure)."""
+    history_xs_raw, history_ys_raw = _extract_history_xy(history)
+    xs = _dense_xs_with_measurements(scan, history_xs_raw, n_dense=5000)
+    ys = [float(scan.signal(x)) for x in xs]
+
+    out: dict[str, Any] = {
+        "_graph_type": "scan",
+        "x_dense": [float(x) for x in xs],
+        "y_dense": ys,
+    }
+
+    if mode_estimates:
+        y_mode = _mode_belief_dense_y(scan, xs, mode_estimates, belief_unit_cube=belief_unit_cube)
+        if y_mode is not None and len(y_mode) == len(xs):
+            out["y_dense_mode"] = y_mode
+
+    if over_frequency_noise is not None:
+        noise_scale = _noise_scale_for_scan(scan, over_frequency_noise)
+        noisy_vals = _compute_noisy_dense_values(xs, ys, over_frequency_noise, noise_scale)
+        out["y_dense_noisy"] = noisy_vals
+
+    has_metrics = history.height > 0 and any(col in history.columns for col in ("entropy", "max_prob", "uncertainty"))
+    out["has_metrics"] = has_metrics
+    out["measurements"] = _measurements_from_history(history)
+
+    meas_dist = _compute_meas_dist_data(xs, ys, history)
+    if meas_dist is not None:
+        out["meas_dist"] = meas_dist
+
+    if focus_window is not None:
+        lo, hi = float(focus_window[0]), float(focus_window[1])
+        if np.isfinite(lo) and np.isfinite(hi) and hi > lo:
+            out["focus_window"] = [lo, hi]
+
+    # Filter per-dip windows to expected dip count (same guard as old plotting code)
+    if per_dip_windows:
+        expected_dips: int | None = None
+        try:
+            expected_dips = int(scan.true_signal.model.expected_dip_count())
+        except (AttributeError, TypeError, ValueError):
+            pass
+        filtered = per_dip_windows
+        if expected_dips is not None and len(per_dip_windows) > expected_dips:
+            filtered = None
+        if filtered:
+            safe_windows: list[list[float]] = []
+            for lo, hi in filtered:
+                flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
+                if flo is not None and fhi is not None and fhi > flo:
+                    safe_windows.append([flo, fhi])
+            if safe_windows:
+                out["per_dip_windows"] = safe_windows
+
+    if narrowed_param_bounds:
+        safe_bounds: dict[str, list[float]] = {}
+        for name, (lo, hi) in narrowed_param_bounds.items():
+            flo, fhi = _json_safe_float(lo), _json_safe_float(hi)
+            if flo is not None and fhi is not None and fhi > flo:
+                safe_bounds[name] = [flo, fhi]
+        if safe_bounds:
+            out["narrowed_param_bounds"] = safe_bounds
+
+    if true_params and isinstance(true_params, dict):
+        out["true_params"] = true_params
+
+    if sobol_xs and sobol_ys:
+        width = float(scan.x_max - scan.x_min)
+        sobol_xs_phys = [float(scan.x_min + float(x) * width) for x in sobol_xs]
+        out["sobol_measurements"] = {
+            "x": sobol_xs_phys,
+            "y": [_json_safe_float(y) for y in sobol_ys],
+        }
+    if sobol_mode_estimates:
+        y_sobol_mode = _mode_belief_dense_y(scan, xs, sobol_mode_estimates, belief_unit_cube=belief_unit_cube)
+        if y_sobol_mode:
+            out["sobol_mode_y"] = y_sobol_mode
+
+    if sweep_xs and sweep_ys:
+        width = float(scan.x_max - scan.x_min)
+        sweep_xs_phys = [float(scan.x_min + float(x) * width) for x in sweep_xs]
+        out["sweep_measurements"] = {
+            "x": sweep_xs_phys,
+            "y": [_json_safe_float(y) for y in sweep_ys],
+        }
+    if sweep_mode_estimates:
+        y_sweep_mode = _mode_belief_dense_y(scan, xs, sweep_mode_estimates, belief_unit_cube=belief_unit_cube)
+        if y_sweep_mode:
+            out["sweep_mode_y"] = y_sweep_mode
+
+    if has_metrics:
+        if "entropy" in history.columns:
+            entropy = history.get_column("entropy").to_list()
+            if any(x is not None and not np.isnan(float(x)) for x in entropy if x is not None):
+                out["entropy"] = [_json_safe_float(x) for x in entropy]
+        if "uncertainty" in history.columns:
+            uncert = history.get_column("uncertainty").to_list()
+            if any(x is not None and not np.isnan(float(x)) for x in uncert if x is not None):
+                out["uncertainty"] = [_json_safe_float(x) for x in uncert]
+
+    return out
+
+
 class MeasurementsMixin:
     """Mixin for scan measurement plotting."""
 
@@ -1111,186 +1249,28 @@ class MeasurementsMixin:
         sweep_mode_estimates: Mapping[str, float] | None = None,
         true_params: dict | None = None,
     ) -> bytes:
-        """Plot the true scan signal distribution and overlay sampled measurements.
-
-        - True signal: computed densely across [x_min, x_max].
-        - Optional ``mode_estimates``: forward model at the locator's approximate MAP
-          (particle max-weight for SMC; marginal grid argmax for discrete beliefs), dashed.
-        - Optional ``belief_unit_cube``: when set, MAP curve uses this inference model
-          (matches ``mode_estimates``) instead of ``scan.true_signal.model``.
-        - Measurements (noisy): points from `history` colored by step order (gradient).
-        - Noisy curve: simulated by applying the provided CompositeNoise to the dense grid.
-        - ``narrowed_param_bounds``: non-scan parameters narrowed after the initial sweep.
-          Embedded in the figure ``meta`` so the UI can parse and display them.
-        """
+        """Serialize scan data as a lean JSON.gz (definition lives in static/graphs/scan.json)."""
         if out_path is not None:
             ensure_out_dir(out_path.parent)
 
-        history_xs_raw, history_ys_raw = _extract_history_xy(history)
-        xs = _dense_xs_with_measurements(scan, history_xs_raw, n_dense=5000)
-        ys = [float(scan.signal(x)) for x in xs]
-
-        measurement_xs: list[float] = []
-        measurement_ys: list[float] = []
-        for x_m, y_m in zip(history_xs_raw, history_ys_raw, strict=False):
-            try:
-                xm = float(x_m)
-                ym = float(y_m)
-            except (TypeError, ValueError):
-                continue
-            if not np.isfinite(ym):
-                continue
-            measurement_xs.append(xm)
-            measurement_ys.append(ym)
-
-        has_metrics = history.height > 0 and any(
-            col in history.columns for col in ("entropy", "max_prob", "uncertainty")
-        )
-
-        fig = _make_scan_figure(has_metrics)
-        noise_scale = _noise_scale_for_scan(scan, over_frequency_noise)
-        _add_true_and_noisy_traces(
-            fig,
-            xs=xs,
-            ys=ys,
-            has_metrics=has_metrics,
-            over_frequency_noise=over_frequency_noise,
-            measurement_xs=measurement_xs if measurement_xs else None,
-            measurement_ys=measurement_ys if measurement_ys else None,
-            noise_scale=noise_scale,
-        )
-        _add_measurement_distribution_trace(fig, history=history, xs_dense=xs, ys_dense=ys, has_metrics=has_metrics)
-        _add_history_traces(fig, history, has_metrics)
-        _add_focus_window_overlay(fig, focus_window=focus_window, has_metrics=has_metrics)
-        expected_dips: int | None = None
-        try:
-            expected_dips = int(scan.true_signal.model.expected_dip_count())
-        except (AttributeError, TypeError, ValueError):
-            expected_dips = None
-        # Sweep over-detection (e.g. 1200 noisy points) can yield dozens of spurious windows.
-        if per_dip_windows is not None and expected_dips is not None and len(per_dip_windows) > expected_dips:
-            per_dip_windows = None
-        _add_per_dip_windows_overlay(fig, per_dip_windows=per_dip_windows, has_metrics=has_metrics)
-        # _add_dip_boundary_lines(fig, xs=xs, ys=ys, has_metrics=has_metrics, max_dips=expected_dips)
-        # Draw last so the curve sits on top of true/noisy/measurements/distribution.
-        _add_mode_belief_trace(
-            fig,
-            scan=scan,
-            xs=xs,
-            mode_estimates=mode_estimates,
-            has_metrics=has_metrics,
-            belief_unit_cube=belief_unit_cube,
-        )
-
-        # Draw Sobol baseline measurements & estimates if provided
-        if sobol_xs and sobol_ys:
-            row, col = _row_col(has_metrics)
-            finite_ys = [float(y) for y in history_ys_raw if y is not None and np.isfinite(float(y))]
-            baseline = max(finite_ys) if finite_ys else 1.0
-            baseline = baseline if baseline > 1e-12 else 1.0
-
-            # Convert sobol_xs from normalized [0, 1] to physical domain
-            width = float(scan.x_max - scan.x_min)
-            sobol_xs_phys = [float(scan.x_min + float(x) * width) for x in sobol_xs]
-
-            def depth_percent(value: float) -> float:
-                return max(0.0, (baseline - float(value)) / baseline * 100.0)
-
-            fig.add_trace(
-                go.Scatter(
-                    x=sobol_xs_phys,
-                    y=sobol_ys,
-                    mode="markers",
-                    visible="legendonly",
-                    name="sobol measurements (noisy)",
-                    marker=dict(
-                        size=6,
-                        color="rgba(100, 116, 139, 0.4)",
-                        line=dict(width=0.8, color="rgba(30, 41, 59, 0.7)"),
-                    ),
-                    customdata=[depth_percent(y) for y in sobol_ys],
-                    hovertemplate="sobol x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
-                ),
-                row=row,
-                col=col,
-            )
-
-        if sobol_mode_estimates:
-            y_sobol_mode = _mode_belief_dense_y(scan, xs, sobol_mode_estimates, belief_unit_cube=belief_unit_cube)
-            if y_sobol_mode:
-                row, col = _row_col(has_metrics)
-                fig.add_trace(
-                    go.Scatter(
-                        x=xs,
-                        y=y_sobol_mode,
-                        mode="lines",
-                        visible="legendonly",
-                        name="sobol most likely signal",
-                        line=dict(color="#805ad5", width=2, dash="dashdot"),
-                    ),
-                    row=row,
-                    col=col,
-                )
-
-        # Draw SimpleSweep baseline measurements & estimates if provided
-        if sweep_xs and sweep_ys:
-            row, col = _row_col(has_metrics)
-            finite_ys = [float(y) for y in history_ys_raw if y is not None and np.isfinite(float(y))]
-            baseline = max(finite_ys) if finite_ys else 1.0
-            baseline = baseline if baseline > 1e-12 else 1.0
-
-            width = float(scan.x_max - scan.x_min)
-            sweep_xs_phys = [float(scan.x_min + float(x) * width) for x in sweep_xs]
-
-            def sweep_depth_percent(value: float) -> float:
-                return max(0.0, (baseline - float(value)) / baseline * 100.0)
-
-            fig.add_trace(
-                go.Scatter(
-                    x=sweep_xs_phys,
-                    y=sweep_ys,
-                    mode="markers",
-                    visible="legendonly",
-                    name="simple sweep measurements (noisy)",
-                    marker=dict(
-                        size=6,
-                        color="rgba(234, 88, 12, 0.4)",
-                        line=dict(width=0.8, color="rgba(154, 52, 18, 0.7)"),
-                    ),
-                    customdata=[sweep_depth_percent(y) for y in sweep_ys],
-                    hovertemplate="sweep x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<extra></extra>",
-                ),
-                row=row,
-                col=col,
-            )
-
-        if sweep_mode_estimates:
-            y_sweep_mode = _mode_belief_dense_y(scan, xs, sweep_mode_estimates, belief_unit_cube=belief_unit_cube)
-            if y_sweep_mode:
-                row, col = _row_col(has_metrics)
-                fig.add_trace(
-                    go.Scatter(
-                        x=xs,
-                        y=y_sweep_mode,
-                        mode="lines",
-                        visible="legendonly",
-                        name="simple sweep most likely signal",
-                        line=dict(color="#ea580c", width=2, dash="dashdot"),
-                    ),
-                    row=row,
-                    col=col,
-                )
-
-        _add_metric_traces(fig, history, has_metrics)
-        _setup_scan_layout(
-            fig,
-            has_metrics,
+        data = _compute_scan_data_dict(
+            scan,
+            history,
+            over_frequency_noise,
             focus_window=focus_window,
+            mode_estimates=mode_estimates,
+            belief_unit_cube=belief_unit_cube,
             narrowed_param_bounds=narrowed_param_bounds,
             per_dip_windows=per_dip_windows,
+            sobol_xs=sobol_xs,
+            sobol_ys=sobol_ys,
+            sobol_mode_estimates=sobol_mode_estimates,
+            sweep_xs=sweep_xs,
+            sweep_ys=sweep_ys,
+            sweep_mode_estimates=sweep_mode_estimates,
             true_params=true_params,
         )
 
-        from nvision.viz._f32_json import write_plotly_gz
+        from nvision.viz._f32_json import dump_gz
 
-        return write_plotly_gz(fig, out_path)
+        return dump_gz(data, out_path)

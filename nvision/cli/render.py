@@ -609,8 +609,15 @@ def _load_cache_rows_for_render(
 def render(  # noqa: C901
     out: Annotated[
         Path,
-        typer.Option("--out", help="Output directory (must match the run that wrote cache)"),
+        typer.Option("--out", help="Output directory for rendered artifacts"),
     ] = ARTIFACTS_ROOT,
+    cache_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--cache-dir",
+            help="Cache directory to read from (defaults to <out>/cache). Use this to render from a different run's cache.",
+        ),
+    ] = None,
     repeats: int = typer.Option(
         cli_defaults.DEFAULT_REPEATS,
         "--repeats",
@@ -681,8 +688,12 @@ def render(  # noqa: C901
 
     log.info("Starting report generation from cache...")
 
+    resolved_cache_dir = cache_dir.resolve() if cache_dir is not None else tree.cache_dir
+    if cache_dir is not None:
+        log.info("Using external cache directory: %s", resolved_cache_dir)
+
     grid = CombinationGrid()
-    bridge = CacheBridge(tree.cache_dir)
+    bridge = CacheBridge(resolved_cache_dir)
     try:
         df_rows, plot_manifest = _load_cache_rows_for_render(
             bridge,

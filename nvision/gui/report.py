@@ -116,6 +116,15 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
         if js_src.exists():
             shutil.copy2(js_src, out_dir / js_file)
 
+    # Copy graph definition files (static/graphs/*.json) to out_dir/graphs/
+    # so resolveAssetPath('graphs/scan.json') resolves correctly at runtime.
+    graphs_def_src = _STATIC_DIR / "graphs"
+    if graphs_def_src.exists():
+        graphs_def_dst = out_dir / "graphs"
+        graphs_def_dst.mkdir(parents=True, exist_ok=True)
+        for def_file in graphs_def_src.glob("*.json"):
+            shutil.copy2(def_file, graphs_def_dst / def_file.name)
+
     # If manifest was too large to inline, write it as JSON for fetching
     if manifest_bytes > _MAX_INLINE_MANIFEST_BYTES:
         # Also write the JSON file

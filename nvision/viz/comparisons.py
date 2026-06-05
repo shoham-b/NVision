@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import plotly.graph_objects as go
 import polars as pl
 
 
@@ -161,53 +160,33 @@ class ComparisonsMixin:
         y_axis_title: str,
         manifest_entries: list[dict[str, Any]],
     ) -> None:
-        """Create and save a box plot comparing strategies for a specific metric."""
-        fig = go.Figure()
-
+        """Serialize box-plot comparison data (definition lives in static/graphs/box.json)."""
         partitions = df.partition_by("strategy", as_dict=True)
-        # Extract and sort strategies for consistent order
         strategies = sorted([k[0] for k in partitions])
 
+        series = []
         for strat in strategies:
-            strat_data = partitions[(strat,)]
-            vals = strat_data.get_column(metric).to_list()
+            vals = partitions[(strat,)].get_column(metric).to_list()
             display_name = self._strategy_display_name(strat)
             tick_label = self._strategy_tick_label(display_name)
+            series.append({"name": tick_label, "values": [v for v in vals if v is not None]})
 
-            fig.add_trace(
-                go.Box(
-                    y=vals,
-                    name=tick_label,
-                    boxpoints="all",  # Show all points
-                    jitter=0.3,  # Spread them out
-                    pointpos=-1.8,  # Move points to the side
-                )
-            )
-
-        title = f"Model Comparison: {title_metric}<br>Generator: {gen} | Noise: {noise}"
-        fig.update_layout(
-            title=title,
-            yaxis_title=y_axis_title,
-            xaxis=dict(
-                tickangle=-25,
-                automargin=True,
-            ),
-            template="plotly_white",
-            showlegend=False,  # Box names are on X axis
-            margin=dict(t=80, b=120, l=50, r=50),
-        )
+        data: dict[str, Any] = {
+            "_graph_type": "box",
+            "title": f"Model Comparison: {title_metric}<br>Generator: {gen} | Noise: {noise}",
+            "y_axis_title": y_axis_title,
+            "series": series,
+        }
 
         filename = f"comparison_{gen}_{noise}_{metric}.json.gz"
-        # Sanitize filename
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
-
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        from nvision.viz._f32_json import write_plotly_gz
 
-        write_plotly_gz(fig, out_path)
+        from nvision.viz._f32_json import dump_gz
 
-        # Add entry to manifest list
+        dump_gz(data, out_path)
+
         manifest_entries.append(
             {
                 "type": "model_comparison",

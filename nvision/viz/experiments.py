@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import plotly.graph_objects as go
 import polars as pl
 
-from nvision.viz._f32_json import write_plotly_gz
+from nvision.viz._f32_json import dump_gz, write_plotly_gz
 
 
 class ExperimentsMixin:
@@ -77,11 +78,10 @@ class ExperimentsMixin:
                         except Exception:
                             pivot = pivot.sort("noise")
 
-                        fig = go.Figure()
                         indices = pivot.get_column("noise").to_list()
                         baseline_vals = pivot.get_column(sweep_col).to_list()
 
-                        has_savings = False
+                        savings_series: list[dict[str, Any]] = []
                         for strat in pivot.columns:
                             if strat == "noise" or strat == sweep_col:
                                 continue
@@ -90,20 +90,20 @@ class ExperimentsMixin:
                                 b - s if b is not None and s is not None else None
                                 for b, s in zip(baseline_vals, strat_vals)
                             ]
-                            fig.add_trace(go.Scatter(name=strat, x=indices, y=savings, mode="lines+markers"))
-                            has_savings = True
+                            savings_series.append({"name": strat, "x": indices, "y": savings})
 
-                        if has_savings:
-                            fig.update_layout(
-                                title=f"Measurement Savings vs {sweep_col} <br>Generator: {gen}",
-                                xaxis_title="Noise Level",
-                                yaxis_title="Absolute Steps Saved",
-                                template="plotly_white",
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                            )
+                        if savings_series:
+                            savings_data: dict[str, Any] = {
+                                "_graph_type": "chart",
+                                "title": f"Measurement Savings vs {sweep_col} <br>Generator: {gen}",
+                                "xaxis_title": "Noise Level",
+                                "yaxis_title": "Absolute Steps Saved",
+                                "mode": "lines+markers",
+                                "series": savings_series,
+                            }
                             out_path = self.out_dir / f"summary_{gen}_savings.json.gz"
                             out_path.parent.mkdir(parents=True, exist_ok=True)
-                            write_plotly_gz(fig, out_path)
+                            dump_gz(savings_data, out_path)
                             plots.append(
                                 {"type": "summary", "path": str(out_path), "generator": gen, "metric": "savings"}
                             )
@@ -115,34 +115,27 @@ class ExperimentsMixin:
     def _plot_pivot_from_polars(
         self, pivot_pl: pl.DataFrame, title: str, xlabel: str, ylabel: str, out_path: Path
     ) -> None:
-        """Plot a chart from a polars pivoted dataframe as an interactive plot."""
-        fig = go.Figure()
-
+        """Serialize pivot chart data (definition lives in static/graphs/chart.json)."""
         index_col = pivot_pl.columns[0]
         strategies = pivot_pl.columns[1:]
-
         indices = pivot_pl.get_column(index_col).to_list()
-
         is_line_chart = "measurements" in title.lower()
 
+        series: list[dict[str, Any]] = []
         for strat in strategies:
             values = pivot_pl.get_column(strat).to_list()
-            if is_line_chart:
-                fig.add_trace(go.Scatter(name=strat, x=indices, y=values, mode="lines+markers"))
-            else:
-                fig.add_trace(go.Bar(name=strat, x=indices, y=values))
+            series.append({"name": strat, "x": indices, "y": values})
 
-        fig.update_layout(
-            title=title,
-            xaxis_title=xlabel,
-            yaxis_title=ylabel,
-            barmode="group" if not is_line_chart else None,
-            template="plotly_white",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-
+        data: dict[str, Any] = {
+            "_graph_type": "chart",
+            "title": title,
+            "xaxis_title": xlabel,
+            "yaxis_title": ylabel,
+            "mode": "lines+markers" if is_line_chart else "bar",
+            "series": series,
+        }
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        write_plotly_gz(fig, out_path)
+        dump_gz(data, out_path)
 
     def plot_locator_summary(self, df: pl.DataFrame) -> list[dict]:
         """Create comparison plots for locator sweeps."""
@@ -173,10 +166,74 @@ class ExperimentsMixin:
 
         return entries
 
+    def _add_correct_f_span(self, sub: pl.DataFrame) -> pl.DataFrame:
+        """Add correct row_f_span column to a generator-partitioned dataframe."""
+        sweep_rows = sub.filter(pl.col("strategy") == "SimpleSweep")
+        if not sweep_rows.is_empty():
+            hi_val = sweep_rows.get_column("acquisition_hi").drop_nulls().mean()
+            lo_val = sweep_rows.get_column("acquisition_lo").drop_nulls().mean()
+        else:
+            hi_val, lo_val = 3.1e9, 2.6e9
+        domain_width = hi_val - lo_val if hi_val is not None and lo_val is not None and hi_val > lo_val else 5.0e8
+
+        best_est = (
+            sub.filter(~pl.col("strategy").str.contains("Sweep"))
+            .group_by(["noise", "attempt"])
+            .agg([
+                pl.col("final_est_linewidth").mean().alias("ref_linewidth"),
+                pl.col("final_est_split").mean().alias("ref_split"),
+            ])
+        )
+
+        if not best_est.is_empty():
+            sub = sub.join(best_est, on=["noise", "attempt"], how="left")
+            sub = sub.with_columns(
+                pl.col("ref_linewidth").fill_null(pl.col("final_est_linewidth")).alias("effective_lw"),
+                pl.col("ref_split").fill_null(pl.col("final_est_split")).alias("effective_split"),
+            )
+        else:
+            sub = sub.with_columns(
+                pl.col("final_est_linewidth").alias("effective_lw"),
+                pl.col("final_est_split").alias("effective_split"),
+            )
+
+        def calc_row_f_span(row):
+            lw = row["effective_lw"]
+            split = row["effective_split"]
+            exp_pts = row["expected_uniform_points"]
+            if lw is not None and lw > 0:
+                split_val = split if split is not None else 0.0
+                return max(2.0 * lw, split_val + lw) / domain_width
+            elif exp_pts is not None and exp_pts > 0:
+                return 1.0 / exp_pts
+            return None
+
+        return sub.with_columns(
+            pl.struct(["effective_lw", "effective_split", "expected_uniform_points"])
+            .map_elements(calc_row_f_span, return_dtype=pl.Float64)
+            .alias("row_f_span")
+        )
+
     def plot_savings_vs_span_per_noise(self, df: pl.DataFrame) -> list[dict]:
         plots = []
         if "measurements" not in df.columns or "attempt" not in df.columns:
             return plots
+
+        # Add correct f_span column to df grouped by generator first
+        df_list = []
+        for gen_tuple, sub in df.partition_by("generator", as_dict=True).items():
+            for _c in [
+                "final_est_linewidth",
+                "final_est_split",
+                "acquisition_hi",
+                "acquisition_lo",
+                "expected_uniform_points",
+                "measurements",
+            ]:
+                if _c in sub.columns:
+                    sub = sub.with_columns(pl.col(_c).cast(pl.Float64, strict=False))
+            df_list.append(self._add_correct_f_span(sub))
+        df = pl.concat(df_list) if df_list else df
 
         partitions = df.partition_by(["generator", "noise"], as_dict=True)
         for (gen, noise), sub in partitions.items():
@@ -192,39 +249,14 @@ class ExperimentsMixin:
                     continue
 
                 # get parameters per repeat for this group
-                params_df = sub.group_by("attempt").first()
+                params_df = sub.group_by("attempt").agg(pl.col("row_f_span").first().alias("f_span"))
                 joined = pivot_m.join(params_df, on="attempt")
-                for _c in [
-                    "final_est_linewidth",
-                    "final_est_split",
-                    "acquisition_hi",
-                    "acquisition_lo",
-                    "expected_uniform_points",
-                ]:
-                    if _c in joined.columns:
-                        joined = joined.with_columns(pl.col(_c).cast(pl.Float64, strict=False))
 
-                fig = go.Figure()
-                f_spans = []
+                f_spans = joined.get_column("f_span").to_list()
                 baseline_vals = joined.get_column(sweep_col).to_list()
 
                 has_valid = False
-                for row in joined.iter_rows(named=True):
-                    lw = row.get("final_est_linewidth")
-                    split = row.get("final_est_split")
-                    hi = row.get("acquisition_hi")
-                    lo = row.get("acquisition_lo")
-                    exp_pts = row.get("expected_uniform_points")
-
-                    f_span = None
-                    if lw is not None and hi is not None and lo is not None and hi > lo:
-                        split_val = split if split is not None else 0
-                        f_span = max(2 * lw, split_val + lw) / (hi - lo)
-                    elif exp_pts is not None and exp_pts > 0:
-                        f_span = 1.0 / exp_pts
-
-                    f_spans.append(f_span)
-
+                span_series: list[dict[str, Any]] = []
                 for strat in pivot_m.columns:
                     if strat == "attempt" or strat == sweep_col:
                         continue
@@ -240,21 +272,22 @@ class ExperimentsMixin:
                             has_valid = True
 
                     if strat_savings:
-                        fig.add_trace(go.Scatter(name=strat, x=valid_f_spans, y=strat_savings, mode="markers"))
+                        span_series.append({"name": strat, "x": valid_f_spans, "y": strat_savings})
 
                 if has_valid:
-                    fig.update_layout(
-                        title=f"Savings vs Span <br>Gen: {gen} | Noise: {noise}",
-                        xaxis_title="Fractional Signal Span (f_span)",
-                        yaxis_title=f"Absolute Steps Saved vs {sweep_col}",
-                        template="plotly_white",
-                        xaxis_type="log",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    )
+                    span_data: dict[str, Any] = {
+                        "_graph_type": "chart",
+                        "title": f"Savings vs Span <br>Gen: {gen} | Noise: {noise}",
+                        "xaxis_title": "Fractional Signal Span (f_span)",
+                        "yaxis_title": f"Absolute Steps Saved vs {sweep_col}",
+                        "xaxis_type": "log",
+                        "mode": "markers",
+                        "series": span_series,
+                    }
                     safe_noise = str(noise).replace(".", "_")
                     out_path = self.out_dir / f"model_comp_{gen}_{safe_noise}_savings_span.json.gz"
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    write_plotly_gz(fig, out_path)
+                    dump_gz(span_data, out_path)
                     plots.append(
                         {
                             "type": "model_comparison",
@@ -266,7 +299,6 @@ class ExperimentsMixin:
                     )
             except Exception as e:
                 import logging
-
                 logging.getLogger(__name__).warning(f"Could not plot span per noise for {gen} {noise}: {e}")
 
         return plots
@@ -292,8 +324,12 @@ class ExperimentsMixin:
                 if _c in sub.columns:
                     sub = sub.with_columns(pl.col(_c).cast(pl.Float64, strict=False))
 
-            agg_exprs = [pl.col("measurements").mean()]
-            agg = sub.group_by(["noise", "strategy"]).agg(agg_exprs)
+            sub = self._add_correct_f_span(sub)
+
+            agg = sub.group_by(["noise", "strategy"]).agg([
+                pl.col("measurements").mean(),
+                pl.col("row_f_span").mean().alias("mean_f_span"),
+            ])
 
             try:
                 pivot_m = agg.pivot(on="strategy", index="noise", values="measurements")
@@ -305,45 +341,14 @@ class ExperimentsMixin:
                 if not sweep_col:
                     continue
 
-                # Get the max linewidth, split, etc per noise level (best estimate)
-                noise_agg_cols = []
-                for c in [
-                    "final_est_linewidth",
-                    "final_est_split",
-                    "acquisition_hi",
-                    "acquisition_lo",
-                    "expected_uniform_points",
-                ]:
-                    if c in sub.columns:
-                        noise_agg_cols.append(pl.col(c).max().alias(c))
-
-                if not noise_agg_cols:
-                    continue
-
-                noise_df = sub.group_by("noise").agg(noise_agg_cols)
+                noise_df = agg.group_by("noise").agg(pl.col("mean_f_span").mean().alias("f_span"))
                 joined = pivot_m.join(noise_df, on="noise")
 
-                fig = go.Figure()
-                f_spans = []
+                f_spans = joined.get_column("f_span").to_list()
                 baseline_vals = joined.get_column(sweep_col).to_list()
 
                 has_valid = False
-                for row in joined.iter_rows(named=True):
-                    lw = row.get("final_est_linewidth")
-                    split = row.get("final_est_split")
-                    hi = row.get("acquisition_hi")
-                    lo = row.get("acquisition_lo")
-                    exp_pts = row.get("expected_uniform_points")
-
-                    f_span = None
-                    if lw is not None and hi is not None and lo is not None and hi > lo:
-                        split_val = split if split is not None else 0
-                        f_span = max(2 * lw, split_val + lw) / (hi - lo)
-                    elif exp_pts is not None and exp_pts > 0:
-                        f_span = 1.0 / exp_pts
-
-                    f_spans.append(f_span)
-
+                vs_span_series: list[dict[str, Any]] = []
                 for strat in pivot_m.columns:
                     if strat == "noise" or strat == sweep_col:
                         continue
@@ -360,22 +365,25 @@ class ExperimentsMixin:
 
                     if strat_savings:
                         pts = sorted(zip(valid_f_spans, strat_savings))
-                        x_vals = [p[0] for p in pts]
-                        y_vals = [p[1] for p in pts]
-                        fig.add_trace(go.Scatter(name=strat, x=x_vals, y=y_vals, mode="lines+markers"))
+                        vs_span_series.append({
+                            "name": strat,
+                            "x": [p[0] for p in pts],
+                            "y": [p[1] for p in pts],
+                        })
 
                 if has_valid:
-                    fig.update_layout(
-                        title=f"Measurement Savings vs Fractional Signal Span <br>Generator: {gen}",
-                        xaxis_title="Fractional Signal Span (f_span)",
-                        yaxis_title=f"Absolute Steps Saved vs {sweep_col}",
-                        template="plotly_white",
-                        xaxis_type="log",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    )
+                    vs_span_data: dict[str, Any] = {
+                        "_graph_type": "chart",
+                        "title": f"Measurement Savings vs Fractional Signal Span <br>Generator: {gen}",
+                        "xaxis_title": "Fractional Signal Span (f_span)",
+                        "yaxis_title": f"Absolute Steps Saved vs {sweep_col}",
+                        "xaxis_type": "log",
+                        "mode": "lines+markers",
+                        "series": vs_span_series,
+                    }
                     out_path = self.out_dir / f"summary_{gen}_savings_vs_span.json.gz"
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    write_plotly_gz(fig, out_path)
+                    dump_gz(vs_span_data, out_path)
                     plots.append(
                         {
                             "type": "summary",
@@ -388,7 +396,6 @@ class ExperimentsMixin:
 
             except Exception as e:
                 import logging
-
                 logging.getLogger(__name__).warning(f"Failed to plot savings vs span: {e}")
 
         return plots

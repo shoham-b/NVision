@@ -5,10 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import plotly.graph_objects as go
-
 from nvision.metrics.types import StrategyMetrics
-from nvision.viz._f32_json import write_plotly_gz
+from nvision.viz._f32_json import dump_gz
 
 
 class MetricsVizMixin:
@@ -19,35 +17,27 @@ class MetricsVizMixin:
     def plot_error_distribution(
         self, metrics: StrategyMetrics, param_name: str, gen_name: str, noise_name: str
     ) -> dict[str, Any]:
-        """Generate a violin plot showing the density of absolute errors."""
+        """Serialize violin data (definition lives in static/graphs/violin.json)."""
         errors = metrics.absolute_errors.get(param_name, [])
         if not errors:
             return {}
 
-        fig = go.Figure()
-        fig.add_trace(
-            go.Violin(
-                y=errors,
-                name=metrics.strategy_name,
-                box_visible=True,
-                meanline_visible=True,
-                fillcolor="lightseagreen",
-                line_color="darkslategray",
-                opacity=0.6,
-            )
-        )
-
-        title = (
-            f"Absolute Error Distribution: {param_name}<br>"
-            f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
-        )
-        fig.update_layout(title=title, yaxis_title="Absolute Error", template="plotly_white")
+        data: dict[str, Any] = {
+            "_graph_type": "violin",
+            "title": (
+                f"Absolute Error Distribution: {param_name}<br>"
+                f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
+            ),
+            "yaxis_title": "Absolute Error",
+            "name": metrics.strategy_name,
+            "values": [v for v in errors if v is not None],
+        }
 
         filename = f"error_dist_{metrics.strategy_name}_{param_name}.json.gz"
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        write_plotly_gz(fig, out_path)
+        dump_gz(data, out_path)
 
         return {
             "type": "error_distribution",
@@ -60,27 +50,29 @@ class MetricsVizMixin:
     def plot_convergence_steps(
         self, metrics: StrategyMetrics, param_name: str, gen_name: str, noise_name: str
     ) -> dict[str, Any]:
-        """Generate a histogram of steps to convergence."""
+        """Serialize histogram data (definition lives in static/graphs/histogram.json)."""
         steps = metrics.convergence_steps.get(param_name, [])
         if not steps:
             return {}
 
-        fig = go.Figure()
-        fig.add_trace(
-            go.Histogram(x=steps, name="Steps to Convergence", marker_color="royalblue", opacity=0.75, nbinsx=15)
-        )
-
-        title = (
-            f"Steps to Convergence: {param_name}<br>"
-            f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
-        )
-        fig.update_layout(title=title, xaxis_title="Steps", yaxis_title="Count", template="plotly_white")
+        data: dict[str, Any] = {
+            "_graph_type": "histogram",
+            "title": (
+                f"Steps to Convergence: {param_name}<br>"
+                f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
+            ),
+            "xaxis_title": "Steps",
+            "yaxis_title": "Count",
+            "color": "royalblue",
+            "name": "Steps to Convergence",
+            "values": [v for v in steps if v is not None],
+        }
 
         filename = f"conv_steps_{metrics.strategy_name}_{param_name}.json.gz"
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        write_plotly_gz(fig, out_path)
+        dump_gz(data, out_path)
 
         return {
             "type": "convergence_steps",
@@ -91,25 +83,29 @@ class MetricsVizMixin:
         }
 
     def plot_sobol_difference(self, metrics: StrategyMetrics, gen_name: str, noise_name: str) -> dict[str, Any]:
-        """Generate a histogram plot showing the difference in measurements vs simple Sobol sweep."""
+        """Serialize histogram data (definition lives in static/graphs/histogram.json)."""
         diffs = getattr(metrics, "sobol_differences", [])
         if not diffs:
             return {}
 
-        fig = go.Figure()
-        fig.add_trace(go.Histogram(x=diffs, name="Sweep Savings", marker_color="orange", opacity=0.75, nbinsx=15))
-
-        title = (
-            f"Sobol Sweep Measurement Savings<br>"
-            f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
-        )
-        fig.update_layout(title=title, xaxis_title="Measurements Saved", yaxis_title="Count", template="plotly_white")
+        data: dict[str, Any] = {
+            "_graph_type": "histogram",
+            "title": (
+                f"Sobol Sweep Measurement Savings<br>"
+                f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
+            ),
+            "xaxis_title": "Measurements Saved",
+            "yaxis_title": "Count",
+            "color": "orange",
+            "name": "Sweep Savings",
+            "values": [v for v in diffs if v is not None],
+        }
 
         filename = f"sobol_diff_{metrics.strategy_name}.json.gz"
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
         out_path = self.out_dir / safe_filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        write_plotly_gz(fig, out_path)
+        dump_gz(data, out_path)
 
         return {
             "type": "sobol_difference",
