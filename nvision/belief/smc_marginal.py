@@ -349,13 +349,26 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Cache which fused EIG-variance kernel to use — avoids isinstance checks
         # and module imports inside the per-step hot path.
+        # Unit-cube beliefs wrap the physical model, so unwrap before dispatching;
+        # _eig_variance_fused then converts the (small) particle subset and
+        # candidates from unit to physical space instead of falling back to the
+        # generic path that materializes the (n_candidates x n_eig) matrix.
+        self._eig_needs_phys = False
         try:
             from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterVoigtModel
+            from nvision.spectra.unit_cube import UnitCubeSignalModel
 
-            if isinstance(self.model, NVCenterLorentzianModel):
+            kernel_model = self.model
+            is_unit_cube = isinstance(kernel_model, UnitCubeSignalModel)
+            if is_unit_cube:
+                kernel_model = kernel_model.inner
+
+            if isinstance(kernel_model, NVCenterLorentzianModel):
                 self._eig_kernel_type = "lorentzian"
-            elif isinstance(self.model, NVCenterVoigtModel):
+                self._eig_needs_phys = is_unit_cube
+            elif isinstance(kernel_model, NVCenterVoigtModel):
                 self._eig_kernel_type = "voigt"
+                self._eig_needs_phys = is_unit_cube
             else:
                 self._eig_kernel_type = "generic"
         except ImportError:
@@ -1273,6 +1286,26 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         w = np.asarray(weights, dtype=np.float32)
 
         kernel = self._eig_kernel_type
+
+        if kernel != "generic" and getattr(self, "_eig_needs_phys", False):
+            # Unit-cube belief with a physical fused kernel: map candidates and
+            # the per-parameter rows to physical space. These are tiny arrays
+            # (n_candidates + d_signal x n_eig), so the linear maps cost nothing
+            # next to the kernel; semantics match UnitCubeSignalModel exactly.
+            from nvision.spectra.unit_cube import _unit_interval_to_physical
+
+            x_lo, x_hi = self.model.x_bounds_phys
+            xs = np.float32(x_lo) + xs * (np.float32(x_hi) - np.float32(x_lo))
+
+            n_sig = 5 if kernel == "lorentzian" else 6
+            bounds = self.model.param_bounds_phys
+            part_phys = np.empty((n_sig, part_t.shape[1]), dtype=np.float32)
+            for j, name in enumerate(self._param_names[:n_sig]):
+                lo, hi = bounds[name]
+                part_phys[j] = _unit_interval_to_physical(
+                    np.asarray(part_t[j], dtype=np.float32), float(lo), float(hi), name
+                )
+            part_t = part_phys
 
         if kernel == "lorentzian":
             nv_center_lorentzian_eig_variance(
