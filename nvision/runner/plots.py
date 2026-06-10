@@ -37,6 +37,31 @@ log = logging.getLogger(__name__)
 # keeps plots informative while cutting render time proportionally.
 _MAX_VIZ_SNAPSHOTS = 1000
 
+# Maximum particles retained per snapshot for posterior visualization.
+# Must match write_posterior_data's n_particles default: the UI renders at most
+# this many particles per step, so keeping the full population (snapshots x
+# params x N particles) in memory only to discard >99% at serialization time
+# wastes hundreds of MB on large filters.
+_MAX_VIZ_PARTICLES = 60
+
+
+def _viz_particle_subsample(weights: np.ndarray, max_particles: int = _MAX_VIZ_PARTICLES):
+    """Weighted random subsample indices for posterior visualization.
+
+    Returns ``(idx, sub_weights)``; ``idx`` is ``None`` when the population is
+    already within the cap. One draw per snapshot is shared across all
+    parameters so the UI shows a consistent particle subset per step.
+    """
+    n = len(weights)
+    w = np.asarray(weights, dtype=np.float64)
+    w = w / max(float(w.sum()), 1e-30)
+    if n <= max_particles:
+        return None, w
+    idx = np.random.choice(n, size=max_particles, replace=False, p=w)
+    sub_w = w[idx]
+    sub_w /= sub_w.sum()
+    return idx, sub_w
+
 
 def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) -> list:
     """Return a uniformly-subsampled view of *snapshots* capped at *max_frames*.
@@ -139,14 +164,18 @@ def _posterior_animation_inputs(  # noqa: C901
             is_unit_cube = True
             lo, hi = b0.model.param_bounds_phys[scan_param]
 
+        frame_memo: dict[int, np.ndarray] = {}
         for s in snapshots:
             b = s.belief
             assert isinstance(b, SMCMarginalDistribution)
-            col = b._particles[:, idx].copy()
-            if is_unit_cube:
-                col = lo + col * (hi - lo)
-            weights = b._weights.copy()
-            hist.append(np.column_stack([col, weights]))
+            frame = frame_memo.get(id(b))
+            if frame is None:
+                sub_idx, sub_w = _viz_particle_subsample(b._weights)
+                col = b._particles[sub_idx, idx] if sub_idx is not None else b._particles[:, idx].copy()
+                if is_unit_cube:
+                    col = lo + col * (hi - lo)
+                frame = frame_memo[id(b)] = np.column_stack([col, sub_w])
+            hist.append(frame)
         # Unused for particle / histogram mode; required by API
         return hist, np.linspace(0.0, 1.0, 2)
 
@@ -166,9 +195,10 @@ def _posterior_animation_inputs(  # noqa: C901
         if scan_param == "frequency":
             hist = []
             for s in snapshots:
-                col = s.belief._frequency_particles.copy()
-                weights = s.belief._frequency_weights.copy()
-                hist.append(np.column_stack([col, weights]))
+                sub_idx, sub_w = _viz_particle_subsample(s.belief._frequency_weights)
+                col = s.belief._frequency_particles
+                col = col[sub_idx] if sub_idx is not None else col.copy()
+                hist.append(np.column_stack([col, sub_w]))
             return hist, np.linspace(0.0, 1.0, 2)
         else:
             grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
@@ -272,43 +302,56 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.spectra.unit_cube import UnitCubeSignalModel
 
-    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
     b0 = snapshots[0].belief
     stub_grid = np.linspace(0.0, 1.0, 2)
     is_unit_cube = hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel)
+    use_rb = getattr(b0, "_use_rao_blackwell_noise", False)
 
-    for scan_param in names:
-        if scan_param == "noise_sigma" and getattr(b0, "_use_rao_blackwell_noise", False):
-            hist: list[np.ndarray] = []
-            for s in snapshots:
-                b = s.belief
-                col = np.sqrt(b._noise_betas / b._noise_alphas)
-                weights = b._weights.copy()
-                hist.append(np.column_stack([col, weights]))
-            out[scan_param] = (hist, stub_grid)
-            continue
+    # Resolve particle column indices once; physical bounds are resolved
+    # per snapshot because the frequency window can narrow during a run.
+    param_idx = {
+        scan_param: (None if (scan_param == "noise_sigma" and use_rb) else b0._param_names.index(scan_param))
+        for scan_param in names
+    }
 
-        idx = b0._param_names.index(scan_param)
-        hist: list[np.ndarray] = []
+    hists: dict[str, list[np.ndarray]] = {scan_param: [] for scan_param in names}
+    # Snapshots from buffered locators share belief objects between batch
+    # flushes (observer dedup): extract once per unique belief and reuse the
+    # frame arrays for the repeated steps.
+    frames_memo: dict[int, dict[str, np.ndarray]] = {}
+    for s in snapshots:
+        b = s.belief
+        assert isinstance(b, SMCMarginalDistribution)
+        frames = frames_memo.get(id(b))
+        if frames is None:
+            # One weighted subsample per snapshot, shared across all parameters,
+            # so memory stays O(max_particles) instead of O(num_particles).
+            sub_idx, sub_w = _viz_particle_subsample(b._weights)
+            frames = {}
+            for scan_param in names:
+                idx = param_idx[scan_param]
+                if idx is None:
+                    col = np.sqrt(b._noise_betas / b._noise_alphas)
+                    if sub_idx is not None:
+                        col = col[sub_idx]
+                else:
+                    col = b._particles[sub_idx, idx] if sub_idx is not None else b._particles[:, idx].copy()
 
-        for s in snapshots:
-            b = s.belief
-            assert isinstance(b, SMCMarginalDistribution)
-            col = b._particles[:, idx].copy()
+                    lo, hi = 0.0, 1.0
+                    if hasattr(b, "physical_param_bounds") and scan_param in b.physical_param_bounds:
+                        lo, hi = b.physical_param_bounds[scan_param]
+                    elif is_unit_cube and hasattr(b, "model") and hasattr(b.model, "param_bounds_phys"):
+                        lo, hi = b.model.param_bounds_phys[scan_param]
 
-            lo, hi = 0.0, 1.0
-            if hasattr(b, "physical_param_bounds") and scan_param in b.physical_param_bounds:
-                lo, hi = b.physical_param_bounds[scan_param]
-            elif is_unit_cube and hasattr(b, "model") and hasattr(b.model, "param_bounds_phys"):
-                lo, hi = b.model.param_bounds_phys[scan_param]
+                    if lo != 0.0 or hi != 1.0:
+                        col = lo + col * (hi - lo)
 
-            if lo != 0.0 or hi != 1.0:
-                col = lo + col * (hi - lo)
+                frames[scan_param] = np.column_stack([col, sub_w])
+            frames_memo[id(b)] = frames
+        for scan_param in names:
+            hists[scan_param].append(frames[scan_param])
 
-            weights = b._weights.copy()
-            hist.append(np.column_stack([col, weights]))
-        out[scan_param] = (hist, stub_grid)
-    return out
+    return {scan_param: (hists[scan_param], stub_grid) for scan_param in names}
 
 
 def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
@@ -444,9 +487,10 @@ def _extract_ekf_particle_frequency_posterior(
             for s in snapshots:
                 b = s.belief
                 assert isinstance(b, EKFParticleFrequencyBelief)
-                col = b._frequency_particles.copy()
-                weights = b._frequency_weights.copy()
-                hist.append(np.column_stack([col, weights]))
+                sub_idx, sub_w = _viz_particle_subsample(b._frequency_weights)
+                col = b._frequency_particles
+                col = col[sub_idx] if sub_idx is not None else col.copy()
+                hist.append(np.column_stack([col, sub_w]))
             out[scan_param] = (hist, np.linspace(0.0, 1.0, 2))
         else:
             grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
@@ -550,9 +594,28 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
     resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
 
-    # Calculate parameter uncertainties history
-    param_hist = [s.belief.uncertainty().as_dict() for s in bayesian_snapshots]
-    estimates_hist = [s.belief.estimates() for s in bayesian_snapshots]
+    # Calculate parameter uncertainties history.
+    # Snapshots from buffered locators (SimpleSobol/SimpleSweep) share belief
+    # objects between batch flushes (observer dedup), so memoize the
+    # O(particles x params) uncertainty/estimates passes per unique belief
+    # instead of per step.
+    unc_memo: dict[int, dict[str, float]] = {}
+    est_memo: dict[int, dict[str, float]] = {}
+
+    def _unc_of(belief) -> dict[str, float]:
+        out = unc_memo.get(id(belief))
+        if out is None:
+            out = unc_memo[id(belief)] = belief.uncertainty().as_dict()
+        return out
+
+    def _est_of(belief) -> dict[str, float]:
+        out = est_memo.get(id(belief))
+        if out is None:
+            out = est_memo[id(belief)] = belief.estimates()
+        return out
+
+    param_hist = [_unc_of(s.belief) for s in bayesian_snapshots]
+    estimates_hist = [_est_of(s.belief) for s in bayesian_snapshots]
 
     anim_all = _posterior_animation_inputs_all_params(viz_run_result, start_idx=sweep_steps)
     log.debug("Posterior animation inputs: %s", "available" if anim_all is not None else "None")
@@ -718,22 +781,20 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
         n_params = len(param_names)
 
-        # Compute cumulative Fisher information and bounds at each step
+        # Compute cumulative Fisher information and bounds at each step.
+        # Estimates and uncertainties are reused from the histories computed
+        # above instead of re-deriving them from the particle population
+        # (each estimates()/uncertainty() call is a full O(N x d) pass).
         fisher_hist = []  # Cumulative FIM at each step
         fisher_bounds_hist = []  # sqrt(diag(inv(FIM))) - theoretical minimum uncertainty
-        actual_uncertainty_hist = []  # Actual SMC uncertainty
+        actual_uncertainty_hist = param_hist  # Actual SMC uncertainty (already computed)
 
         cum_fim = np.zeros((n_params, n_params))
-        for s in bayesian_snapshots:
-            # Get observation point and compute Fisher contribution
-            x_obs = s.obs.x
-            model = s.belief.model
-            params = s.belief.estimates()
-
+        for i, s in enumerate(bayesian_snapshots):
             fim_i = fisher_information_matrix(
-                x=x_obs,
-                model=model,
-                parameters=params,
+                x=s.obs.x,
+                model=s.belief.model,
+                parameters=estimates_hist[i],
                 last_obs=s.obs,
             )
             if fim_i is not None:
@@ -741,7 +802,6 @@ def _bayesian_auxiliary_entries(  # noqa: C901
 
             fisher_hist.append(cum_fim.copy())
             fisher_bounds_hist.append(single_shot_marginal_stds_from_fim(cum_fim, n_params))
-            actual_uncertainty_hist.append(s.belief.uncertainty().as_dict())
 
         # Skip Fisher plots if no model supports gradients (cum_fim stayed zero)
         fim_is_degenerate = not np.any(cum_fim != 0)
@@ -771,14 +831,18 @@ def _bayesian_auxiliary_entries(  # noqa: C901
         convergence_threshold = NVISION_CONVERGENCE_THRESHOLD
         convergence_patience = 8  # Default patience steps
 
+        # Parameter names are identical across snapshots; resolve once.
+        first_belief = viz_snapshots_for_conv[0].belief
+        param_names = list(first_belief.model.parameter_names())
+        if getattr(first_belief, "_use_rao_blackwell_noise", False) and "noise_sigma" not in param_names:
+            param_names.append("noise_sigma")
+
         conv_metrics = []
         for i, s in enumerate(viz_snapshots_for_conv):
             belief = s.belief
-            param_names = list(belief.model.parameter_names())
-            if getattr(belief, "_use_rao_blackwell_noise", False):
-                if "noise_sigma" not in param_names:
-                    param_names.append("noise_sigma")
-            uncertainties = belief.uncertainty().as_dict()
+            # Reuse the uncertainty history computed once above (param_hist)
+            # instead of another O(N x d) particle pass per snapshot.
+            uncertainties = param_hist[i]
             bounds = belief.physical_param_bounds
 
             # Check which parameters are converged

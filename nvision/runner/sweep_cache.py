@@ -87,7 +87,8 @@ def _sync_from_shm(target_key: str | None = None) -> list[Observation] | None:
 
         _LOCAL_VERSION = shm_version
         return found_obs
-    except (struct.error, pickle.UnpicklingError):
+    except (struct.error, pickle.UnpicklingError, ValueError, BufferError, OSError) as exc:
+        log.debug("Failed to sync sweep cache from SHM (expected during shutdown): %s", exc)
         return None
 
 
@@ -122,6 +123,8 @@ def _write_to_shm(key: str, observations: list[Observation]) -> None:
 
         global _LOCAL_VERSION
         _LOCAL_VERSION = version + 1
+    except (ValueError, BufferError, OSError, EOFError, RuntimeError) as exc:
+        log.debug("Failed to write sweep cache to SHM (expected during shutdown): %s", exc)
     except Exception:
         log.exception("Failed to write sweep cache to SHM")
 
@@ -162,11 +165,18 @@ def put_cached_sweep(experiment: CoreExperiment, sweep_steps: int, observations:
     key = _sweep_cache_key(experiment, sweep_steps)
 
     if _SHM_LOCK is not None:
-        with _SHM_LOCK:
-            cached = _sync_from_shm(key)
-            if cached is None:
-                _DESERIALIZED_CACHE[key] = observations
-                _write_to_shm(key, observations)
+        try:
+            with _SHM_LOCK:
+                cached = _sync_from_shm(key)
+                if cached is None:
+                    _DESERIALIZED_CACHE[key] = observations
+                    _write_to_shm(key, observations)
+        except (OSError, EOFError, RuntimeError) as exc:
+            log.debug("Shared lock connection closed in put_cached_sweep: %s", exc)
+            with _LOCK:
+                if key not in _SWEEP_OBSERVATIONS_BY_KEY:
+                    _SWEEP_OBSERVATIONS_BY_KEY[key] = observations
+                    _DESERIALIZED_CACHE[key] = observations
     else:
         with _LOCK:
             if key not in _SWEEP_OBSERVATIONS_BY_KEY:
@@ -216,11 +226,18 @@ def put_cached_sobol_baseline(
     key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
 
     if _SHM_LOCK is not None:
-        with _SHM_LOCK:
-            cached = _sync_from_shm(key)
-            if cached is None:
-                _DESERIALIZED_CACHE[key] = steps
-                _write_to_shm(key, steps)  # type: ignore
+        try:
+            with _SHM_LOCK:
+                cached = _sync_from_shm(key)
+                if cached is None:
+                    _DESERIALIZED_CACHE[key] = steps
+                    _write_to_shm(key, steps)  # type: ignore
+        except (OSError, EOFError, RuntimeError) as exc:
+            log.debug("Shared lock connection closed in put_cached_sobol_baseline: %s", exc)
+            with _LOCK:
+                if key not in _SWEEP_OBSERVATIONS_BY_KEY:
+                    _SWEEP_OBSERVATIONS_BY_KEY[key] = steps  # type: ignore
+                    _DESERIALIZED_CACHE[key] = steps
     else:
         with _LOCK:
             if key not in _SWEEP_OBSERVATIONS_BY_KEY:
@@ -254,11 +271,18 @@ def put_cached_simplesweep_baseline(
 ) -> None:
     key = _simplesweep_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
     if _SHM_LOCK is not None:
-        with _SHM_LOCK:
-            cached = _sync_from_shm(key)
-            if cached is None:
-                _DESERIALIZED_CACHE[key] = data
-                _write_to_shm(key, data)
+        try:
+            with _SHM_LOCK:
+                cached = _sync_from_shm(key)
+                if cached is None:
+                    _DESERIALIZED_CACHE[key] = data
+                    _write_to_shm(key, data)
+        except (OSError, EOFError, RuntimeError) as exc:
+            log.debug("Shared lock connection closed in put_cached_simplesweep_baseline: %s", exc)
+            with _LOCK:
+                if key not in _SWEEP_OBSERVATIONS_BY_KEY:
+                    _SWEEP_OBSERVATIONS_BY_KEY[key] = data  # type: ignore
+                    _DESERIALIZED_CACHE[key] = data
     else:
         with _LOCK:
             if key not in _SWEEP_OBSERVATIONS_BY_KEY:
@@ -272,9 +296,12 @@ def clear_sweep_cache() -> None:
         _SWEEP_OBSERVATIONS_BY_KEY.clear()
         _DESERIALIZED_CACHE.clear()
         if _SHM_LOCK is not None:
-            with _SHM_LOCK:
-                if _SHM:
-                    _SHM.buf[:12] = struct.pack("<III", 0, HEADER_SIZE, 0)
+            try:
+                with _SHM_LOCK:
+                    if _SHM:
+                        _SHM.buf[:12] = struct.pack("<III", 0, HEADER_SIZE, 0)
+            except (OSError, EOFError, RuntimeError) as exc:
+                log.debug("Shared lock connection closed in clear_sweep_cache: %s", exc)
 
 
 @dataclass

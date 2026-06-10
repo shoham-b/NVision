@@ -267,6 +267,7 @@ class ShardedSqliteCache:
             pass
 
     def _index_delete_key(self, key: str) -> None:
+        self._get_shard_cache().pop(key, None)
         try:
             conn = self._get_index_conn()
             conn.execute("DELETE FROM cache_index WHERE key = ?", (key,))
@@ -503,6 +504,7 @@ class ShardedSqliteCache:
             raise exc
 
     def delete(self, key: str):
+        self._get_shard_cache().pop(key, None)
         try:
             shard_id = self._index_get_shard_id(key)
             if shard_id is not None:

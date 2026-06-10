@@ -39,17 +39,32 @@ from nvision.viz import Viz
 log = logging.getLogger(__name__)
 
 MAX_PROCESS_MEMORY_GIB = 1.0
+_PROCESS_CACHE = None
+_CHECK_COUNTER = 0
 
 
 def _check_memory_limit() -> None:
-    """Check current process memory usage and raise MemoryError if it exceeds limit."""
+    """Check current process memory usage and raise MemoryError if it exceeds limit.
+
+    Only checks once every 50 steps to avoid excessive overhead of querying OS process APIs.
+    """
+    global _PROCESS_CACHE, _CHECK_COUNTER
+    _CHECK_COUNTER += 1
+    if _CHECK_COUNTER % 50 != 0:
+        return
+
     try:
         import os
 
         import psutil
+    except ImportError:
+        return
 
-        process = psutil.Process(os.getpid())
-        mem_bytes = process.memory_info().rss
+    try:
+        if _PROCESS_CACHE is None or _PROCESS_CACHE.pid != os.getpid():
+            _PROCESS_CACHE = psutil.Process(os.getpid())
+
+        mem_bytes = _PROCESS_CACHE.memory_info().rss
         if mem_bytes > MAX_PROCESS_MEMORY_GIB * 1024 * 1024 * 1024:
             log.error(
                 "Process %s memory limit exceeded: %.2f GiB > %.2f GiB",
@@ -60,7 +75,7 @@ def _check_memory_limit() -> None:
             raise MemoryError(
                 f"Memory limit of {MAX_PROCESS_MEMORY_GIB} GiB exceeded (current: {mem_bytes / (1024**3):.2f} GiB)"
             )
-    except ImportError:
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
 
 

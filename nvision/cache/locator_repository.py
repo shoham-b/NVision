@@ -435,3 +435,4 @@ class LocatorResultsRepository:
             for i in range(1000):
                 rep_key = self._repeats.make_repeat_key(k, i)
                 self._store.delete(rep_key)
+                self._store.delete(rep_key + ":meta")

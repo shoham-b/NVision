@@ -102,6 +102,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
     def _observe_acquisition(self, obs: Observation) -> None:
         """Buffer the observation; belief update is deferred to _flush_buffer."""
         self._obs_buffer.append(obs)
+        self.belief.last_obs = obs
 
     def _flush_buffer(self, check_convergence: bool = True) -> None:
         """Dispatch buffered observations to belief.batch_update and resample/check convergence."""
@@ -122,8 +123,11 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
                 self.belief._resample()
 
         if check_convergence:
-            self._check_convergence_milestones()
-            if self._target_params_converged():
+            # One uncertainty pass shared by the milestone and convergence checks
+            # (each belief.uncertainty() call is a full O(particles x params) pass).
+            physical_uncertainties = self.belief.uncertainty()
+            self._check_convergence_milestones(physical_uncertainties)
+            if self._target_params_converged(physical_uncertainties):
                 self._is_converged = True
 
     def done(self) -> bool:

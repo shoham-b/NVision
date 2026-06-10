@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from nvision.runner.plots_data import (
     write_parameter_convergence_data,
     write_posterior_data,
 )
+from nvision.viz._f32_json import from_gz_bytes
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,7 +57,8 @@ def _grid_history(
 
 
 def _load(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Load a gzip-compressed Float32 JSON file written by the plots_data writers."""
+    return from_gz_bytes(path.read_bytes())
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +75,7 @@ class TestWritePosteriorData:
             "linewidth": _particle_history(rng, n_steps, n_particles, lo=5e6, hi=15e6),
         }
         out = tmp_path / "posterior.json"
-        assert write_posterior_data(anim_all, out) is True
+        assert write_posterior_data(anim_all, out)
         data = _load(out)
         assert data["schema"] == "posterior_v1"
         assert data["param_names"] == ["frequency", "linewidth"]
@@ -182,7 +183,7 @@ class TestWritePosteriorData:
     def test_empty_anim_all_returns_false_no_file(self, tmp_path):
         out = tmp_path / "posterior.json"
         result = write_posterior_data({}, out)
-        assert result is False
+        assert result is None
         assert not out.exists()
 
     def test_creates_parent_directory(self, tmp_path):
@@ -225,7 +226,7 @@ class TestWriteCovarianceData:
         rng = np.random.default_rng(20)
         param_names, cov_hist, means_hist, pairs = self._make_inputs(rng, n_steps=5)
         out = tmp_path / "cov.json"
-        assert write_covariance_data(cov_hist, param_names, pairs, means_hist, out) is True
+        assert write_covariance_data(cov_hist, param_names, pairs, means_hist, out)
         data = _load(out)
         assert data["schema"] == "covariance_ellipses_v1"
         assert len(data["steps"]) == 5
@@ -294,13 +295,13 @@ class TestWriteCovarianceData:
         param_names, cov_hist, means_hist, _ = self._make_inputs(rng)
         out = tmp_path / "cov.json"
         result = write_covariance_data(cov_hist, param_names, [], means_hist, out)
-        assert result is False
+        assert result is None
         assert not out.exists()
 
     def test_empty_cov_hist_returns_false(self, tmp_path):
         out = tmp_path / "cov.json"
         result = write_covariance_data([], ["frequency"], [(0, 1)], [], out)
-        assert result is False
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +321,7 @@ class TestWriteParameterConvergenceData:
         rng = np.random.default_rng(30)
         param_hist, estimates_hist = self._make_inputs(rng, n_steps=7)
         out = tmp_path / "conv.json"
-        assert write_parameter_convergence_data(param_hist, estimates_hist, out) is True
+        assert write_parameter_convergence_data(param_hist, estimates_hist, out)
         data = _load(out)
         assert data["schema"] == "parameter_convergence_v1"
         assert len(data["steps"]) == 7
@@ -366,7 +367,7 @@ class TestWriteParameterConvergenceData:
     def test_empty_input_returns_false(self, tmp_path):
         out = tmp_path / "conv.json"
         result = write_parameter_convergence_data([], [], out)
-        assert result is False
+        assert result is None
         assert not out.exists()
 
     def test_unscaled_params_pass_through(self, tmp_path):
@@ -407,7 +408,7 @@ class TestWriteConvergenceMetricsData:
     def test_schema_and_step_count(self, tmp_path):
         conv_metrics = self._make_conv_metrics(n_steps=6)
         out = tmp_path / "conv_metrics.json"
-        assert write_convergence_metrics_data(conv_metrics, ["frequency", "linewidth"], 0.01, 8, out) is True
+        assert write_convergence_metrics_data(conv_metrics, ["frequency", "linewidth"], 0.01, 8, out)
         data = _load(out)
         assert data["schema"] == "convergence_metrics_v1"
         assert len(data["steps"]) == 6
@@ -452,7 +453,7 @@ class TestWriteConvergenceMetricsData:
     def test_empty_metrics_returns_false(self, tmp_path):
         out = tmp_path / "conv_metrics.json"
         result = write_convergence_metrics_data([], ["frequency"], 0.01, 8, out)
-        assert result is False
+        assert result is None
         assert not out.exists()
 
     def test_param_names_stored(self, tmp_path):
@@ -483,7 +484,7 @@ class TestWriteFisherData:
         rng = np.random.default_rng(40)
         param_names, fb, au, fh = self._make_inputs(rng, n_steps=6)
         out = tmp_path / "fisher.json"
-        assert write_fisher_data(fb, au, fh, param_names, out) is True
+        assert write_fisher_data(fb, au, fh, param_names, out)
         data = _load(out)
         assert data["schema"] == "fisher_v1"
         assert len(data["steps"]) == 6
@@ -553,7 +554,7 @@ class TestWriteFisherData:
     def test_empty_hist_returns_false(self, tmp_path):
         out = tmp_path / "fisher.json"
         result = write_fisher_data([], [], [], ["frequency"], out)
-        assert result is False
+        assert result is None
         assert not out.exists()
 
     def test_no_numpy_types_in_output(self, tmp_path):
@@ -601,7 +602,7 @@ class TestNoNumpyLeaks:
         write_parameter_convergence_data(ph, eh, tmp_path / "pc.json")
 
         for f in (tmp_path / "p.json", tmp_path / "c.json", tmp_path / "pc.json"):
-            raw = json.loads(f.read_text())
+            raw = _load(f)
 
             # Recursively check no NaN/Inf in numeric values
             def check_finite(obj):

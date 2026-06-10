@@ -89,7 +89,8 @@ def _sync_from_shm(target_key: str | None = None) -> tuple[TrueSignal, float, fl
 
         _LOCAL_VERSION = shm_version
         return found_bundle
-    except (struct.error, pickle.UnpicklingError):
+    except (struct.error, pickle.UnpicklingError, ValueError, BufferError, OSError) as exc:
+        log.debug("Failed to sync signal cache from SHM (expected during shutdown): %s", exc)
         return None
 
 
@@ -133,10 +134,13 @@ def clear_signal_experiment_cache() -> None:
         _SIGNAL_BUNDLE_BY_KEY.clear()
         _DESERIALIZED_CACHE.clear()
         if _SHM_LOCK is not None:
-            with _SHM_LOCK:
-                # Reset SHM header
-                if _SHM:
-                    _SHM.buf[:12] = struct.pack("<III", 0, HEADER_SIZE, 0)
+            try:
+                with _SHM_LOCK:
+                    # Reset SHM header
+                    if _SHM:
+                        _SHM.buf[:12] = struct.pack("<III", 0, HEADER_SIZE, 0)
+            except (OSError, EOFError, RuntimeError) as exc:
+                log.debug("Shared lock connection closed in clear_signal_experiment_cache: %s", exc)
 
 
 def get_shared_core_experiment(
@@ -168,20 +172,34 @@ def get_shared_core_experiment(
 
     # 2. Coordinate generation/write via locks
     if _SHM_LOCK is not None:
-        with _SHM_LOCK:
-            # Re-sync and re-check inside shared lock
-            cached = _sync_from_shm(key)
-            if cached is not None:
-                true_signal, x_min, x_max = cached
-                return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
+        try:
+            with _SHM_LOCK:
+                # Re-sync and re-check inside shared lock
+                cached = _sync_from_shm(key)
+                if cached is not None:
+                    true_signal, x_min, x_max = cached
+                    return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
 
-            # Generate and write to SHM
-            rng = random.Random(repeat_seed_int(key))
-            exp = build(rng)
-            bundle = (exp.true_signal, exp.x_min, exp.x_max)
-            _DESERIALIZED_CACHE[key] = bundle
-            _write_to_shm(key, bundle)
-            return CoreExperiment(true_signal=exp.true_signal, noise=task.noise, x_min=exp.x_min, x_max=exp.x_max)
+                # Generate and write to SHM
+                rng = random.Random(repeat_seed_int(key))
+                exp = build(rng)
+                bundle = (exp.true_signal, exp.x_min, exp.x_max)
+                _DESERIALIZED_CACHE[key] = bundle
+                _write_to_shm(key, bundle)
+                return CoreExperiment(true_signal=exp.true_signal, noise=task.noise, x_min=exp.x_min, x_max=exp.x_max)
+        except (OSError, EOFError, RuntimeError) as exc:
+            log.debug("Shared lock connection closed in get_shared_core_experiment: %s", exc)
+            # Fall back to local-only logic
+            with _LOCK:
+                cached = _SIGNAL_BUNDLE_BY_KEY.get(key)
+                if cached is not None:
+                    true_signal, x_min, x_max = cached
+                    return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
+
+                rng = random.Random(repeat_seed_int(key))
+                exp = build(rng)
+                _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.x_min, exp.x_max)
+                return CoreExperiment(true_signal=exp.true_signal, noise=task.noise, x_min=exp.x_min, x_max=exp.x_max)
     else:
         # Fallback to local-only logic
         with _LOCK:

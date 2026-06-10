@@ -41,7 +41,17 @@ function ensurePlotly() {
 }
 
 async function _fetchJson(url) {
-    const resp = await fetch(resolveAssetPath(url), { cache: 'no-store' });
+    let resp = await fetch(resolveAssetPath(url), { cache: 'no-store' });
+    // Manifest entries can have stale .json paths when the file was upgraded to .json.gz on disk.
+    // Transparently retry with the .gz variant so old manifests keep working.
+    if (!resp.ok && resp.status === 404 && url.endsWith('.json') && !url.endsWith('.json.gz')) {
+        const gzUrl = url + '.gz';
+        const gzResp = await fetch(resolveAssetPath(gzUrl), { cache: 'no-store' });
+        if (gzResp.ok) {
+            resp = gzResp;
+            url = gzUrl;
+        }
+    }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     let parsed;
     if (url.endsWith('.gz')) {

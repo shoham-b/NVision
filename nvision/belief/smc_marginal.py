@@ -71,13 +71,24 @@ def _weighted_mean_variance_1d(x: np.ndarray, w: np.ndarray) -> tuple[float, flo
 
 @njit(cache=True)
 def _weighted_mean_axis0(particles: np.ndarray, weights: np.ndarray) -> np.ndarray:
-    """Column-wise weighted means for ``particles`` shaped ``(n, d)``."""
-    # Ensure weights are the same float type as particles for np.dot
-    w_typed = weights.astype(particles.dtype)
-    sw = np.sum(w_typed)
+    """Column-wise weighted means for ``particles`` shaped ``(n, d)``.
+
+    Explicit per-column loops instead of ``np.dot`` so the kernel accepts any
+    memory layout (particles are stored F-order; columns are contiguous).
+    """
+    n, d = particles.shape
+    out = np.zeros(d, dtype=particles.dtype)
+    sw = 0.0
+    for i in range(n):
+        sw += weights[i]
     if sw <= 0.0:
-        return np.zeros(particles.shape[1], dtype=particles.dtype)
-    return np.dot(w_typed, particles) / sw
+        return out
+    for j in range(d):
+        acc = 0.0
+        for i in range(n):
+            acc += weights[i] * particles[i, j]
+        out[j] = acc / sw
+    return out
 
 
 @njit(cache=True)
@@ -218,8 +229,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _global_grid: np.ndarray = field(init=False, repr=False)
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
-    _observations: list[Observation] = field(init=False, default_factory=list, repr=False)
     _eig_kernel_type: str = field(init=False, repr=False, default="generic")
+    # Observation history as flat buffers (amortized growth). Only (x, y) are
+    # ever consumed from history (dip detection), so full Observation objects
+    # are not stored — see the _observations compatibility property.
+    _obs_x_arr: np.ndarray | None = field(init=False, repr=False, default=None)
+    _obs_y_arr: np.ndarray | None = field(init=False, repr=False, default=None)
+    _obs_count: int = field(init=False, repr=False, default=0)
+    _scratch_logw: np.ndarray | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
         self._use_rao_blackwell_noise = False
@@ -233,9 +250,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 if name not in self._param_names:
                     self._param_names.append(name)
 
-        # Initialize particles uniformly within bounds
+        # Initialize particles uniformly within bounds.
+        # Column-major (Fortran) layout: per-parameter columns are the access
+        # unit everywhere (model evaluation, EIG, marginals), so F-order makes
+        # every ``_particles[:, j]`` a zero-copy contiguous view and makes
+        # ``_particles.T`` C-contiguous for the EIG kernels.
         d_dim = len(self._param_names)
-        self._particles = np.zeros((self.num_particles, d_dim), dtype=FLOAT_DTYPE)
+        self._particles = np.zeros((self.num_particles, d_dim), dtype=FLOAT_DTYPE, order="F")
 
         for i, name in enumerate(self._param_names):
             if name not in self.parameter_bounds:
@@ -277,7 +298,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
         self._step_count = 0
         self._rng = np.random.default_rng()
-        self._observations = []
+        self._obs_x_arr = np.empty(256, dtype=np.float64)
+        self._obs_y_arr = np.empty(256, dtype=np.float64)
+        self._obs_count = 0
+        self._scratch_logw = np.empty(self.num_particles, dtype=FLOAT_DTYPE)
         self._dip_centers = []
 
         if getattr(self, "_use_rao_blackwell_noise", False):
@@ -338,9 +362,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._eig_kernel_type = "generic"
 
     def update(self, obs: Observation) -> None:
-        if not hasattr(self, "_observations"):
-            self._observations = []
-        self._observations.append(obs)
+        self._append_observation(obs.x, obs.signal_value)
         self.last_obs = obs
         self.resampled = False
 
@@ -349,14 +371,20 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
-            sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
-            sigmas = np.maximum(sigmas, 1e-9)
+            sigmas = self._noise_betas / self._noise_alphas
+            np.sqrt(sigmas, out=sigmas)
+            np.maximum(sigmas, 1e-9, out=sigmas)
             residuals = obs.signal_value - predicted
             log_liks = -0.5 * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2)
             if self.tempering_factor != 1.0:
                 log_liks *= self.tempering_factor
-            self._noise_alphas = self.noise_discount_factor * self._noise_alphas + 0.5
-            self._noise_betas = self.noise_discount_factor * self._noise_betas + 0.5 * (residuals**2)
+            # In-place Inverse-Gamma posterior update (residuals are dead after this)
+            self._noise_alphas *= self.noise_discount_factor
+            self._noise_alphas += 0.5
+            np.square(residuals, out=residuals)
+            residuals *= 0.5
+            self._noise_betas *= self.noise_discount_factor
+            self._noise_betas += residuals
 
         elif self.noise_model is not None and self._noise_param_slice is not None:
             # Epistemic spread is passed to the noise model for its own tempering logic
@@ -378,19 +406,27 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 )
                 log_liks = np.log(np.maximum(liks, 1e-30))
             else:
-                # Optimized pure Gaussian path
+                # Optimized pure Gaussian path, computed in place on the
+                # freshly-allocated predictions array (sign of the residual is
+                # irrelevant once squared): log_liks = -0.5 * ((y - pred)/sigma)^2
                 sigma = max(float(obs.noise_std), 1e-9)
                 if self.tempering_factor != 1.0:
                     sigma *= np.sqrt(self.tempering_factor)
-                residuals = obs.signal_value - predicted
-                log_liks = -0.5 * (residuals / sigma) ** 2
+                predicted -= obs.signal_value
+                predicted /= sigma
+                np.square(predicted, out=predicted)
+                predicted *= -0.5
+                log_liks = predicted
 
-        # 2. Numerically stable weight update (prevents complete underflow collapse)
-        log_weights = np.log(np.maximum(self._weights, 1e-30))
+        # 2. Numerically stable weight update (prevents complete underflow collapse).
+        # Runs in the persistent scratch buffer — no per-step allocations here.
+        log_weights = self._scratch_logw
+        np.maximum(self._weights, 1e-30, out=log_weights)
+        np.log(log_weights, out=log_weights)
         log_weights += log_liks
-        log_weights -= np.max(log_weights)
+        log_weights -= log_weights.max()
 
-        raw_weights = np.exp(log_weights).astype(FLOAT_DTYPE, copy=False)
+        raw_weights = np.exp(log_weights, out=log_weights)
         self._step_count += 1
         self._cov_step = -1
 
@@ -413,9 +449,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def batch_update(self, observations: list[Observation]) -> None:
         if not observations:
             return
-        if not hasattr(self, "_observations"):
-            self._observations = []
-        self._observations.extend(observations)
+        for obs in observations:
+            self._append_observation(obs.x, obs.signal_value)
 
         self.last_obs = observations[-1]
         self.resampled = False
@@ -424,25 +459,40 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         log_weights = np.zeros(self.num_particles, dtype=FLOAT_DTYPE)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
-            for obs in observations:
-                predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
-                sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
-                sigmas = np.maximum(sigmas, 1e-9)
+            # Batch the model evaluation (the expensive part) into one
+            # vectorized matrix call; the Inverse-Gamma posterior recursion
+            # over alphas/betas is inherently sequential but cheap.
+            all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
+            predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
+            for k, obs in enumerate(observations):
+                predicted = predictions[k]
+                sigmas = self._noise_betas / self._noise_alphas
+                np.sqrt(sigmas, out=sigmas)
+                np.maximum(sigmas, 1e-9, out=sigmas)
                 residuals = obs.signal_value - predicted
                 log_liks = -0.5 * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2)
                 if self.tempering_factor != 1.0:
                     log_liks *= self.tempering_factor
                 log_weights += log_liks
-                self._noise_alphas = self.noise_discount_factor * self._noise_alphas + 0.5
-                self._noise_betas = self.noise_discount_factor * self._noise_betas + 0.5 * (residuals**2)
+                # In-place Inverse-Gamma posterior update (residuals are dead after this)
+                self._noise_alphas *= self.noise_discount_factor
+                self._noise_alphas += 0.5
+                np.square(residuals, out=residuals)
+                residuals *= 0.5
+                self._noise_betas *= self.noise_discount_factor
+                self._noise_betas += residuals
 
         elif self.noise_model is not None and self._noise_param_slice is not None:
-            # Path A: Custom composite noise model evaluating epistemic spread
+            # Path A: Custom composite noise model evaluating epistemic spread.
+            # Model evaluation is batched into one vectorized matrix call; only
+            # the per-observation composite likelihood remains in the loop.
             noise_arrays = [
                 self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
             ]
-            for obs in observations:
-                predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
+            all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
+            predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
+            for k, obs in enumerate(observations):
+                predicted = predictions[k]
                 sigma_epistemic = float(np.std(predicted))
                 residuals = obs.signal_value - predicted
 
@@ -480,10 +530,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self._step_count += len(observations)
 
-        # Convert log-weights back to normalized standard weights safely
-        log_weights += np.log(np.maximum(self._weights, 1e-30))
+        # Convert log-weights back to normalized standard weights safely.
+        # The log-prior term is computed in the persistent scratch buffer.
+        log_prior = self._scratch_logw
+        np.maximum(self._weights, 1e-30, out=log_prior)
+        np.log(log_prior, out=log_prior)
+        log_weights += log_prior
         log_weights -= np.max(log_weights)
-        raw_weights = np.exp(log_weights).astype(FLOAT_DTYPE, copy=False)
+        raw_weights = np.exp(log_weights, out=log_weights)
         weight_sum = np.sum(raw_weights)
 
         # Threshold aligned to 1e-30 to match standard update behavior
@@ -504,6 +558,54 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def get_candidates(self) -> np.ndarray:
         """Return the current epoch's slope-targeted candidate grid."""
         return self._current_candidates
+
+    def observation_arrays(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(x, signal_value)`` of all observations as flat float arrays.
+
+        These are views into the internal history buffers — callers must not
+        mutate them.
+        """
+        return self._obs_x_arr[: self._obs_count], self._obs_y_arr[: self._obs_count]
+
+    @property
+    def num_observations(self) -> int:
+        """Number of observations recorded so far."""
+        return self._obs_count
+
+    def _append_observation(self, x: float, y: float) -> None:
+        """Record one observation into the flat history buffers (amortized growth)."""
+        n = self._obs_count
+        if n >= self._obs_x_arr.shape[0]:
+            cap = 2 * self._obs_x_arr.shape[0]
+            self._obs_x_arr = np.resize(self._obs_x_arr, cap)
+            self._obs_y_arr = np.resize(self._obs_y_arr, cap)
+        self._obs_x_arr[n] = x
+        self._obs_y_arr[n] = y
+        self._obs_count = n + 1
+
+    @property
+    def _observations(self) -> list[Observation]:
+        """Observation history reconstructed on demand (compatibility shim).
+
+        History is stored as flat (x, signal_value) buffers; this getter
+        materializes Observation objects for legacy consumers and tests.
+        Hot paths must use :meth:`observation_arrays` / :attr:`num_observations`.
+        """
+        return [
+            Observation(x=float(self._obs_x_arr[i]), signal_value=float(self._obs_y_arr[i]))
+            for i in range(self._obs_count)
+        ]
+
+    @_observations.setter
+    def _observations(self, observations: list[Observation]) -> None:
+        n = len(observations)
+        cap = max(256, n)
+        self._obs_x_arr = np.empty(cap, dtype=np.float64)
+        self._obs_y_arr = np.empty(cap, dtype=np.float64)
+        for i, o in enumerate(observations):
+            self._obs_x_arr[i] = o.x
+            self._obs_y_arr[i] = o.signal_value
+        self._obs_count = n
 
     def estimated_noise_std(self) -> float:
         """Conservative (90th percentile highest) noise σ estimate.
@@ -690,7 +792,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 5b. Observation-driven dip focusing.
         # Use empirically measured low-signal values to add dense candidates directly
         # at the true dip locations, correcting for posterior bias when belief is wrong.
-        if len(self._observations) >= 5 and self.noise_model is not None:
+        if self._obs_count >= 5 and self.noise_model is not None:
             from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
 
             rescale_maps = self._rescale_maps
@@ -700,8 +802,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     "Ensure physical_param_bounds includes 'frequency' at construction."
                 )
             freq_rescale = rescale_maps["frequency"]
-            obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in self._observations]))
-            obs_ys = np.array([o.signal_value for o in self._observations])
+            obs_xs, obs_ys = self.observation_arrays()
+            obs_xs_phys = freq_rescale.to_phys(obs_xs)
             noise_std = self.estimated_noise_std()
             noise_std_unc = self.noise_std_uncertainty(noise_std)
             # Derive cluster radius from the linewidth prior upper bound
@@ -748,7 +850,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 6. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
         merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
-        self._current_candidates = np.unique(np.clip(merged, f_lo_unit, f_hi_unit)).astype(np.float32)
+        merged = np.clip(merged, f_lo_unit, f_hi_unit).astype(np.float32, copy=False)
+        # Each constituent grid is already ascending, so the concatenation is a
+        # handful of sorted runs — a stable (timsort) sort is near-linear here,
+        # unlike np.unique's full introsort. Dedup with a neighbor mask.
+        merged.sort(kind="stable")
+        if merged.shape[0] > 1:
+            keep = np.empty(merged.shape[0], dtype=bool)
+            keep[0] = True
+            np.not_equal(merged[1:], merged[:-1], out=keep[1:])
+            merged = merged[keep]
+        self._current_candidates = merged
 
     def _resample(self) -> None:
         """Systematic resampling with Gaussian nudging and Liu-West shrinkage.
@@ -771,8 +883,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         mean = _weighted_mean_axis0(self._particles, self._weights)
         cov = self._cached_covariance()
 
-        # 3. Update particles and reset weights
-        self._particles = self._particles[new_indices]
+        # 3. Update particles and reset weights.
+        # Gather on the transposed view then transpose back: one copy that
+        # preserves the column-major (F-order) particle layout.
+        self._particles = self._particles.T[:, new_indices].T
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
@@ -809,11 +923,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         nudge_cov = (eigvecs * eigvals) @ eigvecs.T
 
         # 6. Shrinkage contraction toward mean (Liu-West)
-        # MUST happen before nudging so we don't shrink the added noise
-        old_center = mean.reshape(1, -1)
-        self._particles = (self._particles * self.a_param + old_center * (1 - self.a_param)).astype(
-            FLOAT_DTYPE, copy=False
-        )
+        # MUST happen before nudging so we don't shrink the added noise.
+        # In-place so the F-order layout (and dtype) of _particles is preserved.
+        self._particles *= self.a_param
+        self._particles += (mean * (1 - self.a_param)).astype(FLOAT_DTYPE, copy=False)
 
         # 7. Apply Nudge (Multivariate Gaussian) — reuse the cached RNG
         try:
@@ -1020,14 +1133,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_prior_strength=self.noise_prior_strength,
         )
         dist._param_names = self._param_names.copy()
-        dist._particles = self._particles.copy()
+        dist._particles = self._particles.copy(order="K")  # preserve F-order layout
         dist._weights = self._weights.copy()
         dist._step_count = self._step_count
         dist.resampled = self.resampled
-        if hasattr(self, "_observations"):
-            dist._observations = list(self._observations)
-        if hasattr(self, "_epoch_observations"):
-            dist._epoch_observations = list(self._epoch_observations)
+        dist._obs_x_arr = self._obs_x_arr.copy()
+        dist._obs_y_arr = self._obs_y_arr.copy()
+        dist._obs_count = self._obs_count
         dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
         if getattr(self, "_use_rao_blackwell_noise", False):
             dist._noise_alphas = self._noise_alphas.copy()
@@ -1118,16 +1230,20 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
             positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
             idx = _systematic_resample_indices(cdf, positions)
-            part = self._particles[idx]  # (n_eig, d) — one copy
+            # Gather straight into (d, n_eig) layout: the fancy index on the
+            # transposed view produces C-contiguous rows, so the fused kernel
+            # gets contiguous per-parameter arrays without a second copy.
+            part_t = self._particles.T[:, idx]  # (d, n_eig) — one copy
             w_sub = w_norm[idx].astype(np.float32)
             w_sub /= w_sub.sum()
         else:
-            part = self._particles  # (n_total, d)
+            # _particles is F-order, so .T is already C-contiguous: zero-copy.
+            part_t = np.ascontiguousarray(self._particles.T)  # (d, n_total)
             w_sub = self._weights  # already float32, normalized
 
         # Fused kernel: compute weighted prediction variance per candidate in one
         # pass, without materialising the (n_candidates x n_eig) predictions matrix.
-        var_pred = self._eig_variance_fused(candidates, part, w_sub)
+        var_pred = self._eig_variance_fused(candidates, part_t, w_sub)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
             est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
@@ -1138,8 +1254,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         return 0.5 * np.log1p(var_pred / noise_var)
 
-    def _eig_variance_fused(self, candidates: np.ndarray, part: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    def _eig_variance_fused(self, candidates: np.ndarray, part_t: np.ndarray, weights: np.ndarray) -> np.ndarray:
         """Dispatch to the model-specific fused EIG-variance kernel.
+
+        ``part_t`` is the particle subset in transposed ``(d, n)`` layout with
+        C-contiguous rows, so each per-parameter slice below is a zero-copy
+        contiguous view.
 
         The kernel type is resolved once at construction and cached in
         ``_eig_kernel_type``, so this method has no isinstance checks or
@@ -1157,11 +1277,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if kernel == "lorentzian":
             nv_center_lorentzian_eig_variance(
                 xs,
-                np.ascontiguousarray(part[:, 0], dtype=np.float32),  # freq
-                np.ascontiguousarray(part[:, 1], dtype=np.float32),  # linewidth
-                np.ascontiguousarray(part[:, 2], dtype=np.float32),  # split
-                np.ascontiguousarray(part[:, 3], dtype=np.float32),  # k_np
-                np.ascontiguousarray(part[:, 4], dtype=np.float32),  # c_total
+                np.ascontiguousarray(part_t[0], dtype=np.float32),  # freq
+                np.ascontiguousarray(part_t[1], dtype=np.float32),  # linewidth
+                np.ascontiguousarray(part_t[2], dtype=np.float32),  # split
+                np.ascontiguousarray(part_t[3], dtype=np.float32),  # k_np
+                np.ascontiguousarray(part_t[4], dtype=np.float32),  # c_total
                 w,
                 out,
             )
@@ -1170,19 +1290,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if kernel == "voigt":
             nv_center_pseudo_voigt_eig_variance(
                 xs,
-                np.ascontiguousarray(part[:, 0], dtype=np.float32),  # freq
-                np.ascontiguousarray(part[:, 1], dtype=np.float32),  # fwhm_total
-                np.ascontiguousarray(part[:, 2], dtype=np.float32),  # lorentz_frac
-                np.ascontiguousarray(part[:, 3], dtype=np.float32),  # split
-                np.ascontiguousarray(part[:, 4], dtype=np.float32),  # k_np
-                np.ascontiguousarray(part[:, 5], dtype=np.float32),  # dip_depth
+                np.ascontiguousarray(part_t[0], dtype=np.float32),  # freq
+                np.ascontiguousarray(part_t[1], dtype=np.float32),  # fwhm_total
+                np.ascontiguousarray(part_t[2], dtype=np.float32),  # lorentz_frac
+                np.ascontiguousarray(part_t[3], dtype=np.float32),  # split
+                np.ascontiguousarray(part_t[4], dtype=np.float32),  # k_np
+                np.ascontiguousarray(part_t[5], dtype=np.float32),  # dip_depth
                 w,
                 out,
             )
             return out
 
         # Generic fallback: two-step path for any other model type.
-        arrays_in_order = [part[:, j] for j in range(self._d_signal)]
+        arrays_in_order = [part_t[j] for j in range(self._d_signal)]
         predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
         return _weighted_variance_rows(predictions, w)
 

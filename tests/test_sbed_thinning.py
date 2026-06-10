@@ -1,3 +1,4 @@
+import numpy as np
 
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
@@ -44,6 +45,10 @@ def test_sbed_candidate_thinning():
         return original_select(candidates, n, noise_std=noise_std)
 
     belief.select_max_information_gain = mock_select
+
+    # Seed so the acquisition takes the EIG path (first rand() = 0.3745 >= 0.2),
+    # not the exploration/dip branches that skip the EIG grid search entirely.
+    np.random.seed(42)
 
     # Run locator._acquire()
     locator.next()

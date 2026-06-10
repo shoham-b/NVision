@@ -93,6 +93,7 @@ class SequentialBayesianLocator(Locator):
         self._convergence_streak = 0
         self.freq_converged_step: int | None = None
         self.all_converged_step: int | None = None
+        self._is_converged: bool = False
 
         if noise_std is None or float(noise_std) <= 0:
             raise ValueError(f"noise_std must be a positive float; got {noise_std!r}")
@@ -216,17 +217,23 @@ class SequentialBayesianLocator(Locator):
         """
         raise NotImplementedError("Subclasses must implement _acquire()")
 
-    def _check_convergence_milestones(self) -> None:
-        """Record the first step at which frequency and all params converge."""
+    def _check_convergence_milestones(self, physical_uncertainties=None) -> None:
+        """Record the first step at which frequency and all params converge.
+
+        ``physical_uncertainties`` may be passed in to avoid recomputing the
+        full O(particles x params) uncertainty pass when the caller already
+        has it for this step.
+        """
         from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
-        physical_uncertainties = self.belief.uncertainty()
+        if physical_uncertainties is None:
+            physical_uncertainties = self.belief.uncertainty()
         if self.freq_converged_step is None and "frequency" in physical_uncertainties:
             freq_threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get("frequency")
             if freq_threshold is not None and float(physical_uncertainties["frequency"]) < freq_threshold:
                 self.freq_converged_step = self.step_count
 
-        if self.all_converged_step is None and self._target_params_converged():
+        if self.all_converged_step is None and self._target_params_converged(physical_uncertainties):
             self.all_converged_step = self.step_count
 
     def _observe_acquisition(self, obs: Observation) -> None:
@@ -240,7 +247,7 @@ class SequentialBayesianLocator(Locator):
         Default: stop when step budget is exhausted or target parameters
         have stayed converged for ``convergence_patience_steps``.
         """
-        return self.inference_step_count >= self.max_steps
+        return self.inference_step_count >= self.max_steps or self._is_converged
 
     # ------------------------------------------------------------------
     # Locator interface — thin orchestrators that delegate to hooks above
@@ -262,7 +269,7 @@ class SequentialBayesianLocator(Locator):
         """Stop when converged or step budget is exhausted."""
         return self._acquisition_done()
 
-    def _target_params_converged(self) -> bool:
+    def _target_params_converged(self, physical_uncertainties=None) -> bool:
         """Check convergence on configured target parameters.
 
         Convergence requires the uncertainty of each target parameter to be
@@ -272,11 +279,15 @@ class SequentialBayesianLocator(Locator):
         ``NVISION_FREQ_CONVERGENCE_THRESHOLD``) use an absolute uncertainty
         ceiling instead.  The overall (RMS) relative uncertainty across all
         target parameters must also be below the same threshold.
+
+        ``physical_uncertainties`` may be passed in to avoid recomputing the
+        full O(particles x params) uncertainty pass.
         """
         target_params = (
             list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
         )
-        physical_uncertainties = self.belief.uncertainty()
+        if physical_uncertainties is None:
+            physical_uncertainties = self.belief.uncertainty()
         bounds = self.belief.physical_param_bounds
 
         relative_uncertainties: dict[str, float] = {}

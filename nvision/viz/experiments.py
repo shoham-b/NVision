@@ -14,6 +14,17 @@ class ExperimentsMixin:
 
     out_dir: Path
 
+    @staticmethod
+    def _find_sweep_baseline(columns: list[str]) -> str | None:
+        """Find the sweep baseline strategy. Prioritizes 'sweep', then falls back to 'sobol'."""
+        for col in columns:
+            if "sweep" in col.lower():
+                return col
+        for col in columns:
+            if "sobol" in col.lower():
+                return col
+        return None
+
     def plot_experiment_summary(self, df: pl.DataFrame) -> list[dict]:
         """Plot RMSE and Measurements by (noise, strategy) for each generator in experiment results."""
         if df.is_empty():
@@ -34,6 +45,15 @@ class ExperimentsMixin:
 
             if "measurements" in sub.columns:
                 metrics_to_plot.append(("measurements", "Average Steps to Converge"))
+
+            if "freq_converged_step" in sub.columns and sub["freq_converged_step"].drop_nulls().len() > 0:
+                metrics_to_plot.append(("freq_converged_step", "Freq. Converged @ Step"))
+
+            if "all_converged_step" in sub.columns and sub["all_converged_step"].drop_nulls().len() > 0:
+                metrics_to_plot.append(("all_converged_step", "All Converged @ Step"))
+
+            if "err_fb_at_milestone" in sub.columns and sub["err_fb_at_milestone"].drop_nulls().len() > 0:
+                metrics_to_plot.append(("err_fb_at_milestone", "Error @ Freq. Convergence"))
 
             for metric, ylabel in metrics_to_plot:
                 agg = sub.group_by(["noise", "strategy"]).agg(pl.col(metric).mean())
@@ -60,11 +80,7 @@ class ExperimentsMixin:
                 agg = sub.group_by(["noise", "strategy"]).agg(pl.col("measurements").mean())
                 try:
                     pivot = agg.pivot(on="strategy", index="noise", values="measurements")
-                    sweep_col = None
-                    for col in pivot.columns:
-                        if "sweep" in col.lower() or "sobol" in col.lower():
-                            sweep_col = col
-                            break
+                    sweep_col = self._find_sweep_baseline(pivot.columns)
 
                     if sweep_col:
                         try:
@@ -107,6 +123,83 @@ class ExperimentsMixin:
                             plots.append(
                                 {"type": "summary", "path": str(out_path), "generator": gen, "metric": "savings"}
                             )
+                except Exception:
+                    pass
+
+            # Savings for convergence-step metrics vs sweep measurements
+            for conv_metric, sav_suffix, sav_label in [
+                ("freq_converged_step", "savings_freq_converged", "Steps Saved to Freq. Convergence"),
+                ("all_converged_step", "savings_all_converged", "Steps Saved to Full Convergence"),
+            ]:
+                if conv_metric not in sub.columns or "measurements" not in sub.columns:
+                    continue
+                if sub[conv_metric].drop_nulls().len() == 0:
+                    continue
+                try:
+                    meas_agg = sub.group_by(["noise", "strategy"]).agg(pl.col("measurements").mean())
+                    meas_pivot = meas_agg.pivot(on="strategy", index="noise", values="measurements")
+                    sweep_col = self._find_sweep_baseline(meas_pivot.columns)
+                    if not sweep_col:
+                        continue
+
+                    conv_agg = (
+                        sub.filter(pl.col(conv_metric).is_not_null())
+                        .group_by(["noise", "strategy"])
+                        .agg(pl.col(conv_metric).mean())
+                    )
+                    if conv_agg.is_empty():
+                        continue
+
+                    sweep_baseline = meas_pivot.select(["noise", sweep_col]).rename({sweep_col: "_baseline"})
+                    try:
+                        sweep_baseline = (
+                            sweep_baseline
+                            .with_columns(pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n"))
+                            .sort("_n").drop("_n")
+                        )
+                        conv_agg = (
+                            conv_agg
+                            .with_columns(pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n"))
+                            .sort("_n").drop("_n")
+                        )
+                    except Exception:
+                        sweep_baseline = sweep_baseline.sort("noise")
+                        conv_agg = conv_agg.sort("noise")
+
+                    joined = conv_agg.join(sweep_baseline, on="noise", how="inner")
+
+                    conv_savings_series: list[dict[str, Any]] = []
+                    for strat in joined.get_column("strategy").unique().to_list():
+                        if strat == sweep_col:
+                            continue
+                        strat_data = joined.filter(pl.col("strategy") == strat)
+                        noises = strat_data.get_column("noise").to_list()
+                        baseline = strat_data.get_column("_baseline").to_list()
+                        conv_steps = strat_data.get_column(conv_metric).to_list()
+                        savings = [
+                            b - s if b is not None and s is not None else None
+                            for b, s in zip(baseline, conv_steps)
+                        ]
+                        conv_savings_series.append({"name": strat, "x": noises, "y": savings})
+
+                    if conv_savings_series:
+                        conv_sav_data: dict[str, Any] = {
+                            "_graph_type": "chart",
+                            "title": f"{sav_label} vs {sweep_col} <br>Generator: {gen}",
+                            "xaxis_title": "Noise Level",
+                            "yaxis_title": f"Absolute Steps Saved vs {sweep_col}",
+                            "mode": "lines+markers",
+                            "series": conv_savings_series,
+                        }
+                        out_path = self.out_dir / f"summary_{gen}_{sav_suffix}.json.gz"
+                        out_path.parent.mkdir(parents=True, exist_ok=True)
+                        dump_gz(conv_sav_data, out_path)
+                        plots.append({
+                            "type": "summary",
+                            "path": str(out_path),
+                            "generator": gen,
+                            "metric": sav_suffix,
+                        })
                 except Exception:
                     pass
 
@@ -240,11 +333,7 @@ class ExperimentsMixin:
             try:
                 # Pivot on strategy to get measurements per strategy per repeat
                 pivot_m = sub.pivot(on="strategy", index="attempt", values="measurements", aggregate_function="mean")
-                sweep_col = None
-                for col in pivot_m.columns:
-                    if "sweep" in col.lower() or "sobol" in col.lower():
-                        sweep_col = col
-                        break
+                sweep_col = self._find_sweep_baseline(pivot_m.columns)
                 if not sweep_col:
                     continue
 
@@ -305,7 +394,7 @@ class ExperimentsMixin:
 
     def plot_savings_vs_span(self, df: pl.DataFrame) -> list[dict]:
         plots = []
-        if "measurements" not in df.columns:
+        if "measurements" not in df.columns or "attempt" not in df.columns:
             return plots
 
         partitions = df.partition_by("generator", as_dict=True)
@@ -326,73 +415,78 @@ class ExperimentsMixin:
 
             sub = self._add_correct_f_span(sub)
 
-            agg = sub.group_by(["noise", "strategy"]).agg([
-                pl.col("measurements").mean(),
-                pl.col("row_f_span").mean().alias("mean_f_span"),
-            ])
-
             try:
-                pivot_m = agg.pivot(on="strategy", index="noise", values="measurements")
-                sweep_col = None
-                for col in pivot_m.columns:
-                    if "sweep" in col.lower() or "sobol" in col.lower():
-                        sweep_col = col
-                        break
+                # Identify the sweep baseline column
+                strategies = sub.get_column("strategy").unique().to_list()
+                sweep_col = self._find_sweep_baseline(strategies)
                 if not sweep_col:
                     continue
 
-                noise_df = agg.group_by("noise").agg(pl.col("mean_f_span").mean().alias("f_span"))
-                joined = pivot_m.join(noise_df, on="noise")
-
-                f_spans = joined.get_column("f_span").to_list()
-                baseline_vals = joined.get_column(sweep_col).to_list()
+                sweep_df = (
+                    sub.filter(pl.col("strategy") == sweep_col)
+                    .group_by(["noise", "attempt"])
+                    .agg(pl.col("measurements").mean().alias("sweep_meas"))
+                )
 
                 has_valid = False
                 vs_span_series: list[dict[str, Any]] = []
-                for strat in pivot_m.columns:
-                    if strat == "noise" or strat == sweep_col:
+                for strat in strategies:
+                    if strat == sweep_col:
                         continue
 
-                    strat_vals = joined.get_column(strat).to_list()
-                    strat_savings = []
-                    valid_f_spans = []
+                    strat_df = (
+                        sub.filter(pl.col("strategy") == strat)
+                        .group_by(["noise", "attempt"])
+                        .agg(
+                            pl.col("measurements").mean().alias("strat_meas"),
+                            pl.col("row_f_span").first().alias("f_span"),
+                        )
+                        .join(sweep_df, on=["noise", "attempt"], how="inner")
+                    )
 
-                    for b, s, f in zip(baseline_vals, strat_vals, f_spans):
+                    pts = []
+                    for row in strat_df.iter_rows(named=True):
+                        b = row["sweep_meas"]
+                        s = row["strat_meas"]
+                        f = row["f_span"]
                         if b is not None and s is not None and f is not None:
-                            strat_savings.append(b - s)
-                            valid_f_spans.append(f)
+                            pts.append((f, b - s))
                             has_valid = True
 
-                    if strat_savings:
-                        pts = sorted(zip(valid_f_spans, strat_savings))
+                    if pts:
+                        pts.sort()
                         vs_span_series.append({
                             "name": strat,
                             "x": [p[0] for p in pts],
                             "y": [p[1] for p in pts],
                         })
 
-                if has_valid:
-                    vs_span_data: dict[str, Any] = {
-                        "_graph_type": "chart",
-                        "title": f"Measurement Savings vs Fractional Signal Span <br>Generator: {gen}",
-                        "xaxis_title": "Fractional Signal Span (f_span)",
-                        "yaxis_title": f"Absolute Steps Saved vs {sweep_col}",
-                        "xaxis_type": "log",
-                        "mode": "lines+markers",
-                        "series": vs_span_series,
+                # Only emit the chart when there is genuine x-variation
+                all_x = [x for s in vs_span_series for x in s["x"]]
+                if not has_valid or len(set(all_x)) < 2:
+                    continue
+
+                vs_span_data: dict[str, Any] = {
+                    "_graph_type": "chart",
+                    "title": f"Measurement Savings vs Fractional Signal Span <br>Generator: {gen}",
+                    "xaxis_title": "Fractional Signal Span (f_span)",
+                    "yaxis_title": f"Absolute Steps Saved vs {sweep_col}",
+                    "xaxis_type": "log",
+                    "mode": "markers",
+                    "series": vs_span_series,
+                }
+                out_path = self.out_dir / f"summary_{gen}_savings_vs_span.json.gz"
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                dump_gz(vs_span_data, out_path)
+                plots.append(
+                    {
+                        "type": "summary",
+                        "path": str(out_path),
+                        "generator": gen,
+                        "metric": "savings_vs_span",
+                        "title": "Savings vs Span",
                     }
-                    out_path = self.out_dir / f"summary_{gen}_savings_vs_span.json.gz"
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    dump_gz(vs_span_data, out_path)
-                    plots.append(
-                        {
-                            "type": "summary",
-                            "path": str(out_path),
-                            "generator": gen,
-                            "metric": "savings_vs_span",
-                            "title": "Savings vs Span",
-                        }
-                    )
+                )
 
             except Exception as e:
                 import logging

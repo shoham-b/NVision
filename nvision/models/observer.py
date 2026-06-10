@@ -244,6 +244,14 @@ class Observer:
         self.last_locator: Locator | None = None
 
         last_locator: Locator | None = None
+        # Dedup key for belief copies: locators that buffer observations and
+        # batch-update every N steps (SimpleSobol, SimpleSweep) leave the
+        # belief untouched between flushes, so the per-step deep copies are
+        # identical. Sharing the previous copy in that case turns O(steps)
+        # belief copies into O(flushes) with no semantic change — snapshot
+        # consumers are read-only.
+        last_belief_key: tuple | None = None
+        last_copied_belief = None
         for locator in runner:
             last_locator = locator
             # Snapshot the current state
@@ -257,13 +265,23 @@ class Observer:
                     if nb:
                         current_bounds = nb
 
-                copied_belief = locator.belief.copy()
+                belief = locator.belief
+                step_count = getattr(belief, "_step_count", None)
+                belief_key = (id(belief), step_count, belief.resampled) if step_count is not None else None
 
-                # Strip heavy cached arrays from the snapshot copy to drastically lower memory footprint
-                if hasattr(copied_belief, "_global_grid"):
-                    copied_belief._global_grid = np.array([], dtype=np.float32)
-                if hasattr(copied_belief, "_current_candidates"):
-                    copied_belief._current_candidates = np.array([], dtype=np.float32)
+                if belief_key is not None and belief_key == last_belief_key and last_copied_belief is not None:
+                    copied_belief = last_copied_belief
+                else:
+                    copied_belief = belief.copy()
+
+                    # Strip heavy cached arrays from the snapshot copy to drastically lower memory footprint
+                    if hasattr(copied_belief, "_global_grid"):
+                        copied_belief._global_grid = np.array([], dtype=np.float32)
+                    if hasattr(copied_belief, "_current_candidates"):
+                        copied_belief._current_candidates = np.array([], dtype=np.float32)
+
+                    last_belief_key = belief_key
+                    last_copied_belief = copied_belief
 
                 snapshot = StepSnapshot(
                     obs=locator.belief.last_obs,

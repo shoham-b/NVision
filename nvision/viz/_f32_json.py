@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import gzip
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -78,9 +79,53 @@ def _sanitize_non_finite(obj: Any) -> Any:
     return obj
 
 
+def _encode_ndarray_f32(arr: np.ndarray) -> dict[str, str]:
+    """Encode a 1D numeric ndarray as ``{__f32__: base64}`` (non-finite → NaN)."""
+    out = np.ascontiguousarray(arr, dtype=np.float32)
+    if out.dtype.kind == "f" and not np.isfinite(out).all():
+        out = np.where(np.isfinite(out), out, np.float32(np.nan))
+    return {"__f32__": base64.b64encode(out.tobytes()).decode("ascii")}
+
+
+def _encode_payload(obj: Any) -> Any:
+    """Single-pass sanitize + Float32 encode for JSON payloads.
+
+    Equivalent to ``_encode_arrays(_sanitize_non_finite(obj))`` but walks the
+    payload once and accepts numpy arrays directly, so writers can pass
+    ndarrays without materializing intermediate Python lists (``.tolist()``).
+    Non-finite values become NaN inside ``__f32__`` arrays and ``None``
+    elsewhere, matching the two-pass behavior.
+    """
+    if isinstance(obj, dict):
+        return {k: _encode_payload(v) for k, v in obj.items()}
+    if isinstance(obj, np.ndarray):
+        if obj.ndim == 0:
+            return _encode_payload(obj.item())
+        if obj.ndim == 1:
+            if obj.shape[0] >= _MIN_ARRAY_LEN and obj.dtype.kind in "fiu":
+                return _encode_ndarray_f32(obj)
+            return [_encode_payload(v) for v in obj.tolist()]
+        return [_encode_payload(row) for row in obj]
+    if isinstance(obj, list):
+        if len(obj) >= _MIN_ARRAY_LEN and _is_numeric_list(obj):
+            # Via ndarray so non-finite values (inf as well as NaN) become NaN,
+            # matching the sanitize-then-encode behavior of the two-pass path.
+            arr = np.asarray([float("nan") if v is None else float(v) for v in obj], dtype=np.float32)
+            return _encode_ndarray_f32(arr)
+        return [_encode_payload(v) for v in obj]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, np.floating):
+        f = float(obj)
+        return f if math.isfinite(f) else None
+    if isinstance(obj, np.integer):
+        return int(obj)
+    return obj
+
+
 def payload_to_gz_bytes(payload: Any) -> bytes:
-    """Serialize any JSON-serializable payload to gzip-compressed Float32 JSON bytes."""
-    encoded = _encode_arrays(_sanitize_non_finite(payload))
+    """Serialize any JSON-serializable payload (numpy arrays welcome) to gzip-compressed Float32 JSON bytes."""
+    encoded = _encode_payload(payload)
     return gzip.compress(json.dumps(encoded, separators=(",", ":")).encode("utf-8"), compresslevel=1)
 
 

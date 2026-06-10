@@ -6,6 +6,7 @@ import math
 import os
 
 import numpy as np
+from numba import njit
 
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
@@ -16,6 +17,26 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 # Minimum number of consecutive converged checks before declaring convergence.
 # Prevents false early stops on the first measurement, especially with no noise.
 NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
+
+
+@njit(cache=True)
+def _thin_by_step_indices(candidates: np.ndarray, step: float) -> np.ndarray:
+    """Indices of a greedy minimum-spacing subset of sorted *candidates*.
+
+    Keeps the first and last candidates so the full range stays represented.
+    """
+    n = candidates.shape[0]
+    kept = np.empty(n, dtype=np.int64)
+    kept[0] = 0
+    m = 1
+    last = candidates[0]
+    for i in range(1, n - 1):
+        if candidates[i] - last >= step:
+            kept[m] = i
+            m += 1
+            last = candidates[i]
+    kept[m] = n - 1
+    return kept[: m + 1]
 
 
 class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
@@ -110,12 +131,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         """
         if len(candidates) <= 1:
             return candidates
-        kept: list[int] = [0]
-        for i in range(1, len(candidates) - 1):
-            if candidates[i] - candidates[kept[-1]] >= self.candidate_step_hz:
-                kept.append(i)
-        kept.append(len(candidates) - 1)
-        return candidates[np.array(kept, dtype=np.intp)]
+        kept = _thin_by_step_indices(np.ascontiguousarray(candidates, dtype=np.float64), self.candidate_step_hz)
+        return candidates[kept]
 
     def _acquire(self) -> float:
         """Select the next measurement point by maximizing EIG over a frequency grid."""
@@ -123,18 +140,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if hi <= lo:
             return float(lo)
 
-        # Retrieve candidates directly from the belief (slope-targeted epoch grid)
-        candidates = self.belief.get_candidates()
-
-        # Thin candidates to minimum physical step spacing.
-        # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
-        # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
-        candidates = self._thin_candidates_by_step(candidates)
-
-        best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
-        eig_choice = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
-
-        # Mix EIG with dip-observation-biased exploration.
+        # Mix EIG with dip-observation-biased exploration. The exploration/dip
+        # branches are drawn first so the (much more expensive) EIG grid search
+        # in _eig_acquire() is skipped entirely on steps where it would be
+        # discarded anyway.
         # The uniform exploration probability decays exponentially to focus on EIG as the scan progresses.
         decay = np.exp(-self.inference_step_count / 25.0)
         rand_val = np.random.rand()
@@ -145,8 +154,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             # Dip-observation biased sampling: find the empirically lowest measured signal values
             # and draw near one of them. This corrects for a biased posterior that has drifted
             # away from the true dip location.
-            obs_list = getattr(self.belief, "_observations", [])
-            if len(obs_list) >= 5:
+            n_obs = getattr(self.belief, "num_observations", None)
+            if n_obs is None:
+                n_obs = len(getattr(self.belief, "_observations", []))
+            if n_obs >= 5:
                 # Use precomputed/cached dip centers from the belief (calculated only during resampling)
                 # to satisfy "dip detection only upon resampling" and avoid massive sorting overhead.
                 dip_centers = getattr(self.belief, "_dip_centers", None)
@@ -159,8 +170,13 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                             "Ensure physical_param_bounds includes 'frequency' at construction."
                         )
                     freq_rescale = rescale_maps["frequency"]
-                    obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
-                    obs_ys = np.array([o.signal_value for o in obs_list])
+                    if hasattr(self.belief, "observation_arrays"):
+                        obs_xs_unit, obs_ys = self.belief.observation_arrays()
+                        obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
+                    else:
+                        obs_list = self.belief._observations
+                        obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
+                        obs_ys = np.array([o.signal_value for o in obs_list])
                     if (
                         hasattr(self.belief, "estimated_noise_std")
                         and getattr(self.belief, "noise_model", None) is not None
@@ -237,7 +253,20 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                         val = float(self.belief._particles[idx, p_idx])
                         return self.belief._to_physical(scan_param, val)
 
-        return eig_choice
+        return self._eig_acquire()
+
+    def _eig_acquire(self) -> float:
+        """Maximize EIG over the belief's slope-targeted candidate grid."""
+        # Retrieve candidates directly from the belief (slope-targeted epoch grid)
+        candidates = self.belief.get_candidates()
+
+        # Thin candidates to minimum physical step spacing.
+        # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
+        # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
+        candidates = self._thin_candidates_by_step(candidates)
+
+        best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
+        return float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks."""
@@ -254,10 +283,13 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 self.belief._resample()
 
         if check_convergence:
-            if self._target_params_converged():
+            # One uncertainty pass shared by the streak and milestone checks
+            # (each belief.uncertainty() call is a full O(particles x params) pass).
+            physical_uncertainties = self.belief.uncertainty()
+            if self._target_params_converged(physical_uncertainties):
                 self._convergence_streak += 1
                 if self._convergence_streak >= self._convergence_patience_steps:
                     self._is_converged = True
             else:
                 self._convergence_streak = 0
-            self._check_convergence_milestones()
+            self._check_convergence_milestones(physical_uncertainties)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -13,6 +14,12 @@ from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
     pass
+
+# Deferred observations are flushed to belief.batch_update() in chunks of this
+# size at finalize().  batch_update evaluates the model once per chunk via the
+# vectorized _many kernel instead of once per observation, while still letting
+# the filter resample between chunks (same rationale as SOBOL_BATCH_CHUNK_SIZE).
+NVISION_SWEEP_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SWEEP_BATCH_CHUNK_SIZE", "200"))
 
 
 class GenericSweepLocator(SweepingLocator):
@@ -156,13 +163,27 @@ class GenericSweepLocator(SweepingLocator):
     def _check_early_stop(self) -> bool:
         return False
 
+    def _flush_pending_obs(self) -> None:
+        """Flush deferred belief updates in vectorized chunks.
+
+        One batched posterior update per chunk instead of a full
+        per-observation update N times (the belief is not used for
+        acquisition decisions during the sweep).
+        """
+        if not self._pending_obs:
+            return
+        if hasattr(self.belief, "batch_update"):
+            chunk = NVISION_SWEEP_BATCH_CHUNK_SIZE
+            for i in range(0, len(self._pending_obs), chunk):
+                self.belief.batch_update(self._pending_obs[i : i + chunk])
+        else:
+            for obs in self._pending_obs:
+                self.belief.update(obs)
+        self._pending_obs.clear()
+
     def finalize(self) -> None:
         """Fit a parabola to the dip region, set the acquisition window and frequency estimate."""
-        # Flush deferred belief updates — one pass at the end instead of N passes
-        # during the sweep (belief is not used for acquisition decisions).
-        for obs in self._pending_obs:
-            self.belief.update(obs)
-        self._pending_obs.clear()
+        self._flush_pending_obs()
 
         if self.history.count < 3:
             self._acquisition_lo = self._domain_lo

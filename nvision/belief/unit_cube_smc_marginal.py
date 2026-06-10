@@ -408,15 +408,14 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             obs_eval = obs
 
         super().update(obs_eval)
-        # Restore the original observation in self._observations list and last_obs
-        self._observations[-1] = obs
+        # Restore the original-frame x in the history buffer and last_obs
+        # (the rescaled obs_eval.x was recorded by super().update()).
+        self._obs_x_arr[self._obs_count - 1] = obs.x
         self.last_obs = obs
 
     def batch_update(self, observations: list[Observation]) -> None:
-        if not hasattr(self, "_observations"):
-            self._observations = []
-        self._observations.extend(observations)
-
+        # NOTE: super().batch_update() appends to self._observations; do not
+        # extend here as well or every observation is stored twice.
         lo_orig, hi_orig = self._original_physical_x_bounds
         lo_curr, hi_curr = self.physical_x_bounds
 
@@ -432,10 +431,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             observations_eval = observations
 
         super().batch_update(observations_eval)
-        # Restore the original observations in self._observations list and last_obs
+        # Restore the original-frame x values in the history buffer and last_obs
+        # (the rescaled observations_eval x values were recorded by super()).
         n_obs = len(observations)
-        self._observations[-n_obs:] = observations
-        if observations:
+        if n_obs:
+            self._obs_x_arr[self._obs_count - n_obs : self._obs_count] = [o.x for o in observations]
             self.last_obs = observations[-1]
 
     def copy(self) -> UnitCubeSMCMarginalDistribution:
@@ -458,15 +458,14 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             noise_prior_strength=self.noise_prior_strength,
         )
         dist._param_names = self._param_names.copy()
-        dist._particles = self._particles.copy()
+        dist._particles = self._particles.copy(order="K")  # preserve F-order layout
         dist._weights = self._weights.copy()
         dist._step_count = self._step_count
         dist.resampled = self.resampled
         dist._original_physical_x_bounds = self._original_physical_x_bounds
-        if hasattr(self, "_observations"):
-            dist._observations = list(self._observations)
-        if hasattr(self, "_epoch_observations"):
-            dist._epoch_observations = list(self._epoch_observations)
+        dist._obs_x_arr = self._obs_x_arr.copy()
+        dist._obs_y_arr = self._obs_y_arr.copy()
+        dist._obs_count = self._obs_count
         dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
         if getattr(self, "_use_rao_blackwell_noise", False):
             dist._noise_alphas = self._noise_alphas.copy()

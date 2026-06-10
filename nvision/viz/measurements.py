@@ -4,7 +4,7 @@ import json
 import logging
 import random
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -119,11 +119,48 @@ def _add_true_and_noisy_traces(
     )
 
 
+def _dense_model_curve(model: Any, xs: np.ndarray, values_in_order: Sequence[float]) -> np.ndarray | None:
+    """Evaluate one parameter set over many ``xs`` in a single vectorized call.
+
+    Uses the model's ``compute_vectorized_many`` kernel with length-1 parameter
+    arrays — one batched kernel call instead of thousands of scalar
+    ``compute`` calls. Returns ``None`` when the model has no compatible
+    vectorized interface; callers fall back to the per-point loop.
+    """
+    fn = getattr(model, "compute_vectorized_many", None)
+    if fn is None:
+        return None
+    try:
+        arrays = [np.full(1, float(v), dtype=np.float32) for v in values_in_order]
+        out = np.asarray(fn(np.asarray(xs, dtype=np.float32), arrays))
+    except Exception:
+        return None
+    if out.ndim == 2 and out.shape[0] == len(xs) and out.shape[1] == 1:
+        return out[:, 0].astype(float)
+    return None
+
+
+def _true_signal_dense_y(scan: Any, xs: np.ndarray) -> np.ndarray:
+    """Dense true-signal curve, vectorized when the model supports it."""
+    true_signal = scan.true_signal
+    model = getattr(true_signal, "model", None)
+    if model is not None and hasattr(true_signal, "typed_parameters"):
+        try:
+            values = model.spec.pack_params(true_signal.typed_parameters)
+        except Exception:
+            values = None
+        if values is not None:
+            curve = _dense_model_curve(model, xs, values)
+            if curve is not None:
+                return curve
+    return np.asarray([float(scan.signal(x)) for x in xs], dtype=float)
+
+
 def _mode_dense_y_unit_cube(
     model: UnitCubeSignalModel,
     xs: np.ndarray,
     mode_estimates: Mapping[str, float],
-) -> list[float] | None:
+) -> np.ndarray | list[float] | None:
     """MAP curve using a unit-cube forward model (physical ``xs`` and physical marginal modes)."""
     names = list(model.parameter_names())
     if not names or not all(name in mode_estimates for name in names):
@@ -143,6 +180,9 @@ def _mode_dense_y_unit_cube(
             v = 0.0
         u = (v - lo) / hw if hw > 0 else 0.5
         u_values.append(min(max(u, 0.0), 1.0))
+    curve = _dense_model_curve(model, xs_u, u_values)
+    if curve is not None:
+        return curve
     typed = model.spec.unpack_params(u_values)
     return [float(model.compute_from_params(float(xu), typed)) for xu in xs_u]
 
@@ -153,7 +193,7 @@ def _mode_belief_dense_y(
     mode_estimates: Mapping[str, float],
     *,
     belief_unit_cube: UnitCubeSignalModel | None = None,
-) -> list[float] | None:
+) -> np.ndarray | list[float] | None:
     """Evaluate the forward model at ``mode_estimates`` along ``xs`` (physical domain).
 
     For :class:`~nvision.spectra.unit_cube.UnitCubeSignalModel`, ``mode_estimates`` are
@@ -184,6 +224,9 @@ def _mode_belief_dense_y(
     if "split" in mode_estimates and float(mode_estimates["split"]) < _NV_SPLIT_ZERO_TOL:
         split_idx = names.index("split")
         values[split_idx] = 0.0
+    curve = _dense_model_curve(model, xs, values)
+    if curve is not None:
+        return curve
     typed = model.spec.unpack_params(values)
     return [float(model.compute_from_params(float(x), typed)) for x in xs]
 
@@ -201,7 +244,7 @@ def _add_mode_belief_trace(
     if not mode_estimates:
         return
     y_mode = _mode_belief_dense_y(scan, xs, mode_estimates, belief_unit_cube=belief_unit_cube)
-    if not y_mode:
+    if y_mode is None or len(y_mode) == 0:
         return
     row, col = _row_col(has_metrics)
     fig.add_trace(
@@ -574,7 +617,7 @@ def _add_metric_traces(fig: go.Figure, history: pl.DataFrame, has_metrics: bool)
 
 def _compute_meas_dist_data(
     xs: np.ndarray,
-    ys: list[float],
+    ys: np.ndarray | list[float],
     history: pl.DataFrame,
 ) -> dict[str, Any] | None:
     """Compute measurement distribution curve data for the lean data format."""
@@ -597,10 +640,10 @@ def _compute_meas_dist_data(
     y_band_height = 0.25 * y_span
     y_curve = y_band_base + density * y_band_height
     return {
-        "x": [float(c) for c in centers],
+        "x": centers,
         "y_baseline": float(y_band_base),
-        "y_curve": [float(v) for v in y_curve],
-        "customdata": [float(d * 100.0) for d in density],
+        "y_curve": y_curve,
+        "customdata": density * 100.0,
     }
 
 
@@ -684,22 +727,19 @@ def _dense_xs_with_measurements(scan: Any, history_xs: list[Any], *, n_dense: in
 
 def _compute_noisy_dense_values(
     xs: np.ndarray,
-    ys: list[float],
+    ys: np.ndarray | list[float],
     over_frequency_noise: CompositeOverFrequencyNoise,
     noise_scale: float = 1.0,
-) -> list[float]:
+) -> np.ndarray:
     dense_batch = DataBatch.from_arrays(xs, ys, meta={})
     noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
-    noisy_vals: list[float] = []
-    for i, v in enumerate(noisy_batch.signal_values):
-        fv = float(v)
-        if np.isnan(fv) or np.isinf(fv):
-            noisy_vals.append(ys[i])
-        elif noise_scale != 1.0:
-            noisy_vals.append(ys[i] + (fv - ys[i]) * noise_scale)
-        else:
-            noisy_vals.append(fv)
-    return noisy_vals
+    vals = np.asarray(noisy_batch.signal_values, dtype=float)
+    ys_arr = np.asarray(ys, dtype=float)
+    bad = ~np.isfinite(vals)
+    if noise_scale != 1.0:
+        vals = ys_arr + (vals - ys_arr) * noise_scale
+    vals[bad] = ys_arr[bad]
+    return vals
 
 
 def _splice_noisy_dense_at_measurements(
@@ -778,23 +818,27 @@ def compute_scan_plot_data(
     belief_unit_cube: UnitCubeSignalModel | None = None,
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> dict[str, Any]:
-    """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``)."""
+    """Dense curve + measurement points for static UI head-to-head (matches ``plot_scan_measurements``).
+
+    Unlike the internal gz-writer path, this public helper keeps a plain-JSON
+    contract: all arrays are converted to Python lists before returning.
+    """
     history_xs_s, history_ys_s = _extract_history_xy(history)
     xs = _dense_xs_with_measurements(scan, history_xs_s)
-    ys = [float(scan.signal(x)) for x in xs]
+    ys = _true_signal_dense_y(scan, xs)
     out: dict[str, Any] = {
-        "x_dense": [float(x) for x in xs],
-        "y_dense": ys,
+        "x_dense": xs.tolist(),
+        "y_dense": ys.tolist(),
     }
     if mode_estimates:
         y_mode = _mode_belief_dense_y(scan, xs, mode_estimates, belief_unit_cube=belief_unit_cube)
         if y_mode is not None and len(y_mode) == len(xs):
-            out["y_dense_mode"] = y_mode
+            out["y_dense_mode"] = np.asarray(y_mode).tolist()
     if over_frequency_noise is not None:
         noise_scale = _noise_scale_for_scan(scan, over_frequency_noise)
         noisy_vals = _compute_noisy_dense_values(xs, ys, over_frequency_noise, noise_scale)
         _splice_noisy_dense_at_measurements(xs, noisy_vals, history_xs_s, history_ys_s)
-        out["y_dense_noisy"] = noisy_vals
+        out["y_dense_noisy"] = noisy_vals.tolist()
 
     has_metrics = history.height > 0 and any(col in history.columns for col in ("entropy", "max_prob", "uncertainty"))
     out["has_metrics"] = has_metrics
@@ -1009,9 +1053,7 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
             if isinstance(raw, dict) and raw.get("_graph_type") == "scan":
                 # New lean format — plot_data is a subset of the lean data
                 plot_data: dict[str, Any] = {
-                    k: raw[k]
-                    for k in ("x_dense", "y_dense", "has_metrics", "measurements")
-                    if k in raw
+                    k: raw[k] for k in ("x_dense", "y_dense", "has_metrics", "measurements") if k in raw
                 }
                 for k in ("focus_window", "narrowed_param_bounds", "y_dense_noisy", "y_dense_mode"):
                     if k in raw:
@@ -1125,11 +1167,11 @@ def _compute_scan_data_dict(
     """Build the lean scan data dict written to disk (replaces the full Plotly figure)."""
     history_xs_raw, history_ys_raw = _extract_history_xy(history)
     xs = _dense_xs_with_measurements(scan, history_xs_raw, n_dense=5000)
-    ys = [float(scan.signal(x)) for x in xs]
+    ys = _true_signal_dense_y(scan, xs)
 
     out: dict[str, Any] = {
         "_graph_type": "scan",
-        "x_dense": [float(x) for x in xs],
+        "x_dense": xs,
         "y_dense": ys,
     }
 
@@ -1189,26 +1231,24 @@ def _compute_scan_data_dict(
 
     if sobol_xs and sobol_ys:
         width = float(scan.x_max - scan.x_min)
-        sobol_xs_phys = [float(scan.x_min + float(x) * width) for x in sobol_xs]
         out["sobol_measurements"] = {
-            "x": sobol_xs_phys,
-            "y": [_json_safe_float(y) for y in sobol_ys],
+            "x": float(scan.x_min) + np.asarray(sobol_xs, dtype=float) * width,
+            "y": np.asarray(sobol_ys, dtype=float),
         }
     if sobol_mode_estimates:
         y_sobol_mode = _mode_belief_dense_y(scan, xs, sobol_mode_estimates, belief_unit_cube=belief_unit_cube)
-        if y_sobol_mode:
+        if y_sobol_mode is not None and len(y_sobol_mode) > 0:
             out["sobol_mode_y"] = y_sobol_mode
 
     if sweep_xs and sweep_ys:
         width = float(scan.x_max - scan.x_min)
-        sweep_xs_phys = [float(scan.x_min + float(x) * width) for x in sweep_xs]
         out["sweep_measurements"] = {
-            "x": sweep_xs_phys,
-            "y": [_json_safe_float(y) for y in sweep_ys],
+            "x": float(scan.x_min) + np.asarray(sweep_xs, dtype=float) * width,
+            "y": np.asarray(sweep_ys, dtype=float),
         }
     if sweep_mode_estimates:
         y_sweep_mode = _mode_belief_dense_y(scan, xs, sweep_mode_estimates, belief_unit_cube=belief_unit_cube)
-        if y_sweep_mode:
+        if y_sweep_mode is not None and len(y_sweep_mode) > 0:
             out["sweep_mode_y"] = y_sweep_mode
 
     if has_metrics:

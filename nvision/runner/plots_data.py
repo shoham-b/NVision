@@ -101,16 +101,18 @@ def write_posterior_data(
                 raw_particles = arr[:, 0]
                 raw_weights = arr[:, 1]
                 particles, weights = _subsample_particles(raw_particles, raw_weights, n_particles)
+                # ndarrays are passed through; dump_gz encodes them directly
+                # to Float32 without materializing Python lists.
                 step[param] = {
                     "type": "particles",
-                    "values": (particles / scale).tolist(),
-                    "weights": weights.tolist(),
+                    "values": particles / scale,
+                    "weights": weights,
                 }
             else:
                 step[param] = {
                     "type": "grid",
-                    "axis": (grid / scale).tolist(),
-                    "posterior": arr.tolist(),
+                    "axis": grid / scale,
+                    "posterior": arr,
                 }
             if unc_val is not None:
                 step[param]["uncertainty"] = unc_val
@@ -168,11 +170,10 @@ def write_covariance_data(
 
     steps = []
     for cov, means in zip(cov_hist, estimates_hist, strict=False):
-        # Scale covariance to display units
-        cov_scaled = cov / scale_outer
+        # Scale covariance to display units (ndarray encoded directly by dump_gz)
         steps.append(
             {
-                "covariance": cov_scaled.tolist(),
+                "covariance": cov / scale_outer,
                 "means": _scale_param_dict(means),
             }
         )
@@ -289,12 +290,12 @@ def write_fisher_data(
 
     steps = []
     for bounds, actuals, fim in zip(fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, strict=False):
-        fim_scaled = fim * fim_scale  # scale FIM to display units
         steps.append(
             {
                 "fisher_bounds": _scale_param_dict(bounds),
                 "actual_uncertainty": _scale_param_dict(actuals),
-                "fisher_matrix": fim_scaled.tolist(),
+                # Scale FIM to display units (ndarray encoded directly by dump_gz)
+                "fisher_matrix": fim * fim_scale,
             }
         )
 

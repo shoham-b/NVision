@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from nvision.runner.cache import _decompress_content, embed_graph_content
+from nvision.runner.cache import _decompress_text, embed_graph_content
 
 
 def test_embed_graph_content_happy_path(tmp_path: Path):
@@ -23,7 +23,7 @@ def test_embed_graph_content_happy_path(tmp_path: Path):
     assert result[0]["other"] == "data"
 
     # Decompress to verify content
-    decompressed = _decompress_content(result[0])
+    decompressed = _decompress_text(result[0])
     assert decompressed == test_content
 
     # Original should be untouched
@@ -81,7 +81,7 @@ def test_embed_graph_content_read_exception(tmp_path: Path, caplog, monkeypatch)
     assert "content" not in result[0]
 
     # Check logs
-    assert "Failed to read graph content for caching" in caplog.text
+    assert "Failed to embed graph content for error_file.txt" in caplog.text
     assert "Access denied" in caplog.text
 
 
@@ -91,13 +91,14 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
     from nvision.cache import CacheBridge
     from nvision.cli.run import _harvest_partial_results_from_cache
     from nvision.models.task import LocatorTask
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
-    from nvision.spectra.lorentzian import LorentzianModel
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = LorentzianModel()
-    noise = OverFrequencyGaussianNoise(0.01)
+    sig = NVCenterCoreGenerator(variant="lorentzian")
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
@@ -148,7 +149,7 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
             strategy="Bayesian-SBED",
             repeats=1,
             seed=1,
-            max_steps=10,
+            max_steps=500,
             timeout_s=10,
             repeat_offset=0,
             results=results,
@@ -321,13 +322,14 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     bridge = CacheBridge(task3.cache_dir)
     try:
         repo = bridge.get_cache_for_category("NVCenter")
+        print("ALL KEYS IN STORE BACKEND:", list(repo._store.backend))
         final_loaded = repo.get_cached_combination(
             generator="NVCenter-lorentzian",
             noise="Gauss(0.01)",
             strategy="SimpleSweep",
             repeats=2,
             seed=1,
-            max_steps=10,
+            max_steps=2500,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -340,7 +342,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
             strategy="SimpleSweep",
             repeats=5,
             seed=1,
-            max_steps=10,
+            max_steps=2500,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -356,13 +358,14 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
     from nvision.cache import CacheBridge
     from nvision.cli.run import _harvest_partial_results_from_cache
     from nvision.models.task import LocatorTask
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
-    from nvision.spectra.lorentzian import LorentzianModel
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = LorentzianModel()
-    noise = OverFrequencyGaussianNoise(0.01)
+    sig = NVCenterCoreGenerator(variant="lorentzian")
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
@@ -403,7 +406,7 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             noise="Gauss(0.01)",
             strategy="Bayesian-SBED",
             seed=1,
-            max_steps=10,
+            max_steps=500,
             timeout_s=10,
             repeat_offset=0,
             repeat_idx=0,
@@ -423,7 +426,7 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             noise="Gauss(0.01)",
             strategy="Bayesian-SBED",
             seed=1,
-            max_steps=10,
+            max_steps=500,
             timeout_s=10,
             repeat_offset=0,
             repeat_idx=2,
@@ -446,7 +449,7 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
             noise="Gauss(0.01)",
             strategy="Bayesian-SBED",
             seed=1,
-            max_steps=10,
+            max_steps=500,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -692,7 +695,7 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
             noise="Gauss(0.01)",
             strategy="SimpleSweep",
             seed=1,
-            max_steps=10,
+            max_steps=2500,
             timeout_s=10,
             repeat_offset=0,
         )

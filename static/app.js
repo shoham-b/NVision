@@ -1031,6 +1031,34 @@ function main() {
                 figLayout = Object.assign({}, fig.layout || {}, { autosize: true });
             }
 
+            // If this is a noise sweep summary plot, draw vertical reference line(s) for selected noise(s)
+            const isSweepPlot = ['comp-iframe-summary-err-json-div', 'comp-iframe-summary-meas-json-div', 'comp-iframe-summary-savings-json-div'].includes(container.id);
+            if (isSweepPlot) {
+                const selectedNoises = getSelectedScanNoises();
+                if (selectedNoises && selectedNoises.length) {
+                    figLayout.shapes = figLayout.shapes || [];
+                    selectedNoises.forEach(noiseVal => {
+                        const exists = figLayout.shapes.some(s => s.type === 'line' && s.x0 === noiseVal);
+                        if (!exists) {
+                            figLayout.shapes.push({
+                                type: 'line',
+                                xref: 'x',
+                                yref: 'paper',
+                                x0: noiseVal,
+                                x1: noiseVal,
+                                y0: 0,
+                                y1: 1,
+                                line: {
+                                    color: '#f43f5e',
+                                    width: 2,
+                                    dash: 'dash'
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+
             // Plotly.react modifies DOM synchronously; don't await so a concurrent render
             // on the same container doesn't stall this one.
             Plotly.react(container, figData, figLayout, { responsive: true }).catch((e) => {
@@ -1579,7 +1607,7 @@ function main() {
         const singleBtn = document.getElementById('scan-view-single-btn');
         const noiseBtn = document.getElementById('scan-view-noise-btn');
         if (singleBtn) singleBtn.style.display = range ? 'none' : '';
-        if (noiseBtn) noiseBtn.style.display = range ? '' : 'none';
+        if (noiseBtn) noiseBtn.style.display = '';
 
         if (range) {
             const activeBtn = document.querySelector('#scan-view-mode button.is-active');
@@ -1699,9 +1727,11 @@ function main() {
                 } else if (mode === 'noise') {
                     if (repeatView) repeatView.style.display = 'none';
                     if (summaryView) summaryView.style.display = 'none';
+                    const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
+                    if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
                     if (noiseMetricsView) {
                         noiseMetricsView.hidden = false;
-                        updateNoiseMetricsContent(scanGeneratorValue, getSelectedScanNoises());
+                        initAndRenderNoiseSweepPlots(scanGeneratorValue);
                     }
                 }
             }
@@ -2013,9 +2043,11 @@ function main() {
             if (activeViewModeBtn.dataset.value === 'summary') {
                 renderRepeatsSummary(scanGeneratorValue, [scanNoiseValue]);
             } else if (activeViewModeBtn.dataset.value === 'noise') {
+                const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
+                if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
                 const noiseMetricsView = document.getElementById('noise-metrics-view');
                 if (noiseMetricsView) noiseMetricsView.hidden = false;
-                updateNoiseMetricsContent(scanGeneratorValue, [scanNoiseValue]);
+                initAndRenderNoiseSweepPlots(scanGeneratorValue);
             }
         }
         // Apply stopping-criteria cap to posterior animation after plot change
@@ -3607,8 +3639,11 @@ function main() {
         const strategies = [...new Set(all.map(p => p.strategy))].sort();
         const entities = [];
         for (const strategy of strategies) {
-            const runs = all.filter(p => p.strategy === strategy).map(p => _phaseData(p));
-            if (runs.length) entities.push(..._makeStrategyEntities(runs, strategy, true));
+            const strategyPlots = all.filter(p => p.strategy === strategy);
+            const runs = strategyPlots.map(p => _phaseData(p));
+            if (runs.length) {
+                entities.push(..._makeStrategyEntities(runs, strategy, true, strategyPlots));
+            }
         }
         return entities;
     }
@@ -3622,7 +3657,7 @@ function main() {
             .replace('GaussianMixture', 'GaussMix');
     }
 
-    function _makeStrategyEntities(d, strategy, isArray) {
+    function _makeStrategyEntities(d, strategy, isArray, parentPlots) {
         const push = (arr, v) => { if (v != null) arr.push(v); };
         const label = _shortStratLabel(strategy);
         const id = strategy.toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -3632,35 +3667,75 @@ function main() {
                 id, label,
                 steps: [], uncert: [], err: [],
                 steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                f_spans: [], repeats: [],
                 stepsType: 'measurements',
             };
             const freqConv = {
                 id: id + '_freq', label: label + ' freq converged',
                 steps: [], uncert: [], err: [],
                 steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                f_spans: [], repeats: [],
                 stepsType: 'steps',
             };
             const allConv = {
                 id: id + '_conv', label: label + ' converged',
                 steps: [], uncert: [], err: [],
                 steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                f_spans: [], repeats: [],
                 stepsType: 'steps',
             };
-            for (const item of d) {
-                push(base.steps,        _mv(item, 'measurements'));
-                push(base.uncert,       _mv(item, 'uncert'));
-                push(base.err,          _mv(item, 'abs_err_x'));
-                push(base.steps_to_fb,  _mv(item, 'steps_to_fb', 'freq_converged_step'));
-                push(base.uncert_at_fb, _mv(item, 'uncert_fb_at_milestone'));
-                push(base.err_at_fb,    _mv(item, 'err_fb_at_milestone'));
+            for (let i = 0; i < d.length; i++) {
+                const item = d[i];
+                const p = parentPlots ? parentPlots[i] : null;
+                
+                let f_span = null;
+                if (p && p.true_params && p.true_params.params) {
+                    const params = p.true_params.params;
+                    const lw = params.linewidth;
+                    const split = params.split || 0.0;
+                    let domain_width = 5.0e8;
+                    if (p.true_params.bounds && p.true_params.bounds.frequency) {
+                        const freq_bounds = p.true_params.bounds.frequency;
+                        if (freq_bounds.length === 2 && freq_bounds[1] > freq_bounds[0]) {
+                            domain_width = freq_bounds[1] - freq_bounds[0];
+                        }
+                    }
+                    if (lw && lw > 0) {
+                        f_span = Math.max(2.0 * lw, split + lw) / domain_width;
+                    }
+                }
+                
+                const rep = p ? p.repeat : null;
 
-                push(freqConv.steps,    _mv(item, 'freq_converged_step', 'steps_to_fb'));
-                push(freqConv.uncert,   _mv(item, 'uncert_fb_at_milestone'));
-                push(freqConv.err,      _mv(item, 'err_fb_at_milestone'));
+                const base_step = _mv(item, 'measurements');
+                if (base_step != null) {
+                    base.steps.push(base_step);
+                    base.uncert.push(_mv(item, 'uncert'));
+                    base.err.push(_mv(item, 'abs_err_x'));
+                    base.steps_to_fb.push(_mv(item, 'steps_to_fb', 'freq_converged_step'));
+                    base.uncert_at_fb.push(_mv(item, 'uncert_fb_at_milestone'));
+                    base.err_at_fb.push(_mv(item, 'err_fb_at_milestone'));
+                    base.f_spans.push(f_span);
+                    base.repeats.push(rep);
+                }
 
-                push(allConv.steps,     _mv(item, 'all_converged_step'));
-                push(allConv.uncert,    _mv(item, 'uncert'));
-                push(allConv.err,       _mv(item, 'abs_err_x'));
+                const freq_step = _mv(item, 'freq_converged_step', 'steps_to_fb');
+                if (freq_step != null) {
+                    freqConv.steps.push(freq_step);
+                    freqConv.uncert.push(_mv(item, 'uncert_fb_at_milestone'));
+                    freqConv.err.push(_mv(item, 'err_fb_at_milestone'));
+                    freqConv.f_spans.push(f_span);
+                    freqConv.repeats.push(rep);
+                }
+
+                const all_step = _mv(item, 'all_converged_step');
+                if (all_step != null) {
+                    allConv.steps.push(all_step);
+                    allConv.uncert.push(_mv(item, 'uncert'));
+                    allConv.err.push(_mv(item, 'abs_err_x'));
+                    allConv.f_spans.push(f_span);
+                    allConv.repeats.push(rep);
+                }
             }
             const results = [];
             if (base.steps.length) results.push(base);
@@ -3848,6 +3923,10 @@ function main() {
     }
 
     function updateStoppingCriteriaVisibility(plot) {
+        // Don't override the row when noise view is active — it has its own logic
+        const activeMode = document.querySelector('#scan-view-mode button.is-active');
+        if (activeMode && activeMode.dataset.value === 'noise') return;
+
         const row = document.getElementById('stopping-criteria-row');
         if (!row) return;
         const d = plot ? _phaseData(plot) : null;
@@ -3869,6 +3948,27 @@ function main() {
         }
     }
 
+    function updateStoppingCriteriaForNoiseView(generator) {
+        const row = document.getElementById('stopping-criteria-row');
+        if (!row) return;
+        const summaryPlots = plots.filter(p => p.type === 'summary' && p.generator === generator);
+        const hasFreq = summaryPlots.some(p => p.metric === 'freq_converged_step');
+        const hasAll  = summaryPlots.some(p => p.metric === 'all_converged_step');
+        row.style.display = (hasFreq || hasAll) ? '' : 'none';
+        const btns = row.querySelectorAll('button[data-value]');
+        for (const btn of btns) {
+            const v = btn.dataset.value;
+            if (v === 'freq_converged') btn.disabled = !hasFreq;
+            else if (v === 'all_converged') btn.disabled = !hasAll;
+            else btn.disabled = false;
+        }
+        // If current criteria is unavailable for this generator, reset to 'full'
+        if ((currentStoppingCriteria === 'freq_converged' && !hasFreq) ||
+            (currentStoppingCriteria === 'all_converged' && !hasAll)) {
+            setStoppingCriteria('full');
+        }
+    }
+
     function setStoppingCriteria(value) {
         currentStoppingCriteria = value;
         const group = document.getElementById('scan-stopping-criteria');
@@ -3881,6 +3981,11 @@ function main() {
             });
         }
         applyStoppingFrameLimit();
+        // Refresh summary plots if the noise-sweep view is visible
+        const noiseView = document.getElementById('noise-metrics-view');
+        if (noiseView && !noiseView.hidden) {
+            updateNoiseSweepPlots(controlValue(scanGenerator));
+        }
     }
 
     function setupRepeatComparisonUI(plot) {
@@ -3988,6 +4093,8 @@ function main() {
                 ph.innerHTML = '💡 <strong>Not enough data to compare.</strong><br><span style="font-size:0.9em;color:#94a3b8;display:block;margin-top:0.5em;">Run at least two strategies (or one strategy with its Sobol baseline) for this generator and noise configuration.</span>';
                 container.appendChild(ph);
             }
+            const spanContainer = document.getElementById('summary-span-container');
+            if (spanContainer) spanContainer.style.display = 'none';
             return;
         }
 
@@ -4008,9 +4115,93 @@ function main() {
             const { wrapper: sumWrapper, notify: sumNotify } = buildTwoDropdownSelector(entities, (eA, eB) => {
                 lastComparePairIds = { a: eA.id, b: eB.id };
                 renderPairwiseCards(buildPairwiseRows(eA, eB), container, true);
+                renderSavingsVsSpanChart(eA, eB);
             }, defaultA ? defaultA.id : null, defaultB ? defaultB.id : null);
             selContainer.appendChild(sumWrapper);
             sumNotify();
+        });
+    }
+
+    function renderSavingsVsSpanChart(eA, eB) {
+        const container = document.getElementById('summary-span-container');
+        const plotDiv = document.getElementById('summary-span-plot-div');
+        if (!container || !plotDiv) return;
+
+        const mapA = {};
+        for (let i = 0; i < eA.repeats.length; i++) {
+            const r = eA.repeats[i];
+            if (r != null) {
+                mapA[r] = { step: eA.steps[i], f_span: eA.f_spans[i] };
+            }
+        }
+
+        const xs = [];
+        const ys = [];
+        for (let i = 0; i < eB.repeats.length; i++) {
+            const r = eB.repeats[i];
+            if (r != null && mapA[r] !== undefined) {
+                const valA = mapA[r].step;
+                const valB = eB.steps[i];
+                const f_span = mapA[r].f_span;
+                if (valA != null && valB != null && f_span != null) {
+                    xs.push(f_span);
+                    ys.push(valB - valA);
+                }
+            }
+        }
+
+        if (xs.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+
+        const trace = {
+            x: xs,
+            y: ys,
+            mode: 'markers',
+            type: 'scatter',
+            name: `${eB.label} vs ${eA.label}`,
+            marker: {
+                color: 'rgba(56, 189, 248, 0.7)',
+                size: 8,
+                line: {
+                    color: 'rgba(3, 105, 161, 0.9)',
+                    width: 1
+                }
+            },
+            hovertemplate: 'f_span=%{x:.4e}<br>saved steps=%{y}<extra></extra>'
+        };
+
+        const layout = {
+            title: {
+                text: `Measurement Savings: ${eB.label} vs ${eA.label}`,
+                font: { size: 14, color: '#334155', family: 'system-ui, sans-serif', weight: '600' }
+            },
+            xaxis: {
+                title: { text: 'Fractional Signal Span (f_span)', font: { size: 11, color: '#64748b' } },
+                type: 'log',
+                tickfont: { size: 9, color: '#64748b' },
+                showgrid: true,
+                gridcolor: '#f1f5f9'
+            },
+            yaxis: {
+                title: { text: `Steps Saved (${eB.label} - ${eA.label})`, font: { size: 11, color: '#64748b' } },
+                tickfont: { size: 9, color: '#64748b' },
+                showgrid: true,
+                gridcolor: '#f1f5f9',
+                zeroline: true,
+                zerolinecolor: '#cbd5e1'
+            },
+            margin: { l: 50, r: 20, t: 40, b: 50 },
+            plot_bgcolor: 'transparent',
+            paper_bgcolor: 'transparent',
+            dragmode: false
+        };
+
+        ensurePlotly().then(() => {
+            Plotly.newPlot(plotDiv, [trace], layout, { displayModeBar: false, responsive: true });
         });
     }
 
@@ -4026,92 +4217,370 @@ function main() {
         });
     }
 
-    // ── Per-noise comparison content (shown in "Noise Metrics" view) ────────
+    // ── Noise Sweep summary plots (generator-level) ─────────────────────────
 
-    function updateNoiseMetricsContent(generator, selectedNoises) {
-        const container = document.getElementById('noise-metrics-per-noise-container');
-        if (!container) return;
-        container.innerHTML = '';
-        const allAgg = plots.filter(p => p.type === 'model_comparison');
-        const milestones = plots.filter(p => p.type === 'milestone');
-        const metrics = [
-            { id: 'abs_err_x', label: 'Absolute Frequency Error' },
-            { id: 'measurements', label: 'Measurements' },
-            { id: 'duration_ms', label: 'Duration' },
-            { id: 'sobol_difference', label: 'Sweep Savings' },
-            { id: 'savings_vs_span_per_noise', label: 'Savings vs Signal Span' },
-        ];
-        for (const noise of selectedNoises) {
-            const section = document.createElement('div');
-            section.style.cssText = 'margin-bottom:3em;border-top:1px solid #e2e8f0;padding-top:1.5em;';
-            const hdr = document.createElement('h3');
-            hdr.style.cssText = 'margin:0 0 1em 0;color:#334155;';
-            hdr.textContent = `Noise: ${noise}`;
-            section.appendChild(hdr);
-            const grid = document.createElement('div');
-            grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:1.5em;';
-            let hasAny = false;
-            for (const m of metrics) {
-                const plot = allAgg.find(p => p.generator === generator && p.noise === noise && p.metric === m.id);
-                if (!plot) continue;
-                hasAny = true;
-                const cell = document.createElement('div');
-                cell.style.cssText = 'flex:1;min-width:350px;';
-                cell.innerHTML = `<h4 style="margin:0 0 0.5em;font-size:0.9em;color:#475569;">${escapeHtml(m.label)}</h4>`;
-                const iframe = document.createElement('iframe');
-                iframe.style.height = '400px';
-                iframe.title = `${m.label} — ${noise}`;
-                cell.appendChild(iframe);
-                setPlotSrc(iframe, null, plot.path);
-                grid.appendChild(cell);
-            }
-            if (!hasAny) {
-                const msg = document.createElement('p');
-                msg.style.color = '#94a3b8';
-                msg.textContent = 'No comparison data available for this noise level.';
-                grid.appendChild(msg);
-            }
-            section.appendChild(grid);
-            // Milestone plots for this noise
-            const ms = [
-                { plot: milestones.find(p => p.generator === generator && p.noise === noise && p.path.includes('steps_to_fb')), label: 'Steps to fb Convergence' },
-                { plot: milestones.find(p => p.generator === generator && p.noise === noise && p.path.includes('error_comparison_fc')), label: 'fc Error: Milestone vs Final' },
-                { plot: milestones.find(p => p.generator === generator && p.noise === noise && p.path.includes('error_delta_fc')), label: 'Zeeman Resolution Gain' },
-            ].filter(e => e.plot);
-            if (ms.length) {
-                const mGrid = document.createElement('div');
-                mGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:1.5em;margin-top:1.5em;';
-                for (const { plot, label } of ms) {
-                    const cell = document.createElement('div');
-                    cell.style.cssText = 'flex:1;min-width:350px;';
-                    cell.innerHTML = `<h4 style="margin:0 0 0.5em;font-size:0.9em;color:#475569;">${escapeHtml(label)}</h4>`;
-                    const iframe = document.createElement('iframe');
-                    iframe.style.height = '400px';
-                    iframe.title = `${label} — ${noise}`;
-                    cell.appendChild(iframe);
-                    setPlotSrc(iframe, null, plot.path);
-                    mGrid.appendChild(cell);
+    function initAndRenderNoiseSweepPlots(generator) {
+        const genPlots = scanPlots.filter(p => p.generator === generator);
+        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+
+        // 1. Initialize selections if empty or invalid
+        if (!window._selectedNoiseLocators) {
+            window._selectedNoiseLocators = new Set(strategies);
+        } else {
+            // Remove strategies that are no longer available for this generator
+            for (const strat of window._selectedNoiseLocators) {
+                if (!strategies.includes(strat)) {
+                    window._selectedNoiseLocators.delete(strat);
                 }
-                section.appendChild(mGrid);
             }
-            container.appendChild(section);
+            if (window._selectedNoiseLocators.size === 0 && strategies.length > 0) {
+                window._selectedNoiseLocators = new Set(strategies);
+            }
         }
+
+        const convergences = ['full', 'freq_converged', 'all_converged'];
+        const convergenceLabels = {
+            'full': 'Full',
+            'freq_converged': 'Freq. converged',
+            'all_converged': 'Converged'
+        };
+
+        if (!window._selectedNoiseConvergences) {
+            window._selectedNoiseConvergences = new Set(['full']);
+        }
+
+        // 2. Render Locator buttons
+        const locContainer = document.getElementById('noise-locators-select');
+        if (locContainer) {
+            locContainer.innerHTML = '';
+            strategies.forEach(strat => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.dataset.value = strat;
+                btn.setAttribute('role', 'checkbox');
+                const active = window._selectedNoiseLocators.has(strat);
+                btn.classList.toggle('is-active', active);
+                btn.setAttribute('aria-checked', String(active));
+                btn.tabIndex = 0;
+                btn.textContent = strat;
+                btn.className = 'tab-button'; // styling
+                btn.style.margin = '2px';
+                btn.addEventListener('click', () => {
+                    if (window._selectedNoiseLocators.has(strat)) {
+                        if (window._selectedNoiseLocators.size > 1) { // keep at least one
+                            window._selectedNoiseLocators.delete(strat);
+                            btn.classList.remove('is-active');
+                            btn.setAttribute('aria-checked', 'false');
+                        }
+                    } else {
+                        window._selectedNoiseLocators.add(strat);
+                        btn.classList.add('is-active');
+                        btn.setAttribute('aria-checked', 'true');
+                    }
+                    updateBaselineOptionsAndRedraw(generator);
+                });
+                locContainer.appendChild(btn);
+            });
+        }
+
+        // 3. Render Convergence buttons
+        const convContainer = document.getElementById('noise-convergences-select');
+        if (convContainer) {
+            convContainer.innerHTML = '';
+            convergences.forEach(conv => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.dataset.value = conv;
+                btn.setAttribute('role', 'checkbox');
+                const active = window._selectedNoiseConvergences.has(conv);
+                btn.classList.toggle('is-active', active);
+                btn.setAttribute('aria-checked', String(active));
+                btn.tabIndex = 0;
+                btn.textContent = convergenceLabels[conv];
+                btn.className = 'tab-button'; // styling
+                btn.style.margin = '2px';
+                btn.addEventListener('click', () => {
+                    if (window._selectedNoiseConvergences.has(conv)) {
+                        if (window._selectedNoiseConvergences.size > 1) { // keep at least one
+                            window._selectedNoiseConvergences.delete(conv);
+                            btn.classList.remove('is-active');
+                            btn.setAttribute('aria-checked', 'false');
+                        }
+                    } else {
+                        window._selectedNoiseConvergences.add(conv);
+                        btn.classList.add('is-active');
+                        btn.setAttribute('aria-checked', 'true');
+                    }
+                    updateBaselineOptionsAndRedraw(generator);
+                });
+                convContainer.appendChild(btn);
+            });
+        }
+
+        updateBaselineOptionsAndRedraw(generator);
     }
 
-    // ── Noise Sweep tab: summary-across-noise plots (generator-level) ────────
+    function updateBaselineOptionsAndRedraw(generator) {
+        const baselineSelect = document.getElementById('noise-baseline-select');
+        if (!baselineSelect) return;
 
-    function updateNoiseSweepPlots(generator) {
-        const summaryErrIframe = document.getElementById('comp-iframe-summary-err');
-        if (!summaryErrIframe) return;
-        const summaryPlots = plots.filter(p => p.type === 'summary' && p.generator === generator);
-        const errPlot = summaryPlots.find(p => p.metric === 'pair_rmse') || summaryPlots.find(p => p.metric === 'abs_err_x');
-        const measPlot = summaryPlots.find(p => p.metric === 'measurements');
-        const savPlot = summaryPlots.find(p => p.metric === 'savings');
-        const spanPlot = summaryPlots.find(p => p.metric === 'savings_vs_span');
-        setPlotSrc(summaryErrIframe, undefined, errPlot ? errPlot.path : null);
-        setPlotSrc(document.getElementById('comp-iframe-summary-meas'), undefined, measPlot ? measPlot.path : null);
-        setPlotSrc(document.getElementById('comp-iframe-summary-savings'), undefined, savPlot ? savPlot.path : null);
-        setPlotSrc(document.getElementById('comp-iframe-summary-span'), undefined, spanPlot ? spanPlot.path : null);
+        // Build list of all available strategy-convergence pairs (independent of current selection)
+        const genPlots = scanPlots.filter(p => p.generator === generator);
+        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const convergences = ['full', 'freq_converged', 'all_converged'];
+
+        const pairs = [];
+        strategies.forEach(strat => {
+            convergences.forEach(conv => {
+                pairs.push({ strategy: strat, convergence: conv });
+            });
+        });
+
+        // Save current baseline selection
+        const prevBaseline = baselineSelect.value;
+
+        // Populate baseline select dropdown
+        baselineSelect.innerHTML = '';
+        pairs.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = `${p.strategy}::${p.convergence}`;
+            const convLabel = p.convergence === 'full' ? 'Full' : (p.convergence === 'freq_converged' ? 'Freq. converged' : 'Converged');
+            opt.textContent = `${p.strategy} (${convLabel})`;
+            baselineSelect.appendChild(opt);
+        });
+
+        // Restore baseline selection if still valid, otherwise choose a smart default
+        let newBaseline = prevBaseline;
+        const validValues = pairs.map(p => `${p.strategy}::${p.convergence}`);
+        if (!validValues.includes(newBaseline)) {
+            // Prefer SimpleSweep (Full), then SimpleSweep (any), then SimpleSobol (Full), then any
+            const sweepFull = validValues.find(v => v.startsWith('SimpleSweep::full') || v.startsWith('GenericSweep::full'));
+            const sweepAny = validValues.find(v => v.includes('Sweep::'));
+            const sobolFull = validValues.find(v => v.startsWith('SimpleSobol::full'));
+            newBaseline = sweepFull || sweepAny || sobolFull || validValues[0] || '';
+        }
+        baselineSelect.value = newBaseline;
+
+        // Setup event listener if not already done
+        if (!baselineSelect._hasListener) {
+            baselineSelect.addEventListener('change', () => {
+                redrawDynamicNoisePlots(controlValue(scanGenerator));
+            });
+            baselineSelect._hasListener = true;
+        }
+
+        redrawDynamicNoisePlots(generator);
+    }
+
+    async function redrawDynamicNoisePlots(generator) {
+        await ensurePlotly();
+        const genPlots = scanPlots.filter(p => p.generator === generator);
+        const noises = [...new Set(genPlots.map(p => p.noise))].filter(Boolean);
+
+        const uniqueNoises = noises.sort((a, b) => {
+            const ga = a.match(/Gauss\(([\d.]+)\)/);
+            const gb = b.match(/Gauss\(([\d.]+)\)/);
+            if (ga && gb) return parseFloat(ga[1]) - parseFloat(gb[1]);
+            if (ga) return -1; if (gb) return 1;
+            return a.localeCompare(b);
+        });
+
+        const baselineVal = document.getElementById('noise-baseline-select').value;
+        const [baselineStrat, baselineConv] = baselineVal ? baselineVal.split('::') : [null, null];
+
+        const errorTraces = [];
+        const measTraces = [];
+        const savingsTraces = [];
+
+        // 1. Precalculate baseline measurements at each noise level for savings
+        const baselineMeasByNoise = {};
+        if (baselineStrat && baselineConv) {
+            uniqueNoises.forEach(noise => {
+                const repPlots = genPlots.filter(p => p.noise === noise && p.strategy === baselineStrat);
+                if (repPlots.length > 0) {
+                    const vals = repPlots.map(p => {
+                        if (baselineConv === 'freq_converged') return p.freq_converged_step ?? p.steps_to_fb ?? p.measurements;
+                        if (baselineConv === 'all_converged') return p.all_converged_step ?? p.final_steps ?? p.measurements;
+                        return p.measurements;
+                    }).filter(v => v !== null && v !== undefined && !isNaN(v));
+                    if (vals.length > 0) {
+                        baselineMeasByNoise[noise] = vals.reduce((s, x) => s + x, 0) / vals.length;
+                    }
+                }
+            });
+        }
+
+        // 2. Build Selected Pairs
+        const selectedPairs = [];
+        window._selectedNoiseLocators.forEach(strat => {
+            window._selectedNoiseConvergences.forEach(conv => {
+                selectedPairs.push({ strategy: strat, convergence: conv });
+            });
+        });
+
+        // 3. Generate Traces
+        const colors = [
+            '#2563eb', // Blue
+            '#f59e0b', // Orange
+            '#10b981', // Green
+            '#8b5cf6', // Purple
+            '#ec4899', // Pink
+            '#ef4444', // Red
+            '#06b6d4', // Cyan
+            '#14b8a6', // Teal
+        ];
+
+        selectedPairs.forEach((pair, idx) => {
+            const color = colors[idx % colors.length];
+            const convLabel = pair.convergence === 'full' ? 'Full' : (pair.convergence === 'freq_converged' ? 'Freq. converged' : 'Converged');
+            const traceName = `${pair.strategy} (${convLabel})`;
+
+            const xVals = [];
+            const errY = [];
+            const measY = [];
+            const savY = [];
+
+            uniqueNoises.forEach(noise => {
+                const repPlots = genPlots.filter(p => p.noise === noise && p.strategy === pair.strategy);
+                if (repPlots.length > 0) {
+                    xVals.push(noise);
+
+                    // Calculate Error mean
+                    const errVals = repPlots.map(p => {
+                        if (pair.convergence === 'freq_converged') {
+                            return p.err_fb_at_milestone ?? p.final_err_fb ?? p.abs_err_x;
+                        }
+                        return p.abs_err_x;
+                    }).filter(v => v !== null && v !== undefined && !isNaN(v));
+                    if (errVals.length > 0) {
+                        errY.push(errVals.reduce((s, x) => s + x, 0) / errVals.length);
+                    } else {
+                        errY.push(null);
+                    }
+
+                    // Calculate Measurements mean
+                    const measVals = repPlots.map(p => {
+                        if (pair.convergence === 'freq_converged') return p.freq_converged_step ?? p.steps_to_fb ?? p.measurements;
+                        if (pair.convergence === 'all_converged') return p.all_converged_step ?? p.final_steps ?? p.measurements;
+                        return p.measurements;
+                    }).filter(v => v !== null && v !== undefined && !isNaN(v));
+                    let avgMeas = null;
+                    if (measVals.length > 0) {
+                        avgMeas = measVals.reduce((s, x) => s + x, 0) / measVals.length;
+                        measY.push(avgMeas);
+                    } else {
+                        measY.push(null);
+                    }
+
+                    // Calculate Savings
+                    const baseMeas = baselineMeasByNoise[noise];
+                    if (baseMeas !== undefined && avgMeas !== null) {
+                        savY.push(baseMeas - avgMeas);
+                    } else {
+                        savY.push(null);
+                    }
+                }
+            });
+
+            if (xVals.length > 0) {
+                errorTraces.push({
+                    x: xVals,
+                    y: errY,
+                    mode: 'lines+markers',
+                    name: traceName,
+                    line: { color: color, width: 2 },
+                    marker: { size: 6 }
+                });
+
+                measTraces.push({
+                    x: xVals,
+                    y: measY,
+                    mode: 'lines+markers',
+                    name: traceName,
+                    line: { color: color, width: 2 },
+                    marker: { size: 6 }
+                });
+
+                // Do not add savings trace for the baseline itself (always 0)
+                if (`${pair.strategy}::${pair.convergence}` !== baselineVal) {
+                    savingsTraces.push({
+                        x: xVals,
+                        y: savY,
+                        mode: 'lines+markers',
+                        name: traceName,
+                        line: { color: color, width: 2 },
+                        marker: { size: 6 }
+                    });
+                }
+            }
+        });
+
+        // 4. Common Layout
+        const commonLayout = {
+            template: 'plotly_white',
+            margin: { t: 40, b: 60, l: 60, r: 20 },
+            hovermode: 'closest',
+            legend: {
+                orientation: 'h',
+                yanchor: 'bottom',
+                y: 1.02,
+                xanchor: 'right',
+                x: 1
+            },
+            xaxis: {
+                title: 'Noise Level',
+                gridcolor: '#f1f5f9',
+            },
+            yaxis: {
+                gridcolor: '#f1f5f9',
+            },
+            shapes: []
+        };
+
+        // Draw vertical reference lines for selected noises
+        const selectedNoises = getSelectedScanNoises();
+        if (selectedNoises && selectedNoises.length) {
+            selectedNoises.forEach(noiseVal => {
+                commonLayout.shapes.push({
+                    type: 'line',
+                    xref: 'x',
+                    yref: 'paper',
+                    x0: noiseVal,
+                    x1: noiseVal,
+                    y0: 0,
+                    y1: 1,
+                    line: {
+                        color: '#f43f5e',
+                        width: 2,
+                        dash: 'dash'
+                    }
+                });
+            });
+        }
+
+        const errLayout = Object.assign({}, commonLayout, {
+            title: `Summary: ${generator} (Error)`,
+            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Average Absolute Error (Hz)' })
+        });
+
+        const measLayout = Object.assign({}, commonLayout, {
+            title: `Summary: ${generator} (Measurements)`,
+            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Average Steps to Converge' })
+        });
+
+        const baselineLabel = baselineStrat ? `${baselineStrat} (${baselineConv === 'full' ? 'Full' : (baselineConv === 'freq_converged' ? 'Freq. converged' : 'Converged')})` : 'Baseline';
+        const savLayout = Object.assign({}, commonLayout, {
+            title: `Measurement Savings vs ${baselineLabel}`,
+            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Absolute Steps Saved' })
+        });
+
+        try {
+            Plotly.react(document.getElementById('comp-div-summary-err'), errorTraces, errLayout, { responsive: true });
+            Plotly.react(document.getElementById('comp-div-summary-meas'), measTraces, measLayout, { responsive: true });
+            Plotly.react(document.getElementById('comp-div-summary-savings'), savingsTraces, savLayout, { responsive: true });
+        } catch (e) {
+            console.error('Failed to render dynamic noise sweep plots:', e);
+        }
     }
 
     // Toggle setup
@@ -4138,17 +4607,22 @@ function main() {
                     repeatView.style.display = 'block';
                     summaryView.style.display = 'none';
                     if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    // Restore per-plot stopping criteria visibility
+                    updateStoppingCriteriaVisibility(currentPlot);
                 } else if (mode === 'summary') {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'block';
                     if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    updateStoppingCriteriaVisibility(currentPlot);
                     renderRepeatsSummary(gen, isNoiseRangeMode() ? getSelectedScanNoises() : getEffectiveScanNoise());
                 } else if (mode === 'noise') {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'none';
+                    const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
+                    if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
                     if (noiseMetricsView) {
                         noiseMetricsView.hidden = false;
-                        updateNoiseMetricsContent(gen, getSelectedScanNoises());
+                        initAndRenderNoiseSweepPlots(gen);
                     }
                 }
             }
@@ -4358,21 +4832,7 @@ function main() {
             tabBar.appendChild(button);
         }
 
-        const hasSummary = plots.some(p => p.type === 'summary');
-        if (hasSummary) {
-            const btn = document.createElement('button');
-            btn.className = 'tab-button';
-            btn.textContent = 'Noise Sweep';
-            btn.dataset.tab = 'noise-sweep-section';
-            btn.setAttribute('role', 'tab');
-            btn.setAttribute('id', 'tab-noise-sweep');
-            btn.setAttribute('aria-controls', 'noise-sweep-section');
-            btn.setAttribute('aria-selected', 'false');
-            tabBar.appendChild(btn);
-        }
-
-
-
+        // Noise Sweep top-level tab removed (moved under Scan View -> Noise Metrics)
 
         const tabButtons = Array.from(tabBar.querySelectorAll('.tab-button'));
         if (tabButtons.length > 0) {
@@ -4416,9 +4876,6 @@ function main() {
                     panel.classList.add('is-hidden');
                 }
             });
-            if (target.dataset.tab === 'noise-sweep-section') {
-                updateNoiseSweepPlots(controlValue(scanGenerator));
-            }
             // Trigger a window resize event so responsive Plotly charts adjust to their visible containers
             setTimeout(() => {
                 window.dispatchEvent(new Event('resize'));
@@ -4451,7 +4908,7 @@ function main() {
     // updateCompPlots: kept for backward compat; delegates to the new helpers
     function updateCompPlots() {
         const gen = controlValue(scanGenerator);
-        updateNoiseMetricsContent(gen, getSelectedScanNoises());
+        initAndRenderNoiseSweepPlots(gen);
     }
 
 

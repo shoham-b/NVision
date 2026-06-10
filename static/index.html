@@ -158,38 +158,57 @@
         </div>
     </div>
     
+    
     <div id="scan-summary-view" style="display:none; margin-top: 1em; padding-top: 1em; border-top: 1px solid #eee;">
         <div id="summary-comparison-selector"></div>
         <div id="summary-subjects-container"></div>
+        <div id="summary-span-container" style="margin-top: 2em; display: none;">
+            <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by comparing the two strategies as a function of the fractional signal width.">?</span></h3>
+            <div id="summary-span-plot-div" style="width: 100%; height: 400px;"></div>
+        </div>
     </div>
     
-    <div id="noise-metrics-view" hidden style="margin-top: 2em; padding-top: 2em; border-top: 1px solid #eee;">
-        <!-- Populated dynamically by updateNoiseMetricsContent() for each selected noise -->
-        <div id="noise-metrics-per-noise-container"></div>
+    <div id="noise-metrics-view" hidden style="margin-top: 1.5em; padding-top: 1.5em; border-top: 1px solid #eee;">
+        <h2>Metrics Across Noises <span tabindex="0" class="help-icon-visible" title="How strategies compare across the full noise sweep. Filtered by the currently selected generator.">?</span></h2>
+        
+        <!-- Controls Container -->
+        <div class="panel panel-noise-controls" style="margin-bottom: 1.5em; padding: 1.2em; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <div style="display: flex; flex-wrap: wrap; gap: 2em; align-items: flex-start;">
+                <!-- Locators Multi-Select -->
+                <div style="flex: 1 1 300px;">
+                    <span class="control-label" style="font-weight: 600; display: block; margin-bottom: 0.5em; color: #334155; font-size: 0.9em;">Select Locators:</span>
+                    <div id="noise-locators-select" class="segmented-control" role="group" style="display: flex; flex-wrap: wrap; gap: 6px; border: none; background: none; padding: 0;"></div>
+                </div>
+                <!-- Convergences Select -->
+                <div style="flex: 1 1 250px;">
+                    <span class="control-label" style="font-weight: 600; display: block; margin-bottom: 0.5em; color: #334155; font-size: 0.9em;">Select Convergences (Stopping Criteria):</span>
+                    <div id="noise-convergences-select" class="segmented-control" role="group" style="display: flex; flex-wrap: wrap; gap: 6px; border: none; background: none; padding: 0;"></div>
+                </div>
+                <!-- Baseline Select -->
+                <div style="flex: 0 1 220px; min-width: 200px;">
+                    <span class="control-label" style="font-weight: 600; display: block; margin-bottom: 0.5em; color: #334155; font-size: 0.9em;">Baseline for Savings:</span>
+                    <select id="noise-baseline-select" class="control-select" style="padding: 0.4em 0.8em; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; width: 100%; font-size: 0.9em; color: #334155;"></select>
+                </div>
+            </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
+            <div style="flex: 1; min-width: 400px; background: #fff; border: 1px solid #f1f5f9; border-radius: 8px; padding: 10px;">
+                <h3 style="margin-left: 10px;">Error vs Noise <span tabindex="0" class="help-icon-visible" title="Average absolute frequency error as a function of the noise level.">?</span></h3>
+                <div id="comp-div-summary-err" class="plotly-json-plot" style="height: 500px; width: 100%;"></div>
+            </div>
+            <div style="flex: 1; min-width: 400px; background: #fff; border: 1px solid #f1f5f9; border-radius: 8px; padding: 10px;">
+                <h3 style="margin-left: 10px;">Measurements vs Noise <span tabindex="0" class="help-icon-visible" title="Average measurements to convergence as a function of the noise level.">?</span></h3>
+                <div id="comp-div-summary-meas" class="plotly-json-plot" style="height: 500px; width: 100%;"></div>
+            </div>
+            <div style="flex: 1; min-width: 400px; background: #fff; border: 1px solid #f1f5f9; border-radius: 8px; padding: 10px;">
+                <h3 style="margin-left: 10px;">Measurement Savings vs Noise <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by comparing the selected strategy to the chosen baseline.">?</span></h3>
+                <div id="comp-div-summary-savings" class="plotly-json-plot" style="height: 500px; width: 100%;"></div>
+            </div>
+        </div>
     </div>
 </div>
 
-<div aria-labelledby="tab-noise-sweep" class="section tab-panel" id="noise-sweep-section" role="tabpanel">
-    <h2>Metrics Across Noises <span tabindex="0" class="help-icon-visible" title="How strategies compare across the full noise sweep. Filtered by the currently selected generator.">?</span></h2>
-    <div style="display: flex; flex-wrap: wrap; gap: 2em; margin-top: 1em;">
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Error vs Noise <span tabindex="0" class="help-icon-visible" title="Average absolute frequency error as a function of the noise level.">?</span></h3>
-            <iframe id="comp-iframe-summary-err" style="height: 500px;" title="Error vs Noise"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Measurements vs Noise <span tabindex="0" class="help-icon-visible" title="Average measurements to convergence as a function of the noise level.">?</span></h3>
-            <iframe id="comp-iframe-summary-meas" style="height: 500px;" title="Measurements vs Noise"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Measurement Savings vs Noise <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as noise increases.">?</span></h3>
-            <iframe id="comp-iframe-summary-savings" style="height: 500px;" title="Savings vs Noise"></iframe>
-        </div>
-        <div style="flex: 1; min-width: 400px;">
-            <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by SBED over Sweep as a function of the fractional signal width.">?</span></h3>
-            <iframe id="comp-iframe-summary-span" style="height: 500px;" title="Savings vs Signal Span"></iframe>
-        </div>
-    </div>
-</div>
 
 
 <script src="app.js"></script>
