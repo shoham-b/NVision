@@ -456,7 +456,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             tempering_factor=self.tempering_factor,
             noise_discount_factor=self.noise_discount_factor,
             noise_prior_strength=self.noise_prior_strength,
+            skip_state_init=True,
         )
+        # Grids depend only on bounds, which are identical — share by reference
+        # (consumers rebind on narrowing/resample, never mutate in place).
+        dist._global_grid = self._global_grid
+        dist._current_candidates = self._current_candidates
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy(order="K")  # preserve F-order layout
         dist._weights = self._weights.copy()

@@ -20,17 +20,23 @@ _ONE_PLUS_SLACK = np.float32(1.0) + _UNIT_INTERVAL_SLACK
 
 
 def _unit_interval_to_physical(u_raw: np.ndarray, lo: float, hi: float, param_name: str) -> np.ndarray:
-    """Map unit-cube samples to ``[lo, hi]``, clipping benign float endpoint error."""
-    if np.any(u_raw < -_UNIT_INTERVAL_SLACK) or np.any(u_raw > _ONE_PLUS_SLACK):
-        raise ValueError(
-            f"Parameter {param_name} unit values must lie in [0, 1]; got min {float(np.min(u_raw))}, "
-            f"max {float(np.max(u_raw))}"
-        )
-    u = np.clip(u_raw, np.float32(0.0), np.float32(1.0))
+    """Map unit-cube samples to ``[lo, hi]``, clipping benign float endpoint error.
+
+    Validates via a single min/max pass (instead of boolean-array comparisons)
+    and skips the input clip entirely when all samples already lie in [0, 1] —
+    the overwhelmingly common case on the per-step likelihood path.
+    """
     lo32 = np.float32(lo)
     hi32 = np.float32(hi)
+    if u_raw.size == 0:
+        return u_raw * (hi32 - lo32) + lo32
+    mn = float(u_raw.min())
+    mx = float(u_raw.max())
+    if mn < -_UNIT_INTERVAL_SLACK or mx > _ONE_PLUS_SLACK:
+        raise ValueError(f"Parameter {param_name} unit values must lie in [0, 1]; got min {mn}, max {mx}")
+    u = u_raw if (mn >= 0.0 and mx <= 1.0) else np.clip(u_raw, np.float32(0.0), np.float32(1.0))
     v = lo32 + u * (hi32 - lo32)
-    return np.clip(v, lo32, hi32)
+    return np.clip(v, lo32, hi32, out=v)
 
 
 class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[ParamsT, SampleParamsT, UncertaintyT]):

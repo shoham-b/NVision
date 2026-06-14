@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -1119,6 +1120,9 @@ def get_or_run_simplesweep_baseline(
         sweep_xs.append(float(obs.x))
         sweep_ys.append(float(obs.signal_value))
 
+    # finalize() flushes the deferred belief updates and runs the dip fit;
+    # without it the belief is still the prior.
+    locator.finalize()
     sweep_mode_estimates = belief_mode_estimates(locator.belief)
 
     new_data = {
@@ -1257,6 +1261,28 @@ def generate_attempt_plots(  # noqa: C901
     scan_entry = entry_base.copy()
     scan_entry["type"] = "scan"
     scan_entry["path"] = out_path.relative_to(out_dir).as_posix()
+
+    # Per-step (error, uncertainty) series for the UI Highlights view.
+    # Attached to the scan entry only — entry_base is also copied into the
+    # Bayesian auxiliary entries and must stay slim.
+    if run_result is not None:
+        try:
+            from nvision.metrics.series import _round_sig, extract_step_series
+
+            step_series = extract_step_series(run_result)
+            if step_series:
+                # The finalize fit (e.g. a sweep's dip fit) can land outside the
+                # belief snapshots; the series endpoint must match the reported
+                # final metrics so the anytime curve ends at the true accuracy.
+                final_err = entry_base.get("abs_err_x")
+                final_unc = entry_base.get("uncert")
+                if isinstance(final_err, int | float) and math.isfinite(final_err):
+                    step_series["e"][-1] = _round_sig(float(final_err))
+                if isinstance(final_unc, int | float) and math.isfinite(final_unc):
+                    step_series["u"][-1] = _round_sig(float(final_unc))
+                scan_entry["series"] = step_series
+        except Exception:
+            log.debug("Step series extraction failed for %s", attempt_slug, exc_info=True)
 
     # Build true_params for all strategies so it can be embedded in figure meta
     # (the manifest strips it; UI reads it from fig.layout.meta.true_params)

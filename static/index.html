@@ -49,6 +49,7 @@
         <span class="control-label" style="margin-right: 0.5em;" id="scan-view-label">View:</span>
         <div class="segmented-control" id="scan-view-mode" role="radiogroup" aria-labelledby="scan-view-label">
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Single Repeat</button>
+            <button type="button" role="radio" aria-checked="false" data-value="highlights" tabindex="-1">Highlights</button>
             <button type="button" role="radio" aria-checked="false" data-value="summary" tabindex="-1">Repeats Summary</button>
             <button type="button" role="radio" aria-checked="false" data-value="noise" tabindex="-1" id="scan-view-noise-btn" style="display:none;">Noise Metrics</button>
         </div>
@@ -159,6 +160,44 @@
     </div>
     
     
+    <div id="highlights-view" style="display:none; margin-top: 1em; padding-top: 1em; border-top: 1px solid #eee;">
+        <h2>Highlights <span tabindex="0" class="help-icon-visible" title="Curated comparisons that answer four questions: is it better, at what cost, can the promised uncertainty be trusted, and when does it help. Only methodologically fair pairings are shown.">?</span></h2>
+        <div id="hl-headline" style="display:flex; flex-wrap:wrap; gap:1em; margin: 0.5em 0 1em;"></div>
+        <div id="hl-warning"></div>
+        <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Error vs measurements <span tabindex="0" class="help-icon-visible" title="Anytime performance: median absolute frequency error across repeats if the run were stopped at each measurement count, with interquartile band. The full sweep is the emphasized practical baseline; the dashed line marks its final (median) error — the quality target of current practice.">?</span></h3>
+                <div id="hl-error-curves" style="height:420px; width:100%;"></div>
+            </div>
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Convergence vs measurements <span tabindex="0" class="help-icon-visible" title="Survival view: fraction of repeats whose claimed frequency uncertainty crossed the threshold by each measurement count. Speed = how fast the curve rises; reliability = where it plateaus. Sweep locators are excluded — their convergence step reflects dip position in the scan order, not efficiency.">?</span></h3>
+                <div class="control-row" style="margin:0 0 0.4em 10px; gap:0.5em; align-items:center;">
+                    <span class="control-label" style="font-size:0.85em;">Threshold sensitivity:</span>
+                    <div class="segmented-control" id="hl-tau-select" role="radiogroup">
+                        <button type="button" role="radio" aria-checked="false" data-value="0.5" tabindex="-1">&tau; &times;0.5</button>
+                        <button type="button" role="radio" aria-checked="true" data-value="1" class="is-active" tabindex="0">&tau; &times;1</button>
+                        <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">&tau; &times;2</button>
+                    </div>
+                </div>
+                <div id="hl-survival" style="height:380px; width:100%;"></div>
+            </div>
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Promise kept (coverage) <span tabindex="0" class="help-icon-visible" title="The locator's product is its claimed uncertainty; the true error is the audit. Bars show the fraction of repeats where |error| ≤ 1× and ≤ 2× the claimed final uncertainty, with Wilson 95% intervals. Dashed lines are the 68%/95% Gaussian nominals — bars credibly below their nominal are red.">?</span></h3>
+                <div id="hl-coverage" style="height:380px; width:100%;"></div>
+            </div>
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">When does it pay — savings vs signal span <span tabindex="0" class="help-icon-visible" title="Per-repeat paired difference in steps-to-convergence (baseline − locator, same ground truth), against the fractional signal span. Slim signals force any method into blind search before first contact, so savings shrink as f_span decreases. Matched-promise pairs only.">?</span></h3>
+                <div class="control-row" style="margin:0 0 0.4em 10px; gap:0.5em; align-items:center;">
+                    <span class="control-label" style="font-size:0.85em;">Baseline:</span>
+                    <select id="hl-span-baseline" class="control-select" style="font-size:0.85em;"></select>
+                </div>
+                <div id="hl-span" style="height:340px; width:100%;"></div>
+                <h4 style="margin:1em 0 0.2em 10px; font-size:0.85em; color:#475569;">Search vs refine decomposition <span tabindex="0" class="help-icon-visible" title="Steps until first signal contact (claimed uncertainty first halves from its initial value) and steps from contact to convergence, vs f_span. If search scales like 1/f_span while refine stays flat, the savings story above is confirmed.">?</span></h4>
+                <div id="hl-firstsignal" style="height:300px; width:100%;"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="scan-summary-view" style="display:none; margin-top: 1em; padding-top: 1em; border-top: 1px solid #eee;">
         <div id="summary-comparison-selector"></div>
         <div id="summary-subjects-container"></div>
@@ -209,7 +248,18 @@
     </div>
 </div>
 
-
+<div aria-labelledby="tab-dashboard" class="section tab-panel is-hidden" id="dashboard-section" role="tabpanel">
+    <h2>Dashboard <span tabindex="0" class="help-icon-visible" title="The most decision-relevant comparisons aggregated across all generators and noise levels — no selections needed. Heatmap cells link the per-cell stories that are otherwise hidden behind the Scan view dropdowns.">?</span></h2>
+    <div class="control-row" style="gap:0.5em; align-items:center; margin-bottom:0.5em;">
+        <span class="control-label" style="font-size:0.9em;">Baseline for paired savings:</span>
+        <select id="dash-span-baseline" class="control-select" style="font-size:0.9em;"></select>
+    </div>
+    <div id="dashboard-content"></div>
+    <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-top:1.5em;">
+        <h3 style="margin-left:10px;">Savings vs signal span — all generators &amp; noises <span tabindex="0" class="help-icon-visible" title="Per-repeat paired matched-promise savings against the chosen adaptive baseline, pooled across every generator and noise level. Color = noise level. The 1/f_span blind-search story is most convincing on the pooled data.">?</span></h3>
+        <div id="dash-span-plot" style="height:440px; width:100%;"></div>
+    </div>
+</div>
 
 <script src="app.js"></script>
 <script src="reload.js"></script>

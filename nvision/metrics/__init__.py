@@ -13,6 +13,10 @@ from nvision.metrics.convergence import (
     analyze_run_convergence,
     get_convergence_summary,
 )
+from nvision.metrics.series import (
+    effective_convergence_threshold,
+    extract_step_series,
+)
 from nvision.metrics.types import (
     ParameterConvergence,
     RepeatMetrics,
@@ -26,5 +30,7 @@ __all__ = [
     "analyze_run_convergence",
     "calculate_strategy_metrics",
     "compute_error_histogram",
+    "effective_convergence_threshold",
+    "extract_step_series",
     "get_convergence_summary",
 ]

@@ -66,9 +66,11 @@ Key sections inside `main()` (in order of appearance):
 6. **Comparison cards** — head-to-head scan comparison; trace building for sampled-measurement plot
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
 8. **Summary view** — repeats-summary charts, noise-metrics iframes, milestone plots
-9. **Narrowed bounds panel** — reads `layout.meta.narrowed_param_bounds` from the scan figure
-10. **Tabs setup** — top-level tab bar (Scan / Noise Metrics)
-11. **Event listeners** — wires all control-change and click events
+9. **Highlights view** — curated quick view (`renderHighlights` + `hl*` helpers): anytime error curves (median + IQR) with the full sweep as the emphasized practical baseline, convergence survival curves at ×0.5/×1/×2 of the shared threshold (sweep excluded — its convergence step reflects dip position in the scan order, not efficiency), coverage of the claimed uncertainty vs the 68/95% Gaussian nominals with Wilson intervals, and paired matched-promise savings vs `f_span` with a search/refine decomposition. Reads the per-step `series` field (`{s, e, u, tau}`) written by `nvision.metrics.series.extract_step_series` onto each scan manifest entry; entries from older cached runs lack it and degrade gracefully.
+10. **Narrowed bounds panel** — reads `layout.meta.narrowed_param_bounds` from the scan figure
+11. **Dashboard tab** — `renderDashboard` + `dash*` helpers: aggregates across ALL generators and noise levels with no selections needed. Per generator: advantage-at-sweep-quality heatmap (k× fewer measurements, from the anytime-error crossing), promise-kept coverage heatmap (|err| ≤ 1σ vs the 68% nominal), and converged-within-budget vs noise with a budget-censoring diagnosis in hover (non-converged runs whose claimed uncertainty was still falling in the last 20% of the budget are budget-censored → raise max steps; flat ones are stalled → threshold unreachable at that noise, which is a finding). Plus a pooled paired savings-vs-`f_span` scatter across every cell (color = noise σ, baseline selectable). Rendered lazily on tab click.
+12. **Tabs setup** — top-level tab bar (Scan / Dashboard)
+13. **Event listeners** — wires all control-change and click events
 
 ## Data formats
 

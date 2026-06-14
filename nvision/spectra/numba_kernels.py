@@ -858,35 +858,43 @@ def nv_center_lorentzian_eig_variance(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists all particle-only math (including three
+    # divisions per pair) out of the m x n inner loop. float64 arrays keep the
+    # numerics identical to the previous per-pair scalar computation.
+    inv_omega = np.empty(n, dtype=np.float64)
+    alpha = np.empty(n, dtype=np.float64)
+    p_0 = np.empty(n, dtype=np.float64)
+    p_l = np.empty(n, dtype=np.float64)
+    p_r = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        lw = linewidth[j]
+        omega = lw if lw > 1e-10 else 1e-10
+        io = 1.0 / omega
+        inv_omega[j] = io
+        alpha[j] = split[j] * io
+
+        k = k_np[j]
+        k_safe = k if k > 1e-10 else 1e-10
+        inv_k = 1.0 / k_safe
+        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
+        c = c_total[j]
+        p_0[j] = c * inv_p_sum
+        p_l[j] = c * (inv_k * inv_p_sum)
+        p_r[j] = c * (k_safe * inv_p_sum)
+
     for i in prange(m):
         x = xs[i]
         sum_p = 0.0
         sum_p2 = 0.0
         for j in range(n):
-            lw = linewidth[j]
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            c = c_total[j]
+            x_dim = (x - freq[j]) * inv_omega[j]
+            a = alpha[j]
+            d_l = x_dim + a
+            d_r = x_dim - a
+            pred = 1.0 - (p_l[j] / (d_l * d_l + 1.0) + p_0[j] / (x_dim * x_dim + 1.0) + p_r[j] / (d_r * d_r + 1.0))
+
             wi = weights[j]
-
-            omega = lw if lw > 1e-10 else 1e-10
-            inv_omega = 1.0 / omega
-            x_dim = (x - f) * inv_omega
-            alpha = s * inv_omega
-
-            k_safe = k if k > 1e-10 else 1e-10
-            inv_k = 1.0 / k_safe  # 1 div — reused below
-            inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)  # 1 div (was 3)
-
-            p_0 = c * inv_p_sum
-            p_L = c * (inv_k * inv_p_sum)
-            p_R = c * (k_safe * inv_p_sum)
-
-            pred = 1.0 - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
-            )
-
             sum_p += wi * pred
             sum_p2 += wi * pred * pred
 
@@ -912,61 +920,86 @@ def nv_center_pseudo_voigt_eig_variance(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
+    # (eta polynomial, several divisions, factor setup) out of the m x n inner
+    # loop. float64 arrays keep the numerics identical to the previous
+    # per-pair scalar computation.
+    elf_arr = np.empty(n, dtype=np.float64)  # eta * gamma * inv_center_height (0 when no gamma)
+    egf_arr = np.empty(n, dtype=np.float64)  # (1-eta) * gauss_center * inv_center_height (0 when no sigma)
+    nhs_arr = np.empty(n, dtype=np.float64)  # -0.5 / sigma^2 (0 when no sigma)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    amp_l_arr = np.empty(n, dtype=np.float64)
+    amp_c_arr = np.empty(n, dtype=np.float64)
+    amp_r_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    for j in range(n):
+        fwhm = fwhm_total[j]
+        lf = lorentz_frac[j]
+        fwhm_l = lf * fwhm
+        fwhm_g = (1.0 - lf) * fwhm
+        k = k_np[j]
+        d = dip_depth[j]
+
+        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+        gamma = fwhm_l / 2.0
+        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+
+        gamma2 = gamma * gamma
+        has_gamma = abs(gamma) > 1e-12
+        lorentz_center = 1.0 / gamma if has_gamma else 0.0
+
+        has_sigma = abs(sigma) > 1e-12
+        if has_sigma:
+            inv_sigma = 1.0 / sigma
+            gauss_center = inv_sigma / _SQRT2PI
+            neg_half_inv_sigma2 = -0.5 * inv_sigma * inv_sigma
+            eta_gauss_factor = (1.0 - eta) * gauss_center
+        else:
+            gauss_center = 0.0
+            neg_half_inv_sigma2 = 0.0
+            eta_gauss_factor = 0.0
+
+        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+
+        inv_k = 1.0 / k
+        actual_depth = d * inv_k
+
+        elf_arr[j] = eta * gamma * inv_center_height if has_gamma else 0.0
+        egf_arr[j] = eta_gauss_factor * inv_center_height
+        nhs_arr[j] = neg_half_inv_sigma2
+        gamma2_arr[j] = gamma2
+        amp_c_arr[j] = actual_depth
+        amp_l_arr[j] = actual_depth * inv_k
+        amp_r_arr[j] = actual_depth * k
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+
     for i in prange(m):
         x = xs[i]
         sum_p = 0.0
         sum_p2 = 0.0
         for j in range(n):
-            fwhm = fwhm_total[j]
-            lf = lorentz_frac[j]
-            fwhm_l = lf * fwhm
-            fwhm_g = (1.0 - lf) * fwhm
-            f = freq[j]
+            eta_lorentz_factor = elf_arr[j]
+            eta_gauss_factor = egf_arr[j]
+            neg_half_inv_sigma2 = nhs_arr[j]
+            gamma2 = gamma2_arr[j]
+            has_gamma = has_gamma_arr[j]
+            has_sigma = has_sigma_arr[j]
             s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
             wi = weights[j]
 
-            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-            gamma = fwhm_l / 2.0
-            ratio = fwhm_l / (fwhm_l + fwhm_g)
-            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-
-            gamma2 = gamma * gamma
-            has_gamma = abs(gamma) > 1e-12
-            lorentz_center = 1.0 / gamma if has_gamma else 0.0
-
-            has_sigma = abs(sigma) > 1e-12
-            if has_sigma:
-                inv_sigma = 1.0 / sigma  # 1 div — reused twice below
-                gauss_center = inv_sigma / _SQRT2PI
-                neg_half_inv_sigma2 = -0.5 * inv_sigma * inv_sigma
-                eta_gauss_factor = (1.0 - eta) * gauss_center
-            else:
-                gauss_center = 0.0
-                neg_half_inv_sigma2 = 0.0
-                eta_gauss_factor = 0.0
-
-            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
-
-            inv_k = 1.0 / k  # 1 div — reused below
-            actual_depth = d * inv_k
-            eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-            eta_gauss_factor = eta_gauss_factor * inv_center_height
-
-            amp_c = actual_depth
-            amp_l = amp_c * inv_k  # was amp_c / k
-            amp_r = amp_c * k
-
-            dx_c = x - f
+            dx_c = x - freq[j]
             dx_c2 = dx_c * dx_c
             lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
             gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
             pc = lorentz_c + gauss_c
 
             if s < 1e-10:
-                pred = 1.0 - amp_c * pc
+                pred = 1.0 - amp_c_arr[j] * pc
             else:
                 dx_l = dx_c + s
                 dx_l2 = dx_l * dx_l
@@ -980,7 +1013,7 @@ def nv_center_pseudo_voigt_eig_variance(
                 gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pr = lorentz_r + gauss_r
 
-                pred = 1.0 - (amp_l * pl + amp_c * pc + amp_r * pr)
+                pred = 1.0 - (amp_l_arr[j] * pl + amp_c_arr[j] * pc + amp_r_arr[j] * pr)
 
             sum_p += wi * pred
             sum_p2 += wi * pred * pred

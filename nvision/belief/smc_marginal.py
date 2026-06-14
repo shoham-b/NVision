@@ -216,6 +216,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR
     noise_discount_factor: float = 0.99
     noise_prior_strength: float = 10.0
+    # Fast path for copy(): skip prior particle sampling and candidate-grid
+    # construction in __post_init__ — the caller assigns real state right after.
+    # Without this, every snapshot copy pays 10k x d random draws plus a full
+    # epoch-grid (and dip-detection) rebuild that is immediately overwritten.
+    skip_state_init: bool = field(default=False, repr=False)
 
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
@@ -256,9 +261,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # every ``_particles[:, j]`` a zero-copy contiguous view and makes
         # ``_particles.T`` C-contiguous for the EIG kernels.
         d_dim = len(self._param_names)
-        self._particles = np.zeros((self.num_particles, d_dim), dtype=FLOAT_DTYPE, order="F")
+        self._particles = np.zeros(
+            (0 if self.skip_state_init else self.num_particles, d_dim), dtype=FLOAT_DTYPE, order="F"
+        )
 
-        for i, name in enumerate(self._param_names):
+        for i, name in enumerate(self._param_names if not self.skip_state_init else []):
             if name not in self.parameter_bounds:
                 raise ValueError(f"Missing bounds for parameter: {name}")
             lo, hi = self.parameter_bounds[name]
@@ -325,27 +332,32 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._noise_param_slice.start if self._noise_param_slice is not None else len(self._param_names)
         )
 
-        # Initialize the first epoch-based candidate grid.
-        # Spacing must resolve the narrowest possible signal feature so that EIG
-        # has a meaningful score at the true frequency even when the local slope
-        # grids are focused on the wrong location.
-        #
-        # signal_min_span returns the minimum signal feature width (e.g. 4 × linewidth_min).
-        # We require POINTS_PER_MIN_FEATURE grid points within that span.
-        # Formula: n = ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE)
-        POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE  # noqa: N806
-        f_lo, f_hi = self.parameter_bounds["frequency"]
-        domain_width = float(f_hi - f_lo)
-        min_span = self.model.signal_min_span(domain_width)
-        if min_span is None or min_span <= 0:
-            raise ValueError(
-                f"{type(self.model).__name__}.signal_min_span({domain_width}) returned {min_span!r}. "
-                "Implement signal_min_span() to return the minimum signal feature width in Hz."
-            )
-        n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
+        if self.skip_state_init:
+            # copy() assigns the real grids/candidates right after construction.
+            self._global_grid = np.array([], dtype=np.float32)
+            self._current_candidates = np.array([], dtype=np.float32)
+        else:
+            # Initialize the first epoch-based candidate grid.
+            # Spacing must resolve the narrowest possible signal feature so that EIG
+            # has a meaningful score at the true frequency even when the local slope
+            # grids are focused on the wrong location.
+            #
+            # signal_min_span returns the minimum signal feature width (e.g. 4 × linewidth_min).
+            # We require POINTS_PER_MIN_FEATURE grid points within that span.
+            # Formula: n = ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE)
+            POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE  # noqa: N806
+            f_lo, f_hi = self.parameter_bounds["frequency"]
+            domain_width = float(f_hi - f_lo)
+            min_span = self.model.signal_min_span(domain_width)
+            if min_span is None or min_span <= 0:
+                raise ValueError(
+                    f"{type(self.model).__name__}.signal_min_span({domain_width}) returned {min_span!r}. "
+                    "Implement signal_min_span() to return the minimum signal feature width in Hz."
+                )
+            n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
 
-        self._global_grid = np.linspace(f_lo, f_hi, n_global).astype(np.float32)
-        self._generate_epoch_candidates()
+            self._global_grid = np.linspace(f_lo, f_hi, n_global).astype(np.float32)
+            self._generate_epoch_candidates()
 
         # Cache which fused EIG-variance kernel to use — avoids isinstance checks
         # and module imports inside the per-step hot path.
@@ -1144,7 +1156,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             tempering_factor=self.tempering_factor,
             noise_discount_factor=self.noise_discount_factor,
             noise_prior_strength=self.noise_prior_strength,
+            skip_state_init=True,
         )
+        # Grids depend only on bounds, which are identical — share by reference
+        # (consumers rebind on narrowing/resample, never mutate in place).
+        dist._global_grid = self._global_grid
+        dist._current_candidates = self._current_candidates
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy(order="K")  # preserve F-order layout
         dist._weights = self._weights.copy()

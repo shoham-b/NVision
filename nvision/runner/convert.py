@@ -91,8 +91,11 @@ def extract_peak_estimates(
         else:
             estimates[key] = value
 
-    if "frequency" in belief_estimates:
-        freq_phys = belief_estimates["frequency"]
+    # Seed peak_x/x1_hat from the locator's own frequency fit when present;
+    # the belief value is only a fallback (it may still be the prior for
+    # locators that don't drive their belief, e.g. sweep locators).
+    freq_phys = estimates.get("frequency", belief_estimates.get("frequency"))
+    if freq_phys is not None:
         estimates.setdefault("peak_x", freq_phys)
         estimates.setdefault("x1_hat", freq_phys)
 

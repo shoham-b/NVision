@@ -269,8 +269,13 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         return float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
 
     def _observe_acquisition(self, obs: Observation) -> None:
-        """Handle acquisition observations and manually trigger resample checks."""
-        super()._observe_acquisition(obs)
+        """Handle acquisition observations and manually trigger resample checks.
+
+        Updates the belief directly instead of via super(), which would run the
+        convergence-milestone check a second time — _check_and_resample already
+        performs it with a single shared uncertainty pass.
+        """
+        self.belief.update(obs)
         self._check_and_resample(check_convergence=True)
 
     def _check_and_resample(self, check_convergence: bool = True) -> None:

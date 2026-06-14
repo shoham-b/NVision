@@ -626,18 +626,38 @@ class _TaskRunner:
 
         locator_class = self.task.strategy_spec.locator_class
 
+        import os
+
+        _min_runners = int(os.getenv("NVISION_MIN_RUNNERS", "1"))
+
         for i in range(n_missing):
             rid = offset + start_idx + i
             repeat_start_times[i] = time.perf_counter()
             repeat_timestamps[i] = datetime.datetime.now(datetime.UTC).isoformat()
-            hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
-                rid=rid,
-                locator_class=locator_class,
-                locator_config=locator_config,
-                rng=repeat_rngs[i],
-                experiment=experiments[i],
-                repeat_start_time=repeat_start_times[i],
-            )
+            try:
+                hist_df, finalize_record, stop_reason, run_result = self._run_single_repeat(
+                    rid=rid,
+                    locator_class=locator_class,
+                    locator_config=locator_config,
+                    rng=repeat_rngs[i],
+                    experiment=experiments[i],
+                    repeat_start_time=repeat_start_times[i],
+                )
+            except MemoryError as exc:
+                total_done = start_idx + i
+                if total_done >= _min_runners:
+                    log.error(
+                        "MemoryError after %s/%s repeats for %s/%s/%s — aborting remaining repeats: %s",
+                        total_done,
+                        self.task.repeat_total or self.repeats,
+                        self.generator_name,
+                        self.noise_name,
+                        self.strategy_name,
+                        exc,
+                        exc_info=True,
+                    )
+                    break
+                raise
             stop_reasons[i] = stop_reason
             run_results.append(run_result)
             finalize_records.append(finalize_record)
@@ -693,15 +713,16 @@ class _TaskRunner:
                 "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
             }
         )
+        n_done = len(finalize_records)
         return _RepeatArtifacts(
             history_df=pl.concat(history_dfs) if history_dfs else empty_history,
             finalize_df=pl.from_dicts(finalize_records, infer_schema_length=None)
             if finalize_records
             else pl.DataFrame({"repeat_id": []}),
-            experiments=experiments,
-            repeat_start_times=repeat_start_times,
-            repeat_timestamps=repeat_timestamps,
-            stop_reasons=stop_reasons,
+            experiments=experiments[:n_done],
+            repeat_start_times=repeat_start_times[:n_done],
+            repeat_timestamps=repeat_timestamps[:n_done],
+            stop_reasons=stop_reasons[:n_done],
             run_results=run_results,
         )
 
@@ -983,6 +1004,9 @@ class _TaskRunner:
             sweep_xs.append(float(obs.x))
             sweep_ys.append(float(obs.signal_value))
 
+        # finalize() flushes the deferred belief updates and runs the dip fit;
+        # without it the belief is still the prior.
+        locator.finalize()
         sweep_mode_estimates = belief_mode_estimates(locator.belief)
 
         return {
@@ -1266,6 +1290,11 @@ class _TaskRunner:
         # expected-uniform baseline.
         if hasattr(locator_instance, "_true_signal"):
             locator_instance._true_signal = experiment.true_signal
+        # Sweep locators compute their fit (and flush deferred belief updates)
+        # in finalize(); result() only reports values finalize() produced.
+        finalize_hook = getattr(locator_instance, "finalize", None)
+        if callable(finalize_hook):
+            finalize_hook()
         locator_final_result = locator_instance.result()
 
         history_df = run_result_to_history_df(result, rid, experiment.x_min, experiment.x_max)

@@ -1719,14 +1719,25 @@ function main() {
                 const repeatView = document.getElementById('scan-repeat-view');
                 const summaryView = document.getElementById('scan-summary-view');
                 const noiseMetricsView = document.getElementById('noise-metrics-view');
+                const highlightsView = document.getElementById('highlights-view');
                 if (mode === 'summary') {
                     if (repeatView) repeatView.style.display = 'none';
                     if (summaryView) summaryView.style.display = 'block';
                     if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    if (highlightsView) highlightsView.style.display = 'none';
                     renderRepeatsSummary(scanGeneratorValue, getSelectedScanNoises());
+                } else if (mode === 'highlights') {
+                    if (repeatView) repeatView.style.display = 'none';
+                    if (summaryView) summaryView.style.display = 'none';
+                    if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    if (highlightsView) {
+                        highlightsView.style.display = 'block';
+                        renderHighlights(scanGeneratorValue, getSelectedScanNoises());
+                    }
                 } else if (mode === 'noise') {
                     if (repeatView) repeatView.style.display = 'none';
                     if (summaryView) summaryView.style.display = 'none';
+                    if (highlightsView) highlightsView.style.display = 'none';
                     const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
                     if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
                     if (noiseMetricsView) {
@@ -2042,6 +2053,8 @@ function main() {
         if (activeViewModeBtn) {
             if (activeViewModeBtn.dataset.value === 'summary') {
                 renderRepeatsSummary(scanGeneratorValue, [scanNoiseValue]);
+            } else if (activeViewModeBtn.dataset.value === 'highlights') {
+                renderHighlights(scanGeneratorValue, [scanNoiseValue]);
             } else if (activeViewModeBtn.dataset.value === 'noise') {
                 const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
                 if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
@@ -3837,6 +3850,14 @@ function main() {
     }
 
     // ── Shared selector + card renderer ──────────────────────────────────────
+    function entityCriterion(id) {
+        // Entity ids end in '_freq' (freq converged) or '_conv' (all converged);
+        // no suffix means the full run.
+        if (id.endsWith('_freq')) return 'freq';
+        if (id.endsWith('_conv')) return 'conv';
+        return 'full';
+    }
+
     function buildTwoDropdownSelector(entities, onPairChange, defaultAId, defaultBId) {
         const wrapper = document.createElement('div');
         wrapper.className = 'control-row';
@@ -3851,28 +3872,49 @@ function main() {
         vs.textContent = 'with';
         const selB = document.createElement('select');
         selB.className = 'control-select';
+        const hint = document.createElement('span');
+        hint.style.cssText = 'color:#94a3b8;font-size:0.78em;';
+        hint.textContent = 'Only pairs with the same stopping criterion are comparable.';
         for (const e of entities) {
-            [selA, selB].forEach(sel => {
+            const opt = document.createElement('option');
+            opt.value = e.id;
+            opt.textContent = e.label;
+            selA.appendChild(opt);
+        }
+        // B only ever offers entities with the same stopping criterion as A:
+        // cross-criterion pairs vary both quality and cost at once and answer
+        // neither question, so they are not offered at all.
+        const refreshBOptions = () => {
+            const crit = entityCriterion(selA.value || '');
+            const prev = selB.value;
+            selB.innerHTML = '';
+            const candidates = entities.filter(e => e.id !== selA.value && entityCriterion(e.id) === crit);
+            for (const e of candidates) {
                 const opt = document.createElement('option');
                 opt.value = e.id;
                 opt.textContent = e.label;
-                sel.appendChild(opt);
-            });
-        }
+                selB.appendChild(opt);
+            }
+            if (candidates.some(e => e.id === prev)) selB.value = prev;
+            selB.disabled = candidates.length === 0;
+        };
         if (defaultAId) { const i = entities.findIndex(e => e.id === defaultAId); if (i >= 0) selA.selectedIndex = i; }
-        if (defaultBId) { const i = entities.findIndex(e => e.id === defaultBId); if (i >= 0) selB.selectedIndex = i; }
-        else if (entities.length >= 2) selB.selectedIndex = 1;
+        refreshBOptions();
+        if (defaultBId && entityCriterion(defaultBId) === entityCriterion(selA.value || '') && defaultBId !== selA.value) {
+            selB.value = defaultBId;
+        }
         const notify = () => {
             const eA = entities.find(e => e.id === selA.value);
             const eB = entities.find(e => e.id === selB.value);
             if (eA && eB) onPairChange(eA, eB);
         };
-        selA.addEventListener('change', notify);
+        selA.addEventListener('change', () => { refreshBOptions(); notify(); });
         selB.addEventListener('change', notify);
         wrapper.appendChild(lbl);
         wrapper.appendChild(selA);
         wrapper.appendChild(vs);
         wrapper.appendChild(selB);
+        wrapper.appendChild(hint);
         return { wrapper, notify };
     }
 
@@ -4205,6 +4247,888 @@ function main() {
         });
     }
 
+    // ── Highlights view ───────────────────────────────────────────────────────
+    // Curated quick view answering four questions with only fair comparisons:
+    //   1. Error vs measurements (anytime curves; sweep = practical baseline)
+    //   2. Convergence vs measurements (survival curves; adaptive locators only)
+    //   3. Promise kept (coverage of claimed uncertainty vs Gaussian nominals)
+    //   4. Savings vs signal span (paired, matched-promise) + search/refine split
+    const HL_NOMINAL_1S = 0.683;
+    const HL_NOMINAL_2S = 0.954;
+    const HL_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#14b8a6'];
+    let hlTauMult = 1;
+    let hlLastArgs = null;
+
+    function isSweepBaseline(strategy) {
+        return /sweep/i.test(strategy || '') && !/sobol/i.test(strategy || '');
+    }
+
+    function hlSorted(values) {
+        return values.filter(v => v != null && isFinite(v)).sort((a, b) => a - b);
+    }
+    function hlQuantileSorted(sorted, q) {
+        if (!sorted.length) return null;
+        const pos = (sorted.length - 1) * q;
+        const lo = Math.floor(pos), hi = Math.ceil(pos);
+        return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+    }
+    function hlMedian(values) { return hlQuantileSorted(hlSorted(values), 0.5); }
+
+    // Deterministic PRNG so bootstrap intervals are stable across re-renders.
+    function hlMulberry32(seed) {
+        return function () {
+            seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+            let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+    function hlBootstrapMedianCI(values, B = 300) {
+        const vals = hlSorted(values);
+        if (vals.length < 3) return null;
+        const rand = hlMulberry32(vals.length * 7919 + 17);
+        const medians = new Array(B);
+        const sample = new Array(vals.length);
+        for (let b = 0; b < B; b++) {
+            for (let i = 0; i < vals.length; i++) sample[i] = vals[(rand() * vals.length) | 0];
+            sample.sort((x, y) => x - y);
+            medians[b] = hlQuantileSorted(sample, 0.5);
+        }
+        medians.sort((x, y) => x - y);
+        return [hlQuantileSorted(medians, 0.025), hlQuantileSorted(medians, 0.975)];
+    }
+    function hlWilson(k, n) {
+        if (!n) return null;
+        const z = 1.96, p = k / n, z2 = z * z;
+        const denom = 1 + z2 / n;
+        const center = (p + z2 / (2 * n)) / denom;
+        const half = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / denom;
+        return { p, lo: Math.max(0, center - half), hi: Math.min(1, center + half) };
+    }
+
+    // Series helpers — series is {s: steps[], e: errors[], u: uncertainties[], tau}
+    function hlSeriesValueAt(series, key, step) {
+        const s = series.s, arr = series[key];
+        let v = null;
+        for (let i = 0; i < s.length && s[i] <= step; i++) {
+            if (arr[i] != null) v = arr[i];
+        }
+        return v;
+    }
+    function hlFirstStepBelow(series, key, threshold) {
+        for (let i = 0; i < series.s.length; i++) {
+            const v = series[key][i];
+            if (v != null && v < threshold) return series.s[i];
+        }
+        return null;
+    }
+    function hlFirstSignalStep(series) {
+        // Proxy for first informative observation: the claimed uncertainty
+        // first halves from its initial value.
+        let u0 = null;
+        for (let i = 0; i < series.u.length; i++) {
+            if (series.u[i] != null) { u0 = series.u[i]; break; }
+        }
+        return u0 == null ? null : hlFirstStepBelow(series, 'u', 0.5 * u0);
+    }
+    function hlFSpan(p) {
+        const tp = p.true_params;
+        if (!tp || !tp.params) return null;
+        const lw = tp.params.linewidth;
+        const split = tp.params.split || 0.0;
+        let domainWidth = 5.0e8;
+        const fb = tp.bounds && tp.bounds.frequency;
+        if (fb && fb.length === 2 && fb[1] > fb[0]) domainWidth = fb[1] - fb[0];
+        return (lw && lw > 0) ? Math.max(2.0 * lw, split + lw) / domainWidth : null;
+    }
+    function hlConvStep(p, mult) {
+        if (mult === 1 && p.freq_converged_step != null) return p.freq_converged_step;
+        const ser = p.series;
+        if (ser && ser.u && ser.tau != null) return hlFirstStepBelow(ser, 'u', ser.tau * mult);
+        return mult === 1 ? (p.freq_converged_step ?? null) : null;
+    }
+    function hlRunSteps(p) {
+        return p.measurements ?? (p.series && p.series.s.length ? p.series.s[p.series.s.length - 1] : null);
+    }
+    // Matched quality vs the sweep: first step where the median anytime error
+    // reaches the target (the full sweep's delivered accuracy).
+    function hlCrossStep(seriesRuns, target) {
+        if (!seriesRuns.length || target == null) return null;
+        const maxStep = Math.max(...seriesRuns.map(p => hlRunSteps(p) || 1));
+        for (const step of hlStepGrid(maxStep, 120)) {
+            const med = hlMedian(seriesRuns.map(p => hlSeriesValueAt(p.series, 'e', step)));
+            if (med != null && med <= target) return step;
+        }
+        return null;
+    }
+    // Censoring check for a non-converged run: was the claimed uncertainty
+    // still falling in the last 20% of the budget? If yes, the run was
+    // budget-censored (more steps would help); if flat, it stalled and a
+    // bigger budget is wasted compute.
+    function hlStillImproving(p) {
+        const ser = p.series;
+        if (!ser || !ser.u || !ser.s.length) return null;
+        const lastStep = ser.s[ser.s.length - 1];
+        const uLate = hlSeriesValueAt(ser, 'u', Math.max(1, Math.floor(lastStep * 0.8)));
+        const uFinal = hlSeriesValueAt(ser, 'u', lastStep);
+        if (uLate == null || uFinal == null || uLate <= 0) return null;
+        return uFinal < 0.95 * uLate;
+    }
+    function sortNoiseLabels(noises) {
+        return [...noises].sort((a, b) => {
+            const ga = String(a).match(/Gauss\(([\d.]+)\)/);
+            const gb = String(b).match(/Gauss\(([\d.]+)\)/);
+            if (ga && gb) return parseFloat(ga[1]) - parseFloat(gb[1]);
+            if (ga) return -1;
+            if (gb) return 1;
+            return String(a).localeCompare(String(b));
+        });
+    }
+    function noiseSigma(noise) {
+        const m = String(noise).match(/Gauss\(([\d.]+)\)/);
+        return m ? parseFloat(m[1]) : null;
+    }
+
+    function hlCollect(generator, noises) {
+        const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
+        const byStrategy = new Map();
+        for (const p of scanPlots) {
+            if (p.generator !== generator || !noiseSet.has(p.noise) || !p.strategy) continue;
+            if (p.generator === 'Dummy-Generator') continue;
+            if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
+            byStrategy.get(p.strategy).push(p);
+        }
+        return byStrategy;
+    }
+
+    function hlStepGrid(maxStep, nPoints = 60) {
+        const grid = [];
+        const head = Math.min(10, maxStep);
+        for (let i = 1; i <= head; i++) grid.push(i);
+        if (maxStep > head) {
+            const ratio = maxStep / head;
+            const rem = Math.max(nPoints - head, 8);
+            for (let k = 1; k <= rem; k++) {
+                const v = Math.round(head * Math.pow(ratio, k / rem));
+                if (v > grid[grid.length - 1]) grid.push(v);
+            }
+        }
+        return grid;
+    }
+
+    function hlStratColor(strategies, strategy) {
+        return HL_COLORS[strategies.indexOf(strategy) % HL_COLORS.length];
+    }
+    function hlHexToRgba(hex, alpha) {
+        const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    const hlBaseLayout = () => ({
+        template: 'plotly_white',
+        margin: { t: 30, b: 55, l: 65, r: 15 },
+        hovermode: 'closest',
+        legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'right', x: 1, font: { size: 10 } },
+        xaxis: { gridcolor: '#f1f5f9' },
+        yaxis: { gridcolor: '#f1f5f9' },
+        plot_bgcolor: 'transparent',
+        paper_bgcolor: 'transparent',
+    });
+
+    function renderHighlights(generator, noises) {
+        const view = document.getElementById('highlights-view');
+        if (!view || !generator) return;
+        hlLastArgs = { generator, noises };
+        const byStrategy = hlCollect(generator, noises);
+        const strategies = [...byStrategy.keys()].sort();
+        const sweepCandidates = strategies.filter(isSweepBaseline);
+        const sweepName = sweepCandidates.find(s => /^SimpleSweep/.test(s)) || sweepCandidates[0] || null;
+
+        const warn = document.getElementById('hl-warning');
+        if (warn) {
+            const missing = strategies.filter(s => !byStrategy.get(s).some(p => p.series));
+            warn.innerHTML = '';
+            if (strategies.length === 0) {
+                warn.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No scan data for this generator/noise selection.</div>';
+                ['hl-headline', 'hl-error-curves', 'hl-survival', 'hl-coverage', 'hl-span', 'hl-firstsignal'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.innerHTML = '';
+                });
+                return;
+            }
+            if (missing.length) {
+                warn.innerHTML = `<div style="padding:0.6em 1em;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:0.85em;margin-bottom:0.8em;">No per-step series for: ${missing.join(', ')} — these runs predate the series export. Re-run (or recalculate with <code>--no-cache</code>) to include them in the curve panels.</div>`;
+            }
+        }
+
+        hlSetupControls(byStrategy, strategies, sweepName);
+        ensurePlotly().then(() => {
+            renderHlErrorCurves(byStrategy, strategies, sweepName);
+            renderHlSurvival(byStrategy, strategies, sweepName);
+            renderHlCoverage(byStrategy, strategies);
+            renderHlSpan(byStrategy, strategies, sweepName);
+            renderHlHeadline(byStrategy, strategies, sweepName);
+        });
+    }
+
+    function hlSetupControls(byStrategy, strategies, sweepName) {
+        const tauGroup = document.getElementById('hl-tau-select');
+        if (tauGroup && !tauGroup._hasListener) {
+            tauGroup.addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-value]');
+                if (!btn) return;
+                tauGroup.querySelectorAll('button').forEach(b => {
+                    b.classList.remove('is-active');
+                    b.setAttribute('aria-checked', 'false');
+                    b.tabIndex = -1;
+                });
+                btn.classList.add('is-active');
+                btn.setAttribute('aria-checked', 'true');
+                btn.tabIndex = 0;
+                hlTauMult = parseFloat(btn.dataset.value);
+                if (hlLastArgs) renderHighlights(hlLastArgs.generator, hlLastArgs.noises);
+            });
+            tauGroup._hasListener = true;
+        }
+
+        const baselineSel = document.getElementById('hl-span-baseline');
+        if (baselineSel) {
+            const adaptive = strategies.filter(s => s !== sweepName);
+            const prev = baselineSel.value;
+            baselineSel.innerHTML = '';
+            adaptive.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                baselineSel.appendChild(opt);
+            });
+            if (adaptive.includes(prev)) baselineSel.value = prev;
+            else {
+                const sobol = adaptive.find(s => /sobol/i.test(s) && !/staged/i.test(s)) || adaptive.find(s => /sobol/i.test(s));
+                baselineSel.value = sobol || adaptive[0] || '';
+            }
+            if (!baselineSel._hasListener) {
+                baselineSel.addEventListener('change', () => {
+                    if (hlLastArgs) renderHighlights(hlLastArgs.generator, hlLastArgs.noises);
+                });
+                baselineSel._hasListener = true;
+            }
+        }
+    }
+
+    // Panel 1: anytime error curves (median + IQR band), sweep emphasized.
+    function renderHlErrorCurves(byStrategy, strategies, sweepName) {
+        const div = document.getElementById('hl-error-curves');
+        if (!div) return;
+        let globalMax = 1;
+        for (const s of strategies) {
+            for (const p of byStrategy.get(s)) {
+                const m = hlRunSteps(p);
+                if (m != null && m > globalMax) globalMax = m;
+            }
+        }
+        const grid = hlStepGrid(globalMax);
+        const traces = [];
+        for (const strat of strategies) {
+            const runs = byStrategy.get(strat).filter(p => p.series && p.series.e);
+            if (!runs.length) continue;
+            const color = hlStratColor(strategies, strat);
+            const isSweep = strat === sweepName;
+            const med = [], qLo = [], qHi = [], xs = [];
+            for (const step of grid) {
+                const vals = hlSorted(runs.map(p => hlSeriesValueAt(p.series, 'e', step)));
+                if (!vals.length) continue;
+                xs.push(step);
+                med.push(hlQuantileSorted(vals, 0.5));
+                qLo.push(hlQuantileSorted(vals, 0.25));
+                qHi.push(hlQuantileSorted(vals, 0.75));
+            }
+            if (!xs.length) continue;
+            traces.push({
+                x: xs, y: qHi, mode: 'lines', line: { width: 0 },
+                hoverinfo: 'skip', showlegend: false, legendgroup: strat,
+            });
+            traces.push({
+                x: xs, y: qLo, mode: 'lines', line: { width: 0 }, fill: 'tonexty',
+                fillcolor: hlHexToRgba(color, 0.13), hoverinfo: 'skip', showlegend: false, legendgroup: strat,
+            });
+            traces.push({
+                x: xs, y: med, mode: 'lines', legendgroup: strat,
+                name: `${_shortStratLabel(strat)}${isSweep ? ' (baseline)' : ''} (n=${runs.length})`,
+                line: { color, width: isSweep ? 4 : 2, dash: isSweep ? 'solid' : undefined },
+                hovertemplate: 'step %{x}<br>median err %{y:.4g} Hz<extra>' + _shortStratLabel(strat) + '</extra>',
+            });
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Median |frequency error| (Hz)', font: { size: 11 } }, type: 'log' };
+        // Sweep-quality target: the practical accuracy delivered by the full sweep.
+        const sweepRuns = sweepName ? byStrategy.get(sweepName) : [];
+        const sweepFinalMed = sweepRuns && sweepRuns.length ? hlMedian(sweepRuns.map(p => p.abs_err_x)) : null;
+        if (sweepFinalMed != null && sweepFinalMed > 0) {
+            // On log axes Plotly shapes take raw data values, annotations log10
+            layout.shapes = [{
+                type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y',
+                y0: sweepFinalMed, y1: sweepFinalMed,
+                line: { color: '#64748b', width: 1.5, dash: 'dash' },
+            }];
+            layout.annotations = [{
+                xref: 'paper', x: 0.99, yref: 'y', y: Math.log10(sweepFinalMed),
+                text: 'sweep quality', showarrow: false, font: { size: 9, color: '#64748b' },
+                yanchor: 'bottom', xanchor: 'right',
+            }];
+        }
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+    }
+
+    // Panel 2: convergence survival curves at the (scaled) shared threshold.
+    function renderHlSurvival(byStrategy, strategies, sweepName) {
+        const div = document.getElementById('hl-survival');
+        if (!div) return;
+        // Sweep excluded: its convergence step reflects dip position in the
+        // fixed scan order, not method efficiency.
+        const adaptive = strategies.filter(s => s !== sweepName);
+        let maxX = 1;
+        const traces = [];
+        const censorNotes = [];
+        for (const strat of adaptive) {
+            const runs = byStrategy.get(strat);
+            const n = runs.length;
+            if (!n) continue;
+            const steps = hlSorted(runs.map(p => hlConvStep(p, hlTauMult)));
+            const runMax = Math.max(...runs.map(p => hlRunSteps(p) || 1), 1);
+            if (runMax > maxX) maxX = runMax;
+            const xs = [0], ys = [0];
+            steps.forEach((s, i) => { xs.push(s); ys.push((i + 1) / n); });
+            xs.push(runMax); ys.push(steps.length / n);
+            traces.push({
+                x: xs, y: ys, mode: 'lines', line: { shape: 'hv', color: hlStratColor(strategies, strat), width: 2 },
+                name: `${_shortStratLabel(strat)} (n=${n})`,
+                hovertemplate: 'step %{x}<br>%{y:.0%} of repeats converged<extra>' + _shortStratLabel(strat) + '</extra>',
+            });
+            // Budget-censoring diagnostic: among non-converged runs, how many
+            // were still improving at the budget? High → raise max steps;
+            // zero → the threshold is unreachable at this noise level.
+            const nonConv = runs.filter(p => hlConvStep(p, hlTauMult) == null);
+            if (nonConv.length) {
+                const improving = nonConv.filter(p => hlStillImproving(p) === true).length;
+                censorNotes.push(`${_shortStratLabel(strat)}: ${improving}/${nonConv.length} non-converged still improving at budget${improving ? ' → budget-censored' : ' → stalled'}`);
+            }
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } } };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Fraction of repeats converged', font: { size: 11 } }, range: [0, 1.04], tickformat: '.0%' };
+        if (censorNotes.length) {
+            layout.margin = { ...layout.margin, b: 55 + 14 * censorNotes.length };
+            layout.annotations = censorNotes.map((note, i) => ({
+                xref: 'paper', x: 0, yref: 'paper', y: -0.18 - 0.07 * i,
+                xanchor: 'left', yanchor: 'top', showarrow: false,
+                font: { size: 9.5, color: '#64748b' }, text: note,
+            }));
+        }
+        if (!traces.length) {
+            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No adaptive locators in this selection.</p>';
+            return;
+        }
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+    }
+
+    // Panel 3: coverage of the claimed final uncertainty vs Gaussian nominals.
+    function renderHlCoverage(byStrategy, strategies) {
+        const div = document.getElementById('hl-coverage');
+        if (!div) return;
+        const labels = [], c1 = [], c1err = [], c2 = [], c2err = [], colors1 = [], colors2 = [], hover1 = [], hover2 = [];
+        for (const strat of strategies) {
+            const pairs = byStrategy.get(strat).filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
+            const n = pairs.length;
+            if (!n) continue;
+            const k1 = pairs.filter(p => p.abs_err_x <= p.uncert).length;
+            const k2 = pairs.filter(p => p.abs_err_x <= 2 * p.uncert).length;
+            const w1 = hlWilson(k1, n), w2 = hlWilson(k2, n);
+            labels.push(_shortStratLabel(strat));
+            c1.push(w1.p); c2.push(w2.p);
+            c1err.push({ up: w1.hi - w1.p, down: w1.p - w1.lo });
+            c2err.push({ up: w2.hi - w2.p, down: w2.p - w2.lo });
+            // Red only when the whole Wilson interval sits below nominal —
+            // i.e. the promise is credibly broken, not just noisy.
+            colors1.push(w1.hi < HL_NOMINAL_1S ? '#dc2626' : '#60a5fa');
+            colors2.push(w2.hi < HL_NOMINAL_2S ? '#dc2626' : '#1d4ed8');
+            hover1.push(`${k1}/${n} repeats with |err| ≤ 1σ`);
+            hover2.push(`${k2}/${n} repeats with |err| ≤ 2σ`);
+        }
+        if (!labels.length) {
+            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No (error, uncertainty) pairs available.</p>';
+            return;
+        }
+        const traces = [
+            {
+                x: labels, y: c1, type: 'bar', name: '|err| ≤ 1σ claimed',
+                marker: { color: colors1 }, text: hover1, textposition: 'none',
+                hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
+                error_y: { type: 'data', array: c1err.map(e => e.up), arrayminus: c1err.map(e => e.down), color: '#475569', thickness: 1 },
+            },
+            {
+                x: labels, y: c2, type: 'bar', name: '|err| ≤ 2σ claimed',
+                marker: { color: colors2 }, text: hover2, textposition: 'none',
+                hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
+                error_y: { type: 'data', array: c2err.map(e => e.up), arrayminus: c2err.map(e => e.down), color: '#475569', thickness: 1 },
+            },
+        ];
+        const layout = hlBaseLayout();
+        layout.barmode = 'group';
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Coverage (fraction of repeats)', font: { size: 11 } }, range: [0, 1.08], tickformat: '.0%' };
+        layout.shapes = [
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_1S, y1: HL_NOMINAL_1S, line: { color: '#60a5fa', width: 1, dash: 'dash' } },
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_2S, y1: HL_NOMINAL_2S, line: { color: '#1d4ed8', width: 1, dash: 'dash' } },
+        ];
+        layout.annotations = [
+            { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_1S, text: '68% nominal', showarrow: false, font: { size: 9, color: '#60a5fa' }, yanchor: 'bottom', xanchor: 'left' },
+            { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_2S, text: '95% nominal', showarrow: false, font: { size: 9, color: '#1d4ed8' }, yanchor: 'bottom', xanchor: 'left' },
+        ];
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+    }
+
+    // Panel 4: paired matched-promise savings vs f_span + search/refine split.
+    function renderHlSpan(byStrategy, strategies, sweepName) {
+        const div = document.getElementById('hl-span');
+        const decompDiv = document.getElementById('hl-firstsignal');
+        if (!div) return;
+        const baselineSel = document.getElementById('hl-span-baseline');
+        const baseline = baselineSel ? baselineSel.value : null;
+        const adaptive = strategies.filter(s => s !== sweepName);
+
+        const traces = [];
+        const annotations = [];
+        if (baseline && byStrategy.has(baseline)) {
+            const baseByRepeat = new Map();
+            for (const p of byStrategy.get(baseline)) {
+                const step = hlConvStep(p, hlTauMult);
+                if (p.repeat != null && step != null) baseByRepeat.set(p.repeat, { step, fSpan: hlFSpan(p) });
+            }
+            let annotY = 1.0;
+            for (const strat of adaptive) {
+                if (strat === baseline) continue;
+                const xs = [], ys = [];
+                for (const p of byStrategy.get(strat)) {
+                    const base = baseByRepeat.get(p.repeat);
+                    const step = hlConvStep(p, hlTauMult);
+                    if (!base || step == null || base.fSpan == null) continue;
+                    xs.push(base.fSpan);
+                    ys.push(base.step - step);
+                }
+                if (!xs.length) continue;
+                const color = hlStratColor(strategies, strat);
+                traces.push({
+                    x: xs, y: ys, mode: 'markers', type: 'scatter',
+                    name: `${_shortStratLabel(strat)} (n=${xs.length})`,
+                    marker: { color: hlHexToRgba(color, 0.75), size: 8, line: { color, width: 1 } },
+                    hovertemplate: 'f_span %{x:.3e}<br>steps saved %{y}<extra>' + _shortStratLabel(strat) + '</extra>',
+                });
+                const medD = hlMedian(ys);
+                const ci = hlBootstrapMedianCI(ys);
+                const won = ys.filter(v => v > 0).length;
+                annotations.push({
+                    xref: 'paper', x: 0.01, yref: 'paper', y: annotY, xanchor: 'left', yanchor: 'top', showarrow: false,
+                    font: { size: 10, color },
+                    text: `${_shortStratLabel(strat)}: median Δ ${medD != null ? medD.toFixed(0) : '?'}${ci ? ` [${ci[0].toFixed(0)}, ${ci[1].toFixed(0)}]` : ''} steps · won ${won}/${ys.length}`,
+                });
+                annotY -= 0.07;
+            }
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: `Steps saved vs ${baseline ? _shortStratLabel(baseline) : 'baseline'} (paired)`, font: { size: 11 } }, zeroline: true, zerolinecolor: '#cbd5e1' };
+        layout.annotations = annotations;
+        if (!traces.length) {
+            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">Needs two adaptive locators with shared repeats that both converged at the same threshold.</p>';
+        } else {
+            Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+        }
+
+        if (!decompDiv) return;
+        // Search vs refine: if search ~ 1/f_span and refine is flat, slim
+        // signals lose their advantage purely to blind search.
+        const dTraces = [];
+        for (const strat of adaptive) {
+            const sx = [], sy = [], rx = [], ry = [];
+            for (const p of byStrategy.get(strat)) {
+                if (!p.series) continue;
+                const fSpan = hlFSpan(p);
+                if (fSpan == null) continue;
+                const first = hlFirstSignalStep(p.series);
+                const conv = hlConvStep(p, hlTauMult);
+                if (first != null) { sx.push(fSpan); sy.push(first); }
+                if (first != null && conv != null && conv >= first) { rx.push(fSpan); ry.push(Math.max(conv - first, 1)); }
+            }
+            const color = hlStratColor(strategies, strat);
+            if (sx.length) {
+                dTraces.push({
+                    x: sx, y: sy, mode: 'markers', name: `${_shortStratLabel(strat)} search`,
+                    marker: { color: hlHexToRgba(color, 0.8), size: 7, symbol: 'circle' },
+                    hovertemplate: 'f_span %{x:.3e}<br>steps to first signal %{y}<extra></extra>',
+                });
+            }
+            if (rx.length) {
+                dTraces.push({
+                    x: rx, y: ry, mode: 'markers', name: `${_shortStratLabel(strat)} refine`,
+                    marker: { color: hlHexToRgba(color, 0.45), size: 7, symbol: 'diamond' },
+                    hovertemplate: 'f_span %{x:.3e}<br>steps from first signal to convergence %{y}<extra></extra>',
+                });
+            }
+        }
+        const dLayout = hlBaseLayout();
+        dLayout.xaxis = { ...dLayout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
+        dLayout.yaxis = { ...dLayout.yaxis, title: { text: 'Steps', font: { size: 11 } }, type: 'log' };
+        if (!dTraces.length) {
+            decompDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">Needs per-step series data (re-run to generate).</p>';
+        } else {
+            Plotly.react(decompDiv, dTraces, dLayout, { displayModeBar: false, responsive: true });
+        }
+    }
+
+    // Headline: practical one-liner per adaptive locator, anchored to the sweep.
+    function renderHlHeadline(byStrategy, strategies, sweepName) {
+        const container = document.getElementById('hl-headline');
+        if (!container) return;
+        container.innerHTML = '';
+        const card = (html, accent) => {
+            const d = document.createElement('div');
+            d.style.cssText = `flex:1 1 280px;background:#fff;border:1px solid #e2e8f0;border-left:4px solid ${accent};border-radius:8px;padding:0.7em 1em;font-size:0.88em;color:#334155;`;
+            d.innerHTML = html;
+            container.appendChild(d);
+        };
+        if (!sweepName) {
+            card('No full-sweep baseline in this selection — run a SimpleSweep to anchor the practical comparison.', '#94a3b8');
+            return;
+        }
+        const sweepRuns = byStrategy.get(sweepName);
+        const sweepFinalMed = hlMedian(sweepRuns.map(p => p.abs_err_x));
+        const sweepMeasMed = hlMedian(sweepRuns.map(p => hlRunSteps(p)));
+        if (sweepFinalMed == null || sweepMeasMed == null) {
+            card('Sweep baseline present but missing final error/measurement data.', '#94a3b8');
+            return;
+        }
+        for (const strat of strategies) {
+            if (strat === sweepName) continue;
+            const runs = byStrategy.get(strat);
+            const seriesRuns = runs.filter(p => p.series && p.series.e);
+            const color = hlStratColor(strategies, strat);
+            const crossStep = hlCrossStep(seriesRuns, sweepFinalMed);
+            const covPairs = runs.filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
+            const w = covPairs.length ? hlWilson(covPairs.filter(p => p.abs_err_x <= p.uncert).length, covPairs.length) : null;
+            const covText = w ? `promise kept ${(w.p * 100).toFixed(0)}% [${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}%] (n=${covPairs.length})` : 'coverage unavailable';
+            let main;
+            if (!seriesRuns.length) {
+                main = 'no per-step series — re-run to compute the sweep-quality crossing';
+            } else if (crossStep == null) {
+                main = `does not reach sweep-quality accuracy (median ${formatHz(sweepFinalMed)}) within its budget`;
+            } else {
+                const factor = sweepMeasMed / crossStep;
+                main = `sweep-quality accuracy in <strong>~${crossStep}</strong> of the sweep's ${Math.round(sweepMeasMed)} measurements (<strong>${factor.toFixed(1)}× fewer</strong>)`;
+            }
+            card(`<strong style="color:${color};">${_shortStratLabel(strat)}</strong> — ${main} · ${covText}`, color);
+        }
+    }
+
+    function formatHz(v) {
+        if (v == null || !isFinite(v)) return '?';
+        if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + ' MHz';
+        if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + ' kHz';
+        return v.toFixed(1) + ' Hz';
+    }
+
+    // ── Dashboard tab ─────────────────────────────────────────────────────────
+    // Aggregates the per-cell stories across ALL generators and noise levels,
+    // so nothing interesting stays hidden behind the Scan view dropdowns.
+
+    function dashCell(generator, noise) {
+        const byStrategy = new Map();
+        for (const p of scanPlots) {
+            if (p.generator !== generator || p.noise !== noise || !p.strategy) continue;
+            if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
+            byStrategy.get(p.strategy).push(p);
+        }
+        return byStrategy;
+    }
+
+    function dashPanelDiv(parent, title, tip, height) {
+        const box = document.createElement('div');
+        box.style.cssText = 'flex:1 1 31%; min-width:380px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;';
+        const h = document.createElement('h4');
+        h.style.cssText = 'margin:0 0 0.4em 10px; font-size:0.9em; color:#334155;';
+        h.innerHTML = `${title} <span tabindex="0" class="help-icon-visible" title="${tip.replace(/"/g, '&quot;')}">?</span>`;
+        box.appendChild(h);
+        const plot = document.createElement('div');
+        plot.style.cssText = `height:${height}px; width:100%;`;
+        box.appendChild(plot);
+        parent.appendChild(box);
+        return plot;
+    }
+
+    const dashHeatLayout = (xLabels, yLabels) => ({
+        template: 'plotly_white',
+        margin: { t: 10, b: 70, l: 110, r: 15 },
+        xaxis: { type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: xLabels },
+        yaxis: { type: 'category', tickfont: { size: 10 }, categoryorder: 'array', categoryarray: yLabels },
+        plot_bgcolor: 'transparent',
+        paper_bgcolor: 'transparent',
+    });
+
+    function renderDashboard() {
+        const content = document.getElementById('dashboard-content');
+        if (!content) return;
+        content.innerHTML = '';
+
+        const generators = [...new Set(scanPlots.map(p => p.generator))]
+            .filter(g => g && g !== 'Dummy-Generator').sort();
+        if (!generators.length) {
+            content.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No scan data yet.</div>';
+            return;
+        }
+
+        // Baseline selector for the pooled paired-savings scatter
+        const baselineSel = document.getElementById('dash-span-baseline');
+        const allStrategies = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const adaptiveAll = allStrategies.filter(s => !isSweepBaseline(s));
+        if (baselineSel) {
+            const prev = baselineSel.value;
+            baselineSel.innerHTML = '';
+            adaptiveAll.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                baselineSel.appendChild(opt);
+            });
+            if (adaptiveAll.includes(prev)) baselineSel.value = prev;
+            else {
+                const sobol = adaptiveAll.find(s => /sobol/i.test(s) && !/staged/i.test(s)) || adaptiveAll.find(s => /sobol/i.test(s));
+                baselineSel.value = sobol || adaptiveAll[0] || '';
+            }
+            if (!baselineSel._hasListener) {
+                baselineSel.addEventListener('change', renderDashboard);
+                baselineSel._hasListener = true;
+            }
+        }
+
+        ensurePlotly().then(() => {
+            for (const gen of generators) renderDashGeneratorSection(content, gen);
+            renderDashPooledSpan(baselineSel ? baselineSel.value : null);
+        });
+    }
+
+    function renderDashGeneratorSection(content, generator) {
+        const genPlots = scanPlots.filter(p => p.generator === generator);
+        const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
+        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const sweepCandidates = strategies.filter(isSweepBaseline);
+        const sweepName = sweepCandidates.find(s => /^SimpleSweep/.test(s)) || sweepCandidates[0] || null;
+        const adaptive = strategies.filter(s => s !== sweepName);
+
+        const section = document.createElement('div');
+        section.style.cssText = 'margin-top:1em;';
+        const h = document.createElement('h3');
+        h.textContent = generator;
+        section.appendChild(h);
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; flex-wrap:wrap; gap:1.2em;';
+        section.appendChild(row);
+        content.appendChild(section);
+
+        // Precompute per (strategy, noise) cell stats
+        const cellStats = new Map(); // `${strat}|${noise}` -> stats
+        for (const noise of noises) {
+            const cell = dashCell(generator, noise);
+            const sweepRuns = sweepName ? (cell.get(sweepName) || []) : [];
+            const sweepFinalMed = sweepRuns.length ? hlMedian(sweepRuns.map(p => p.abs_err_x)) : null;
+            const sweepMeasMed = sweepRuns.length ? hlMedian(sweepRuns.map(p => hlRunSteps(p))) : null;
+            for (const strat of strategies) {
+                const runs = cell.get(strat) || [];
+                if (!runs.length) continue;
+                const seriesRuns = runs.filter(p => p.series && p.series.e);
+                const cross = strat === sweepName ? null : hlCrossStep(seriesRuns, sweepFinalMed);
+                const covPairs = runs.filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
+                const k1 = covPairs.filter(p => p.abs_err_x <= p.uncert).length;
+                const conv = runs.filter(p => p.freq_converged_step != null).length;
+                const nonConv = runs.filter(p => p.freq_converged_step == null);
+                const improving = nonConv.filter(p => hlStillImproving(p) === true).length;
+                cellStats.set(`${strat}|${noise}`, {
+                    n: runs.length,
+                    advantage: cross != null && sweepMeasMed ? sweepMeasMed / cross : null,
+                    crossStep: cross,
+                    sweepMeasMed,
+                    coverage1: covPairs.length ? k1 / covPairs.length : null,
+                    covK: k1, covN: covPairs.length,
+                    convRate: conv / runs.length,
+                    nonConv: nonConv.length, improving,
+                });
+            }
+        }
+
+        // Panel A: measurement advantage (k×) at sweep quality
+        if (sweepName && adaptive.length) {
+            const plotDiv = dashPanelDiv(row,
+                'Advantage at sweep quality (k× fewer measurements)',
+                'How many times fewer measurements than the full sweep each adaptive locator needs to reach the accuracy the sweep delivers. Blank = never reaches it (or no per-step series). NOTE: depends on the sweep baseline being recorded correctly.',
+                Math.max(180, 60 + 34 * adaptive.length));
+            const z = [], text = [];
+            for (const strat of adaptive) {
+                const zr = [], tr = [];
+                for (const noise of noises) {
+                    const st = cellStats.get(`${strat}|${noise}`);
+                    const k = st ? st.advantage : null;
+                    zr.push(k != null ? Math.log10(k) : null);
+                    tr.push(st && k != null
+                        ? `${k.toFixed(1)}× (${st.crossStep} vs ${Math.round(st.sweepMeasMed)}, n=${st.n})`
+                        : (st ? 'no crossing' : ''));
+                }
+                z.push(zr); text.push(tr);
+            }
+            const layout = dashHeatLayout(noises, adaptive.map(_shortStratLabel));
+            const maxZ = Math.max(...z.flat().filter(v => v != null), 0);
+            layout.annotations = [];
+            adaptive.forEach((strat, i) => noises.forEach((noise, j) => {
+                const st = cellStats.get(`${strat}|${noise}`);
+                if (st && st.advantage != null) {
+                    layout.annotations.push({
+                        x: noise, y: _shortStratLabel(strat), text: `${st.advantage.toFixed(1)}×`,
+                        showarrow: false,
+                        font: { size: 10, color: z[i][j] > 0.55 * maxZ ? '#ffffff' : '#0f172a' },
+                    });
+                }
+            }));
+            Plotly.react(plotDiv, [{
+                type: 'heatmap', x: noises, y: adaptive.map(_shortStratLabel), z, text,
+                colorscale: 'Blues', showscale: false, hovertemplate: '%{y} @ %{x}<br>%{text}<extra></extra>',
+                hoverongaps: false,
+            }], layout, { displayModeBar: false, responsive: true });
+        }
+
+        // Panel B: coverage heatmap (promise kept, |err| ≤ 1σ)
+        {
+            const plotDiv = dashPanelDiv(row,
+                'Promise kept (|err| ≤ 1σ claimed)',
+                'Fraction of repeats where the true error was within the claimed 1σ uncertainty, per locator and noise level. Nominal for a calibrated Gaussian posterior is 68% — red cells are credibly overconfident.',
+                Math.max(180, 60 + 34 * strategies.length));
+            const z = [], text = [];
+            for (const strat of strategies) {
+                const zr = [], tr = [];
+                for (const noise of noises) {
+                    const st = cellStats.get(`${strat}|${noise}`);
+                    zr.push(st && st.coverage1 != null ? st.coverage1 : null);
+                    tr.push(st && st.coverage1 != null ? `${st.covK}/${st.covN} within 1σ` : '');
+                }
+                z.push(zr); text.push(tr);
+            }
+            const layout = dashHeatLayout(noises, strategies.map(_shortStratLabel));
+            layout.annotations = [];
+            strategies.forEach((strat) => noises.forEach((noise) => {
+                const st = cellStats.get(`${strat}|${noise}`);
+                if (st && st.coverage1 != null) {
+                    layout.annotations.push({
+                        x: noise, y: _shortStratLabel(strat), text: `${Math.round(st.coverage1 * 100)}%`,
+                        showarrow: false, font: { size: 10, color: st.coverage1 < 0.4 ? '#fff' : '#0f172a' },
+                    });
+                }
+            }));
+            Plotly.react(plotDiv, [{
+                type: 'heatmap', x: noises, y: strategies.map(_shortStratLabel), z, text,
+                zmin: 0, zmax: 1,
+                colorscale: [[0, '#dc2626'], [0.5, '#fbbf24'], [0.68, '#a3e635'], [1, '#16a34a']],
+                showscale: false, hovertemplate: '%{y} @ %{x}<br>%{text}<extra></extra>',
+                hoverongaps: false,
+            }], layout, { displayModeBar: false, responsive: true });
+        }
+
+        // Panel C: convergence within budget vs noise, with censoring diagnosis
+        if (adaptive.length) {
+            const plotDiv = dashPanelDiv(row,
+                'Converged within budget vs noise',
+                'Fraction of repeats whose claimed frequency uncertainty crossed the threshold before the run budget. Hover shows whether the non-converged runs were still improving (budget-censored → raise max steps) or stalled (threshold unreachable at this noise — a finding, not a config bug). Sweep excluded.',
+                340);
+            const traces = adaptive.map((strat, i) => {
+                const ys = [], texts = [];
+                for (const noise of noises) {
+                    const st = cellStats.get(`${strat}|${noise}`);
+                    ys.push(st ? st.convRate : null);
+                    texts.push(st
+                        ? (st.nonConv
+                            ? `${st.improving}/${st.nonConv} non-converged still improving${st.improving ? ' → budget-censored' : ' → stalled'} (n=${st.n})`
+                            : `all converged (n=${st.n})`)
+                        : '');
+                }
+                return {
+                    x: noises, y: ys, mode: 'lines+markers', name: _shortStratLabel(strat),
+                    line: { color: HL_COLORS[i % HL_COLORS.length], width: 2 }, marker: { size: 6 },
+                    text: texts, hovertemplate: '%{y:.0%} converged<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                };
+            });
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: noises };
+            layout.yaxis = { ...layout.yaxis, range: [0, 1.04], tickformat: '.0%', title: { text: 'Converged within budget', font: { size: 11 } } };
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+    }
+
+    function renderDashPooledSpan(baseline) {
+        const plotDiv = document.getElementById('dash-span-plot');
+        if (!plotDiv) return;
+        if (!baseline) {
+            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No adaptive baseline available.</p>';
+            return;
+        }
+        const generators = [...new Set(scanPlots.map(p => p.generator))]
+            .filter(g => g && g !== 'Dummy-Generator').sort();
+        const strategies = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const traces = [];
+        let shownScale = false;
+        for (const strat of strategies) {
+            if (strat === baseline || isSweepBaseline(strat)) continue;
+            const xs = [], ys = [], colors = [], texts = [];
+            for (const gen of generators) {
+                const noises = [...new Set(scanPlots.filter(p => p.generator === gen).map(p => p.noise))].filter(Boolean);
+                for (const noise of noises) {
+                    const cell = dashCell(gen, noise);
+                    const baseRuns = cell.get(baseline) || [];
+                    const stratRuns = cell.get(strat) || [];
+                    if (!baseRuns.length || !stratRuns.length) continue;
+                    const baseByRepeat = new Map();
+                    for (const p of baseRuns) {
+                        const step = hlConvStep(p, 1);
+                        if (p.repeat != null && step != null) baseByRepeat.set(p.repeat, { step, fSpan: hlFSpan(p) });
+                    }
+                    for (const p of stratRuns) {
+                        const base = baseByRepeat.get(p.repeat);
+                        const step = hlConvStep(p, 1);
+                        if (!base || step == null || base.fSpan == null) continue;
+                        xs.push(base.fSpan);
+                        ys.push(base.step - step);
+                        colors.push(noiseSigma(noise) ?? 0);
+                        texts.push(`${gen} · ${noise} · repeat ${p.repeat}`);
+                    }
+                }
+            }
+            if (!xs.length) continue;
+            traces.push({
+                x: xs, y: ys, mode: 'markers', type: 'scatter', name: `${_shortStratLabel(strat)} (n=${xs.length})`,
+                marker: {
+                    size: 7, color: colors, colorscale: 'Viridis', showscale: !shownScale,
+                    colorbar: !shownScale ? { title: { text: 'noise σ', font: { size: 10 } }, thickness: 12, len: 0.7 } : undefined,
+                    line: { color: '#334155', width: 0.5 },
+                },
+                text: texts,
+                hovertemplate: 'f_span %{x:.3e}<br>steps saved %{y}<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+            });
+            shownScale = true;
+        }
+        if (!traces.length) {
+            plotDiv.innerHTML = `<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No paired matched-promise data vs ${baseline} — needs shared repeats where both locators converged.</p>`;
+            return;
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: `Steps saved vs ${_shortStratLabel(baseline)} (paired)`, font: { size: 11 } }, zeroline: true, zerolinecolor: '#cbd5e1' };
+        Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+    }
 
     // Stopping criteria selector
     const stoppingCriteriaGroup = document.getElementById('scan-stopping-criteria');
@@ -4332,6 +5256,10 @@ function main() {
         const pairs = [];
         strategies.forEach(strat => {
             convergences.forEach(conv => {
+                // A sweep's "convergence step" reflects where the dip sits in
+                // the fixed scan order, not efficiency — only its full run is
+                // a meaningful entity.
+                if (conv !== 'full' && isSweepBaseline(strat)) return;
                 pairs.push({ strategy: strat, convergence: conv });
             });
         });
@@ -4392,28 +5320,41 @@ function main() {
         const measTraces = [];
         const savingsTraces = [];
 
-        // 1. Precalculate baseline measurements at each noise level for savings
-        const baselineMeasByNoise = {};
+        const measValueOf = (p, conv) => {
+            if (conv === 'freq_converged') return p.freq_converged_step ?? p.steps_to_fb ?? p.measurements;
+            if (conv === 'all_converged') return p.all_converged_step ?? p.final_steps ?? p.measurements;
+            return p.measurements;
+        };
+        const finite = v => v !== null && v !== undefined && !isNaN(v);
+
+        // 1. Precalculate baseline measurements per noise level for savings:
+        //    per-repeat map (for paired differences) plus the median fallback.
+        const baselineMeasByNoise = {};        // noise -> median
+        const baselineMeasByNoiseRepeat = {};  // noise -> Map(repeat -> value)
         if (baselineStrat && baselineConv) {
             uniqueNoises.forEach(noise => {
                 const repPlots = genPlots.filter(p => p.noise === noise && p.strategy === baselineStrat);
-                if (repPlots.length > 0) {
-                    const vals = repPlots.map(p => {
-                        if (baselineConv === 'freq_converged') return p.freq_converged_step ?? p.steps_to_fb ?? p.measurements;
-                        if (baselineConv === 'all_converged') return p.all_converged_step ?? p.final_steps ?? p.measurements;
-                        return p.measurements;
-                    }).filter(v => v !== null && v !== undefined && !isNaN(v));
-                    if (vals.length > 0) {
-                        baselineMeasByNoise[noise] = vals.reduce((s, x) => s + x, 0) / vals.length;
+                const byRepeat = new Map();
+                const vals = [];
+                repPlots.forEach(p => {
+                    const v = measValueOf(p, baselineConv);
+                    if (finite(v)) {
+                        vals.push(v);
+                        if (p.repeat != null) byRepeat.set(p.repeat, v);
                     }
+                });
+                if (vals.length > 0) {
+                    baselineMeasByNoise[noise] = hlMedian(vals);
+                    baselineMeasByNoiseRepeat[noise] = byRepeat;
                 }
             });
         }
 
-        // 2. Build Selected Pairs
+        // 2. Build Selected Pairs (sweep entities only make sense at 'full')
         const selectedPairs = [];
         window._selectedNoiseLocators.forEach(strat => {
             window._selectedNoiseConvergences.forEach(conv => {
+                if (conv !== 'full' && isSweepBaseline(strat)) return;
                 selectedPairs.push({ strategy: strat, convergence: conv });
             });
         });
@@ -4436,70 +5377,82 @@ function main() {
             const traceName = `${pair.strategy} (${convLabel})`;
 
             const xVals = [];
-            const errY = [];
-            const measY = [];
-            const savY = [];
+            const errY = [], errLo = [], errHi = [], errN = [];
+            const measY = [], measLo = [], measHi = [], measN = [];
+            const savY = [], savN = [];
 
             uniqueNoises.forEach(noise => {
                 const repPlots = genPlots.filter(p => p.noise === noise && p.strategy === pair.strategy);
                 if (repPlots.length > 0) {
                     xVals.push(noise);
 
-                    // Calculate Error mean
-                    const errVals = repPlots.map(p => {
+                    // Error: median + IQR across repeats (means are dominated
+                    // by the occasional catastrophic miss).
+                    const errVals = hlSorted(repPlots.map(p => {
                         if (pair.convergence === 'freq_converged') {
                             return p.err_fb_at_milestone ?? p.final_err_fb ?? p.abs_err_x;
                         }
                         return p.abs_err_x;
-                    }).filter(v => v !== null && v !== undefined && !isNaN(v));
-                    if (errVals.length > 0) {
-                        errY.push(errVals.reduce((s, x) => s + x, 0) / errVals.length);
-                    } else {
-                        errY.push(null);
-                    }
+                    }));
+                    errY.push(errVals.length ? hlQuantileSorted(errVals, 0.5) : null);
+                    errLo.push(errVals.length ? hlQuantileSorted(errVals, 0.25) : null);
+                    errHi.push(errVals.length ? hlQuantileSorted(errVals, 0.75) : null);
+                    errN.push(errVals.length);
 
-                    // Calculate Measurements mean
-                    const measVals = repPlots.map(p => {
-                        if (pair.convergence === 'freq_converged') return p.freq_converged_step ?? p.steps_to_fb ?? p.measurements;
-                        if (pair.convergence === 'all_converged') return p.all_converged_step ?? p.final_steps ?? p.measurements;
-                        return p.measurements;
-                    }).filter(v => v !== null && v !== undefined && !isNaN(v));
-                    let avgMeas = null;
-                    if (measVals.length > 0) {
-                        avgMeas = measVals.reduce((s, x) => s + x, 0) / measVals.length;
-                        measY.push(avgMeas);
-                    } else {
-                        measY.push(null);
-                    }
+                    // Measurements: median + IQR
+                    const measByRepeat = new Map();
+                    const measVals = [];
+                    repPlots.forEach(p => {
+                        const v = measValueOf(p, pair.convergence);
+                        if (finite(v)) {
+                            measVals.push(v);
+                            if (p.repeat != null) measByRepeat.set(p.repeat, v);
+                        }
+                    });
+                    const measSorted = hlSorted(measVals);
+                    const medMeas = measSorted.length ? hlQuantileSorted(measSorted, 0.5) : null;
+                    measY.push(medMeas);
+                    measLo.push(measSorted.length ? hlQuantileSorted(measSorted, 0.25) : null);
+                    measHi.push(measSorted.length ? hlQuantileSorted(measSorted, 0.75) : null);
+                    measN.push(measSorted.length);
 
-                    // Calculate Savings
-                    const baseMeas = baselineMeasByNoise[noise];
-                    if (baseMeas !== undefined && avgMeas !== null) {
-                        savY.push(baseMeas - avgMeas);
-                    } else {
-                        savY.push(null);
+                    // Savings: median of per-repeat paired differences when the
+                    // repeats overlap (same ground truth), unpaired medians as
+                    // fallback.
+                    const baseByRepeat = baselineMeasByNoiseRepeat[noise];
+                    let sav = null, savCount = 0;
+                    if (baseByRepeat) {
+                        const diffs = [];
+                        measByRepeat.forEach((v, rep) => {
+                            const b = baseByRepeat.get(rep);
+                            if (b !== undefined) diffs.push(b - v);
+                        });
+                        if (diffs.length) {
+                            sav = hlMedian(diffs);
+                            savCount = diffs.length;
+                        }
                     }
+                    if (sav === null && baselineMeasByNoise[noise] !== undefined && medMeas !== null) {
+                        sav = baselineMeasByNoise[noise] - medMeas;
+                    }
+                    savY.push(sav);
+                    savN.push(savCount);
                 }
             });
 
             if (xVals.length > 0) {
-                errorTraces.push({
-                    x: xVals,
-                    y: errY,
-                    mode: 'lines+markers',
-                    name: traceName,
-                    line: { color: color, width: 2 },
-                    marker: { size: 6 }
-                });
-
-                measTraces.push({
-                    x: xVals,
-                    y: measY,
-                    mode: 'lines+markers',
-                    name: traceName,
-                    line: { color: color, width: 2 },
-                    marker: { size: 6 }
-                });
+                const bandPair = (ys, los, his, nArr, unitFmt) => ([
+                    { x: xVals, y: his, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: traceName },
+                    { x: xVals, y: los, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '22', hoverinfo: 'skip', showlegend: false, legendgroup: traceName },
+                    {
+                        x: xVals, y: ys, mode: 'lines+markers', name: traceName, legendgroup: traceName,
+                        line: { color: color, width: 2 }, marker: { size: 6 },
+                        text: nArr.map(n => `n=${n}`),
+                        hovertemplate: `%{y:${unitFmt}}<br>median (IQR band), %{text}<extra>${traceName}</extra>`,
+                    },
+                ]);
+                errorTraces.push(...bandPair(errY, errLo, errHi, errN, '.4g'));
+                measTraces.push(...bandPair(measY, measLo, measHi, measN, '.1f'));
 
                 // Do not add savings trace for the baseline itself (always 0)
                 if (`${pair.strategy}::${pair.convergence}` !== baselineVal) {
@@ -4509,7 +5462,9 @@ function main() {
                         mode: 'lines+markers',
                         name: traceName,
                         line: { color: color, width: 2 },
-                        marker: { size: 6 }
+                        marker: { size: 6 },
+                        text: savN.map(n => n > 0 ? `paired, n=${n}` : 'unpaired fallback'),
+                        hovertemplate: '%{y:.1f} steps saved<br>%{text}<extra>' + traceName + '</extra>',
                     });
                 }
             }
@@ -4560,18 +5515,18 @@ function main() {
 
         const errLayout = Object.assign({}, commonLayout, {
             title: `Summary: ${generator} (Error)`,
-            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Average Absolute Error (Hz)' })
+            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Median Absolute Error (Hz), IQR band' })
         });
 
         const measLayout = Object.assign({}, commonLayout, {
             title: `Summary: ${generator} (Measurements)`,
-            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Average Steps to Converge' })
+            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Median Steps, IQR band' })
         });
 
         const baselineLabel = baselineStrat ? `${baselineStrat} (${baselineConv === 'full' ? 'Full' : (baselineConv === 'freq_converged' ? 'Freq. converged' : 'Converged')})` : 'Baseline';
         const savLayout = Object.assign({}, commonLayout, {
             title: `Measurement Savings vs ${baselineLabel}`,
-            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Absolute Steps Saved' })
+            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Median Steps Saved (paired per repeat)' })
         });
 
         try {
@@ -4601,23 +5556,37 @@ function main() {
                 const repeatView = document.getElementById('scan-repeat-view');
                 const summaryView = document.getElementById('scan-summary-view');
                 const noiseMetricsView = document.getElementById('noise-metrics-view');
+                const highlightsView = document.getElementById('highlights-view');
                 const gen = controlValue(scanGenerator);
 
                 if (mode === 'single') {
                     repeatView.style.display = 'block';
                     summaryView.style.display = 'none';
                     if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    if (highlightsView) highlightsView.style.display = 'none';
                     // Restore per-plot stopping criteria visibility
                     updateStoppingCriteriaVisibility(currentPlot);
+                } else if (mode === 'highlights') {
+                    repeatView.style.display = 'none';
+                    summaryView.style.display = 'none';
+                    if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    const stoppingCriteriaRowHl = document.getElementById('stopping-criteria-row');
+                    if (stoppingCriteriaRowHl) stoppingCriteriaRowHl.style.display = 'none';
+                    if (highlightsView) {
+                        highlightsView.style.display = 'block';
+                        renderHighlights(gen, isNoiseRangeMode() ? getSelectedScanNoises() : getEffectiveScanNoise());
+                    }
                 } else if (mode === 'summary') {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'block';
                     if (noiseMetricsView) noiseMetricsView.hidden = true;
+                    if (highlightsView) highlightsView.style.display = 'none';
                     updateStoppingCriteriaVisibility(currentPlot);
                     renderRepeatsSummary(gen, isNoiseRangeMode() ? getSelectedScanNoises() : getEffectiveScanNoise());
                 } else if (mode === 'noise') {
                     repeatView.style.display = 'none';
                     summaryView.style.display = 'none';
+                    if (highlightsView) highlightsView.style.display = 'none';
                     const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
                     if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
                     if (noiseMetricsView) {
@@ -4830,6 +5799,16 @@ function main() {
             button.setAttribute('aria-controls', 'scan-section');
             button.setAttribute('aria-selected', 'false');
             tabBar.appendChild(button);
+
+            const dashButton = document.createElement('button');
+            dashButton.className = 'tab-button';
+            dashButton.textContent = 'Dashboard';
+            dashButton.dataset.tab = 'dashboard-section';
+            dashButton.setAttribute('role', 'tab');
+            dashButton.setAttribute('id', 'tab-dashboard');
+            dashButton.setAttribute('aria-controls', 'dashboard-section');
+            dashButton.setAttribute('aria-selected', 'false');
+            tabBar.appendChild(dashButton);
         }
 
         // Noise Sweep top-level tab removed (moved under Scan View -> Noise Metrics)
@@ -4876,6 +5855,7 @@ function main() {
                     panel.classList.add('is-hidden');
                 }
             });
+            if (target.dataset.tab === 'dashboard-section') renderDashboard();
             // Trigger a window resize event so responsive Plotly charts adjust to their visible containers
             setTimeout(() => {
                 window.dispatchEvent(new Event('resize'));
