@@ -30,10 +30,11 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
+    # Initialize locator with max_candidates = 100 to verify the cap is applied
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
+        max_candidates=100,
     )
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it

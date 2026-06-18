@@ -59,6 +59,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         noise_std: float = 0.02,
         candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
+        max_candidates: int | None = None,
     ) -> None:
         super().__init__(
             belief,
@@ -71,6 +72,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self.candidate_step_hz: float = (
             float(candidate_step_hz) if candidate_step_hz is not None else NVISION_SMC_CANDIDATE_STEP_HZ
         )
+        self.max_candidates: int | None = max_candidates
 
         # We handle resampling manually to check convergence at the right moment
         if hasattr(self.belief, "auto_resample"):
@@ -264,6 +266,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
         # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
         candidates = self._thin_candidates_by_step(candidates)
+
+        # Apply hard cap on candidate count to bound EIG computation cost.
+        if self.max_candidates is not None and len(candidates) > self.max_candidates:
+            indices = np.round(np.linspace(0, len(candidates) - 1, self.max_candidates)).astype(int)
+            candidates = candidates[indices]
 
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
         return float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])

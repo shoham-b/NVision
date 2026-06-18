@@ -381,6 +381,40 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if new_hi <= new_lo:
             return
 
+        # --- Observation-based narrowing augmentation ---------------------
+        # When observations clearly reveal where the dip is (even before the
+        # posterior has focused), constrain the window further using the extent
+        # of observed low-signal regions.  This is especially useful on early
+        # steps when particles are still spread uniformly but the data already
+        # shows a clear dip.
+        if self._obs_count >= 5:
+            obs_xs_unit, obs_ys_arr = self.observation_arrays()
+            lo_orig_x, hi_orig_x = self._original_physical_x_bounds
+            obs_xs_phys = lo_orig_x + obs_xs_unit * (hi_orig_x - lo_orig_x)
+
+            bg_est = float(np.percentile(obs_ys_arr, 85))
+            min_sig = float(np.min(obs_ys_arr))
+            dip_depth = bg_est - min_sig
+
+            if dip_depth > 0.05:
+                threshold = bg_est - 0.5 * dip_depth
+                low_mask = obs_ys_arr < threshold
+                if int(np.sum(low_mask)) >= 2:
+                    low_xs = obs_xs_phys[low_mask]
+                    dip_lo = float(np.min(low_xs))
+                    dip_hi = float(np.max(low_xs))
+                    dip_span = max(dip_hi - dip_lo, 1e6)
+                    buf = dip_span  # buffer equal to the observed dip span
+                    obs_new_lo = max(dip_lo - buf, lo_orig)
+                    obs_new_hi = min(dip_hi + buf, hi_orig)
+                    if obs_new_hi > obs_new_lo:
+                        # Intersect: keep the tighter of particle-based vs obs-based window
+                        new_lo = max(new_lo, obs_new_lo)
+                        new_hi = min(new_hi, obs_new_hi)
+
+        if new_hi <= new_lo:
+            return
+
         # Only apply if the window actually shrinks by at least 5%.
         min_narrowing_fraction = 0.05
         if (cur_width - (new_hi - new_lo)) / cur_width < min_narrowing_fraction:
