@@ -325,6 +325,39 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             self._generate_epoch_candidates()
             return
 
+        # --- Observation-Based Shoulder Narrowing --------------------------
+        # When enough observations are available and they reveal a clear dip,
+        # narrow the scan window to span the observed dip region even before
+        # the particle distribution has converged. This is gated by observation
+        # count (not step count) so it triggers independently of the delay guard.
+        _min_obs = int(os.getenv("NVISION_MIN_OBS_FOR_SHOULDER_NARROWING", "10"))
+        if self._obs_count >= _min_obs:
+            obs_xs_unit, obs_ys = self.observation_arrays()
+            lo_orig_obs, hi_orig_obs = self._original_physical_x_bounds
+            obs_xs_phys = lo_orig_obs + obs_xs_unit * (hi_orig_obs - lo_orig_obs)
+            order = np.argsort(obs_xs_phys)
+            obs_xs_s = obs_xs_phys[order]
+            obs_ys_s = obs_ys[order]
+            background_est = float(np.percentile(obs_ys_s, 80))
+            min_signal = float(obs_ys_s.min())
+            signal_range = background_est - min_signal
+            if signal_range >= 1e-4:
+                threshold = background_est - 0.5 * signal_range
+                in_dip = obs_ys_s < threshold
+                if np.any(in_dip):
+                    dip_idxs = np.where(in_dip)[0]
+                    shoulder_lo = float(obs_xs_s[dip_idxs[0]])
+                    shoulder_hi = float(obs_xs_s[dip_idxs[-1]])
+                    lo_orig_c, hi_orig_c = self._original_physical_x_bounds
+                    obs_new_lo = max(shoulder_lo, lo_orig_c)
+                    obs_new_hi = min(shoulder_hi, hi_orig_c)
+                    if obs_new_hi > obs_new_lo and (obs_new_hi - obs_new_lo) < cur_width * 0.95:
+                        self.narrow_scan_parameter_physical_bounds(scan_param, obs_new_lo, obs_new_hi)
+                        self._cached_cov = None
+                        self._cov_step = -1
+                        self._generate_epoch_candidates()
+                        return
+
         # --- Narrowing Delay Safeguard -------------------------------------
         # Delay narrowing until we have completed a minimum number of global
         # measurements (default 8 steps) to resolve multi-modal hyperfine peak
