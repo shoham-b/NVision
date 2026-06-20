@@ -47,10 +47,12 @@ class RepeatsRepository:
                 "data": [{"results": json.dumps(p)}],
             }
 
-        self._store.save_df_batch({
-            key: _df_payload(payload),
-            key + ":meta": _df_payload(meta_payload),
-        })
+        self._store.save_df_batch(
+            {
+                key: _df_payload(payload),
+                key + ":meta": _df_payload(meta_payload),
+            }
+        )
 
     def load_repeat(self, combo_key: str, repeat_idx: int) -> RepeatResult | None:
         """Load a single repeat by index.
