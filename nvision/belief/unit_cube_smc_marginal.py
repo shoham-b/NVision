@@ -378,6 +378,40 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         lo_orig, hi_orig = self._original_physical_x_bounds
         new_lo = max(new_lo, lo_orig)
         new_hi = min(new_hi, hi_orig)
+
+        # --- Observation-driven shoulder narrowing ---
+        # When observations are available, detect dip regions from measured signal
+        # minima and use them to constrain the window, complementing the particle
+        # estimate above.  This allows narrowing even when particles are still
+        # spread uniformly (e.g. early steps with flat prior but clear dip data).
+        if self._obs_count >= 5:
+            obs_xs_unit = self._obs_x_arr[: self._obs_count]
+            obs_ys = self._obs_y_arr[: self._obs_count]
+            # Convert from stored unit-space x to physical (using original bounds so
+            # the conversion is stable regardless of prior focus-window narrowing).
+            obs_xs_phys = lo_orig + obs_xs_unit * (hi_orig - lo_orig)
+
+            background_level = float(np.percentile(obs_ys, 75))
+            min_signal = float(np.min(obs_ys))
+            dip_depth = background_level - min_signal
+
+            if dip_depth > 0.1 * max(abs(background_level), 1e-9):
+                # Mid-point threshold: points below this are "in the dip"
+                mid_signal = 0.5 * (background_level + min_signal)
+                dip_mask = obs_ys < mid_signal
+
+                if int(np.sum(dip_mask)) >= 2:
+                    dip_xs = np.sort(obs_xs_phys[dip_mask])
+                    # Span from the leftmost to rightmost dip point
+                    obs_buffer = max(cover_factor * omega_phys, 5.0e6)
+                    obs_new_lo = max(float(dip_xs[0]) - obs_buffer, lo_orig)
+                    obs_new_hi = min(float(dip_xs[-1]) + obs_buffer, hi_orig)
+
+                    if obs_new_hi > obs_new_lo:
+                        # Take the intersection of particle- and observation-based bounds.
+                        new_lo = max(new_lo, obs_new_lo)
+                        new_hi = min(new_hi, obs_new_hi)
+
         if new_hi <= new_lo:
             return
 
