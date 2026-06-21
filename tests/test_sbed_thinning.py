@@ -53,9 +53,10 @@ def test_sbed_candidate_thinning():
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 100
+    # The thinned candidates length should be at most 200
+    # (20 MHz range / 100 kHz step = 200 candidates after thinning from ~12 k)
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 100
+    assert len(passed_candidates[0]) <= 200
     print(f"Thinned candidates count: {len(passed_candidates[0])}")
 
 
