@@ -67,6 +67,8 @@ def test_focus_window_automatic_narrowing_during_resampling():
     smc._particles[:, f_idx] = np.clip(smc._particles[:, f_idx], 0.0, 1.0)
 
     old_lo, old_hi = smc.physical_param_bounds["frequency"]
+    # Simulate having completed enough steps to bypass the narrowing delay guard.
+    smc._step_count = 8
     smc._resample()
 
     new_lo, new_hi = smc.physical_param_bounds["frequency"]

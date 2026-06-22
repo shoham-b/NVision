@@ -255,6 +255,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
         return self._eig_acquire()
 
+    # Maximum number of candidates passed to the EIG search.  Bounds the
+    # O(candidates × particles) cost of select_max_information_gain.
+    MAX_EIG_CANDIDATES: int = 100
+
     def _eig_acquire(self) -> float:
         """Maximize EIG over the belief's slope-targeted candidate grid."""
         # Retrieve candidates directly from the belief (slope-targeted epoch grid)
@@ -264,6 +268,12 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
         # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
         candidates = self._thin_candidates_by_step(candidates)
+
+        # Hard cap: uniformly subsample to at most MAX_EIG_CANDIDATES so the
+        # O(candidates × particles) EIG matrix stays tractable.
+        if len(candidates) > self.MAX_EIG_CANDIDATES:
+            idx = np.round(np.linspace(0, len(candidates) - 1, self.MAX_EIG_CANDIDATES)).astype(int)
+            candidates = candidates[idx]
 
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
         return float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])

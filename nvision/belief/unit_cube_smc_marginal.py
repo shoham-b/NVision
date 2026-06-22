@@ -325,6 +325,62 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             self._generate_epoch_candidates()
             return
 
+        # --- Shoulder-based dip span detection (observation-driven) ----------
+        # Use empirically measured dip observations to determine the window span.
+        # This path bypasses the step-count delay because it is grounded in actual
+        # data — not in a potentially-still-uniform posterior.
+        dip_frequencies = []
+        obs_list = getattr(self, "_observations", [])
+        if obs_list:
+            ys_all = np.array([o.signal_value for o in obs_list])
+            if len(ys_all) >= 3:
+                p30 = float(np.percentile(ys_all, 30))
+                noise_pts = ys_all[ys_all >= p30]
+                bg_est = float(np.median(noise_pts))
+                noise_std_est = float(np.std(noise_pts))
+            else:
+                bg_est = float(np.max(ys_all))
+                noise_std_est = 0.02
+            dip_threshold = bg_est - max(3.0 * noise_std_est, 0.015 * bg_est)
+            for o in obs_list:
+                if o.signal_value < dip_threshold:
+                    dip_frequencies.append(o.x)
+
+        if dip_frequencies:
+            obs_sorted = sorted(obs_list, key=lambda o: o.x)
+            xs = np.array([o.x for o in obs_sorted])
+            ys = np.array([o.signal_value for o in obs_sorted])
+            shoulder_threshold = 0.5 * (dip_threshold + bg_est)
+            in_dip = ys < dip_threshold
+            if np.any(in_dip):
+                dip_indices = np.where(in_dip)[0]
+                left_idx = int(dip_indices[0])
+                left_shoulder_x = xs[0]
+                for k in range(left_idx - 1, -1, -1):
+                    if ys[k] >= shoulder_threshold:
+                        left_shoulder_x = xs[k]
+                        break
+                right_idx = int(dip_indices[-1])
+                right_shoulder_x = xs[-1]
+                for k in range(right_idx + 1, len(xs)):
+                    if ys[k] >= shoulder_threshold:
+                        right_shoulder_x = xs[k]
+                        break
+                guard = omega_phys
+                lo_orig, hi_orig = self._original_physical_x_bounds
+                left_shoulder_phys = lo_orig + left_shoulder_x * (hi_orig - lo_orig)
+                right_shoulder_phys = lo_orig + right_shoulder_x * (hi_orig - lo_orig)
+                new_lo = max(left_shoulder_phys - guard, lo_orig)
+                new_hi = min(right_shoulder_phys + guard, hi_orig)
+                if new_hi > new_lo:
+                    min_narrowing_fraction = 0.05
+                    if (cur_width - (new_hi - new_lo)) / cur_width >= min_narrowing_fraction:
+                        self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
+                        self._cached_cov = None
+                        self._cov_step = -1
+                        self._generate_epoch_candidates()
+                        return
+
         # --- Narrowing Delay Safeguard -------------------------------------
         # Delay narrowing until we have completed a minimum number of global
         # measurements (default 8 steps) to resolve multi-modal hyperfine peak
