@@ -59,6 +59,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         noise_std: float = 0.02,
         candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
+        max_eig_candidates: int = 100,
     ) -> None:
         super().__init__(
             belief,
@@ -71,6 +72,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self.candidate_step_hz: float = (
             float(candidate_step_hz) if candidate_step_hz is not None else NVISION_SMC_CANDIDATE_STEP_HZ
         )
+        self.max_eig_candidates: int = int(max_eig_candidates)
 
         # We handle resampling manually to check convergence at the right moment
         if hasattr(self.belief, "auto_resample"):
@@ -88,6 +90,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         noise_std: float | None = None,
         candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
+        max_eig_candidates: int = 100,
         **grid_config,
     ):
         if builder is None:
@@ -101,6 +104,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             noise_std=noise_std,
             candidate_step_hz=candidate_step_hz,
             convergence_patience_steps=convergence_patience_steps,
+            max_eig_candidates=max_eig_candidates,
         )
 
     def _generate_candidates(self, num_candidates: int | None = None) -> np.ndarray:
@@ -264,6 +268,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
         # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
         candidates = self._thin_candidates_by_step(candidates)
+
+        # Apply hard cap: subsample uniformly when step-thinning leaves too many.
+        if len(candidates) > self.max_eig_candidates:
+            idx = np.round(np.linspace(0, len(candidates) - 1, self.max_eig_candidates)).astype(int)
+            candidates = candidates[idx]
 
         best = self.belief.select_max_information_gain(candidates, 1, noise_std=self._noise_std)
         return float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])

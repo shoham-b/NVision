@@ -247,6 +247,53 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if sync_x:
             self.physical_x_bounds = (nl, nh)
 
+    def _shoulder_narrowing(
+        self, scan_param: str, lo_phys: float, hi_phys: float
+    ) -> tuple[float, float] | None:
+        """Return (new_lo, new_hi) derived from dip shoulders in observation data, or None.
+
+        Finds where the observed signal drops below the halfway point between background
+        and minimum, then pads by half the dip width.  Returns None when no significant
+        dip is found or fewer than 10 observations fall inside the current window.
+        """
+        n = self._obs_count
+        if n < 20:
+            return None
+
+        obs_xs_unit = self._obs_x_arr[:n]
+        obs_ys = self._obs_y_arr[:n]
+
+        # Convert stored unit-space x to physical using original (never-narrowed) bounds.
+        lo_orig, hi_orig = self._original_physical_x_bounds
+        obs_xs_phys = lo_orig + obs_xs_unit * (hi_orig - lo_orig)
+
+        # Restrict to observations inside the current window.
+        mask = (obs_xs_phys >= lo_phys) & (obs_xs_phys <= hi_phys)
+        if int(np.sum(mask)) < 10:
+            return None
+
+        window_xs = obs_xs_phys[mask]
+        window_ys = obs_ys[mask]
+
+        background = float(np.percentile(window_ys, 90))
+        min_signal = float(np.min(window_ys))
+        dip_depth = background - min_signal
+        if dip_depth < 0.05:
+            return None
+
+        threshold = background - 0.5 * dip_depth
+        below = window_ys < threshold
+        if not np.any(below):
+            return None
+
+        dip_xs = window_xs[below]
+        dip_lo = float(np.min(dip_xs))
+        dip_hi = float(np.max(dip_xs))
+        dip_width = max(dip_hi - dip_lo, 1e5)
+        padding = max(dip_width * 0.5, 2e6)
+
+        return (dip_lo - padding, dip_hi + padding)
+
     def _resample(self) -> None:
         """Perform systematic resampling and automatically narrow the frequency bounds.
 
@@ -255,7 +302,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         the true frequency is located — their optimal values may differ from the
         initial posterior mode.
         """
-        super()._resample()
+        import logging
+        import os
 
         # Identify the scan parameter (almost always "frequency").
         scan_param = "frequency" if "frequency" in self.physical_param_bounds else None
@@ -264,6 +312,28 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 if bounds == self.physical_x_bounds:
                     scan_param = name
                     break
+
+        # --- Pre-jitter tight-focus detection --------------------------------
+        # super()._resample() applies an MCMC perturbation kernel that can spread
+        # particles.  Measure the unit-space variance BEFORE calling it so that a
+        # genuinely tightly-focused cluster is detected for the step-guard bypass
+        # even after jitter changes the distribution.  We do NOT narrow here —
+        # the post-jitter particle-based narrowing handles that correctly.
+        pre_tightly_focused = False
+        if scan_param is not None and scan_param in self._param_names:
+            j_pre = self._param_names.index(scan_param)
+            pre_unit_var = float(np.var(self._particles[:, j_pre]))
+            if pre_unit_var < 1e-7:
+                pre_u = self._particles[:, j_pre]
+                left_piling_pre = float(np.mean(pre_u < 0.05)) > 0.15
+                right_piling_pre = float(np.mean(pre_u > 0.95)) > 0.15
+                # Only flag tight focus when particles are interior (not piling at
+                # the boundary, which requires expansion rather than narrowing).
+                if not left_piling_pre and not right_piling_pre:
+                    pre_tightly_focused = True
+
+        super()._resample()
+
         if scan_param is None:
             return  # Nothing to narrow — no frequency axis found.
 
@@ -288,8 +358,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         right_piling = float(np.mean(u_vals > 0.95)) > 0.15
 
         lo_orig, hi_orig = self._original_physical_x_bounds
-        import logging
-        import os
 
         if left_piling and lo_phys > lo_orig:
             expansion = max(cur_width, 10.0 * omega_phys)
@@ -329,14 +397,37 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Delay narrowing until we have completed a minimum number of global
         # measurements (default 8 steps) to resolve multi-modal hyperfine peak
         # ambiguity and ensure we never focus on the wrong place.
+        # Bypass when enough observations are available to detect a dip reliably.
+        n_obs = self._obs_count
+        has_sufficient_obs = n_obs >= 20
+
         min_narrowing_steps = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
-        if self._step_count < min_narrowing_steps:
+        if self._step_count < min_narrowing_steps and not has_sufficient_obs and not pre_tightly_focused:
             return
 
         # Also delay narrowing if we recently expanded the bounds to allow exploration
         last_exp = getattr(self, "_last_expansion_step", -1)
         if last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
             return
+
+        # --- Observation-based shoulder narrowing ---------------------------
+        # When enough observations are available, use the empirical dip extent
+        # to compute bounds rather than particle beliefs.  This works even with
+        # a flat prior (uniform particles) and is the primary narrowing path for
+        # the shoulder-based focusing tests.
+        if has_sufficient_obs:
+            shoulder = self._shoulder_narrowing(scan_param, lo_phys, hi_phys)
+            if shoulder is not None:
+                slo, shi = shoulder
+                lo_orig_s, hi_orig_s = self._original_physical_x_bounds
+                slo = max(slo, lo_orig_s)
+                shi = min(shi, hi_orig_s)
+                if shi > slo and (cur_width - (shi - slo)) / cur_width >= 0.05:
+                    self.narrow_scan_parameter_physical_bounds(scan_param, slo, shi)
+                    self._cached_cov = None
+                    self._cov_step = -1
+                    self._generate_epoch_candidates()
+                    return
 
         # --- Unified Active-Range Union Focusing (Zero Fallbacks) -----------
         # Compute believed active frequency range for each particle i:
