@@ -145,14 +145,16 @@ class RepeatsRepository:
         return results
 
     def count_saved(self, combo_key: str, max_expected: int = 1000) -> int:
-        """Count how many sequential repeats are already saved."""
-        count = 0
-        for i in range(max_expected):
-            self.make_repeat_key(combo_key, i)
-            # Efficient check: load_df is relatively fast, but we only need to know if it exists.
-            # ShardedSqliteCache doesn't have an 'exists' method, so we load.
-            if self.load_repeat(combo_key, i) is not None:
-                count += 1
-            else:
-                break
-        return count
+        """Count how many sequential repeats are already saved.
+
+        Uses a single batch index query instead of N sequential loads — O(1) round-trips
+        regardless of repeat count, no JSON parsing.
+        """
+        if max_expected == 0:
+            return 0
+        keys = [self.make_repeat_key(combo_key, i) for i in range(max_expected)]
+        found = self._store.keys_exist_batch(keys)
+        for i, key in enumerate(keys):
+            if key not in found:
+                return i
+        return max_expected

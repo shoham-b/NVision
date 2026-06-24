@@ -727,26 +727,29 @@ class _TaskRunner:
         )
 
     def _background_save_repeat(self, rid: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]) -> None:
-        """Worker function for background saving."""
-        try:
-            # save_repeat and append_cached_repeats do not accept 'repeats' keyword
-            combo_kw = {k: v for k, v in self._combination_cache_kwargs().items() if k != "repeats"}
-            self.cache.save_repeat(
-                **combo_kw,
-                repeat_offset=0,
-                repeat_idx=rid,
-                entries=entries,
-                main_result_row=main_result_row,
-            )
-            # Update pointer
-            self.cache.append_cached_repeats(
-                **combo_kw,
-                repeat_offset=0,
-                new_results=[],
-                start_idx=rid + 1,
-            )
-        except Exception:
-            log.error("Failed to save repeat %s to cache in background", rid, exc_info=True)
+        """Worker function for background saving, with exponential-backoff retry on transient errors."""
+        combo_kw = {k: v for k, v in self._combination_cache_kwargs().items() if k != "repeats"}
+        for attempt in range(5):
+            try:
+                self.cache.save_repeat(
+                    **combo_kw,
+                    repeat_offset=0,
+                    repeat_idx=rid,
+                    entries=entries,
+                    main_result_row=main_result_row,
+                )
+                self.cache.append_cached_repeats(
+                    **combo_kw,
+                    repeat_offset=0,
+                    new_results=[],
+                    start_idx=rid + 1,
+                )
+                return
+            except Exception:
+                if attempt < 4:
+                    time.sleep(0.1 * (2 ** attempt))
+                else:
+                    log.error("Failed to save repeat %s to cache after 5 attempts", rid, exc_info=True)
 
     def _build_repeat_outputs(self, artifacts: _RepeatArtifacts, start_idx: int = 0) -> TaskResults:
         """Generate metrics/plots and optional per-repeat cache entries."""
@@ -930,7 +933,7 @@ class _TaskRunner:
             # Record metrics at the exact moment of frequency convergence
             if sobol_freq_steps is None and locator.freq_converged_step is not None:
                 sobol_freq_steps = locator.freq_converged_step
-                sobol_freq_uncert_at_conv = float(locator.belief.uncertainty().get("frequency", math.nan))
+                sobol_freq_uncert_at_conv = float(locator.belief.reported_uncertainty().get("frequency", math.nan))
                 est_f = float(locator.belief.estimates().get("frequency", math.nan))
                 sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
 
@@ -939,7 +942,7 @@ class _TaskRunner:
         # Capture FINAL belief state after the sweep terminates (separate from the
         # "at frequency convergence" snapshot above). Without these the UI has no
         # way to compare Sobol's final uncertainty/error against another locator's.
-        sobol_final_uncert = float(locator.belief.uncertainty().get("frequency", math.nan))
+        sobol_final_uncert = float(locator.belief.reported_uncertainty().get("frequency", math.nan))
         est_f_final = float(locator.belief.estimates().get("frequency", math.nan))
         sobol_final_err = abs(est_f_final - true_freq) if not math.isnan(est_f_final) else math.nan
 

@@ -606,7 +606,7 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     def _unc_of(belief) -> dict[str, float]:
         out = unc_memo.get(id(belief))
         if out is None:
-            out = unc_memo[id(belief)] = belief.uncertainty().as_dict()
+            out = unc_memo[id(belief)] = belief.reported_uncertainty().as_dict()
         return out
 
     def _est_of(belief) -> dict[str, float]:
@@ -1001,13 +1001,13 @@ def get_or_run_sobol_baseline(
         # Record metrics at the exact moment of frequency convergence
         if sobol_freq_steps is None and locator.freq_converged_step is not None:
             sobol_freq_steps = locator.freq_converged_step
-            sobol_freq_uncert_at_conv = float(locator.belief.uncertainty().get("frequency", math.nan))
+            sobol_freq_uncert_at_conv = float(locator.belief.reported_uncertainty().get("frequency", math.nan))
             est_f = float(locator.belief.estimates().get("frequency", math.nan))
             sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
 
     sobol_mode_estimates = belief_mode_estimates(locator.belief)
 
-    sobol_final_uncert = float(locator.belief.uncertainty().get("frequency", math.nan))
+    sobol_final_uncert = float(locator.belief.reported_uncertainty().get("frequency", math.nan))
     est_f_final = float(locator.belief.estimates().get("frequency", math.nan))
     sobol_final_err = abs(est_f_final - true_freq) if not math.isnan(est_f_final) else math.nan
 

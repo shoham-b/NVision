@@ -38,6 +38,17 @@ NVISION_SMC_TEMPERING_FACTOR: float = float(os.getenv("NVISION_SMC_TEMPERING_FAC
 # Subsampling keeps the matrix small (< 4 MB) with negligible quality loss.
 NVISION_SMC_EIG_PARTICLES: int = int(os.getenv("NVISION_SMC_EIG_PARTICLES", "500"))
 
+# EIG prediction-matrix cache: between resamples the particles and candidate
+# grid are frozen, so the prediction surface M[candidate, particle] is invariant
+# and only the weights change. When enabled, M (and M^2) are built once per
+# epoch and each subsequent step computes EIG as two matrix-vector products
+# against the current weights — no model re-evaluation per step.
+NVISION_SMC_EIG_CACHE: bool = os.getenv("NVISION_SMC_EIG_CACHE", "1") not in ("0", "false", "False")
+
+# Minimum physical spacing (Hz) for the epoch candidate grid. Controls the
+# finest resolution the slope-targeting grid can achieve regardless of sigma.
+# Set to 0 (or a very small value) via env to let the grid refine with sigma.
+NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ: float = float(os.getenv("NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ", "10000.0"))
 
 _EIG_CHUNK_SIZE: int = 64
 
@@ -242,6 +253,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _obs_y_arr: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_count: int = field(init=False, repr=False, default=0)
     _scratch_logw: np.ndarray | None = field(init=False, repr=False, default=None)
+    # EIG prediction-matrix cache (see NVISION_SMC_EIG_CACHE). _eig_epoch is
+    # bumped whenever the candidate grid / particles change so the cache is
+    # rebuilt; _eig_cache holds (key, M, M2, sub_idx) for the current epoch.
+    _eig_epoch: int = field(init=False, repr=False, default=0)
+    _eig_cache: tuple | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
         self._use_rao_blackwell_noise = False
@@ -721,6 +737,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine
         dips. Resolution and search windows scale with posterior uncertainty.
         """
+        # New epoch: candidates and particles have changed, so the EIG
+        # prediction-matrix cache (built from both) must be rebuilt.
+        self._eig_epoch += 1
+        self._eig_cache = None
         self._dip_centers = []
         # Use unit-space estimates and uncertainties to avoid physical-unit mismatch in subclasses
         estimates = self._estimates_unit()
@@ -783,8 +803,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 3. Compute effective uncertainty and resolution in physical space
         sigma_eff_phys = np.sqrt(sigma_f_phys**2 + sigma_omega_phys**2)
 
-        # 10 kHz minimum step in physical space
-        min_step_physical = 10000.0
+        min_step_physical = NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ
         delta_d_phys = max(sigma_eff_phys / 30.0, min_step_physical)
         half_width_phys = 3 * sigma_eff_phys
 
@@ -1249,31 +1268,34 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         n_total = self._particles.shape[0]
         n_eig = NVISION_SMC_EIG_PARTICLES
 
-        if n_total > n_eig:
-            # Stratified resampling — O(n_eig) vs O(n_total) for np.random.choice.
-            # Divides [0,1] into n_eig equal strata; each stratum gets its own
-            # independent U(0, 1/n_eig) draw, so there is no fixed grid pattern
-            # across steps while coverage of the weight distribution is still
-            # guaranteed (one sample per stratum).
-            w_norm = self._weights / (self._weights.sum() + 1e-30)
-            cdf = np.cumsum(w_norm).astype(np.float32)
-            u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
-            positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
-            idx = _systematic_resample_indices(cdf, positions)
-            # Gather straight into (d, n_eig) layout: the fancy index on the
-            # transposed view produces C-contiguous rows, so the fused kernel
-            # gets contiguous per-parameter arrays without a second copy.
-            part_t = self._particles.T[:, idx]  # (d, n_eig) — one copy
-            w_sub = w_norm[idx].astype(np.float32)
-            w_sub /= w_sub.sum()
+        if NVISION_SMC_EIG_CACHE:
+            var_pred = self._eig_variance_cached(candidates, n_total, n_eig)
         else:
-            # _particles is F-order, so .T is already C-contiguous: zero-copy.
-            part_t = np.ascontiguousarray(self._particles.T)  # (d, n_total)
-            w_sub = self._weights  # already float32, normalized
+            if n_total > n_eig:
+                # Stratified resampling — O(n_eig) vs O(n_total) for np.random.choice.
+                # Divides [0,1] into n_eig equal strata; each stratum gets its own
+                # independent U(0, 1/n_eig) draw, so there is no fixed grid pattern
+                # across steps while coverage of the weight distribution is still
+                # guaranteed (one sample per stratum).
+                w_norm = self._weights / (self._weights.sum() + 1e-30)
+                cdf = np.cumsum(w_norm).astype(np.float32)
+                u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
+                positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
+                idx = _systematic_resample_indices(cdf, positions)
+                # Gather straight into (d, n_eig) layout: the fancy index on the
+                # transposed view produces C-contiguous rows, so the fused kernel
+                # gets contiguous per-parameter arrays without a second copy.
+                part_t = self._particles.T[:, idx]  # (d, n_eig) — one copy
+                w_sub = w_norm[idx].astype(np.float32)
+                w_sub /= w_sub.sum()
+            else:
+                # _particles is F-order, so .T is already C-contiguous: zero-copy.
+                part_t = np.ascontiguousarray(self._particles.T)  # (d, n_total)
+                w_sub = self._weights  # already float32, normalized
 
-        # Fused kernel: compute weighted prediction variance per candidate in one
-        # pass, without materialising the (n_candidates x n_eig) predictions matrix.
-        var_pred = self._eig_variance_fused(candidates, part_t, w_sub)
+            # Fused kernel: weighted prediction variance per candidate in one pass,
+            # without materialising the (n_candidates x n_eig) predictions matrix.
+            var_pred = self._eig_variance_fused(candidates, part_t, w_sub)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
             est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
@@ -1283,6 +1305,61 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_var = max(noise_std**2, 1e-12)
 
         return 0.5 * np.log1p(var_pred / noise_var)
+
+    def _eig_variance_cached(self, candidates: np.ndarray, n_total: int, n_eig: int) -> np.ndarray:
+        """Weighted prediction variance per candidate via a cached prediction matrix.
+
+        Between resamples the particles and candidate grid are frozen, so the
+        prediction matrix ``M[candidate, particle]`` is invariant and only the
+        weights change. ``M`` and ``M2 = M * M`` are built once per epoch and the
+        per-step variance is two matrix-vector products against the current
+        weights:
+
+            Var_w[pred] = (M2 @ w) - (M @ w) ** 2
+
+        The particle subset is fixed for the epoch (drawn when the matrix is
+        built), so the estimator uses explicit importance weights instead of the
+        per-step weight-stratified resample used by the fused path.
+        """
+        cand = np.ascontiguousarray(candidates, dtype=np.float32)
+        n_c = cand.shape[0]
+        key = (self._eig_epoch, n_c, float(cand[0]), float(cand[-1])) if n_c else (self._eig_epoch, 0, 0.0, 0.0)
+
+        cache = self._eig_cache
+        if cache is not None and cache[0] == key:
+            _, mat, mat2, sub_idx = cache
+        else:
+            if n_total > n_eig:
+                # Fix the subset for this epoch. Built right after a resample,
+                # so the current weights are ~uniform and a stratified draw
+                # gives broad posterior coverage.
+                w_norm = self._weights / (self._weights.sum() + 1e-30)
+                cdf = np.cumsum(w_norm).astype(np.float32)
+                u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
+                positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
+                sub_idx = _systematic_resample_indices(cdf, positions)
+                part_cols = [self._particles[sub_idx, j] for j in range(self._d_signal)]
+            else:
+                sub_idx = None
+                part_cols = [self._particles[:, j] for j in range(self._d_signal)]
+
+            # M[candidate, particle]; C-contiguous so each row (candidate) is a
+            # contiguous dot against the weight vector.
+            mat = np.ascontiguousarray(self.model.compute_vectorized_many_fast(cand, part_cols), dtype=np.float32)
+            mat2 = mat * mat
+            self._eig_cache = (key, mat, mat2, sub_idx)
+
+        w = self._weights if sub_idx is None else self._weights[sub_idx]
+        w = np.asarray(w, dtype=np.float32)
+        sw = w.sum()
+        if sw > 0.0:
+            w = w / sw
+
+        mean = mat @ w
+        var_pred = mat2 @ w
+        var_pred -= mean * mean
+        np.maximum(var_pred, 0.0, out=var_pred)
+        return var_pred
 
     def _eig_variance_fused(self, candidates: np.ndarray, part_t: np.ndarray, weights: np.ndarray) -> np.ndarray:
         """Dispatch to the model-specific fused EIG-variance kernel.

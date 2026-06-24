@@ -95,6 +95,13 @@ NVISION_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_CONVERGENCE_THRE
 # Unset optional vars fall back to relative NVISION_CONVERGENCE_THRESHOLD × bound width.
 NVISION_FREQ_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_FREQ_CONVERGENCE_THRESHOLD", "100000.0"))
 
+# Safety factor K applied as a measurement budget multiplier. 
+# If the Cramér–Rao Lower Bound (CRLB) dictates that N measurements are 
+# theoretically required to reach the frequency convergence threshold, the locator 
+# allocates a maximum budget of K × N measurements to account for non-ideal 
+# sampling and SMC inefficiencies before failing fast.
+NVISION_FREQ_CRLB_SAFETY_FACTOR: float = float(os.getenv("NVISION_FREQ_CRLB_SAFETY_FACTOR", "4.0"))
+
 # Minimum physical step (Hz) between consecutive EIG-evaluated candidates.
 # Candidate count from the epoch grid ≈ 6·σ_f / NVISION_SMC_CANDIDATE_STEP_HZ,
 # so the budget shrinks automatically as the posterior tightens.

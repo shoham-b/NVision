@@ -359,9 +359,12 @@ class LocatorResultsRepository:
         # Update pointer row safely
         new_total = start_idx + len(new_results)
 
-        # Calculate the true sequential achieved_repeats by counting from 0
-        # This prevents holes in the cache if sub-tasks finish out of order
-        actual_achieved = self._repeats.count_saved(ptr_key, max_expected=new_total + 100)
+        # Calculate the true sequential achieved_repeats by counting from 0.
+        # Bound at new_total (not new_total+100) so orphan keys from a previous
+        # longer run never inflate the pointer beyond what the current run saved.
+        # Parallel sub-tasks still advance the pointer correctly: each sub-task's
+        # saves land at their global rid, so count_saved finds them in sequence.
+        actual_achieved = self._repeats.count_saved(ptr_key, max_expected=new_total)
 
         existing_total = 0
         existing_df = self._store.load_df(ptr_key)

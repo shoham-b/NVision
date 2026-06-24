@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -90,6 +91,21 @@ class AbstractMarginalDistribution(ABC):
         Fisher diagnostic at the last probe only, see :meth:`single_shot_information_std`.
         """
         return self._empirical_uncertainty()
+
+    def crlb_frequency(self) -> float:
+        """Analytical Cramér-Rao lower bound for frequency in physical Hz.
+
+        Returns ``math.inf`` unless overridden by a subclass that knows the
+        physical signal model (e.g. NV-center Lorentzian).
+        """
+        return math.inf
+
+    def reported_uncertainty(self) -> ParameterValues[float]:
+        """Uncertainty for external reporting.
+
+        Matches :meth:`uncertainty` directly.
+        """
+        return self.uncertainty()
 
     def single_shot_information_std(self) -> ParameterValues[float]:
         """Local Fisher diagonal scale at :attr:`last_obs` — **not** posterior uncertainty.

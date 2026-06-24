@@ -84,3 +84,14 @@ NoProgressOption = Annotated[
         help="Disable progress bars / Rich progress UI",
     ),
 ]
+
+RetryFailedOption = Annotated[
+    bool,
+    typer.Option(
+        "--retry-failed",
+        help=(
+            "Only re-run combinations that failed with MemoryError in the most recent log. "
+            "When combined with a group command, restricts to failures within that group."
+        ),
+    ),
+]

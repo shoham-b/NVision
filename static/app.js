@@ -7,7 +7,10 @@ function main() {
 
     let plots = [];
     let currentPlot = null;
-    let currentStoppingCriteria = 'full'; // 'full' | 'freq_converged' | 'all_converged'
+    // Frequency convergence is the primary milestone; 'full'/'all_converged' are
+    // verification only. Default to freq_converged (falls back to 'full' when a
+    // loaded run has no frequency milestone — see updateStoppingCriteriaVisibility).
+    let currentStoppingCriteria = 'freq_converged'; // 'full' | 'freq_converged' | 'all_converged'
     try {
         plots = window.MANIFEST;
         if (!Array.isArray(plots)) {
@@ -1605,15 +1608,13 @@ function main() {
     function updateNoiseViewMode() {
         const range = isNoiseRangeMode();
         const singleBtn = document.getElementById('scan-view-single-btn');
-        const noiseBtn = document.getElementById('scan-view-noise-btn');
         if (singleBtn) singleBtn.style.display = range ? 'none' : '';
-        if (noiseBtn) noiseBtn.style.display = '';
 
         if (range) {
             const activeBtn = document.querySelector('#scan-view-mode button.is-active');
             if (activeBtn && activeBtn.dataset.value === 'single') {
-                const summaryBtn = document.querySelector('#scan-view-mode button[data-value="summary"]');
-                if (summaryBtn) summaryBtn.click();
+                const speedBtn = document.querySelector('#scan-view-mode button[data-value="speed"]');
+                if (speedBtn) speedBtn.click();
             }
         }
     }
@@ -1714,38 +1715,7 @@ function main() {
             if (scanMetrics) scanMetrics.innerHTML = '';
             if (scanSweepMetrics) scanSweepMetrics.hidden = true;
             const activeBtn = document.querySelector('#scan-view-mode button.is-active');
-            if (activeBtn) {
-                const mode = activeBtn.dataset.value;
-                const repeatView = document.getElementById('scan-repeat-view');
-                const summaryView = document.getElementById('scan-summary-view');
-                const noiseMetricsView = document.getElementById('noise-metrics-view');
-                const highlightsView = document.getElementById('highlights-view');
-                if (mode === 'summary') {
-                    if (repeatView) repeatView.style.display = 'none';
-                    if (summaryView) summaryView.style.display = 'block';
-                    if (noiseMetricsView) noiseMetricsView.hidden = true;
-                    if (highlightsView) highlightsView.style.display = 'none';
-                    renderRepeatsSummary(scanGeneratorValue, getSelectedScanNoises());
-                } else if (mode === 'highlights') {
-                    if (repeatView) repeatView.style.display = 'none';
-                    if (summaryView) summaryView.style.display = 'none';
-                    if (noiseMetricsView) noiseMetricsView.hidden = true;
-                    if (highlightsView) {
-                        highlightsView.style.display = 'block';
-                        renderHighlights(scanGeneratorValue, getSelectedScanNoises());
-                    }
-                } else if (mode === 'noise') {
-                    if (repeatView) repeatView.style.display = 'none';
-                    if (summaryView) summaryView.style.display = 'none';
-                    if (highlightsView) highlightsView.style.display = 'none';
-                    const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
-                    if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
-                    if (noiseMetricsView) {
-                        noiseMetricsView.hidden = false;
-                        initAndRenderNoiseSweepPlots(scanGeneratorValue);
-                    }
-                }
-            }
+            if (activeBtn) showScanViewPanels(activeBtn.dataset.value);
             updateBayesTabs();
             return;
         }
@@ -2048,20 +2018,10 @@ function main() {
             updateBayesTabs();
         }
 
-        // Check view mode and render summary if needed
+        // Re-render the active Compare axis (if any) for the new selection.
         const activeViewModeBtn = document.querySelector('#scan-view-mode button.is-active');
-        if (activeViewModeBtn) {
-            if (activeViewModeBtn.dataset.value === 'summary') {
-                renderRepeatsSummary(scanGeneratorValue, [scanNoiseValue]);
-            } else if (activeViewModeBtn.dataset.value === 'highlights') {
-                renderHighlights(scanGeneratorValue, [scanNoiseValue]);
-            } else if (activeViewModeBtn.dataset.value === 'noise') {
-                const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
-                if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
-                const noiseMetricsView = document.getElementById('noise-metrics-view');
-                if (noiseMetricsView) noiseMetricsView.hidden = false;
-                initAndRenderNoiseSweepPlots(scanGeneratorValue);
-            }
+        if (activeViewModeBtn && activeViewModeBtn.dataset.value !== 'single') {
+            showScanViewPanels(activeViewModeBtn.dataset.value);
         }
         // Apply stopping-criteria cap to posterior animation after plot change
         applyStoppingFrameLimit();
@@ -3624,6 +3584,10 @@ function main() {
 
     let lastSummaryKey = null;
     let lastComparePairIds = { a: null, b: null };
+    // Single source of truth for the "savings baseline" strategy, shared across
+    // the Highlights, Dashboard, and Noise-metrics views so the choice is set
+    // once and stays consistent when switching between them.
+    let sharedBaselineStrategy = null;
 
     // ── Entity helpers ────────────────────────────────────────────────────────
     function _phaseData(p) {
@@ -3736,6 +3700,7 @@ function main() {
                 if (freq_step != null) {
                     freqConv.steps.push(freq_step);
                     freqConv.uncert.push(_mv(item, 'uncert_fb_at_milestone'));
+                    freqConv.uncert_at_fb.push(_mv(item, 'uncert_fb_at_milestone'));
                     freqConv.err.push(_mv(item, 'err_fb_at_milestone'));
                     freqConv.f_spans.push(f_span);
                     freqConv.repeats.push(rep);
@@ -3856,6 +3821,204 @@ function main() {
         if (id.endsWith('_freq')) return 'freq';
         if (id.endsWith('_conv')) return 'conv';
         return 'full';
+    }
+
+    function criterionLabel(id) {
+        if (id.endsWith('_freq')) return 'Freq. converged';
+        if (id.endsWith('_conv')) return 'Converged';
+        return 'Full run';
+    }
+
+    function baseLocatorId(id) {
+        if (id.endsWith('_freq') || id.endsWith('_conv')) return id.slice(0, -5);
+        return id;
+    }
+
+    function baseLocatorLabel(label) {
+        if (label.endsWith(' freq converged')) return label.slice(0, -15);
+        if (label.endsWith(' converged')) return label.slice(0, -10);
+        return label;
+    }
+
+    const SPEED_METRICS = [
+        { key: 'steps',       label: 'Steps to completion',        type: 'measurements', color: '#f472b6', deltaColor: '#22c55e' },
+        { key: 'steps_to_fb', label: 'Steps to freq. convergence', type: 'steps',        color: '#fb923c', deltaColor: '#a3e635' },
+    ];
+    const ACCURACY_METRICS = [
+        { key: 'uncert_at_fb', label: 'Claimed σ @ freq. conv.', type: 'frequency', color: '#818cf8', deltaColor: '#fbbf24' },
+        { key: 'uncert',       label: 'Claimed σ (final)',        type: 'frequency', color: '#a78bfa', deltaColor: '#f59e0b' },
+    ];
+    // Full set kept for backward compat (buildPairwiseRows single-scan view)
+    const ENTITY_METRICS = [
+        ...SPEED_METRICS,
+        ...ACCURACY_METRICS,
+        { key: 'err',      label: 'Final freq. error',     type: 'frequency', color: '#c084fc', deltaColor: '#6366f1' },
+        { key: 'err_at_fb', label: 'Error @ freq. conv.',  type: 'frequency', color: '#d946ef', deltaColor: '#f43f5e' },
+    ];
+
+    // Renders a group of entities (all criteria for one base locator) as a
+    // table: rows = metrics, columns = stopping criteria.
+    // allowedKeys: if provided, only show metrics whose key is in this array.
+    function renderEntityGroup(groupLabel, entities, container, isSummary, allowedKeys = null) {
+        const isDeltaGroup = entities.length > 0 && entities[0].isDelta;
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'entity-group' + (isDeltaGroup ? ' entity-group-delta' : '');
+
+        const hdr = document.createElement('div');
+        hdr.className = 'entity-group-header';
+        hdr.textContent = groupLabel;
+        groupDiv.appendChild(hdr);
+
+        const table = document.createElement('div');
+        table.className = 'entity-table';
+        // label col + one col per criterion entity
+        table.style.gridTemplateColumns = `minmax(140px,auto) ${entities.map(() => '1fr').join(' ')}`;
+
+        // Column header row
+        const blank = document.createElement('div');
+        blank.className = 'entity-table-blank';
+        table.appendChild(blank);
+        for (const e of entities) {
+            const colHdr = document.createElement('div');
+            colHdr.className = 'entity-table-col-header';
+            colHdr.textContent = criterionLabel(e.id);
+            table.appendChild(colHdr);
+        }
+
+        const metricsToRender = allowedKeys
+            ? ENTITY_METRICS.filter(m => allowedKeys.includes(m.key))
+            : ENTITY_METRICS;
+
+        // One row per metric
+        for (const m of metricsToRender) {
+            const anyHas = entities.some(e => {
+                const v = e[m.key];
+                return Array.isArray(v) ? v.length > 0 : v != null;
+            });
+            if (!anyHas) continue;
+
+            const rowLbl = document.createElement('div');
+            rowLbl.className = 'entity-table-row-label';
+            rowLbl.textContent = m.label;
+            table.appendChild(rowLbl);
+
+            for (const e of entities) {
+                const val = e[m.key];
+                const has = Array.isArray(val) ? val.length > 0 : val != null;
+                const type = e.stepsType === 'ratio' ? 'ratio'
+                           : m.key === 'steps' ? (e.stepsType || 'measurements')
+                           : m.type;
+
+                const cell = document.createElement('div');
+                cell.className = 'entity-table-cell';
+
+                if (!has) {
+                    const na = document.createElement('span');
+                    na.className = 'entity-metric-na';
+                    na.textContent = '—';
+                    cell.appendChild(na);
+                } else if (isSummary) {
+                    const color = (e.isDelta && m.deltaColor) ? m.deltaColor : m.color;
+                    createCardHistogram(cell, val, m.label, color, type, 80);
+                } else {
+                    const vEl = document.createElement('div');
+                    vEl.className = 'entity-metric-scalar';
+                    if (type === 'frequency') vEl.textContent = formatFrequency(val);
+                    else vEl.textContent = formatCount(val);
+                    cell.appendChild(vEl);
+                }
+
+                table.appendChild(cell);
+            }
+        }
+
+        groupDiv.appendChild(table);
+        container.appendChild(groupDiv);
+    }
+
+    // Groups entities by base locator and renders each group as a table card.
+    // category: 'speed' shows only step metrics, 'accuracy' shows only uncertainty metrics, 'all' shows everything.
+    function renderEntityCards(entities, container, isSummary, category = 'all') {
+        container.innerHTML = '';
+        if (!entities || !entities.length) {
+            const p = document.createElement('p');
+            p.style.cssText = 'color:#94a3b8;padding:1em 0;font-size:0.9em;';
+            p.textContent = 'No data.';
+            container.appendChild(p);
+            return;
+        }
+
+        const allowedKeys = category === 'speed'    ? SPEED_METRICS.map(m => m.key)
+                          : category === 'accuracy' ? ACCURACY_METRICS.map(m => m.key)
+                          : null;
+
+        const order = [];
+        const groups = new Map();
+        for (const e of entities) {
+            const bid = baseLocatorId(e.id);
+            if (!groups.has(bid)) {
+                groups.set(bid, { label: baseLocatorLabel(e.label), entities: [] });
+                order.push(bid);
+            }
+            groups.get(bid).entities.push(e);
+        }
+
+        // SimpleSweep is the reference: sort its group first.
+        order.sort((a, b) => (isSweepBaseline(a) ? 0 : 1) - (isSweepBaseline(b) ? 0 : 1));
+
+        for (const bid of order) {
+            const { label, entities: grpEntities } = groups.get(bid);
+            renderEntityGroup(label, grpEntities, container, isSummary, allowedKeys);
+        }
+
+        // Ratio cards (summary mode only) — adaptive / SimpleSweep only, never all pairs.
+        if (isSummary && order.length >= 2) {
+            const sweepId = order.find(bid => isSweepBaseline(bid));
+            if (sweepId) {
+                const gSweep = groups.get(sweepId);
+                const ratioMetrics = allowedKeys
+                    ? ENTITY_METRICS.filter(m => allowedKeys.includes(m.key))
+                    : ENTITY_METRICS.filter(m => SPEED_METRICS.some(sm => sm.key === m.key) || ACCURACY_METRICS.some(am => am.key === m.key));
+                for (const bid of order) {
+                    if (bid === sweepId) continue;
+                    const gAdaptive = groups.get(bid);
+                    const ratioLabel = `${gAdaptive.label} / ${gSweep.label}`;
+                    const ratioEntities = [];
+                    for (const eSweep of gSweep.entities) {
+                        const crit = entityCriterion(eSweep.id);
+                        const eAdaptive = gAdaptive.entities.find(e => entityCriterion(e.id) === crit);
+                        if (!eAdaptive) continue;
+                        const ratioE = { id: eSweep.id, label: ratioLabel, isDelta: true, stepsType: 'ratio' };
+                        for (const m of ratioMetrics) {
+                            const aVal = eSweep[m.key];
+                            const bVal = eAdaptive[m.key];
+                            if (Array.isArray(aVal) && Array.isArray(bVal)) {
+                                const aHasData = aVal.some(v => v != null && v > 0);
+                                if (aHasData) {
+                                    // Normal ratio: adaptive / sweep
+                                    const n = Math.min(aVal.length, bVal.length);
+                                    ratioE[m.key] = Array.from({length: n}, (_, idx) => aVal[idx] > 0 ? bVal[idx] / aVal[idx] : null).filter(v => v !== null);
+                                } else {
+                                    // Sweep has no data for this metric (e.g. uncert_at_fb) —
+                                    // fall back to adaptive / sweep.uncert so the ratio is still meaningful
+                                    const aFallback = eSweep['uncert'];
+                                    if (Array.isArray(aFallback)) {
+                                        const n = Math.min(aFallback.length, bVal.length);
+                                        ratioE[m.key] = Array.from({length: n}, (_, idx) => aFallback[idx] > 0 ? bVal[idx] / aFallback[idx] : null).filter(v => v !== null);
+                                    } else {
+                                        ratioE[m.key] = [];
+                                    }
+                                }
+                            } else {
+                                ratioE[m.key] = null;
+                            }
+                        }
+                        ratioEntities.push(ratioE);
+                    }
+                    if (ratioEntities.length) renderEntityGroup(ratioLabel, ratioEntities, container, isSummary, ratioMetrics.map(m => m.key));
+                }
+            }
+        }
     }
 
     function buildTwoDropdownSelector(entities, onPairChange, defaultAId, defaultBId) {
@@ -4076,16 +4239,16 @@ function main() {
         notify();
     }
 
-    function createCardHistogram(cardContainer, data, name, color, unitType = null) {
+    function createCardHistogram(cardContainer, data, name, color, unitType = null, height = 140) {
         if (!data || data.length === 0) {
             const empty = document.createElement('div');
-            empty.style.cssText = 'height:140px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:0.9em;font-weight:500;';
+            empty.style.cssText = `height:${height}px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:0.9em;font-weight:500;`;
             empty.textContent = 'N/A';
             cardContainer.appendChild(empty);
             return;
         }
         const plotDiv = document.createElement('div');
-        plotDiv.style.height = '140px';
+        plotDiv.style.height = `${height}px`;
         plotDiv.style.width = '100%';
         cardContainer.appendChild(plotDiv);
         let scaledData = data;
@@ -4098,16 +4261,43 @@ function main() {
             if (maxAbs >= 1e9) { factor = 1e9; unit = 'GHz'; }
             else if (maxAbs >= 1e6) { factor = 1e6; unit = 'MHz'; }
             else if (maxAbs >= 1e3) { factor = 1e3; unit = 'kHz'; }
-            scaledData = data.map(v => v / factor);
+            scaledData = data.map(v => v != null ? v / factor : null);
         } else if (unitType === 'steps') { unit = 'steps'; }
         else if (unitType === 'measurements') { unit = 'meas.'; }
+        else if (unitType === 'ratio') { unit = 'adaptive / sweep'; }
+
+        // Clip the long tail so the populated region fills the axis. These ratio
+        // distributions are heavily right-skewed: a fixed-percentile clip still
+        // leaves a sparse tail that crushes all the real data into one bar.
+        // Use Tukey upper fence (Q3 + 1.5·IQR), which adapts to the skew and
+        // trims the tail hard, then bin the kept range into many bins.
+        let plotData = scaledData.filter(v => v != null && isFinite(v));
+        let binCfg = { autobinx: true };
+        if (plotData.length >= 10) {
+            const s = [...plotData].sort((a, b) => a - b);
+            const q = f => s[Math.min(s.length - 1, Math.floor(s.length * f))];
+            const q1 = q(0.25), q3 = q(0.75), iqr = q3 - q1;
+            const lo = Math.max(s[0], q1 - 1.5 * iqr);
+            const hi = q3 + 1.5 * iqr;
+            if (hi > lo) {
+                plotData = plotData.filter(v => v >= lo && v <= hi);
+                const nbins = 30;
+                binCfg = { xbins: { start: lo, end: hi, size: (hi - lo) / nbins } };
+            }
+        }
+
+        const histX = plotData;
+
         Plotly.newPlot(plotDiv, [{
-            x: scaledData, type: 'histogram', name,
+            x: histX, type: 'histogram', name,
             marker: { color, line: { color: 'rgba(255,255,255,0.6)', width: 0.5 } },
-            opacity: 0.85, autobinx: true,
+            opacity: 0.85, ...binCfg,
         }], {
             margin: { l: 25, r: 10, t: 10, b: 25 },
-            xaxis: { title: { text: unit, font: { size: 9, color: '#64748b', family: 'system-ui, sans-serif' } }, tickfont: { size: 8, color: '#64748b' }, showgrid: true, gridcolor: '#f1f5f9', zeroline: true, zerolinecolor: '#cbd5e1' },
+            xaxis: {
+                title: { text: unit, font: { size: 9, color: '#64748b', family: 'system-ui, sans-serif' } },
+                tickfont: { size: 8, color: '#64748b' }, showgrid: true, gridcolor: '#f1f5f9', zeroline: true, zerolinecolor: '#cbd5e1',
+            },
             yaxis: { tickfont: { size: 8, color: '#64748b' }, showgrid: true, gridcolor: '#f1f5f9' },
             showlegend: false, plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
             bargap: 0.05, dragmode: false, hovermode: 'x',
@@ -4127,40 +4317,30 @@ function main() {
         if (selContainer) selContainer.innerHTML = '';
         if (container) container.innerHTML = '';
 
+        const spanContainer = document.getElementById('summary-span-container');
+        if (spanContainer) spanContainer.style.display = 'none';
+
         const entities = buildSummaryEntities(generator, Array.isArray(noise) ? noise : [noise]);
-        if (entities.length < 2) {
+        if (!entities.length) {
             if (container) {
                 const ph = document.createElement('div');
                 ph.style.cssText = 'padding:3em 2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;margin:1em 0;';
-                ph.innerHTML = '💡 <strong>Not enough data to compare.</strong><br><span style="font-size:0.9em;color:#94a3b8;display:block;margin-top:0.5em;">Run at least two strategies (or one strategy with its Sobol baseline) for this generator and noise configuration.</span>';
+                ph.innerHTML = '💡 <strong>Not enough data.</strong><br><span style="font-size:0.9em;color:#94a3b8;display:block;margin-top:0.5em;">Run at least one strategy for this generator and noise configuration.</span>';
                 container.appendChild(ph);
             }
-            const spanContainer = document.getElementById('summary-span-container');
-            if (spanContainer) spanContainer.style.display = 'none';
             return;
         }
 
-        // Derive A default from currently selected strategy, fall back to saved pair
-        const strategyId = controlValue(scanStrategy)?.toLowerCase().replace(/[^a-z0-9]/g, '_');
-        const suffix = currentStoppingCriteria === 'freq_converged' ? '_freq'
-                     : currentStoppingCriteria === 'all_converged'  ? '_conv' : '';
-        const defaultA = entities.find(e => e.id === strategyId + suffix)
-            || entities.find(e => e.id === strategyId)
-            || entities.find(e => e.id === lastComparePairIds.a)
-            || entities[0];
-        const defaultB = entities.find(e => e.id !== defaultA.id && e.id === lastComparePairIds.b)
-            || entities.find(e => e.id !== defaultA.id);
-
         ensurePlotly().then(() => {
-            if (!selContainer || !container) return;
-
-            const { wrapper: sumWrapper, notify: sumNotify } = buildTwoDropdownSelector(entities, (eA, eB) => {
-                lastComparePairIds = { a: eA.id, b: eB.id };
-                renderPairwiseCards(buildPairwiseRows(eA, eB), container, true);
-                renderSavingsVsSpanChart(eA, eB);
-            }, defaultA ? defaultA.id : null, defaultB ? defaultB.id : null);
-            selContainer.appendChild(sumWrapper);
-            sumNotify();
+            if (!container) return;
+            // Defer one frame so the CSS grid has its final width before Plotly
+            // sizes the histograms — otherwise they paint at a fallback width and
+            // overlap until the next resize. Nudge a resize after paint as a belt.
+            requestAnimationFrame(() => {
+                if (lastSummaryKey !== currentKey) return; // selection changed mid-frame
+                renderEntityCards(entities, container, true, 'accuracy');
+                requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+            });
         });
     }
 
@@ -4251,10 +4431,11 @@ function main() {
     // Curated quick view answering four questions with only fair comparisons:
     //   1. Error vs measurements (anytime curves; sweep = practical baseline)
     //   2. Convergence vs measurements (survival curves; adaptive locators only)
-    //   3. Promise kept (coverage of claimed uncertainty vs Gaussian nominals)
+    //   3. Uncertainty calibration (coverage of claimed uncertainty vs Gaussian nominals)
     //   4. Savings vs signal span (paired, matched-promise) + search/refine split
     const HL_NOMINAL_1S = 0.683;
     const HL_NOMINAL_2S = 0.954;
+    const HL_NOMINAL_3S = 0.997;
     const HL_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#14b8a6'];
     let hlTauMult = 1;
     let hlLastArgs = null;
@@ -4273,6 +4454,116 @@ function main() {
         return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
     }
     function hlMedian(values) { return hlQuantileSorted(hlSorted(values), 0.5); }
+
+    // Collapse a scatter (xs,ys) into per-bin median + IQR over log-spaced x bins.
+    // Returns {cx, med, lo, hi, n} arrays (one entry per non-empty bin with >= minN
+    // points), so a dense cloud reads as a trend line with a spread band.
+    function hlLogBinMedian(xs, ys, nBins = 25, minN = 3) {
+        const pts = [];
+        for (let i = 0; i < xs.length; i++) {
+            if (xs[i] > 0 && Number.isFinite(ys[i])) pts.push([xs[i], ys[i]]);
+        }
+        const out = { cx: [], med: [], lo: [], hi: [], n: [] };
+        if (pts.length < minN) return out;
+        let xmin = Infinity, xmax = -Infinity;
+        for (const [x] of pts) { if (x < xmin) xmin = x; if (x > xmax) xmax = x; }
+        const lmin = Math.log(xmin), lmax = Math.log(xmax);
+        const span = lmax - lmin || 1;
+        const bins = Array.from({ length: nBins }, () => []);
+        for (const [x, y] of pts) {
+            let b = Math.floor(((Math.log(x) - lmin) / span) * nBins);
+            if (b >= nBins) b = nBins - 1;
+            if (b < 0) b = 0;
+            bins[b].push([x, y]);
+        }
+        for (const bin of bins) {
+            if (bin.length < minN) continue;
+            const bx = hlSorted(bin.map(p => p[0]));
+            const by = hlSorted(bin.map(p => p[1]));
+            out.cx.push(hlQuantileSorted(bx, 0.5));
+            out.med.push(hlQuantileSorted(by, 0.5));
+            out.lo.push(hlQuantileSorted(by, 0.25));
+            out.hi.push(hlQuantileSorted(by, 0.75));
+            out.n.push(bin.length);
+        }
+        return out;
+    }
+
+    // Build a log-binned median line (+ IQR band) trace pair for one (xs,ys) cloud.
+    // Returns { traces, bin } so callers can reuse the bin for guide-line anchoring.
+    function hlBinnedLineTraces(xs, ys, color, name, opts = {}) {
+        const { dash = null, fillAlpha = 0.12, symbol = 'circle', lineColor = color, showlegend = true, hoverY = 'value' } = opts;
+        const bin = hlLogBinMedian(xs, ys);
+        if (!bin.cx.length) return { traces: [], bin };
+        const band = {
+            x: bin.cx.concat([...bin.cx].reverse()),
+            y: bin.hi.concat([...bin.lo].reverse()),
+            fill: 'toself', fillcolor: hlHexToRgba(color, fillAlpha),
+            line: { width: 0, shape: 'spline' }, mode: 'lines', type: 'scatter', hoverinfo: 'skip', showlegend: false,
+        };
+        const line = {
+            x: bin.cx, y: bin.med, mode: 'lines+markers', type: 'scatter', name,
+            line: { color: lineColor, width: 2.5, shape: 'spline', smoothing: 0.8, ...(dash ? { dash } : {}) },
+            marker: { color: lineColor, size: 4, symbol },
+            customdata: bin.n, showlegend,
+            hovertemplate: `f_span %{x:.2e}<br>${hoverY} %{y:.3g}<br>n=%{customdata}<extra>${name}</extra>`,
+        };
+        return { traces: [band, line], bin };
+    }
+
+    // Search/refine decomposition traces for one slice of runs (one noise facet).
+    function hlBuildDecompTraces(runsByStrat, strategies, adaptive, showlegend) {
+        const dTraces = [];
+        for (const strat of adaptive) {
+            const runs = runsByStrat.get(strat) || [];
+            const sx = [], sy = [], rx = [], ry = [];
+            for (const p of runs) {
+                if (!p.series) continue;
+                const fSpan = hlFSpan(p);
+                if (fSpan == null) continue;
+                const first = hlFirstSignalStep(p.series);
+                const conv = hlConvStep(p, hlTauMult);
+                if (first != null) { sx.push(fSpan); sy.push(first); }
+                if (first != null && conv != null && conv >= first) { rx.push(fSpan); ry.push(Math.max(conv - first, 1)); }
+            }
+            const color = hlStratColor(strategies, strat);
+            if (sx.length) dTraces.push({ x: sx, y: sy, mode: 'markers', type: 'scatter', showlegend: false, hoverinfo: 'skip',
+                marker: { color: hlHexToRgba(color, 0.12), size: 2, symbol: 'circle' } });
+            if (rx.length) dTraces.push({ x: rx, y: ry, mode: 'markers', type: 'scatter', showlegend: false, hoverinfo: 'skip',
+                marker: { color: hlHexToRgba(color, 0.12), size: 2, symbol: 'diamond' } });
+            const s = hlBinnedLineTraces(sx, sy, color, `${_shortStratLabel(strat)} search`,
+                { symbol: 'circle', showlegend, hoverY: 'median steps to first signal' });
+            const r = hlBinnedLineTraces(rx, ry, color, `${_shortStratLabel(strat)} refine`,
+                { symbol: 'diamond', dash: 'dot', lineColor: hlHexToRgba(color, 0.55), fillAlpha: 0.08, showlegend, hoverY: 'median refine steps' });
+            dTraces.push(...s.traces, ...r.traces);
+        }
+        return dTraces;
+    }
+
+    // Uncertainty-at-convergence vs f_span traces for one slice of runs.
+    function hlBuildUncertTraces(runsByStrat, strategies, adaptive, showlegend) {
+        const dTraces = [];
+        for (const strat of adaptive) {
+            const runs = runsByStrat.get(strat) || [];
+            const xs = [], ys = [];
+            for (const p of runs) {
+                if (!p.series) continue;
+                const fSpan = hlFSpan(p);
+                if (fSpan == null) continue;
+                const conv = hlConvStep(p, hlTauMult);
+                if (conv == null) continue;
+                const u = hlSeriesValueAt(p.series, 'u', conv);
+                if (u != null && u > 0) { xs.push(fSpan); ys.push(u); }
+            }
+            const color = hlStratColor(strategies, strat);
+            if (xs.length) dTraces.push({ x: xs, y: ys, mode: 'markers', type: 'scatter', showlegend: false, hoverinfo: 'skip',
+                marker: { color: hlHexToRgba(color, 0.18), size: 4, symbol: 'circle' } });
+            const t = hlBinnedLineTraces(xs, ys, color, `${_shortStratLabel(strat)}`,
+                { symbol: 'circle', showlegend, hoverY: 'median σ at convergence' });
+            dTraces.push(...t.traces);
+        }
+        return dTraces;
+    }
 
     // Deterministic PRNG so bootstrap intervals are stable across re-renders.
     function hlMulberry32(seed) {
@@ -4342,10 +4633,21 @@ function main() {
         return (lw && lw > 0) ? Math.max(2.0 * lw, split + lw) / domainWidth : null;
     }
     function hlConvStep(p, mult) {
-        if (mult === 1 && p.freq_converged_step != null) return p.freq_converged_step;
+        // 'u' (frequency uncertainty) and 'tau' (its threshold) in the series are
+        // the SAME quantities behind the backend's freq_converged_step. At the
+        // standard threshold the milestone is exact and full-resolution — use it
+        // directly, and treat null as "did not converge" rather than falling
+        // through to the downsampled series (whose finalize-overridden endpoint
+        // can fake a crossing). Only the τ-sensitivity views fall back to the
+        // series, the only data available at multipliers other than 1×.
+        //
+        // Limitation: because exact data exists only at 1×, a τ slightly above 1×
+        // (looser) can land on a later downsampled grid point than the exact 1×
+        // step. Accepted tradeoff — the 1× false-positive is what we eliminate.
+        if (mult === 1) return p.freq_converged_step ?? null;
         const ser = p.series;
         if (ser && ser.u && ser.tau != null) return hlFirstStepBelow(ser, 'u', ser.tau * mult);
-        return mult === 1 ? (p.freq_converged_step ?? null) : null;
+        return null;
     }
     function hlRunSteps(p) {
         return p.measurements ?? (p.series && p.series.s.length ? p.series.s[p.series.s.length - 1] : null);
@@ -4471,48 +4773,443 @@ function main() {
         });
     }
 
-    function hlSetupControls(byStrategy, strategies, sweepName) {
+    // Reflect the current hlTauMult onto the shared τ control's active button.
+    function syncTauControl() {
         const tauGroup = document.getElementById('hl-tau-select');
-        if (tauGroup && !tauGroup._hasListener) {
-            tauGroup.addEventListener('click', (e) => {
-                const btn = e.target.closest('button[data-value]');
-                if (!btn) return;
-                tauGroup.querySelectorAll('button').forEach(b => {
-                    b.classList.remove('is-active');
-                    b.setAttribute('aria-checked', 'false');
-                    b.tabIndex = -1;
-                });
-                btn.classList.add('is-active');
-                btn.setAttribute('aria-checked', 'true');
-                btn.tabIndex = 0;
-                hlTauMult = parseFloat(btn.dataset.value);
-                if (hlLastArgs) renderHighlights(hlLastArgs.generator, hlLastArgs.noises);
+        if (!tauGroup) return;
+        tauGroup.querySelectorAll('button').forEach(b => {
+            const active = parseFloat(b.dataset.value) === hlTauMult;
+            b.classList.toggle('is-active', active);
+            b.setAttribute('aria-checked', active ? 'true' : 'false');
+            b.tabIndex = active ? 0 : -1;
+        });
+    }
+
+    // Wire the shared τ control once. Changing τ updates hlTauMult and re-renders
+    // the active Compare axis, so every τ-sensitive view (Highlights, Pooled)
+    // stays in sync regardless of which axis the user is on.
+    function setupTauControl() {
+        const tauGroup = document.getElementById('hl-tau-select');
+        if (!tauGroup || tauGroup._hasListener) return;
+        tauGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-value]');
+            if (!btn) return;
+            hlTauMult = parseFloat(btn.dataset.value);
+            syncTauControl();
+            const active = document.querySelector('#scan-view-mode button.is-active');
+            if (active && active.dataset.value === 'speed') showScanViewPanels('speed');
+        });
+        tauGroup._hasListener = true;
+    }
+
+    function hlSetupControls(byStrategy, strategies, sweepName) {
+        setupTauControl();
+        // The savings baseline is always the SimpleSweep — no chooser.
+    }
+
+    function renderSpeedEntityCards(gen, noises) {
+        const container = document.getElementById('speed-subjects-container');
+        if (!container) return;
+        const noiseArr = Array.isArray(noises) ? noises : (noises ? [noises] : []);
+        const entities = buildSummaryEntities(gen, noiseArr);
+        if (!entities.length) { container.innerHTML = ''; return; }
+        ensurePlotly().then(() => {
+            requestAnimationFrame(() => {
+                renderEntityCards(entities, container, true, 'speed');
+                requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
             });
-            tauGroup._hasListener = true;
+        });
+    }
+
+    // ── Speed tab ────────────────────────────────────────────────────────────
+
+    function renderSpeedTab(gen, noises) {
+        if (!gen) return;
+        hlLastArgs = { generator: gen, noises };
+        const byStrategy = hlCollect(gen, noises);
+        const strategies = [...byStrategy.keys()].sort();
+        const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
+            || strategies.filter(isSweepBaseline)[0] || null;
+
+        const warn = document.getElementById('hl-warning');
+        if (warn) {
+            warn.innerHTML = '';
+            if (!strategies.length) {
+                warn.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No scan data for this generator/noise selection.</div>';
+                ['hl-headline', 'hl-error-curves', 'hl-survival', 'hl-span', 'hl-firstsignal'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.innerHTML = '';
+                });
+                return;
+            }
         }
 
-        const baselineSel = document.getElementById('hl-span-baseline');
-        if (baselineSel) {
-            const adaptive = strategies.filter(s => s !== sweepName);
-            const prev = baselineSel.value;
-            baselineSel.innerHTML = '';
-            adaptive.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s;
-                opt.textContent = s;
-                baselineSel.appendChild(opt);
+        hlSetupControls(byStrategy, strategies, sweepName);
+        const speedView = document.getElementById('speed-view');
+        if (speedView) speedView.dataset.renderDebug = `renderSpeedTab called: gen=${gen}, noises=${JSON.stringify(noises)}, strategies=${strategies.length}`;
+        ensurePlotly().then(() => {
+            if (speedView) speedView.dataset.renderDebug += ' | Plotly ready';
+            renderHlErrorCurves(byStrategy, strategies, sweepName);
+            renderHlSurvival(byStrategy, strategies, sweepName);
+            renderHlHeadline(byStrategy, strategies, sweepName);
+            renderSpeedNoise(gen);
+            renderSpeedSpan();
+            renderHlSpan(byStrategy, strategies, sweepName);
+            renderSpeedEntityCards(gen, noises);
+        }).catch(err => {
+            const warn = document.getElementById('hl-warning');
+            if (warn) warn.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;margin:1em 0;"><strong>Speed render error:</strong> ${err.message || err}<br><pre style="white-space:pre-wrap;font-size:11px">${err.stack || ''}</pre></div>`;
+        });
+    }
+
+    function renderSpeedNoise(gen) {
+        const container = document.getElementById('speed-noise-content');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const genPlots = scanPlots.filter(p => p.generator === gen);
+        const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
+        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const adaptive = strategies.filter(s => !isSweepBaseline(s));
+        const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
+            || strategies.filter(isSweepBaseline)[0] || null;
+
+        if (!strategies.length || !noises.length) {
+            container.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;">No data for this generator.</div>';
+            return;
+        }
+
+        const cellConv = new Map();
+        for (const noise of noises) {
+            const cell = dashCell(gen, noise);
+            const sweepRuns = sweepName ? (cell.get(sweepName) || []) : [];
+            const sweepMeasMed = sweepRuns.length ? hlMedian(sweepRuns.map(p => hlRunSteps(p)).filter(v => v != null)) : null;
+            for (const strat of strategies) {
+                const runs = cell.get(strat) || [];
+                if (!runs.length) continue;
+                const isSweep = isSweepBaseline(strat);
+                const convSteps = isSweep
+                    ? runs.map(p => hlRunSteps(p)).filter(v => v != null)
+                    : runs.map(p => hlConvStep(p, hlTauMult)).filter(v => v != null);
+                const medConv = convSteps.length ? hlMedian(convSteps) : null;
+                const k = (!isSweep && medConv != null && sweepMeasMed != null) ? sweepMeasMed / medConv : null;
+                const saved = (!isSweep && sweepMeasMed != null && medConv != null) ? sweepMeasMed - medConv : null;
+                cellConv.set(`${strat}|${noise}`, { medConv, sweepMeasMed, k, saved, n: runs.length, convN: convSteps.length });
+            }
+        }
+
+        const shortNoises = noises.map(n => { const m = n.match(/Gauss\(([\d.]+)\)/); return m ? m[1] : n; });
+        const mkXAxis = () => ({ type: 'category', tickangle: -60, tickfont: { size: 9 }, categoryorder: 'array', categoryarray: noises, tickvals: noises, ticktext: shortNoises });
+
+        // Steps to convergence vs noise
+        {
+            const plotDiv = dashPanelDiv(container,
+                `Steps to convergence vs noise — τ×${hlTauMult}`,
+                'Median steps to convergence at the current τ threshold. Sweep (dashed) = total measurement count.',
+                Math.max(240, 140 + 20 * strategies.length));
+            const traces = strategies.map(strat => {
+                const color = hlStratColor(strategies, strat);
+                const isSweep = isSweepBaseline(strat);
+                const ys = [], texts = [];
+                for (const noise of noises) {
+                    const st = cellConv.get(`${strat}|${noise}`);
+                    ys.push(st ? st.medConv : null);
+                    texts.push(st ? `${st.convN}/${st.n} converged` : '');
+                }
+                return {
+                    x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                    name: _shortStratLabel(strat),
+                    line: { color, width: isSweep ? 2.5 : 2, dash: isSweep ? 'dash' : 'solid' },
+                    marker: { color, size: 6 }, text: texts,
+                    hovertemplate: '%{y:.0f} steps<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                };
             });
-            if (adaptive.includes(prev)) baselineSel.value = prev;
-            else {
-                const sobol = adaptive.find(s => /sobol/i.test(s) && !/staged/i.test(s)) || adaptive.find(s => /sobol/i.test(s));
-                baselineSel.value = sobol || adaptive[0] || '';
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, ...mkXAxis() };
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Median steps', font: { size: 11 } }, rangemode: 'tozero' };
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+
+        // k× savings vs noise
+        if (sweepName && adaptive.length) {
+            const plotDiv = dashPanelDiv(container,
+                `k× savings vs noise — τ×${hlTauMult}`,
+                'Ratio of sweep total steps to adaptive convergence steps. k=2 = half the measurements. Reference line at k=1.',
+                Math.max(240, 140 + 20 * adaptive.length));
+            const traces = adaptive.map(strat => {
+                const color = hlStratColor(strategies, strat);
+                const ys = [], texts = [];
+                for (const noise of noises) {
+                    const st = cellConv.get(`${strat}|${noise}`);
+                    ys.push(st ? st.k : null);
+                    texts.push(st && st.k != null
+                        ? `${Math.round(st.medConv)} vs ${Math.round(st.sweepMeasMed)} sweep steps (n=${st.convN}/${st.n})`
+                        : 'did not converge');
+                }
+                return {
+                    x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                    name: _shortStratLabel(strat),
+                    line: { color, width: 2 }, marker: { color, size: 6 }, text: texts,
+                    hovertemplate: '%{y:.1f}× faster<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                };
+            });
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, ...mkXAxis() };
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Median sweep steps / conv steps', font: { size: 11 } }, rangemode: 'tozero' };
+            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 1, y1: 1, line: { color: '#94a3b8', width: 1.5, dash: 'dash' } }];
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+
+        // Absolute steps saved vs noise
+        if (sweepName && adaptive.length) {
+            const plotDiv = dashPanelDiv(container,
+                `Steps saved vs noise — τ×${hlTauMult}`,
+                'Median absolute steps saved (sweep total − adaptive convergence steps). Positive = faster than sweep.',
+                Math.max(240, 140 + 20 * adaptive.length));
+            const traces = adaptive.map(strat => {
+                const color = hlStratColor(strategies, strat);
+                const ys = [], texts = [];
+                for (const noise of noises) {
+                    const st = cellConv.get(`${strat}|${noise}`);
+                    ys.push(st ? st.saved : null);
+                    texts.push(st && st.saved != null ? `n=${st.convN}/${st.n}` : 'did not converge');
+                }
+                return {
+                    x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                    name: _shortStratLabel(strat),
+                    line: { color, width: 2 }, marker: { color, size: 6 }, text: texts,
+                    hovertemplate: '%{y:.0f} steps saved<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                };
+            });
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, ...mkXAxis() };
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Steps saved (median)', font: { size: 11 } } };
+            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0, y1: 0, line: { color: '#94a3b8', width: 1.5, dash: 'dash' } }];
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+    }
+
+    function renderSpeedSpan() {
+        const container = document.getElementById('speed-span-content');
+        if (!container) return;
+        container.innerHTML = '';
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const plotDiv = dashPanelDiv(container,
+            `Steps to convergence vs signal span — pooled, τ×${hlTauMult}`,
+            'Each run by fractional signal span (linewidth / spectrum width). Log-binned median + IQR band. Sweep shown as total measurement count (dashed).',
+            340, true);
+        const traces = [];
+        for (const strat of allStrats) {
+            const isSweep = isSweepBaseline(strat);
+            const xs = [], ys = [];
+            for (const p of scanPlots) {
+                if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
+                const fSpan = hlFSpan(p);
+                if (fSpan == null) continue;
+                const step = isSweep ? hlRunSteps(p) : hlConvStep(p, hlTauMult);
+                if (step == null) continue;
+                xs.push(fSpan); ys.push(step);
             }
-            if (!baselineSel._hasListener) {
-                baselineSel.addEventListener('change', () => {
-                    if (hlLastArgs) renderHighlights(hlLastArgs.generator, hlLastArgs.noises);
+            if (!xs.length) continue;
+            const color = hlStratColor(allStrats, strat);
+            const { traces: t } = hlBinnedLineTraces(xs, ys, color, _shortStratLabel(strat), {
+                dash: isSweep ? 'dash' : null, hoverY: 'median steps',
+            });
+            traces.push(...t);
+        }
+        if (!traces.length) {
+            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+        } else {
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Median steps to convergence', font: { size: 11 } } };
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+    }
+
+    // ── Accuracy tab ─────────────────────────────────────────────────────────
+
+    function renderAccuracyTab(gen, noises) {
+        if (!gen) return;
+        hlLastArgs = { generator: gen, noises };
+        const byStrategy = hlCollect(gen, noises);
+        const strategies = [...byStrategy.keys()].sort();
+        const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
+            || strategies.filter(isSweepBaseline)[0] || null;
+
+        const accView = document.getElementById('accuracy-view');
+        if (accView) accView.dataset.renderDebug = `renderAccuracyTab called: gen=${gen}, noises=${JSON.stringify(noises)}, strategies=${strategies.length}`;
+        ensurePlotly().then(() => {
+            if (accView) accView.dataset.renderDebug += ' | Plotly ready';
+            renderHlCoverage(byStrategy, strategies);
+            renderAccuracyNoise(gen);
+            renderAccuracySpan();
+            renderHlSpan(byStrategy, strategies, sweepName);
+            renderRepeatsSummary(gen, noises);
+        }).catch(err => {
+            const errDiv = accView || document.getElementById('acc-noise-content');
+            if (errDiv) {
+                const msg = document.createElement('div');
+                msg.style.cssText = 'padding:1em;color:#721c24;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;margin:1em;';
+                msg.innerHTML = `<strong>Accuracy render error:</strong> ${err.message || err}<br><pre style="white-space:pre-wrap;font-size:11px">${err.stack || ''}</pre>`;
+                errDiv.prepend(msg);
+            }
+        });
+    }
+
+    function renderAccuracyNoise(gen) {
+        const container = document.getElementById('acc-noise-content');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const genPlots = scanPlots.filter(p => p.generator === gen);
+        const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
+        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+
+        if (!strategies.length || !noises.length) {
+            container.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;">No data for this generator.</div>';
+            return;
+        }
+
+        const cellStats = new Map();
+        for (const noise of noises) {
+            const cell = dashCell(gen, noise);
+            for (const strat of strategies) {
+                const runs = cell.get(strat) || [];
+                if (!runs.length) continue;
+                const covPairs = runs.filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
+                const k1 = covPairs.filter(p => p.abs_err_x <= p.uncert).length;
+                const uncerts = runs.map(p => p.uncert).filter(v => v != null && v > 0);
+                const errors = runs.map(p => p.abs_err_x).filter(v => v != null);
+                cellStats.set(`${strat}|${noise}`, {
+                    cal: covPairs.length ? k1 / covPairs.length : null,
+                    calK: k1, calN: covPairs.length,
+                    medUncert: uncerts.length ? hlMedian(uncerts) : null,
+                    medErr: errors.length ? hlMedian(errors) : null,
+                    n: runs.length,
                 });
-                baselineSel._hasListener = true;
             }
+        }
+
+        const shortNoises = noises.map(n => { const m = n.match(/Gauss\(([\d.]+)\)/); return m ? m[1] : n; });
+        const mkXAxis = () => ({ type: 'category', tickangle: -60, tickfont: { size: 9 }, categoryorder: 'array', categoryarray: noises, tickvals: noises, ticktext: shortNoises });
+
+        // 1σ calibration vs noise
+        {
+            const plotDiv = dashPanelDiv(container,
+                '1σ calibration vs noise',
+                'Fraction of repeats where |true error| ≤ claimed 1σ uncertainty. Near 68% is well-calibrated.',
+                Math.max(240, 140 + 20 * strategies.length));
+            const traces = strategies.map(strat => {
+                const color = hlStratColor(strategies, strat);
+                const ys = [], texts = [];
+                for (const noise of noises) {
+                    const st = cellStats.get(`${strat}|${noise}`);
+                    ys.push(st && st.cal != null ? st.cal : null);
+                    texts.push(st && st.cal != null ? `${st.calK}/${st.calN} within 1σ` : '');
+                }
+                return {
+                    x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                    name: _shortStratLabel(strat),
+                    line: { color, width: 2 }, marker: { color, size: 6 }, text: texts,
+                    hovertemplate: '%{y:.0%} coverage<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                };
+            });
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, ...mkXAxis() };
+            layout.yaxis = { ...layout.yaxis, range: [0, 1.05], tickformat: '.0%', title: { text: '|err| ≤ 1σ fraction', font: { size: 11 } } };
+            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0.68, y1: 0.68, line: { color: '#94a3b8', width: 1.5, dash: 'dash' } }];
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+
+        // Median absolute error vs noise
+        {
+            const plotDiv = dashPanelDiv(container,
+                'Median absolute error vs noise',
+                'Median absolute frequency error at end of run. Lower is more accurate.',
+                Math.max(240, 140 + 20 * strategies.length));
+            const traces = strategies.map(strat => {
+                const color = hlStratColor(strategies, strat);
+                const ys = [], texts = [];
+                for (const noise of noises) {
+                    const st = cellStats.get(`${strat}|${noise}`);
+                    ys.push(st && st.medErr != null ? st.medErr : null);
+                    texts.push(st ? `n=${st.n}` : '');
+                }
+                return {
+                    x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                    name: _shortStratLabel(strat),
+                    line: { color, width: 2 }, marker: { color, size: 6 }, text: texts,
+                    hovertemplate: '%{y:.3g} Hz<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                };
+            });
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, ...mkXAxis() };
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Median |error| (Hz)', font: { size: 11 } }, rangemode: 'tozero' };
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+
+        // Final claimed σ vs noise
+        {
+            const plotDiv = dashPanelDiv(container,
+                'Final claimed uncertainty vs noise',
+                'Median claimed 1σ frequency uncertainty at end of run. Lower = tighter result delivered.',
+                Math.max(240, 140 + 20 * strategies.length));
+            const traces = strategies.map(strat => {
+                const color = hlStratColor(strategies, strat);
+                const ys = [], texts = [];
+                for (const noise of noises) {
+                    const st = cellStats.get(`${strat}|${noise}`);
+                    ys.push(st && st.medUncert != null ? st.medUncert : null);
+                    texts.push(st ? `n=${st.n}` : '');
+                }
+                return {
+                    x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                    name: _shortStratLabel(strat),
+                    line: { color, width: 2 }, marker: { color, size: 6 }, text: texts,
+                    hovertemplate: '%{y:.3g} σ<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                };
+            });
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, ...mkXAxis() };
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Median claimed σ', font: { size: 11 } }, rangemode: 'tozero' };
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+        }
+    }
+
+    function renderAccuracySpan() {
+        const container = document.getElementById('acc-span-content');
+        if (!container) return;
+        container.innerHTML = '';
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const plotDiv = dashPanelDiv(container,
+            'Calibration vs signal span — pooled',
+            'Per-run 1σ calibration log-binned by fractional signal span. Near 68% is ideal (dashed line).',
+            320, true);
+        const traces = [];
+        for (const strat of allStrats) {
+            const xs = [], ys = [];
+            for (const p of scanPlots) {
+                if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
+                if (p.abs_err_x == null || p.uncert == null || p.uncert <= 0) continue;
+                const fSpan = hlFSpan(p);
+                if (fSpan == null) continue;
+                xs.push(fSpan);
+                ys.push(p.abs_err_x <= p.uncert ? 1 : 0);
+            }
+            if (!xs.length) continue;
+            const color = hlStratColor(allStrats, strat);
+            const { traces: t } = hlBinnedLineTraces(xs, ys, color, _shortStratLabel(strat), { hoverY: 'fraction within 1σ' });
+            traces.push(...t);
+        }
+        if (!traces.length) {
+            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+        } else {
+            const layout = hlBaseLayout();
+            layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
+            layout.yaxis = { ...layout.yaxis, range: [0, 1.05], tickformat: '.0%', title: { text: '|err| ≤ 1σ fraction', font: { size: 11 } } };
+            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0.68, y1: 0.68, line: { color: '#94a3b8', width: 1.5, dash: 'dash' } }];
+            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
         }
     }
 
@@ -4522,6 +5219,7 @@ function main() {
         if (!div) return;
         let globalMax = 1;
         for (const s of strategies) {
+            if (isSweepBaseline(s)) continue; // sweep's 2500-step total would swamp the adaptive scale
             for (const p of byStrategy.get(s)) {
                 const m = hlRunSteps(p);
                 if (m != null && m > globalMax) globalMax = m;
@@ -4637,24 +5335,27 @@ function main() {
     function renderHlCoverage(byStrategy, strategies) {
         const div = document.getElementById('hl-coverage');
         if (!div) return;
-        const labels = [], c1 = [], c1err = [], c2 = [], c2err = [], colors1 = [], colors2 = [], hover1 = [], hover2 = [];
+        const labels = [], c1 = [], c1err = [], c2 = [], c2err = [], c3 = [], c3err = [], colors1 = [], colors2 = [], colors3 = [], hover1 = [], hover2 = [], hover3 = [];
         for (const strat of strategies) {
             const pairs = byStrategy.get(strat).filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
             const n = pairs.length;
             if (!n) continue;
             const k1 = pairs.filter(p => p.abs_err_x <= p.uncert).length;
             const k2 = pairs.filter(p => p.abs_err_x <= 2 * p.uncert).length;
-            const w1 = hlWilson(k1, n), w2 = hlWilson(k2, n);
+            const k3 = pairs.filter(p => p.abs_err_x <= 3 * p.uncert).length;
+            const w1 = hlWilson(k1, n), w2 = hlWilson(k2, n), w3 = hlWilson(k3, n);
             labels.push(_shortStratLabel(strat));
-            c1.push(w1.p); c2.push(w2.p);
+            c1.push(w1.p); c2.push(w2.p); c3.push(w3.p);
             c1err.push({ up: w1.hi - w1.p, down: w1.p - w1.lo });
             c2err.push({ up: w2.hi - w2.p, down: w2.p - w2.lo });
-            // Red only when the whole Wilson interval sits below nominal —
-            // i.e. the promise is credibly broken, not just noisy.
+            c3err.push({ up: w3.hi - w3.p, down: w3.p - w3.lo });
+            // Red only when the whole Wilson interval sits below nominal.
             colors1.push(w1.hi < HL_NOMINAL_1S ? '#dc2626' : '#60a5fa');
             colors2.push(w2.hi < HL_NOMINAL_2S ? '#dc2626' : '#1d4ed8');
+            colors3.push(w3.hi < HL_NOMINAL_3S ? '#dc2626' : '#1e3a8a');
             hover1.push(`${k1}/${n} repeats with |err| ≤ 1σ`);
             hover2.push(`${k2}/${n} repeats with |err| ≤ 2σ`);
+            hover3.push(`${k3}/${n} repeats with |err| ≤ 3σ`);
         }
         if (!labels.length) {
             div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No (error, uncertainty) pairs available.</p>';
@@ -4662,28 +5363,36 @@ function main() {
         }
         const traces = [
             {
-                x: labels, y: c1, type: 'bar', name: '|err| ≤ 1σ claimed',
+                x: labels, y: c1, type: 'bar', name: '|err| ≤ 1σ',
                 marker: { color: colors1 }, text: hover1, textposition: 'none',
                 hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
                 error_y: { type: 'data', array: c1err.map(e => e.up), arrayminus: c1err.map(e => e.down), color: '#475569', thickness: 1 },
             },
             {
-                x: labels, y: c2, type: 'bar', name: '|err| ≤ 2σ claimed',
+                x: labels, y: c2, type: 'bar', name: '|err| ≤ 2σ',
                 marker: { color: colors2 }, text: hover2, textposition: 'none',
                 hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
                 error_y: { type: 'data', array: c2err.map(e => e.up), arrayminus: c2err.map(e => e.down), color: '#475569', thickness: 1 },
             },
+            {
+                x: labels, y: c3, type: 'bar', name: '|err| ≤ 3σ',
+                marker: { color: colors3 }, text: hover3, textposition: 'none',
+                hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
+                error_y: { type: 'data', array: c3err.map(e => e.up), arrayminus: c3err.map(e => e.down), color: '#475569', thickness: 1 },
+            },
         ];
         const layout = hlBaseLayout();
         layout.barmode = 'group';
-        layout.yaxis = { ...layout.yaxis, title: { text: 'Coverage (fraction of repeats)', font: { size: 11 } }, range: [0, 1.08], tickformat: '.0%' };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Coverage (fraction of repeats)', font: { size: 11 } }, range: [0, 1.06], tickformat: '.0%' };
         layout.shapes = [
             { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_1S, y1: HL_NOMINAL_1S, line: { color: '#60a5fa', width: 1, dash: 'dash' } },
             { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_2S, y1: HL_NOMINAL_2S, line: { color: '#1d4ed8', width: 1, dash: 'dash' } },
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_3S, y1: HL_NOMINAL_3S, line: { color: '#1e3a8a', width: 1, dash: 'dash' } },
         ];
         layout.annotations = [
             { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_1S, text: '68% nominal', showarrow: false, font: { size: 9, color: '#60a5fa' }, yanchor: 'bottom', xanchor: 'left' },
             { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_2S, text: '95% nominal', showarrow: false, font: { size: 9, color: '#1d4ed8' }, yanchor: 'bottom', xanchor: 'left' },
+            { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_3S, text: '99.7% nominal', showarrow: false, font: { size: 9, color: '#1e3a8a' }, yanchor: 'bottom', xanchor: 'left' },
         ];
         Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
@@ -4693,8 +5402,8 @@ function main() {
         const div = document.getElementById('hl-span');
         const decompDiv = document.getElementById('hl-firstsignal');
         if (!div) return;
-        const baselineSel = document.getElementById('hl-span-baseline');
-        const baseline = baselineSel ? baselineSel.value : null;
+        // SimpleSweep is always the reference; SBED/Sobol are plotted as savings vs it.
+        const baseline = sweepName;
         const adaptive = strategies.filter(s => s !== sweepName);
 
         const traces = [];
@@ -4740,50 +5449,98 @@ function main() {
         layout.yaxis = { ...layout.yaxis, title: { text: `Steps saved vs ${baseline ? _shortStratLabel(baseline) : 'baseline'} (paired)`, font: { size: 11 } }, zeroline: true, zerolinecolor: '#cbd5e1' };
         layout.annotations = annotations;
         if (!traces.length) {
-            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">Needs two adaptive locators with shared repeats that both converged at the same threshold.</p>';
+            div.style.height = 'auto';
+            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">Needs a SimpleSweep baseline and at least one adaptive locator sharing repeats that converged at the same threshold.</p>';
         } else {
+            div.style.height = '300px';
             Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
         }
 
-        if (!decompDiv) return;
-        // Search vs refine: if search ~ 1/f_span and refine is flat, slim
-        // signals lose their advantage purely to blind search.
-        const dTraces = [];
-        for (const strat of adaptive) {
-            const sx = [], sy = [], rx = [], ry = [];
-            for (const p of byStrategy.get(strat)) {
-                if (!p.series) continue;
-                const fSpan = hlFSpan(p);
-                if (fSpan == null) continue;
-                const first = hlFirstSignalStep(p.series);
-                const conv = hlConvStep(p, hlTauMult);
-                if (first != null) { sx.push(fSpan); sy.push(first); }
-                if (first != null && conv != null && conv >= first) { rx.push(fSpan); ry.push(Math.max(conv - first, 1)); }
+        // Search vs refine + uncertainty-at-convergence, both vs f_span, faceted
+        // into small multiples by noise level. A raw per-repeat scatter is an
+        // unreadable cloud, so each facet collapses every phase to a log-binned
+        // median line with an IQR band — the trend (rising search ∝ 1/f_span, flat
+        // refine; uncertainty floor vs span) is the whole point, and only the
+        // binned per-noise summary makes it legible.
+        const uncertDiv = document.getElementById('hl-uncert-span');
+
+        // Noise levels present across the adaptive runs, sorted numerically.
+        const noiseSet = new Set();
+        for (const strat of adaptive)
+            for (const p of (byStrategy.get(strat) || []))
+                if (p.noise != null) noiseSet.add(p.noise);
+        const noiseLevels = [...noiseSet].sort(
+            (a, b) => (parseFloat(a) - parseFloat(b)) || String(a).localeCompare(String(b)));
+
+        // Render one metric as a row of per-noise facets into `container`.
+        const renderFacets = (container, buildTraces, yTitle) => {
+            if (!container) return;
+            container.innerHTML = '';
+            container.style.display = 'block';
+            if (!noiseLevels.length) {
+                container.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">Needs per-step series data (re-run to generate).</p>';
+                return;
             }
-            const color = hlStratColor(strategies, strat);
-            if (sx.length) {
-                dTraces.push({
-                    x: sx, y: sy, mode: 'markers', name: `${_shortStratLabel(strat)} search`,
-                    marker: { color: hlHexToRgba(color, 0.8), size: 7, symbol: 'circle' },
-                    hovertemplate: 'f_span %{x:.3e}<br>steps to first signal %{y}<extra></extra>',
-                });
+            // Build legend items from a representative trace set (first noise with data).
+            let legendTraces = null;
+            for (const noise of noiseLevels) {
+                const rbs = new Map();
+                for (const strat of adaptive)
+                    rbs.set(strat, (byStrategy.get(strat) || []).filter(p => p.noise === noise));
+                const t = buildTraces(rbs, strategies, adaptive, true);
+                if (t.length) { legendTraces = t; break; }
             }
-            if (rx.length) {
-                dTraces.push({
-                    x: rx, y: ry, mode: 'markers', name: `${_shortStratLabel(strat)} refine`,
-                    marker: { color: hlHexToRgba(color, 0.45), size: 7, symbol: 'diamond' },
-                    hovertemplate: 'f_span %{x:.3e}<br>steps from first signal to convergence %{y}<extra></extra>',
-                });
+            if (legendTraces) {
+                const legendEl = document.createElement('div');
+                legendEl.style.cssText = 'display:flex; flex-wrap:wrap; gap:16px; margin:0 0 10px 0; padding:6px 10px; border-bottom:1px solid #e2e8f0; font-size:10px; color:#334155; align-items:center;';
+                for (const tr of legendTraces) {
+                    if (!tr.name || tr.showlegend === false) continue;
+                    const item = document.createElement('span');
+                    item.style.cssText = 'display:flex; align-items:center; gap:5px; white-space:nowrap;';
+                    const swatch = document.createElement('span');
+                    const c = (tr.line && tr.line.color) ? tr.line.color : (tr.marker && tr.marker.color ? tr.marker.color : '#888');
+                    const dash = tr.line && tr.line.dash ? tr.line.dash : null;
+                    swatch.style.cssText = `display:inline-block; width:28px; height:2px; background:${c}; border-radius:1px;${dash ? 'border-top:2px dashed ' + c + '; background:transparent;' : ''}`;
+                    item.appendChild(swatch);
+                    item.appendChild(document.createTextNode(tr.name));
+                    legendEl.appendChild(item);
+                }
+                container.appendChild(legendEl);
             }
-        }
-        const dLayout = hlBaseLayout();
-        dLayout.xaxis = { ...dLayout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
-        dLayout.yaxis = { ...dLayout.yaxis, title: { text: 'Steps', font: { size: 11 } }, type: 'log' };
-        if (!dTraces.length) {
-            decompDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">Needs per-step series data (re-run to generate).</p>';
-        } else {
-            Plotly.react(decompDiv, dTraces, dLayout, { displayModeBar: false, responsive: true });
-        }
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px;';
+            container.appendChild(grid);
+            noiseLevels.forEach((noise) => {
+                const rbs = new Map();
+                for (const strat of adaptive)
+                    rbs.set(strat, (byStrategy.get(strat) || []).filter(p => p.noise === noise));
+                const traces = buildTraces(rbs, strategies, adaptive, false);
+                const cell = document.createElement('div');
+                cell.style.cssText = 'flex:1 1 280px; min-width:255px;';
+                grid.appendChild(cell);
+                if (!traces.length) {
+                    cell.innerHTML = `<p style="color:#94a3b8;padding:1em;font-size:0.85em;">noise ${noise}: no converged runs</p>`;
+                    return;
+                }
+                const titleEl = document.createElement('div');
+                const shortLabel = noise.match(/Gauss\(([\d.]+)\)/) ? `σ=${noise.match(/Gauss\(([\d.]+)\)/)[1]}` : noise;
+                titleEl.style.cssText = 'font-size:10px; color:#475569; text-align:center; padding:2px 0;';
+                titleEl.textContent = shortLabel;
+                cell.appendChild(titleEl);
+                const plotEl = document.createElement('div');
+                plotEl.style.height = '240px';
+                cell.appendChild(plotEl);
+                const lay = hlBaseLayout();
+                lay.margin = { t: 4, b: 40, l: 52, r: 10 };
+                lay.showlegend = false;
+                lay.xaxis = { ...lay.xaxis, title: { text: 'f_span', font: { size: 10 } }, type: 'log', tickfont: { size: 9 } };
+                lay.yaxis = { ...lay.yaxis, title: { text: yTitle, font: { size: 10 } }, type: 'log', tickfont: { size: 9 } };
+                Plotly.react(plotEl, traces, lay, { displayModeBar: false, responsive: true });
+            });
+        };
+
+        renderFacets(decompDiv, hlBuildDecompTraces, 'Steps (median, IQR)');
+        renderFacets(uncertDiv, hlBuildUncertTraces, 'σ at conv. (median, IQR)');
     }
 
     // Headline: practical one-liner per adaptive locator, anchored to the sweep.
@@ -4816,7 +5573,7 @@ function main() {
             const crossStep = hlCrossStep(seriesRuns, sweepFinalMed);
             const covPairs = runs.filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
             const w = covPairs.length ? hlWilson(covPairs.filter(p => p.abs_err_x <= p.uncert).length, covPairs.length) : null;
-            const covText = w ? `promise kept ${(w.p * 100).toFixed(0)}% [${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}%] (n=${covPairs.length})` : 'coverage unavailable';
+            const covText = w ? `1σ coverage: ${(w.p * 100).toFixed(0)}% [${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}%] (n=${covPairs.length})` : 'coverage unavailable';
             let main;
             if (!seriesRuns.length) {
                 main = 'no per-step series — re-run to compute the sweep-quality crossing';
@@ -4851,9 +5608,9 @@ function main() {
         return byStrategy;
     }
 
-    function dashPanelDiv(parent, title, tip, height) {
+    function dashPanelDiv(parent, title, tip, height, fullWidth = false) {
         const box = document.createElement('div');
-        box.style.cssText = 'flex:1 1 31%; min-width:380px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;';
+        box.style.cssText = `flex:1 1 ${fullWidth ? '100%' : '31%'}; min-width:380px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;`;
         const h = document.createElement('h4');
         h.style.cssText = 'margin:0 0 0.4em 10px; font-size:0.9em; color:#334155;';
         h.innerHTML = `${title} <span tabindex="0" class="help-icon-visible" title="${tip.replace(/"/g, '&quot;')}">?</span>`;
@@ -4867,7 +5624,7 @@ function main() {
 
     const dashHeatLayout = (xLabels, yLabels) => ({
         template: 'plotly_white',
-        margin: { t: 10, b: 70, l: 110, r: 15 },
+        margin: { t: 10, b: Math.max(70, 50 + Math.max(...(xLabels.map(l => (l || '').length)), 0) * 4), l: 110, r: 15 },
         xaxis: { type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: xLabels },
         yaxis: { type: 'category', tickfont: { size: 10 }, categoryorder: 'array', categoryarray: yLabels },
         plot_bgcolor: 'transparent',
@@ -4886,249 +5643,310 @@ function main() {
             return;
         }
 
-        // Baseline selector for the pooled paired-savings scatter
-        const baselineSel = document.getElementById('dash-span-baseline');
-        const allStrategies = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
-        const adaptiveAll = allStrategies.filter(s => !isSweepBaseline(s));
-        if (baselineSel) {
-            const prev = baselineSel.value;
-            baselineSel.innerHTML = '';
-            adaptiveAll.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s;
-                opt.textContent = s;
-                baselineSel.appendChild(opt);
-            });
-            if (adaptiveAll.includes(prev)) baselineSel.value = prev;
-            else {
-                const sobol = adaptiveAll.find(s => /sobol/i.test(s) && !/staged/i.test(s)) || adaptiveAll.find(s => /sobol/i.test(s));
-                baselineSel.value = sobol || adaptiveAll[0] || '';
-            }
-            if (!baselineSel._hasListener) {
-                baselineSel.addEventListener('change', renderDashboard);
-                baselineSel._hasListener = true;
-            }
-        }
-
         ensurePlotly().then(() => {
-            for (const gen of generators) renderDashGeneratorSection(content, gen);
-            renderDashPooledSpan(baselineSel ? baselineSel.value : null);
+            renderPooledMeasurements(content, generators);
+            renderPooledUncertainty(content, generators);
         });
     }
 
-    function renderDashGeneratorSection(content, generator) {
-        const genPlots = scanPlots.filter(p => p.generator === generator);
-        const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
-        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
-        const sweepCandidates = strategies.filter(isSweepBaseline);
-        const sweepName = sweepCandidates.find(s => /^SimpleSweep/.test(s)) || sweepCandidates[0] || null;
-        const adaptive = strategies.filter(s => s !== sweepName);
+    // ── Pooled: Measurement Savings ─────────────────────────────────────────
+    // Section 1 — per-generator line charts (steps vs noise, k× vs noise)
+    //             + pooled binned line (steps vs f_span)
+    function renderPooledMeasurements(content, generators) {
+        const hdr = document.createElement('div');
+        hdr.innerHTML = '<h2 style="margin-bottom:0.2em;">Measurement Savings <span tabindex="0" class="help-icon-visible" title="How many measurements each locator needs to converge, compared to the full sweep, as a function of noise level and signal span. τ toggle scales the convergence threshold.">?</span></h2>';
+        content.appendChild(hdr);
 
-        const section = document.createElement('div');
-        section.style.cssText = 'margin-top:1em;';
-        const h = document.createElement('h3');
-        h.textContent = generator;
-        section.appendChild(h);
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex; flex-wrap:wrap; gap:1.2em;';
-        section.appendChild(row);
-        content.appendChild(section);
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const sweepName = allStrats.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
+            || allStrats.filter(isSweepBaseline)[0] || null;
 
-        // Precompute per (strategy, noise) cell stats
-        const cellStats = new Map(); // `${strat}|${noise}` -> stats
-        for (const noise of noises) {
-            const cell = dashCell(generator, noise);
-            const sweepRuns = sweepName ? (cell.get(sweepName) || []) : [];
-            const sweepFinalMed = sweepRuns.length ? hlMedian(sweepRuns.map(p => p.abs_err_x)) : null;
-            const sweepMeasMed = sweepRuns.length ? hlMedian(sweepRuns.map(p => hlRunSteps(p))) : null;
-            for (const strat of strategies) {
-                const runs = cell.get(strat) || [];
-                if (!runs.length) continue;
-                const seriesRuns = runs.filter(p => p.series && p.series.e);
-                const cross = strat === sweepName ? null : hlCrossStep(seriesRuns, sweepFinalMed);
-                const covPairs = runs.filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
-                const k1 = covPairs.filter(p => p.abs_err_x <= p.uncert).length;
-                const conv = runs.filter(p => p.freq_converged_step != null).length;
-                const nonConv = runs.filter(p => p.freq_converged_step == null);
-                const improving = nonConv.filter(p => hlStillImproving(p) === true).length;
-                cellStats.set(`${strat}|${noise}`, {
-                    n: runs.length,
-                    advantage: cross != null && sweepMeasMed ? sweepMeasMed / cross : null,
-                    crossStep: cross,
-                    sweepMeasMed,
-                    coverage1: covPairs.length ? k1 / covPairs.length : null,
-                    covK: k1, covN: covPairs.length,
-                    convRate: conv / runs.length,
-                    nonConv: nonConv.length, improving,
+        for (const gen of generators) {
+            const genPlots = scanPlots.filter(p => p.generator === gen);
+            const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
+            const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+            const adaptive = strategies.filter(s => !isSweepBaseline(s));
+            if (!strategies.length) continue;
+
+            const genSection = document.createElement('div');
+            genSection.style.cssText = 'margin-top:1.2em;';
+            const gh = document.createElement('h3');
+            gh.style.cssText = 'margin:0 0 0.6em;';
+            gh.textContent = gen;
+            genSection.appendChild(gh);
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; flex-wrap:wrap; gap:1.2em;';
+            genSection.appendChild(row);
+            content.appendChild(genSection);
+
+            // Per-(strategy, noise) median conv steps and k× factor
+            const cellConv = new Map();
+            for (const noise of noises) {
+                const cell = dashCell(gen, noise);
+                const sweepRuns = sweepName ? (cell.get(sweepName) || []) : [];
+                const sweepMeasMed = sweepRuns.length ? hlMedian(sweepRuns.map(p => hlRunSteps(p)).filter(v => v != null)) : null;
+                for (const strat of strategies) {
+                    const runs = cell.get(strat) || [];
+                    if (!runs.length) continue;
+                    const isSweep = isSweepBaseline(strat);
+                    const convSteps = isSweep
+                        ? runs.map(p => hlRunSteps(p)).filter(v => v != null)
+                        : runs.map(p => hlConvStep(p, hlTauMult)).filter(v => v != null);
+                    const medConv = convSteps.length ? hlMedian(convSteps) : null;
+                    const k = (!isSweep && medConv != null && sweepMeasMed != null) ? sweepMeasMed / medConv : null;
+                    cellConv.set(`${strat}|${noise}`, {
+                        medConv, sweepMeasMed, k, n: runs.length, convN: convSteps.length,
+                    });
+                }
+            }
+
+            // Panel 1a: steps to convergence vs noise
+            {
+                const plotDiv = dashPanelDiv(row,
+                    'Steps to convergence vs noise',
+                    'Median steps to convergence at the current τ threshold. Sweep (dashed) = total measurement count — it runs to completion, not to a convergence criterion. Lower is faster.',
+                    Math.max(260, 160 + 20 * strategies.length));
+                const traces = strategies.map(strat => {
+                    const color = hlStratColor(strategies, strat);
+                    const isSweep = isSweepBaseline(strat);
+                    const ys = [], texts = [];
+                    for (const noise of noises) {
+                        const st = cellConv.get(`${strat}|${noise}`);
+                        ys.push(st ? st.medConv : null);
+                        texts.push(st ? `${st.convN}/${st.n} converged` : '');
+                    }
+                    return {
+                        x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                        name: _shortStratLabel(strat),
+                        line: { color, width: isSweep ? 2.5 : 2, dash: isSweep ? 'dash' : 'solid' },
+                        marker: { color, size: 6 },
+                        text: texts,
+                        hovertemplate: '%{y:.0f} steps<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                    };
                 });
+                const layout = hlBaseLayout();
+                layout.xaxis = { ...layout.xaxis, type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: noises };
+                layout.yaxis = { ...layout.yaxis, title: { text: 'Median steps', font: { size: 11 } }, rangemode: 'tozero' };
+                Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+            }
+
+            // Panel 1b: k× savings vs noise (adaptive only)
+            if (sweepName && adaptive.length) {
+                const plotDiv = dashPanelDiv(row,
+                    `k× savings vs noise — τ×${hlTauMult}`,
+                    'Ratio of sweep total steps to adaptive convergence steps at the current τ. k=2 means the locator needed half as many measurements. Blank = did not converge. Reference line at k=1 (same as sweep).',
+                    Math.max(260, 160 + 20 * adaptive.length));
+                const traces = adaptive.map(strat => {
+                    const color = hlStratColor(strategies, strat);
+                    const ys = [], texts = [];
+                    for (const noise of noises) {
+                        const st = cellConv.get(`${strat}|${noise}`);
+                        ys.push(st ? st.k : null);
+                        texts.push(st && st.k != null
+                            ? `${Math.round(st.medConv)} vs ${Math.round(st.sweepMeasMed)} sweep steps (n=${st.convN}/${st.n})`
+                            : 'did not converge');
+                    }
+                    return {
+                        x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                        name: _shortStratLabel(strat),
+                        line: { color, width: 2 }, marker: { color, size: 6 },
+                        text: texts,
+                        hovertemplate: '%{y:.1f}× faster<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                    };
+                });
+                const layout = hlBaseLayout();
+                layout.xaxis = { ...layout.xaxis, type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: noises };
+                layout.yaxis = { ...layout.yaxis, title: { text: 'Median sweep steps / conv steps', font: { size: 11 } }, rangemode: 'tozero' };
+                layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 1, y1: 1, line: { color: '#94a3b8', width: 1.5, dash: 'dash' } }];
+                Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
             }
         }
 
-        // Panel A: measurement advantage (k×) at sweep quality
-        if (sweepName && adaptive.length) {
-            const plotDiv = dashPanelDiv(row,
-                'Advantage at sweep quality (k× fewer measurements)',
-                'How many times fewer measurements than the full sweep each adaptive locator needs to reach the accuracy the sweep delivers. Blank = never reaches it (or no per-step series). NOTE: depends on the sweep baseline being recorded correctly.',
-                Math.max(180, 60 + 34 * adaptive.length));
-            const z = [], text = [];
-            for (const strat of adaptive) {
-                const zr = [], tr = [];
-                for (const noise of noises) {
-                    const st = cellStats.get(`${strat}|${noise}`);
-                    const k = st ? st.advantage : null;
-                    zr.push(k != null ? Math.log10(k) : null);
-                    tr.push(st && k != null
-                        ? `${k.toFixed(1)}× (${st.crossStep} vs ${Math.round(st.sweepMeasMed)}, n=${st.n})`
-                        : (st ? 'no crossing' : ''));
-                }
-                z.push(zr); text.push(tr);
-            }
-            const layout = dashHeatLayout(noises, adaptive.map(_shortStratLabel));
-            const maxZ = Math.max(...z.flat().filter(v => v != null), 0);
-            layout.annotations = [];
-            adaptive.forEach((strat, i) => noises.forEach((noise, j) => {
-                const st = cellStats.get(`${strat}|${noise}`);
-                if (st && st.advantage != null) {
-                    layout.annotations.push({
-                        x: noise, y: _shortStratLabel(strat), text: `${st.advantage.toFixed(1)}×`,
-                        showarrow: false,
-                        font: { size: 10, color: z[i][j] > 0.55 * maxZ ? '#ffffff' : '#0f172a' },
-                    });
-                }
-            }));
-            Plotly.react(plotDiv, [{
-                type: 'heatmap', x: noises, y: adaptive.map(_shortStratLabel), z, text,
-                colorscale: 'Blues', showscale: false, hovertemplate: '%{y} @ %{x}<br>%{text}<extra></extra>',
-                hoverongaps: false,
-            }], layout, { displayModeBar: false, responsive: true });
-        }
-
-        // Panel B: coverage heatmap (promise kept, |err| ≤ 1σ)
+        // Panel 1c: steps vs f_span, pooled across all generators + noises
         {
-            const plotDiv = dashPanelDiv(row,
-                'Promise kept (|err| ≤ 1σ claimed)',
-                'Fraction of repeats where the true error was within the claimed 1σ uncertainty, per locator and noise level. Nominal for a calibrated Gaussian posterior is 68% — red cells are credibly overconfident.',
-                Math.max(180, 60 + 34 * strategies.length));
-            const z = [], text = [];
-            for (const strat of strategies) {
-                const zr = [], tr = [];
-                for (const noise of noises) {
-                    const st = cellStats.get(`${strat}|${noise}`);
-                    zr.push(st && st.coverage1 != null ? st.coverage1 : null);
-                    tr.push(st && st.coverage1 != null ? `${st.covK}/${st.covN} within 1σ` : '');
+            const poolRow = document.createElement('div');
+            poolRow.style.cssText = 'margin-top:1.2em;';
+            content.appendChild(poolRow);
+            const plotDiv = dashPanelDiv(poolRow,
+                `Steps to convergence vs signal span — pooled, τ×${hlTauMult}`,
+                'Each run plotted by its fractional signal span (linewidth / full spectrum width). Log-binned median + IQR band. Sweep shown as total measurement count (dashed). Slim signals (small f_span) may need more measurements to locate.',
+                340, true);
+            const traces = [];
+            for (const strat of allStrats) {
+                const isSweep = isSweepBaseline(strat);
+                const xs = [], ys = [];
+                for (const p of scanPlots) {
+                    if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
+                    const fSpan = hlFSpan(p);
+                    if (fSpan == null) continue;
+                    const step = isSweep ? hlRunSteps(p) : hlConvStep(p, hlTauMult);
+                    if (step == null) continue;
+                    xs.push(fSpan); ys.push(step);
                 }
-                z.push(zr); text.push(tr);
+                if (!xs.length) continue;
+                const color = hlStratColor(allStrats, strat);
+                const { traces: t } = hlBinnedLineTraces(xs, ys, color, _shortStratLabel(strat), {
+                    dash: isSweep ? 'dash' : null, hoverY: 'median steps',
+                });
+                traces.push(...t);
             }
-            const layout = dashHeatLayout(noises, strategies.map(_shortStratLabel));
-            layout.annotations = [];
-            strategies.forEach((strat) => noises.forEach((noise) => {
-                const st = cellStats.get(`${strat}|${noise}`);
-                if (st && st.coverage1 != null) {
-                    layout.annotations.push({
-                        x: noise, y: _shortStratLabel(strat), text: `${Math.round(st.coverage1 * 100)}%`,
-                        showarrow: false, font: { size: 10, color: st.coverage1 < 0.4 ? '#fff' : '#0f172a' },
+            if (!traces.length) {
+                plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+            } else {
+                const layout = hlBaseLayout();
+                layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
+                layout.yaxis = { ...layout.yaxis, title: { text: 'Median steps to convergence', font: { size: 11 } } };
+                Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+            }
+        }
+    }
+
+    // ── Pooled: Uncertainty Quality ──────────────────────────────────────────
+    // Section 2 — per-generator line charts (calibration vs noise, final σ vs noise)
+    //             + pooled binned line (calibration vs f_span)
+    function renderPooledUncertainty(content, generators) {
+        const sep = document.createElement('div');
+        sep.style.cssText = 'border-top:2px solid #e2e8f0; margin:2em 0 0.5em;';
+        content.appendChild(sep);
+        const hdr = document.createElement('div');
+        hdr.innerHTML = '<h2 style="margin-bottom:0.2em;">Uncertainty Quality <span tabindex="0" class="help-icon-visible" title="Whether the locator\'s claimed uncertainty matches the true error (calibration) and how tight the final answer is, as a function of noise level and signal span.">?</span></h2>';
+        content.appendChild(hdr);
+
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+
+        for (const gen of generators) {
+            const genPlots = scanPlots.filter(p => p.generator === gen);
+            const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
+            const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+            if (!strategies.length) continue;
+
+            const genSection = document.createElement('div');
+            genSection.style.cssText = 'margin-top:1.2em;';
+            const gh = document.createElement('h3');
+            gh.style.cssText = 'margin:0 0 0.6em;';
+            gh.textContent = gen;
+            genSection.appendChild(gh);
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; flex-wrap:wrap; gap:1.2em;';
+            genSection.appendChild(row);
+            content.appendChild(genSection);
+
+            // Per-(strategy, noise) calibration and final uncertainty stats
+            const cellUncert = new Map();
+            for (const noise of noises) {
+                const cell = dashCell(gen, noise);
+                for (const strat of strategies) {
+                    const runs = cell.get(strat) || [];
+                    if (!runs.length) continue;
+                    const covPairs = runs.filter(p => p.abs_err_x != null && p.uncert != null && p.uncert > 0);
+                    const k1 = covPairs.filter(p => p.abs_err_x <= p.uncert).length;
+                    const uncerts = runs.map(p => p.uncert).filter(v => v != null && v > 0);
+                    cellUncert.set(`${strat}|${noise}`, {
+                        cal: covPairs.length ? k1 / covPairs.length : null,
+                        calK: k1, calN: covPairs.length,
+                        medUncert: uncerts.length ? hlMedian(uncerts) : null,
+                        n: runs.length,
                     });
                 }
-            }));
-            Plotly.react(plotDiv, [{
-                type: 'heatmap', x: noises, y: strategies.map(_shortStratLabel), z, text,
-                zmin: 0, zmax: 1,
-                colorscale: [[0, '#dc2626'], [0.5, '#fbbf24'], [0.68, '#a3e635'], [1, '#16a34a']],
-                showscale: false, hovertemplate: '%{y} @ %{x}<br>%{text}<extra></extra>',
-                hoverongaps: false,
-            }], layout, { displayModeBar: false, responsive: true });
-        }
-
-        // Panel C: convergence within budget vs noise, with censoring diagnosis
-        if (adaptive.length) {
-            const plotDiv = dashPanelDiv(row,
-                'Converged within budget vs noise',
-                'Fraction of repeats whose claimed frequency uncertainty crossed the threshold before the run budget. Hover shows whether the non-converged runs were still improving (budget-censored → raise max steps) or stalled (threshold unreachable at this noise — a finding, not a config bug). Sweep excluded.',
-                340);
-            const traces = adaptive.map((strat, i) => {
-                const ys = [], texts = [];
-                for (const noise of noises) {
-                    const st = cellStats.get(`${strat}|${noise}`);
-                    ys.push(st ? st.convRate : null);
-                    texts.push(st
-                        ? (st.nonConv
-                            ? `${st.improving}/${st.nonConv} non-converged still improving${st.improving ? ' → budget-censored' : ' → stalled'} (n=${st.n})`
-                            : `all converged (n=${st.n})`)
-                        : '');
-                }
-                return {
-                    x: noises, y: ys, mode: 'lines+markers', name: _shortStratLabel(strat),
-                    line: { color: HL_COLORS[i % HL_COLORS.length], width: 2 }, marker: { size: 6 },
-                    text: texts, hovertemplate: '%{y:.0%} converged<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
-                };
-            });
-            const layout = hlBaseLayout();
-            layout.xaxis = { ...layout.xaxis, type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: noises };
-            layout.yaxis = { ...layout.yaxis, range: [0, 1.04], tickformat: '.0%', title: { text: 'Converged within budget', font: { size: 11 } } };
-            Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
-        }
-    }
-
-    function renderDashPooledSpan(baseline) {
-        const plotDiv = document.getElementById('dash-span-plot');
-        if (!plotDiv) return;
-        if (!baseline) {
-            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No adaptive baseline available.</p>';
-            return;
-        }
-        const generators = [...new Set(scanPlots.map(p => p.generator))]
-            .filter(g => g && g !== 'Dummy-Generator').sort();
-        const strategies = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
-        const traces = [];
-        let shownScale = false;
-        for (const strat of strategies) {
-            if (strat === baseline || isSweepBaseline(strat)) continue;
-            const xs = [], ys = [], colors = [], texts = [];
-            for (const gen of generators) {
-                const noises = [...new Set(scanPlots.filter(p => p.generator === gen).map(p => p.noise))].filter(Boolean);
-                for (const noise of noises) {
-                    const cell = dashCell(gen, noise);
-                    const baseRuns = cell.get(baseline) || [];
-                    const stratRuns = cell.get(strat) || [];
-                    if (!baseRuns.length || !stratRuns.length) continue;
-                    const baseByRepeat = new Map();
-                    for (const p of baseRuns) {
-                        const step = hlConvStep(p, 1);
-                        if (p.repeat != null && step != null) baseByRepeat.set(p.repeat, { step, fSpan: hlFSpan(p) });
-                    }
-                    for (const p of stratRuns) {
-                        const base = baseByRepeat.get(p.repeat);
-                        const step = hlConvStep(p, 1);
-                        if (!base || step == null || base.fSpan == null) continue;
-                        xs.push(base.fSpan);
-                        ys.push(base.step - step);
-                        colors.push(noiseSigma(noise) ?? 0);
-                        texts.push(`${gen} · ${noise} · repeat ${p.repeat}`);
-                    }
-                }
             }
-            if (!xs.length) continue;
-            traces.push({
-                x: xs, y: ys, mode: 'markers', type: 'scatter', name: `${_shortStratLabel(strat)} (n=${xs.length})`,
-                marker: {
-                    size: 7, color: colors, colorscale: 'Viridis', showscale: !shownScale,
-                    colorbar: !shownScale ? { title: { text: 'noise σ', font: { size: 10 } }, thickness: 12, len: 0.7 } : undefined,
-                    line: { color: '#334155', width: 0.5 },
-                },
-                text: texts,
-                hovertemplate: 'f_span %{x:.3e}<br>steps saved %{y}<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
-            });
-            shownScale = true;
+
+            // Panel 2a: 1σ calibration vs noise
+            {
+                const plotDiv = dashPanelDiv(row,
+                    '1σ calibration vs noise',
+                    'Fraction of repeats where |true error| ≤ claimed 1σ uncertainty. A well-calibrated locator should be near the 68% dashed line. Below = overconfident; above = conservative.',
+                    Math.max(260, 160 + 20 * strategies.length));
+                const traces = strategies.map(strat => {
+                    const color = hlStratColor(strategies, strat);
+                    const ys = [], texts = [];
+                    for (const noise of noises) {
+                        const st = cellUncert.get(`${strat}|${noise}`);
+                        ys.push(st && st.cal != null ? st.cal : null);
+                        texts.push(st && st.cal != null ? `${st.calK}/${st.calN} within 1σ` : '');
+                    }
+                    return {
+                        x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                        name: _shortStratLabel(strat),
+                        line: { color, width: 2 }, marker: { color, size: 6 },
+                        text: texts,
+                        hovertemplate: '%{y:.0%} coverage<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                    };
+                });
+                const layout = hlBaseLayout();
+                layout.xaxis = { ...layout.xaxis, type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: noises };
+                layout.yaxis = { ...layout.yaxis, range: [0, 1.05], tickformat: '.0%', title: { text: '|err| ≤ 1σ fraction', font: { size: 11 } } };
+                layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0.68, y1: 0.68, line: { color: '#94a3b8', width: 1.5, dash: 'dash' } }];
+                Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+            }
+
+            // Panel 2b: median final claimed uncertainty vs noise
+            {
+                const plotDiv = dashPanelDiv(row,
+                    'Final claimed uncertainty vs noise',
+                    'Median claimed 1σ frequency uncertainty at the end of the run. Lower = tighter result delivered. Compare locators to see who promises more precision, and whether louder noise forces a looser answer.',
+                    Math.max(260, 160 + 20 * strategies.length));
+                const traces = strategies.map(strat => {
+                    const color = hlStratColor(strategies, strat);
+                    const ys = [], texts = [];
+                    for (const noise of noises) {
+                        const st = cellUncert.get(`${strat}|${noise}`);
+                        ys.push(st && st.medUncert != null ? st.medUncert : null);
+                        texts.push(st ? `n=${st.n}` : '');
+                    }
+                    return {
+                        x: noises, y: ys, mode: 'lines+markers', type: 'scatter',
+                        name: _shortStratLabel(strat),
+                        line: { color, width: 2 }, marker: { color, size: 6 },
+                        text: texts,
+                        hovertemplate: '%{y:.3g} σ<br>%{text}<extra>' + _shortStratLabel(strat) + '</extra>',
+                    };
+                });
+                const layout = hlBaseLayout();
+                layout.xaxis = { ...layout.xaxis, type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: noises };
+                layout.yaxis = { ...layout.yaxis, title: { text: 'Median claimed σ', font: { size: 11 } }, rangemode: 'tozero' };
+                Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+            }
         }
-        if (!traces.length) {
-            plotDiv.innerHTML = `<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No paired matched-promise data vs ${baseline} — needs shared repeats where both locators converged.</p>`;
-            return;
+
+        // Panel 2c: 1σ calibration vs f_span, pooled
+        {
+            const poolRow = document.createElement('div');
+            poolRow.style.cssText = 'margin-top:1.2em;';
+            content.appendChild(poolRow);
+            const plotDiv = dashPanelDiv(poolRow,
+                'Calibration vs signal span — pooled',
+                'Per-run 1σ calibration (1 = error within 1σ, 0 = outside), log-binned by fractional signal span. Near 68% is ideal (dashed line). Drops for slim signals indicate calibration degrades for narrow features.',
+                320, true);
+            const traces = [];
+            for (const strat of allStrats) {
+                const xs = [], ys = [];
+                for (const p of scanPlots) {
+                    if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
+                    if (p.abs_err_x == null || p.uncert == null || p.uncert <= 0) continue;
+                    const fSpan = hlFSpan(p);
+                    if (fSpan == null) continue;
+                    xs.push(fSpan);
+                    ys.push(p.abs_err_x <= p.uncert ? 1 : 0);
+                }
+                if (!xs.length) continue;
+                const color = hlStratColor(allStrats, strat);
+                const { traces: t } = hlBinnedLineTraces(xs, ys, color, _shortStratLabel(strat), {
+                    hoverY: 'fraction within 1σ',
+                });
+                traces.push(...t);
+            }
+            if (!traces.length) {
+                plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+            } else {
+                const layout = hlBaseLayout();
+                layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
+                layout.yaxis = { ...layout.yaxis, range: [0, 1.05], tickformat: '.0%', title: { text: '|err| ≤ 1σ fraction', font: { size: 11 } } };
+                layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0.68, y1: 0.68, line: { color: '#94a3b8', width: 1.5, dash: 'dash' } }];
+                Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+            }
         }
-        const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
-        layout.yaxis = { ...layout.yaxis, title: { text: `Steps saved vs ${_shortStratLabel(baseline)} (paired)`, font: { size: 11 } }, zeroline: true, zerolinecolor: '#cbd5e1' };
-        Plotly.react(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
     }
+
 
     // Stopping criteria selector
     const stoppingCriteriaGroup = document.getElementById('scan-stopping-criteria');
@@ -5170,7 +5988,7 @@ function main() {
         };
 
         if (!window._selectedNoiseConvergences) {
-            window._selectedNoiseConvergences = new Set(['full']);
+            window._selectedNoiseConvergences = new Set(['freq_converged']);
         }
 
         // 2. Render Locator buttons
@@ -5280,18 +6098,39 @@ function main() {
         // Restore baseline selection if still valid, otherwise choose a smart default
         let newBaseline = prevBaseline;
         const validValues = pairs.map(p => `${p.strategy}::${p.convergence}`);
+        // The shared Compare control bar dictates the baseline strategy: if it
+        // disagrees with the previous selection, adopt it (preserving the prior
+        // convergence choice when that pair exists, else Full).
+        if (sharedBaselineStrategy) {
+            const prevConv = prevBaseline ? (prevBaseline.split('::')[1] || 'full') : 'full';
+            const prevStrat = prevBaseline ? prevBaseline.split('::')[0] : null;
+            if (prevStrat !== sharedBaselineStrategy) {
+                newBaseline = validValues.find(v => v === `${sharedBaselineStrategy}::${prevConv}`)
+                    || validValues.find(v => v === `${sharedBaselineStrategy}::full`)
+                    || newBaseline;
+            }
+        }
         if (!validValues.includes(newBaseline)) {
-            // Prefer SimpleSweep (Full), then SimpleSweep (any), then SimpleSobol (Full), then any
+            // Honor the shared baseline strategy (Full convergence) if available
+            // for this generator; otherwise prefer SimpleSweep (Full), then
+            // SimpleSweep (any), then SimpleSobol (Full), then any.
+            const sharedFull = sharedBaselineStrategy
+                ? validValues.find(v => v === `${sharedBaselineStrategy}::full`)
+                : null;
             const sweepFull = validValues.find(v => v.startsWith('SimpleSweep::full') || v.startsWith('GenericSweep::full'));
             const sweepAny = validValues.find(v => v.includes('Sweep::'));
             const sobolFull = validValues.find(v => v.startsWith('SimpleSobol::full'));
-            newBaseline = sweepFull || sweepAny || sobolFull || validValues[0] || '';
+            newBaseline = sharedFull || sweepFull || sweepAny || sobolFull || validValues[0] || '';
         }
         baselineSelect.value = newBaseline;
+        // Adopt the chosen strategy as the shared baseline so other views agree.
+        if (newBaseline) sharedBaselineStrategy = newBaseline.split('::')[0];
 
         // Setup event listener if not already done
         if (!baselineSelect._hasListener) {
             baselineSelect.addEventListener('change', () => {
+                const val = baselineSelect.value;
+                if (val) sharedBaselineStrategy = val.split('::')[0];
                 redrawDynamicNoisePlots(controlValue(scanGenerator));
             });
             baselineSelect._hasListener = true;
@@ -5539,6 +6378,46 @@ function main() {
     }
 
     // Toggle setup
+    // Noise argument the aggregate renderers expect: an array in noise-range
+    // mode, otherwise the single effective noise.
+    function compareNoisesArg() {
+        return isNoiseRangeMode() ? getSelectedScanNoises() : getEffectiveScanNoise();
+    }
+
+    // Single source of truth for which Scan/Compare panel is visible and what it
+    // renders. All entry points (toggle click, plot refresh, range-mode refresh)
+    // route through here so the aggregate axes stay consistent.
+    function showScanViewPanels(mode) {
+        const repeatView = document.getElementById('scan-repeat-view');
+        const speedView = document.getElementById('speed-view');
+        const accuracyView = document.getElementById('accuracy-view');
+        const stoppingRow = document.getElementById('stopping-criteria-row');
+        const gen = controlValue(scanGenerator);
+        const noises = compareNoisesArg();
+
+        if (repeatView) repeatView.style.display = 'none';
+        if (speedView) speedView.style.display = 'none';
+        if (accuracyView) accuracyView.style.display = 'none';
+
+        if (mode === 'single') {
+            if (repeatView) repeatView.style.display = 'block';
+            updateStoppingCriteriaVisibility(currentPlot);
+        } else if (mode === 'speed') {
+            if (stoppingRow) stoppingRow.style.display = 'none';
+            setupTauControl(); syncTauControl();
+            if (speedView) {
+                speedView.style.display = 'block';
+                renderSpeedTab(gen, noises);
+            }
+        } else if (mode === 'accuracy') {
+            if (stoppingRow) stoppingRow.style.display = 'none';
+            if (accuracyView) {
+                accuracyView.style.display = 'block';
+                renderAccuracyTab(gen, noises);
+            }
+        }
+    }
+
     const scanViewMode = document.getElementById('scan-view-mode');
     if (scanViewMode) {
         scanViewMode.addEventListener('click', (e) => {
@@ -5552,48 +6431,7 @@ function main() {
                 e.target.setAttribute('aria-checked', 'true');
                 e.target.tabIndex = 0;
 
-                const mode = e.target.dataset.value;
-                const repeatView = document.getElementById('scan-repeat-view');
-                const summaryView = document.getElementById('scan-summary-view');
-                const noiseMetricsView = document.getElementById('noise-metrics-view');
-                const highlightsView = document.getElementById('highlights-view');
-                const gen = controlValue(scanGenerator);
-
-                if (mode === 'single') {
-                    repeatView.style.display = 'block';
-                    summaryView.style.display = 'none';
-                    if (noiseMetricsView) noiseMetricsView.hidden = true;
-                    if (highlightsView) highlightsView.style.display = 'none';
-                    // Restore per-plot stopping criteria visibility
-                    updateStoppingCriteriaVisibility(currentPlot);
-                } else if (mode === 'highlights') {
-                    repeatView.style.display = 'none';
-                    summaryView.style.display = 'none';
-                    if (noiseMetricsView) noiseMetricsView.hidden = true;
-                    const stoppingCriteriaRowHl = document.getElementById('stopping-criteria-row');
-                    if (stoppingCriteriaRowHl) stoppingCriteriaRowHl.style.display = 'none';
-                    if (highlightsView) {
-                        highlightsView.style.display = 'block';
-                        renderHighlights(gen, isNoiseRangeMode() ? getSelectedScanNoises() : getEffectiveScanNoise());
-                    }
-                } else if (mode === 'summary') {
-                    repeatView.style.display = 'none';
-                    summaryView.style.display = 'block';
-                    if (noiseMetricsView) noiseMetricsView.hidden = true;
-                    if (highlightsView) highlightsView.style.display = 'none';
-                    updateStoppingCriteriaVisibility(currentPlot);
-                    renderRepeatsSummary(gen, isNoiseRangeMode() ? getSelectedScanNoises() : getEffectiveScanNoise());
-                } else if (mode === 'noise') {
-                    repeatView.style.display = 'none';
-                    summaryView.style.display = 'none';
-                    if (highlightsView) highlightsView.style.display = 'none';
-                    const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
-                    if (stoppingCriteriaRow) stoppingCriteriaRow.style.display = 'none';
-                    if (noiseMetricsView) {
-                        noiseMetricsView.hidden = false;
-                        initAndRenderNoiseSweepPlots(gen);
-                    }
-                }
+                showScanViewPanels(e.target.dataset.value);
             }
         });
         scanViewMode.addEventListener('keydown', (e) => {
@@ -5799,16 +6637,7 @@ function main() {
             button.setAttribute('aria-controls', 'scan-section');
             button.setAttribute('aria-selected', 'false');
             tabBar.appendChild(button);
-
-            const dashButton = document.createElement('button');
-            dashButton.className = 'tab-button';
-            dashButton.textContent = 'Dashboard';
-            dashButton.dataset.tab = 'dashboard-section';
-            dashButton.setAttribute('role', 'tab');
-            dashButton.setAttribute('id', 'tab-dashboard');
-            dashButton.setAttribute('aria-controls', 'dashboard-section');
-            dashButton.setAttribute('aria-selected', 'false');
-            tabBar.appendChild(dashButton);
+            // Dashboard is now the "Pooled" axis inside the Scan Compare area.
         }
 
         // Noise Sweep top-level tab removed (moved under Scan View -> Noise Metrics)
@@ -5829,6 +6658,9 @@ function main() {
                     panel.classList.add('is-hidden');
                 }
             });
+            // With a single top-level section there is nothing to switch between,
+            // so hide the lone tab button (the panel stays visible above).
+            if (tabButtons.length <= 1) tabBar.style.display = 'none';
         } else {
             tabBar.style.display = 'none';
         }
@@ -5855,7 +6687,6 @@ function main() {
                     panel.classList.add('is-hidden');
                 }
             });
-            if (target.dataset.tab === 'dashboard-section') renderDashboard();
             // Trigger a window resize event so responsive Plotly charts adjust to their visible containers
             setTimeout(() => {
                 window.dispatchEvent(new Event('resize'));
@@ -5945,7 +6776,6 @@ function main() {
     try {
         setupTabs();
         updateAllScanControls();
-        updateCompPlots();
         findAndDisplayPlot();
     } catch (error) {
         console.error('Error initializing UI controls:', error);

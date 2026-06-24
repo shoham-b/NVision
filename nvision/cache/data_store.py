@@ -62,6 +62,10 @@ class CategoryDataStore:
                 pass
         return result
 
+    def keys_exist_batch(self, keys: list[str]) -> set[str]:
+        """Return the subset of ``keys`` that exist in the store (no DataFrame parsing)."""
+        return self._backend.keys_exist_batch(keys)
+
     def save_df_batch(self, items: dict[str, pl.DataFrame | dict]) -> None:
         """Persist multiple keys atomically — delegates to batch_set for one transaction per shard."""
         payloads: dict[str, dict] = {}

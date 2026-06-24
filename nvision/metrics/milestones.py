@@ -58,7 +58,7 @@ def extract_milestone_metrics(
 
     snapshot = run_result.snapshots[step_idx]
     estimates = snapshot.belief.estimates()
-    uncertainties = snapshot.belief.uncertainty()
+    uncertainties = snapshot.belief.reported_uncertainty()
 
     true_fb = run_result.true_signal.get_param_value(fb_param)
     true_fc = run_result.true_signal.get_param_value(fc_param)

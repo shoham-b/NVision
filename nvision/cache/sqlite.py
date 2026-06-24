@@ -356,6 +356,41 @@ class ShardedSqliteCache:
         except Exception:
             return None
 
+    def keys_exist_batch(self, keys: list[str]) -> set[str]:
+        """Return the subset of ``keys`` that exist in the cache (no value parsing).
+
+        Uses a single index query — O(1) round-trips regardless of ``len(keys)``.
+        Falls back to the legacy shard for keys not yet in the index.
+        """
+        if not keys:
+            return set()
+        found: set[str] = set()
+        try:
+            conn = self._get_index_conn()
+            placeholders = ",".join("?" * len(keys))
+            cur = conn.execute(
+                f"SELECT key FROM cache_index WHERE key IN ({placeholders})",
+                keys,
+            )
+            found.update(k for (k,) in cur.fetchall())
+        except Exception:
+            pass
+        # Legacy fallback for keys not yet promoted to the index
+        missing = [k for k in keys if k not in found]
+        if missing and self._legacy_path is not None:
+            try:
+                conn = self._get_conn_for_path(self._legacy_path)
+                self._ensure_cache_table(conn)
+                placeholders = ",".join("?" * len(missing))
+                cur = conn.execute(
+                    f"SELECT key FROM cache WHERE key IN ({placeholders})",
+                    missing,
+                )
+                found.update(k for (k,) in cur.fetchall())
+            except Exception:
+                pass
+        return found
+
     def batch_get(self, keys: list[str]) -> dict[str, dict]:
         """Fetch multiple keys in a single round-trip per shard.
 

@@ -76,6 +76,7 @@ def _run_named_group(
     no_progress: bool = False,
     gcp: bool = cli_defaults.DEFAULT_GCP,
     gcp_bucket: str | None = cli_defaults.DEFAULT_GCP_BUCKET,
+    retry_failed: bool = False,
 ) -> None:
     """Execute a named :class:`~nvision.sim.run_groups.RunGroup` via :func:`nvision.cli.run.run`."""
     group = sim_run_groups.get_run_group(group_name)
@@ -93,6 +94,7 @@ def _run_named_group(
         open_browser=open_browser,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
     )
 
 
@@ -132,6 +134,7 @@ def run_preset(
     gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
     """Run any registered preset group by name (single entry point for all groups)."""
     _run_named_group(
@@ -146,6 +149,7 @@ def run_preset(
         no_progress=no_progress,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
     )
 
 
@@ -163,6 +167,7 @@ def run_all(
     gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
     gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
 ) -> int:
     """Run all experiments (alias for ``nvision groups run lorentzian-sbed``)."""
     return run(
@@ -177,6 +182,7 @@ def run_all(
         gcp=gcp,
         gcp_bucket=gcp_bucket,
         no_progress=no_progress,
+        retry_failed=retry_failed,
     )
 
 
@@ -194,6 +200,7 @@ def lorentzian_sbed(
     gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
     """Alias for ``groups run lorentzian-sbed``."""
     _run_named_group(
@@ -207,4 +214,34 @@ def lorentzian_sbed(
         no_progress=no_progress,
         gcp=gcp,
         gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("lorentzian-sbed-only")
+def lorentzian_sbed_only(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run lorentzian-sbed-only`` (SBED only, no sweep/sobol baselines)."""
+    _run_named_group(
+        "lorentzian-sbed-only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
     )

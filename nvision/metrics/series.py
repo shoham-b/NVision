@@ -86,7 +86,7 @@ def extract_step_series(
     for i, snapshot in enumerate(run_result.snapshots):
         try:
             est = snapshot.belief.estimates().get(param)
-            unc = snapshot.belief.uncertainty().get(param)
+            unc = snapshot.belief.reported_uncertainty().get(param)
         except Exception:
             continue
         if est is None and unc is None:

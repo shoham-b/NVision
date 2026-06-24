@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -172,8 +173,68 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
     def uncertainty(self) -> ParameterValues[float]:
         return self._empirical_uncertainty()
 
+    def crlb_frequency(self) -> float:
+        """Analytical CRLB for frequency (physical Hz) for the NV Lorentzian model.
+
+        Uses the closed-form Fisher result for uniform sampling of a Lorentzian:
+        ``CRLB_f = sqrt(2σ²Ω / (πa²ρ))``
+        where σ = noise std, Ω = linewidth (FWHM, Hz), a = contrast (c_total),
+        ρ = n_obs / bandwidth (measurements per Hz).
+
+        Derivation: integrating (∂S/∂f)²/σ² over a uniform density ρ gives
+        I(f) = πa²ρ / (2σ²Ω), so CRLB_var = 2σ²Ω/(πa²ρ).
+
+        Returns ``math.inf`` for non-Lorentzian models or before any observations.
+        """
+        from nvision.spectra.nv_center import NVCenterLorentzianModel
+
+        inner = getattr(self.model, "inner", None)
+        if not isinstance(inner, NVCenterLorentzianModel):
+            return math.inf
+
+        if self._obs_count == 0 or self.last_obs is None:
+            return math.inf
+
+        ests = self.estimates()  # physical-space values
+        linewidth = ests.get("linewidth")
+        c_total = ests.get("c_total")
+        if linewidth is None or c_total is None or c_total <= 0 or linewidth <= 0:
+            return math.inf
+
+        noise_std = float(self.last_obs.noise_std)
+        if noise_std <= 0:
+            return math.inf
+
+        lo, hi = self._original_physical_x_bounds
+        bandwidth = hi - lo
+        if bandwidth <= 0:
+            return math.inf
+
+        rho = self._obs_count / bandwidth  # measurements per Hz
+        variance = (2.0 * noise_std**2 * linewidth) / (math.pi * c_total**2 * rho)
+        return math.sqrt(max(variance, 0.0))
+
+    def reported_uncertainty(self) -> ParameterValues[float]:
+        """Physical uncertainty floored at K× the Lorentzian CRLB for frequency.
+
+        K is ``NVISION_FREQ_CRLB_SAFETY_FACTOR`` — the same factor the locator
+        uses to raise the frequency convergence threshold, so at convergence the
+        reported σ equals the convergence ceiling. Only the frequency entry is
+        floored; all other parameters pass through unchanged. Control-flow paths
+        must use :meth:`uncertainty` instead.
+        """
+        from nvision.sim.defaults import NVISION_FREQ_CRLB_SAFETY_FACTOR
+
+        data = dict(self.uncertainty().items())
+        crlb = self.crlb_frequency()
+        if math.isfinite(crlb) and "frequency" in data:
+            data["frequency"] = max(data["frequency"], NVISION_FREQ_CRLB_SAFETY_FACTOR * crlb)
+        return ParameterValues.from_mapping(list(data.keys()), data)
+
     def converged(self, threshold: float) -> bool:
-        # Check convergence uniformly using inner [0, 1] uncertainties
+        # Check convergence in unit [0, 1] space. Not used by the SBED/Sobol
+        # locators (they gate on _target_params_converged), but kept consistent
+        # for any belief-level convergence query.
         raw_uncertainties = super()._empirical_uncertainty()
         return all(u < threshold for u in raw_uncertainties.values())
 

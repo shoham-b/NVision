@@ -29,7 +29,7 @@ def analyze_run_convergence(
 
     # Get final estimates and uncertainties
     final_estimates = final_snapshot.belief.estimates()
-    final_uncertainties = final_snapshot.belief.uncertainty()
+    final_uncertainties = final_snapshot.belief.reported_uncertainty()
 
     # Get parameter bounds for relative threshold calculation
     bounds = final_snapshot.belief.physical_param_bounds

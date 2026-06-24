@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nvision-serve",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "nvision", "serve", "--no-open", "--port", "18082"],
+      "port": 18082
+    }
+  ]
+}

@@ -166,7 +166,7 @@ def run_result_to_finalize_record(
         # Same marginal stds as :meth:`AbstractMarginalDistribution.uncertainty` (and as the
         # parameter convergence plot): physical units for unit-cube beliefs, grid/particle
         # empirical std otherwise — no extra domain scaling.
-        for param_name, uncert in last_belief.uncertainty().items():
+        for param_name, uncert in last_belief.reported_uncertainty().items():
             record[f"uncert_{param_name}"] = uncert
 
         record["entropy"] = last_belief.entropy()

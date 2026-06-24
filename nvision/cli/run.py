@@ -6,6 +6,7 @@ import logging
 import multiprocessing
 import os
 import queue
+import re
 import struct
 import sys
 import time
@@ -497,6 +498,59 @@ def _rich_handler(console: Console, suppress: list[object]) -> RichHandler:
     )
 
 
+_MEMORY_ERROR_LOG_RE = re.compile(r"MemoryError after \d+/\d+ repeats for (\S+)\s*[—–-]")
+
+
+def _parse_memory_error_combos_from_log(log_path: Path) -> list[tuple[str, str, str]]:
+    found: set[tuple[str, str, str]] = set()
+    with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            m = _MEMORY_ERROR_LOG_RE.search(line)
+            if m:
+                parts = m.group(1).split("/", 2)
+                if len(parts) == 3:
+                    found.add((parts[0], parts[1], parts[2]))
+    return sorted(found)
+
+
+def _apply_retry_failed_filter(
+    combination_names: list[tuple[str, str, str]] | None,
+    logs_root: Path | None,
+    console: Console,
+) -> list[tuple[str, str, str]]:
+    """Return the subset of *combination_names* that failed with MemoryError in the latest log.
+
+    If *combination_names* is None (no group/filter restricting scope), returns all
+    MemoryError failures found in the log.  Prints the detected log path and failed
+    combinations to *console*.
+    """
+    from nvision.tools.paths import LOGS_ROOT as _DEFAULT_LOGS_ROOT
+
+    effective_logs_root = logs_root if logs_root is not None else _DEFAULT_LOGS_ROOT
+    candidates = sorted(effective_logs_root.glob("nvision-run-*.log"), key=lambda p: p.stat().st_mtime)
+    if not candidates:
+        console.print("[yellow]--retry-failed: no run logs found.[/yellow]")
+        return []
+
+    log_path = candidates[-1]
+    console.print(f"[dim]--retry-failed: scanning {log_path.name}[/dim]")
+    failed = _parse_memory_error_combos_from_log(log_path)
+
+    if not failed:
+        return []
+
+    if combination_names is not None:
+        allowed = set(combination_names)
+        failed = [c for c in failed if c in allowed]
+
+    if failed:
+        console.print(f"[bold]--retry-failed: {len(failed)} combination(s) to retry:[/bold]")
+        for gen, noise, strat in failed:
+            console.print(f"  {gen}/{noise}/{strat}")
+
+    return failed
+
+
 @app.command()
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)
@@ -595,6 +649,25 @@ def run(  # noqa: C901
             help="Number of standard deviation steps to split the Gaussian range into",
         ),
     ] = None,
+    combination_slugs: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--combination",
+            hidden=True,
+            help="Explicit combination slug 'generator/noise/strategy'. Repeat for multiple.",
+        ),
+    ] = None,
+    retry_failed: Annotated[
+        bool,
+        typer.Option(
+            "--retry-failed",
+            help=(
+                "Only run combinations that failed with MemoryError in the most recent run log. "
+                "When combined with --run-group or a group shorthand, restricts to failures "
+                "within that group."
+            ),
+        ),
+    ] = False,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -604,6 +677,10 @@ def run(  # noqa: C901
     defaulted_generator = False
     defaulted_noise = False
     combination_names: list[tuple[str, str, str]] | None = None
+
+    if combination_slugs:
+        parsed = [tuple(s.split("/", 2)) for s in combination_slugs if len(s.split("/", 2)) == 3]
+        combination_names = parsed or None  # type: ignore[assignment]
 
     # Add support for "single-run" mode
     if single_run:
@@ -624,6 +701,12 @@ def run(  # noqa: C901
             defaulted_category = True
         # Old default_run_case did not set a default strategy or generator,
         # so we leave them open (all strategies / all generators in the category).
+
+    if retry_failed:
+        combination_names = _apply_retry_failed_filter(combination_names, logs_root, console)
+        if not combination_names:
+            console.print("[yellow]--retry-failed: no MemoryError failures found — nothing to retry.[/yellow]")
+            return 0
 
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
     suppress_list: list[object] = [typer]
