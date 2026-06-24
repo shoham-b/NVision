@@ -255,15 +255,27 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         the true frequency is located — their optimal values may differ from the
         initial posterior mode.
         """
-        super()._resample()
-
-        # Identify the scan parameter (almost always "frequency").
+        # Identify the scan parameter before resampling so we can capture the
+        # pre-resample particle distribution for tight-cluster focusing.
         scan_param = "frequency" if "frequency" in self.physical_param_bounds else None
         if scan_param is None:
             for name, bounds in self.physical_param_bounds.items():
                 if bounds == self.physical_x_bounds:
                     scan_param = name
                     break
+
+        # Capture pre-resample particle spread for tight-cluster detection.
+        # Must happen before super()._resample() modifies the particles.
+        _pre_tight_std = 0.0
+        _pre_tight_mean = 0.5
+        if scan_param is not None and scan_param in self._param_names:
+            _j_pre = self._param_names.index(scan_param)
+            _u_pre = self._particles[:, _j_pre]
+            _pre_tight_std = float(np.std(_u_pre))
+            _pre_tight_mean = float(np.mean(_u_pre))
+
+        super()._resample()
+
         if scan_param is None:
             return  # Nothing to narrow — no frequency axis found.
 
@@ -324,6 +336,59 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             self._cov_step = -1
             self._generate_epoch_candidates()
             return
+
+        # --- Tight-Cluster Narrowing (pre-resample particle spread) -----------
+        # When particles were extremely tightly focused before resampling, shrink
+        # the physical window so the mandatory post-nudge spread fills a reasonable
+        # fraction of [0, 1], restoring numerical precision. This bypasses the
+        # step-count guard because tight convergence is unambiguous evidence.
+        if 0.0 < _pre_tight_std < 0.01:
+            _phys_mean = lo_phys + _pre_tight_mean * cur_width
+            # Half-width = 2× the min_exploration unit spread, so the nudge
+            # (~min_exploration_frac × cur_width in physical) spans ~50 % of
+            # the new window → var ≈ (0.25)² ≈ 0.06, well above typical thresholds.
+            _target_half = max(2.0 * self.min_exploration_frac * cur_width, 1.0e5)
+            _lo_orig_t, _hi_orig_t = self._original_physical_x_bounds
+            _new_lo_t = max(_phys_mean - _target_half, _lo_orig_t)
+            _new_hi_t = min(_phys_mean + _target_half, _hi_orig_t)
+            if _new_hi_t > _new_lo_t and (_new_hi_t - _new_lo_t) < cur_width * 0.95:
+                self.narrow_scan_parameter_physical_bounds(scan_param, _new_lo_t, _new_hi_t)
+                self._cached_cov = None
+                self._cov_step = -1
+                self._generate_epoch_candidates()
+                return
+
+        # --- Observation-based Shoulder Narrowing ---------------------------
+        # When observations reveal a clear dip, narrow the window to the span
+        # between the outermost shoulder points (where the signal first drops
+        # below 90 % of background), with a small buffer. This is evidence-driven
+        # and independent of step count. Works for single and connected dips.
+        if self._obs_count >= 20:
+            _xs_unit, _ys = self.observation_arrays()
+            _lo_orig_obs, _hi_orig_obs = self._original_physical_x_bounds
+            _xs_phys = _lo_orig_obs + _xs_unit * (_hi_orig_obs - _lo_orig_obs)
+            _sidx = np.argsort(_xs_phys)
+            _xs_s = _xs_phys[_sidx]
+            _ys_s = _ys[_sidx]
+            _bg = float(np.percentile(_ys_s, 90))
+            if _bg > 0.0:
+                _thresh = _bg * 0.9
+                _dip_mask = _ys_s < _thresh
+                if np.any(_dip_mask):
+                    _dip_idxs = np.where(_dip_mask)[0]
+                    _left_shldr = _xs_s[_dip_idxs[0]]
+                    _right_shldr = _xs_s[_dip_idxs[-1]]
+                    _dip_span = _right_shldr - _left_shldr
+                    _buf = max(0.1 * _dip_span, 2.0e6)
+                    _lo_orig_s, _hi_orig_s = self._original_physical_x_bounds
+                    _new_lo_s = max(_left_shldr - _buf, _lo_orig_s)
+                    _new_hi_s = min(_right_shldr + _buf, _hi_orig_s)
+                    if _new_hi_s > _new_lo_s and (_new_hi_s - _new_lo_s) < cur_width * 0.95:
+                        self.narrow_scan_parameter_physical_bounds(scan_param, _new_lo_s, _new_hi_s)
+                        self._cached_cov = None
+                        self._cov_step = -1
+                        self._generate_epoch_candidates()
+                        return
 
         # --- Narrowing Delay Safeguard -------------------------------------
         # Delay narrowing until we have completed a minimum number of global
