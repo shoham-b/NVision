@@ -30,10 +30,11 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
+    # Initialize locator: 200 kHz step → max 100 candidates over 20 MHz range
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
+        candidate_step_hz=200e3,
     )
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it
@@ -53,9 +54,9 @@ def test_sbed_candidate_thinning():
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 100
+    # The thinned candidates length should be at most 101 (100 intervals + both endpoints)
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 100
+    assert len(passed_candidates[0]) <= 101
     print(f"Thinned candidates count: {len(passed_candidates[0])}")
 
 

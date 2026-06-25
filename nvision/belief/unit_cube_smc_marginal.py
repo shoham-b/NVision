@@ -386,6 +386,47 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             self._generate_epoch_candidates()
             return
 
+        # --- Observation-Based Shoulder Narrowing --------------------------
+        # If we have enough dense observations, detect the dip region from the
+        # raw signal data and narrow the window around it. This runs before the
+        # particle step-count guard so early observations can focus the window
+        # even before the SMC posterior has converged.
+        if self._obs_count >= 5:
+            obs_xs_unit = self._obs_x_arr[: self._obs_count].copy()
+            obs_ys = self._obs_y_arr[: self._obs_count].copy()
+            # Convert unit-space x (relative to current physical window) to physical Hz.
+            obs_xs_phys = lo_phys + obs_xs_unit * (hi_phys - lo_phys)
+
+            background = float(np.percentile(obs_ys, 80))
+            min_signal = float(np.min(obs_ys))
+            depth = background - min_signal
+
+            if depth >= 0.05:
+                # Threshold at 50% of dip depth below background.
+                threshold = background - 0.5 * depth
+                sort_idx = np.argsort(obs_xs_phys)
+                xs_sorted = obs_xs_phys[sort_idx]
+                ys_sorted = obs_ys[sort_idx]
+                below = ys_sorted < threshold
+                if np.any(below):
+                    below_xs = xs_sorted[below]
+                    raw_lo = float(below_xs[0])
+                    raw_hi = float(below_xs[-1])
+                    span = raw_hi - raw_lo
+                    total_width = hi_orig - lo_orig
+                    # Padding: wider of 50% of span or 5% of original window.
+                    padding = max(0.5 * span, 0.05 * total_width)
+                    obs_new_lo = max(raw_lo - padding, lo_orig)
+                    obs_new_hi = min(raw_hi + padding, hi_orig)
+                    obs_new_width = obs_new_hi - obs_new_lo
+                    # Only apply if window actually shrinks by at least 1%.
+                    if obs_new_lo < obs_new_hi and obs_new_width < cur_width * 0.99:
+                        self.narrow_scan_parameter_physical_bounds(scan_param, obs_new_lo, obs_new_hi)
+                        self._cached_cov = None
+                        self._cov_step = -1
+                        self._generate_epoch_candidates()
+                        return
+
         # --- Narrowing Delay Safeguard -------------------------------------
         # Delay narrowing until we have completed a minimum number of global
         # measurements (default 8 steps) to resolve multi-modal hyperfine peak
