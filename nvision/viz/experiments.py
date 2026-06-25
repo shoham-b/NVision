@@ -153,14 +153,18 @@ class ExperimentsMixin:
                     sweep_baseline = meas_pivot.select(["noise", sweep_col]).rename({sweep_col: "_baseline"})
                     try:
                         sweep_baseline = (
-                            sweep_baseline
-                            .with_columns(pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n"))
-                            .sort("_n").drop("_n")
+                            sweep_baseline.with_columns(
+                                pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n")
+                            )
+                            .sort("_n")
+                            .drop("_n")
                         )
                         conv_agg = (
-                            conv_agg
-                            .with_columns(pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n"))
-                            .sort("_n").drop("_n")
+                            conv_agg.with_columns(
+                                pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n")
+                            )
+                            .sort("_n")
+                            .drop("_n")
                         )
                     except Exception:
                         sweep_baseline = sweep_baseline.sort("noise")
@@ -177,8 +181,7 @@ class ExperimentsMixin:
                         baseline = strat_data.get_column("_baseline").to_list()
                         conv_steps = strat_data.get_column(conv_metric).to_list()
                         savings = [
-                            b - s if b is not None and s is not None else None
-                            for b, s in zip(baseline, conv_steps)
+                            b - s if b is not None and s is not None else None for b, s in zip(baseline, conv_steps)
                         ]
                         conv_savings_series.append({"name": strat, "x": noises, "y": savings})
 
@@ -194,12 +197,14 @@ class ExperimentsMixin:
                         out_path = self.out_dir / f"summary_{gen}_{sav_suffix}.json.gz"
                         out_path.parent.mkdir(parents=True, exist_ok=True)
                         dump_gz(conv_sav_data, out_path)
-                        plots.append({
-                            "type": "summary",
-                            "path": str(out_path),
-                            "generator": gen,
-                            "metric": sav_suffix,
-                        })
+                        plots.append(
+                            {
+                                "type": "summary",
+                                "path": str(out_path),
+                                "generator": gen,
+                                "metric": sav_suffix,
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -272,10 +277,12 @@ class ExperimentsMixin:
         best_est = (
             sub.filter(~pl.col("strategy").str.contains("Sweep"))
             .group_by(["noise", "attempt"])
-            .agg([
-                pl.col("final_est_linewidth").mean().alias("ref_linewidth"),
-                pl.col("final_est_split").mean().alias("ref_split"),
-            ])
+            .agg(
+                [
+                    pl.col("final_est_linewidth").mean().alias("ref_linewidth"),
+                    pl.col("final_est_split").mean().alias("ref_split"),
+                ]
+            )
         )
 
         if not best_est.is_empty():
@@ -388,6 +395,7 @@ class ExperimentsMixin:
                     )
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(f"Could not plot span per noise for {gen} {noise}: {e}")
 
         return plots
@@ -455,11 +463,13 @@ class ExperimentsMixin:
 
                     if pts:
                         pts.sort()
-                        vs_span_series.append({
-                            "name": strat,
-                            "x": [p[0] for p in pts],
-                            "y": [p[1] for p in pts],
-                        })
+                        vs_span_series.append(
+                            {
+                                "name": strat,
+                                "x": [p[0] for p in pts],
+                                "y": [p[1] for p in pts],
+                            }
+                        )
 
                 # Only emit the chart when there is genuine x-variation
                 all_x = [x for s in vs_span_series for x in s["x"]]
@@ -490,6 +500,7 @@ class ExperimentsMixin:
 
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(f"Failed to plot savings vs span: {e}")
 
         return plots
