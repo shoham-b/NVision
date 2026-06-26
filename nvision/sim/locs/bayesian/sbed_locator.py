@@ -58,6 +58,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         scan_param: str | None = None,
         noise_std: float = 0.02,
         candidate_step_hz: float | None = None,
+        max_candidates: int = 100,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
     ) -> None:
         super().__init__(
@@ -71,6 +72,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self.candidate_step_hz: float = (
             float(candidate_step_hz) if candidate_step_hz is not None else NVISION_SMC_CANDIDATE_STEP_HZ
         )
+        self.max_candidates: int = max_candidates
 
         # We handle resampling manually to check convergence at the right moment
         if hasattr(self.belief, "auto_resample"):
@@ -127,12 +129,17 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         Walks the sorted candidate array once and keeps a candidate only when it
         is at least ``candidate_step_hz`` away from the previously kept one.
         This is O(n) and preserves the first and last candidates so the full
-        acquisition range is always represented.
+        acquisition range is always represented.  A final uniform subsample
+        caps the count at ``self.max_candidates``.
         """
         if len(candidates) <= 1:
             return candidates
         kept = _thin_by_step_indices(np.ascontiguousarray(candidates, dtype=np.float64), self.candidate_step_hz)
-        return candidates[kept]
+        result = candidates[kept]
+        if len(result) > self.max_candidates:
+            indices = np.round(np.linspace(0, len(result) - 1, self.max_candidates)).astype(int)
+            result = result[indices]
+        return result
 
     def _acquire(self) -> float:
         """Select the next measurement point by maximizing EIG over a frequency grid."""
