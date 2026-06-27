@@ -85,10 +85,7 @@ def _crlb_min_obs(noise_std: float, linewidth: float, c_total: float, threshold_
     """
     if c_total <= 0 or linewidth <= 0 or noise_std <= 0 or threshold_hz <= 0:
         return 0
-    return math.ceil(
-        8.0 * noise_std**2 * linewidth * _CRLB_BANDWIDTH
-        / (math.pi * c_total**2 * threshold_hz**2)
-    )
+    return math.ceil(8.0 * noise_std**2 * linewidth * _CRLB_BANDWIDTH / (math.pi * c_total**2 * threshold_hz**2))
 
 
 def _apply_crlb_convergence_steps(row: dict[str, Any], noise_std: float, threshold_hz: float) -> dict[str, Any]:
@@ -437,6 +434,7 @@ def recalc_metrics(  # noqa: C901
             truth_positions = _truth_positions(experiment)
             noise_std = combo.noise.estimated_noise_std()
             from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+
             threshold_hz = float(PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get("frequency", 100_000.0))
 
             combo_updated = 0
