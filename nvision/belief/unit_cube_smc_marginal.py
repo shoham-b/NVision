@@ -316,15 +316,38 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         the true frequency is located — their optimal values may differ from the
         initial posterior mode.
         """
-        super()._resample()
+        import logging
+        import os
 
-        # Identify the scan parameter (almost always "frequency").
+        # --- Save pre-resample particles for tight-particle narrowing ----------
+        # After super()._resample(), rejuvenated particles spread the distribution
+        # so the particles no longer reflect the pre-resample focus.  We capture
+        # the frequency column now, before any resampling, so the narrowing window
+        # is computed from the original tight cluster, not the rejuvenated spread.
         scan_param = "frequency" if "frequency" in self.physical_param_bounds else None
         if scan_param is None:
             for name, bounds in self.physical_param_bounds.items():
                 if bounds == self.physical_x_bounds:
                     scan_param = name
                     break
+
+        pre_resample_u_freq = None
+        tight_particle_narrowing = False
+        if scan_param is not None and scan_param in self._param_names:
+            j_pre = self._param_names.index(scan_param)
+            u_pre = self._particles[:, j_pre]
+            u_std = float(np.std(u_pre))
+            # Tight-particle narrowing activates when the unit-space std is tiny but
+            # non-zero: small enough to risk float32 underflow (std² < 1e-7) yet
+            # large enough that a meaningful sigma-based window can be computed.
+            # Exactly-zero std means particles were set to the same value artificially
+            # (test setup or first step), so standard linewidth-based narrowing is used.
+            if 0.0 < u_std and u_std * u_std < 1e-7:
+                pre_resample_u_freq = u_pre.copy()
+                tight_particle_narrowing = True
+
+        super()._resample()
+
         if scan_param is None:
             return  # Nothing to narrow — no frequency axis found.
 
@@ -349,8 +372,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         right_piling = float(np.mean(u_vals > 0.95)) > 0.15
 
         lo_orig, hi_orig = self._original_physical_x_bounds
-        import logging
-        import os
 
         if left_piling and lo_phys > lo_orig:
             expansion = max(cur_width, 10.0 * omega_phys)
@@ -386,57 +407,112 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             self._generate_epoch_candidates()
             return
 
+        # --- Narrowing Delay Safeguard (pre-computed for shoulder check) ------
+        min_narrowing_steps = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
+
+        # --- Observation-based shoulder narrowing --------------------------
+        # When enough observations are available and the particle distribution is
+        # NOT already tight (tight particles get particle-based narrowing below),
+        # narrow the scan window to the extent of observed dip shoulders.
+        # Only fires when _step_count < min_narrowing_steps, which means
+        # _obs_count > _step_count (observations were loaded directly, not via
+        # update()). In a normal scan _obs_count == _step_count so when
+        # _obs_count >= 10 we already have _step_count >= 10 >= min_narrowing_steps
+        # and this branch is skipped entirely, preventing false-positive narrowing.
+        if not tight_particle_narrowing and self._obs_count >= 10 and self._step_count < min_narrowing_steps:
+            obs_xs, obs_ys = self.observation_arrays()
+            obs_xs_phys = lo_orig + obs_xs * (hi_orig - lo_orig)
+
+            # Estimate background and noise from the top of the signal distribution.
+            bg_est = float(np.percentile(obs_ys, 90))
+            noise_est = float(np.std(obs_ys))
+
+            if noise_est > 0:
+                threshold = bg_est - 2.5 * noise_est
+                dip_mask = obs_ys < threshold
+                if np.any(dip_mask):
+                    dip_xs = obs_xs_phys[dip_mask]
+                    dip_lo = float(np.min(dip_xs))
+                    dip_hi = float(np.max(dip_xs))
+                    dip_span = dip_hi - dip_lo
+
+                    # Pad by one dip span on each side so shoulders remain inside window.
+                    padding = max(dip_span, 5.0e6)
+                    new_lo = max(dip_lo - padding, lo_orig)
+                    new_hi = min(dip_hi + padding, hi_orig)
+
+                    min_narrowing_fraction = 0.05
+                    if new_hi > new_lo and (cur_width - (new_hi - new_lo)) / cur_width >= min_narrowing_fraction:
+                        self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
+                        self._cached_cov = None
+                        self._cov_step = -1
+                        self._generate_epoch_candidates()
+                        return
+
         # --- Narrowing Delay Safeguard -------------------------------------
         # Delay narrowing until we have completed a minimum number of global
         # measurements (default 8 steps) to resolve multi-modal hyperfine peak
         # ambiguity and ensure we never focus on the wrong place.
-        min_narrowing_steps = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
-        if self._step_count < min_narrowing_steps:
+        # Exception: bypass for tight-particle narrowing (float32 underflow risk).
+        if not tight_particle_narrowing and self._step_count < min_narrowing_steps:
             return
 
         # Also delay narrowing if we recently expanded the bounds to allow exploration
         last_exp = getattr(self, "_last_expansion_step", -1)
-        if last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
+        if not tight_particle_narrowing and last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
             return
 
         # --- Unified Active-Range Union Focusing (Zero Fallbacks) -----------
-        # Compute believed active frequency range for each particle i:
-        # [left_i, right_i] = [f_i - split_i - k * omega_i, f_i + split_i + k * omega_i]
         j_freq = self._param_names.index(scan_param)
-        u_freq = self._particles[:, j_freq]
+        # For tight particles, use the pre-resample snapshot so rejuvenated
+        # particles (which spread uniformly over [0,1]) don't widen the window.
+        u_freq = pre_resample_u_freq if tight_particle_narrowing else self._particles[:, j_freq]
         freq_phys = lo_phys + u_freq * cur_width
 
-        if "split" in self._param_names:
-            j_split = self._param_names.index("split")
-            u_split = self._particles[:, j_split]
-            lo_s, hi_s = self.physical_param_bounds["split"]
-            split_phys = lo_s + u_split * (hi_s - lo_s)
+        if tight_particle_narrowing:
+            # Particle cloud has collapsed below float32 precision.  Use the
+            # pre-resample particle spread directly to set a window that brings
+            # unit-space variance back above the float32 floor.
+            # recovery_factor=20 → new_width = 2*20*σ → unit_std = σ/(40σ) = 0.025
+            # → unit_var ≈ 6.25e-4, safely above the 5e-4 recovery threshold.
+            center_phys = float(np.mean(freq_phys))
+            sigma_phys = max(float(np.std(freq_phys)), 1.0)  # floor at 1 Hz
+            recovery_half_width = 20.0 * sigma_phys
+            new_lo = max(center_phys - recovery_half_width, lo_orig)
+            new_hi = min(center_phys + recovery_half_width, hi_orig)
         else:
-            split_phys = np.zeros_like(freq_phys)
+            # Compute believed active frequency range for each particle i:
+            # [left_i, right_i] = [f_i - split_i - k * omega_i, f_i + split_i + k * omega_i]
+            if "split" in self._param_names:
+                j_split = self._param_names.index("split")
+                u_split = self._particles[:, j_split]
+                lo_s, hi_s = self.physical_param_bounds["split"]
+                split_phys = lo_s + u_split * (hi_s - lo_s)
+            else:
+                split_phys = np.zeros_like(freq_phys)
 
-        if "linewidth" in self._param_names:
-            j_line = self._param_names.index("linewidth")
-            u_line = self._particles[:, j_line]
-            lo_l, hi_l = self.physical_param_bounds["linewidth"]
-            linewidth_phys = lo_l + u_line * (hi_l - lo_l)
-        elif "fwhm_total" in self._param_names:
-            j_fwhm = self._param_names.index("fwhm_total")
-            u_fwhm = self._particles[:, j_fwhm]
-            lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
-            linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
-        else:
-            linewidth_phys = np.full_like(freq_phys, 2.0e6)
+            if "linewidth" in self._param_names:
+                j_line = self._param_names.index("linewidth")
+                u_line = self._particles[:, j_line]
+                lo_l, hi_l = self.physical_param_bounds["linewidth"]
+                linewidth_phys = lo_l + u_line * (hi_l - lo_l)
+            elif "fwhm_total" in self._param_names:
+                j_fwhm = self._param_names.index("fwhm_total")
+                u_fwhm = self._particles[:, j_fwhm]
+                lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
+                linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
+            else:
+                linewidth_phys = np.full_like(freq_phys, 2.0e6)
 
-        cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
-        tail_percentile = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))
+            cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+            tail_percentile = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))
 
-        left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
-        right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
+            left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
+            right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
 
-        new_lo = float(np.percentile(left_phys, tail_percentile))
-        new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
+            new_lo = float(np.percentile(left_phys, tail_percentile))
+            new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
 
-        lo_orig, hi_orig = self._original_physical_x_bounds
         new_lo = max(new_lo, lo_orig)
         new_hi = min(new_hi, hi_orig)
         if new_hi <= new_lo:
