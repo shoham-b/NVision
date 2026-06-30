@@ -8,6 +8,7 @@ from nvision.spectra.nv_center import (
     DEFAULT_NV_CENTER_FREQ_X_MIN,
     MAX_K_NP,
     MIN_K_NP,
+    NV_N14_HYPERFINE_SPLIT_HZ,
     NVCenterLorentzianModel,
     NVCenterLorentzianSingleDipSpectrum,
     NVCenterLorentzianSingleDipSpectrumSamples,

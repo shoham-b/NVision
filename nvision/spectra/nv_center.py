@@ -28,6 +28,11 @@ from nvision.spectra.spec import GenericParamSpec
 MIN_K_NP: float = 1.0  # Captures reverse polarization regimes
 MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
 
+# N-14 parallel hyperfine coupling constant for NV⁻ in diamond.
+# Fixed physical constant used when with_hyperfine_splitting=False:
+# the triplet structure is still modeled but with split locked to this value
+# and k_np locked to 1.0 (symmetric lines), removing both as free parameters.
+NV_N14_HYPERFINE_SPLIT_HZ: float = 2.16e6  # ~2.16 MHz
 
 # Physical ranges for linewidth (HWHM) and hyperfine splitting.
 # These constants are shared between the signal generator and the inference
@@ -221,42 +226,39 @@ class NVCenterLorentzianModel(
         linewidth_hi = domain_width * 0.05
         if self._with_hyperfine_splitting:
             return 2.0 * 5.0e6 + 4.0 * linewidth_hi
-        return 4.0 * linewidth_hi
+        return 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * linewidth_hi
 
     def expected_dip_count(self) -> int:
-        return 3 if self._with_hyperfine_splitting else 1
+        return 3
 
     def compute(self, x: float, params) -> float:
-        if self._with_hyperfine_splitting:
-            return self.compute_nvcenter_lorentzian_model(
-                float(x), params.frequency, params.linewidth, params.split, params.k_np, params.c_total
-            )
-        x_f = float(x)
-        freq = float(params.frequency)
-        lw = float(params.linewidth)
-        lw2 = lw * lw
-        return 1.0 - (float(params.c_total) * lw2) / ((x_f - freq) ** 2 + lw2)
+        split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
+        k_np = params.k_np if self._with_hyperfine_splitting else 1.0
+        return self.compute_nvcenter_lorentzian_model(
+            float(x), params.frequency, params.linewidth, split, k_np, params.c_total
+        )
 
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
         if self._with_hyperfine_splitting:
-            out = np.empty(n, dtype=FLOAT_DTYPE)
-            nv_center_lorentzian_vectorized_one_serial(
-                float(x),
-                freq,
-                np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-                np.asarray(samples.split, dtype=FLOAT_DTYPE),
-                np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-                np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n),
-                out,
-            )
-            return out
-        lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
-        c = np.asarray(samples.c_total, dtype=FLOAT_DTYPE)
-        lw2 = lw * lw
-        return (1.0 - c * lw2 / ((float(x) - freq) ** 2 + lw2)).astype(FLOAT_DTYPE, copy=False)
+            split_arr = np.asarray(samples.split, dtype=FLOAT_DTYPE)
+            k_np_arr = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
+        else:
+            split_arr = np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE)
+            k_np_arr = np.ones(n, dtype=FLOAT_DTYPE)
+        out = np.empty(n, dtype=FLOAT_DTYPE)
+        nv_center_lorentzian_vectorized_one_serial(
+            float(x),
+            freq,
+            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
+            split_arr,
+            k_np_arr,
+            np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
+            get_background_ones(n),
+            out,
+        )
+        return out
 
     def compute_vectorized_many(self, x_phys_array: Sequence[float], samples_phys) -> np.ndarray:
         if isinstance(samples_phys, list | tuple):
@@ -268,26 +270,27 @@ class NVCenterLorentzianModel(
         if xs.ndim != 1:
             raise ValueError("x_phys_array must be one-dimensional")
         freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
+        n = freq.shape[0]
 
         if self._with_hyperfine_splitting:
-            out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
-            nv_center_lorentzian_vectorized_many(
-                xs,
-                freq,
-                np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-                np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
-                np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
-                np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(freq.shape[0]),
-                out,
-            )
-            return out
+            split_arr = np.asarray(samples_phys.split, dtype=FLOAT_DTYPE)
+            k_np_arr = np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE)
+        else:
+            split_arr = np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE)
+            k_np_arr = np.ones(n, dtype=FLOAT_DTYPE)
 
-        lw = np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE)
-        c = np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE)
-        lw2 = lw[None, :] ** 2
-        denom = (xs[:, None] - freq[None, :]) ** 2 + lw2
-        return (1.0 - c[None, :] * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
+        out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
+        nv_center_lorentzian_vectorized_many(
+            xs,
+            freq,
+            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+            split_arr,
+            k_np_arr,
+            np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
+            get_background_ones(n),
+            out,
+        )
+        return out
 
     def compute_vectorized_many_fast(self, x_phys_array: Sequence[float], samples_phys) -> np.ndarray:
         """Acquisition-only fast variant: uses the fastmath Lorentzian kernel for the 5-param case."""
@@ -298,26 +301,27 @@ class NVCenterLorentzianModel(
 
         xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
         freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
+        n = freq.shape[0]
 
         if self._with_hyperfine_splitting:
-            out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
-            nv_center_lorentzian_vectorized_many_fast(
-                xs,
-                freq,
-                np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-                np.asarray(samples_phys.split, dtype=FLOAT_DTYPE),
-                np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE),
-                np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(freq.shape[0]),
-                out,
-            )
-            return out
+            split_arr = np.asarray(samples_phys.split, dtype=FLOAT_DTYPE)
+            k_np_arr = np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE)
+        else:
+            split_arr = np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE)
+            k_np_arr = np.ones(n, dtype=FLOAT_DTYPE)
 
-        lw = np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE)
-        c = np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE)
-        lw2 = lw[None, :] ** 2
-        denom = (xs[:, None] - freq[None, :]) ** 2 + lw2
-        return (1.0 - c[None, :] * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
+        out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
+        nv_center_lorentzian_vectorized_many_fast(
+            xs,
+            freq,
+            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+            split_arr,
+            k_np_arr,
+            np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
+            get_background_ones(n),
+            out,
+        )
+        return out
 
 
 @dataclass(frozen=True)
@@ -564,7 +568,7 @@ def nv_center_lorentzian_bounds_for_domain(
         "frequency": (float(x_min), float(x_max)),
         "linewidth": linewidth_bounds,
         "c_total": (0.1, 0.4),
-        "_signal_max_span": (0.0, 4.0 * linewidth_bounds[1]),
+        "_signal_max_span": (0.0, 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * linewidth_bounds[1]),
     }
 
 
