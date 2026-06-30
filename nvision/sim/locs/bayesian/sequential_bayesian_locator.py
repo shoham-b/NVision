@@ -268,7 +268,7 @@ class SequentialBayesianLocator(Locator):
                 n_req = self.step_count * (crlb_f / NVISION_FREQ_CONVERGENCE_THRESHOLD) ** 2
 
                 # If it's theoretically impossible to converge within the hard cap, abort early.
-                # We apply the safety factor margin here as well, because early SMC parameter 
+                # We apply the safety factor margin here as well, because early SMC parameter
                 # estimates might be pessimistic and we want to give it a chance to recover.
                 if n_req > self.max_steps * NVISION_FREQ_CRLB_SAFETY_FACTOR:
                     return True

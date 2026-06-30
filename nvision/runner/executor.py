@@ -747,7 +747,7 @@ class _TaskRunner:
                 return
             except Exception:
                 if attempt < 4:
-                    time.sleep(0.1 * (2 ** attempt))
+                    time.sleep(0.1 * (2**attempt))
                 else:
                     log.error("Failed to save repeat %s to cache after 5 attempts", rid, exc_info=True)
 
