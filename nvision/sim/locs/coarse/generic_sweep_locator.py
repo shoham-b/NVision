@@ -257,51 +257,47 @@ class GenericSweepLocator(SweepingLocator):
 
         n_pts = len(xs_norm)
 
-        # Candidate frequency starts: raw argmin + smoothed argmin + coarse grid.
-        # Running fits from multiple starts and keeping the lowest residual avoids
-        # the 10-20% failure rate where argmin(raw) lands on a noise spike far from
-        # the dip.  Smoothing suppresses isolated spikes; the coarse grid covers cases
-        # where both are pulled to the same wrong location.
+        # Smooth interior points only (avoid edge artifacts from zero-padding).
+        # np.convolve mode='same' zero-pads at boundaries, which artificially pulls
+        # edge values down and makes argmin pick the domain boundary instead of the
+        # actual dip.  We use the smoothed signal only for c_total estimation (where
+        # edge effects don't matter) and keep raw argmin for frequency initialization.
         window = max(3, n_pts // 30)
         smoothed = np.convolve(ys, np.ones(window) / window, mode="same") if window > 1 else ys
 
-        raw_min_phys = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
-        smooth_min_phys = domain_lo + float(xs_norm[np.argmin(smoothed)]) * domain_width
+        # Frequency init: raw argmin is already reliable (near-CRB median accuracy).
+        freq_init = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
 
-        # Coarse grid: a handful of starting frequencies spread across the domain.
-        n_grid = 5
-        grid_phys = [domain_lo + (i + 0.5) / n_grid * domain_width for i in range(n_grid)]
+        # Estimate contrast directly from the data so that c_total starts close to
+        # the true value.  Blind bound-midpoint initialization can be 6× off (e.g.
+        # 0.255 for a 0.04 dip), which makes convergence unreliable.
+        # Use interior smoothed points to reduce noise influence on c_total estimate.
+        half_win = window // 2
+        interior = smoothed[half_win : n_pts - half_win] if n_pts > 2 * half_win else ys
+        baseline = float(np.percentile(interior, 85))
+        dip_depth = max(0.0, baseline - float(interior.min()))
 
-        freq_candidates = [raw_min_phys, smooth_min_phys] + grid_phys
+        p0 = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
+        p0[scan_idx] = float(np.clip(freq_init, domain_lo, domain_hi))
 
-        p0_base = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
+        if "c_total" in param_names:
+            ct_idx = param_names.index("c_total")
+            p0[ct_idx] = float(np.clip(dip_depth, lo_bounds[ct_idx], hi_bounds[ct_idx]))
 
         def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
             typed = inner.spec.unpack_params(list(params))
             return np.array([float(inner.compute(float(x), typed)) for x in xs])
 
-        best_popt = None
-        best_resid = np.inf
-        for freq_init in freq_candidates:
-            p0 = list(p0_base)
-            p0[scan_idx] = float(np.clip(freq_init, domain_lo, domain_hi))
-            try:
-                popt, _ = curve_fit(
-                    curve_fn,
-                    xs_phys,
-                    ys,
-                    p0=p0,
-                    bounds=(lo_bounds, hi_bounds),
-                    maxfev=400,
-                )
-                resid = float(np.sum((curve_fn(xs_phys, *popt) - ys) ** 2))
-                if resid < best_resid:
-                    best_resid = resid
-                    best_popt = popt
-            except Exception:
-                continue
-
-        if best_popt is None:
+        try:
+            best_popt, _ = curve_fit(
+                curve_fn,
+                xs_phys,
+                ys,
+                p0=p0,
+                bounds=(lo_bounds, hi_bounds),
+                maxfev=1000,
+            )
+        except Exception:
             return None
 
         freq_phys = float(best_popt[scan_idx])
