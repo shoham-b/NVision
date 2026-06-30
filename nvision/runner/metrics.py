@@ -154,6 +154,7 @@ def generate_attempt_metrics(  # noqa: C901
 
     freq_converged_step: int | None = None
     all_converged_step: int | None = None
+    theory_step_budget: int | None = None
     if not finalize_row.is_empty():
         if "freq_converged_step" in finalize_row.columns:
             val = finalize_row.get_column("freq_converged_step")[0]
@@ -163,6 +164,32 @@ def generate_attempt_metrics(  # noqa: C901
             val = finalize_row.get_column("all_converged_step")[0]
             if val is not None:
                 all_converged_step = int(val)
+        if "theory_step_budget" in finalize_row.columns:
+            val = finalize_row.get_column("theory_step_budget")[0]
+            if val is not None:
+                theory_step_budget = int(val)
+
+    is_converged = False
+    if not finalize_row.is_empty() and "converged" in finalize_row.columns:
+        val = finalize_row.get_column("converged")[0]
+        if val is not None:
+            is_converged = bool(val)
+
+    _stop_reason = repeat_stop_reasons[attempt_idx_in_combo]
+    if freq_converged_step is not None or is_converged:
+        failure_reason: str | None = None
+    elif strat_name in ("SimpleSweep", "SimpleSobol", "StagedSobolSweep", "StagedSobolSweepLocator", "GenericSweepLocator"):
+        failure_reason = None
+    elif _stop_reason == "infeasible_crlb":
+        failure_reason = "infeasible_crlb"
+    elif _stop_reason == "repeat_timeout":
+        failure_reason = "timeout"
+    elif theory_step_budget is not None and locator_steps is not None and locator_steps > theory_step_budget:
+        failure_reason = "theory_budget"
+    elif locator_steps is not None and max_steps is not None and locator_steps < max_steps:
+        failure_reason = None
+    else:
+        failure_reason = "max_steps"
 
     if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_freq_steps is not None:
         sobol_conv_diff = sobol_baseline_steps - sobol_freq_steps
@@ -220,6 +247,8 @@ def generate_attempt_metrics(  # noqa: C901
         "uncert_fb_at_milestone": metrics_serialized.get("uncert_fb_at_milestone"),
         "freq_converged_step": freq_converged_step,
         "all_converged_step": all_converged_step,
+        "theory_step_budget": theory_step_budget,
+        "failure_reason": failure_reason,
         "metrics": metrics_serialized,
     }
 

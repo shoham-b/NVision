@@ -13,11 +13,9 @@ from nvision.models.noise import (
 )
 from nvision.noises import (
     OverFrequencyGaussianNoise,
-    OverFrequencyPoissonNoise,
 )
 from nvision.sim.defaults import (
     NVISION_DEFAULT_LOC_MAX_STEPS,
-    NVISION_NOISE_POISSON,
 )
 
 from .gen.nv_center_generator import NVCenterCoreGenerator
@@ -42,12 +40,7 @@ def generators_basic() -> list[tuple[str, object]]:
     ]
 
 
-# Noise tiers: start simple and evolve
-
-
-def noises_none() -> list[tuple[str, CompositeNoise | None]]:
-    # ARCHIVED: Only Poisson and Gauss are used now.
-    return []
+# Noise tiers
 
 
 def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
@@ -77,19 +70,4 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
             )
         )
 
-    noises.append(
-        (
-            f"Poisson({NVISION_NOISE_POISSON})",
-            CompositeNoise(
-                over_frequency_noise=CompositeOverFrequencyNoise(
-                    [OverFrequencyPoissonNoise(scale=NVISION_NOISE_POISSON)]
-                )
-            ),
-        )
-    )
     return noises
-
-
-def noises_complex() -> list[tuple[str, CompositeNoise | None]]:
-    # ARCHIVED: Heavy noise is archived.
-    return []

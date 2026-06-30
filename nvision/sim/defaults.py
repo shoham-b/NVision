@@ -66,8 +66,6 @@ NVISION_SWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SWEEP_MAX_STEPS", "500"))
 # --- Noise Preset Defaults (presets.py) --------------------------------------
 
 NVISION_NOISE_GAUSS: float = float(os.getenv("NVISION_NOISE_GAUSS", "0.01"))
-NVISION_NOISE_POISSON: float = float(os.getenv("NVISION_NOISE_POISSON", "3000.0"))
-NVISION_NOISE_OVER_PROBE: float = float(os.getenv("NVISION_NOISE_OVER_PROBE", "0.001"))
 NVISION_NOISE_MAX_GAUSS: float = float(os.getenv("NVISION_NOISE_MAX_GAUSS", "0.2"))
 NVISION_NOISE_GAUSS_STEPS: int = int(os.getenv("NVISION_NOISE_GAUSS_STEPS", "5"))
 
@@ -109,6 +107,26 @@ NVISION_FREQ_CRLB_SAFETY_FACTOR: float = float(os.getenv("NVISION_FREQ_CRLB_SAFE
 NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
     os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_FREQ_CONVERGENCE_THRESHOLD))
 )
+
+
+# --- CRLB feasibility gate & background-noise estimation --------------------
+
+# Pre-run fail gate: infeasible if any param CRLB > threshold × this margin.
+# 1.0 = require CRLB strictly below threshold; increase to allow slight infeasibility.
+NVISION_CRLB_FEASIBILITY_MARGIN: float = float(os.getenv("NVISION_CRLB_FEASIBILITY_MARGIN", "1.0"))
+
+# Minimum number of out-of-span (background) observations before trusting σ̂.
+# If fewer exist, forced background calibration is triggered in SBED.
+NVISION_NOISE_MIN_BG_POINTS: int = int(os.getenv("NVISION_NOISE_MIN_BG_POINTS", "15"))
+
+# Half-span radius (in linewidths) used to classify a measurement as background.
+# Points with |x - f̂| > k * linewidth_hat are considered background.
+NVISION_NOISE_BG_SPAN_FACTOR: float = float(os.getenv("NVISION_NOISE_BG_SPAN_FACTOR", "3.0"))
+
+# Permissive multiplier on the theoretical step count n_theory for SBED's backstop limit.
+# n_theory = 2σ̂²·lw·bandwidth / (π·c²·T²); stops when inference_step_count > K × n_theory.
+# Large value (20) so this only fires when something has genuinely gone wrong.
+NVISION_SBED_STEPS_THEORY_FACTOR: float = float(os.getenv("NVISION_SBED_STEPS_THEORY_FACTOR", "20"))
 
 
 def _optional_env_float(name: str) -> float | None:

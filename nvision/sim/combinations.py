@@ -11,28 +11,19 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from nvision.belief.gaussian_mixture_marginal import NVISION_GAUSSIAN_NUM_EXPERTS
 from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
     NVISION_SMC_NUM_PARTICLES,
 )
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
-from nvision.noises import OverFrequencyGaussianNoise, OverFrequencyPoissonNoise
+from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import presets as sim_presets
-from nvision.sim.locs.bayesian.acquisition_locators import (
-    SequentialBayesianExperimentDesignLocator,
-)
+from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
-from nvision.sim.locs.ekf.ekf_locator import (
-    EKFAOptimalLocator,
-    EKFDOptimalLocator,
-    EKFParticleFrequencyLocator,
-)
-from nvision.sim.locs.ekf.gmm_locator import GaussianMixtureLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,34 +46,25 @@ _NV_SMC: dict[str, object] = {
 }
 
 _GAUSS_RE = re.compile(r"^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)$")
-_POISSON_RE = re.compile(r"^Poisson\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)$")
 
 
 def _parse_noise(name: str) -> CompositeNoise | None:
-    """Dynamically parse a noise descriptor string into a :class:`CompositeNoise`.
+    """Dynamically parse a ``Gauss(sigma)`` noise descriptor into a :class:`CompositeNoise`.
 
-    Handles any ``Gauss(sigma)`` or ``Poisson(scale)`` string, regardless of
-    whether the sigma/scale is currently in the registered preset grid.  This
-    makes ``run-single`` work for any valid noise value even when
-    :envvar:`NVISION_NOISE_MAX_GAUSS` caps the grid below the requested level.
+    Makes ``run-single`` work for any sigma value even when
+    :envvar:`NVISION_NOISE_MAX_GAUSS` caps the preset grid below the requested level.
 
     Args:
-        name: A string like ``'Gauss(0.05)'`` or ``'Poisson(3000.0)'``.
+        name: A string like ``'Gauss(0.05)'``.
 
     Returns:
         A :class:`CompositeNoise` for the parsed descriptor, or ``None`` if
-        *name* does not match any supported pattern.
+        *name* does not match the expected pattern.
     """
     m = _GAUSS_RE.match(name)
     if m is not None:
         sigma = float(m.group(1))
         return CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)]))
-    m = _POISSON_RE.match(name)
-    if m is not None:
-        scale = float(m.group(1))
-        return CompositeNoise(
-            over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyPoissonNoise(scale=scale)])
-        )
     return None
 
 
@@ -107,11 +89,7 @@ class CombinationGrid:
 
     def __init__(self) -> None:
         self._generators: dict[str, object] = dict(sim_presets.generators_basic())
-
-        # Keep only Poisson and Gauss noises.
-        # Archived: NoNoise, OverProbeDrift, Heavy.
-        all_noises = dict(sim_presets.noises_none() + sim_presets.noises_single_each() + sim_presets.noises_complex())
-        self._noises = {k: v for k, v in all_noises.items() if "Gauss" in k or "Poisson" in k}
+        self._noises: dict[str, CompositeNoise | None] = dict(sim_presets.noises_single_each())
 
     @property
     def generators(self) -> dict[str, object]:
@@ -128,13 +106,7 @@ class CombinationGrid:
         return "Unknown"
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
-        """Return the locator strategies appropriate for *generator_name*.
-
-        Now returns the 3 essential locators for all generators:
-        1. GenericSweep
-        2. StagedSobolSweep (Staged Sweep)
-        3. Bayesian-SBED (SBED)
-        """
+        """Return the locator strategies appropriate for *generator_name*."""
         strats = [
             ("SimpleSweep", GenericSweepLocator),
             ("StagedSobolSweep", StagedSobolSweepLocator),
@@ -155,51 +127,7 @@ class CombinationGrid:
                     },
                 },
             ),
-            (
-                "GaussianMixture",
-                {
-                    "class": GaussianMixtureLocator,
-                    "config": {
-                        "max_steps": 200,
-                        "n_components": NVISION_GAUSSIAN_NUM_EXPERTS,
-                        "builder": nv_center_smc_belief,
-                    },
-                },
-            ),
         ]
-
-        if generator_name.startswith("NVCenter-"):
-            # EKF uses a triple-Lorentzian surrogate (valid for Lorentzian and Voigt signals)
-            _ekf_config = {
-                "max_steps": 200,
-                "n_components": 3,
-                "builder": nv_center_smc_belief,
-            }
-            strats.extend(
-                [
-                    (
-                        "Bayesian-EKF-D",
-                        {
-                            "class": EKFDOptimalLocator,
-                            "config": {**_ekf_config},
-                        },
-                    ),
-                    (
-                        "Bayesian-EKF-A",
-                        {
-                            "class": EKFAOptimalLocator,
-                            "config": {**_ekf_config},
-                        },
-                    ),
-                    (
-                        "Bayesian-EKF-ParticleFrequency",
-                        {
-                            "class": EKFParticleFrequencyLocator,
-                            "config": {**_ekf_config},
-                        },
-                    ),
-                ]
-            )
 
         return strats
 
