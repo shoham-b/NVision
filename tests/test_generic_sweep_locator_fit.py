@@ -149,7 +149,7 @@ def test_sweep_fit_acquisition_window_contains_true_freq():
 def test_sweep_fit_via_run_loop():
     """Model fit works through run_loop (raw model path, no UnitCubeSignalModel)."""
     import random
-    from nvision import CoreExperiment, SimpleSweepLocator, run_loop
+    from nvision import CoreExperiment, GenericSweepLocator, run_loop
     from nvision.spectra.signal import TrueSignal
     from nvision.models.noise import CompositeNoise
 
@@ -182,7 +182,7 @@ def test_sweep_fit_via_run_loop():
     rng = random.Random(42)
     locator = None
     for loc in run_loop(
-        SimpleSweepLocator,
+        GenericSweepLocator,
         exp,
         rng,
         max_steps=150,
