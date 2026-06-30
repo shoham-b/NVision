@@ -28,13 +28,22 @@ def test_generator_adds_gaussian_and_sin2_priors():
     expected_k = np.pi / (2.0 * MIN_LINEWIDTH)
     assert priors_lor["frequency"] == ("sin^2", expected_k)
 
-    # Verify other parameter priors are Gaussian (val, std)
-    for name in ("split", "linewidth", "k_np", "c_total"):
+    # Verify other parameter priors are Gaussian (val, std) — default: no split/k_np
+    for name in ("linewidth", "c_total"):
         assert name in priors_lor
         val, std = priors_lor[name]
         assert isinstance(val, float)
         assert isinstance(std, float)
         assert std > 0.0
+    assert "split" not in priors_lor
+    assert "k_np" not in priors_lor
+
+    # With hyperfine splitting enabled, split and k_np are present
+    gen_lor_split = NVCenterCoreGenerator(variant="lorentzian", with_hyperfine_splitting=True)
+    signal_lor_split = gen_lor_split.generate(rng)
+    priors_split = signal_lor_split.bounds["_priors"]
+    for name in ("split", "linewidth", "k_np", "c_total"):
+        assert name in priors_split
 
     # 2. Voigt variant
     gen_voigt = NVCenterCoreGenerator(variant="voigt")
@@ -85,22 +94,22 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     assert np.min(probs) >= 0.0
     assert np.max(probs) <= 1.0
 
-    # Let's check another Gaussian prior parameter, e.g. split
-    s_idx = belief._param_names.index("split")
-    split_particles_unit = belief._particles[:, s_idx]
+    # Let's check another Gaussian prior parameter, e.g. linewidth (default: no split)
+    lw_idx = belief._param_names.index("linewidth")
+    lw_particles_unit = belief._particles[:, lw_idx]
 
-    s_lo, s_hi = belief.physical_param_bounds["split"]
-    split_particles_phys = s_lo + split_particles_unit * (s_hi - s_lo)
+    lw_lo, lw_hi = belief.physical_param_bounds["linewidth"]
+    lw_particles_phys = lw_lo + lw_particles_unit * (lw_hi - lw_lo)
 
     # Prior values are generated in physical units
-    prior_mean_phys, prior_std_phys = signal.bounds["_priors"]["split"]
+    prior_mean_phys, prior_std_phys = signal.bounds["_priors"]["linewidth"]
 
     # Check that particle mean is close to the prior mean
-    particle_mean = np.mean(split_particles_phys)
+    particle_mean = np.mean(lw_particles_phys)
     assert abs(particle_mean - prior_mean_phys) < 3.0 * prior_std_phys
 
     # Verify that particles are standard deviations-bound and not uniformly distributed
-    particle_std = np.std(split_particles_phys)
+    particle_std = np.std(lw_particles_phys)
     assert abs(particle_std - prior_std_phys) < 0.5 * prior_std_phys
 
     # Let's verify c_total prior as well

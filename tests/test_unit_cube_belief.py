@@ -26,14 +26,27 @@ from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentD
 
 
 def test_nv_center_default_bounds_align_with_generation_formulas():
-    gen = nv_center_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
+    # Default: no hyperfine splitting → frequency, linewidth, c_total only
+    gen = nv_center_lorentzian_bounds_for_domain(
+        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=False
+    )
     b = nv_center_belief()
-    for key in ("frequency", "linewidth", "split", "k_np"):
+    for key in ("frequency", "linewidth"):
         assert b.physical_param_bounds[key] == gen[key]
     glo, ghi = gen["c_total"]
     blo, bhi = b.physical_param_bounds["c_total"]
     assert bhi == ghi
     assert glo <= blo < bhi
+    assert "split" not in b.physical_param_bounds
+    assert "k_np" not in b.physical_param_bounds
+
+    # With hyperfine splitting: split and k_np are present
+    gen_hf = nv_center_lorentzian_bounds_for_domain(
+        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=True
+    )
+    b_hf = nv_center_belief(with_hyperfine_splitting=True)
+    for key in ("frequency", "linewidth", "split", "k_np"):
+        assert b_hf.physical_param_bounds[key] == gen_hf[key]
 
 
 def test_nv_center_belief_is_unit_cube_with_wrapped_model():
@@ -55,7 +68,7 @@ def test_unit_cube_estimates_are_physical_hz():
     # Posterior means start at box centers in *unit* space → physical midpoints
     est = b.estimates()
     assert 2.6e9 < est["frequency"] < 3.1e9
-    assert est["k_np"] > 2.0
+    assert "c_total" in est  # default: no hyperfine splitting, so no k_np/split
 
 
 @pytest.mark.slow
@@ -222,7 +235,7 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 
     monkeypatch.setattr(SMCMarginalDistribution, "_resample", lambda self: None)
 
-    b = nv_center_smc_belief(num_particles=100)
+    b = nv_center_smc_belief(num_particles=100, with_hyperfine_splitting=True)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
     b._step_count = 10  # > 5, narrowing runs
 

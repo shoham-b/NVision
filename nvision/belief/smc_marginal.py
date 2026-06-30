@@ -781,7 +781,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             return (phys_freq - lo) / (hi - lo)
 
         f_b_phys = _to_phys("frequency", estimates["frequency"])
-        df_hf_phys = _to_phys_delta("split", estimates["split"])
+        df_hf_phys = _to_phys_delta("split", estimates["split"]) if "split" in estimates else 0.0
 
         # 1. Determine linewidth Omega (HWHM) in physical space
         if "linewidth" in estimates:

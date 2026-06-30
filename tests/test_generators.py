@@ -8,9 +8,18 @@ from nvision import (
 )
 
 
-def test_nv_center_lorentzian_has_five_parameters():
+def test_nv_center_lorentzian_default_has_three_parameters():
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    sig = gen.generate(rng)
+    assert isinstance(sig, TrueSignal)
+    names = set(sig.parameter_names)
+    assert names == {"frequency", "linewidth", "c_total"}
+
+
+def test_nv_center_lorentzian_with_hyperfine_has_five_parameters():
+    rng = random.Random(11)
+    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_hyperfine_splitting=True)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)

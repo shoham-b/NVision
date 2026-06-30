@@ -164,12 +164,13 @@ def nv_center_belief(
     n_grid_k_np: int = NVISION_NV_GRID_K_NP,
     n_grid_depth: int = NVISION_NV_GRID_DEPTH,
     n_grid_background: int = NVISION_NV_GRID_BACKGROUND,
+    with_hyperfine_splitting: bool = False,
     **_extra: object,
 ) -> UnitCubeGridMarginalDistribution:
     """NV-center belief: **unit** parameter grids, **physical** signal model.
 
-    Automatically detects if it should use NVCenterLorentzianModel or NVCenterVoigtModel
-    based on the presence of 'fwhm_total' in the required parameter set.
+    ``with_hyperfine_splitting=False`` (default) infers only frequency, linewidth,
+    and c_total (single Lorentzian dip).  Set to ``True`` to also infer split and k_np.
     """
     from nvision.spectra.nv_center import (
         NVCenterLorentzianModel,
@@ -191,14 +192,26 @@ def nv_center_belief(
             ("k_np", phys["k_np"], n_grid_k_np),
             ("dip_depth", phys["dip_depth"], n_grid_depth),
         ]
-    else:
-        model = NVCenterLorentzianModel()
-        phys = nv_center_lorentzian_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
+    elif with_hyperfine_splitting:
+        model = NVCenterLorentzianModel(with_hyperfine_splitting=True)
+        phys = nv_center_lorentzian_bounds_for_domain(
+            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=True
+        )
         base_specs = [
             ("frequency", phys["frequency"], n_grid_freq),
             ("linewidth", phys["linewidth"], n_grid_linewidth),
             ("split", phys["split"], n_grid_split),
             ("k_np", phys["k_np"], n_grid_k_np),
+            ("c_total", phys["c_total"], n_grid_depth),
+        ]
+    else:
+        model = NVCenterLorentzianModel(with_hyperfine_splitting=False)
+        phys = nv_center_lorentzian_bounds_for_domain(
+            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=False
+        )
+        base_specs = [
+            ("frequency", phys["frequency"], n_grid_freq),
+            ("linewidth", phys["linewidth"], n_grid_linewidth),
             ("c_total", phys["c_total"], n_grid_depth),
         ]
 
@@ -219,9 +232,14 @@ def nv_center_smc_belief(  # noqa: C901
     noise_model: NoiseSignalModel | None = None,
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC,
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR,
+    with_hyperfine_splitting: bool = False,
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
-    """NV-center belief: **unit** parameter particles, **physical** signal model."""
+    """NV-center belief: **unit** parameter particles, **physical** signal model.
+
+    ``with_hyperfine_splitting=False`` (default) infers only frequency, linewidth,
+    and c_total (single Lorentzian dip).  Set to ``True`` to also infer split and k_np.
+    """
     from nvision.spectra.nv_center import (
         NVCenterLorentzianModel,
         NVCenterVoigtModel,
@@ -235,9 +253,10 @@ def nv_center_smc_belief(  # noqa: C901
         model = NVCenterVoigtModel()
         merged_bounds = nv_center_voigt_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
     else:
-        model = NVCenterLorentzianModel()
+        model = NVCenterLorentzianModel(with_hyperfine_splitting=with_hyperfine_splitting)
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX
+            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
+            with_hyperfine_splitting=with_hyperfine_splitting,
         )
 
     if parameter_bounds:

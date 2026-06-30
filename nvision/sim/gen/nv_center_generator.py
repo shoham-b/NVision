@@ -18,6 +18,7 @@ from nvision.spectra.nv_center import (
     MIN_SPLIT,
     PRIOR_STD_FRACTION,
     NVCenterLorentzianModel,
+    NVCenterLorentzianSingleDipSpectrum,
     NVCenterLorentzianSpectrum,
     NVCenterVoigtModel,
     NVCenterVoigtSpectrum,
@@ -33,13 +34,16 @@ from .peak_spec import _true_signal_from_typed
 class NVCenterCoreGenerator:
     """Generates NV center ODMR signals using core architecture.
 
-    Produces TrueSignal with physically accurate NV center triplet signal.
+    Produces TrueSignal with physically accurate NV center signal.
+    By default generates a single-dip signal (no hyperfine splitting).
+    Set ``with_hyperfine_splitting=True`` to generate a triple-dip signal.
     """
 
     x_min: float = DEFAULT_NV_CENTER_FREQ_X_MIN  # 2.6 GHz
     x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian" or "voigt"
     center_freq_fraction: float | None = None  # if set, constrain center_freq to middle fraction of domain
+    with_hyperfine_splitting: bool = False  # default: single-dip (no split/k_np)
 
     def generate(self, rng: random.Random):  # TrueSignal
         """Generate NV center ODMR signal.
@@ -56,14 +60,17 @@ class NVCenterCoreGenerator:
         """
         width = self.x_max - self.x_min
 
-        # Generate split and linewidth from the shared physical constants
-        split = rng.uniform(MIN_SPLIT, MAX_SPLIT)
-
         # Random linewidth (HWHM for Lorentzian)
         linewidth = rng.uniform(MIN_LINEWIDTH, MAX_LINEWIDTH)
 
-        usable_lo = self.x_min + split + 0.05 * width
-        usable_hi = self.x_max - split - 0.05 * width
+        if self.with_hyperfine_splitting:
+            split = rng.uniform(MIN_SPLIT, MAX_SPLIT)
+            usable_lo = self.x_min + split + 0.05 * width
+            usable_hi = self.x_max - split - 0.05 * width
+        else:
+            usable_lo = self.x_min + 0.05 * width
+            usable_hi = self.x_max - 0.05 * width
+
         if self.center_freq_fraction is not None:
             frac = max(0.0, min(1.0, self.center_freq_fraction))
             mid = (usable_lo + usable_hi) / 2.0
@@ -72,44 +79,47 @@ class NVCenterCoreGenerator:
         else:
             center_freq = rng.uniform(usable_lo, usable_hi)
 
-        # Random k_np (non-polarization factor)
-        k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
-
-        # Normalize NV Center ODMR directly to [0, 1] bounds using exactly 1.0 maximum dip
-
         if self.variant == "lorentzian":
             c_total = rng.uniform(0.1, 0.4)
-            model = NVCenterLorentzianModel()
-
-            typed_params = NVCenterLorentzianSpectrum(
-                frequency=center_freq,
-                linewidth=linewidth,
-                split=split,
-                k_np=k_np,
-                c_total=c_total,
-            )
-            bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max)
-
-            # Calculate prior std as a fraction of parameter range
-            split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
             linewidth_std = (MAX_LINEWIDTH - MIN_LINEWIDTH) * PRIOR_STD_FRACTION
-            k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
             c_total_std = 0.3 * PRIOR_STD_FRACTION  # c_total range is roughly [0.1, 0.4]
 
-            # Generate Gaussian priors for all parameters except frequency
-            prior_split = rng.gauss(split, split_std)
-            prior_linewidth = rng.gauss(linewidth, linewidth_std)
-            prior_k_np = rng.gauss(k_np, k_np_std)
-            prior_c_total = rng.gauss(c_total, c_total_std)
-
-            bounds["_priors"] = {
-                "split": (prior_split, split_std),
-                "linewidth": (prior_linewidth, linewidth_std),
-                "k_np": (prior_k_np, k_np_std),
-                "c_total": (prior_c_total, c_total_std),
-                "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
-            }
-        else:  # voigt
+            if self.with_hyperfine_splitting:
+                k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
+                model = NVCenterLorentzianModel(with_hyperfine_splitting=True)
+                typed_params = NVCenterLorentzianSpectrum(
+                    frequency=center_freq,
+                    linewidth=linewidth,
+                    split=split,
+                    k_np=k_np,
+                    c_total=c_total,
+                )
+                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=True)
+                split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
+                k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
+                bounds["_priors"] = {
+                    "split": (rng.gauss(split, split_std), split_std),
+                    "linewidth": (rng.gauss(linewidth, linewidth_std), linewidth_std),
+                    "k_np": (rng.gauss(k_np, k_np_std), k_np_std),
+                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                }
+            else:
+                model = NVCenterLorentzianModel(with_hyperfine_splitting=False)
+                typed_params = NVCenterLorentzianSingleDipSpectrum(
+                    frequency=center_freq,
+                    linewidth=linewidth,
+                    c_total=c_total,
+                )
+                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=False)
+                bounds["_priors"] = {
+                    "linewidth": (rng.gauss(linewidth, linewidth_std), linewidth_std),
+                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                }
+        else:  # voigt — always uses split and k_np
+            voigt_split = rng.uniform(MIN_SPLIT, MAX_SPLIT)
+            voigt_k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
             lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
             lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
             fwhm_total = 2 * linewidth * (1.0 + lorentz_ratio)
@@ -117,13 +127,13 @@ class NVCenterCoreGenerator:
             model = NVCenterVoigtModel()
             # Scale a desired contrast onto the true peak-shape maximum
             unit_dip_depth = rng.uniform(0.3, 0.95)
-            xs = np.linspace(center_freq - split, center_freq + split, 200)
+            xs = np.linspace(center_freq - voigt_split, center_freq + voigt_split, 200)
             single = NVCenterVoigtSpectrumSamples(
                 frequency=np.array([center_freq]),
                 fwhm_total=np.array([fwhm_total]),
                 lorentz_frac=np.array([lorentz_frac]),
-                split=np.array([split]),
-                k_np=np.array([k_np]),
+                split=np.array([voigt_split]),
+                k_np=np.array([voigt_k_np]),
                 dip_depth=np.array([1.0]),
             )
             g_max = float(1.0 - np.min(model.compute_vectorized_many(xs, single)))
@@ -133,32 +143,24 @@ class NVCenterCoreGenerator:
                 frequency=center_freq,
                 fwhm_total=fwhm_total,
                 lorentz_frac=lorentz_frac,
-                split=split,
-                k_np=k_np,
+                split=voigt_split,
+                k_np=voigt_k_np,
                 dip_depth=dip_depth,
             )
             bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
 
-            # Calculate prior std as a fraction of parameter range
             split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
             fwhm_total_std = (MAX_LINEWIDTH * 2 - MIN_LINEWIDTH * 2) * PRIOR_STD_FRACTION
-            lorentz_frac_std = 0.2 * PRIOR_STD_FRACTION  # lorentz_frac roughly in [0.1, 0.3]
+            lorentz_frac_std = 0.2 * PRIOR_STD_FRACTION
             k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
-            dip_depth_std = 0.65 * PRIOR_STD_FRACTION  # dip_depth roughly in [0.3, 0.95]
-
-            # Generate Gaussian priors for all parameters except frequency
-            prior_split = rng.gauss(split, split_std)
-            prior_fwhm_total = rng.gauss(fwhm_total, fwhm_total_std)
-            prior_lorentz_frac = rng.gauss(lorentz_frac, lorentz_frac_std)
-            prior_k_np = rng.gauss(k_np, k_np_std)
-            prior_dip_depth = rng.gauss(dip_depth, dip_depth_std)
+            dip_depth_std = 0.65 * PRIOR_STD_FRACTION
 
             bounds["_priors"] = {
-                "split": (prior_split, split_std),
-                "fwhm_total": (prior_fwhm_total, fwhm_total_std),
-                "lorentz_frac": (prior_lorentz_frac, lorentz_frac_std),
-                "k_np": (prior_k_np, k_np_std),
-                "dip_depth": (prior_dip_depth, dip_depth_std),
+                "split": (rng.gauss(voigt_split, split_std), split_std),
+                "fwhm_total": (rng.gauss(fwhm_total, fwhm_total_std), fwhm_total_std),
+                "lorentz_frac": (rng.gauss(lorentz_frac, lorentz_frac_std), lorentz_frac_std),
+                "k_np": (rng.gauss(voigt_k_np, k_np_std), k_np_std),
+                "dip_depth": (rng.gauss(dip_depth, dip_depth_std), dip_depth_std),
                 "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
 
