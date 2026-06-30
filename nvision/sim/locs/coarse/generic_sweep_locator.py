@@ -65,19 +65,27 @@ class GenericSweepLocator(SweepingLocator):
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
         scan_param: str | None = None,
-        domain_lo: float = 0.0,
-        domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         **kwargs: Any,
     ) -> GenericSweepLocator:
-        if parameter_bounds is not None:
-            param_name = scan_param or (
-                signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
-            )
-            if param_name in parameter_bounds:
-                domain_lo, domain_hi = parameter_bounds[param_name]
+        domain_lo = kwargs.get("domain_lo")
+        domain_hi = kwargs.get("domain_hi")
+        
+        if domain_lo is None or domain_hi is None:
+            if parameter_bounds is not None:
+                param_name = scan_param or (
+                    signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
+                )
+                if param_name in parameter_bounds:
+                    if domain_lo is None:
+                        domain_lo = parameter_bounds[param_name][0]
+                    if domain_hi is None:
+                        domain_hi = parameter_bounds[param_name][1]
+        
+        domain_lo = domain_lo if domain_lo is not None else 0.0
+        domain_hi = domain_hi if domain_hi is not None else 1.0
 
-        return cls(
+        inst = cls(
             belief=belief,
             signal_model=signal_model,
             max_steps=max_steps,
@@ -89,6 +97,9 @@ class GenericSweepLocator(SweepingLocator):
             domain_lo=domain_lo,
             domain_hi=domain_hi,
         )
+        if parameter_bounds is not None:
+            inst._parameter_bounds = dict(parameter_bounds)
+        return inst
 
     def __init__(
         self,
@@ -127,6 +138,10 @@ class GenericSweepLocator(SweepingLocator):
         # Buffer observations so we can batch-update the belief once at finalize()
         # instead of paying a full Bayesian update on every step.
         self._pending_obs: list = []
+
+        # Parameter bounds stored by create() when provided as an argument.
+        # Used by _try_model_fit() when signal_model has no param_bounds_phys.
+        self._parameter_bounds: dict[str, tuple[float, float]] | None = None
 
         # Generate sweep points across the full domain.
         self._sweep_points = self._generate_sweep_points(max_steps)
@@ -172,17 +187,106 @@ class GenericSweepLocator(SweepingLocator):
         """
         if not self._pending_obs:
             return
+            
+        mapped_obs = []
+        is_unit_cube = type(self.belief.model).__name__ == "UnitCubeSignalModel"
+        
+        if is_unit_cube:
+            mapped_obs = self._pending_obs
+        else:
+            from nvision.models.observation import Observation
+            width = self._domain_hi - self._domain_lo
+            for o in self._pending_obs:
+                x_phys = self._domain_lo + o.x * width
+                mapped_obs.append(Observation(
+                    x=x_phys,
+                    signal_value=o.signal_value,
+                    noise_std=o.noise_std,
+                    frequency_noise_model=o.frequency_noise_model,
+                ))
+
         if hasattr(self.belief, "batch_update"):
             chunk = NVISION_SWEEP_BATCH_CHUNK_SIZE
-            for i in range(0, len(self._pending_obs), chunk):
-                self.belief.batch_update(self._pending_obs[i : i + chunk])
+            for i in range(0, len(mapped_obs), chunk):
+                self.belief.batch_update(mapped_obs[i : i + chunk])
         else:
-            for obs in self._pending_obs:
+            for obs in mapped_obs:
                 self.belief.update(obs)
         self._pending_obs.clear()
 
+    def _try_model_fit(
+        self, xs_norm: np.ndarray, ys: np.ndarray
+    ) -> tuple[float, float] | None:
+        """Fit the physical model to sweep data via least squares.
+
+        Returns (freq_phys, uncert_phys) on success, None if unavailable or failed.
+        The fit uses all sweep points jointly, which gives sub-step accuracy even
+        when dips are partially merged — much better than centroid heuristics.
+        """
+        from scipy.optimize import curve_fit
+
+        inner = self._inner_model()
+        param_names = inner.parameter_names()
+        scan_param = self._scan_param
+        if scan_param not in param_names:
+            return None
+
+        # Resolve parameter bounds: prefer signal_model.param_bounds_phys, then
+        # the bounds stored from create(), then per-parameter belief bounds.
+        unit_model = self.signal_model
+        if hasattr(unit_model, "param_bounds_phys"):
+            param_bounds_phys: dict[str, tuple[float, float]] = unit_model.param_bounds_phys
+        elif self._parameter_bounds is not None:
+            param_bounds_phys = self._parameter_bounds
+        elif hasattr(self.belief, "physical_param_bounds"):
+            param_bounds_phys = self.belief.physical_param_bounds
+        else:
+            return None
+
+        if not all(n in param_bounds_phys for n in param_names):
+            return None
+
+        domain_lo = self._domain_lo
+        domain_hi = self._domain_hi
+        domain_width = domain_hi - domain_lo
+        xs_phys = domain_lo + xs_norm * domain_width
+
+        scan_idx = param_names.index(scan_param)
+        lo_bounds = [param_bounds_phys[n][0] for n in param_names]
+        hi_bounds = [param_bounds_phys[n][1] for n in param_names]
+
+        # Initial guess: scan param at global minimum, others at prior midpoints.
+        p0 = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
+        rough_phys = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        p0[scan_idx] = float(np.clip(rough_phys, domain_lo, domain_hi))
+
+        def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
+            typed = inner.spec.unpack_params(list(params))
+            return np.array([float(inner.compute(float(x), typed)) for x in xs])
+
+        try:
+            popt, _ = curve_fit(
+                curve_fn,
+                xs_phys,
+                ys,
+                p0=p0,
+                bounds=(lo_bounds, hi_bounds),
+                maxfev=500,
+            )
+        except Exception:
+            return None
+
+        freq_phys = float(popt[scan_idx])
+        if not (domain_lo <= freq_phys <= domain_hi):
+            return None
+
+        step_phys = domain_width / max(1, len(xs_norm) - 1)
+        return freq_phys, step_phys * 0.5
+
     def finalize(self) -> None:
-        """Fit a parabola to the dip region, set the acquisition window and frequency estimate."""
+        """Detect dips in the sweep and report the center frequency."""
+        from scipy.signal import find_peaks
+
         self._flush_pending_obs()
 
         if self.history.count < 3:
@@ -194,58 +298,121 @@ class GenericSweepLocator(SweepingLocator):
         ys = self.history.ys
         domain_width = self._domain_hi - self._domain_lo
 
-        # Locate the minimum and define a fitting window around it.
-        min_idx = int(np.argmin(ys))
-        x_min_norm = float(xs[min_idx])
+        # Try a full model fit first — much more accurate than centroid heuristics.
+        fit_result = self._try_model_fit(xs, ys)
+        if fit_result is not None:
+            freq_phys, uncert_phys = fit_result
+            self._freq_estimate_phys = freq_phys
+            self._freq_uncert_phys = uncert_phys
+            self._signal_found = True
+            signal_max_span = self._signal_max_span or self._model_signal_max_span()
+            half_width_phys = (
+                min(domain_width / 2, 1.5 * signal_max_span)
+                if signal_max_span is not None
+                else domain_width * 0.2
+            )
+            self._acquisition_lo = max(self._domain_lo, freq_phys - half_width_phys)
+            self._acquisition_hi = min(self._domain_hi, freq_phys + half_width_phys)
+            return
 
-        # Use the signal max-span (or 20 % of domain) to set fitting half-width.
         signal_max_span = self._signal_max_span or self._model_signal_max_span()
         if signal_max_span is not None and domain_width > 0:
             half_width_norm = min(0.5, 1.5 * signal_max_span / domain_width)
         else:
             half_width_norm = 0.2
 
-        lo_fit = max(0.0, x_min_norm - half_width_norm)
-        hi_fit = min(1.0, x_min_norm + half_width_norm)
-        mask = (xs >= lo_fit) & (xs <= hi_fit)
+        n_pts = max(len(xs), 1)
+        step = 1.0 / n_pts
 
-        if mask.sum() >= 3:
-            xs_fit = xs[mask]
-            ys_fit = ys[mask]
+        baseline = float(np.percentile(ys, 90))
+        global_min = float(np.min(ys))
+        dip_depth = max(1e-9, baseline - global_min)
+
+        # Minimum separation between two dips: half the minimum signal span.
+        signal_min_span = self._signal_min_span or self._model_signal_min_span()
+        if signal_min_span is not None and domain_width > 0:
+            min_sep_norm = 0.5 * signal_min_span / domain_width
         else:
-            xs_fit = xs
-            ys_fit = ys
+            min_sep_norm = step * 2
+        min_distance_samples = max(1, int(min_sep_norm / step))
 
-        # Quadratic (r²) fit: y = a*x² + b*x + c, with covariance for uncertainty.
+        # Smoothing window must be narrower than the minimum expected dip separation
+        # so that closely spaced dips (e.g. NV center triplet) are not merged.
+        # Use at most (min_distance_samples - 1) steps, falling back to 1 if the
+        # minimum separation is already 1 step.
+        window = max(1, min(min_distance_samples - 1, n_pts // 100))
+        smoothed = np.convolve(ys, np.ones(window) / window, mode="same") if window > 1 else ys
+
+        # find_peaks works on local maxima; invert to find dips.
+        # Use the larger of the depth-based and noise-based prominence floors so
+        # that noise spikes (3σ) don't create false peaks on slowly-varying signals.
+        noise_floor = 3.0 * max(float(self._noise_std), 1e-6) * max(baseline, 1e-9)
+        prominence_threshold = max(0.25 * dip_depth, noise_floor)
+        neg_smoothed = -smoothed
+        peaks, _ = find_peaks(
+            neg_smoothed,
+            prominence=prominence_threshold,
+            distance=min_distance_samples,
+        )
+
+        x0_norm: float
+        sigma_x0_norm: float
+
+        # How many dips does the underlying model expect?
+        n_expected_dips: int = 1
         try:
-            coeffs, cov = np.polyfit(xs_fit, ys_fit, 2, cov=True)
-        except (np.linalg.LinAlgError, ValueError):
-            coeffs = np.polyfit(xs_fit, ys_fit, 2)
-            cov = None
+            inner = self._inner_model()
+            if hasattr(inner, "expected_dip_count"):
+                n_expected_dips = int(inner.expected_dip_count())
+        except Exception:
+            pass
 
-        a, b, _c = coeffs
+        # Weighted centroid of the absorption feature — used as fallback when dips
+        # overlap and cannot be individually resolved.
+        #
+        # Subtract the noise floor from each weight before summing so that
+        # baseline-noise fluctuations (which affect ~90 % of non-dip points when
+        # using the 90th-percentile baseline) don't swamp the actual dip signal
+        # and drag the centroid toward the domain center.
+        # Points that are not significantly below baseline get weight=0.
+        weights = np.maximum(0.0, (baseline - ys) - noise_floor)
+        centroid_norm = float(np.sum(xs * weights) / weights.sum()) if weights.sum() > 0 else float(xs[np.argmin(ys)])
 
-        if a > 0:
-            x0_norm = float(-b / (2.0 * a))
-            x0_norm = float(np.clip(x0_norm, 0.0, 1.0))
-
-            # Propagate fit covariance to get σ(x0) in normalized units.
-            if cov is not None:
-                var_a = float(cov[0, 0])
-                var_b = float(cov[1, 1])
-                cov_ab = float(cov[0, 1])
-                # x0 = -b/(2a)  →  ∂x0/∂a = b/(2a²),  ∂x0/∂b = -1/(2a)
-                d_a = b / (2.0 * a**2)
-                d_b = -1.0 / (2.0 * a)
-                var_x0 = d_a**2 * var_a + d_b**2 * var_b + 2.0 * d_a * d_b * cov_ab
-                sigma_x0_norm = float(np.sqrt(max(var_x0, 0.0)))
-            else:
-                sigma_x0_norm = half_width_norm * 0.1  # rough fallback
+        if len(peaks) == 0:
+            x0_norm = centroid_norm
+            sigma_x0_norm = step * 3
         else:
-            x0_norm = x_min_norm
-            sigma_x0_norm = half_width_norm * 0.5
+            # Filter peaks to those within the signal span of the global deepest dip.
+            deepest_peak = peaks[np.argmin(ys[peaks])]
+            deepest_x = float(xs[deepest_peak])
+            nearby_mask = np.abs(xs[peaks] - deepest_x) <= half_width_norm
+            nearby = peaks[nearby_mask]
 
-        # Convert to physical units and store for result().
+            # Sort by position (ascending frequency).
+            nearby = nearby[np.argsort(xs[nearby])]
+
+            if len(nearby) >= 3 and n_expected_dips >= 3:
+                # Three or more dips from a triplet model: median position = center freq.
+                x0_norm = float(xs[nearby[len(nearby) // 2]])
+                sigma_x0_norm = step
+            elif len(nearby) == 2 and n_expected_dips >= 3:
+                # Two dips found from a triplet model.  With k_np>1 the deepest is
+                # freq+split (rightmost) and the second deepest is freq (leftmost).
+                # Taking the left peak gives the center directly.
+                x0_norm = float(xs[nearby[0]])
+                sigma_x0_norm = step
+            elif len(nearby) >= 2:
+                # Doublet or generic model: midpoint of the outermost pair.
+                x0_norm = float((xs[nearby[0]] + xs[nearby[-1]]) / 2.0)
+                sigma_x0_norm = step / np.sqrt(2)
+            else:
+                # Single peak — dips are merged.  Use centroid rather than the
+                # global minimum to reduce the systematic bias toward freq+split.
+                x0_norm = centroid_norm
+                sigma_x0_norm = step * 2
+
+        x0_norm = float(np.clip(x0_norm, 0.0, 1.0))
+
         if domain_width > 0:
             self._freq_estimate_phys = self._domain_lo + x0_norm * domain_width
             self._freq_uncert_phys = sigma_x0_norm * domain_width
@@ -253,16 +420,14 @@ class GenericSweepLocator(SweepingLocator):
             self._freq_estimate_phys = self._domain_lo
             self._freq_uncert_phys = None
 
-        # Set acquisition window as ± half_width around the fitted center.
+        self._signal_found = True
         acq_lo_norm = max(0.0, x0_norm - half_width_norm)
         acq_hi_norm = min(1.0, x0_norm + half_width_norm)
-
-        self._signal_found = True
         self._acquisition_lo = self._domain_lo + acq_lo_norm * domain_width
         self._acquisition_hi = self._domain_lo + acq_hi_norm * domain_width
 
     def result(self) -> dict[str, float]:
-        """Return the parabolic fit estimate alongside the standard sweep result."""
+        """Return dip-center estimate and uncertainty."""
         res = super().result()
         if self._freq_estimate_phys is not None:
             res["frequency"] = self._freq_estimate_phys
