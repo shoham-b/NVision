@@ -135,6 +135,11 @@ class GenericSweepLocator(SweepingLocator):
         self._freq_estimate_phys: float | None = None
         self._freq_uncert_phys: float | None = None
 
+        # Full fitted physical parameter vector from the model fit (set by
+        # _try_model_fit).  Used to draw the actual fit in the visualization
+        # instead of the SMC belief marginal mode.
+        self._fit_params_phys: dict[str, float] | None = None
+
         # Buffer observations so we can batch-update the belief once at finalize()
         # instead of paying a full Bayesian update on every step.
         self._pending_obs: list = []
@@ -260,13 +265,11 @@ class GenericSweepLocator(SweepingLocator):
         # Smooth interior points only (avoid edge artifacts from zero-padding).
         # np.convolve mode='same' zero-pads at boundaries, which artificially pulls
         # edge values down and makes argmin pick the domain boundary instead of the
-        # actual dip.  We use the smoothed signal only for c_total estimation (where
-        # edge effects don't matter) and keep raw argmin for frequency initialization.
+        # actual dip.  The smoothed signal is used for dip detection and c_total
+        # estimation; edge effects there don't matter because we detect peaks in the
+        # interior.
         window = max(3, n_pts // 30)
         smoothed = np.convolve(ys, np.ones(window) / window, mode="same") if window > 1 else ys
-
-        # Frequency init: raw argmin is already reliable (near-CRB median accuracy).
-        freq_init = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
 
         # Estimate contrast directly from the data so that c_total starts close to
         # the true value.  Blind bound-midpoint initialization can be 6× off (e.g.
@@ -277,32 +280,97 @@ class GenericSweepLocator(SweepingLocator):
         baseline = float(np.percentile(interior, 85))
         dip_depth = max(0.0, baseline - float(interior.min()))
 
-        p0 = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
-        p0[scan_idx] = float(np.clip(freq_init, domain_lo, domain_hi))
+        # Detect the main dips to initialize `frequency` and (for Zeeman models)
+        # `zeeman_split`.  This is the crucial step for multi-dip spectra: the raw
+        # argmin picks a *single* dip, but `frequency` is the *center* of the whole
+        # pattern.  For a two-dip Zeeman spectrum that center sits ~zeeman_split away
+        # from either dip, so an argmin init is systematically wrong and the fit
+        # diverges.  Taking the midpoint of the outermost detected dips gives the
+        # center for single, triplet, and Zeeman patterns alike.
+        from scipy.signal import find_peaks
 
-        if "c_total" in param_names:
-            ct_idx = param_names.index("c_total")
-            p0[ct_idx] = float(np.clip(dip_depth, lo_bounds[ct_idx], hi_bounds[ct_idx]))
+        # Prominence floor must clear the (smoothed) noise so isolated fluctuations
+        # aren't mistaken for dips.  Smoothing reduces noise by ~sqrt(window), but we
+        # keep a conservative multiple of noise_std.
+        prom_floor = max(0.3 * dip_depth, 4.0 * max(float(self._noise_std), 1e-9))
+        peaks, props = find_peaks(-smoothed, prominence=prom_floor)
+        if len(peaks) >= 2:
+            # Use the two most prominent dips (the main pair for a Zeeman spectrum),
+            # not the outermost — spurious edge peaks from noise would otherwise
+            # inflate the separation.
+            order = np.argsort(props["prominences"])[::-1]
+            top = peaks[order[:2]]
+            dip_positions = domain_lo + xs_norm[top] * domain_width
+            lo_dip = float(dip_positions.min())
+            hi_dip = float(dip_positions.max())
+            freq_init = 0.5 * (lo_dip + hi_dip)
+            half_sep = 0.5 * (hi_dip - lo_dip)
+        else:
+            # Single dip (or none resolved): frequency is the deepest point.
+            # Use raw ys, not smoothed — np.convolve(mode='same') zero-pads the
+            # boundaries and can drag the smoothed edge value below the real dip,
+            # making argmin(smoothed) pick the domain edge.
+            freq_init = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+            half_sep = None
+
+        ct_idx = param_names.index("c_total") if "c_total" in param_names else None
+        zs_idx = param_names.index("zeeman_split") if "zeeman_split" in param_names else None
+
+        def make_p0(freq_hz: float, half_sep_hz: float | None) -> list[float]:
+            p0 = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
+            p0[scan_idx] = float(np.clip(freq_hz, domain_lo, domain_hi))
+            if ct_idx is not None:
+                p0[ct_idx] = float(np.clip(dip_depth, lo_bounds[ct_idx], hi_bounds[ct_idx]))
+            if zs_idx is not None and half_sep_hz is not None:
+                p0[zs_idx] = float(np.clip(half_sep_hz, lo_bounds[zs_idx], hi_bounds[zs_idx]))
+            return p0
+
+        # Candidate initializations.  The dip-detection init (primary) is correct
+        # when detection succeeds; the alternates guard against noise fooling the
+        # detection at low SNR.  We keep the fit with the lowest residual, so extra
+        # candidates can only help.
+        argmin_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        candidates = [(freq_init, half_sep)]
+        if half_sep is not None:
+            # In case the two "most prominent" peaks were the wrong pair, also try
+            # treating the deepest single dip as the pattern center.
+            candidates.append((argmin_freq, half_sep))
+        else:
+            candidates.append((argmin_freq, None))
 
         def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
             typed = inner.spec.unpack_params(list(params))
             return np.array([float(inner.compute(float(x), typed)) for x in xs])
 
-        try:
-            best_popt, _ = curve_fit(
-                curve_fn,
-                xs_phys,
-                ys,
-                p0=p0,
-                bounds=(lo_bounds, hi_bounds),
-                maxfev=1000,
-            )
-        except Exception:
+        best_popt = None
+        best_resid = np.inf
+        for freq_c, half_c in candidates:
+            try:
+                popt, _ = curve_fit(
+                    curve_fn,
+                    xs_phys,
+                    ys,
+                    p0=make_p0(freq_c, half_c),
+                    bounds=(lo_bounds, hi_bounds),
+                    maxfev=1000,
+                )
+            except Exception:
+                continue
+            resid = float(np.sum((curve_fn(xs_phys, *popt) - ys) ** 2))
+            if resid < best_resid:
+                best_resid = resid
+                best_popt = popt
+
+        if best_popt is None:
             return None
 
         freq_phys = float(best_popt[scan_idx])
         if not (domain_lo <= freq_phys <= domain_hi):
             return None
+
+        # Store the full fitted parameter vector so the visualization can draw the
+        # actual fit instead of the (collapsed) SMC belief marginal mode.
+        self._fit_params_phys = {n: float(v) for n, v in zip(param_names, best_popt)}
 
         step_phys = domain_width / max(1, n_pts - 1)
         return freq_phys, step_phys * 0.5
@@ -458,6 +526,15 @@ class GenericSweepLocator(SweepingLocator):
         if self._freq_uncert_phys is not None:
             res["uncert"] = self._freq_uncert_phys
         return res
+
+    def fit_mode_estimates(self) -> dict[str, float] | None:
+        """Full fitted physical parameters from the model fit, or None if unavailable.
+
+        This is the actual least-squares fit of the physical model to the sweep
+        data — used by the visualization in preference to the SMC belief marginal
+        mode, which is not resampled during the sweep and can collapse.
+        """
+        return dict(self._fit_params_phys) if self._fit_params_phys is not None else None
 
     def effective_initial_sweep_steps(self) -> int:
         return self.effective_step_count()

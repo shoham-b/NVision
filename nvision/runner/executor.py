@@ -1010,7 +1010,12 @@ class _TaskRunner:
         # finalize() flushes the deferred belief updates and runs the dip fit;
         # without it the belief is still the prior.
         locator.finalize()
-        sweep_mode_estimates = belief_mode_estimates(locator.belief)
+        # Prefer the actual least-squares model fit over the SMC belief marginal
+        # mode: during a sweep the belief is batch-updated without resampling and
+        # can collapse, drawing a garbage "most likely signal" curve.
+        sweep_mode_estimates = locator.fit_mode_estimates()
+        if sweep_mode_estimates is None:
+            sweep_mode_estimates = belief_mode_estimates(locator.belief)
 
         return {
             "sweep_xs": sweep_xs,
@@ -1102,7 +1107,7 @@ class _TaskRunner:
 
         locator_class = self.task.strategy_spec.locator_class
         if self.strategy_name == "SimpleSweep" or locator_class.__name__ in (
-            "SimpleSweepLocator",
+            "GenericSweepLocator",
             "GenericSweepLocator",
         ):
             return simplesweep_steps
@@ -1253,21 +1258,61 @@ class _TaskRunner:
             if experiment.true_signal.noise_model is not None:
                 cfg["noise_model"] = experiment.true_signal.noise_model
 
+        # --- Pre-run CRLB feasibility gate (Bayesian locators only) -------
+        # Uses true parameter values (oracle) to check whether ANY parameter's
+        # CRLB with uniform sampling at max_steps is above its convergence
+        # threshold.  Only valid in simulation (true values are known).
+        infeasible_crlb_params: list[str] = []
+        if requires_belief:
+            from nvision.models.fisher_information import marginal_crlbs_at_budget
+            from nvision.sim.defaults import (
+                NVISION_CRLB_FEASIBILITY_MARGIN,
+                PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
+            )
+
+            crlbs_gate = marginal_crlbs_at_budget(
+                model=experiment.true_signal.model,
+                true_typed_params=experiment.true_signal.typed_parameters,
+                x_lo=float(experiment.x_min),
+                x_hi=float(experiment.x_max),
+                noise_std=noise_std,
+                n_steps=max_steps,
+            )
+            if crlbs_gate:
+                param_bounds_for_gate = self._injected_parameter_bounds(experiment)
+                convergence_threshold = float(locator_config.get("convergence_threshold", 0.01))
+                for param_name, crlb_val in crlbs_gate.items():
+                    absolute = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param_name)
+                    if absolute is None:
+                        lo, hi = param_bounds_for_gate.get(param_name, (0.0, 0.0))
+                        absolute = (hi - lo) * convergence_threshold
+                    if absolute > 0 and crlb_val > absolute * NVISION_CRLB_FEASIBILITY_MARGIN:
+                        infeasible_crlb_params.append(param_name)
+
         observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
         token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
-        try:
-            result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))
-            stop_reason = "locator_stop"
-        except TimeoutError:
+        if infeasible_crlb_params:
             result = RunResult(
                 snapshots=observer.snapshots,
                 true_signal=experiment.true_signal,
                 focus_window=None,
             )
-            stop_reason = "repeat_timeout"
-        finally:
+            stop_reason = "infeasible_crlb"
             reset_combination_log_initials(token)
+        else:
+            try:
+                result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))
+                stop_reason = "locator_stop"
+            except TimeoutError:
+                result = RunResult(
+                    snapshots=observer.snapshots,
+                    true_signal=experiment.true_signal,
+                    focus_window=None,
+                )
+                stop_reason = "repeat_timeout"
+            finally:
+                reset_combination_log_initials(token)
 
         # Populate sweep cache from this repeat's observations (for sharing with subsequent repeats)
         if observer.last_locator is not None:
@@ -1298,6 +1343,14 @@ class _TaskRunner:
         finalize_hook = getattr(locator_instance, "finalize", None)
         if callable(finalize_hook):
             finalize_hook()
+            # GenericSweepLocator defers all belief updates to finalize(). The
+            # run_result snapshots were copied before finalize ran, so they hold
+            # the prior-state belief.  Replace the last snapshot's belief with the
+            # finalized posterior so visualizations show the correct "most likely"
+            # curve instead of the prior mean.
+            from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+            if isinstance(locator_instance, GenericSweepLocator) and result.snapshots:
+                result.snapshots[-1].belief = locator_instance.belief.copy()
         locator_final_result = locator_instance.result()
 
         history_df = run_result_to_history_df(result, rid, experiment.x_min, experiment.x_max)
@@ -1323,8 +1376,33 @@ class _TaskRunner:
             finalize_record["freq_converged_step"] = getattr(last_loc, "freq_converged_step", None)
             finalize_record["all_converged_step"] = getattr(last_loc, "all_converged_step", None)
         else:
+            finalize_record["sweep_steps"] = None
+            finalize_record["locator_steps"] = None
             finalize_record["freq_converged_step"] = None
             finalize_record["all_converged_step"] = None
+        finalize_record["infeasible_crlb_params"] = infeasible_crlb_params if infeasible_crlb_params else None
+
+        # SBED-specific background noise diagnostics
+        from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+
+        if last_loc is not None and isinstance(last_loc, SequentialBayesianExperimentDesignLocator):
+            finalize_record["bg_noise_std"] = getattr(last_loc, "_bg_noise_std", None)
+            finalize_record["bg_points_used"] = getattr(last_loc, "_bg_points_used", 0)
+            finalize_record["forced_bg_measurements"] = getattr(last_loc, "_forced_bg_measurements", 0)
+            finalize_record["theory_step_budget"] = getattr(last_loc, "_theory_step_budget", None)
+        else:
+            finalize_record["bg_noise_std"] = None
+            finalize_record["bg_points_used"] = None
+            finalize_record["forced_bg_measurements"] = None
+            finalize_record["theory_step_budget"] = None
+        true_noise_std: float | None = None
+        if experiment.noise is not None and hasattr(experiment.noise, "estimated_noise_std"):
+            try:
+                true_noise_std = float(experiment.noise.estimated_noise_std())
+            except Exception:
+                pass
+        finalize_record["true_noise_std"] = true_noise_std
+
         finalize_record["sobol_baseline_steps"] = sobol_baseline_steps
         finalize_record["sobol_freq_steps"] = sobol_freq_steps
         if sobol_baseline_steps is not None and sobol_freq_steps is not None:
