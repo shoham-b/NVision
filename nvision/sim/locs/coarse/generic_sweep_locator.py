@@ -21,6 +21,30 @@ if TYPE_CHECKING:
 # the filter resample between chunks (same rationale as SOBOL_BATCH_CHUNK_SIZE).
 NVISION_SWEEP_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SWEEP_BATCH_CHUNK_SIZE", "200"))
 
+# Per-fit evaluation budget.  curve_fit's default tolerances (~1.5e-8) converge in
+# ~50-200 evaluations; a larger budget only matters if a start is far off.  Tighter
+# tolerances were tried and made no accuracy difference (the limit is the noise
+# floor / basin, not iteration count), so we keep the defaults and just raise the
+# ceiling modestly.  Refinement comes from the multi-start grid below, not from
+# grinding a single fit harder.
+_FIT_MAXFEV: int = int(os.getenv("NVISION_SWEEP_FIT_MAXFEV", "4000"))
+
+# Multi-start grid sizes.  The fit is non-convex: at low SNR a single start lands
+# in a wrong local minimum.  Restarting from a grid of (frequency × zeeman_split)
+# and keeping the lowest-residual fit escapes those basins — this is where extra
+# compute actually refines the result (more iterations per fit do not).  The grid
+# must be fine enough: a too-coarse grid can miss the true basin and do worse than
+# a smart single start.
+_FIT_FREQ_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_FREQ_STARTS", "5"))
+_FIT_ZEEMAN_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZEEMAN_STARTS", "4"))
+
+# Peak-SNR (dip depth / noise_std) below which the multi-start grid is engaged.
+# Above it, the two smart starts already converge to sub-MHz accuracy, so the grid
+# (~20 extra fits) is skipped.  Set from empirical accuracy: at SNR>=6 the smart
+# starts give sub-MHz median with no failures; below that a single start starts
+# landing in wrong basins and the grid is needed.
+_FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
+
 
 class GenericSweepLocator(SweepingLocator):
     """Uniform grid sweep locator with parabolic (r²) fit.
@@ -325,19 +349,36 @@ class GenericSweepLocator(SweepingLocator):
                 p0[zs_idx] = float(np.clip(half_sep_hz, lo_bounds[zs_idx], hi_bounds[zs_idx]))
             return p0
 
-        # Candidate initializations.  The dip-detection init (primary) is correct
-        # when detection succeeds; the alternates guard against noise fooling the
-        # detection at low SNR.  We keep the fit with the lowest residual, so extra
-        # candidates can only help.
+        # Candidate initializations, all scored by residual (lowest wins):
+        #   1. dip-detection init (primary; usually best and cheapest)
+        #   2. deepest-point init as a cheap alternate
+        #   3. (low SNR only) a coarse grid over frequency × zeeman_split
+        # The grid is the safety net for low SNR, where dip detection is fooled by
+        # noise and a single start lands in a wrong local minimum.  We gate it on
+        # SNR — cheap to compute *before* fitting — rather than on the fit residual,
+        # because at low SNR the residual gap between a right and a wrong fit is
+        # within the chi-square noise band and cannot tell them apart.  High-SNR
+        # spectra are solved by the two smart starts in ~2 fits; only genuinely hard
+        # low-SNR spectra pay for the full multi-start grid.
         argmin_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
-        candidates = [(freq_init, half_sep)]
-        if half_sep is not None:
-            # In case the two "most prominent" peaks were the wrong pair, also try
-            # treating the deepest single dip as the pattern center.
-            candidates.append((argmin_freq, half_sep))
-        else:
-            candidates.append((argmin_freq, None))
+        candidates = [(freq_init, half_sep), (argmin_freq, half_sep)]
 
+        snr = dip_depth / max(float(self._noise_std), 1e-9)
+        if snr < _FIT_GRID_SNR:
+            freq_grid = [
+                domain_lo + (i + 0.5) / _FIT_FREQ_STARTS * domain_width
+                for i in range(_FIT_FREQ_STARTS)
+            ]
+            if zs_idx is not None:
+                zee_grid = np.linspace(lo_bounds[zs_idx], hi_bounds[zs_idx], _FIT_ZEEMAN_STARTS)
+                candidates += [(f, float(z)) for f in freq_grid for z in zee_grid]
+            else:
+                candidates += [(f, None) for f in freq_grid]
+
+        # Evaluate in float64 (scalar path).  The vectorized kernel uses float32,
+        # whose ~1e-7 relative resolution is coarser than curve_fit's numerical
+        # Jacobian step for a GHz-scale frequency (~tens of Hz), which zeroes out
+        # the frequency gradient and stalls the fit.  float64 is required here.
         def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
             typed = inner.spec.unpack_params(list(params))
             return np.array([float(inner.compute(float(x), typed)) for x in xs])
@@ -352,7 +393,7 @@ class GenericSweepLocator(SweepingLocator):
                     ys,
                     p0=make_p0(freq_c, half_c),
                     bounds=(lo_bounds, hi_bounds),
-                    maxfev=1000,
+                    maxfev=_FIT_MAXFEV,
                 )
             except Exception:
                 continue
