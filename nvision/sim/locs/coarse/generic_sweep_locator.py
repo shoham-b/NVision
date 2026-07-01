@@ -22,12 +22,22 @@ if TYPE_CHECKING:
 NVISION_SWEEP_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SWEEP_BATCH_CHUNK_SIZE", "200"))
 
 # Per-fit evaluation budget.  curve_fit's default tolerances (~1.5e-8) converge in
-# ~50-200 evaluations; a larger budget only matters if a start is far off.  Tighter
-# tolerances were tried and made no accuracy difference (the limit is the noise
-# floor / basin, not iteration count), so we keep the defaults and just raise the
-# ceiling modestly.  Refinement comes from the multi-start grid below, not from
-# grinding a single fit harder.
+# ~50-200 evaluations; a larger budget only matters if a start is far off.
 _FIT_MAXFEV: int = int(os.getenv("NVISION_SWEEP_FIT_MAXFEV", "4000"))
+
+# The frequency step tolerance (curve_fit xtol) is derived from the expected
+# frequency CRLB rather than hard-coded: refine until the frequency is pinned to
+# this fraction of its Cramér-Rao floor.  Refining tighter than the CRLB is
+# meaningless (it is below the information the data carries) and only burns
+# iterations; refining looser leaves accuracy on the table.  This mirrors how the
+# sbed locator gates convergence on NVISION_FREQ_CRLB_SAFETY_FACTOR × CRLB — here
+# we target CRLB × _FIT_CRLB_TOL_FRAC as the optimizer's stopping precision.
+_FIT_CRLB_TOL_FRAC: float = float(os.getenv("NVISION_SWEEP_FIT_CRLB_TOL_FRAC", "0.1"))
+# Clamp the resulting relative tolerance to a sane band so a degenerate CRLB
+# estimate can't make the fit either never converge (too tight) or quit
+# immediately (too loose).
+_FIT_XTOL_MIN: float = float(os.getenv("NVISION_SWEEP_FIT_XTOL_MIN", "1e-10"))
+_FIT_XTOL_MAX: float = float(os.getenv("NVISION_SWEEP_FIT_XTOL_MAX", "1e-6"))
 
 # Multi-start grid sizes.  The fit is non-convex: at low SNR a single start lands
 # in a wrong local minimum.  Restarting from a grid of (frequency × zeeman_split)
@@ -44,6 +54,24 @@ _FIT_ZEEMAN_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZEEMAN_STARTS", "4"))
 # starts give sub-MHz median with no failures; below that a single start starts
 # landing in wrong basins and the grid is needed.
 _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
+
+
+def _expected_frequency_crlb(
+    linewidth: float, c_total: float, noise_std: float, n_obs: int, bandwidth: float
+) -> float:
+    """Closed-form Cramér-Rao lower bound for frequency (physical Hz), uniform sweep.
+
+    ``CRLB_f = sqrt(2 σ² Ω / (π a² ρ))`` with σ = noise std, Ω = linewidth,
+    a = contrast (c_total), ρ = n_obs / bandwidth (measurements per Hz).  This is
+    the same closed form the SMC belief exposes as ``crlb_frequency`` for the NV
+    Lorentzian; duplicated here because the sweep fits a raw physical model with no
+    belief to query.  Returns ``inf`` when inputs are degenerate.
+    """
+    if linewidth <= 0 or c_total <= 0 or noise_std <= 0 or bandwidth <= 0 or n_obs <= 0:
+        return float("inf")
+    rho = n_obs / bandwidth
+    variance = (2.0 * noise_std**2 * linewidth) / (np.pi * c_total**2 * rho)
+    return float(np.sqrt(max(variance, 0.0)))
 
 
 class GenericSweepLocator(SweepingLocator):
@@ -375,6 +403,24 @@ class GenericSweepLocator(SweepingLocator):
             else:
                 candidates += [(f, None) for f in freq_grid]
 
+        # Convergence tolerance from the expected frequency CRLB: refine until the
+        # frequency is pinned to _FIT_CRLB_TOL_FRAC of its Cramér-Rao floor.  Using
+        # a rough pre-fit linewidth (bounds midpoint) and the data-driven contrast
+        # (dip_depth) is enough — the CRLB only sets the *scale* of the tolerance,
+        # not the estimate.  curve_fit's xtol is a relative step on the parameter
+        # vector, dominated by the GHz-scale frequency, so a relative tol of
+        # (target Hz)/frequency ≈ refines frequency to that target.
+        lw_idx = param_names.index("linewidth") if "linewidth" in param_names else None
+        lw_guess = (
+            (lo_bounds[lw_idx] + hi_bounds[lw_idx]) / 2.0 if lw_idx is not None else domain_width * 0.01
+        )
+        crlb_f = _expected_frequency_crlb(lw_guess, dip_depth, float(self._noise_std), n_pts, domain_width)
+        freq_ref = max(abs(freq_init), 1.0)
+        if np.isfinite(crlb_f) and crlb_f > 0:
+            xtol = float(np.clip(_FIT_CRLB_TOL_FRAC * crlb_f / freq_ref, _FIT_XTOL_MIN, _FIT_XTOL_MAX))
+        else:
+            xtol = 1e-8  # curve_fit default when the CRLB is unavailable
+
         # Evaluate in float64 (scalar path).  The vectorized kernel uses float32,
         # whose ~1e-7 relative resolution is coarser than curve_fit's numerical
         # Jacobian step for a GHz-scale frequency (~tens of Hz), which zeroes out
@@ -384,16 +430,18 @@ class GenericSweepLocator(SweepingLocator):
             return np.array([float(inner.compute(float(x), typed)) for x in xs])
 
         best_popt = None
+        best_pcov = None
         best_resid = np.inf
         for freq_c, half_c in candidates:
             try:
-                popt, _ = curve_fit(
+                popt, pcov = curve_fit(
                     curve_fn,
                     xs_phys,
                     ys,
                     p0=make_p0(freq_c, half_c),
                     bounds=(lo_bounds, hi_bounds),
                     maxfev=_FIT_MAXFEV,
+                    xtol=xtol,
                 )
             except Exception:
                 continue
@@ -401,6 +449,7 @@ class GenericSweepLocator(SweepingLocator):
             if resid < best_resid:
                 best_resid = resid
                 best_popt = popt
+                best_pcov = pcov
 
         if best_popt is None:
             return None
@@ -413,8 +462,26 @@ class GenericSweepLocator(SweepingLocator):
         # actual fit instead of the (collapsed) SMC belief marginal mode.
         self._fit_params_phys = {n: float(v) for n, v in zip(param_names, best_popt)}
 
-        step_phys = domain_width / max(1, n_pts - 1)
-        return freq_phys, step_phys * 0.5
+        # Report uncertainty from the fit covariance, floored at the CRLB evaluated
+        # at the fitted parameters (the fit cannot beat the information floor).  This
+        # replaces the previous arbitrary half-step and mirrors the belief's
+        # CRLB-floored reported_uncertainty.
+        fit_std = float("inf")
+        if best_pcov is not None and np.all(np.isfinite(best_pcov)):
+            var = float(best_pcov[scan_idx, scan_idx])
+            if var > 0:
+                fit_std = float(np.sqrt(var))
+        crlb_at_fit = _expected_frequency_crlb(
+            self._fit_params_phys.get("linewidth", lw_guess),
+            self._fit_params_phys.get("c_total", dip_depth),
+            float(self._noise_std),
+            n_pts,
+            domain_width,
+        )
+        uncert_phys = max(fit_std, crlb_at_fit) if np.isfinite(crlb_at_fit) else fit_std
+        if not np.isfinite(uncert_phys):
+            uncert_phys = domain_width / max(1, n_pts - 1) * 0.5  # fallback: half a sweep step
+        return freq_phys, uncert_phys
 
     def finalize(self) -> None:
         """Detect dips in the sweep and report the center frequency."""
