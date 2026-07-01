@@ -8,22 +8,50 @@ from nvision import (
 )
 
 
-def test_nv_center_lorentzian_default_has_three_parameters():
+def test_nv_center_lorentzian_default_has_zeeman_parameters():
+    """Default generator uses Zeeman splitting (4 params)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    sig = gen.generate(rng)
+    assert isinstance(sig, TrueSignal)
+    names = set(sig.parameter_names)
+    assert names == {"frequency", "linewidth", "zeeman_split", "c_total"}
+
+
+def test_nv_center_lorentzian_no_zeeman_has_three_parameters():
+    """Explicit with_zeeman_splitting=False gives single-dip 3-param model."""
+    rng = random.Random(11)
+    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
     assert names == {"frequency", "linewidth", "c_total"}
 
 
-def test_nv_center_lorentzian_with_hyperfine_has_five_parameters():
+def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
+    """Hyperfine-only (no Zeeman) gives 5-param model."""
     rng = random.Random(11)
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_hyperfine_splitting=True)
+    gen = NVCenterCoreGenerator(
+        x_min=2.6e9, x_max=3.1e9, variant="lorentzian",
+        with_hyperfine_splitting=True, with_zeeman_splitting=False,
+    )
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
     assert names == {"frequency", "linewidth", "split", "k_np", "c_total"}
+
+
+def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
+    """Zeeman + hyperfine gives 6-param model."""
+    rng = random.Random(11)
+    gen = NVCenterCoreGenerator(
+        x_min=2.6e9, x_max=3.1e9, variant="lorentzian",
+        with_hyperfine_splitting=True, with_zeeman_splitting=True,
+    )
+    sig = gen.generate(rng)
+    assert isinstance(sig, TrueSignal)
+    names = set(sig.parameter_names)
+    assert names == {"frequency", "linewidth", "zeeman_split", "split", "k_np", "c_total"}
 
 
 def test_nv_center_voigt_has_different_params_than_lorentzian():

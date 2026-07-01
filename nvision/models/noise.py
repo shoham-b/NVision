@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from nvision.sim.batch import DataBatch, OverFrequencyNoise, OverProbeNoise
+from nvision.sim.batch import DataBatch, OverFrequencyNoise
 from nvision.spectra.noise_model import NoiseSignalModel
 
 
@@ -67,44 +67,18 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
                 specs.append({"type": "gaussian", "sigma": float(sigma_val)})
             elif name == "OverFrequencyPoissonNoise":
                 specs.append({"type": "poisson", "scale": float(getattr(part, "scale", 0.0))})
-            elif name == "OverFrequencyOutlierSpikes":
-                specs.append(
-                    {
-                        "type": "outlier_spikes",
-                        "probability": float(getattr(part, "probability", 0.0)),
-                        "magnitude": float(getattr(part, "magnitude", 0.0)),
-                    }
-                )
             else:
                 specs.append({"type": "unknown", "name": name})
         return tuple(specs)
 
 
-class CompositeOverProbeNoise(OverProbeNoise):
-    """Applies multiple over-probe noise models in sequence."""
-
-    def __init__(self, parts: Sequence[OverProbeNoise] | None = None):
-        self._parts: list[OverProbeNoise] = list(parts or [])
-
-    def add(self, model: OverProbeNoise) -> None:
-        self._parts.append(model)
-
-    def apply(self, signal_value: float, rng: random.Random, locator: object = None) -> float:
-        out = signal_value
-        for part in self._parts:
-            out = part.apply(out, rng, locator)
-        return out
-
-
 @dataclass(frozen=True, slots=True)
 class CompositeNoise:
-    """Container for both over-frequency and over-probe noise; applies both in sequence."""
+    """Container for over-frequency noise."""
 
     over_frequency_noise: CompositeOverFrequencyNoise | None = None
-    over_probe_noise: CompositeOverProbeNoise | None = None
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
-        """Apply over-frequency noise (over-probe noise is not applicable to batch data)."""
         if self.over_frequency_noise is not None:
             return self.over_frequency_noise.apply(data, rng)
         return data
@@ -145,10 +119,6 @@ class CompositeNoise:
         models = []
         if self.over_frequency_noise is not None:
             for p in self.over_frequency_noise._parts:
-                if hasattr(p, "to_noise_signal_model"):
-                    models.append(p.to_noise_signal_model())
-        if self.over_probe_noise is not None:
-            for p in self.over_probe_noise._parts:
                 if hasattr(p, "to_noise_signal_model"):
                     models.append(p.to_noise_signal_model())
 

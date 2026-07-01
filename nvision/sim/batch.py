@@ -114,8 +114,3 @@ class OverFrequencyNoise(ABC):
         return std * math.sqrt(2.0 * math.log(max(n_samples, 2)))
 
 
-class OverProbeNoise(ABC):
-    """Base class for noise applied per-probe to a single signal value."""
-
-    @abstractmethod
-    def apply(self, signal_value: float, rng: random.Random, locator: object = None) -> float: ...

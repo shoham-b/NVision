@@ -206,6 +206,43 @@ class AbstractMarginalDistribution(ABC):
             last_obs=self.last_obs,
         )
 
+    def accumulate_fim(self, obs: Observation) -> None:
+        """Add the single-observation Fisher information at ``obs.x`` to the running total.
+
+        Uses the current posterior mean as the parameter point for gradient evaluation,
+        and ``obs`` directly for the noise sigma (not ``self.last_obs``), so the method
+        is correct even when called for observations that are not yet the most recent one
+        (e.g. when flushing a Sobol buffer after a batch update).
+        """
+        names = self.model.parameter_names()
+        est = self.estimates()
+        typed = self.model.spec.unpack_params([est[n] for n in names])
+        fim_i = fisher_information_matrix(
+            x=obs.x,
+            model=self.model,
+            parameters=typed,
+            last_obs=obs,
+        )
+        if fim_i is None:
+            return
+        cum: np.ndarray | None = getattr(self, "_cum_fim", None)
+        if cum is None:
+            cum = np.zeros((len(names), len(names)))
+        self._cum_fim: np.ndarray = cum + fim_i
+
+    def crlb_per_param(self) -> dict[str, float]:
+        """Return the marginal CRLB (physical std) for each model parameter.
+
+        Computed as ``sqrt(diag(pinv(cumulative_FIM)))``.  Returns an empty dict
+        before any observations or when the model has no analytical gradients.
+        """
+        cum: np.ndarray | None = getattr(self, "_cum_fim", None)
+        if cum is None:
+            return {}
+        names = list(self.model.parameter_names())
+        stds = single_shot_marginal_stds_from_fim(cum, len(names))
+        return {names[i]: float(stds[i]) for i in range(len(names))}
+
     @abstractmethod
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         """Evaluate the marginal Cumulative Density Function.

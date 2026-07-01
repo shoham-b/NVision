@@ -9,16 +9,12 @@ from nvision.models.locator import Locator
 from nvision.models.noise import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
-    CompositeOverProbeNoise,
 )
 from nvision.models.observer import Observer, RunResult
 from nvision.noises import (
     OverFrequencyGaussianNoise,
-    OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
 )
-from nvision.noises.over_probe.drift_noise import OverProbeDriftNoise
-from nvision.noises.over_probe.random_walk_noise import OverProbeRandomWalkNoise
 from nvision.runner.executor import run_loop
 from nvision.runner.repeat_keys import (
     measurement_repeat_key,
@@ -39,7 +35,7 @@ from nvision.sim.gen import (
 )
 from nvision.sim.locs.bayesian import nv_center_belief
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.coarse import SimpleSweepLocator, StagedSobolSweepLocator
+from nvision.sim.locs.coarse import GenericSweepLocator, StagedSobolSweepLocator
 from nvision.spectra.gaussian import GaussianModel, GaussianSpectrum
 from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.lorentzian import LorentzianModel, LorentzianSpectrum
@@ -84,7 +80,6 @@ __all__ = [
     "CombinationGrid",
     "CompositeNoise",
     "CompositeOverFrequencyNoise",
-    "CompositeOverProbeNoise",
     # Models
     "CoreExperiment",
     "DataBatch",
@@ -99,15 +94,12 @@ __all__ = [
     "NVCenterCoreGenerator",
     "Observer",
     "OverFrequencyGaussianNoise",
-    "OverFrequencyOutlierSpikes",
     "OverFrequencyPoissonNoise",
-    "OverProbeDriftNoise",
-    "OverProbeRandomWalkNoise",
     "Parameter",
     # Peak specs
     "PeakSpec",
     "RunResult",
-    "SimpleSweepLocator",
+    "GenericSweepLocator",
     "StagedSobolSweepLocator",
     "TrueSignal",
     # Belief

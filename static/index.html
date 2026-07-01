@@ -51,6 +51,7 @@
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Run</button>
             <button type="button" role="radio" aria-checked="false" data-value="speed" tabindex="-1">Speed</button>
             <button type="button" role="radio" aria-checked="false" data-value="accuracy" tabindex="-1">Accuracy</button>
+            <button type="button" role="radio" aria-checked="false" data-value="failed-runs" tabindex="-1" id="scan-view-failed-runs-btn" style="display:none;">Failed Runs</button>
         </div>
     </div>
     <div id="scan-repeat-view">
@@ -239,6 +240,13 @@
             <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by comparing the two strategies as a function of the fractional signal width.">?</span></h3>
             <div id="summary-span-plot-div" style="width:100%; height:400px;"></div>
         </div>
+    </div>
+
+    <!-- ── Failed Runs tab ────────────────────────────────────────────── -->
+    <div id="failed-runs-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Failed Runs</h2>
+        <div id="failed-runs-summary" style="margin-bottom:1em; padding:0.6em 1em; background:#fef3c7; border:1px solid #fde68a; border-radius:6px; font-size:0.9em; color:#92400e;"></div>
+        <div id="failed-runs-table-container"></div>
     </div>
 </div>
 

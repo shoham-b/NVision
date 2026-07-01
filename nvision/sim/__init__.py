@@ -4,15 +4,11 @@
 from nvision.sim.batch import (
     DataBatch,
     OverFrequencyNoise,
-    OverProbeNoise,
 )
 from .gen import NVCenterCoreGenerator
 from nvision.noises import (
     OverFrequencyGaussianNoise,
-    OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
-    OverProbeDriftNoise,
-    OverProbeRandomWalkNoise,
 )
 # isort: on
 
@@ -21,9 +17,5 @@ __all__ = [
     "NVCenterCoreGenerator",
     "OverFrequencyGaussianNoise",
     "OverFrequencyNoise",
-    "OverFrequencyOutlierSpikes",
     "OverFrequencyPoissonNoise",
-    "OverProbeDriftNoise",
-    "OverProbeNoise",
-    "OverProbeRandomWalkNoise",
 ]

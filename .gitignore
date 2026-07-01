@@ -111,6 +111,9 @@ logs/
 *.temp
 ~$*
 
+# MATLAB data files (large binaries — store in data/matlab/ but don't commit)
+data/matlab/*.mat
+
 # Project specific
 .fuzz_cache/
 

@@ -52,7 +52,7 @@ class Locator(ABC):
 
         Examples
         --------
-        >>> locator = SimpleSweepLocator.create(max_steps=50)
+        >>> locator = GenericSweepLocator.create(max_steps=50)
         >>> locator = BayesianLocator.create(
         ...     acquisition="eig",
         ...     max_steps=150,

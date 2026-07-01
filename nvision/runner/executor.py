@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
+import math
 import random
 import time
 from collections.abc import Iterator
@@ -88,12 +89,18 @@ def run_loop(
     experiment: CoreExperiment,
     rng: random.Random,
     sweep_cache: SweepCache | None = None,
+    n_shots: int = 1,
     **locator_config: Any,
 ) -> Iterator[Locator]:
     """Run one repeat's measurement loop and yield locator states.
 
     For Bayesian locators with initial sweeps and  locators, checks
     ``sweep_cache`` for pre-computed observations to avoid redundant measurements.
+
+    ``n_shots`` is the fixed hardware batch size: each measurement takes
+    ``n_shots`` shots at the chosen frequency and collapses them into one
+    sufficient-statistic ``Observation`` (batch mean + empirical variance) via
+    ``CoreExperiment.measure``. Defaults to 1 (single-shot, unchanged behavior).
     """
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
@@ -130,7 +137,7 @@ def run_loop(
                 frequency_noise_model=cached_obs.frequency_noise_model,
             )
         else:
-            obs = experiment.measure(x_current, rng)
+            obs = experiment.measure(x_current, rng, n_shots=n_shots)
 
         locator.observe(obs)
         yield locator
@@ -1241,11 +1248,22 @@ class _TaskRunner:
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
         max_steps = self._resolve_sweep_max_steps(experiment)
 
+        # Fixed hardware batch size (shots per frequency), configured per-strategy
+        # via locator_config["n_shots"]. Not a locator constructor arg — popped out
+        # here and threaded to run_loop()/experiment.measure() directly. Each
+        # acquisition step is a batch of n_shots with precision noise_std/sqrt(n_shots);
+        # the locator's noise_std prior (used for EIG/likelihood before any empirical
+        # batch estimate exists) is seeded at that precision instead of the raw
+        # single-shot noise_std, which the un-batched baselines (Sobol/SimpleSweep,
+        # built directly above) intentionally keep as their single-shot reference.
+        n_shots = int(locator_config.get("n_shots", 1))
+        batch_noise_std = noise_std / math.sqrt(n_shots)
+
         cfg = {
-            **locator_config,
+            **{k: v for k, v in locator_config.items() if k != "n_shots"},
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
-            "noise_std": noise_std,
+            "noise_std": batch_noise_std,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
@@ -1270,12 +1288,15 @@ class _TaskRunner:
                 PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
             )
 
+            # Each acquisition step is now a batch of n_shots — use the same
+            # batch-precision noise as the locator's own prior so the gate
+            # stays consistent with the real batched run.
             crlbs_gate = marginal_crlbs_at_budget(
                 model=experiment.true_signal.model,
                 true_typed_params=experiment.true_signal.typed_parameters,
                 x_lo=float(experiment.x_min),
                 x_hi=float(experiment.x_max),
-                noise_std=noise_std,
+                noise_std=batch_noise_std,
                 n_steps=max_steps,
             )
             if crlbs_gate:
@@ -1302,7 +1323,9 @@ class _TaskRunner:
             reset_combination_log_initials(token)
         else:
             try:
-                result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, **cfg))
+                result = observer.watch(
+                    run_loop(locator_class, experiment, rng, self._sweep_cache, n_shots=n_shots, **cfg)
+                )
                 stop_reason = "locator_stop"
             except TimeoutError:
                 result = RunResult(

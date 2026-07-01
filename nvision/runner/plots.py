@@ -93,28 +93,6 @@ def _resolve_scan_param(strat_obj: Any, run_result: RunResult) -> str:
     return "frequency"
 
 
-def _make_focused_ekf_grid(snapshots: list, scan_param: str, default_bounds: tuple[float, float]) -> np.ndarray:
-    """Construct a focused grid that covers the mean trajectory and resolves the narrow final peak."""
-    means = [float(s.belief.estimates().get(scan_param, 0.0)) for s in snapshots]
-    uncs = [float(s.belief.uncertainty().get(scan_param, 1.0)) for s in snapshots]
-
-    final_unc = uncs[-1] if uncs else 1.0
-    if final_unc <= 0:
-        final_unc = 1e-9
-
-    lo = min(means) - 5 * final_unc
-    hi = max(means) + 5 * final_unc
-
-    phys_lo, phys_hi = default_bounds
-    lo = max(lo, phys_lo)
-    hi = min(hi, phys_hi)
-
-    if hi <= lo:
-        lo, hi = phys_lo, phys_hi
-
-    return np.linspace(lo, hi, 250)
-
-
 def _posterior_animation_inputs(  # noqa: C901
     run_result: RunResult,
     scan_param: str,
@@ -138,10 +116,8 @@ def _posterior_animation_inputs(  # noqa: C901
     if not snapshots:
         return None
 
-    from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
     from nvision.belief.grid_marginal import GridMarginalDistribution
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
     from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 
     b0 = snapshots[0].belief
@@ -180,37 +156,6 @@ def _posterior_animation_inputs(  # noqa: C901
         # Unused for particle / histogram mode; required by API
         return hist, np.linspace(0.0, 1.0, 2)
 
-    if isinstance(b0, StudentsTMixtureMarginalDistribution):
-        out = _extract_mixture_posterior(snapshots, [scan_param])
-        if scan_param in out:
-            return out[scan_param]
-
-    if isinstance(b0, GaussianMixtureMarginalDistribution):
-        out = _extract_gaussian_mixture_posterior(snapshots, [scan_param])
-        if scan_param in out:
-            return out[scan_param]
-
-    from nvision.sim.locs.ekf.belief import EKFBelief, EKFParticleFrequencyBelief
-
-    if isinstance(b0, EKFParticleFrequencyBelief):
-        if scan_param == "frequency":
-            hist = []
-            for s in snapshots:
-                sub_idx, sub_w = _viz_particle_subsample(s.belief._frequency_weights)
-                col = s.belief._frequency_particles
-                col = col[sub_idx] if sub_idx is not None else col.copy()
-                hist.append(np.column_stack([col, sub_w]))
-            return hist, np.linspace(0.0, 1.0, 2)
-        else:
-            grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
-            hist = [s.belief.marginal_pdf(scan_param, grid) for s in snapshots]
-            return hist, grid
-
-    if isinstance(b0, EKFBelief):
-        grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
-        hist = [s.belief.marginal_pdf(scan_param, grid) for s in snapshots]
-        return hist, grid
-
     log.debug("No posterior animation extraction for belief type %s", type(b0).__name__)
     return None
 
@@ -243,12 +188,9 @@ def _posterior_animation_inputs_all_params(  # noqa: C901
     if not names:
         return None
 
-    from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
     from nvision.belief.grid_marginal import GridMarginalDistribution
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
     from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
-    from nvision.sim.locs.ekf.belief import EKFBelief, EKFParticleFrequencyBelief
 
     if isinstance(b0, UnitCubeGridMarginalDistribution):
         return _extract_unit_cube_grid_posterior(snapshots, names)
@@ -258,18 +200,6 @@ def _posterior_animation_inputs_all_params(  # noqa: C901
 
     if isinstance(b0, SMCMarginalDistribution):
         return _extract_smc_posterior(snapshots, names)
-
-    if isinstance(b0, StudentsTMixtureMarginalDistribution):
-        return _extract_mixture_posterior(snapshots, names)
-
-    if isinstance(b0, GaussianMixtureMarginalDistribution):
-        return _extract_gaussian_mixture_posterior(snapshots, names)
-
-    if isinstance(b0, EKFBelief):
-        return _extract_ekf_posterior(snapshots, names)
-
-    if isinstance(b0, EKFParticleFrequencyBelief):
-        return _extract_ekf_particle_frequency_posterior(snapshots, names)
 
     log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
     return None
@@ -353,156 +283,6 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
             hists[scan_param].append(frames[scan_param])
 
     return {scan_param: (hists[scan_param], stub_grid) for scan_param in names}
-
-
-def _extract_mixture_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
-    from scipy.stats import t
-
-    from nvision.belief.students_t_mixture_marginal import StudentsTMixtureMarginalDistribution
-
-    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = snapshots[0].belief
-    assert isinstance(b0, StudentsTMixtureMarginalDistribution)
-
-    for scan_param in names:
-        idx = b0._param_names.index(scan_param)
-        lo, hi = b0._physical_param_bounds[scan_param]
-        # Generate a grid for PDF evaluation
-        grid = np.linspace(lo, hi, 250)
-
-        hist: list[np.ndarray] = []
-        for s in snapshots:
-            b = s.belief
-            assert isinstance(b, StudentsTMixtureMarginalDistribution)
-            K = b.n_components  # noqa: N806
-            D = b._dim  # noqa: N806
-
-            comp_pdfs = []
-            weighted_comp_pdfs = []
-            for k in range(K):
-                mu = float(b.means[k, idx])
-                sigma = float(np.sqrt(max(b._covariances[k, idx, idx], 1e-18)))
-                # degrees of freedom for the marginal of a multivariate t is nu - dim + 1
-                df = float(max(b.nus[k] - D + 1.0, 1.0))
-
-                # Handle unit-cube conversion if applicable
-                if getattr(b, "_is_unit_cube", False):
-                    mu = lo + mu * (hi - lo)
-                    sigma = sigma * (hi - lo)
-
-                # Raw component PDF (unweighted)
-                raw_pdf = t.pdf(grid, df=df, loc=mu, scale=sigma)
-                comp_pdfs.append(raw_pdf)
-                weighted_comp_pdfs.append(float(b.weights[k]) * raw_pdf)
-
-            # Row-major: [comp0, comp1, ..., compK-1, weighted0, weighted1, ..., weightedK-1, total]
-            total_pdf = np.sum(weighted_comp_pdfs, axis=0)
-            snapshot_data = np.vstack([comp_pdfs, weighted_comp_pdfs, total_pdf])
-            hist.append(snapshot_data)
-
-        out[scan_param] = (hist, grid)
-    return out
-
-
-def _extract_gaussian_mixture_posterior(
-    snapshots: list, names: list[str]
-) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
-    from scipy.stats import norm
-
-    from nvision.belief.gaussian_mixture_marginal import GaussianMixtureMarginalDistribution
-
-    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = snapshots[0].belief
-    assert isinstance(b0, GaussianMixtureMarginalDistribution)
-
-    for scan_param in names:
-        idx = b0._param_names.index(scan_param)
-        lo, hi = b0._physical_param_bounds[scan_param]
-        # Generate a grid for PDF evaluation
-        grid = np.linspace(lo, hi, 250)
-
-        hist: list[np.ndarray] = []
-        for s in snapshots:
-            b = s.belief
-            assert isinstance(b, GaussianMixtureMarginalDistribution)
-            K = b.n_components  # noqa: N806
-
-            comp_pdfs = []
-            weighted_comp_pdfs = []
-            for k in range(K):
-                mu = float(b.means[k, idx])
-                sigma = float(np.sqrt(max(b._covariances[k, idx, idx], 1e-12)))
-
-                # Handle unit-cube conversion if applicable
-                if getattr(b, "_is_unit_cube", False):
-                    mu = lo + mu * (hi - lo)
-                    sigma = sigma * (hi - lo)
-
-                # Raw component PDF (unweighted)
-                raw_pdf = norm.pdf(grid, loc=mu, scale=sigma)
-                comp_pdfs.append(raw_pdf)
-                weighted_comp_pdfs.append(float(b.weights[k]) * raw_pdf)
-
-            # Row-major: [comp0, comp1, ..., compK-1, weighted0, weighted1, ..., weightedK-1, total]
-            total_pdf = np.sum(weighted_comp_pdfs, axis=0)
-            snapshot_data = np.vstack([comp_pdfs, weighted_comp_pdfs, total_pdf])
-            hist.append(snapshot_data)
-
-        out[scan_param] = (hist, grid)
-    return out
-
-
-def _extract_ekf_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
-    from nvision.sim.locs.ekf.belief import EKFBelief
-
-    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = snapshots[0].belief
-    assert isinstance(b0, EKFBelief)
-
-    for scan_param in names:
-        grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
-
-        hist: list[np.ndarray] = []
-        for s in snapshots:
-            b = s.belief
-            assert isinstance(b, EKFBelief)
-            pdf_vals = b.marginal_pdf(scan_param, grid)
-            hist.append(pdf_vals)
-
-        out[scan_param] = (hist, grid)
-    return out
-
-
-def _extract_ekf_particle_frequency_posterior(
-    snapshots: list, names: list[str]
-) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
-    from nvision.sim.locs.ekf.belief import EKFParticleFrequencyBelief
-
-    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = snapshots[0].belief
-    assert isinstance(b0, EKFParticleFrequencyBelief)
-
-    for scan_param in names:
-        if scan_param == "frequency":
-            hist: list[np.ndarray] = []
-            for s in snapshots:
-                b = s.belief
-                assert isinstance(b, EKFParticleFrequencyBelief)
-                sub_idx, sub_w = _viz_particle_subsample(b._frequency_weights)
-                col = b._frequency_particles
-                col = col[sub_idx] if sub_idx is not None else col.copy()
-                hist.append(np.column_stack([col, sub_w]))
-            out[scan_param] = (hist, np.linspace(0.0, 1.0, 2))
-        else:
-            grid = _make_focused_ekf_grid(snapshots, scan_param, b0.physical_param_bounds[scan_param])
-            hist = []
-            for s in snapshots:
-                b = s.belief
-                assert isinstance(b, EKFParticleFrequencyBelief)
-                pdf_vals = b.marginal_pdf(scan_param, grid)
-                hist.append(pdf_vals)
-            out[scan_param] = (hist, grid)
-    return out
 
 
 def _is_bayesian_run(strat_name: str, strat_obj: Any) -> bool:

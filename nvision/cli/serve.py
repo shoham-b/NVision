@@ -46,6 +46,10 @@ _reload_state: dict = {"running": False, "last_output": ""}
 _server_instance: socketserver.TCPServer | None = None
 _server_thread: threading.Thread | None = None
 
+# Tracks directories already restored this server session so the heavy DB scan
+# only happens once per directory, not on every /api/manifest request.
+_restored_dirs: set[str] = set()
+
 
 class _APIHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP handler with API endpoints for reload functionality."""
@@ -75,6 +79,8 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
 
     def _serve_manifest(self) -> None:
         """Serve plots_manifest.json.gz (or .json) with appropriate headers."""
+        _restore_missing_graphs(self.directory_to_serve)
+        
         gz_path = self.directory_to_serve / "plots_manifest.json.gz"
         json_path = self.directory_to_serve / "plots_manifest.json"
 
@@ -188,37 +194,39 @@ def _restore_missing_graphs(directory: Path) -> None:
     This is the complement of the lazy-write architecture: graph bytes are kept
     in the cache DB during runs and only materialised to disk when the server
     starts (or when files were explicitly deleted to free space).
+
+    The scan is guarded by a per-session set so the expensive DB iteration only
+    runs once per directory (subsequent calls from _serve_manifest are no-ops).
     """
+    dir_str = str(directory)
+    if dir_str in _restored_dirs:
+        return
+
     cache_dir = directory / "cache"
     if not cache_dir.is_dir():
+        _restored_dirs.add(dir_str)
         return
     try:
         from nvision.cache import CacheBridge
         from nvision.runner.cache import restore_graphs
 
         bridge = CacheBridge(cache_dir)
-        try:
-            combos = bridge.list_combinations()
-        except AttributeError:
-            # Older CacheBridge without list_combinations — skip silently
-            bridge.close()
-            return
+        combos = bridge.list_combinations()
 
-        restored = 0
         for combo in combos:
             try:
                 results = bridge.get_cached_combination(**combo)
                 if results:
-                    # restore_graphs skips files that already exist
-                    before = restored
+                    # restore_graphs skips files that already exist on disk
                     restore_graphs(results, directory)
-                    # count approximation (restore_graphs logs the count internally)
             except Exception as exc:
                 log.debug("Failed to restore graphs for combo %s: %s", combo, exc)
         bridge.close()
         log.debug("Graph restore from cache complete for %s", directory)
     except Exception as exc:
         log.debug("Could not restore graphs from cache: %s", exc)
+    finally:
+        _restored_dirs.add(dir_str)
 
 
 def _default_port_for_dir(directory: Path) -> int:

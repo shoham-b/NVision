@@ -1,5 +1,2 @@
 from .over_frequency import OverFrequencyGaussianNoise as OverFrequencyGaussianNoise
-from .over_frequency import OverFrequencyOutlierSpikes as OverFrequencyOutlierSpikes
 from .over_frequency import OverFrequencyPoissonNoise as OverFrequencyPoissonNoise
-from .over_probe import OverProbeDriftNoise as OverProbeDriftNoise
-from .over_probe import OverProbeRandomWalkNoise as OverProbeRandomWalkNoise

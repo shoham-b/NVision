@@ -6,7 +6,6 @@ from nvision import (
     CompositeOverFrequencyNoise,
     DataBatch,
     OverFrequencyGaussianNoise,
-    OverFrequencyOutlierSpikes,
     OverFrequencyPoissonNoise,
 )
 
@@ -17,7 +16,7 @@ def test_noise_composition_deterministic_and_length():
     data = DataBatch(x=t, signal_values=y, meta={})
     rng1 = random.Random(42)
     rng2 = random.Random(42)
-    noise = CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.1), OverFrequencyOutlierSpikes(0.1, 0.5)])
+    noise = CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.1)])
     d1 = noise.apply(data, rng1)
     d2 = noise.apply(data, rng2)
     assert len(d1.signal_values) == len(y)

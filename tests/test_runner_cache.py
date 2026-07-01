@@ -190,7 +190,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
 
     import logging
 
-    from nvision import SimpleSweepLocator
+    from nvision import GenericSweepLocator
     from nvision.cache import CacheBridge
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
@@ -199,12 +199,12 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSweepLocator,
+        strategy=GenericSweepLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",
@@ -486,7 +486,7 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
 def test_cache_miss_explanations(tmp_path: Path, caplog):
     import logging
 
-    from nvision import SimpleSweepLocator
+    from nvision import GenericSweepLocator
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
@@ -494,12 +494,12 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSweepLocator,
+        strategy=GenericSweepLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",
@@ -641,7 +641,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
 def test_schema_version_8_fallback(tmp_path: Path, caplog):
     import logging
 
-    from nvision import SimpleSweepLocator
+    from nvision import GenericSweepLocator
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
@@ -649,12 +649,12 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSweepLocator,
+        strategy=GenericSweepLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",
@@ -752,7 +752,7 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
 
     import logging
 
-    from nvision import SimpleSweepLocator
+    from nvision import GenericSweepLocator
     from nvision.cache import CacheBridge
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
@@ -761,12 +761,12 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSweepLocator,
+        strategy=GenericSweepLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",

@@ -18,10 +18,6 @@ class StrategyFilter(StrEnum):
     STAGED_SOBOL_SWEEP = "StagedSobolSweep"
     BAYESIAN_SBED = "Bayesian-SBED"
     SIMPLE_SOBOL = "SimpleSobol"
-    GAUSSIAN_MIXTURE = "GaussianMixture"
-    BAYESIAN_EKF_D = "Bayesian-EKF-D"
-    BAYESIAN_EKF_A = "Bayesian-EKF-A"
-    BAYESIAN_EKF_PARTICLE_FREQUENCY = "Bayesian-EKF-ParticleFrequency"
 
 
 class GeneratorName(StrEnum):
@@ -34,8 +30,5 @@ class GeneratorName(StrEnum):
 class NoiseName(StrEnum):
     """Noise family names matched as prefixes against registered noise keys."""
 
-    NO_NOISE = "NoNoise"
     GAUSS = "Gauss"
     POISSON = "Poisson"
-    OVER_PROBE_DRIFT = "OverProbeDrift"
-    HEAVY = "Heavy"

@@ -314,6 +314,7 @@ def _trace_one_marginal_posterior(
             jitter_y = -0.04 * max_density + rng.uniform(-0.02 * max_density, 0.02 * max_density, size=len(jitter_x))
 
             # Using step-like shape 'hvh' to look exactly like a histogram outline
+            customdata = np.stack((bin_edges[:-1], bin_edges[1:]), axis=-1).tolist()
             return [
                 go.Scatter(
                     x=bin_centers,
@@ -324,6 +325,8 @@ def _trace_one_marginal_posterior(
                     line=dict(color=c, width=2, shape="hvh"),
                     name=f"{param} (particles)",
                     showlegend=False,
+                    customdata=customdata,
+                    hovertemplate="Density: %{y:.3g}<br>Bin: [%{customdata[0]:.4g}, %{customdata[1]:.4g}]<extra></extra>",
                 ),
                 go.Scatter(
                     x=jitter_x,

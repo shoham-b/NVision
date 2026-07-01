@@ -11,7 +11,7 @@ import time
 
 import numpy as np
 
-from nvision import CoreExperiment, NVCenterCoreGenerator, SimpleSweepLocator, run_loop
+from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, run_loop
 from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 
@@ -34,7 +34,7 @@ N_REPEATS = 5
 
 # ── Warm up Numba (one throwaway run) ────────────────────────────────────────
 print("Warming up Numba JIT …", flush=True)
-list(run_loop(SimpleSweepLocator, make_experiment(0), random.Random(0), max_steps=20))
+list(run_loop(GenericSweepLocator, make_experiment(0), random.Random(0), max_steps=20))
 print("  done.\n")
 
 
@@ -44,7 +44,7 @@ for i in range(N_REPEATS):
     exp = make_experiment(i + 1)
     rng = random.Random(i + 1)
     t0 = time.perf_counter()
-    list(run_loop(SimpleSweepLocator, exp, rng, max_steps=N_STEPS))
+    list(run_loop(GenericSweepLocator, exp, rng, max_steps=N_STEPS))
     times_deferred.append(time.perf_counter() - t0)
 
 # ── Baseline: force per-step belief update (monkey-patch observe) ─────────────
@@ -69,7 +69,7 @@ for i in range(N_REPEATS):
     exp = make_experiment(i + 1)
     rng = random.Random(i + 1)
     t0 = time.perf_counter()
-    list(run_loop(SimpleSweepLocator, exp, rng, max_steps=N_STEPS))
+    list(run_loop(GenericSweepLocator, exp, rng, max_steps=N_STEPS))
     times_eager.append(time.perf_counter() - t0)
 
 GenericSweepLocator.observe = _gsl_observe_saved  # restore

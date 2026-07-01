@@ -21,12 +21,21 @@ from nvision.spectra.numba_kernels import (
     nv_center_pseudo_voigt_vectorized_many,
     nv_center_pseudo_voigt_vectorized_many_fast,
     nv_center_pseudo_voigt_vectorized_one_serial,
+    nv_center_zeeman_lorentzian_eval,
+    nv_center_zeeman_lorentzian_vectorized_many,
+    nv_center_zeeman_lorentzian_vectorized_many_fast,
+    nv_center_zeeman_lorentzian_vectorized_one_serial,
 )
 from nvision.spectra.signal import SignalModel
 from nvision.spectra.spec import GenericParamSpec
 
 MIN_K_NP: float = 1.0  # Captures reverse polarization regimes
 MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
+
+# Zeeman splitting bounds (half-separation between the two main dips).
+# At γ_NV ≈ 28 GHz/T, 100 MHz ≈ 3.6 mT — a common weak-field lab range.
+MIN_ZEEMAN_SPLIT: float = 0.0    # dips fully overlap at zero field
+MAX_ZEEMAN_SPLIT: float = 100e6  # 100 MHz → ~3.6 mT
 
 # N-14 parallel hyperfine coupling constant for NV⁻ in diamond.
 # Fixed physical constant used when with_hyperfine_splitting=False:
@@ -138,6 +147,96 @@ class _NVCenterLorentzianSingleDipSpec(
     uncertainty_cls = NVCenterLorentzianSingleDipSpectrumUncertainty
 
 
+# ---------------------------------------------------------------------------
+# Zeeman-split parameter bundles (no hyperfine inference) — 4 params.
+# Used when NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=False).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianZeemanSpectrum:
+    frequency: float
+    linewidth: float
+    zeeman_split: float
+    c_total: float
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianZeemanSpectrumSamples:
+    frequency: np.ndarray
+    linewidth: np.ndarray
+    zeeman_split: np.ndarray
+    c_total: np.ndarray
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianZeemanSpectrumUncertainty:
+    frequency: float
+    linewidth: float
+    zeeman_split: float
+    c_total: float
+
+
+class _NVCenterLorentzianZeemanSpec(
+    GenericParamSpec[
+        NVCenterLorentzianZeemanSpectrum,
+        NVCenterLorentzianZeemanSpectrumSamples,
+        NVCenterLorentzianZeemanSpectrumUncertainty,
+    ]
+):
+    params_cls = NVCenterLorentzianZeemanSpectrum
+    samples_cls = NVCenterLorentzianZeemanSpectrumSamples
+    uncertainty_cls = NVCenterLorentzianZeemanSpectrumUncertainty
+
+
+# ---------------------------------------------------------------------------
+# Zeeman + hyperfine parameter bundle — 6 params.
+# Used when NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=True).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianZeemanHyperfineSpectrum:
+    frequency: float
+    linewidth: float
+    zeeman_split: float
+    split: float
+    k_np: float
+    c_total: float
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianZeemanHyperfineSpectrumSamples:
+    frequency: np.ndarray
+    linewidth: np.ndarray
+    zeeman_split: np.ndarray
+    split: np.ndarray
+    k_np: np.ndarray
+    c_total: np.ndarray
+
+
+@dataclass(frozen=True)
+class NVCenterLorentzianZeemanHyperfineSpectrumUncertainty:
+    frequency: float
+    linewidth: float
+    zeeman_split: float
+    split: float
+    k_np: float
+    c_total: float
+
+
+class _NVCenterLorentzianZeemanHyperfineSpec(
+    GenericParamSpec[
+        NVCenterLorentzianZeemanHyperfineSpectrum,
+        NVCenterLorentzianZeemanHyperfineSpectrumSamples,
+        NVCenterLorentzianZeemanHyperfineSpectrumUncertainty,
+    ]
+):
+    params_cls = NVCenterLorentzianZeemanHyperfineSpectrum
+    samples_cls = NVCenterLorentzianZeemanHyperfineSpectrumSamples
+    uncertainty_cls = NVCenterLorentzianZeemanHyperfineSpectrumUncertainty
+
+
 class NVCenterLorentzianModel(
     SignalModel[
         NVCenterLorentzianSpectrum,
@@ -158,9 +257,12 @@ class NVCenterLorentzianModel(
 
     _SPEC_FULL = _NVCenterLorentzianSpec()
     _SPEC_SINGLE = _NVCenterLorentzianSingleDipSpec()
+    _SPEC_ZEEMAN = _NVCenterLorentzianZeemanSpec()
+    _SPEC_ZEEMAN_HF = _NVCenterLorentzianZeemanHyperfineSpec()
 
-    def __init__(self, with_hyperfine_splitting: bool = True) -> None:
+    def __init__(self, with_hyperfine_splitting: bool = True, with_zeeman_splitting: bool = False) -> None:
         self._with_hyperfine_splitting = with_hyperfine_splitting
+        self._with_zeeman_splitting = with_zeeman_splitting
 
     @staticmethod
     def compute_nvcenter_lorentzian_model(
@@ -208,13 +310,19 @@ class NVCenterLorentzianModel(
         return out
 
     @property
-    def spec(self) -> _NVCenterLorentzianSpec | _NVCenterLorentzianSingleDipSpec:
+    def spec(self):
+        if self._with_zeeman_splitting:
+            return self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
         return self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
 
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("linewidth", "c_total")
 
     def parameter_weights(self) -> dict[str, float]:
+        if self._with_zeeman_splitting and self._with_hyperfine_splitting:
+            return {"frequency": 2.0, "linewidth": 1.0, "zeeman_split": 1.5, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
+        if self._with_zeeman_splitting:
+            return {"frequency": 2.0, "linewidth": 1.0, "zeeman_split": 1.5, "c_total": 1.0}
         if self._with_hyperfine_splitting:
             return {"frequency": 2.0, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
         return {"frequency": 2.0, "linewidth": 1.0, "c_total": 1.0}
@@ -224,40 +332,62 @@ class NVCenterLorentzianModel(
 
     def signal_max_span(self, domain_width: float) -> float | None:
         linewidth_hi = domain_width * 0.05
+        if self._with_zeeman_splitting:
+            hf_hi = MAX_SPLIT if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
+            return 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * linewidth_hi
         if self._with_hyperfine_splitting:
-            return 2.0 * 5.0e6 + 4.0 * linewidth_hi
+            return 2.0 * MAX_SPLIT + 4.0 * linewidth_hi
         return 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * linewidth_hi
 
     def expected_dip_count(self) -> int:
-        return 3
+        return 2 if self._with_zeeman_splitting else 3
+
+    def _hf_arrays(self, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
+        """Return (hf_split_arr, k_np_arr) for n particles."""
+        if self._with_hyperfine_splitting and samples is not None:
+            return (
+                np.asarray(samples.split, dtype=FLOAT_DTYPE),
+                np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            )
+        return (
+            np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE),
+            np.ones(n, dtype=FLOAT_DTYPE),
+        )
 
     def compute(self, x: float, params) -> float:
-        split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
+        hf_split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
         k_np = params.k_np if self._with_hyperfine_splitting else 1.0
+        if self._with_zeeman_splitting:
+            return nv_center_zeeman_lorentzian_eval(
+                float(x), params.frequency, params.linewidth,
+                params.zeeman_split, hf_split, k_np, params.c_total, 1.0,
+            )
         return self.compute_nvcenter_lorentzian_model(
-            float(x), params.frequency, params.linewidth, split, k_np, params.c_total
+            float(x), params.frequency, params.linewidth, hf_split, k_np, params.c_total
         )
 
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
-        if self._with_hyperfine_splitting:
-            split_arr = np.asarray(samples.split, dtype=FLOAT_DTYPE)
-            k_np_arr = np.asarray(samples.k_np, dtype=FLOAT_DTYPE)
-        else:
-            split_arr = np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE)
-            k_np_arr = np.ones(n, dtype=FLOAT_DTYPE)
+        hf_arr, k_arr = self._hf_arrays(n, samples)
         out = np.empty(n, dtype=FLOAT_DTYPE)
-        nv_center_lorentzian_vectorized_one_serial(
-            float(x),
-            freq,
-            np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-            split_arr,
-            k_np_arr,
-            np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
-            get_background_ones(n),
-            out,
-        )
+        if self._with_zeeman_splitting:
+            nv_center_zeeman_lorentzian_vectorized_one_serial(
+                float(x), freq,
+                np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
+                np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
+                hf_arr, k_arr,
+                np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
+                get_background_ones(n), out,
+            )
+        else:
+            nv_center_lorentzian_vectorized_one_serial(
+                float(x), freq,
+                np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
+                hf_arr, k_arr,
+                np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
+                get_background_ones(n), out,
+            )
         return out
 
     def compute_vectorized_many(self, x_phys_array: Sequence[float], samples_phys) -> np.ndarray:
@@ -271,29 +401,29 @@ class NVCenterLorentzianModel(
             raise ValueError("x_phys_array must be one-dimensional")
         freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
-
-        if self._with_hyperfine_splitting:
-            split_arr = np.asarray(samples_phys.split, dtype=FLOAT_DTYPE)
-            k_np_arr = np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE)
-        else:
-            split_arr = np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE)
-            k_np_arr = np.ones(n, dtype=FLOAT_DTYPE)
-
+        hf_arr, k_arr = self._hf_arrays(n, samples_phys)
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
-        nv_center_lorentzian_vectorized_many(
-            xs,
-            freq,
-            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-            split_arr,
-            k_np_arr,
-            np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-            get_background_ones(n),
-            out,
-        )
+
+        if self._with_zeeman_splitting:
+            nv_center_zeeman_lorentzian_vectorized_many(
+                xs, freq,
+                np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+                np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
+                hf_arr, k_arr,
+                np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
+                get_background_ones(n), out,
+            )
+        else:
+            nv_center_lorentzian_vectorized_many(
+                xs, freq,
+                np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+                hf_arr, k_arr,
+                np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
+                get_background_ones(n), out,
+            )
         return out
 
     def compute_vectorized_many_fast(self, x_phys_array: Sequence[float], samples_phys) -> np.ndarray:
-        """Acquisition-only fast variant: uses the fastmath Lorentzian kernel for the 5-param case."""
         if isinstance(samples_phys, list | tuple):
             samples_phys = self.spec.unpack_samples(samples_phys)  # type: ignore[arg-type]
         elif not hasattr(samples_phys, "frequency"):
@@ -302,25 +432,26 @@ class NVCenterLorentzianModel(
         xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
         freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
-
-        if self._with_hyperfine_splitting:
-            split_arr = np.asarray(samples_phys.split, dtype=FLOAT_DTYPE)
-            k_np_arr = np.asarray(samples_phys.k_np, dtype=FLOAT_DTYPE)
-        else:
-            split_arr = np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE)
-            k_np_arr = np.ones(n, dtype=FLOAT_DTYPE)
-
+        hf_arr, k_arr = self._hf_arrays(n, samples_phys)
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
-        nv_center_lorentzian_vectorized_many_fast(
-            xs,
-            freq,
-            np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-            split_arr,
-            k_np_arr,
-            np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-            get_background_ones(n),
-            out,
-        )
+
+        if self._with_zeeman_splitting:
+            nv_center_zeeman_lorentzian_vectorized_many_fast(
+                xs, freq,
+                np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+                np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
+                hf_arr, k_arr,
+                np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
+                get_background_ones(n), out,
+            )
+        else:
+            nv_center_lorentzian_vectorized_many_fast(
+                xs, freq,
+                np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
+                hf_arr, k_arr,
+                np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
+                get_background_ones(n), out,
+            )
         return out
 
 
@@ -540,19 +671,51 @@ def nv_center_lorentzian_bounds_for_domain(
     x_min: float,
     x_max: float,
     with_hyperfine_splitting: bool = True,
+    with_zeeman_splitting: bool = False,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``.
 
-    When ``with_hyperfine_splitting=False`` (default for builders/locators), the
-    returned dict omits ``split`` and ``k_np`` and is compatible with
-    ``NVCenterLorentzianModel(with_hyperfine_splitting=False)``.
+    ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the frequency
+    range so the two Zeeman dips always land within the domain.
+    ``with_hyperfine_splitting=False`` (default for builders) fixes split/k_np
+    to N-14 constants and omits them from the returned dict.
     """
     width = float(x_max - x_min)
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
     linewidth_bounds = (MIN_LINEWIDTH, max(MAX_LINEWIDTH, width * 0.05))
+    linewidth_hi = linewidth_bounds[1]
 
+    if with_zeeman_splitting:
+        # Center frequency must stay MAX_ZEEMAN_SPLIT inside each edge.
+        zeeman_margin = MAX_ZEEMAN_SPLIT
+        f_lo = float(x_min) + zeeman_margin
+        f_hi = float(x_max) - zeeman_margin
+        zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
+        hf_hi = MAX_SPLIT if with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
+        max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * linewidth_hi
+
+        if with_hyperfine_splitting:
+            split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
+            return {
+                "frequency": (f_lo, f_hi),
+                "linewidth": linewidth_bounds,
+                "zeeman_split": zeeman_bounds,
+                "split": split_bounds,
+                "k_np": (MIN_K_NP, MAX_K_NP),
+                "c_total": (0.1, 0.4),
+                "_signal_max_span": (0.0, max_span),
+            }
+        return {
+            "frequency": (f_lo, f_hi),
+            "linewidth": linewidth_bounds,
+            "zeeman_split": zeeman_bounds,
+            "c_total": (0.1, 0.4),
+            "_signal_max_span": (0.0, max_span),
+        }
+
+    # Non-Zeeman cases (existing behaviour preserved).
     if with_hyperfine_splitting:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
@@ -568,7 +731,7 @@ def nv_center_lorentzian_bounds_for_domain(
         "frequency": (float(x_min), float(x_max)),
         "linewidth": linewidth_bounds,
         "c_total": (0.1, 0.4),
-        "_signal_max_span": (0.0, 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * linewidth_bounds[1]),
+        "_signal_max_span": (0.0, 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * linewidth_hi),
     }
 
 

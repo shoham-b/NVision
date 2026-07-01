@@ -1,7 +1,26 @@
-"""Robust dip detection for SBED locators and belief updates.
+"""Statistical dip detection for SBED posterior convergence assessment.
 
-Provides utilities to identify likely resonance dip candidate frequencies
-by filtering observations using posterior noise estimates and clustering them.
+Used exclusively by ``SequentialBayesianExperimentDesignLocator`` (via
+``compute_focus_window_confidence`` in ``sbed_locator.py``) to decide whether
+the SMC posterior has locked onto the correct dip.
+
+The approach is **statistical and particle-aware**: it thresholds observations
+using per-particle noise sigmas drawn from the SMC posterior, clusters the
+below-threshold points, and runs a binomial confidence test on each cluster.
+Returns ``DipCandidate`` objects carrying confidence scores, background
+estimates, and cluster extents — rich enough to cross-check against the
+particle posterior mean and declare convergence.
+
+This is distinct from ``nvision.sim.locs.refocus``, which is used by the
+coarse sweep locators to geometrically narrow the scan window mid-sweep.
+The two detectors serve different purposes and are not interchangeable:
+
+- ``refocus.detect_dips``: geometric, returns raw ``(lo, hi)`` edge pairs.
+  Used to answer "where should I keep scanning?"
+- ``identify_dip_candidates`` (this module): statistical, uses per-particle
+  noise sigmas and a binomial confidence test.  Returns ``DipCandidate``
+  objects with confidence scores and background estimates.
+  Used to answer "has the posterior converged to the right dip?"
 """
 
 from __future__ import annotations
@@ -27,6 +46,10 @@ class DipCandidate:
     centroid_hz: float
     significance: float
     n_points: int
+    f_min: float = 0.0      # empirical left extent of dip cluster (Hz)
+    f_max: float = 0.0      # empirical right extent of dip cluster (Hz)
+    confidence: float = 0.0  # binomial confidence of this cluster
+    background: float = 1.0  # empirical baseline (70th pct of obs_ys)
 
 
 def identify_dip_candidates(
@@ -199,6 +222,10 @@ def identify_dip_candidates(
                 centroid_hz=centroid,
                 significance=S,
                 n_points=len(cluster),
+                f_min=float(np.min(xs)),
+                f_max=float(np.max(xs)),
+                confidence=confidence,
+                background=background,
             )
         )
 

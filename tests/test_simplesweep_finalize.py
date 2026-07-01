@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import random
 
-from nvision import CoreExperiment, NVCenterCoreGenerator, SimpleSweepLocator, run_loop
+from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, run_loop
 from nvision.models.observer import Observer
 from nvision.runner.convert import run_result_to_finalize_record
 from nvision.runner.metrics import _scan_attempt_metrics
@@ -41,7 +41,7 @@ def test_simplesweep_zero_noise_fit_beats_prior():
     observer = Observer(exp.true_signal, exp.x_min, exp.x_max)
     result = observer.watch(
         run_loop(
-            SimpleSweepLocator,
+            GenericSweepLocator,
             exp,
             rng,
             max_steps=1000,

@@ -29,8 +29,7 @@ from nvision.sim.locs.bayesian.belief_builders import (
 )
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator as SbedLocator
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-from nvision.sim.locs.bayesian.utility_sampling_locator import UtilitySamplingLocator
-from nvision.sim.locs.coarse import SimpleSweepLocator
+from nvision.sim.locs.coarse import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
 
@@ -108,30 +107,11 @@ class TestOverallNVCenter:
 
     def test_simple_sweep(self, benchmark):
         exp = _nv_center_experiment()
-        _overall_run_ms(benchmark, SimpleSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
+        _overall_run_ms(benchmark, GenericSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
 
     def test_staged_sobol(self, benchmark):
         exp = _nv_center_experiment()
         _overall_run_ms(benchmark, StagedSobolSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
-
-    def test_utility_sampling(self, benchmark):
-        exp = _nv_center_experiment()
-        _overall_bayesian_ms(
-            benchmark,
-            UtilitySamplingLocator,
-            exp,
-            builder=nv_center_belief,
-            max_steps=20,
-            pickiness=4.0,
-            n_mc_samples=16,
-            n_candidates=16,
-            n_grid_freq=64,
-            n_grid_linewidth=16,
-            n_grid_split=16,
-            n_grid_k_np=8,
-            n_grid_depth=16,
-            n_grid_background=8,
-        )
 
     @pytest.mark.skip(reason="SBEDLocator is slow")
     def test_sbed(self, benchmark):

@@ -230,6 +230,195 @@ def nv_center_lorentzian_vectorized_one_serial(
         out[j] = bg - (p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0))
 
 
+# ---------------------------------------------------------------------------
+# Zeeman-split Lorentzian kernels — symmetric two-group NV model.
+#
+# Signal = background − Σ_{±} half_triplet(x, freq ± zeeman_split)
+#
+# Each group is a standard NV hyperfine triplet with half the total contrast.
+# When zeeman_split → 0 the two groups coincide and the formula collapses to
+# the standard single-group triple-Lorentzian with full contrast c_total.
+# ---------------------------------------------------------------------------
+
+
+@njit(cache=True)
+def nv_center_zeeman_lorentzian_eval(
+    x: float,
+    freq: float,
+    linewidth: float,
+    zeeman_split: float,
+    hf_split: float,
+    k_np: float,
+    c_total: float,
+    background: float,
+) -> float:
+    """Zeeman + hyperfine NV ODMR scalar kernel.
+
+    Two symmetric triple-Lorentzian groups centered at freq ± zeeman_split.
+    """
+    omega = linewidth if linewidth > 1e-10 else 1e-10
+    inv_omega = 1.0 / omega
+    x_dim = (x - freq) * inv_omega
+    alpha = hf_split * inv_omega
+    beta = zeeman_split * inv_omega
+
+    k = k_np if k_np > 1e-10 else 1e-10
+    p_sum = (1.0 / k) + 1.0 + k
+
+    p_0 = 0.5 * c_total / p_sum
+    p_L = 0.5 * c_total * (1.0 / k) / p_sum
+    p_R = 0.5 * c_total * k / p_sum
+
+    x_m = x_dim + beta  # (x − (freq − zeeman_split)) / omega
+    left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+
+    x_p = x_dim - beta  # (x − (freq + zeeman_split)) / omega
+    right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+
+    return background - (left + right)
+
+
+@njit(cache=True)
+def nv_center_zeeman_lorentzian_vectorized_one_serial(
+    x: float,
+    freq: np.ndarray,
+    linewidth: np.ndarray,
+    zeeman_split: np.ndarray,
+    hf_split: np.ndarray,
+    k_np: np.ndarray,
+    c_total: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Zeeman serial kernel: single probe x across many particles."""
+    n = freq.shape[0]
+    for j in range(n):
+        lw = linewidth[j]
+        f = freq[j]
+        z = zeeman_split[j]
+        hf = hf_split[j]
+        k = k_np[j]
+        c = c_total[j]
+        bg = background[j]
+
+        omega = lw if lw > 1e-10 else 1e-10
+        inv_omega = 1.0 / omega
+        x_dim = (x - f) * inv_omega
+        alpha = hf * inv_omega
+        beta = z * inv_omega
+
+        k_safe = k if k > 1e-10 else 1e-10
+        p_sum = (1.0 / k_safe) + 1.0 + k_safe
+
+        p_0 = 0.5 * c / p_sum
+        p_L = 0.5 * c * (1.0 / k_safe) / p_sum
+        p_R = 0.5 * c * k_safe / p_sum
+
+        x_m = x_dim + beta
+        left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+
+        x_p = x_dim - beta
+        right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+
+        out[j] = bg - (left + right)
+
+
+@njit(cache=True, parallel=True)
+def nv_center_zeeman_lorentzian_vectorized_many(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    linewidth: np.ndarray,
+    zeeman_split: np.ndarray,
+    hf_split: np.ndarray,
+    k_np: np.ndarray,
+    c_total: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Zeeman parallel kernel: many probes × many particles. Writes into out[m, n]."""
+    m = xs.shape[0]
+    n = freq.shape[0]
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            lw = linewidth[j]
+            f = freq[j]
+            z = zeeman_split[j]
+            hf = hf_split[j]
+            k = k_np[j]
+            c = c_total[j]
+            bg = background[j]
+
+            omega = lw if lw > 1e-10 else 1e-10
+            inv_omega = 1.0 / omega
+            x_dim = (x - f) * inv_omega
+            alpha = hf * inv_omega
+            beta = z * inv_omega
+
+            k_safe = k if k > 1e-10 else 1e-10
+            p_sum = (1.0 / k_safe) + 1.0 + k_safe
+
+            p_0 = 0.5 * c / p_sum
+            p_L = 0.5 * c * (1.0 / k_safe) / p_sum
+            p_R = 0.5 * c * k_safe / p_sum
+
+            x_m = x_dim + beta
+            left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+
+            x_p = x_dim - beta
+            right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+
+            out[i, j] = bg - (left + right)
+
+
+@njit(cache=True, parallel=True, fastmath=True)
+def nv_center_zeeman_lorentzian_vectorized_many_fast(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    linewidth: np.ndarray,
+    zeeman_split: np.ndarray,
+    hf_split: np.ndarray,
+    k_np: np.ndarray,
+    c_total: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Fast (fastmath) Zeeman kernel — acquisition / EIG path only."""
+    m = xs.shape[0]
+    n = freq.shape[0]
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            lw = linewidth[j]
+            f = freq[j]
+            z = zeeman_split[j]
+            hf = hf_split[j]
+            k = k_np[j]
+            c = c_total[j]
+            bg = background[j]
+
+            omega = lw if lw > 1e-10 else 1e-10
+            inv_omega = 1.0 / omega
+            x_dim = (x - f) * inv_omega
+            alpha = hf * inv_omega
+            beta = z * inv_omega
+
+            k_safe = k if k > 1e-10 else 1e-10
+            p_sum = (1.0 / k_safe) + 1.0 + k_safe
+
+            p_0 = 0.5 * c / p_sum
+            p_L = 0.5 * c * (1.0 / k_safe) / p_sum
+            p_R = 0.5 * c * k_safe / p_sum
+
+            x_m = x_dim + beta
+            left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+
+            x_p = x_dim - beta
+            right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+
+            out[i, j] = bg - (left + right)
+
+
 @njit(cache=True, parallel=True)
 def nv_center_pseudo_voigt_vectorized_one(
     x: float,

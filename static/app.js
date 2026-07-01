@@ -1664,12 +1664,15 @@ function main() {
         const selectedScanNoise = getEffectiveScanNoise();
         const selectedScanStrategy = controlValue(scanStrategy);
 
+        updateFailedRunsButton(selectedScanGenerator, compareNoisesArg());
+
         const scanRepeatItems = scanPlots
             .filter(
                 (p) =>
                     p.generator === selectedScanGenerator &&
                     p.noise === selectedScanNoise &&
-                    p.strategy === selectedScanStrategy
+                    p.strategy === selectedScanStrategy &&
+                    isSuccessRun(p)
             )
             .map((p) => String(p.repeat ?? p.attempt ?? 1));
         const { value: selectedRepeat, items: repeatItems } = renderSelectControl(
@@ -3611,7 +3614,7 @@ function main() {
     function buildSummaryEntities(generator, noise) {
         const noiseSet = new Set(Array.isArray(noise) ? noise : [noise]);
         const all = (window.MANIFEST || []).filter(p =>
-            p.generator === generator && noiseSet.has(p.noise) && p.type === 'scan'
+            p.generator === generator && noiseSet.has(p.noise) && p.type === 'scan' && isSuccessRun(p)
         );
         const strategies = [...new Set(all.map(p => p.strategy))].sort();
         const entities = [];
@@ -4266,23 +4269,45 @@ function main() {
         else if (unitType === 'measurements') { unit = 'meas.'; }
         else if (unitType === 'ratio') { unit = 'adaptive / sweep'; }
 
-        // Clip the long tail so the populated region fills the axis. These ratio
+        // Clip the long tail so the populated region fills the axis. These
         // distributions are heavily right-skewed: a fixed-percentile clip still
         // leaves a sparse tail that crushes all the real data into one bar.
         // Use Tukey upper fence (Q3 + 1.5·IQR), which adapts to the skew and
         // trims the tail hard, then bin the kept range into many bins.
         let plotData = scaledData.filter(v => v != null && isFinite(v));
         let binCfg = { autobinx: true };
+        let tailNote = null;
         if (plotData.length >= 10) {
             const s = [...plotData].sort((a, b) => a - b);
             const q = f => s[Math.min(s.length - 1, Math.floor(s.length * f))];
             const q1 = q(0.25), q3 = q(0.75), iqr = q3 - q1;
-            const lo = Math.max(s[0], q1 - 1.5 * iqr);
-            const hi = q3 + 1.5 * iqr;
+            let lo = Math.max(s[0], q1 - 1.5 * iqr);
+            let hi = q3 + 1.5 * iqr;
+            // Degenerate skew: when the bulk is a single spike (IQR ≈ 0) the
+            // Tukey fence collapses to a zero-width window and the old code fell
+            // back to autobin — showing the full impossible tail with every real
+            // value crushed into one bar. Fall back to a high percentile so the
+            // dense region keeps a visible span; if >95% are identical, walk up
+            // to the first strictly-greater value to guarantee non-zero width.
+            if (!(hi > lo)) {
+                lo = s[0];
+                hi = q(0.95);
+                if (!(hi > lo)) {
+                    const firstBigger = s.find(v => v > lo);
+                    hi = firstBigger != null ? firstBigger : lo + (Math.abs(lo) || 1) * 1e-6;
+                }
+            }
             if (hi > lo) {
+                const clipped = plotData.filter(v => v > hi);
                 plotData = plotData.filter(v => v >= lo && v <= hi);
                 const nbins = 30;
                 binCfg = { xbins: { start: lo, end: hi, size: (hi - lo) / nbins } };
+                if (clipped.length) {
+                    const maxTail = Math.max(...clipped);
+                    const fmt = v => Math.abs(v) >= 100 ? v.toFixed(0)
+                        : Math.abs(v) >= 1 ? v.toFixed(2) : Number(v.toPrecision(3)).toString();
+                    tailNote = `▸ tail ${clipped.length} pt${clipped.length > 1 ? 's' : ''} · max ${fmt(maxTail)}`;
+                }
             }
         }
 
@@ -4301,6 +4326,12 @@ function main() {
             yaxis: { tickfont: { size: 8, color: '#64748b' }, showgrid: true, gridcolor: '#f1f5f9' },
             showlegend: false, plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
             bargap: 0.05, dragmode: false, hovermode: 'x',
+            annotations: tailNote ? [{
+                xref: 'paper', yref: 'paper', x: 0.98, y: 0.96, xanchor: 'right', yanchor: 'top',
+                text: tailNote, showarrow: false,
+                font: { size: 8, color: '#94a3b8', family: 'system-ui, sans-serif' },
+                bgcolor: 'rgba(255,255,255,0.75)', borderpad: 2,
+            }] : [],
         }, { displayModeBar: false, responsive: true });
     }
 
@@ -4438,6 +4469,7 @@ function main() {
     const HL_NOMINAL_3S = 0.997;
     const HL_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#14b8a6'];
     let hlTauMult = 1;
+    let hlSpeedCriteria = 'freq';  // 'freq' | 'all'
     let hlLastArgs = null;
 
     function isSweepBaseline(strategy) {
@@ -4691,12 +4723,15 @@ function main() {
         return m ? parseFloat(m[1]) : null;
     }
 
+    function isSuccessRun(p) { return p.failure_reason == null; }
+
     function hlCollect(generator, noises) {
         const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
         const byStrategy = new Map();
         for (const p of scanPlots) {
             if (p.generator !== generator || !noiseSet.has(p.noise) || !p.strategy) continue;
             if (p.generator === 'Dummy-Generator') continue;
+            if (!isSuccessRun(p)) continue;
             if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
             byStrategy.get(p.strategy).push(p);
         }
@@ -4898,6 +4933,91 @@ function main() {
             }
         }
 
+        // Mode (biggest histogram bin) of paired per-repeat speedup ratios.
+        // "How much better SBED is" — one number per noise, plus one over all repeats.
+        if (sweepName && adaptive.length) {
+            // Log-spaced bins (per factor of √2): speedups span a wide range (single×
+            // to several-hundred×) and k = sweep_steps / small_integer snaps to
+            // discrete spikes, so linear bins would crown a few lucky fast runs.
+            // Fold-change bins give the meaningful "most likely speedup".
+            // Median of a ratio list.
+            const medianK = (ks) => {
+                if (!ks.length) return null;
+                return { mid: hlMedian(ks), count: ks.length };
+            };
+
+            // Sweep total steps per repeat, per noise (pairing key = p.repeat).
+            const sweepByNoiseRepeat = {};
+            for (const noise of noises) {
+                const byRepeat = new Map();
+                (dashCell(gen, noise).get(sweepName) || []).forEach(p => {
+                    const v = hlRunSteps(p);
+                    if (v != null && p.repeat != null) byRepeat.set(p.repeat, v);
+                });
+                sweepByNoiseRepeat[noise] = byRepeat;
+            }
+
+            // Paired k_i = sweep_steps / sbed_conv_steps, per (noise, strat); pooled for overall.
+            const perNoiseKs = {};   // noise -> strat -> [k_i]
+            const allKByStrat = {};  // strat -> [all k_i across noises]
+            for (const noise of noises) {
+                perNoiseKs[noise] = {};
+                const cell = dashCell(gen, noise);
+                const sweepByRepeat = sweepByNoiseRepeat[noise];
+                for (const strat of adaptive) {
+                    const ks = [];
+                    (cell.get(strat) || []).forEach(p => {
+                        const adaptiveSteps = hlSpeedCriteria === 'all'
+                            ? (p.all_converged_step ?? null)
+                            : hlConvStep(p, hlTauMult);
+                        const sweepSteps = p.repeat != null ? sweepByRepeat.get(p.repeat) : null;
+                        if (adaptiveSteps != null && sweepSteps != null && adaptiveSteps > 0) {
+                            ks.push(sweepSteps / adaptiveSteps);
+                        }
+                    });
+                    perNoiseKs[noise][strat] = ks;
+                    (allKByStrat[strat] = allKByStrat[strat] || []).push(...ks);
+                }
+            }
+
+            const fmtX = (v) => v >= 100 ? Math.round(v).toString() : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+            const fmt = (b) => b
+                ? `${fmtX(b.mid)}× <span style="color:#94a3b8;font-size:0.85em;">(n=${b.count})</span>`
+                : '—';
+
+            const tbl = document.createElement('div');
+            tbl.style.cssText = 'overflow-x:auto; margin-bottom:1.4em;';
+            const th = s => `<th style="padding:4px 10px; text-align:left; border-bottom:2px solid #e2e8f0; white-space:nowrap;">${s}</th>`;
+            const td = (s, extra = '') => `<td style="padding:3px 10px; border-bottom:1px solid #f1f5f9; white-space:nowrap; ${extra}">${s}</td>`;
+            const criterionLabel = hlSpeedCriteria === 'all' ? 'All params converged' : `Freq converged — τ×${hlTauMult}`;
+            const btnStyle = (active) =>
+                `cursor:pointer; border:1px solid #cbd5e1; border-radius:3px; padding:1px 7px; font-size:0.78em;` +
+                (active ? 'background:#1e40af;color:#fff;' : 'background:#f8fafc;color:#475569;');
+            let html = `<div style="display:flex;align-items:center;gap:8px;font-size:0.8em;color:#64748b;margin-bottom:0.4em;flex-wrap:wrap;">`;
+            html += `<span>Median speedup vs ${_shortStratLabel(sweepName)} (median of paired step ratios)</span>`;
+            html += `<button data-speed-crit="freq" style="${btnStyle(hlSpeedCriteria==='freq')}">Freq</button>`;
+            html += `<button data-speed-crit="all"  style="${btnStyle(hlSpeedCriteria==='all')}">All params</button>`;
+            html += `<span style="color:#94a3b8">${criterionLabel}</span></div>`;
+            html += `<table style="border-collapse:collapse; font-size:0.85em;"><thead><tr>${th('Noise')}${adaptive.map(s => th(_shortStratLabel(s) + ' — median k×')).join('')}</tr></thead><tbody>`;
+            for (const noise of noises) {
+                html += `<tr>${td(noise)}`;
+                for (const strat of adaptive) html += td(fmt(medianK(perNoiseKs[noise][strat])));
+                html += '</tr>';
+            }
+            const topBorder = 'border-top:2px solid #e2e8f0;';
+            html += `<tr style="font-weight:600;">${td('Overall', topBorder)}`;
+            for (const strat of adaptive) html += td(fmt(medianK(allKByStrat[strat])), topBorder);
+            html += '</tr></tbody></table>';
+            tbl.innerHTML = html;
+            tbl.addEventListener('click', e => {
+                const btn = e.target.closest('[data-speed-crit]');
+                if (!btn) return;
+                hlSpeedCriteria = btn.dataset.speedCrit;
+                renderSpeedNoise(gen);
+            });
+            container.appendChild(tbl);
+        }
+
         const shortNoises = noises.map(n => { const m = n.match(/Gauss\(([\d.]+)\)/); return m ? m[1] : n; });
         const mkXAxis = () => ({ type: 'category', tickangle: -60, tickfont: { size: 9 }, categoryorder: 'array', categoryarray: noises, tickvals: noises, ticktext: shortNoises });
 
@@ -5055,6 +5175,209 @@ function main() {
                 errDiv.prepend(msg);
             }
         });
+    }
+
+    // ── Failed Runs tab ───────────────────────────────────────────────────────
+
+    const FAILURE_LABELS = {
+        max_steps: 'Max steps exhausted',
+        theory_budget: 'Theory budget (CRLB backstop)',
+        infeasible_crlb: 'Infeasible CRLB (run skipped)',
+        timeout: 'Timeout',
+    };
+
+    function collectFailedRuns(generator, noises) {
+        const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
+        return scanPlots.filter(p =>
+            p.generator === generator &&
+            (noiseSet.size === 0 || noiseSet.has(p.noise)) &&
+            !isSuccessRun(p)
+        );
+    }
+
+    function updateFailedRunsButton(generator, noises) {
+        const btn = document.getElementById('scan-view-failed-runs-btn');
+        if (!btn) return;
+        const failed = collectFailedRuns(generator, noises);
+        btn.style.display = failed.length > 0 ? '' : 'none';
+        btn.textContent = failed.length > 0 ? `Failed Runs (${failed.length})` : 'Failed Runs';
+    }
+
+    // Shared table builder for the by-noise and by-span breakdown matrices.
+    // rows: [{label, ...reason_counts}], reasons: string[]
+    function _frBreakdownTable(rows, reasons) {
+        const REASON_COLORS = {
+            max_steps: '#b45309', theory_budget: '#1d4ed8',
+            infeasible_crlb: '#dc2626', timeout: '#7c3aed',
+        };
+        const table = document.createElement('table');
+        table.style.cssText = 'border-collapse:collapse;font-size:0.85em;margin-bottom:1.2em;';
+        const thead = table.createTHead();
+        const hrow = thead.insertRow();
+        for (const h of ['', ...reasons.map(r => FAILURE_LABELS[r] || r), 'Total']) {
+            const th = document.createElement('th');
+            th.textContent = h;
+            th.style.cssText = 'text-align:right;padding:5px 10px;border-bottom:2px solid #e2e8f0;white-space:nowrap;color:#475569;font-weight:600;';
+            if (h === '') th.style.textAlign = 'left';
+            hrow.appendChild(th);
+        }
+        const tbody = table.createTBody();
+        for (const row of rows) {
+            const tr = tbody.insertRow();
+            tr.style.borderBottom = '1px solid #f1f5f9';
+            const labelTd = tr.insertCell();
+            labelTd.textContent = row.label;
+            labelTd.style.cssText = 'padding:4px 10px;white-space:nowrap;color:#334155;font-weight:500;';
+            let rowTotal = 0;
+            for (const r of reasons) {
+                const td = tr.insertCell();
+                const n = row[r] || 0;
+                rowTotal += n;
+                td.textContent = n > 0 ? String(n) : '—';
+                td.style.cssText = 'padding:4px 10px;text-align:right;';
+                if (n > 0) td.style.color = REASON_COLORS[r] || '#374151';
+            }
+            const totalTd = tr.insertCell();
+            totalTd.textContent = String(rowTotal);
+            totalTd.style.cssText = 'padding:4px 10px;text-align:right;font-weight:600;color:#374151;';
+        }
+        return table;
+    }
+
+    function _frSectionHeader(text) {
+        const h = document.createElement('h3');
+        h.textContent = text;
+        h.style.cssText = 'margin:1.2em 0 0.4em;color:#475569;font-size:0.92em;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;';
+        return h;
+    }
+
+    function renderFailedRunsTab(generator, noises) {
+        const summary = document.getElementById('failed-runs-summary');
+        const tableContainer = document.getElementById('failed-runs-table-container');
+        if (!summary || !tableContainer) return;
+
+        const failed = collectFailedRuns(generator, noises);
+
+        if (!failed.length) {
+            summary.textContent = 'No failed runs for the current selection.';
+            summary.style.background = '#f0fdf4';
+            summary.style.borderColor = '#86efac';
+            summary.style.color = '#166534';
+            tableContainer.innerHTML = '';
+            return;
+        }
+
+        // Overall counts by reason
+        const counts = {};
+        for (const p of failed) {
+            const r = p.failure_reason || 'unknown';
+            counts[r] = (counts[r] || 0) + 1;
+        }
+        const total = failed.length;
+        const reasons = Object.keys(counts).sort();
+        const countParts = reasons.map(r => `${counts[r]} ${FAILURE_LABELS[r] || r}`).join(', ');
+        summary.textContent = `${total} run${total !== 1 ? 's' : ''} failed: ${countParts}`;
+        summary.style.background = '#fef3c7';
+        summary.style.borderColor = '#fde68a';
+        summary.style.color = '#92400e';
+
+        const frag = document.createDocumentFragment();
+
+        // ── By Noise ────────────────────────────────────────────────────────
+        const noiseKeys = sortNoiseLabels([...new Set(failed.map(p => p.noise).filter(Boolean))]);
+        if (noiseKeys.length > 1) {
+            frag.appendChild(_frSectionHeader('By Noise'));
+            const noiseRows = noiseKeys.map(nk => {
+                const row = { label: nk };
+                for (const p of failed.filter(fp => fp.noise === nk)) {
+                    const r = p.failure_reason || 'unknown';
+                    row[r] = (row[r] || 0) + 1;
+                }
+                return row;
+            });
+            frag.appendChild(_frBreakdownTable(noiseRows, reasons));
+        }
+
+        // ── By Signal Span ───────────────────────────────────────────────────
+        const SPAN_BINS = [
+            { label: '< 0.5%', lo: 0, hi: 0.005 },
+            { label: '0.5 – 2%', lo: 0.005, hi: 0.02 },
+            { label: '2 – 5%', lo: 0.02, hi: 0.05 },
+            { label: '5 – 15%', lo: 0.05, hi: 0.15 },
+            { label: '> 15%', lo: 0.15, hi: Infinity },
+        ];
+        const spanEntries = failed.map(p => ({ p, span: hlFSpan(p) })).filter(e => e.span != null);
+        if (spanEntries.length > 0) {
+            frag.appendChild(_frSectionHeader('By Signal Span'));
+            const spanRows = SPAN_BINS.map(bin => {
+                const inBin = spanEntries.filter(e => e.span >= bin.lo && e.span < bin.hi);
+                if (!inBin.length) return null;
+                const row = { label: bin.label };
+                for (const { p } of inBin) {
+                    const r = p.failure_reason || 'unknown';
+                    row[r] = (row[r] || 0) + 1;
+                }
+                return row;
+            }).filter(Boolean);
+            if (spanRows.length) frag.appendChild(_frBreakdownTable(spanRows, reasons));
+        }
+
+        // ── All Failed Runs (flat table) ─────────────────────────────────────
+        frag.appendChild(_frSectionHeader('All Failed Runs'));
+        const table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:0.88em;';
+        const thead = table.createTHead();
+        const hrow = thead.insertRow();
+        for (const h of ['Repeat', 'Strategy', 'Noise', 'Span', 'Reason', 'Steps Used', 'Max Steps', 'Theory Budget', 'Notes']) {
+            const th = document.createElement('th');
+            th.textContent = h;
+            th.style.cssText = 'text-align:left;padding:6px 10px;border-bottom:2px solid #e2e8f0;white-space:nowrap;color:#475569;font-weight:600;';
+            hrow.appendChild(th);
+        }
+        const tbody = table.createTBody();
+        const sorted = [...failed].sort((a, b) =>
+            (a.strategy || '').localeCompare(b.strategy || '') ||
+            (a.noise || '').localeCompare(b.noise || '') ||
+            (a.repeat || 0) - (b.repeat || 0)
+        );
+        for (const p of sorted) {
+            const row = tbody.insertRow();
+            row.style.borderBottom = '1px solid #f1f5f9';
+            const reason = p.failure_reason || 'unknown';
+            const reasonLabel = FAILURE_LABELS[reason] || reason;
+            const fspan = hlFSpan(p);
+            const spanStr = fspan != null ? (fspan * 100).toFixed(1) + '%' : '—';
+            let notes = '';
+            if (reason === 'theory_budget' && p.theory_step_budget != null) {
+                notes = `Budget was ${p.theory_step_budget} steps`;
+            } else if (reason === 'infeasible_crlb') {
+                notes = 'Run never started';
+            } else if (reason === 'max_steps') {
+                notes = 'Hit measurement limit';
+            } else if (reason === 'timeout') {
+                notes = 'Repeat timed out';
+            }
+            const cells = [
+                p.repeat ?? '—', p.strategy ?? '—', p.noise ?? '—', spanStr,
+                reasonLabel, p.locator_steps ?? '—', p.max_steps ?? '—',
+                p.theory_step_budget ?? '—', notes,
+            ];
+            for (let i = 0; i < cells.length; i++) {
+                const td = row.insertCell();
+                td.textContent = String(cells[i]);
+                td.style.cssText = 'padding:5px 10px;';
+                if (i === 4) {
+                    if (reason === 'max_steps') td.style.color = '#b45309';
+                    else if (reason === 'theory_budget') td.style.color = '#1d4ed8';
+                    else if (reason === 'infeasible_crlb') td.style.color = '#dc2626';
+                    else if (reason === 'timeout') td.style.color = '#7c3aed';
+                }
+            }
+        }
+        frag.appendChild(table);
+
+        tableContainer.innerHTML = '';
+        tableContainer.appendChild(frag);
     }
 
     function renderAccuracyNoise(gen) {
@@ -6391,6 +6714,7 @@ function main() {
         const repeatView = document.getElementById('scan-repeat-view');
         const speedView = document.getElementById('speed-view');
         const accuracyView = document.getElementById('accuracy-view');
+        const failedRunsView = document.getElementById('failed-runs-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
         const gen = controlValue(scanGenerator);
         const noises = compareNoisesArg();
@@ -6398,6 +6722,7 @@ function main() {
         if (repeatView) repeatView.style.display = 'none';
         if (speedView) speedView.style.display = 'none';
         if (accuracyView) accuracyView.style.display = 'none';
+        if (failedRunsView) failedRunsView.style.display = 'none';
 
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
@@ -6414,6 +6739,12 @@ function main() {
             if (accuracyView) {
                 accuracyView.style.display = 'block';
                 renderAccuracyTab(gen, noises);
+            }
+        } else if (mode === 'failed-runs') {
+            if (stoppingRow) stoppingRow.style.display = 'none';
+            if (failedRunsView) {
+                failedRunsView.style.display = 'block';
+                renderFailedRunsTab(gen, noises);
             }
         }
     }

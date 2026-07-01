@@ -8,8 +8,10 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+import numpy as np
+
 from nvision.models.noise import CompositeNoise
-from nvision.models.observation import DEFAULT_MEASUREMENT_NOISE_STD, Observation
+from nvision.models.observation import DEFAULT_MEASUREMENT_NOISE_STD, Observation, aggregate_shots
 from nvision.spectra.signal import TrueSignal
 
 
@@ -49,7 +51,7 @@ class CoreExperiment:
             return spec_getter()
         return None
 
-    def measure(self, x_normalized: float, rng: random.Random) -> Observation:
+    def measure(self, x_normalized: float, rng: random.Random, n_shots: int = 1) -> Observation:
         """Take a measurement at normalized position.
 
         Parameters
@@ -58,40 +60,54 @@ class CoreExperiment:
             Position in [0, 1] normalized space
         rng : random.Random
             Random number generator for noise
+        n_shots : int
+            Number of repeated shots to take at this position and average into a
+            single sufficient-statistic Observation (batch mean ȳ with precision
+            σ/√n_shots plus the within-batch variance). Defaults to 1, which is
+            value-identical to a single measurement.
 
         Returns
         -------
         Observation
-            Measurement with noise applied
+            Measurement with noise applied (batch-aggregated when n_shots > 1)
         """
+        if n_shots < 1:
+            raise ValueError(f"n_shots must be >= 1, got {n_shots}")
+
         # Denormalize to physical domain
         width = self.x_max - self.x_min
         x_physical = self.x_min + x_normalized * width
 
-        # Get true signal value
+        # Get true (clean) signal value
         signal_value = self.true_signal(x_physical)
-        true_value = signal_value  # Keep reference for noise constraint
 
-        # Apply noise components if configured
+        # Determine noise metadata
         noise_std = DEFAULT_MEASUREMENT_NOISE_STD  # default for no-noise case (aligned with Observation)
         frequency_noise_model = None
         if self.noise is not None:
             noise_std = self.noise.estimated_noise_std()
             if self.noise.over_frequency_noise is not None:
                 frequency_noise_model = self.frequency_noise_model()
-                from nvision.sim.batch import DataBatch
 
+        # Draw n_shots noisy realizations at x. With no over-frequency noise the
+        # signal is deterministic, so all shots coincide (zero empirical variance);
+        # aggregate_shots then falls back to the prior noise_std.
+        if frequency_noise_model is not None:
+            from nvision.sim.batch import DataBatch
+
+            shots = np.empty(n_shots, dtype=np.float64)
+            for i in range(n_shots):
                 batch = DataBatch(x=[x_physical], signal_values=[signal_value])
                 noisy_batch = self.noise.over_frequency_noise.apply(batch, rng)
-                signal_value = float(noisy_batch.df["signal_values"][0])
-            if self.noise.over_probe_noise is not None:
-                signal_value = self.noise.over_probe_noise.apply(signal_value, rng, None)
+                shots[i] = float(noisy_batch.df["signal_values"][0])
+        else:
+            shots = np.full(n_shots, float(signal_value), dtype=np.float64)
 
-        # Return observation in normalized space
-        return Observation(
+        # Aggregate into a single sufficient-statistic Observation (normalized space)
+        return aggregate_shots(
             x=x_normalized,
-            signal_value=signal_value,
-            noise_std=noise_std,
+            ys=shots,
+            prior_noise_std=noise_std,
             frequency_noise_model=frequency_noise_model,
         )
 

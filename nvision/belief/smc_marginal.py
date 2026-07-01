@@ -412,20 +412,35 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
         if getattr(self, "_use_rao_blackwell_noise", False):
+            # Shot-batch sufficient statistics: n_shots (k) and within-batch
+            # variance s^2. k == 1 reproduces the single-shot update exactly.
+            k = int(getattr(obs, "n_shots", 1) or 1)
+            sample_var = getattr(obs, "sample_var", None)
+
             sigmas = self._noise_betas / self._noise_alphas
             np.sqrt(sigmas, out=sigmas)
             np.maximum(sigmas, 1e-9, out=sigmas)
             residuals = obs.signal_value - predicted
-            log_liks = -0.5 * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2)
+            # The batch mean has noise sigma_i / sqrt(k), so the residual precision
+            # scales by k. The additive log(k) is constant across particles and
+            # cancels under normalization, but is kept for a correct log-likelihood.
+            log_liks = -0.5 * k * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2 / k)
             if self.tempering_factor != 1.0:
                 log_liks *= self.tempering_factor
-            # In-place Inverse-Gamma posterior update (residuals are dead after this)
+            # In-place Inverse-Gamma posterior update (residuals are dead after this).
+            # Two orthogonal pieces of evidence about sigma:
+            #   between-batch: the fit residual, rescaled by k since the mean's
+            #                  variance is sigma^2/k, so k*res^2 estimates sigma^2;
+            #   within-batch:  the empirical sample variance s^2 with (k-1) dof.
             self._noise_alphas *= self.noise_discount_factor
-            self._noise_alphas += 0.5
-            np.square(residuals, out=residuals)
-            residuals *= 0.5
             self._noise_betas *= self.noise_discount_factor
+            np.square(residuals, out=residuals)
+            residuals *= 0.5 * k
+            self._noise_alphas += 0.5
             self._noise_betas += residuals
+            if k >= 2 and sample_var is not None:
+                self._noise_alphas += 0.5 * (k - 1)
+                self._noise_betas += 0.5 * (k - 1) * float(sample_var)
 
         elif self.noise_model is not None and self._noise_param_slice is not None:
             # Epistemic spread is passed to the noise model for its own tempering logic
@@ -782,6 +797,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         f_b_phys = _to_phys("frequency", estimates["frequency"])
         df_hf_phys = _to_phys_delta("split", estimates["split"]) if "split" in estimates else 0.0
+        df_zeeman_phys = _to_phys_delta("zeeman_split", estimates["zeeman_split"]) if "zeeman_split" in estimates else 0.0
 
         # 1. Determine linewidth Omega (HWHM) in physical space
         if "linewidth" in estimates:
@@ -807,8 +823,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         delta_d_phys = max(sigma_eff_phys / 30.0, min_step_physical)
         half_width_phys = 3 * sigma_eff_phys
 
-        # 4. Slope Targeting: 6 locations (2 per dip) in physical space
-        centers_phys = [f_b_phys - df_hf_phys, f_b_phys, f_b_phys + df_hf_phys]
+        # 4. Slope Targeting: centers for all Zeeman groups × HF sub-peaks (deduplicated)
+        zeeman_offsets = [-df_zeeman_phys, df_zeeman_phys] if df_zeeman_phys > 0 else [0.0]
+        hf_offsets = [-df_hf_phys, 0.0, df_hf_phys] if df_hf_phys > 0 else [0.0]
+        centers_seen: set[int] = set()
+        centers_phys = []
+        for zo in zeeman_offsets:
+            for hfo in hf_offsets:
+                c = f_b_phys + zo + hfo
+                c_key = round(c)
+                if c_key not in centers_seen:
+                    centers_seen.add(c_key)
+                    centers_phys.append(c)
         slopes_phys = []
         for c in centers_phys:
             slopes_phys.append(c - omega_phys)
@@ -853,7 +879,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             # Derive cluster radius from the linewidth prior upper bound
             lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
             max_linewidth_hz = phys_bounds[lw_key][1]
-            max_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else None
+            max_zeeman_hz = phys_bounds["zeeman_split"][1] if "zeeman_split" in phys_bounds else 0.0
+            max_hf_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else 0.0
+            if max_zeeman_hz > 0 or max_hf_split_hz > 0:
+                max_split_hz: float | None = 2.0 * max_zeeman_hz + 2.0 * max_hf_split_hz
+            else:
+                max_split_hz = None
 
             # Extract per-particle noise sigmas
             if getattr(self, "_use_rao_blackwell_noise", False):

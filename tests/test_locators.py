@@ -9,7 +9,7 @@ from nvision import (
     GaussianModel,
     Locator,
     NVCenterCoreGenerator,
-    SimpleSweepLocator,
+    GenericSweepLocator,
     run_loop,
 )
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
@@ -27,7 +27,7 @@ def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperimen
 
 
 def test_simple_sweep_locator_is_core_locator():
-    assert issubclass(SimpleSweepLocator, Locator)
+    assert issubclass(GenericSweepLocator, Locator)
 
 
 def _dummy_belief(model):
@@ -42,13 +42,13 @@ def _dummy_belief(model):
 def test_simple_sweep_create_classmethod():
     model = GaussianModel()
     belief = _dummy_belief(model)
-    loc = SimpleSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
-    assert isinstance(loc, SimpleSweepLocator)
+    loc = GenericSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
+    assert isinstance(loc, GenericSweepLocator)
 
 
 def test_locator_runs_on_nv_center():
     rng = random.Random(99)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     exp = _make_experiment(gen, rng)
-    steps = list(run_loop(SimpleSweepLocator, exp, rng, max_steps=30))
+    steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=30))
     assert len(steps) > 0

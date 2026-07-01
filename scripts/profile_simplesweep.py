@@ -14,7 +14,7 @@ import time
 
 import numpy as np
 
-from nvision import CoreExperiment, NVCenterCoreGenerator, SimpleSweepLocator, run_loop
+from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, run_loop
 
 # ── Experiment setup ─────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ def make_experiment(rng: random.Random) -> CoreExperiment:
 
 
 def run_sweep(exp: CoreExperiment, rng: random.Random, n_steps: int) -> None:
-    list(run_loop(SimpleSweepLocator, exp, rng, max_steps=n_steps))
+    list(run_loop(GenericSweepLocator, exp, rng, max_steps=n_steps))
 
 
 # ── 1. cProfile the full loop ─────────────────────────────────────────────────

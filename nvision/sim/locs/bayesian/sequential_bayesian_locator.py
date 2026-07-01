@@ -253,30 +253,22 @@ class SequentialBayesianLocator(Locator):
         if self._is_converged:
             return True
 
-        crlb_fn = getattr(self.belief, "crlb_frequency", None)
-        if crlb_fn is not None:
-            crlb_f = crlb_fn()
-            if math.isfinite(crlb_f) and crlb_f > 0 and self.step_count > 0:
-                from nvision.sim.defaults import (
-                    NVISION_FREQ_CONVERGENCE_THRESHOLD,
-                    NVISION_FREQ_CRLB_SAFETY_FACTOR,
-                )
+        from nvision.sim.defaults import (
+            NVISION_FREQ_CRLB_SAFETY_FACTOR,
+            NVISION_FREQ_CONVERGENCE_THRESHOLD,
+        )
 
-                # CRLB scales as 1/sqrt(N) for N independent uniform measurements.
-                # So to reach target T starting from current CRLB C at step N:
-                # N_req = N * (C / T)^2
-                n_req = self.step_count * (crlb_f / NVISION_FREQ_CONVERGENCE_THRESHOLD) ** 2
-
-                # If it's theoretically impossible to converge within the hard cap, abort early.
-                # We apply the safety factor margin here as well, because early SMC parameter 
-                # estimates might be pessimistic and we want to give it a chance to recover.
-                if n_req > self.max_steps * NVISION_FREQ_CRLB_SAFETY_FACTOR:
-                    return True
-
-                # Calculate the dynamically allowed budget for this noise level
-                budget_limit = min(self.max_steps, int(NVISION_FREQ_CRLB_SAFETY_FACTOR * n_req) + 1)
-                if self.inference_step_count >= budget_limit:
-                    return True
+        if self.step_count > 0:
+            crlb_fn = getattr(self.belief, "crlb_frequency", None)
+            if crlb_fn is not None:
+                crlb_f = crlb_fn()
+                if math.isfinite(crlb_f) and crlb_f > 0:
+                    n_req = self.step_count * (crlb_f / NVISION_FREQ_CONVERGENCE_THRESHOLD) ** 2
+                    if n_req > self.max_steps * NVISION_FREQ_CRLB_SAFETY_FACTOR:
+                        return True
+                    budget_limit = min(self.max_steps, int(NVISION_FREQ_CRLB_SAFETY_FACTOR * n_req) + 1)
+                    if self.inference_step_count >= budget_limit:
+                        return True
 
         return self.inference_step_count >= self.max_steps
 

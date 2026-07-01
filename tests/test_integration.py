@@ -7,7 +7,7 @@ import polars as pl
 from nvision import (
     CoreExperiment,
     NVCenterCoreGenerator,
-    SimpleSweepLocator,
+    GenericSweepLocator,
     run_loop,
 )
 
@@ -32,7 +32,7 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
             x_max=x_max,
         )
         steps = 0
-        for _ in run_loop(SimpleSweepLocator, experiment, rng, max_steps=max_steps):
+        for _ in run_loop(GenericSweepLocator, experiment, rng, max_steps=max_steps):
             steps += 1
         rows.append({"repeat": i, "steps": steps})
     return pl.DataFrame(rows)

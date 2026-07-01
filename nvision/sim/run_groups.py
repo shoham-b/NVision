@@ -57,9 +57,20 @@ def _group_lorentzian_sbed_only() -> RunGroup:
     )
 
 
+def _group_lorentzian_sweep_only() -> RunGroup:
+    noises = [n for n in _all_noise_names() if n.startswith("Gauss(")]
+    return RunGroup(
+        name="lorentzian-sweep-only",
+        description="SimpleSweep only (no SBED/Sobol baselines) on NVCenter-lorentzian.",
+        generator_names=["NVCenter-lorentzian"],
+        noise_names=noises,
+        strategy_names=["SimpleSweep"],
+    )
+
+
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
-    return (_group_lorentzian_sbed(), _group_lorentzian_sbed_only())
+    return (_group_lorentzian_sbed(), _group_lorentzian_sbed_only(), _group_lorentzian_sweep_only())
 
 
 def run_groups() -> list[RunGroup]:

@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nvision.models.measurement_noise import DEFAULT_MEASUREMENT_NOISE_STD
+
+if TYPE_CHECKING:
+    import numpy as np
 
 __all__ = [
     "DEFAULT_MEASUREMENT_NOISE_STD",
     "Observation",
     "ObservationHistory",
+    "aggregate_shots",
     "gaussian_likelihood_std",
 ]
 
@@ -34,12 +39,79 @@ class Observation:
         to generate this observation. When present, Bayesian updates can use a
         component-specific likelihood (e.g. Poisson counting) instead of the
         default Gaussian approximation.
+    n_shots : int
+        Number of repeated shots taken at ``x`` and averaged into
+        ``signal_value``. Defaults to 1 (a single measurement). When > 1,
+        ``signal_value`` is the batch mean ȳ (precision σ/√n_shots) and
+        ``sample_var`` carries the within-batch variance.
+    sample_var : float | None
+        Within-batch variance s² (unbiased, ddof=1) of the raw shots. ``None``
+        when fewer than two shots exist (no variance is estimable). Beliefs with
+        an explicit noise posterior use this as direct, model-free evidence
+        about σ, orthogonal to the fit residuals.
     """
 
     x: float
     signal_value: float
     noise_std: float = field(default=DEFAULT_MEASUREMENT_NOISE_STD)
     frequency_noise_model: tuple[dict[str, Any], ...] | None = field(default=None)
+    n_shots: int = field(default=1)
+    sample_var: float | None = field(default=None)
+
+
+def aggregate_shots(
+    x: float,
+    ys: np.ndarray,
+    prior_noise_std: float,
+    frequency_noise_model: tuple[dict[str, Any], ...] | None = None,
+) -> Observation:
+    """Collapse a batch of repeated shots at one frequency into a sufficient-statistic Observation.
+
+    For k i.i.d. shots ``ys`` at position ``x``, the batch mean ȳ is the signal
+    estimate with precision σ/√k, and the within-batch std ``s`` (ddof=1) is a
+    direct estimate of the per-shot noise σ.
+
+    Parameters
+    ----------
+    x : float
+        Position where the shots were taken.
+    ys : np.ndarray
+        Raw per-shot signal values (length k).
+    prior_noise_std : float
+        Fallback per-shot σ used when the empirical std is unavailable (k < 2)
+        or degenerate (s == 0). The returned ``noise_std`` is then prior/√k.
+    frequency_noise_model : tuple[dict, ...] | None
+        Passed through to the returned Observation unchanged.
+
+    Returns
+    -------
+    Observation
+        ``signal_value`` = ȳ, ``noise_std`` = s/√k (or prior/√k fallback),
+        ``n_shots`` = k, ``sample_var`` = s² (None when k < 2).
+    """
+    import numpy as np
+
+    ys = np.asarray(ys, dtype=np.float64)
+    k = int(ys.size)
+    if k == 0:
+        raise ValueError("aggregate_shots requires at least one shot.")
+    y_bar = float(np.mean(ys))
+    sqrt_k = math.sqrt(k)
+    if k >= 2:
+        s = float(np.std(ys, ddof=1))
+        noise_std = s / sqrt_k if s > 0 else prior_noise_std / sqrt_k
+        sample_var = s * s
+    else:
+        noise_std = prior_noise_std / sqrt_k
+        sample_var = None
+    return Observation(
+        x=x,
+        signal_value=y_bar,
+        noise_std=noise_std,
+        frequency_noise_model=frequency_noise_model,
+        n_shots=k,
+        sample_var=sample_var,
+    )
 
 
 class ObservationHistory:

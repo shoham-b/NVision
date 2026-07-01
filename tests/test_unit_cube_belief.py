@@ -26,25 +26,36 @@ from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentD
 
 
 def test_nv_center_default_bounds_align_with_generation_formulas():
-    # Default: no hyperfine splitting → frequency, linewidth, c_total only
-    gen = nv_center_lorentzian_bounds_for_domain(
-        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=False
+    # Default: Zeeman splitting → frequency, linewidth, zeeman_split, c_total
+    gen_z = nv_center_lorentzian_bounds_for_domain(
+        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
+        with_hyperfine_splitting=False, with_zeeman_splitting=True,
     )
     b = nv_center_belief()
-    for key in ("frequency", "linewidth"):
-        assert b.physical_param_bounds[key] == gen[key]
-    glo, ghi = gen["c_total"]
+    for key in ("frequency", "linewidth", "zeeman_split"):
+        assert b.physical_param_bounds[key] == gen_z[key]
+    glo, ghi = gen_z["c_total"]
     blo, bhi = b.physical_param_bounds["c_total"]
     assert bhi == ghi
     assert glo <= blo < bhi
     assert "split" not in b.physical_param_bounds
     assert "k_np" not in b.physical_param_bounds
 
-    # With hyperfine splitting: split and k_np are present
+    # No Zeeman, no hyperfine → frequency, linewidth, c_total only
+    gen = nv_center_lorentzian_bounds_for_domain(
+        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=False
+    )
+    b_nodip = nv_center_belief(with_zeeman_splitting=False)
+    for key in ("frequency", "linewidth"):
+        assert b_nodip.physical_param_bounds[key] == gen[key]
+    assert "zeeman_split" not in b_nodip.physical_param_bounds
+    assert "split" not in b_nodip.physical_param_bounds
+
+    # With hyperfine splitting only: split and k_np are present
     gen_hf = nv_center_lorentzian_bounds_for_domain(
         DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=True
     )
-    b_hf = nv_center_belief(with_hyperfine_splitting=True)
+    b_hf = nv_center_belief(with_hyperfine_splitting=True, with_zeeman_splitting=False)
     for key in ("frequency", "linewidth", "split", "k_np"):
         assert b_hf.physical_param_bounds[key] == gen_hf[key]
 

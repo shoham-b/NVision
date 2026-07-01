@@ -105,6 +105,9 @@ def test_find_project_root_fallback(tmp_path: Path, monkeypatch) -> None:
 
     # Patch __file__
     monkeypatch.setattr("nvision.tools.paths.__file__", str(file_path))
+    # Patch is_dir and is_file so it never finds real markers in the parents (like C:\nvision)
+    monkeypatch.setattr(Path, "is_dir", lambda self: False)
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
 
     assert find_project_root() == Path.cwd()
 
