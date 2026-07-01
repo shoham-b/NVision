@@ -25,6 +25,10 @@ def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarg
     smc = MockSMC(model=model, num_particles=1000, physical_param_bounds=bounds, physical_x_bounds=(freq_lo, freq_hi))
     smc._param_names = ["frequency", "sigma", "dip_depth", "background"]
     smc._weights = np.ones(1000, dtype=np.float32) / 1000.0
+    # Simulate having already taken enough measurements to clear the
+    # narrowing-delay safeguard (NVISION_MIN_STEPS_BEFORE_NARROWING) — these
+    # tests exercise the narrowing math itself, not the step-count gate.
+    smc._step_count = 1000
     return smc
 
 

@@ -30,7 +30,10 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
+    # SequentialBayesianExperimentDesignLocator no longer takes a hard
+    # `n_candidates` cap — candidates are thinned to a minimum physical
+    # spacing (`candidate_step_hz`) instead, so the count adapts to the
+    # acquisition range and shrinks automatically as the posterior narrows.
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
@@ -50,13 +53,28 @@ def test_sbed_candidate_thinning():
     # not the exploration/dip branches that skip the EIG grid search entirely.
     np.random.seed(42)
 
+    raw_candidate_count = len(belief.get_candidates())
+
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 100
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 100
-    print(f"Thinned candidates count: {len(passed_candidates[0])}")
+    thinned = passed_candidates[0]
+
+    # Thinning must actually reduce the raw (fine) epoch grid.
+    assert len(thinned) < raw_candidate_count
+
+    # Consecutive thinned candidates must respect the minimum physical spacing
+    # (the very last gap may be smaller since the final candidate is always
+    # kept so the full acquisition range stays represented).
+    spacings = np.diff(np.sort(thinned))
+    assert np.all(spacings[:-1] >= locator.candidate_step_hz - 1.0), "Thinned candidates must be spaced apart"
+
+    # The count should match the acquisition range divided by the step size.
+    lo, hi = phys_bounds["frequency"]
+    expected_max = int(np.ceil((hi - lo) / locator.candidate_step_hz)) + 2
+    assert len(thinned) <= expected_max
+    print(f"Thinned candidates count: {len(thinned)} (raw grid: {raw_candidate_count})")
 
 
 if __name__ == "__main__":

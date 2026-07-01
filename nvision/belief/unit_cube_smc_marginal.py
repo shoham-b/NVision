@@ -399,44 +399,111 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
             return
 
-        # --- Unified Active-Range Union Focusing (Zero Fallbacks) -----------
-        # Compute believed active frequency range for each particle i:
-        # [left_i, right_i] = [f_i - split_i - k * omega_i, f_i + split_i + k * omega_i]
-        j_freq = self._param_names.index(scan_param)
-        u_freq = self._particles[:, j_freq]
-        freq_phys = lo_phys + u_freq * cur_width
+        # --- Observation-Driven Shoulder-Based Dip Detection -----------------
+        # Rather than trust the particle-implied linewidth (a poor guess before
+        # the posterior has locked onto the true dip), look directly at the
+        # measured signal for a dip and walk outward from its minimum until the
+        # signal recovers to near-baseline (the shoulder). Connected dips (no
+        # clear recovery between them) are treated as one span.
+        obs_xs_unit, obs_ys = self.observation_arrays()
+        new_lo: float | None = None
+        new_hi: float | None = None
+        if len(obs_ys) >= 3:
+            p30 = float(np.percentile(obs_ys, 30))
+            noise_pts = obs_ys[obs_ys >= p30]
+            bg_est = float(np.median(noise_pts))
+            noise_std_est = float(np.std(noise_pts))
+            dip_threshold = bg_est - max(3.0 * noise_std_est, 0.015 * bg_est)
+            in_dip_unsorted = obs_ys < dip_threshold
 
-        if "split" in self._param_names:
-            j_split = self._param_names.index("split")
-            u_split = self._particles[:, j_split]
-            lo_s, hi_s = self.physical_param_bounds["split"]
-            split_phys = lo_s + u_split * (hi_s - lo_s)
-        else:
-            split_phys = np.zeros_like(freq_phys)
+            if np.any(in_dip_unsorted):
+                order = np.argsort(obs_xs_unit)
+                xs = obs_xs_unit[order]
+                ys = obs_ys[order]
+                n_obs = len(xs)
 
-        if "linewidth" in self._param_names:
-            j_line = self._param_names.index("linewidth")
-            u_line = self._particles[:, j_line]
-            lo_l, hi_l = self.physical_param_bounds["linewidth"]
-            linewidth_phys = lo_l + u_line * (hi_l - lo_l)
-        elif "fwhm_total" in self._param_names:
-            j_fwhm = self._param_names.index("fwhm_total")
-            u_fwhm = self._particles[:, j_fwhm]
-            lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
-            linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
-        else:
-            linewidth_phys = np.full_like(freq_phys, 2.0e6)
+                # Recovery point: halfway between the dip threshold and baseline.
+                shoulder_threshold = 0.5 * (dip_threshold + bg_est)
+                in_dip = ys < dip_threshold
+                dip_indices = np.where(in_dip)[0]
 
-        cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
-        tail_percentile = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))
+                # Walk left from the leftmost dip index until the signal recovers.
+                left_idx = int(dip_indices[0])
+                left_shoulder_x = xs[0]
+                for k in range(left_idx - 1, -1, -1):
+                    if ys[k] >= shoulder_threshold:
+                        left_shoulder_x = xs[k]
+                        break
 
-        left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
-        right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
+                # Walk right from the rightmost dip index until the signal recovers.
+                right_idx = int(dip_indices[-1])
+                right_shoulder_x = xs[-1]
+                for k in range(right_idx + 1, n_obs):
+                    if ys[k] >= shoulder_threshold:
+                        right_shoulder_x = xs[k]
+                        break
 
-        new_lo = float(np.percentile(left_phys, tail_percentile))
-        new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
+                # Guard margin (1 x linewidth) so the locator can still sample
+                # just outside the shoulders for EIG computation.
+                guard = omega_phys
+                left_shoulder_phys = lo_orig + left_shoulder_x * (hi_orig - lo_orig)
+                right_shoulder_phys = lo_orig + right_shoulder_x * (hi_orig - lo_orig)
+                new_lo = left_shoulder_phys - guard
+                new_hi = right_shoulder_phys + guard
 
-        lo_orig, hi_orig = self._original_physical_x_bounds
+        if new_lo is None:
+            # --- Unified Active-Range Union Focusing -------------------------
+            # No clear dip seen yet in the observations; fall back to the
+            # particle-implied believed active range for each particle i:
+            # [left_i, right_i] = [f_i - split_i - k*omega_i, f_i + split_i + k*omega_i]
+            # Only applicable when the model actually characterizes a linewidth
+            # (e.g. NV-center models) — otherwise use plain percentile narrowing.
+            j_freq = self._param_names.index(scan_param)
+            u_freq = self._particles[:, j_freq]
+            freq_phys = lo_phys + u_freq * cur_width
+
+            has_linewidth = "linewidth" in self._param_names or "fwhm_total" in self._param_names
+            if has_linewidth:
+                if "split" in self._param_names:
+                    j_split = self._param_names.index("split")
+                    u_split = self._particles[:, j_split]
+                    lo_s, hi_s = self.physical_param_bounds["split"]
+                    split_phys = lo_s + u_split * (hi_s - lo_s)
+                else:
+                    split_phys = np.zeros_like(freq_phys)
+
+                if "linewidth" in self._param_names:
+                    j_line = self._param_names.index("linewidth")
+                    u_line = self._particles[:, j_line]
+                    lo_l, hi_l = self.physical_param_bounds["linewidth"]
+                    linewidth_phys = lo_l + u_line * (hi_l - lo_l)
+                else:
+                    j_fwhm = self._param_names.index("fwhm_total")
+                    u_fwhm = self._particles[:, j_fwhm]
+                    lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
+                    linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
+
+                cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+                tail_percentile = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))
+
+                left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
+                right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
+
+                new_lo = float(np.percentile(left_phys, tail_percentile))
+                new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
+            else:
+                # --- Fallback: particle-percentile narrowing ------------------
+                # Prune tails where almost no particles remain (1% cutoff), then
+                # pad conservatively (300% on each side) so the true peak is
+                # never clipped while the posterior is still spreading.
+                u_lo = float(np.percentile(u_freq, 1.0))
+                u_hi = float(np.percentile(u_freq, 99.0))
+                new_lo = lo_phys + u_lo * cur_width
+                new_hi = lo_phys + u_hi * cur_width
+                pad = 3.0 * (new_hi - new_lo)
+                new_lo -= pad
+                new_hi += pad
+
         new_lo = max(new_lo, lo_orig)
         new_hi = min(new_hi, hi_orig)
         if new_hi <= new_lo:
