@@ -30,7 +30,7 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
+    # Initialize locator with the default candidate spacing (candidate_step_hz).
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
@@ -53,10 +53,15 @@ def test_sbed_candidate_thinning():
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 100
+    # Thinning enforces a minimum spacing of candidate_step_hz between kept
+    # candidates, so the thinned count is bounded by domain_width / step + a
+    # couple of points for the preserved endpoints.
+    domain_width = phys_bounds["frequency"][1] - phys_bounds["frequency"][0]
+    max_expected = int(domain_width / locator.candidate_step_hz) + 2
+
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 100
-    print(f"Thinned candidates count: {len(passed_candidates[0])}")
+    assert len(passed_candidates[0]) <= max_expected
+    print(f"Thinned candidates count: {len(passed_candidates[0])} (max expected {max_expected})")
 
 
 if __name__ == "__main__":
