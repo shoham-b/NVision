@@ -66,6 +66,10 @@ def test_focus_window_automatic_narrowing_during_resampling():
     smc._particles[:, f_idx] = np.random.normal(loc=0.5, scale=1e-5, size=1000)
     smc._particles[:, f_idx] = np.clip(smc._particles[:, f_idx], 0.0, 1.0)
 
+    # Narrowing is delayed until NVISION_MIN_STEPS_BEFORE_NARROWING (default 8)
+    # measurement steps have been taken, to avoid over-narrowing on early ambiguity.
+    smc._step_count = 8
+
     old_lo, old_hi = smc.physical_param_bounds["frequency"]
     smc._resample()
 
@@ -99,6 +103,10 @@ def test_shoulder_based_narrowing_single_dip():
     ]
     # Uniform particles — no prior knowledge.
     smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
+
+    # Narrowing is delayed until NVISION_MIN_STEPS_BEFORE_NARROWING (default 8)
+    # measurement steps have been taken; these 60 dense observations satisfy that.
+    smc._step_count = len(obs_xs)
 
     smc._resample()
 
@@ -137,6 +145,10 @@ def test_shoulder_based_narrowing_connected_dips():
         Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
     ]
     smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
+
+    # Narrowing is delayed until NVISION_MIN_STEPS_BEFORE_NARROWING (default 8)
+    # measurement steps have been taken; these 60 dense observations satisfy that.
+    smc._step_count = len(obs_xs)
 
     smc._resample()
 

@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
@@ -30,11 +32,16 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
+    # Locator thins the belief's epoch candidate grid down to a minimum physical
+    # spacing of `candidate_step_hz` (default NVISION_SMC_CANDIDATE_STEP_HZ) instead
+    # of a fixed candidate count.
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
     )
+
+    # Capture the untouched epoch grid for comparison before it's mutated by acquisition.
+    raw_candidates = belief.get_candidates()
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it
     original_select = belief.select_max_information_gain
@@ -53,10 +60,22 @@ def test_sbed_candidate_thinning():
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 100
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 100
-    print(f"Thinned candidates count: {len(passed_candidates[0])}")
+    thinned = passed_candidates[0]
+
+    # Thinning must have collapsed the dense ~12.6k-point epoch grid down to
+    # something close to domain_width / candidate_step_hz (the full 20 MHz
+    # acquisition range hasn't narrowed yet, so this is the pre-convergence
+    # maximum candidate count).
+    domain_width = phys_bounds["frequency"][1] - phys_bounds["frequency"][0]
+    max_expected_candidates = math.ceil(domain_width / locator.candidate_step_hz) + 2
+    assert len(thinned) < len(raw_candidates)
+    assert len(thinned) <= max_expected_candidates
+    # Consecutive kept candidates must respect the minimum physical spacing, except
+    # the final gap: the last raw candidate is always force-kept (regardless of
+    # spacing) so the acquisition range's upper edge stays represented.
+    assert np.all(np.diff(thinned)[:-1] >= locator.candidate_step_hz - 1.0)
+    print(f"Thinned candidates count: {len(thinned)} (raw: {len(raw_candidates)})")
 
 
 if __name__ == "__main__":
