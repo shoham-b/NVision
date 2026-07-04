@@ -42,10 +42,12 @@ def test_merge_locator_results_schema_mismatch(tmp_path: Path):
     # Execute merge
     merged_df = merge_locator_results_with_existing(new_df, out_dir, log)
 
-    # Verify that they merged successfully and measurements column is aligned (Float64)
+    # Verify that they merged successfully and measurements column is aligned.
+    # 'measurements' is a known-integer count column, so mismatches are
+    # normalized to Int64 rather than promoted to Float64.
     assert len(merged_df) == 1
-    assert merged_df.schema["measurements"] == pl.Float64
-    assert merged_df.get_column("measurements")[0] == 89.0
+    assert merged_df.schema["measurements"] == pl.Int64
+    assert merged_df.get_column("measurements")[0] == 89
 
 
 def test_merge_locator_results_keeps_other_combinations_even_with_no_cache(tmp_path: Path):
