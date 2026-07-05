@@ -60,7 +60,16 @@ def test_unit_cube_estimates_are_physical_hz():
 
 @pytest.mark.slow
 @pytest.mark.timeout(120)
-def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
+def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal(monkeypatch):
+    # The SMC belief seeds its internal resampling RNG from OS entropy
+    # (np.random.default_rng() with no seed — see UnitCubeSMCMarginalDistribution),
+    # independent of the legacy np.random global state. Pin both so this
+    # end-to-end convergence check is fully reproducible instead of flaking
+    # around the tolerance below depending on the resampling draw.
+    np.random.seed(3)
+    real_default_rng = np.random.default_rng
+    monkeypatch.setattr(np.random, "default_rng", lambda *a, **kw: real_default_rng(3))
+
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)

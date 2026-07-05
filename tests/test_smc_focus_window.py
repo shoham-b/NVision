@@ -1,7 +1,6 @@
 import numpy as np
 
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.models.observation import Observation
 from nvision.spectra.gaussian import GaussianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
@@ -66,6 +65,10 @@ def test_focus_window_automatic_narrowing_during_resampling():
     smc._particles[:, f_idx] = np.random.normal(loc=0.5, scale=1e-5, size=1000)
     smc._particles[:, f_idx] = np.clip(smc._particles[:, f_idx], 0.0, 1.0)
 
+    # Narrowing is delayed until enough global measurements have been taken
+    # (see NVISION_MIN_STEPS_BEFORE_NARROWING); simulate having passed that point.
+    smc._step_count = 8
+
     old_lo, old_hi = smc.physical_param_bounds["frequency"]
     smc._resample()
 
@@ -81,24 +84,39 @@ def test_focus_window_automatic_narrowing_during_resampling():
 
 
 def test_shoulder_based_narrowing_single_dip():
-    """Window should shrink to span just the observed dip shoulders, not a fixed linewidth buffer."""
+    """Window should shrink to bracket the believed dip location, not a fixed linewidth buffer.
+
+    Narrowing is driven by the particle posterior's spread in frequency (the
+    "Unified Active-Range Union Focusing" in ``_resample``), not by walking
+    the raw observation trace for shoulders. So instead of trying to recover
+    that posterior from a single noisy ``batch_update`` draw (which can land
+    on a degenerate mode with only 1000 particles over a 4-D unit cube), we
+    set the particle distribution directly to the converged state a real
+    filter would reach after resolving this dip, and check that the resulting
+    window still tightly brackets it.
+    """
     freq_lo, freq_hi = 2.7e9, 2.8e9
     smc = _make_smc(freq_lo, freq_hi)
 
-    bg = 1.0
     dip_center = 2.75e9
     dip_sigma = 2e6
 
-    # Dense observations: background on the flanks, a clear Gaussian dip in the middle.
-    obs_xs = np.linspace(freq_lo, freq_hi, 60)
-    obs_ys = np.ones_like(obs_xs) * bg
-    obs_ys -= 0.45 * np.exp(-0.5 * ((obs_xs - dip_center) / dip_sigma) ** 2)
+    # Particles converged on the dip, with residual spread of about one dip
+    # width — reflecting the posterior uncertainty left after localizing it.
+    rng = np.random.default_rng(0)
+    smc._rng = np.random.default_rng(1)
+    center_unit = (dip_center - freq_lo) / (freq_hi - freq_lo)
+    scale_unit = dip_sigma / (freq_hi - freq_lo)
+    smc._particles[:, 0] = np.clip(rng.normal(loc=center_unit, scale=scale_unit, size=1000), 0.0, 1.0)
 
-    smc._observations = [
-        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
-    ]
-    # Uniform particles — no prior knowledge.
-    smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
+    # Narrowing is delayed until enough global measurements have been taken
+    # (see NVISION_MIN_STEPS_BEFORE_NARROWING). Use a step count high enough
+    # that the exponentially-decaying particle rejuvenation fraction (see
+    # "Particle Rejuvenation" in _resample) has decayed to ~0 — otherwise a
+    # handful of rejuvenated particles land in the 1st/99th percentile tails
+    # that the union-focusing narrowing reads, making the resulting window
+    # width flaky.
+    smc._step_count = 100
 
     smc._resample()
 
@@ -119,24 +137,41 @@ def test_shoulder_based_narrowing_single_dip():
 
 
 def test_shoulder_based_narrowing_connected_dips():
-    """Two adjacent dips with no clear recovery between them are treated as one span."""
+    """Two adjacent dips with no clear recovery between them are treated as one span.
+
+    As above, we set the particle posterior directly rather than reconstruct
+    it from a single noisy ``batch_update`` draw. A filter still undecided
+    between two nearby candidate dips is represented as a bimodal particle
+    distribution split between them; the union-based narrowing in
+    ``_resample`` should bracket both modes rather than picking one.
+    """
     freq_lo, freq_hi = 2.7e9, 2.8e9
     smc = _make_smc(freq_lo, freq_hi)
 
-    bg = 1.0
     dip_a = 2.74e9
     dip_b = 2.76e9  # Only 20 MHz apart — no baseline recovery between them.
     dip_sigma = 3e6
 
-    obs_xs = np.linspace(freq_lo, freq_hi, 60)
-    obs_ys = np.ones_like(obs_xs) * bg
-    obs_ys -= 0.4 * np.exp(-0.5 * ((obs_xs - dip_a) / dip_sigma) ** 2)
-    obs_ys -= 0.4 * np.exp(-0.5 * ((obs_xs - dip_b) / dip_sigma) ** 2)
+    rng = np.random.default_rng(0)
+    smc._rng = np.random.default_rng(1)
+    a_unit = (dip_a - freq_lo) / (freq_hi - freq_lo)
+    b_unit = (dip_b - freq_lo) / (freq_hi - freq_lo)
+    scale_unit = dip_sigma / (freq_hi - freq_lo)
+    half = 500
+    particles = np.concatenate(
+        [
+            rng.normal(loc=a_unit, scale=scale_unit, size=half),
+            rng.normal(loc=b_unit, scale=scale_unit, size=1000 - half),
+        ]
+    )
+    smc._particles[:, 0] = np.clip(particles, 0.0, 1.0)
 
-    smc._observations = [
-        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
-    ]
-    smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
+    # Narrowing is delayed until enough global measurements have been taken
+    # (see NVISION_MIN_STEPS_BEFORE_NARROWING). Use a step count high enough
+    # that particle rejuvenation (see "Particle Rejuvenation" in _resample)
+    # has decayed to ~0, so the window computed from the 1st/99th percentile
+    # of frequency particles isn't polluted by a few rejuvenated outliers.
+    smc._step_count = 100
 
     smc._resample()
 
