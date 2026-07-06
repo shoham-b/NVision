@@ -61,6 +61,10 @@ def test_unit_cube_estimates_are_physical_hz():
 @pytest.mark.slow
 @pytest.mark.timeout(120)
 def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
+    # The locator's exploration/EIG branch selection draws from the global
+    # numpy RNG, so this must be seeded explicitly — otherwise the outcome
+    # depends on how much numpy random state earlier tests in the run consumed.
+    np.random.seed(11)
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)

@@ -1,7 +1,6 @@
 import numpy as np
 
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.models.observation import Observation
 from nvision.spectra.gaussian import GaussianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
@@ -66,6 +65,10 @@ def test_focus_window_automatic_narrowing_during_resampling():
     smc._particles[:, f_idx] = np.random.normal(loc=0.5, scale=1e-5, size=1000)
     smc._particles[:, f_idx] = np.clip(smc._particles[:, f_idx], 0.0, 1.0)
 
+    # Narrowing is delayed until enough global measurements have been taken
+    # (see the "Narrowing Delay Safeguard" in _resample); simulate that here.
+    smc._step_count = 8
+
     old_lo, old_hi = smc.physical_param_bounds["frequency"]
     smc._resample()
 
@@ -81,24 +84,25 @@ def test_focus_window_automatic_narrowing_during_resampling():
 
 
 def test_shoulder_based_narrowing_single_dip():
-    """Window should shrink to span just the observed dip shoulders, not a fixed linewidth buffer."""
+    """A unimodal posterior clustered on a single dip should narrow the window around it.
+
+    Narrowing in ``_resample`` is driven purely by the particle cloud (the
+    "Unified Active-Range Union Focusing" in ``unit_cube_smc_marginal.py``),
+    not by raw observations, so the posterior is set up directly here rather
+    than via ``Observation`` data.
+    """
     freq_lo, freq_hi = 2.7e9, 2.8e9
     smc = _make_smc(freq_lo, freq_hi)
 
-    bg = 1.0
     dip_center = 2.75e9
-    dip_sigma = 2e6
+    u_center = (dip_center - freq_lo) / (freq_hi - freq_lo)
+    smc._particles[:, 0] = np.clip(np.random.normal(loc=u_center, scale=0.002, size=1000), 0.0, 1.0)
 
-    # Dense observations: background on the flanks, a clear Gaussian dip in the middle.
-    obs_xs = np.linspace(freq_lo, freq_hi, 60)
-    obs_ys = np.ones_like(obs_xs) * bg
-    obs_ys -= 0.45 * np.exp(-0.5 * ((obs_xs - dip_center) / dip_sigma) ** 2)
-
-    smc._observations = [
-        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
-    ]
-    # Uniform particles — no prior knowledge.
-    smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
+    # Narrowing is delayed until enough global measurements have been taken,
+    # and the exploration-variance floor decays with step count (see the
+    # "Narrowing Delay Safeguard" and step 4 in ``SMCMarginalDistribution._resample``);
+    # use a step count high enough that the floor has mostly decayed.
+    smc._step_count = 40
 
     smc._resample()
 
@@ -109,34 +113,45 @@ def test_shoulder_based_narrowing_single_dip():
     assert new_width < (freq_hi - freq_lo), "Window should have narrowed"
     # Dip centre must still be inside the window.
     assert new_lo <= dip_center <= new_hi, "Dip centre must remain inside window"
-    # Shoulder-based narrowing must produce a window well under 50% of the original span.
+    # A tightly-clustered unimodal posterior should produce a window well under
+    # 50% of the original span.
     assert new_width < 0.5 * (freq_hi - freq_lo), "Window should be < 50% of original"
 
     print(
-        f"Single-dip shoulder narrowing: width={new_width / 1e6:.1f} MHz, "
+        f"Single-dip narrowing: width={new_width / 1e6:.1f} MHz, "
         f"window=[{new_lo / 1e9:.4f}, {new_hi / 1e9:.4f}] GHz"
     )
 
 
 def test_shoulder_based_narrowing_connected_dips():
-    """Two adjacent dips with no clear recovery between them are treated as one span."""
+    """A bimodal posterior split across two dip candidates should union both into one window."""
     freq_lo, freq_hi = 2.7e9, 2.8e9
     smc = _make_smc(freq_lo, freq_hi)
 
-    bg = 1.0
     dip_a = 2.74e9
     dip_b = 2.76e9  # Only 20 MHz apart — no baseline recovery between them.
-    dip_sigma = 3e6
+    u_a = (dip_a - freq_lo) / (freq_hi - freq_lo)
+    u_b = (dip_b - freq_lo) / (freq_hi - freq_lo)
 
-    obs_xs = np.linspace(freq_lo, freq_hi, 60)
-    obs_ys = np.ones_like(obs_xs) * bg
-    obs_ys -= 0.4 * np.exp(-0.5 * ((obs_xs - dip_a) / dip_sigma) ** 2)
-    obs_ys -= 0.4 * np.exp(-0.5 * ((obs_xs - dip_b) / dip_sigma) ** 2)
+    # Bimodal posterior: the filter hasn't yet resolved which of the two
+    # candidate dips is real, so particles split evenly between them.
+    half = smc._particles.shape[0] // 2
+    smc._particles[:, 0] = np.clip(
+        np.concatenate(
+            [
+                np.random.normal(loc=u_a, scale=0.002, size=half),
+                np.random.normal(loc=u_b, scale=0.002, size=smc._particles.shape[0] - half),
+            ]
+        ),
+        0.0,
+        1.0,
+    )
 
-    smc._observations = [
-        Observation(x=float((x - freq_lo) / (freq_hi - freq_lo)), signal_value=float(y)) for x, y in zip(obs_xs, obs_ys)
-    ]
-    smc._particles[:, 0] = np.random.uniform(0.0, 1.0, size=1000)
+    # Narrowing is delayed until enough global measurements have been taken,
+    # and the exploration-variance floor decays with step count (see the
+    # "Narrowing Delay Safeguard" and step 4 in ``SMCMarginalDistribution._resample``);
+    # use a step count high enough that the floor has mostly decayed.
+    smc._step_count = 40
 
     smc._resample()
 

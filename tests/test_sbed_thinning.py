@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
@@ -30,11 +32,13 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
     )
+
+    # The raw (untinned) epoch grid the locator would otherwise search over.
+    raw_candidate_count = len(belief.get_candidates())
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it
     original_select = belief.select_max_information_gain
@@ -53,10 +57,26 @@ def test_sbed_candidate_thinning():
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 100
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 100
-    print(f"Thinned candidates count: {len(passed_candidates[0])}")
+    thinned = passed_candidates[0]
+
+    # Thinning must substantially reduce the dense raw epoch grid.
+    assert len(thinned) < raw_candidate_count
+
+    # Thinning guarantees a minimum physical spacing of candidate_step_hz, so the
+    # thinned count can never exceed the acquisition range divided by that step
+    # (+2 to account for the always-kept first/last candidates).
+    lo, hi = locator._acquisition_bounds()
+    max_expected = math.ceil((hi - lo) / locator.candidate_step_hz) + 2
+    assert len(thinned) <= max_expected
+
+    # Consecutive thinned candidates must respect the minimum spacing, except
+    # for the final gap: the very last candidate is always kept regardless of
+    # its distance from the previous one, to keep the full range represented.
+    spacings = np.diff(np.sort(thinned))
+    assert np.all(spacings[:-1] >= locator.candidate_step_hz - 1.0)
+
+    print(f"Raw candidates: {raw_candidate_count}, thinned candidates: {len(thinned)}")
 
 
 if __name__ == "__main__":
