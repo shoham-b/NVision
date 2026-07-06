@@ -197,9 +197,7 @@ class ShardedSqliteCache:
         conn.commit()
 
     def _ensure_graphs_table(self, conn: sqlite3.Connection) -> None:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS graphs (key TEXT PRIMARY KEY, data BLOB)"
-        )
+        conn.execute("CREATE TABLE IF NOT EXISTS graphs (key TEXT PRIMARY KEY, data BLOB)")
         conn.commit()
 
     def _get_index_conn(self) -> sqlite3.Connection:
