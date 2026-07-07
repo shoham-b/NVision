@@ -30,10 +30,14 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
+    # Initialize locator with a coarse candidate_step_hz so the thinned grid stays <= 100
+    # points over the 20 MHz acquisition range (the locator no longer takes a fixed
+    # n_candidates count -- candidates are generated densely from the domain range and
+    # then thinned down by candidate_step_hz).
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
+        candidate_step_hz=2.5e5,
     )
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it
