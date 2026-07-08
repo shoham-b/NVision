@@ -60,7 +60,14 @@ def test_unit_cube_estimates_are_physical_hz():
 
 @pytest.mark.slow
 @pytest.mark.timeout(120)
-def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
+def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal(monkeypatch):
+    # SequentialBayesianExperimentDesignLocator._acquire() draws from the global
+    # np.random state, and UnitCubeSMCMarginalDistribution seeds its own particle-nudge
+    # generator from OS entropy (np.random.default_rng()) rather than from `rng` below —
+    # pin both so this convergence-threshold assertion is reproducible across runs.
+    np.random.seed(11)
+    original_default_rng = np.random.default_rng
+    monkeypatch.setattr(np.random, "default_rng", lambda *a, **k: original_default_rng(11))
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
