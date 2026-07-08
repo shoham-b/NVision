@@ -390,15 +390,23 @@ def ensure_plot_manifest_non_empty(plot_manifest: list[dict[str, object]], log: 
 def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
     """Return a slimmed manifest entry — strips heavy/redundant fields, flattens coarse/fine."""
     # Binary blobs and plot data (already in .json.gz files)
-    _ALWAYS_DROP = frozenset({
-        "content", "content_bin", "plot_data", "_bytes",
-        # Redundant: all fields already exist at top-level
-        "metrics",
-        # Timing / logging — not used by UI
-        "duration_ms", "last_run",
-        # sobol detail fields — only sobol_baseline_steps is kept for comparison cards
-        "sobol_freq_steps", "sobol_freq_uncert_at_conv", "sobol_freq_err_at_conv",
-    })
+    _ALWAYS_DROP = frozenset(
+        {
+            "content",
+            "content_bin",
+            "plot_data",
+            "_bytes",
+            # Redundant: all fields already exist at top-level
+            "metrics",
+            # Timing / logging — not used by UI
+            "duration_ms",
+            "last_run",
+            # sobol detail fields — only sobol_baseline_steps is kept for comparison cards
+            "sobol_freq_steps",
+            "sobol_freq_uncert_at_conv",
+            "sobol_freq_err_at_conv",
+        }
+    )
 
     # Flatten coarse/fine measurements before dropping the nested dicts
     out: dict[str, object] = {}
