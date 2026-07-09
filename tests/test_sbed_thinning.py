@@ -30,7 +30,6 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
@@ -53,10 +52,22 @@ def test_sbed_candidate_thinning():
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 100
+    # Thinning enforces a minimum spacing of candidate_step_hz between consecutive
+    # candidates, so the thinned count is bounded by the frequency span divided by
+    # that step (+2 for the unconditionally-kept first/last candidates).
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 100
-    print(f"Thinned candidates count: {len(passed_candidates[0])}")
+    thinned = passed_candidates[0]
+    lo, hi = phys_bounds["frequency"]
+    max_expected = int(np.ceil((hi - lo) / locator.candidate_step_hz)) + 2
+    assert len(thinned) <= max_expected, f"Expected at most {max_expected} candidates, got {len(thinned)}"
+    # Thinning must actually reduce the dense epoch grid, not just pass it through.
+    raw_candidates = belief.get_candidates()
+    assert len(thinned) < len(raw_candidates)
+    # Consecutive thinned candidates (aside from the last, unconditionally-kept one)
+    # must respect the minimum spacing.
+    spacings = np.diff(np.sort(thinned))
+    assert np.all(spacings[:-1] >= locator.candidate_step_hz - 1.0)
+    print(f"Thinned candidates count: {len(thinned)} (raw: {len(raw_candidates)}, max expected: {max_expected})")
 
 
 if __name__ == "__main__":

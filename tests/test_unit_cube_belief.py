@@ -60,7 +60,15 @@ def test_unit_cube_estimates_are_physical_hz():
 
 @pytest.mark.slow
 @pytest.mark.timeout(120)
-def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
+def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal(monkeypatch):
+    # The SBED locator's acquisition (exploration/dip-jitter/Thompson-sampling
+    # branches) draws from the global numpy RNG, and UnitCubeSMCMarginalDistribution
+    # seeds its own internal `_rng` from OS entropy on every construction/copy. Pin
+    # both so this test is deterministic instead of flaking around the threshold.
+    np.random.seed(11)
+    shared_rng = np.random.default_rng(11)
+    monkeypatch.setattr(np.random, "default_rng", lambda *args, **kwargs: shared_rng)
+
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
