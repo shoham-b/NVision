@@ -308,6 +308,38 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if sync_x:
             self.physical_x_bounds = (nl, nh)
 
+    def _observed_dip_shoulder_bounds(self, lo_phys: float, hi_phys: float) -> tuple[float, float] | None:
+        """Window spanning the observed dip shoulder(s), read directly off the raw observations.
+
+        Independent of the particle posterior: points measured well below the
+        empirical background are treated as "inside a dip", and the returned
+        window is the union of their physical extent (multiple nearby dips
+        collapse into one span since the physical window is a single interval).
+        Returns ``None`` when there are too few observations, or none qualify.
+        """
+        if self._obs_count < 5:
+            return None
+        obs_xs_unit, obs_ys = self.observation_arrays()
+        freq_rescale = self._rescale_maps["frequency"]
+        obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
+
+        in_range = (obs_xs_phys >= lo_phys) & (obs_xs_phys <= hi_phys)
+        xs = obs_xs_phys[in_range]
+        ys = obs_ys[in_range]
+        if len(xs) < 5:
+            return None
+
+        background = float(np.percentile(ys, 70))
+        depth = background - float(np.min(ys))
+        if depth <= 0:
+            return None
+        threshold = background - 0.2 * depth
+        in_dip = ys < threshold
+        if not np.any(in_dip):
+            return None
+
+        return float(np.min(xs[in_dip])), float(np.max(xs[in_dip]))
+
     def _resample(self) -> None:
         """Perform systematic resampling and automatically narrow the frequency bounds.
 
@@ -399,42 +431,52 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
             return
 
-        # --- Unified Active-Range Union Focusing (Zero Fallbacks) -----------
-        # Compute believed active frequency range for each particle i:
-        # [left_i, right_i] = [f_i - split_i - k * omega_i, f_i + split_i + k * omega_i]
-        j_freq = self._param_names.index(scan_param)
-        u_freq = self._particles[:, j_freq]
-        freq_phys = lo_phys + u_freq * cur_width
+        # --- Shoulder-Based Focusing (observation-driven) --------------------
+        # Prefer narrowing directly to the observed dip shoulder(s) when we have
+        # enough raw measurements: this reacts to the actual measured dip extent
+        # instead of a fixed cover_factor * linewidth buffer around the particle
+        # estimate, which can be far wider than the true feature.
+        shoulder_bounds = self._observed_dip_shoulder_bounds(lo_phys, hi_phys)
 
-        if "split" in self._param_names:
-            j_split = self._param_names.index("split")
-            u_split = self._particles[:, j_split]
-            lo_s, hi_s = self.physical_param_bounds["split"]
-            split_phys = lo_s + u_split * (hi_s - lo_s)
+        if shoulder_bounds is not None:
+            new_lo, new_hi = shoulder_bounds
         else:
-            split_phys = np.zeros_like(freq_phys)
+            # --- Unified Active-Range Union Focusing (Zero Fallbacks) -------
+            # Compute believed active frequency range for each particle i:
+            # [left_i, right_i] = [f_i - split_i - k * omega_i, f_i + split_i + k * omega_i]
+            j_freq = self._param_names.index(scan_param)
+            u_freq = self._particles[:, j_freq]
+            freq_phys = lo_phys + u_freq * cur_width
 
-        if "linewidth" in self._param_names:
-            j_line = self._param_names.index("linewidth")
-            u_line = self._particles[:, j_line]
-            lo_l, hi_l = self.physical_param_bounds["linewidth"]
-            linewidth_phys = lo_l + u_line * (hi_l - lo_l)
-        elif "fwhm_total" in self._param_names:
-            j_fwhm = self._param_names.index("fwhm_total")
-            u_fwhm = self._particles[:, j_fwhm]
-            lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
-            linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
-        else:
-            linewidth_phys = np.full_like(freq_phys, 2.0e6)
+            if "split" in self._param_names:
+                j_split = self._param_names.index("split")
+                u_split = self._particles[:, j_split]
+                lo_s, hi_s = self.physical_param_bounds["split"]
+                split_phys = lo_s + u_split * (hi_s - lo_s)
+            else:
+                split_phys = np.zeros_like(freq_phys)
 
-        cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
-        tail_percentile = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))
+            if "linewidth" in self._param_names:
+                j_line = self._param_names.index("linewidth")
+                u_line = self._particles[:, j_line]
+                lo_l, hi_l = self.physical_param_bounds["linewidth"]
+                linewidth_phys = lo_l + u_line * (hi_l - lo_l)
+            elif "fwhm_total" in self._param_names:
+                j_fwhm = self._param_names.index("fwhm_total")
+                u_fwhm = self._particles[:, j_fwhm]
+                lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
+                linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
+            else:
+                linewidth_phys = np.full_like(freq_phys, 2.0e6)
 
-        left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
-        right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
+            cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+            tail_percentile = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))
 
-        new_lo = float(np.percentile(left_phys, tail_percentile))
-        new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
+            left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
+            right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
+
+            new_lo = float(np.percentile(left_phys, tail_percentile))
+            new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
 
         lo_orig, hi_orig = self._original_physical_x_bounds
         new_lo = max(new_lo, lo_orig)

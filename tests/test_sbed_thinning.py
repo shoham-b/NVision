@@ -30,10 +30,15 @@ def test_sbed_candidate_thinning():
         physical_x_bounds=x_bounds,
     )
 
-    # Initialize locator with custom n_candidates = 100
+    # Initialize locator with a candidate spacing equivalent to the old
+    # n_candidates = 100 cap (candidate_step_hz replaced n_candidates as the
+    # thinning knob): step = domain_width / (n_candidates - 1).
+    freq_lo, freq_hi = phys_bounds["frequency"]
+    candidate_step_hz = (freq_hi - freq_lo) / 99
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
+        candidate_step_hz=candidate_step_hz,
     )
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it

@@ -61,6 +61,9 @@ def test_focus_window_automatic_narrowing_during_resampling():
     automatically triggers narrowing of the physical bounds and remapping of the particles.
     """
     smc = _make_smc()
+    # Narrowing is gated behind NVISION_MIN_STEPS_BEFORE_NARROWING (default 8)
+    # to avoid focusing before enough measurements resolve hyperfine ambiguity.
+    smc._step_count = 8
 
     f_idx = 0
     smc._particles[:, f_idx] = np.random.normal(loc=0.5, scale=1e-5, size=1000)
@@ -84,6 +87,8 @@ def test_shoulder_based_narrowing_single_dip():
     """Window should shrink to span just the observed dip shoulders, not a fixed linewidth buffer."""
     freq_lo, freq_hi = 2.7e9, 2.8e9
     smc = _make_smc(freq_lo, freq_hi)
+    # Narrowing is gated behind NVISION_MIN_STEPS_BEFORE_NARROWING (default 8).
+    smc._step_count = 8
 
     bg = 1.0
     dip_center = 2.75e9
@@ -122,6 +127,8 @@ def test_shoulder_based_narrowing_connected_dips():
     """Two adjacent dips with no clear recovery between them are treated as one span."""
     freq_lo, freq_hi = 2.7e9, 2.8e9
     smc = _make_smc(freq_lo, freq_hi)
+    # Narrowing is gated behind NVISION_MIN_STEPS_BEFORE_NARROWING (default 8).
+    smc._step_count = 8
 
     bg = 1.0
     dip_a = 2.74e9
