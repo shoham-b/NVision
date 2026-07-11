@@ -275,6 +275,7 @@ def _load_one_combo(
             # Restore only repeats with files missing — in parallel per repeat
             missing = [(idx, me) for idx, (me, _) in enumerate(meta_results) if _any_file_missing(me, out_dir)]
             if missing:
+
                 def _restore_one(idx_and_entries):
                     idx, meta_entries = idx_and_entries
                     full = cache._repeats.load_repeat(key, idx)

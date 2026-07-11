@@ -282,10 +282,10 @@ def nv_center_zeeman_lorentzian_eval(
     p_R = 0.5 * c_total * k / p_sum
 
     x_m = x_dim + beta  # (x − (freq − zeeman_split)) / omega
-    left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+    left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
 
     x_p = x_dim - beta  # (x − (freq + zeeman_split)) / omega
-    right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+    right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
 
     return background - (left + right)
 
@@ -327,10 +327,10 @@ def nv_center_zeeman_lorentzian_vectorized_one_serial(
         p_R = 0.5 * c * k_safe / p_sum
 
         x_m = x_dim + beta
-        left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+        left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
 
         x_p = x_dim - beta
-        right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+        right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
 
         out[j] = bg - (left + right)
 
@@ -387,10 +387,10 @@ def nv_center_zeeman_lorentzian_vectorized_many(
             p_r = p_r_arr[j]
 
             x_m = x_dim + beta
-            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
+            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
             x_p = x_dim - beta
-            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
+            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
 
             out[i, j] = background[j] - (left + right)
 
@@ -447,10 +447,10 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
             p_r = p_r_arr[j]
 
             x_m = x_dim + beta
-            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
+            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
             x_p = x_dim - beta
-            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
+            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
 
             out[i, j] = background[j] - (left + right)
 

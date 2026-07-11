@@ -49,16 +49,18 @@ class CacheBridge:
                     achieved = int(data[0].get("achieved_repeats", 0))
                     if achieved <= 0:
                         continue
-                    results.append({
-                        "generator": config["generator"],
-                        "noise": config["noise"],
-                        "strategy": config["strategy"],
-                        "repeats": achieved,
-                        "seed": config["seed"],
-                        "max_steps": config["max_steps"],
-                        "timeout_s": config["timeout_s"],
-                        "repeat_offset": int(config.get("repeat_offset", 0)),
-                    })
+                    results.append(
+                        {
+                            "generator": config["generator"],
+                            "noise": config["noise"],
+                            "strategy": config["strategy"],
+                            "repeats": achieved,
+                            "seed": config["seed"],
+                            "max_steps": config["max_steps"],
+                            "timeout_s": config["timeout_s"],
+                            "repeat_offset": int(config.get("repeat_offset", 0)),
+                        }
+                    )
                 except Exception:
                     continue
         return results
