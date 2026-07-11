@@ -181,22 +181,19 @@ def _fmt_sigma_inhom(hz: float) -> str:
     return f"si{hz / 1e6:.2f}MHz"
 
 
-def _fmt_lorentz_frac(frac: float) -> str:
-    return f"lf{frac:.2f}"
-
-
-def voigt_lorentz_frac_param_grid_generators() -> list[tuple[str, object]]:
-    """Full width x contrast x lorentz_frac Cartesian grid of named plain-Voigt generators.
+def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
+    """Full width x contrast x sigma_inhom Cartesian grid of named plain-Voigt generators.
 
     Unlike :func:`param_grid_generators` (variant="voigt"), which sweeps only
-    width x contrast and leaves the Lorentzian/Gaussian mixing ratio either
-    fixed or randomized per repeat, this grid makes ``lorentz_frac`` (the
-    Lorentzian share of the total FWHM -- see
-    :data:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator.lorentz_frac`)
-    an explicit, selectable third axis, so the UI can offer the same
-    width/contrast/inhomogeneous-broadening selection that
-    :func:`saturation_voigt_param_grid_generators` offers for the
-    saturation-Voigt lineshape.
+    width x contrast and leaves the inhomogeneous (Gaussian) broadening either
+    fixed or randomized per repeat, this grid makes ``sigma_inhom`` (the same
+    physical Hz-scale inhomogeneous width :func:`saturation_voigt_param_grid_generators`
+    sweeps) an explicit, selectable third axis -- converted internally to the
+    voigt variant's ``lorentz_frac`` via ``linewidth`` (see
+    :class:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator`).
+    Reuses the same ``NVISION_SBED_SIGMA_INHOM_*`` range as the saturation-Voigt
+    grid so the two lineshapes' inhomogeneous-broadening axis is directly
+    comparable.
     """
     import numpy as np
 
@@ -204,9 +201,9 @@ def voigt_lorentz_frac_param_grid_generators() -> list[tuple[str, object]]:
         NVISION_SBED_CONTRAST_MAX,
         NVISION_SBED_CONTRAST_MIN,
         NVISION_SBED_CONTRAST_STEPS,
-        NVISION_SBED_LORENTZ_FRAC_MAX,
-        NVISION_SBED_LORENTZ_FRAC_MIN,
-        NVISION_SBED_LORENTZ_FRAC_STEPS,
+        NVISION_SBED_SIGMA_INHOM_MAX,
+        NVISION_SBED_SIGMA_INHOM_MIN,
+        NVISION_SBED_SIGMA_INHOM_STEPS,
         NVISION_SBED_WIDTH_MAX,
         NVISION_SBED_WIDTH_MIN,
         NVISION_SBED_WIDTH_STEPS,
@@ -214,18 +211,18 @@ def voigt_lorentz_frac_param_grid_generators() -> list[tuple[str, object]]:
 
     widths = np.linspace(NVISION_SBED_WIDTH_MIN, NVISION_SBED_WIDTH_MAX, NVISION_SBED_WIDTH_STEPS)
     contrasts = np.linspace(NVISION_SBED_CONTRAST_MIN, NVISION_SBED_CONTRAST_MAX, NVISION_SBED_CONTRAST_STEPS)
-    lorentz_fracs = np.linspace(
-        NVISION_SBED_LORENTZ_FRAC_MIN, NVISION_SBED_LORENTZ_FRAC_MAX, NVISION_SBED_LORENTZ_FRAC_STEPS
+    sigma_inhoms = np.linspace(
+        NVISION_SBED_SIGMA_INHOM_MIN, NVISION_SBED_SIGMA_INHOM_MAX, NVISION_SBED_SIGMA_INHOM_STEPS
     )
 
     generators: list[tuple[str, object]] = []
     for width in widths:
         for contrast in contrasts:
-            for lorentz_frac in lorentz_fracs:
-                width, contrast, lorentz_frac = float(width), float(contrast), float(lorentz_frac)
+            for sigma_inhom in sigma_inhoms:
+                width, contrast, sigma_inhom = float(width), float(contrast), float(sigma_inhom)
                 name = (
                     f"NVCenter-voigt-{_fmt_width(width)}-{_fmt_contrast(contrast)}"
-                    f"-{_fmt_lorentz_frac(lorentz_frac)}"
+                    f"-{_fmt_sigma_inhom(sigma_inhom)}"
                 )
                 generators.append(
                     (
@@ -236,7 +233,7 @@ def voigt_lorentz_frac_param_grid_generators() -> list[tuple[str, object]]:
                             variant="voigt",
                             linewidth=width,
                             c_total=contrast,
-                            lorentz_frac=lorentz_frac,
+                            sigma_inhom=sigma_inhom,
                         ),
                     )
                 )

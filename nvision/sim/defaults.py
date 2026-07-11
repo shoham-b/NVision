@@ -190,15 +190,10 @@ NVISION_SBED_SIGMA_INHOM_STEPS: int = int(os.getenv("NVISION_SBED_SIGMA_INHOM_ST
 # default so the two can never drift apart.
 NVISION_SBED_C_MAX: float = float(os.getenv("NVISION_SBED_C_MAX", "0.5"))
 
-# Width x contrast x lorentz_frac grid for the plain Voigt lineshape (see
-# sim.presets.voigt_lorentz_frac_param_grid_generators()). lorentz_frac is the
-# Lorentzian share of the total FWHM (1.0 = pure Lorentzian, no inhomogeneous/
-# Gaussian broadening; lower = more Gaussian). Bounds mirror the three fixed
-# presets already used by generators_basic() (inhom-0=1.0, inhom-low=0.85,
-# inhom-high=0.55), just made into a continuous, gridded axis.
-NVISION_SBED_LORENTZ_FRAC_MIN: float = float(os.getenv("NVISION_SBED_LORENTZ_FRAC_MIN", "0.55"))
-NVISION_SBED_LORENTZ_FRAC_MAX: float = float(os.getenv("NVISION_SBED_LORENTZ_FRAC_MAX", "1.0"))
-NVISION_SBED_LORENTZ_FRAC_STEPS: int = int(os.getenv("NVISION_SBED_LORENTZ_FRAC_STEPS", "3"))
+# NVISION_SBED_SIGMA_INHOM_MIN/MAX/STEPS (above) is also reused by
+# sim.presets.voigt_sigma_inhom_param_grid_generators() for the plain-Voigt
+# width x contrast x sigma_inhom grid, so the inhomogeneous-broadening axis is
+# directly comparable between the voigt and saturation_voigt lineshape studies.
 
 # Noise is swept the same way as width/contrast above — its own dedicated range,
 # independent of the generic NVISION_NOISE_MAX_GAUSS/NVISION_NOISE_GAUSS_STEPS

@@ -151,9 +151,9 @@ def _group_voigt_sweep_only() -> RunGroup:
 
 
 def _voigt_inhom_param_grid() -> dict[str, object]:
-    """Width x contrast x lorentz_frac grid (plain Voigt, inhomogeneous broadening
+    """Width x contrast x sigma_inhom grid (plain Voigt, inhomogeneous broadening
     as an explicit axis) for the voigt-inhom run-groups below."""
-    return dict(sim_presets.voigt_lorentz_frac_param_grid_generators())
+    return dict(sim_presets.voigt_sigma_inhom_param_grid_generators())
 
 
 def _group_voigt_inhom_sbed() -> RunGroup:
@@ -161,7 +161,7 @@ def _group_voigt_inhom_sbed() -> RunGroup:
     return RunGroup(
         name="voigt-inhom-sbed",
         description=(
-            "Width x contrast x lorentz_frac x noise grid (plain Voigt, "
+            "Width x contrast x sigma_inhom x noise grid (plain Voigt, "
             "inhomogeneous/Gaussian broadening selectable) for "
             "Bayesian-SBED/SimpleSobol/SimpleSweep."
         ),
@@ -177,7 +177,7 @@ def _group_voigt_inhom_sbed_only() -> RunGroup:
     return RunGroup(
         name="voigt-inhom-sbed-only",
         description=(
-            "Width x contrast x lorentz_frac x noise grid (plain Voigt, "
+            "Width x contrast x sigma_inhom x noise grid (plain Voigt, "
             "inhomogeneous/Gaussian broadening selectable) for "
             "Bayesian-SBED only (no sweep/sobol baselines)."
         ),
@@ -193,7 +193,7 @@ def _group_voigt_inhom_sweep_only() -> RunGroup:
     return RunGroup(
         name="voigt-inhom-sweep-only",
         description=(
-            "Width x contrast x lorentz_frac x noise grid (plain Voigt, "
+            "Width x contrast x sigma_inhom x noise grid (plain Voigt, "
             "inhomogeneous/Gaussian broadening selectable) for "
             "SimpleSweep only (no SBED/Sobol baselines)."
         ),

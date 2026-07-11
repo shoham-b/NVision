@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 
@@ -41,6 +42,10 @@ from nvision.spectra.nv_center import (
 
 from .peak_spec import _true_signal_from_typed
 
+# Gaussian FWHM = 2*sqrt(2 ln2)*sigma; used to convert a physical sigma_inhom
+# (Hz) into the voigt variant's lorentz_frac ratio.
+_VOIGT_SQRT2LOG2 = math.sqrt(2.0 * math.log(2.0))
+
 
 @dataclass
 class NVCenterCoreGenerator:
@@ -64,7 +69,7 @@ class NVCenterCoreGenerator:
     c_total: float | None = None  # if set, fix contrast instead of randomizing (lorentzian, voigt)
     lorentz_frac: float | None = None  # if set, fix Lorentzian share of broadening instead of randomizing (voigt only); 1.0 = pure Lorentzian (no inhomogeneous/Gaussian broadening)
     saturation: float | None = None  # if set, fix drive saturation (homogeneous channel; saturation_voigt only)
-    sigma_inhom: float | None = None  # if set, fix inhomogeneous width, Hz (saturation_voigt only)
+    sigma_inhom: float | None = None  # if set, fix inhomogeneous width, Hz (saturation_voigt; also voigt, converted to lorentz_frac via linewidth -- ignored if lorentz_frac is also set)
     # c_max (saturated contrast scale) is not a per-generator field: it's a fixed
     # physical constant (NV_SATURATION_C_MAX in nv_center.py), not something that
     # varies between repeats or studies.
@@ -283,7 +288,19 @@ class NVCenterCoreGenerator:
             bounds["_priors"] = priors
         else:  # voigt — always uses split and k_np; zeeman_split too when enabled
             voigt_k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
-            if self.lorentz_frac is not None:
+            if self.sigma_inhom is not None:
+                # Convert the physical inhomogeneous (Gaussian) width directly to the
+                # Lorentzian-share ratio the model actually uses: fwhm_gauss =
+                # 2*sqrt(2 ln2)*sigma_inhom, fwhm_lorentz = 2*linewidth (this branch's
+                # HWHM), so lorentz_ratio = fwhm_gauss/fwhm_lorentz =
+                # sqrt(2 ln2)*sigma_inhom/linewidth. Same physical sigma_inhom as
+                # saturation_voigt, just expressed here relative to linewidth instead
+                # of being paired with a separately-solved saturation.
+                lorentz_ratio = (
+                    _VOIGT_SQRT2LOG2 * self.sigma_inhom / linewidth if linewidth > 0 else 0.0
+                )
+                lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
+            elif self.lorentz_frac is not None:
                 lorentz_frac = self.lorentz_frac
                 lorentz_ratio = 1.0 / lorentz_frac - 1.0  # fwhm_gauss / fwhm_lorentz
             else:

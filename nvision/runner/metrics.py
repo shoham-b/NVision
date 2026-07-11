@@ -244,10 +244,15 @@ def generate_attempt_metrics(  # noqa: C901
             metrics_serialized["final_est_realized_contrast"] = _maybe_finite(estimate["c_total"])
 
     # Grid-study coordinates: signal params held fixed by the generator (null = randomized
-    # per repeat). Gives summary plots numeric axes instead of opaque generator names.
+    # per repeat). Gives summary plots numeric axes instead of opaque generator names, and
+    # lets the UI build its width/contrast/sigma_inhom/... facet selectors from these
+    # structured values instead of parsing them back out of the generator name string.
     for grid_field in ("saturation", "sigma_inhom", "linewidth", "c_total"):
         val = getattr(generator_obj, grid_field, None)
         metrics_serialized[f"grid_{grid_field}"] = _maybe_finite(val) if val is not None else None
+    # Lineshape variant ("lorentzian", "voigt", "saturation_voigt", ...) -- a string, so
+    # kept separate from the numeric grid_* loop above.
+    metrics_serialized["grid_variant"] = getattr(generator_obj, "variant", None)
 
     # Numeric noise level for trend-vs-noise analysis (None for non-Gauss noises).
     from nvision.sim.combinations import parse_gauss_sigma
