@@ -23,6 +23,11 @@ NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEP
 NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "0.32"))
 NVISION_SOBOL_STEPS_FRACTION: float = float(os.getenv("NVISION_SOBOL_STEPS_FRACTION", "0.5"))
 
+# Actual step count SimpleSweep itself runs with. Kept independent of the
+# domain/min_linewidth figure (e.g. ~2500) that SBED/Sobol fractions are still
+# computed against — only SimpleSweep's own budget is capped here.
+NVISION_SIMPLESWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SIMPLESWEEP_MAX_STEPS", "400"))
+
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 NVISION_DIP_N_SIGMA: float = float(os.getenv("NVISION_DIP_N_SIGMA", "3.0"))
@@ -80,10 +85,12 @@ NVISION_MIN_K_NP: float = float(os.getenv("NVISION_MIN_K_NP", "1.0"))
 NVISION_MAX_K_NP: float = float(os.getenv("NVISION_MAX_K_NP", "5.0"))
 NVISION_MIN_LINEWIDTH: float = float(os.getenv("NVISION_MIN_LINEWIDTH", "200e3"))
 NVISION_MAX_LINEWIDTH: float = float(os.getenv("NVISION_MAX_LINEWIDTH", "5.0e6"))
-NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "3.0e6"))
+NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "2.0e6"))
 NVISION_MAX_SPLIT: float = float(os.getenv("NVISION_MAX_SPLIT", "8.5e6"))
-NVISION_NV_CENTER_FREQ_X_MIN: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_MIN", "2.6e9"))
-NVISION_NV_CENTER_FREQ_X_MAX: float = float(os.getenv("NVISION_NV_CENTER_FREQ_X_MAX", "3.1e9"))
+# NV center frequency domain is configured via NVISION_NV_ZERO_FIELD_SPLITTING_HZ /
+# NVISION_NV_CENTER_FREQ_DELTA_HZ, read directly in nvision/spectra/nv_center.py
+# (DEFAULT_NV_CENTER_FREQ_X_MIN/MAX) so x_min/x_max always stay symmetric around
+# the physical zero-field center and can't drift out of sync.
 # --- Convergence Defaults ----------------------------------------------------
 
 # Default relative convergence threshold (fraction of parameter bound width; 0.01 = 1%).
@@ -134,6 +141,78 @@ def _optional_env_float(name: str) -> float | None:
     if raw is None or raw.strip() == "":
         return None
     return float(raw)
+
+
+# --- Signal Parameter Fixing / Sweeping (nv_center_generator.py, presets.py) --
+
+# Fixed linewidth (HWHM, Hz) / contrast (c_total). None = randomize as before.
+NVISION_SIGNAL_LINEWIDTH: float | None = _optional_env_float("NVISION_SIGNAL_LINEWIDTH")
+NVISION_SIGNAL_CONTRAST: float | None = _optional_env_float("NVISION_SIGNAL_CONTRAST")
+
+# When set to "width" or "contrast", generators_basic() sweeps that parameter over
+# NVISION_SIGNAL_SWEEP_STEPS values in [NVISION_SIGNAL_SWEEP_MIN, NVISION_SIGNAL_SWEEP_MAX],
+# holding the other signal parameter fixed at its NVISION_SIGNAL_* value (or randomizing it
+# per repeat if unset). "noise" or None disables signal-parameter sweeping.
+NVISION_SIGNAL_SWEEP_PARAM: str | None = os.getenv("NVISION_SIGNAL_SWEEP_PARAM") or None
+NVISION_SIGNAL_SWEEP_MIN: float | None = _optional_env_float("NVISION_SIGNAL_SWEEP_MIN")
+NVISION_SIGNAL_SWEEP_MAX: float | None = _optional_env_float("NVISION_SIGNAL_SWEEP_MAX")
+NVISION_SIGNAL_SWEEP_STEPS: int = int(os.getenv("NVISION_SIGNAL_SWEEP_STEPS", "5"))
+
+# Width x contrast grid for the (lorentzian) NVCenterCoreGenerator — used by
+# sim.presets.param_grid_generators(). Not the SBED run-groups' default anymore
+# (see the saturation-Voigt grid below); kept for direct/manual lorentzian studies.
+NVISION_SBED_WIDTH_MIN: float = float(os.getenv("NVISION_SBED_WIDTH_MIN", "5e5"))
+NVISION_SBED_WIDTH_MAX: float = float(os.getenv("NVISION_SBED_WIDTH_MAX", "5e6"))
+NVISION_SBED_WIDTH_STEPS: int = int(os.getenv("NVISION_SBED_WIDTH_STEPS", "5"))
+NVISION_SBED_CONTRAST_MIN: float = float(os.getenv("NVISION_SBED_CONTRAST_MIN", "0.1"))
+NVISION_SBED_CONTRAST_MAX: float = float(os.getenv("NVISION_SBED_CONTRAST_MAX", "0.4"))
+NVISION_SBED_CONTRAST_STEPS: int = int(os.getenv("NVISION_SBED_CONTRAST_STEPS", "5"))
+
+# Default grid for the SBED run-groups (lorentzian-sbed and variants) in
+# run_groups.py: saturation-Voigt lineshape, swept over target contrast (the
+# same NVISION_SBED_CONTRAST_* range as the lorentzian/voigt width x contrast
+# grids above, for direct cross-lineshape comparability) and sigma_inhom
+# (independent inhomogeneous/Gaussian width). saturation is *solved* per grid
+# point from the target contrast via C = c_max*s/(1+s) => s = C/(c_max-C) --
+# see saturation_voigt_param_grid_generators() in presets.py. c_max is held
+# fixed, comfortably above NVISION_SBED_CONTRAST_MAX (contrast can only
+# approach c_max asymptotically, never reach it) so the solved saturation
+# stays moderate (0.25-4.0 across the default contrast range, well inside the
+# model's own 0.02-30 prior bounds). A previous design swept saturation
+# linearly instead; since s/(1+s) saturates fast, most of that grid barely
+# moved contrast at all, while sweeping contrast directly makes every point
+# move the signal by an equal, intended amount.
+NVISION_SBED_SIGMA_INHOM_MIN: float = float(os.getenv("NVISION_SBED_SIGMA_INHOM_MIN", "0.0"))
+NVISION_SBED_SIGMA_INHOM_MAX: float = float(os.getenv("NVISION_SBED_SIGMA_INHOM_MAX", "1.2e6"))
+NVISION_SBED_SIGMA_INHOM_STEPS: int = int(os.getenv("NVISION_SBED_SIGMA_INHOM_STEPS", "5"))
+# Must equal nvision.spectra.nv_center.NV_SATURATION_C_MAX (the model's fixed,
+# non-inferred saturated-contrast constant) -- reads the identical env var/
+# default so the two can never drift apart.
+NVISION_SBED_C_MAX: float = float(os.getenv("NVISION_SBED_C_MAX", "0.5"))
+
+# Width x contrast x lorentz_frac grid for the plain Voigt lineshape (see
+# sim.presets.voigt_lorentz_frac_param_grid_generators()). lorentz_frac is the
+# Lorentzian share of the total FWHM (1.0 = pure Lorentzian, no inhomogeneous/
+# Gaussian broadening; lower = more Gaussian). Bounds mirror the three fixed
+# presets already used by generators_basic() (inhom-0=1.0, inhom-low=0.85,
+# inhom-high=0.55), just made into a continuous, gridded axis.
+NVISION_SBED_LORENTZ_FRAC_MIN: float = float(os.getenv("NVISION_SBED_LORENTZ_FRAC_MIN", "0.55"))
+NVISION_SBED_LORENTZ_FRAC_MAX: float = float(os.getenv("NVISION_SBED_LORENTZ_FRAC_MAX", "1.0"))
+NVISION_SBED_LORENTZ_FRAC_STEPS: int = int(os.getenv("NVISION_SBED_LORENTZ_FRAC_STEPS", "3"))
+
+# Noise is swept the same way as width/contrast above — its own dedicated range,
+# independent of the generic NVISION_NOISE_MAX_GAUSS/NVISION_NOISE_GAUSS_STEPS
+# (which are shared by every other run path, e.g. `nvision run` without a group,
+# and often tuned via .env for unrelated purposes).
+NVISION_SBED_NOISE_MIN: float = float(os.getenv("NVISION_SBED_NOISE_MIN", "0.0"))
+# Capped at 0.01: the lowest contrast any grid point targets is
+# NVISION_SBED_CONTRAST_MIN (0.1 default, shared across all three lineshape study
+# grids -- see above), so a noise ceiling of 0.1 would leave the worst grid point
+# at SNR ~= 1 (undetectable in practice). 0.01 keeps SNR >= ~10 even there.
+NVISION_SBED_NOISE_MAX: float = float(os.getenv("NVISION_SBED_NOISE_MAX", "0.01"))
+# Denser than the minimum needed, so metrics-vs-noise plots show a clear trend
+# as noise grows across the feasible range rather than just a few points.
+NVISION_SBED_NOISE_STEPS: int = int(os.getenv("NVISION_SBED_NOISE_STEPS", "6"))
 
 
 def _param_absolute_convergence_thresholds() -> dict[str, float]:

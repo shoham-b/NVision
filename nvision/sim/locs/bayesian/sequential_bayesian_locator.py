@@ -31,6 +31,76 @@ load_dotenv()
 # gives the filter a gentler, more robust initial update.
 _WARMUP_BUFFER_SIZE: int = int(os.getenv("NVISION_BAYESIAN_WARMUP_STEPS", "5"))
 
+# Raw saturation-Voigt parameters whose convergence is gated via the derived
+# effective-HWHM / realized-contrast quantities instead of per-param thresholds.
+# c_max is not included: it's a fixed constant (NV_SATURATION_C_MAX), not an
+# inferred/estimated parameter, so it has no posterior uncertainty to gate on.
+_SATURATION_VOIGT_RAW_PARAMS: tuple[str, ...] = ("saturation", "sigma_inhom")
+
+
+def saturation_voigt_derived_sigmas(
+    estimates: Mapping[str, float], sigmas: Mapping[str, float]
+) -> dict[str, float] | None:
+    """Propagate raw saturation-Voigt per-param sigma-like values onto derived quantities.
+
+    Maps ``sigmas`` entries (posterior uncertainties or CRLBs — both propagate the same
+    way through the local linear Jacobian at *estimates*) for
+    (``saturation``, ``sigma_inhom``) onto the derived effective-HWHM
+    (keyed ``"linewidth"``) and realized-contrast (keyed ``"c_total"``) sigmas, so
+    convergence semantics match the Lorentzian model's linewidth/c_total thresholds
+    across lineshapes. The raw relative thresholds are physically inconsistent along
+    the saturation axis (width scales as sqrt(1+s)), which is why derived gating is
+    used instead. ``c_max`` is a fixed constant (:data:`~nvision.spectra.nv_center.
+    NV_SATURATION_C_MAX`), so its contribution to ``sigma_c`` is exactly zero.
+
+    Returns ``None`` unless the model exposes the saturation-Voigt parameter set.
+    """
+    if not all(k in estimates for k in _SATURATION_VOIGT_RAW_PARAMS):
+        return None
+    if "saturation" not in sigmas or "sigma_inhom" not in sigmas:
+        return None
+    from nvision.spectra.nv_center import (
+        NV_SATURATION_C_MAX,
+        saturation_voigt_effective_hwhm_and_unc,
+        saturation_voigt_realized_contrast_and_unc,
+    )
+
+    s = float(estimates["saturation"])
+    sigma_inhom = float(estimates["sigma_inhom"])
+    _, sigma_omega = saturation_voigt_effective_hwhm_and_unc(
+        s, sigma_inhom, float(sigmas["saturation"]), float(sigmas["sigma_inhom"])
+    )
+    _, sigma_c = saturation_voigt_realized_contrast_and_unc(
+        s, NV_SATURATION_C_MAX, float(sigmas["saturation"]), 0.0
+    )
+    return {"linewidth": sigma_omega, "c_total": sigma_c}
+
+
+def saturation_voigt_derived_bounds(
+    phys_bounds: Mapping[str, tuple[float, float]],
+) -> dict[str, tuple[float, float]]:
+    """Effective-HWHM / realized-contrast ranges implied by the raw parameter bounds.
+
+    ``omega`` and ``C`` are monotone increasing in each of their inputs, so the range
+    endpoints map directly. Used as the bound width for relative-threshold convergence
+    of the derived quantities (keys match :func:`saturation_voigt_derived_sigmas`).
+    ``c_max`` is the fixed :data:`~nvision.spectra.nv_center.NV_SATURATION_C_MAX`
+    constant at both ends (it has no range — it isn't inferred).
+    """
+    from nvision.spectra.nv_center import (
+        NV_SATURATION_C_MAX,
+        saturation_voigt_effective_hwhm_and_unc,
+        saturation_voigt_realized_contrast_and_unc,
+    )
+
+    s_lo, s_hi = phys_bounds.get("saturation", (0.0, 0.0))
+    si_lo, si_hi = phys_bounds.get("sigma_inhom", (0.0, 0.0))
+    omega_lo, _ = saturation_voigt_effective_hwhm_and_unc(s_lo, si_lo)
+    omega_hi, _ = saturation_voigt_effective_hwhm_and_unc(s_hi, si_hi)
+    c_lo, _ = saturation_voigt_realized_contrast_and_unc(s_lo, NV_SATURATION_C_MAX)
+    c_hi, _ = saturation_voigt_realized_contrast_and_unc(s_hi, NV_SATURATION_C_MAX)
+    return {"linewidth": (omega_lo, omega_hi), "c_total": (c_lo, c_hi)}
+
 
 class SequentialBayesianLocator(Locator):
     """Shared Bayesian loop infrastructure for all acquisition strategies.
@@ -319,11 +389,26 @@ class SequentialBayesianLocator(Locator):
             physical_uncertainties = self.belief.uncertainty()
         bounds = self.belief.physical_param_bounds
 
+        # Saturation-Voigt: gate via derived effective-HWHM / realized-contrast instead
+        # of the raw (saturation, sigma_inhom) params, whose relative thresholds are
+        # physically inconsistent along the saturation axis.
+        derived_sigmas: dict[str, float] | None = None
+        if "saturation" in physical_uncertainties and "sigma_inhom" in physical_uncertainties:
+            derived_sigmas = saturation_voigt_derived_sigmas(self.belief.estimates(), physical_uncertainties)
+        if derived_sigmas is not None:
+            bounds = {**bounds, **saturation_voigt_derived_bounds(bounds)}
+
+        check_items: list[tuple[str, float]] = [
+            (name, float(physical_uncertainties[name]))
+            for name in target_params
+            if name in physical_uncertainties
+            and not (derived_sigmas is not None and name in _SATURATION_VOIGT_RAW_PARAMS)
+        ]
+        if derived_sigmas is not None:
+            check_items.extend(derived_sigmas.items())
+
         relative_uncertainties: dict[str, float] = {}
-        for name in target_params:
-            if name not in physical_uncertainties:
-                continue
-            unc = float(physical_uncertainties[name])
+        for name, unc in check_items:
             if name == "frequency":
                 # CRLB-aware ceiling: bound_width chosen so that
                 # unc / bound_width < threshold  ⟺  unc < effective_freq_threshold.

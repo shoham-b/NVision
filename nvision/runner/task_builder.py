@@ -45,6 +45,9 @@ class TaskListBuildConfig:
     dry_run: bool = False
     # When set, overrides filter_* and resolves explicit (gen, noise, strat) triples.
     combination_names: list[tuple[str, str, str]] | None = None
+    # Generator objects for names referenced by combination_names but not present
+    # in the default CombinationGrid (e.g. a run-group's parameter-sweep grid).
+    extra_generators: dict[str, object] | None = None
 
 
 def build_task_list(
@@ -52,7 +55,7 @@ def build_task_list(
     monitor: ProgressMonitor,
 ) -> tuple[list[LocatorTask], float]:
     """Build all matching tasks and register them with the progress monitor."""
-    grid = CombinationGrid()
+    grid = CombinationGrid(extra_generators=config.extra_generators)
     duration_estimates, global_avg_duration_ms = _load_duration_estimates(config.out_dir)
 
     task_list: list[LocatorTask] = []

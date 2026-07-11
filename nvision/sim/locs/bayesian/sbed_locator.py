@@ -34,16 +34,21 @@ def background_noise_std(
     linewidth_hat: float,
     k: float = NVISION_NOISE_BG_SPAN_FACTOR,
     min_bg_points: int = NVISION_NOISE_MIN_BG_POINTS,
+    max_dip_cluster_span_hz: float | None = None,
 ) -> float | None:
     """Robust noise estimate from out-of-span (background) measurements.
 
-    Points with |x - f_hat| > k * linewidth_hat are considered background.
+    Points with |x - f_hat| > span are considered background, where span is
+    ``k * linewidth_hat`` widened to also clear the outermost dip when
+    ``max_dip_cluster_span_hz`` (e.g. from Zeeman + hyperfine splitting) is
+    given — otherwise real dips far from ``f_hat`` get misclassified as
+    background and bias the MAD estimate upward.
     Returns None when fewer than ``min_bg_points`` background points exist.
     Otherwise returns the MAD-based sigma: 1.4826 * median(|y_bg - median(y_bg)|).
     """
     if len(xs) == 0:
         return None
-    span = k * abs(linewidth_hat)
+    span = max(k * abs(linewidth_hat), max_dip_cluster_span_hz or 0.0)
     mask = np.abs(xs - f_hat) > span
     y_bg = ys[mask]
     if len(y_bg) < min_bg_points:
@@ -51,6 +56,88 @@ def background_noise_std(
     med = float(np.median(y_bg))
     mad = float(np.median(np.abs(y_bg - med)))
     return 1.4826 * mad
+
+
+def _max_dip_cluster_span_hz(phys_bounds: dict, est: dict | None = None) -> float | None:
+    """Maximum expected span (Hz) between the outermost dips of one NV signal.
+
+    Mirrors ``SMCMarginalDistribution._generate_epoch_candidates``: the outermost
+    dips are the two Zeeman groups (± ``zeeman_split``) each displaced by the
+    hyperfine split (± ``split``), so the full extent is
+    ``2·zeeman + 2·split``. Returns ``None`` when neither splitting is
+    modeled (single-dip signal), matching the pre-Zeeman behavior.
+
+    Uses the belief's *current point estimate* of ``zeeman_split``/``split``
+    (from ``est``) when available, rather than the prior's worst-case upper
+    bound: the bound stays pinned at its max (e.g. 100 MHz Zeeman -> 200 MHz
+    span) for the entire run even after the belief has localized the true
+    split to a much narrower value, which starves background-point
+    classification and forces repeated background-calibration passes. Falls
+    back to the bound before any estimate exists (e.g. before the first
+    resample) or for models without these parameters.
+    """
+    if est is not None and "zeeman_split" in est:
+        zeeman_hz = abs(est.get("zeeman_split", 0.0))
+        split_hz = abs(est.get("split", 0.0)) if "split" in est else 0.0
+        if zeeman_hz > 0 or split_hz > 0:
+            return 2.0 * zeeman_hz + 2.0 * split_hz
+        return None
+
+    max_zeeman_hz = phys_bounds["zeeman_split"][1] if "zeeman_split" in phys_bounds else 0.0
+    max_hf_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else 0.0
+    if max_zeeman_hz > 0 or max_hf_split_hz > 0:
+        return 2.0 * max_zeeman_hz + 2.0 * max_hf_split_hz
+    return None
+
+
+def _effective_max_linewidth_hz(phys_bounds: dict) -> float:
+    """Upper-bound effective HWHM (Hz), lineshape-agnostic.
+
+    Used for background-span classification and dip-clustering thresholds,
+    which only need a single width scale regardless of how that width is
+    parameterized by the underlying model.
+    """
+    if "linewidth" in phys_bounds:
+        return phys_bounds["linewidth"][1]
+    if "saturation" in phys_bounds and "sigma_inhom" in phys_bounds:
+        from nvision.spectra.nv_center import NV_NATURAL_HWHM_HZ
+
+        s_hi = phys_bounds["saturation"][1]
+        sigma_inhom_hi = phys_bounds["sigma_inhom"][1]
+        gamma_hom_hi = NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + s_hi)
+        return gamma_hom_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
+    if "fwhm_total" in phys_bounds:
+        return phys_bounds["fwhm_total"][1] / 2.0
+    return 1e6
+
+
+def _effective_linewidth_and_contrast_estimate(
+    est: dict, phys_bounds: dict
+) -> tuple[float, float | None]:
+    """Return (effective HWHM Hz estimate, realized contrast estimate), lineshape-agnostic.
+
+    Falls back to the bound's max effective linewidth when the current
+    estimate is unavailable, mirroring the pre-existing ``lw_bounds[1]``
+    fallback. Contrast is ``None`` when the model has no population-style
+    amplitude estimate (e.g. dip_depth-only Voigt without a matching field).
+    """
+    if "linewidth" in est:
+        lw_bounds = phys_bounds.get("linewidth", (0.0, 1e6))
+        return est.get("linewidth", lw_bounds[1]), est.get("c_total")
+    if "saturation" in est and "sigma_inhom" in est:
+        from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
+
+        saturation = est.get("saturation")
+        sigma_inhom = est.get("sigma_inhom")
+        if saturation is None or sigma_inhom is None:
+            return _effective_max_linewidth_hz(phys_bounds), None
+        fwhm_total, _, c_total = _saturation_voigt_reparam_scalar(saturation, sigma_inhom, NV_SATURATION_C_MAX)
+        return fwhm_total / 2.0, c_total
+    if "fwhm_total" in est:
+        fwhm_bounds = phys_bounds.get("fwhm_total", (0.0, 2e6))
+        lw = est.get("fwhm_total", fwhm_bounds[1]) / 2.0
+        return lw, est.get("dip_depth", est.get("c_total"))
+    return _effective_max_linewidth_hz(phys_bounds), None
 
 
 def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
@@ -131,9 +218,8 @@ def compute_focus_window_confidence(
 
     # --- Build identify_dip_candidates kwargs (mirrors _acquire / _check_crlb_early_stop) ---
     phys_bounds = getattr(belief, "physical_param_bounds", getattr(belief, "parameter_bounds", {}))
-    lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
-    max_linewidth_hz = phys_bounds[lw_key][1]
-    max_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else None
+    max_linewidth_hz = _effective_max_linewidth_hz(phys_bounds)
+    max_split_hz = _max_dip_cluster_span_hz(phys_bounds, belief.estimates())
 
     noise_std_unc = 0.0
     per_particle_sigmas = None
@@ -372,10 +458,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if self._forced_bg_mode:
             est = self.belief.estimates()
             f_hat = est.get("frequency", (lo + hi) / 2.0)
-            lw_key = "linewidth" if "linewidth" in self.belief.physical_param_bounds else "fwhm_total"
-            lw_bounds = self.belief.physical_param_bounds.get(lw_key, (0.0, 1e6))
-            lw_hat = est.get(lw_key, lw_bounds[1])
-            span = NVISION_NOISE_BG_SPAN_FACTOR * abs(lw_hat)
+            lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
+            max_split_hz = _max_dip_cluster_span_hz(self.belief.physical_param_bounds, est)
+            # Must match the classification span in background_noise_std() below, or forced
+            # sampling lands points that its own classifier then rejects as non-background.
+            span = max(NVISION_NOISE_BG_SPAN_FACTOR * abs(lw_hat), max_split_hz or 0.0)
             # Sample from left or right background region at random
             left_lo, left_hi = lo, max(lo, f_hat - span)
             right_lo, right_hi = min(hi, f_hat + span), hi
@@ -440,9 +527,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                     phys_bounds = getattr(
                         self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {})
                     )
-                    lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
-                    max_linewidth_hz = phys_bounds[lw_key][1]
-                    max_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else None
+                    max_linewidth_hz = _effective_max_linewidth_hz(phys_bounds)
+                    max_split_hz = _max_dip_cluster_span_hz(phys_bounds, self.belief.estimates())
 
                     per_particle_sigmas = None
                     particle_weights = None
@@ -634,13 +720,14 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # Get current frequency and linewidth estimates for background classification
         est = self.belief.estimates()
         f_hat = est.get("frequency", float(np.mean(obs_xs_phys)))
-        lw_key = "linewidth" if "linewidth" in self.belief.physical_param_bounds else "fwhm_total"
-        lw_bounds = self.belief.physical_param_bounds.get(lw_key, (0.0, 1e6))
-        lw_hat = est.get(lw_key, lw_bounds[1])
+        lw_hat, c_hat = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
+        max_split_hz = _max_dip_cluster_span_hz(self.belief.physical_param_bounds, est)
 
-        span = NVISION_NOISE_BG_SPAN_FACTOR * abs(lw_hat)
+        span = max(NVISION_NOISE_BG_SPAN_FACTOR * abs(lw_hat), max_split_hz or 0.0)
         bg_count = int(np.sum(np.abs(obs_xs_phys - f_hat) > span))
-        sigma_hat = background_noise_std(obs_xs_phys, obs_ys, f_hat, lw_hat)
+        sigma_hat = background_noise_std(
+            obs_xs_phys, obs_ys, f_hat, lw_hat, max_dip_cluster_span_hz=max_split_hz
+        )
 
         if (sigma_hat is None or sigma_hat <= 0) and self._empirical_batch_noise_std is not None:
             # No background points yet, but multi-shot batches give a direct,
@@ -658,15 +745,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self._forced_bg_mode = False
 
         # Compute permissive theoretical step budget from σ̂ + belief estimates.
-        # n_theory = 2σ̂²·lw·bandwidth / (π·c²·T²) — steps needed for uniform sampling to reach T.
-        # SBED is better than uniform
-        c_hat = est.get("c_total", None)
+        # n_theory = 4σ̂²·lw·bandwidth / (π·c²·T²) — steps needed for uniform sampling to reach T.
+        # SBED is better than uniform. (4, not 2: matches the verified CRLB constant in
+        # UnitCubeSMCMarginalDistribution.crlb_frequency — n_theory is that same CRLB_var
+        # solved for n at rho = n/bandwidth, evaluated at the convergence threshold T.)
         if c_hat is not None and c_hat > 0 and lw_hat > 0:
             freq_lo, freq_hi = self.belief.physical_param_bounds.get("frequency", (0.0, 1.0))
             bandwidth = freq_hi - freq_lo
             if bandwidth > 0:
                 from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, NVISION_SBED_STEPS_THEORY_FACTOR
-                n_theory = (2.0 * sigma_hat**2 * lw_hat * bandwidth) / (
+                n_theory = (4.0 * sigma_hat**2 * lw_hat * bandwidth) / (
                     math.pi * c_hat**2 * NVISION_FREQ_CONVERGENCE_THRESHOLD**2
                 )
                 self._theory_step_budget = max(self.max_steps, int(NVISION_SBED_STEPS_THEORY_FACTOR * n_theory) + 1)
@@ -697,6 +785,39 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         )
 
         from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+        from nvision.sim.locs.bayesian.sequential_bayesian_locator import (
+            _SATURATION_VOIGT_RAW_PARAMS,
+            saturation_voigt_derived_bounds,
+            saturation_voigt_derived_sigmas,
+        )
+
+        # Saturation-Voigt: gate via derived effective-HWHM / realized-contrast rather
+        # than the raw params (see saturation_voigt_derived_sigmas). Uncertainties and
+        # CRLBs propagate through the same local Jacobian, so both are mapped.
+        derived_unc: dict[str, float] | None = None
+        derived_crlbs: dict[str, float] = {}
+        if "saturation" in physical_uncertainties and "sigma_inhom" in physical_uncertainties:
+            est = self.belief.estimates()
+            derived_unc = saturation_voigt_derived_sigmas(est, physical_uncertainties)
+            if derived_unc is not None:
+                scaled_crlbs = {p: crlbs_stored.get(p, math.inf) * scale for p in _SATURATION_VOIGT_RAW_PARAMS}
+                derived_crlbs = saturation_voigt_derived_sigmas(est, scaled_crlbs) or {}
+                bounds = {**bounds, **saturation_voigt_derived_bounds(bounds)}
+
+        # (name, uncertainty, crlb already scaled to sigma-hat) triples to evaluate.
+        eval_items: list[tuple[str, float, float]] = [
+            (
+                name,
+                float(physical_uncertainties.get(name, math.inf)),
+                crlbs_stored.get(name, math.inf) * scale,
+            )
+            for name in target_params
+            if not (derived_unc is not None and name in _SATURATION_VOIGT_RAW_PARAMS)
+        ]
+        if derived_unc is not None:
+            eval_items.extend(
+                (dname, dunc, derived_crlbs.get(dname, math.inf)) for dname, dunc in derived_unc.items()
+            )
 
         # Per-param evaluation. For each param with a valid threshold:
         #   done = unc < convergence threshold
@@ -710,11 +831,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         all_milestone_done = True
         freq_milestone_done = False
 
-        for name in target_params:
-            unc = float(physical_uncertainties.get(name, math.inf))
-            
+        for name, unc, crlb_scaled in eval_items:
             # 1. CRLB check
-            crlb_scaled = crlbs_stored.get(name, math.inf) * scale
             crlb_threshold = NVISION_FREQ_CRLB_SAFETY_FACTOR * crlb_scaled
             crlb_done = unc < crlb_threshold if crlb_threshold > 0 and math.isfinite(crlb_threshold) else False
 
@@ -728,7 +846,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             # We must be able to evaluate at least one threshold to count this param
             if not (crlb_threshold > 0 and math.isfinite(crlb_threshold)) and not (absolute_threshold > 0):
                 continue
-                
+
             checked += 1
 
             if not crlb_done:

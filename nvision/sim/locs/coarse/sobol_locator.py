@@ -11,7 +11,6 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
@@ -24,34 +23,12 @@ from nvision.sim.defaults import (
     NVISION_SOBOL_MIN_POINTS,
     NVISION_SOBOL_PAD_FRACTION,
 )
-from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
 from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
     pass
-
-
-def sobol_1d_sequence(n: int, *, offset: float = 0.0) -> NDArray[np.float64]:
-    """Minimal deterministic 1D low-discrepancy sequence over [0, 1].
-
-    Uses a van der Corput base-2 sequence.
-    """
-
-    def vdc(k: int, base: int = 2) -> float:
-        v = 0.0
-        denom = 1.0
-        while k:
-            k, remainder = divmod(k, base)
-            denom *= base
-            v += remainder / denom
-        return v
-
-    points = np.array([vdc(i + 1) for i in range(n)], dtype=float)
-    if offset != 0.0:
-        points = (points + offset) % 1.0
-    return points
 
 
 def _infer_tight_focus_window(
@@ -103,108 +80,6 @@ def vdc_generator(base: int = 2) -> Iterator[float]:
             v += remainder / denom
         yield v
         k += 1
-
-
-class SobolSweepLocator(SweepingLocator):
-    """ARCHIVED: Currently not used in the main simulation grid.
-
-    Simple Sobol-based sweep locator with mid-sweep refocusing.
-
-    Generates a van der Corput (Sobol-like) low-discrepancy sequence over the
-    full domain, detects signal dips from the sweep data, refocuses the
-    remaining points into the detected window, and sets an acquisition window.
-    Unlike ``StagedSobolSweepLocator``, there is no Stage 2 thresholding or
-    Stage 3 focused sampling — just a single sweep with mid-sweep refocus and
-    signal detection handled by the inherited ``finalize()``.
-    """
-
-    @classmethod
-    def create(
-        cls,
-        belief: AbstractMarginalDistribution,
-        signal_model: SignalModel,
-        max_steps: int,
-        *,
-        noise_std: float = 0.01,
-        noise_max_dev: float | None = None,
-        signal_min_span: float | None = None,
-        signal_max_span: float | None = None,
-        scan_param: str | None = None,
-        domain_lo: float = 0.0,
-        domain_hi: float = 1.0,
-        parameter_bounds: dict[str, tuple[float, float]] | None = None,
-        **kwargs: Any,
-    ) -> SobolSweepLocator:
-        """Factory method for creating a SobolSweepLocator."""
-        if parameter_bounds is not None:
-            param_name = scan_param or (
-                signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
-            )
-            if param_name in parameter_bounds:
-                domain_lo, domain_hi = parameter_bounds[param_name]
-
-        return cls(
-            belief=belief,
-            signal_model=signal_model,
-            max_steps=max_steps,
-            noise_std=noise_std,
-            noise_max_dev=noise_max_dev,
-            signal_min_span=signal_min_span,
-            signal_max_span=signal_max_span,
-            scan_param=scan_param,
-            domain_lo=domain_lo,
-            domain_hi=domain_hi,
-        )
-
-    def __init__(
-        self,
-        belief: AbstractMarginalDistribution,
-        signal_model: SignalModel,
-        max_steps: int,
-        *,
-        noise_std: float = 0.01,
-        noise_max_dev: float | None = None,
-        signal_min_span: float | None = None,
-        signal_max_span: float | None = None,
-        scan_param: str | None = None,
-        domain_lo: float = 0.0,
-        domain_hi: float = 1.0,
-    ):
-        super().__init__(
-            belief=belief,
-            signal_model=signal_model,
-            max_steps=max_steps,
-            noise_std=noise_std,
-            noise_max_dev=noise_max_dev,
-            signal_min_span=signal_min_span,
-            signal_max_span=signal_max_span,
-            scan_param=scan_param,
-            domain_lo=domain_lo,
-            domain_hi=domain_hi,
-        )
-        # Refocusing disabled — single sweep over full domain
-        self._refocus_at = None
-        self._sweep_points = self._generate_sweep_points(max_steps)
-
-    def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
-        """Generate n Sobol sequence points in [0, 1]."""
-        if n <= 0:
-            return np.array([], dtype=float)
-        return sobol_1d_sequence(n)
-
-    def _generate_fallback_points(self, n: int) -> NDArray[np.float64]:
-        """Generate fallback Sobol points with 0.5 offset for coverage."""
-        if n <= 0:
-            return np.array([], dtype=float)
-        return sobol_1d_sequence(n, offset=0.5)
-
-    def _should_refocus(self, step_count: int) -> int | None:
-        """No refocusing for simple Sobol sweep."""
-        return None
-
-    def _regenerate_points(self, refocus_step: int, lo_norm: float, hi_norm: float) -> None:
-        """No-op — refocusing is disabled."""
-        pass
 
 
 class Stage1SobolLocator:

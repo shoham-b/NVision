@@ -191,6 +191,65 @@ def infer_focus_window_physical(
     return (domain_lo + lo_norm * domain_width, domain_lo + hi_norm * domain_width)
 
 
+def dip_noise_threshold(
+    ys: np.ndarray,
+    *,
+    noise_std: float,
+    noise_max_dev: float | None = None,
+) -> float | None:
+    """Background-relative threshold below which points count as "in a dip".
+
+    Returns None when no dip is discernible above the noise floor — the
+    caller's signal that there's nothing to localize (see
+    :func:`infer_acquisition_window`), not a signal to fall back to the full
+    domain.
+    """
+    min_signal = float(np.min(ys))
+    background_est = float(np.median(np.sort(ys)[int(0.2 * len(ys)) :]))
+    signal_span = float(np.max(ys) - min_signal)
+    if noise_max_dev is not None:
+        dip_threshold = max(noise_max_dev, 0.02 * signal_span)
+    else:
+        iqr = float(np.percentile(ys, 75) - np.percentile(ys, 25))
+        data_noise_scale = max(iqr / 1.35, noise_std, 1e-6)
+        dip_threshold = max(2.5 * data_noise_scale, 0.02 * signal_span)
+
+    if background_est - min_signal < dip_threshold:
+        return None
+    return background_est - dip_threshold
+
+
+def infer_acquisition_window(
+    history: ObservationHistory,
+    domain_lo: float,
+    domain_hi: float,
+    *,
+    expected_dips: int = 1,
+    noise_std: float,
+    noise_max_dev: float | None = None,
+) -> tuple[float, float] | None:
+    """Infer the acquisition window from raw sweep history, in physical units.
+
+    Two-step pipeline: :func:`dip_noise_threshold` first decides whether the
+    sweep found a signal at all, then :func:`infer_focus_window_physical`
+    localizes it.  Returns None — not the full domain — when no dip is
+    discernible, so callers can distinguish "found nothing" from "the signal
+    fills the whole domain".
+    """
+    if history.count < 3:
+        return None
+    noise_threshold = dip_noise_threshold(history.ys, noise_std=noise_std, noise_max_dev=noise_max_dev)
+    if noise_threshold is None:
+        return None
+    return infer_focus_window_physical(
+        history,
+        domain_lo,
+        domain_hi,
+        expected_dips=expected_dips or 1,
+        noise_threshold=noise_threshold,
+    )
+
+
 def infer_max_dip_width(
     xs: np.ndarray,
     ys: np.ndarray,

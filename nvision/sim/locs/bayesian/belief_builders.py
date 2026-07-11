@@ -183,8 +183,10 @@ def nv_center_belief(
     is_voigt = "fwhm_total" in (parameter_bounds or {}) or n_grid_fwhm_total != 80 or "lorentz_frac" in _extra
 
     if is_voigt:
-        model = NVCenterVoigtModel()
-        phys = nv_center_voigt_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
+        model = NVCenterVoigtModel(with_zeeman_splitting=with_zeeman_splitting)
+        phys = nv_center_voigt_bounds_for_domain(
+            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_zeeman_splitting=with_zeeman_splitting
+        )
         base_specs: list[tuple[str, tuple[float, float], int]] = [
             ("frequency", phys["frequency"], n_grid_freq),
             ("fwhm_total", phys["fwhm_total"], n_grid_fwhm_total),
@@ -193,6 +195,8 @@ def nv_center_belief(
             ("k_np", phys["k_np"], n_grid_k_np),
             ("dip_depth", phys["dip_depth"], n_grid_depth),
         ]
+        if with_zeeman_splitting:
+            base_specs.insert(1, ("zeeman_split", phys["zeeman_split"], n_grid_split))
     elif with_zeeman_splitting and with_hyperfine_splitting:
         model = NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=True)
         phys = nv_center_lorentzian_bounds_for_domain(
@@ -250,6 +254,26 @@ def nv_center_belief(
     )
 
 
+def nv_lineshape_for_model(model: object) -> str:
+    """Map a true-signal model instance to the ``lineshape`` name :func:`nv_center_smc_belief` expects.
+
+    Baseline builders (Sobol/SimpleSweep, in ``runner/executor.py`` and
+    ``runner/plots.py``) construct their own belief from scratch rather than going
+    through ``CombinationGrid.strategies_for()``'s ``nv_smc_config``, so without this
+    they silently got ``nv_center_smc_belief``'s "lorentzian" default -- mismatching
+    the actual generated signal for voigt/saturation_voigt runs and either crashing
+    the fit (SimpleSweep) or running Bayesian updates with the wrong forward model
+    (Sobol).
+    """
+    from nvision.spectra.nv_center import NVCenterSaturationVoigtModel, NVCenterVoigtModel
+
+    if isinstance(model, NVCenterSaturationVoigtModel):
+        return "saturation_voigt"
+    if isinstance(model, NVCenterVoigtModel):
+        return "voigt"
+    return "lorentzian"
+
+
 def nv_center_smc_belief(  # noqa: C901
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
@@ -261,25 +285,52 @@ def nv_center_smc_belief(  # noqa: C901
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR,
     with_hyperfine_splitting: bool = False,
     with_zeeman_splitting: bool = True,
+    lineshape: str = "lorentzian",
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
     By default uses Zeeman splitting (two dips). Set ``with_zeeman_splitting=False``
     for a single-dip model. Set ``with_hyperfine_splitting=True`` to also infer split and k_np.
+
+    ``lineshape`` selects the signal model:
+
+    * ``"lorentzian"`` (default) — :class:`~nvision.spectra.nv_center.NVCenterLorentzianModel`.
+    * ``"voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterVoigtModel` (fixed
+      ``fwhm_total``/``lorentz_frac``; respects ``with_zeeman_splitting``, always
+      infers hyperfine ``split``/``k_np``).
+    * ``"saturation_voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterSaturationVoigtModel`,
+      which replaces the lumped linewidth with two physically distinct, separately
+      inferred broadening parameters: ``saturation`` (drive power, sets the
+      homogeneous/power-broadened width *and* the realized contrast together via
+      the saturation law) and ``sigma_inhom`` (independent inhomogeneous/Gaussian
+      width). Respects ``with_hyperfine_splitting``/``with_zeeman_splitting``.
     """
     from nvision.spectra.nv_center import (
         NVCenterLorentzianModel,
+        NVCenterSaturationVoigtModel,
         NVCenterVoigtModel,
         nv_center_lorentzian_bounds_for_domain,
+        nv_center_saturation_voigt_bounds_for_domain,
         nv_center_voigt_bounds_for_domain,
     )
 
-    is_voigt = "fwhm_lorentz" in (parameter_bounds or {})
-
-    if is_voigt:
-        model = NVCenterVoigtModel()
-        merged_bounds = nv_center_voigt_bounds_for_domain(DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX)
+    if lineshape == "saturation_voigt":
+        model = NVCenterSaturationVoigtModel(
+            with_hyperfine_splitting=with_hyperfine_splitting,
+            with_zeeman_splitting=with_zeeman_splitting,
+        )
+        merged_bounds = nv_center_saturation_voigt_bounds_for_domain(
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            with_hyperfine_splitting=with_hyperfine_splitting,
+            with_zeeman_splitting=with_zeeman_splitting,
+        )
+    elif lineshape == "voigt":
+        model = NVCenterVoigtModel(with_zeeman_splitting=with_zeeman_splitting)
+        merged_bounds = nv_center_voigt_bounds_for_domain(
+            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_zeeman_splitting=with_zeeman_splitting
+        )
     else:
         model = NVCenterLorentzianModel(
             with_hyperfine_splitting=with_hyperfine_splitting,

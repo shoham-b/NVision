@@ -70,6 +70,7 @@ class RunResult:
     secondary_sweep_steps: int = 0
     tertiary_sweep_steps: int = 0
     expected_uniform_points: float = 0.0
+    fit_mode_estimates: dict[str, float] | None = None
 
     @property
     def sobol_difference(self) -> float:

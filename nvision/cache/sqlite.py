@@ -1,10 +1,31 @@
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
 import threading
+import time
 from contextlib import suppress
 from pathlib import Path
+
+
+def _retry_on_locked(fn, *, max_attempts: int = 10, base_delay: float = 0.2, max_delay: float = 5.0):
+    """Retry ``fn`` on transient 'database is locked' SQLite errors with backoff.
+
+    Several worker processes can write to the same SQLite shard concurrently
+    (one per combination). SQLite's own busy_timeout already retries for the
+    connection's ``timeout`` seconds, but under heavy contention on Windows
+    that isn't always enough — retry the whole operation on top of it rather
+    than losing an entire combination's results.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            if "database is locked" not in str(exc).lower() or attempt == max_attempts - 1:
+                raise
+            delay = min(base_delay * (2**attempt), max_delay)
+            time.sleep(delay + random.uniform(0, delay * 0.25))
 
 
 def _init_schema_with_recovery(db_path: Path, schema_sql: str) -> None:
@@ -78,21 +99,21 @@ class SqliteCache:
         return None
 
     def set(self, key: str, value: dict):
-        try:
-            conn = self._get_conn()
+        conn = self._get_conn()
+
+        def _write():
             conn.execute(
                 "INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)",
                 (key, json.dumps(value)),
             )
             conn.commit()
-        except Exception as exc:
-            raise exc
+
+        _retry_on_locked(_write)
 
     def delete(self, key: str):
         try:
             conn = self._get_conn()
-            conn.execute("DELETE FROM cache WHERE key = ?", (key,))
-            conn.commit()
+            _retry_on_locked(lambda: (conn.execute("DELETE FROM cache WHERE key = ?", (key,)), conn.commit()))
         except Exception:
             pass
 
@@ -258,11 +279,15 @@ class ShardedSqliteCache:
         self._get_shard_cache()[key] = shard_id
         try:
             conn = self._get_index_conn()
-            conn.execute(
-                "INSERT OR REPLACE INTO cache_index (key, shard_id) VALUES (?, ?)",
-                (key, int(shard_id)),
+            _retry_on_locked(
+                lambda: (
+                    conn.execute(
+                        "INSERT OR REPLACE INTO cache_index (key, shard_id) VALUES (?, ?)",
+                        (key, int(shard_id)),
+                    ),
+                    conn.commit(),
+                )
             )
-            conn.commit()
         except Exception:
             pass
 
@@ -270,8 +295,7 @@ class ShardedSqliteCache:
         self._get_shard_cache().pop(key, None)
         try:
             conn = self._get_index_conn()
-            conn.execute("DELETE FROM cache_index WHERE key = ?", (key,))
-            conn.commit()
+            _retry_on_locked(lambda: (conn.execute("DELETE FROM cache_index WHERE key = ?", (key,)), conn.commit()))
         except Exception:
             pass
 
@@ -498,14 +522,15 @@ class ShardedSqliteCache:
 
         # One executemany + commit per shard
         for shard_id, pairs in by_shard.items():
-            try:
-                db_path = self._path_for_shard_id(shard_id)
-                conn = self._get_conn_for_path(db_path)
-                self._ensure_cache_table(conn)
+            db_path = self._path_for_shard_id(shard_id)
+            conn = self._get_conn_for_path(db_path)
+            self._ensure_cache_table(conn)
+
+            def _write(conn=conn, pairs=pairs):
                 conn.executemany("INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", pairs)
                 conn.commit()
-            except Exception as exc:
-                raise exc
+
+            _retry_on_locked(_write)
 
         # One index commit for all new key→shard mappings
         if new_index:
@@ -520,23 +545,24 @@ class ShardedSqliteCache:
                 pass
 
     def set(self, key: str, value: dict):
-        try:
-            shard_id = self._index_get_shard_id(key)
-            if shard_id is None:
-                shard_id = self._choose_write_shard_id()
-                self._get_shard_cache()[key] = shard_id
+        shard_id = self._index_get_shard_id(key)
+        if shard_id is None:
+            shard_id = self._choose_write_shard_id()
+            self._get_shard_cache()[key] = shard_id
 
-            db_path = self._path_for_shard_id(shard_id)
-            conn = self._get_conn_for_path(db_path)
-            self._ensure_cache_table(conn)
+        db_path = self._path_for_shard_id(shard_id)
+        conn = self._get_conn_for_path(db_path)
+        self._ensure_cache_table(conn)
+
+        def _write():
             conn.execute(
                 "INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)",
                 (key, json.dumps(value)),
             )
             conn.commit()
-            self._index_set_shard_id(key, shard_id)
-        except Exception as exc:
-            raise exc
+
+        _retry_on_locked(_write)
+        self._index_set_shard_id(key, shard_id)
 
     def delete(self, key: str):
         self._get_shard_cache().pop(key, None)
@@ -546,8 +572,7 @@ class ShardedSqliteCache:
                 db_path = self._path_for_shard_id(shard_id)
                 conn = self._get_conn_for_path(db_path)
                 self._ensure_cache_table(conn)
-                conn.execute("DELETE FROM cache WHERE key = ?", (key,))
-                conn.commit()
+                _retry_on_locked(lambda: (conn.execute("DELETE FROM cache WHERE key = ?", (key,)), conn.commit()))
                 self._index_delete_key(key)
                 return
 
@@ -555,8 +580,7 @@ class ShardedSqliteCache:
             if self._legacy_path is not None:
                 conn = self._get_conn_for_path(self._legacy_path)
                 self._ensure_cache_table(conn)
-                conn.execute("DELETE FROM cache WHERE key = ?", (key,))
-                conn.commit()
+                _retry_on_locked(lambda: (conn.execute("DELETE FROM cache WHERE key = ?", (key,)), conn.commit()))
         except Exception:
             pass
 

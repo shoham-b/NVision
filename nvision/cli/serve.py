@@ -178,8 +178,15 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode())
 
     def end_headers(self) -> None:
-        """Add CORS headers for API requests."""
+        """Add CORS headers and disable caching.
+
+        Artifacts (JS/CSS/HTML/graphs) change on every run/render, so browsers
+        must always revalidate — otherwise a stale cached script (e.g.
+        format-utils.js before a new helper was added) silently breaks the UI
+        with no visible network error, since the browser never re-requests it.
+        """
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
     def handle(self) -> None:
@@ -381,10 +388,21 @@ def serve(  # noqa: C901
 
     original_dir = os.getcwd()
 
-    class _ReuseAddrTCPServer(socketserver.TCPServer):
-        """TCP server that allows address reuse (critical on Windows)."""
+    class _ReuseAddrTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+        """TCP server that allows address reuse (critical on Windows) and handles
+        requests concurrently.
+
+        Plain ``TCPServer`` serves one request at a time. A browser page load opens
+        many parallel connections (HTML, several JS files, the manifest fetch —
+        multi-MB gzip for a large cache — and per-graph fetches); serializing them
+        means a single slow request (e.g. the manifest) blocks everything else
+        behind it, which manifests as the page loading incompletely, cards/plots
+        silently failing to populate, or the browser giving up with a connection
+        error. ThreadingMixIn serves each request on its own thread instead.
+        """
 
         allow_reuse_address = True
+        daemon_threads = True
 
     def _run_server() -> None:
         global _server_instance

@@ -649,6 +649,39 @@ def run(  # noqa: C901
             help="Number of standard deviation steps to split the Gaussian range into",
         ),
     ] = None,
+    width: Annotated[
+        float | None,
+        typer.Option(
+            "--width",
+            help="Fix the NV signal linewidth (HWHM, Hz) instead of randomizing it per repeat.",
+        ),
+    ] = None,
+    contrast: Annotated[
+        float | None,
+        typer.Option(
+            "--contrast",
+            help="Fix the NV signal contrast (c_total) instead of randomizing it per repeat.",
+        ),
+    ] = None,
+    sweep_param: Annotated[
+        str | None,
+        typer.Option(
+            "--sweep-param",
+            help="Sweep this parameter across the generator axis: 'width', 'contrast', or 'noise' (default).",
+        ),
+    ] = None,
+    sweep_min: Annotated[
+        float | None,
+        typer.Option("--sweep-min", help="Lower bound for --sweep-param (ignored for 'noise')."),
+    ] = None,
+    sweep_max: Annotated[
+        float | None,
+        typer.Option("--sweep-max", help="Upper bound for --sweep-param (ignored for 'noise')."),
+    ] = None,
+    sweep_steps: Annotated[
+        int | None,
+        typer.Option("--sweep-steps", help="Number of steps for --sweep-param (ignored for 'noise')."),
+    ] = None,
     combination_slugs: Annotated[
         list[str] | None,
         typer.Option(
@@ -677,6 +710,20 @@ def run(  # noqa: C901
     defaulted_generator = False
     defaulted_noise = False
     combination_names: list[tuple[str, str, str]] | None = None
+    extra_generators: dict[str, object] | None = None
+
+    # Apply noise-grid CLI overrides early (before any resolution that might read them).
+    # Note: --run-group's noise axis is driven by its own NVISION_SBED_NOISE_* config
+    # (see sim.run_groups), not these generic globals — these only affect the plain
+    # (non-grouped) `nvision run` path below.
+    import nvision.sim.defaults as sim_defaults
+
+    if max_noise_std is not None:
+        sim_defaults.NVISION_NOISE_MAX_GAUSS = max_noise_std
+        console.print(f"[dim]Overriding max Gaussian noise standard deviation to {max_noise_std}[/dim]")
+    if noise_steps is not None:
+        sim_defaults.NVISION_NOISE_GAUSS_STEPS = noise_steps
+        console.print(f"[dim]Overriding Gaussian noise steps to {noise_steps}[/dim]")
 
     if combination_slugs:
         parsed = [tuple(s.split("/", 2)) for s in combination_slugs if len(s.split("/", 2)) == 3]
@@ -689,11 +736,20 @@ def run(  # noqa: C901
 
     # Ensure the new locator is included in run_group logic
     if run_group is not None:
+        sim_run_groups.clear_run_group_cache()  # defensive: pick up any env changes since last resolve
         group = sim_run_groups.get_run_group(run_group)
         combination_names = [
             (g, n, s) for g in group.generator_names for n in group.noise_names for s in group.strategy_names
         ]
-        log.info("Running group: %s with combinations: %s", run_group, combination_names)
+        extra_generators = group.extra_generators
+        log.info(
+            "Running group: %s (%s combinations: %s generators x %s noises x %s strategies)",
+            run_group,
+            len(combination_names),
+            len(group.generator_names),
+            len(group.noise_names),
+            len(group.strategy_names),
+        )
     elif not all_experiments:
         # Backward-compatible default: NVCenter category (old default_run_case behaviour)
         if filter_category is None:
@@ -836,15 +892,32 @@ def run(  # noqa: C901
         out_dir: Path = out
         tree = prepare_artifact_tree(out_dir, clear_cache=False)
 
-        # Apply noise config CLI overrides to simulation defaults
-        import nvision.sim.defaults as sim_defaults
-
-        if max_noise_std is not None:
-            sim_defaults.NVISION_NOISE_MAX_GAUSS = max_noise_std
-            log.info("Overriding max Gaussian noise standard deviation to %s", max_noise_std)
-        if noise_steps is not None:
-            sim_defaults.NVISION_NOISE_GAUSS_STEPS = noise_steps
-            log.info("Overriding Gaussian noise steps to %s", noise_steps)
+        # Apply remaining signal-parameter CLI overrides (noise-grid overrides were
+        # already applied above, before --run-group resolution).
+        if width is not None:
+            sim_defaults.NVISION_SIGNAL_LINEWIDTH = width
+            log.info("Fixing NV signal linewidth to %s Hz", width)
+        if contrast is not None:
+            sim_defaults.NVISION_SIGNAL_CONTRAST = contrast
+            log.info("Fixing NV signal contrast to %s", contrast)
+        if sweep_param is not None and sweep_param != "noise":
+            if sweep_param not in ("width", "contrast"):
+                console.print("[bold red]Error:[/bold red] --sweep-param must be 'width', 'contrast', or 'noise'")
+                raise typer.Exit(1)
+            sim_defaults.NVISION_SIGNAL_SWEEP_PARAM = sweep_param
+            if sweep_min is not None:
+                sim_defaults.NVISION_SIGNAL_SWEEP_MIN = sweep_min
+            if sweep_max is not None:
+                sim_defaults.NVISION_SIGNAL_SWEEP_MAX = sweep_max
+            if sweep_steps is not None:
+                sim_defaults.NVISION_SIGNAL_SWEEP_STEPS = sweep_steps
+            log.info(
+                "Sweeping signal parameter %r over [%s, %s] in %s steps",
+                sweep_param,
+                sim_defaults.NVISION_SIGNAL_SWEEP_MIN,
+                sim_defaults.NVISION_SIGNAL_SWEEP_MAX,
+                sim_defaults.NVISION_SIGNAL_SWEEP_STEPS,
+            )
 
         log.debug("Starting simulations...")
 
@@ -875,6 +948,7 @@ def run(  # noqa: C901
                 filter_noise=filter_noise_str,
                 filter_signal=filter_signal_str,
                 combination_names=combination_names,
+                extra_generators=extra_generators,
             ),
             monitor=monitor,
         )

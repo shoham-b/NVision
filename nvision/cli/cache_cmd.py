@@ -16,6 +16,10 @@ from nvision.cache import CacheBridge
 from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.app_instance import app
 from nvision.sim.combinations import CombinationGrid
+from nvision.sim.gen.nv_center_generator import (
+    DEFAULT_NV_CENTER_FREQ_X_MAX,
+    DEFAULT_NV_CENTER_FREQ_X_MIN,
+)
 from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
 from nvision.tools.utils import NVISION_RNG_SEED
 
@@ -248,6 +252,19 @@ def cache_clean(
 def clean_manifest(  # noqa: C901
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
+    stale_physics: Annotated[
+        bool,
+        typer.Option(
+            "--stale-physics",
+            help=(
+                "Also remove scan entries whose true_params.config_fingerprint doesn't match "
+                "the current physics config (nvision.spectra.nv_center.PHYSICS_CONFIG_FINGERPRINT). "
+                "Catches artifacts generated under old domain/Zeeman/hyperfine/linewidth bounds that "
+                "a later code or .env change silently left behind -- e.g. a generator whose run group "
+                "was never re-run since, so it keeps serving pre-change data with nothing flagging it."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Remove old/invalid entries from plots_manifest.json and cache.
 
@@ -256,6 +273,8 @@ def clean_manifest(  # noqa: C901
     corresponding cache entries.
     """
     import json
+
+    from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 
     manifest_path = out / "plots_manifest.json"
     if not manifest_path.exists():
@@ -268,14 +287,26 @@ def clean_manifest(  # noqa: C901
     original_count = len(plots)
     valid_generators = {g.value for g in GeneratorName}
     invalid_generators = set()
+    stale_physics_generators = set()
 
-    # Identify invalid entries and collect invalid generator names
+    # Identify invalid entries and collect invalid generator names. The two checks are
+    # independent: a dynamically-named grid generator (e.g. "NVCenter-lorentzian-w0.50MHz-c0.10")
+    # is absent from the static GeneratorName enum and would always fail the first check, so it
+    # must not be allowed to short-circuit past the (separate) stale-physics check below.
     valid_plots = []
     for p in plots:
         gen = p.get("generator", "")
-        if gen not in valid_generators or p.get("generator_type") == "Supplemental":
+        is_invalid_generator = gen not in valid_generators or p.get("generator_type") == "Supplemental"
+        is_stale_physics = False
+        if stale_physics and p.get("type") == "scan":
+            fp = (p.get("true_params") or {}).get("config_fingerprint")
+            is_stale_physics = fp != PHYSICS_CONFIG_FINGERPRINT
+
+        if is_invalid_generator:
             invalid_generators.add(gen)
-        else:
+        if is_stale_physics:
+            stale_physics_generators.add(gen)
+        if not is_invalid_generator and not is_stale_physics:
             valid_plots.append(p)
 
     removed = original_count - len(valid_plots)
@@ -283,6 +314,13 @@ def clean_manifest(  # noqa: C901
     if removed == 0:
         console.print("[green]No invalid entries found.[/green]")
         return
+
+    if stale_physics_generators:
+        console.print(
+            f"[yellow]Stale-physics generators (regenerate with the owning "
+            f"``nvision groups run <name> --no-cache``): {sorted(stale_physics_generators)}[/yellow]"
+        )
+    invalid_generators |= stale_physics_generators
 
     # Also clean cache entries for invalid generators
     cache_removed = 0
@@ -370,7 +408,7 @@ def recalculate_metrics(  # noqa: C901
                 # Reconstruct experiment
                 rng = random.Random(seed)
                 true_signal = combo.generator.generate(rng)
-                x_min, x_max = 2.6e9, 3.1e9  # Matches _TaskRunner
+                x_min, x_max = DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX  # Matches _TaskRunner
                 experiment = CoreExperiment(true_signal=true_signal, noise=combo.noise, x_min=x_min, x_max=x_max)
 
                 # Load results

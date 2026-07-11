@@ -47,10 +47,22 @@ class DataBatch:
         missing = expected_cols.difference(self.df.columns)
         if missing:
             raise ValueError(f"DataBatch.df is missing required columns: {sorted(missing)}")
-        self.df = self.df.select(["x", "signal_values"]).with_columns(
-            pl.col("x").cast(pl.Float64),
-            pl.col("signal_values").cast(pl.Float64),
+        # Skip the select/cast query (a real cost for the single-row batches the
+        # SBED hot path constructs every step -- ~250us/call, dominated by Polars
+        # query planning rather than actual work) when the frame is already
+        # exactly right: same columns/order, already Float64. Falls through to
+        # the full select+cast for anything else (extra columns, wrong dtype).
+        schema = self.df.schema
+        already_normalized = (
+            self.df.columns == ["x", "signal_values"]
+            and schema["x"] == pl.Float64
+            and schema["signal_values"] == pl.Float64
         )
+        if not already_normalized:
+            self.df = self.df.select(["x", "signal_values"]).with_columns(
+                pl.col("x").cast(pl.Float64),
+                pl.col("signal_values").cast(pl.Float64),
+            )
         self.meta = dict(self.meta)
 
     @classmethod

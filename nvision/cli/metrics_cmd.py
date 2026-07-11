@@ -22,6 +22,10 @@ from nvision.cli.app_instance import app
 from nvision.cli import defaults as cli_defaults
 from nvision.runner.cache import strip_heavy_fields
 from nvision.sim.combinations import CombinationGrid
+from nvision.sim.gen.nv_center_generator import (
+    DEFAULT_NV_CENTER_FREQ_X_MAX,
+    DEFAULT_NV_CENTER_FREQ_X_MIN,
+)
 from nvision.tools.artifacts import (
     prepare_artifact_tree,
     write_locator_results_csv,
@@ -37,7 +41,7 @@ metrics_app = typer.Typer(help="Metric utilities.", pretty_exceptions_show_local
 app.add_typer(metrics_app, name="metrics")
 
 # NV center sweep bandwidth used in CRLB formula (matches executor x_min/x_max).
-_CRLB_BANDWIDTH: float = 3.1e9 - 2.6e9  # 5×10⁸ Hz
+_CRLB_BANDWIDTH: float = DEFAULT_NV_CENTER_FREQ_X_MAX - DEFAULT_NV_CENTER_FREQ_X_MIN
 
 # All scalar metric keys carried from main_result_row → scan entry.
 _METRIC_KEYS: tuple[str, ...] = (
@@ -431,8 +435,8 @@ def recalc_metrics(  # noqa: C901
             experiment = CoreExperiment(
                 true_signal=true_signal,
                 noise=combo.noise,
-                x_min=2.6e9,
-                x_max=3.1e9,
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
             )
             truth_positions = _truth_positions(experiment)
             noise_std = combo.noise.estimated_noise_std()

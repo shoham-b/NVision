@@ -6,13 +6,16 @@ from nvision.viz.base import VizBase
 from nvision.viz.bayesian import BayesianMixin
 from nvision.viz.comparisons import ComparisonsMixin
 from nvision.viz.experiments import ExperimentsMixin
+from nvision.viz.grid_study import GridStudyMixin
 from nvision.viz.measurements import MeasurementsMixin
 from nvision.viz.metrics import MetricsVizMixin
 
 # Removed duplicate plot_all_metrics implementation
 
 
-class Viz(VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, ComparisonsMixin, MetricsVizMixin):
+class Viz(
+    VizBase, ExperimentsMixin, MeasurementsMixin, BayesianMixin, ComparisonsMixin, MetricsVizMixin, GridStudyMixin
+):
     """Visualization facade combining all plotting capabilities."""
 
     def plot_all_metrics(self, df_loc: pl.DataFrame) -> list[dict[str, object]]:

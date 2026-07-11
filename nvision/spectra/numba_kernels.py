@@ -117,29 +117,41 @@ def nv_center_lorentzian_vectorized_many(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists all particle-only math (three divisions
+    # per particle) out of the m x n inner loop — see nv_center_lorentzian_eig_variance
+    # for the same pattern applied to the fused EIG-variance kernel.
+    inv_omega = np.empty(n, dtype=np.float64)
+    alpha_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        lw = linewidth[j]
+        omega = lw if lw > 1e-10 else 1e-10
+        io = 1.0 / omega
+        inv_omega[j] = io
+        alpha_arr[j] = split[j] * io
+
+        k = k_np[j]
+        k_safe = k if k > 1e-10 else 1e-10
+        inv_k = 1.0 / k_safe
+        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
+        c = c_total[j]
+        p_0_arr[j] = c * inv_p_sum
+        p_l_arr[j] = c * (inv_k * inv_p_sum)
+        p_r_arr[j] = c * (k_safe * inv_p_sum)
+
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            lw = linewidth[j]
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            c = c_total[j]
-            bg = background[j]
+            x_dim = (x - freq[j]) * inv_omega[j]
+            alpha = alpha_arr[j]
+            d_l = x_dim + alpha
+            d_r = x_dim - alpha
 
-            omega = lw if lw > 1e-10 else 1e-10
-            x_dim = (x - f) / omega
-            alpha = s / omega
-
-            k_safe = k if k > 1e-10 else 1e-10
-            p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-            p_0 = c / p_sum
-            p_L = c * ((1.0 / k_safe) / p_sum)
-            p_R = c * (k_safe / p_sum)
-
-            out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
+            out[i, j] = background[j] - (
+                p_l_arr[j] / (d_l * d_l + 1.0) + p_0_arr[j] / (x_dim * x_dim + 1.0) + p_r_arr[j] / (d_r * d_r + 1.0)
             )
 
 
@@ -338,37 +350,49 @@ def nv_center_zeeman_lorentzian_vectorized_many(
     """Zeeman parallel kernel: many probes × many particles. Writes into out[m, n]."""
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists all particle-only math out of the m x n
+    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    inv_omega = np.empty(n, dtype=np.float64)
+    alpha_arr = np.empty(n, dtype=np.float64)
+    beta_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        lw = linewidth[j]
+        omega = lw if lw > 1e-10 else 1e-10
+        io = 1.0 / omega
+        inv_omega[j] = io
+        alpha_arr[j] = hf_split[j] * io
+        beta_arr[j] = zeeman_split[j] * io
+
+        k = k_np[j]
+        k_safe = k if k > 1e-10 else 1e-10
+        inv_k = 1.0 / k_safe
+        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
+        c = c_total[j]
+        p_0_arr[j] = 0.5 * c * inv_p_sum
+        p_l_arr[j] = 0.5 * c * (inv_k * inv_p_sum)
+        p_r_arr[j] = 0.5 * c * (k_safe * inv_p_sum)
+
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            lw = linewidth[j]
-            f = freq[j]
-            z = zeeman_split[j]
-            hf = hf_split[j]
-            k = k_np[j]
-            c = c_total[j]
-            bg = background[j]
-
-            omega = lw if lw > 1e-10 else 1e-10
-            inv_omega = 1.0 / omega
-            x_dim = (x - f) * inv_omega
-            alpha = hf * inv_omega
-            beta = z * inv_omega
-
-            k_safe = k if k > 1e-10 else 1e-10
-            p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-            p_0 = 0.5 * c / p_sum
-            p_L = 0.5 * c * (1.0 / k_safe) / p_sum
-            p_R = 0.5 * c * k_safe / p_sum
+            x_dim = (x - freq[j]) * inv_omega[j]
+            alpha = alpha_arr[j]
+            beta = beta_arr[j]
+            p_0 = p_0_arr[j]
+            p_l = p_l_arr[j]
+            p_r = p_r_arr[j]
 
             x_m = x_dim + beta
-            left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
             x_p = x_dim - beta
-            right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
 
-            out[i, j] = bg - (left + right)
+            out[i, j] = background[j] - (left + right)
 
 
 @njit(cache=True, parallel=True, fastmath=True)
@@ -386,37 +410,49 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
     """Fast (fastmath) Zeeman kernel — acquisition / EIG path only."""
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists all particle-only math out of the m x n
+    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    inv_omega = np.empty(n, dtype=np.float64)
+    alpha_arr = np.empty(n, dtype=np.float64)
+    beta_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        lw = linewidth[j]
+        omega = lw if lw > 1e-10 else 1e-10
+        io = 1.0 / omega
+        inv_omega[j] = io
+        alpha_arr[j] = hf_split[j] * io
+        beta_arr[j] = zeeman_split[j] * io
+
+        k = k_np[j]
+        k_safe = k if k > 1e-10 else 1e-10
+        inv_k = 1.0 / k_safe
+        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
+        c = c_total[j]
+        p_0_arr[j] = 0.5 * c * inv_p_sum
+        p_l_arr[j] = 0.5 * c * (inv_k * inv_p_sum)
+        p_r_arr[j] = 0.5 * c * (k_safe * inv_p_sum)
+
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            lw = linewidth[j]
-            f = freq[j]
-            z = zeeman_split[j]
-            hf = hf_split[j]
-            k = k_np[j]
-            c = c_total[j]
-            bg = background[j]
-
-            omega = lw if lw > 1e-10 else 1e-10
-            inv_omega = 1.0 / omega
-            x_dim = (x - f) * inv_omega
-            alpha = hf * inv_omega
-            beta = z * inv_omega
-
-            k_safe = k if k > 1e-10 else 1e-10
-            p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-            p_0 = 0.5 * c / p_sum
-            p_L = 0.5 * c * (1.0 / k_safe) / p_sum
-            p_R = 0.5 * c * k_safe / p_sum
+            x_dim = (x - freq[j]) * inv_omega[j]
+            alpha = alpha_arr[j]
+            beta = beta_arr[j]
+            p_0 = p_0_arr[j]
+            p_l = p_l_arr[j]
+            p_r = p_r_arr[j]
 
             x_m = x_dim + beta
-            left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
             x_p = x_dim - beta
-            right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
 
-            out[i, j] = bg - (left + right)
+            out[i, j] = background[j] - (left + right)
 
 
 @njit(cache=True, parallel=True)
@@ -614,50 +650,74 @@ def nv_center_pseudo_voigt_vectorized_many(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
+    # (eta polynomial, several divisions, factor setup) out of the m x n inner
+    # loop — same pattern as nv_center_pseudo_voigt_eig_variance.
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    amp_l_arr = np.empty(n, dtype=np.float64)
+    amp_c_arr = np.empty(n, dtype=np.float64)
+    amp_r_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    for j in range(n):
+        fwhm = fwhm_total[j]
+        lf = lorentz_frac[j]
+        fwhm_l = lf * fwhm
+        fwhm_g = (1.0 - lf) * fwhm
+        k = k_np[j]
+        d = dip_depth[j]
+
+        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+        gamma = fwhm_l / 2.0
+        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+
+        gamma2 = gamma * gamma
+        has_gamma = abs(gamma) > 1e-12
+        lorentz_center = 1.0 / gamma if has_gamma else 0.0
+
+        has_sigma = abs(sigma) > 1e-12
+        if has_sigma:
+            inv_sigma = 1.0 / sigma
+            gauss_center = inv_sigma / _SQRT2PI
+            neg_half_inv_sigma2 = -0.5 * inv_sigma * inv_sigma
+            eta_gauss_factor = (1.0 - eta) * gauss_center
+        else:
+            gauss_center = 0.0
+            neg_half_inv_sigma2 = 0.0
+            eta_gauss_factor = 0.0
+
+        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+
+        actual_depth = d / k
+
+        elf_arr[j] = eta * gamma * inv_center_height if has_gamma else 0.0
+        egf_arr[j] = eta_gauss_factor * inv_center_height
+        nhs_arr[j] = neg_half_inv_sigma2
+        gamma2_arr[j] = gamma2
+        amp_c_arr[j] = actual_depth
+        amp_l_arr[j] = actual_depth / k
+        amp_r_arr[j] = actual_depth * k
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            fwhm = fwhm_total[j]
-            lf = lorentz_frac[j]
-            fwhm_l = lf * fwhm
-            fwhm_g = (1.0 - lf) * fwhm
-            f = freq[j]
+            eta_lorentz_factor = elf_arr[j]
+            eta_gauss_factor = egf_arr[j]
+            neg_half_inv_sigma2 = nhs_arr[j]
+            gamma2 = gamma2_arr[j]
+            has_gamma = has_gamma_arr[j]
+            has_sigma = has_sigma_arr[j]
             s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
 
-            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-            gamma = fwhm_l / 2.0
-            ratio = fwhm_l / (fwhm_l + fwhm_g)
-            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-
-            gamma2 = gamma * gamma
-            has_gamma = abs(gamma) > 1e-12
-            lorentz_center = 1.0 / gamma if has_gamma else 0.0
-
-            has_sigma = abs(sigma) > 1e-12
-            if has_sigma:
-                gauss_center = 1.0 / (sigma * _SQRT2PI)
-                neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
-                eta_gauss_factor = (1.0 - eta) * gauss_center
-            else:
-                gauss_center = 0.0
-                neg_half_inv_sigma2 = 0.0
-                eta_gauss_factor = 0.0
-
-            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
-
-            actual_depth = d / k
-            eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-            eta_gauss_factor = eta_gauss_factor * inv_center_height
-
-            amp_c = actual_depth
-            amp_l = amp_c / k
-            amp_r = amp_c * k
-
-            dx_c = x - f
+            dx_c = x - freq[j]
             dx_c2 = dx_c * dx_c
 
             lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
@@ -665,7 +725,7 @@ def nv_center_pseudo_voigt_vectorized_many(
             pc = lorentz_c + gauss_c
 
             if s < 1e-10:
-                out[i, j] = bg - amp_c * pc
+                out[i, j] = background[j] - amp_c_arr[j] * pc
             else:
                 dx_l = dx_c + s
                 dx_l2 = dx_l * dx_l
@@ -679,7 +739,7 @@ def nv_center_pseudo_voigt_vectorized_many(
                 gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pr = lorentz_r + gauss_r
 
-                out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
+                out[i, j] = background[j] - (amp_l_arr[j] * pl + amp_c_arr[j] * pc + amp_r_arr[j] * pr)
 
 
 @njit(cache=True, fastmath=True)
@@ -703,50 +763,73 @@ def nv_center_pseudo_voigt_vectorized_many_fast_serial(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
+    # out of the m x n inner loop — same pattern as nv_center_pseudo_voigt_eig_variance.
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    amp_l_arr = np.empty(n, dtype=np.float64)
+    amp_c_arr = np.empty(n, dtype=np.float64)
+    amp_r_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    for j in range(n):
+        fwhm = fwhm_total[j]
+        lf = lorentz_frac[j]
+        fwhm_l = lf * fwhm
+        fwhm_g = (1.0 - lf) * fwhm
+        k = k_np[j]
+        d = dip_depth[j]
+
+        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+        gamma = fwhm_l / 2.0
+        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+
+        gamma2 = gamma * gamma
+        has_gamma = abs(gamma) > 1e-12
+        lorentz_center = 1.0 / gamma if has_gamma else 0.0
+
+        has_sigma = abs(sigma) > 1e-12
+        if has_sigma:
+            inv_sigma = 1.0 / sigma
+            gauss_center = inv_sigma / _SQRT2PI
+            neg_half_inv_sigma2 = -0.5 * inv_sigma * inv_sigma
+            eta_gauss_factor = (1.0 - eta) * gauss_center
+        else:
+            gauss_center = 0.0
+            neg_half_inv_sigma2 = 0.0
+            eta_gauss_factor = 0.0
+
+        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+
+        actual_depth = d / k
+
+        elf_arr[j] = eta * gamma * inv_center_height if has_gamma else 0.0
+        egf_arr[j] = eta_gauss_factor * inv_center_height
+        nhs_arr[j] = neg_half_inv_sigma2
+        gamma2_arr[j] = gamma2
+        amp_c_arr[j] = actual_depth
+        amp_l_arr[j] = actual_depth / k
+        amp_r_arr[j] = actual_depth * k
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+
     for i in range(m):
         x = xs[i]
         for j in range(n):
-            fwhm = fwhm_total[j]
-            lf = lorentz_frac[j]
-            fwhm_l = lf * fwhm
-            fwhm_g = (1.0 - lf) * fwhm
-            f = freq[j]
+            eta_lorentz_factor = elf_arr[j]
+            eta_gauss_factor = egf_arr[j]
+            neg_half_inv_sigma2 = nhs_arr[j]
+            gamma2 = gamma2_arr[j]
+            has_gamma = has_gamma_arr[j]
+            has_sigma = has_sigma_arr[j]
             s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
 
-            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-            gamma = fwhm_l / 2.0
-            ratio = fwhm_l / (fwhm_l + fwhm_g)
-            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-
-            gamma2 = gamma * gamma
-            has_gamma = abs(gamma) > 1e-12
-            lorentz_center = 1.0 / gamma if has_gamma else 0.0
-
-            has_sigma = abs(sigma) > 1e-12
-            if has_sigma:
-                gauss_center = 1.0 / (sigma * _SQRT2PI)
-                neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
-                eta_gauss_factor = (1.0 - eta) * gauss_center
-            else:
-                gauss_center = 0.0
-                neg_half_inv_sigma2 = 0.0
-                eta_gauss_factor = 0.0
-
-            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
-
-            actual_depth = d / k
-            eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-            eta_gauss_factor = eta_gauss_factor * inv_center_height
-
-            amp_c = actual_depth
-            amp_l = amp_c / k
-            amp_r = amp_c * k
-
-            dx_c = x - f
+            dx_c = x - freq[j]
             dx_c2 = dx_c * dx_c
 
             lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
@@ -754,7 +837,7 @@ def nv_center_pseudo_voigt_vectorized_many_fast_serial(
             pc = lorentz_c + gauss_c
 
             if s < 1e-10:
-                out[i, j] = bg - amp_c * pc
+                out[i, j] = background[j] - amp_c_arr[j] * pc
             else:
                 dx_l = dx_c + s
                 dx_l2 = dx_l * dx_l
@@ -768,7 +851,7 @@ def nv_center_pseudo_voigt_vectorized_many_fast_serial(
                 gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pr = lorentz_r + gauss_r
 
-                out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
+                out[i, j] = background[j] - (amp_l_arr[j] * pl + amp_c_arr[j] * pc + amp_r_arr[j] * pr)
 
 
 @njit(cache=True)
@@ -851,30 +934,40 @@ def nv_center_lorentzian_vectorized_many_fast(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists all particle-only math out of the m x n
+    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    inv_omega = np.empty(n, dtype=np.float64)
+    alpha_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        lw = linewidth[j]
+        omega = lw if lw > 1e-10 else 1e-10
+        io = 1.0 / omega
+        inv_omega[j] = io
+        alpha_arr[j] = split[j] * io
+
+        k = k_np[j]
+        k_safe = k if k > 1e-10 else 1e-10
+        inv_k = 1.0 / k_safe
+        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
+        c = c_total[j]
+        p_0_arr[j] = c * inv_p_sum
+        p_l_arr[j] = c * (inv_k * inv_p_sum)
+        p_r_arr[j] = c * (k_safe * inv_p_sum)
+
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            lw = linewidth[j]
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            c = c_total[j]
-            bg = background[j]
+            x_dim = (x - freq[j]) * inv_omega[j]
+            alpha = alpha_arr[j]
+            d_l = x_dim + alpha
+            d_r = x_dim - alpha
 
-            omega = lw if lw > 1e-10 else 1e-10
-            inv_omega = 1.0 / omega
-            x_dim = (x - f) * inv_omega
-            alpha = s * inv_omega
-
-            k_safe = k if k > 1e-10 else 1e-10
-            p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-            p_0 = c / p_sum
-            p_L = c * ((1.0 / k_safe) / p_sum)
-            p_R = c * (k_safe / p_sum)
-
-            out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
+            out[i, j] = background[j] - (
+                p_l_arr[j] / (d_l * d_l + 1.0) + p_0_arr[j] / (x_dim * x_dim + 1.0) + p_r_arr[j] / (d_r * d_r + 1.0)
             )
 
 
@@ -898,30 +991,40 @@ def nv_center_lorentzian_vectorized_many_fast_serial(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists all particle-only math out of the m x n
+    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    inv_omega = np.empty(n, dtype=np.float64)
+    alpha_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        lw = linewidth[j]
+        omega = lw if lw > 1e-10 else 1e-10
+        io = 1.0 / omega
+        inv_omega[j] = io
+        alpha_arr[j] = split[j] * io
+
+        k = k_np[j]
+        k_safe = k if k > 1e-10 else 1e-10
+        inv_k = 1.0 / k_safe
+        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
+        c = c_total[j]
+        p_0_arr[j] = c * inv_p_sum
+        p_l_arr[j] = c * (inv_k * inv_p_sum)
+        p_r_arr[j] = c * (k_safe * inv_p_sum)
+
     for i in range(m):
         x = xs[i]
         for j in range(n):
-            lw = linewidth[j]
-            f = freq[j]
-            s = split[j]
-            k = k_np[j]
-            c = c_total[j]
-            bg = background[j]
+            x_dim = (x - freq[j]) * inv_omega[j]
+            alpha = alpha_arr[j]
+            d_l = x_dim + alpha
+            d_r = x_dim - alpha
 
-            omega = lw if lw > 1e-10 else 1e-10
-            inv_omega = 1.0 / omega
-            x_dim = (x - f) * inv_omega
-            alpha = s * inv_omega
-
-            k_safe = k if k > 1e-10 else 1e-10
-            p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-            p_0 = c / p_sum
-            p_L = c * ((1.0 / k_safe) / p_sum)
-            p_R = c * (k_safe / p_sum)
-
-            out[i, j] = bg - (
-                p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
+            out[i, j] = background[j] - (
+                p_l_arr[j] / (d_l * d_l + 1.0) + p_0_arr[j] / (x_dim * x_dim + 1.0) + p_r_arr[j] / (d_r * d_r + 1.0)
             )
 
 
@@ -945,50 +1048,73 @@ def nv_center_pseudo_voigt_vectorized_many_fast(
     """
     m = xs.shape[0]
     n = freq.shape[0]
+
+    # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
+    # out of the m x n inner loop — same pattern as nv_center_pseudo_voigt_eig_variance.
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    amp_l_arr = np.empty(n, dtype=np.float64)
+    amp_c_arr = np.empty(n, dtype=np.float64)
+    amp_r_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    for j in range(n):
+        fwhm = fwhm_total[j]
+        lf = lorentz_frac[j]
+        fwhm_l = lf * fwhm
+        fwhm_g = (1.0 - lf) * fwhm
+        k = k_np[j]
+        d = dip_depth[j]
+
+        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+        gamma = fwhm_l / 2.0
+        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+
+        gamma2 = gamma * gamma
+        has_gamma = abs(gamma) > 1e-12
+        lorentz_center = 1.0 / gamma if has_gamma else 0.0
+
+        has_sigma = abs(sigma) > 1e-12
+        if has_sigma:
+            inv_sigma = 1.0 / sigma
+            gauss_center = inv_sigma / _SQRT2PI
+            neg_half_inv_sigma2 = -0.5 * inv_sigma * inv_sigma
+            eta_gauss_factor = (1.0 - eta) * gauss_center
+        else:
+            gauss_center = 0.0
+            neg_half_inv_sigma2 = 0.0
+            eta_gauss_factor = 0.0
+
+        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+
+        actual_depth = d / k
+
+        elf_arr[j] = eta * gamma * inv_center_height if has_gamma else 0.0
+        egf_arr[j] = eta_gauss_factor * inv_center_height
+        nhs_arr[j] = neg_half_inv_sigma2
+        gamma2_arr[j] = gamma2
+        amp_c_arr[j] = actual_depth
+        amp_l_arr[j] = actual_depth / k
+        amp_r_arr[j] = actual_depth * k
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            fwhm = fwhm_total[j]
-            lf = lorentz_frac[j]
-            fwhm_l = lf * fwhm
-            fwhm_g = (1.0 - lf) * fwhm
-            f = freq[j]
+            eta_lorentz_factor = elf_arr[j]
+            eta_gauss_factor = egf_arr[j]
+            neg_half_inv_sigma2 = nhs_arr[j]
+            gamma2 = gamma2_arr[j]
+            has_gamma = has_gamma_arr[j]
+            has_sigma = has_sigma_arr[j]
             s = split[j]
-            k = k_np[j]
-            d = dip_depth[j]
-            bg = background[j]
 
-            sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-            gamma = fwhm_l / 2.0
-            ratio = fwhm_l / (fwhm_l + fwhm_g)
-            eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-
-            gamma2 = gamma * gamma
-            has_gamma = abs(gamma) > 1e-12
-            lorentz_center = 1.0 / gamma if has_gamma else 0.0
-
-            has_sigma = abs(sigma) > 1e-12
-            if has_sigma:
-                gauss_center = 1.0 / (sigma * _SQRT2PI)
-                neg_half_inv_sigma2 = -0.5 / (sigma * sigma)
-                eta_gauss_factor = (1.0 - eta) * gauss_center
-            else:
-                gauss_center = 0.0
-                neg_half_inv_sigma2 = 0.0
-                eta_gauss_factor = 0.0
-
-            center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-            inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
-
-            actual_depth = d / k
-            eta_lorentz_factor = eta * gamma * inv_center_height if has_gamma else 0.0
-            eta_gauss_factor = eta_gauss_factor * inv_center_height
-
-            amp_c = actual_depth
-            amp_l = amp_c / k
-            amp_r = amp_c * k
-
-            dx_c = x - f
+            dx_c = x - freq[j]
             dx_c2 = dx_c * dx_c
 
             lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
@@ -996,7 +1122,7 @@ def nv_center_pseudo_voigt_vectorized_many_fast(
             pc = lorentz_c + gauss_c
 
             if s < 1e-10:
-                out[i, j] = bg - amp_c * pc
+                out[i, j] = background[j] - amp_c_arr[j] * pc
             else:
                 dx_l = dx_c + s
                 dx_l2 = dx_l * dx_l
@@ -1010,7 +1136,7 @@ def nv_center_pseudo_voigt_vectorized_many_fast(
                 gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
                 pr = lorentz_r + gauss_r
 
-                out[i, j] = bg - (amp_l * pl + amp_c * pc + amp_r * pr)
+                out[i, j] = background[j] - (amp_l_arr[j] * pl + amp_c_arr[j] * pc + amp_r_arr[j] * pr)
 
 
 # ---------------------------------------------------------------------------
@@ -1204,6 +1330,545 @@ def nv_center_pseudo_voigt_eig_variance(
 
                 pred = 1.0 - (amp_l_arr[j] * pl + amp_c_arr[j] * pc + amp_r_arr[j] * pr)
 
+            sum_p += wi * pred
+            sum_p2 += wi * pred * pred
+
+        v = sum_p2 - sum_p * sum_p
+        out[i] = v if v > 0.0 else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Zeeman-split pseudo-Voigt kernels — population-normalized (c_total) framing.
+#
+# Signal = background − Σ_{±zeeman} Σ_{p∈{L,0,R}} p_weight · V_norm(x − center_p)
+#
+# This is the Voigt analogue of the Zeeman Lorentzian kernels: it keeps the
+# identical *population* reparameterization (total contrast ``c_total`` split
+# geometrically by ``k_np`` across the hyperfine triplet, and evenly across the
+# two Zeeman groups) but replaces each unit-height Lorentzian ``1/(u²+1)`` with a
+# unit-height pseudo-Voigt profile ``V_norm``.  ``V_norm`` combines the
+# homogeneous (Lorentzian, ``lorentz_frac`` share of ``fwhm_total``) and
+# inhomogeneous (Gaussian) broadening channels, normalized so the peak value is
+# 1.0 at its center, leaving the population weights as the sole amplitudes.
+#
+# When zeeman_split → 0 the two groups coincide and the model collapses to a
+# single population-normalized pseudo-Voigt triplet with full contrast c_total.
+# ---------------------------------------------------------------------------
+
+
+@njit(cache=True, inline="always")
+def _pv_factors(fwhm_total: float, lorentz_frac: float):
+    """Precompute the height-normalized pseudo-Voigt factors for one particle.
+
+    Returns ``(elf, egf, nhs, gamma2, has_gamma, has_sigma)`` where
+    ``V_norm(dx) = elf/(dx²+gamma2) + egf·exp(nhs·dx²)`` has unit peak height.
+    ``elf = eta·gamma/center_height`` and ``egf = (1-eta)·gauss_center/center_height``.
+    """
+    fwhm_l = lorentz_frac * fwhm_total
+    fwhm_g = (1.0 - lorentz_frac) * fwhm_total
+    denom = fwhm_l + fwhm_g
+    ratio = fwhm_l / denom if denom > 1e-30 else 0.0
+    eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
+
+    sigma = fwhm_g / (2.0 * _SQRT2LOG2)
+    gamma = fwhm_l / 2.0
+    gamma2 = gamma * gamma
+
+    has_gamma = abs(gamma) > 1e-12
+    lorentz_center = 1.0 / gamma if has_gamma else 0.0
+
+    has_sigma = abs(sigma) > 1e-12
+    if has_sigma:
+        inv_sigma = 1.0 / sigma
+        gauss_center = inv_sigma / _SQRT2PI
+        nhs = -0.5 * inv_sigma * inv_sigma
+        egf0 = (1.0 - eta) * gauss_center
+    else:
+        gauss_center = 0.0
+        nhs = 0.0
+        egf0 = 0.0
+
+    center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
+    inv_ch = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
+
+    elf = eta * gamma * inv_ch if has_gamma else 0.0
+    egf = egf0 * inv_ch
+    return elf, egf, nhs, gamma2, has_gamma, has_sigma
+
+
+@njit(cache=True, inline="always")
+def _pv_norm(dx: float, elf: float, egf: float, nhs: float, gamma2: float, has_gamma: bool, has_sigma: bool) -> float:
+    """Unit-height pseudo-Voigt profile value at offset ``dx`` from a peak center."""
+    dx2 = dx * dx
+    lo = elf / (dx2 + gamma2) if has_gamma else 0.0
+    ga = egf * math.exp(dx2 * nhs) if has_sigma else 0.0
+    return lo + ga
+
+
+@njit(cache=True, inline="always")
+def _zeeman_pv_populations(k_np: float, c_total: float):
+    """Per-group population weights ``(p_l, p_0, p_r)`` summing to ``0.5·c_total``."""
+    k = k_np if k_np > 1e-10 else 1e-10
+    inv_p_sum = 1.0 / ((1.0 / k) + 1.0 + k)
+    half_c = 0.5 * c_total
+    p_0 = half_c * inv_p_sum
+    p_l = half_c * (1.0 / k) * inv_p_sum
+    p_r = half_c * k * inv_p_sum
+    return p_l, p_0, p_r
+
+
+@njit(cache=True, inline="always")
+def _zeeman_pv_pred(
+    x: float,
+    freq: float,
+    zeeman_split: float,
+    hf_split: float,
+    p_l: float,
+    p_0: float,
+    p_r: float,
+    elf: float,
+    egf: float,
+    nhs: float,
+    gamma2: float,
+    has_gamma: bool,
+    has_sigma: bool,
+) -> float:
+    """Two-group hyperfine pseudo-Voigt contrast sum (background not subtracted)."""
+    cm = freq - zeeman_split
+    left = (
+        p_l * _pv_norm(x - (cm - hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        + p_0 * _pv_norm(x - cm, elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        + p_r * _pv_norm(x - (cm + hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+    )
+    cp = freq + zeeman_split
+    right = (
+        p_l * _pv_norm(x - (cp - hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        + p_0 * _pv_norm(x - cp, elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        + p_r * _pv_norm(x - (cp + hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+    )
+    return left + right
+
+
+@njit(cache=True)
+def nv_center_zeeman_pseudo_voigt_eval(
+    x: float,
+    freq: float,
+    fwhm_total: float,
+    lorentz_frac: float,
+    zeeman_split: float,
+    hf_split: float,
+    k_np: float,
+    c_total: float,
+    background: float,
+) -> float:
+    """Zeeman + hyperfine NV pseudo-Voigt scalar kernel (population-normalized)."""
+    elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
+    p_l, p_0, p_r = _zeeman_pv_populations(k_np, c_total)
+    return background - _zeeman_pv_pred(
+        x, freq, zeeman_split, hf_split, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+    )
+
+
+@njit(cache=True)
+def nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
+    x: float,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    zeeman_split: np.ndarray,
+    hf_split: np.ndarray,
+    k_np: np.ndarray,
+    c_total: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Zeeman pseudo-Voigt serial kernel: single probe ``x`` across many particles."""
+    n = freq.shape[0]
+    for j in range(n):
+        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        out[j] = background[j] - _zeeman_pv_pred(
+            x, freq[j], zeeman_split[j], hf_split[j], p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+        )
+
+
+@njit(cache=True, parallel=True)
+def nv_center_zeeman_pseudo_voigt_vectorized_many(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    zeeman_split: np.ndarray,
+    hf_split: np.ndarray,
+    k_np: np.ndarray,
+    c_total: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Zeeman pseudo-Voigt parallel kernel: many probes × many particles → out[m, n]."""
+    m = xs.shape[0]
+    n = freq.shape[0]
+
+    # Per-particle precompute: hoists the pseudo-Voigt + population setup out of
+    # the m x n inner loop — same pattern as nv_center_zeeman_pseudo_voigt_eig_variance.
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
+        elf_arr[j] = elf
+        egf_arr[j] = egf
+        nhs_arr[j] = nhs
+        gamma2_arr[j] = gamma2
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        p_l_arr[j] = p_l
+        p_0_arr[j] = p_0
+        p_r_arr[j] = p_r
+
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            out[i, j] = background[j] - _zeeman_pv_pred(
+                x,
+                freq[j],
+                zeeman_split[j],
+                hf_split[j],
+                p_l_arr[j],
+                p_0_arr[j],
+                p_r_arr[j],
+                elf_arr[j],
+                egf_arr[j],
+                nhs_arr[j],
+                gamma2_arr[j],
+                has_gamma_arr[j],
+                has_sigma_arr[j],
+            )
+
+
+@njit(cache=True, parallel=True, fastmath=True)
+def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    zeeman_split: np.ndarray,
+    hf_split: np.ndarray,
+    k_np: np.ndarray,
+    c_total: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Fast (fastmath) Zeeman pseudo-Voigt kernel — acquisition / EIG path only."""
+    m = xs.shape[0]
+    n = freq.shape[0]
+
+    # Per-particle precompute (see nv_center_zeeman_pseudo_voigt_vectorized_many).
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
+        elf_arr[j] = elf
+        egf_arr[j] = egf
+        nhs_arr[j] = nhs
+        gamma2_arr[j] = gamma2
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        p_l_arr[j] = p_l
+        p_0_arr[j] = p_0
+        p_r_arr[j] = p_r
+
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            out[i, j] = background[j] - _zeeman_pv_pred(
+                x,
+                freq[j],
+                zeeman_split[j],
+                hf_split[j],
+                p_l_arr[j],
+                p_0_arr[j],
+                p_r_arr[j],
+                elf_arr[j],
+                egf_arr[j],
+                nhs_arr[j],
+                gamma2_arr[j],
+                has_gamma_arr[j],
+                has_sigma_arr[j],
+            )
+
+
+@njit(cache=True, inline="always")
+def _zeeman_pv_dipdepth_populations(k_np: float, dip_depth: float):
+    """Per-group physical dip_depth weights ``(p_l, p_0, p_r)``.
+
+    Each Zeeman group gets half of ``dip_depth`` (unpolarized ms=+1/-1 population
+    split), reusing the same ``d/k, d, d*k`` physical-depth ratios as the
+    non-Zeeman :func:`nv_center_pseudo_voigt_eval` — NOT the ``c_total/p_sum``
+    normalization :func:`_zeeman_pv_populations` uses for the population-normalized
+    Lorentzian/saturation-Voigt kernels.
+    """
+    k = k_np if k_np > 1e-10 else 1e-10
+    actual_depth = 0.5 * dip_depth / k
+    p_0 = actual_depth
+    p_l = actual_depth / k
+    p_r = actual_depth * k
+    return p_l, p_0, p_r
+
+
+@njit(cache=True)
+def nv_center_zeeman_pseudo_voigt_dipdepth_eval(
+    x: float,
+    freq: float,
+    fwhm_total: float,
+    lorentz_frac: float,
+    zeeman_split: float,
+    split: float,
+    k_np: float,
+    dip_depth: float,
+    background: float,
+) -> float:
+    """Zeeman + hyperfine NV pseudo-Voigt scalar kernel (physical dip_depth parametrization).
+
+    Used by :class:`~nvision.spectra.nv_center.NVCenterVoigtModel` when
+    ``with_zeeman_splitting=True`` — keeps the ``dip_depth`` field's physical-depth
+    meaning (see :func:`nv_center_pseudo_voigt_eval`) instead of switching to the
+    population-normalized ``c_total`` scheme used by the Lorentzian/saturation-Voigt
+    Zeeman kernels.
+    """
+    elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
+    p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np, dip_depth)
+    return background - _zeeman_pv_pred(
+        x, freq, zeeman_split, split, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+    )
+
+
+@njit(cache=True)
+def nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_one_serial(
+    x: float,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    zeeman_split: np.ndarray,
+    split: np.ndarray,
+    k_np: np.ndarray,
+    dip_depth: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Serial Zeeman pseudo-Voigt (dip_depth) kernel: single probe ``x`` across many particles."""
+    n = freq.shape[0]
+    for j in range(n):
+        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
+        p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np[j], dip_depth[j])
+        out[j] = background[j] - _zeeman_pv_pred(
+            x, freq[j], zeeman_split[j], split[j], p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+        )
+
+
+@njit(cache=True, parallel=True)
+def nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_many(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    zeeman_split: np.ndarray,
+    split: np.ndarray,
+    k_np: np.ndarray,
+    dip_depth: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Zeeman pseudo-Voigt (dip_depth) kernel: many probes x many particles -> out[m, n]."""
+    m = xs.shape[0]
+    n = freq.shape[0]
+
+    # Per-particle precompute: hoists the pseudo-Voigt + population setup out of
+    # the m x n inner loop — same pattern as nv_center_zeeman_pseudo_voigt_eig_variance.
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
+        elf_arr[j] = elf
+        egf_arr[j] = egf
+        nhs_arr[j] = nhs
+        gamma2_arr[j] = gamma2
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+        p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np[j], dip_depth[j])
+        p_l_arr[j] = p_l
+        p_0_arr[j] = p_0
+        p_r_arr[j] = p_r
+
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            out[i, j] = background[j] - _zeeman_pv_pred(
+                x,
+                freq[j],
+                zeeman_split[j],
+                split[j],
+                p_l_arr[j],
+                p_0_arr[j],
+                p_r_arr[j],
+                elf_arr[j],
+                egf_arr[j],
+                nhs_arr[j],
+                gamma2_arr[j],
+                has_gamma_arr[j],
+                has_sigma_arr[j],
+            )
+
+
+@njit(cache=True, parallel=True, fastmath=True)
+def nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_many_fast(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    zeeman_split: np.ndarray,
+    split: np.ndarray,
+    k_np: np.ndarray,
+    dip_depth: np.ndarray,
+    background: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Fast (fastmath) Zeeman pseudo-Voigt (dip_depth) kernel — acquisition / EIG path only."""
+    m = xs.shape[0]
+    n = freq.shape[0]
+
+    # Per-particle precompute (see nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_many).
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
+        elf_arr[j] = elf
+        egf_arr[j] = egf
+        nhs_arr[j] = nhs
+        gamma2_arr[j] = gamma2
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+        p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np[j], dip_depth[j])
+        p_l_arr[j] = p_l
+        p_0_arr[j] = p_0
+        p_r_arr[j] = p_r
+
+    for i in prange(m):
+        x = xs[i]
+        for j in range(n):
+            out[i, j] = background[j] - _zeeman_pv_pred(
+                x,
+                freq[j],
+                zeeman_split[j],
+                split[j],
+                p_l_arr[j],
+                p_0_arr[j],
+                p_r_arr[j],
+                elf_arr[j],
+                egf_arr[j],
+                nhs_arr[j],
+                gamma2_arr[j],
+                has_gamma_arr[j],
+                has_sigma_arr[j],
+            )
+
+
+@njit(cache=True, parallel=True, fastmath=True)
+def nv_center_zeeman_pseudo_voigt_eig_variance(
+    xs: np.ndarray,
+    freq: np.ndarray,
+    fwhm_total: np.ndarray,
+    lorentz_frac: np.ndarray,
+    zeeman_split: np.ndarray,
+    hf_split: np.ndarray,
+    k_np: np.ndarray,
+    c_total: np.ndarray,
+    weights: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Fused: weighted prediction variance per candidate — Zeeman pseudo-Voigt EIG path.
+
+    Same contract as :func:`nv_center_zeeman_lorentzian_eig_variance`: background
+    is omitted (always 1.0 for NV models and cancels out of the variance).
+    """
+    m = xs.shape[0]
+    n = freq.shape[0]
+
+    # Per-particle precompute hoists the entire pseudo-Voigt + population setup
+    # out of the m x n inner loop. float64 keeps the numerics identical to the
+    # per-pair scalar path.
+    elf_arr = np.empty(n, dtype=np.float64)
+    egf_arr = np.empty(n, dtype=np.float64)
+    nhs_arr = np.empty(n, dtype=np.float64)
+    gamma2_arr = np.empty(n, dtype=np.float64)
+    has_gamma_arr = np.empty(n, dtype=np.bool_)
+    has_sigma_arr = np.empty(n, dtype=np.bool_)
+    p_l_arr = np.empty(n, dtype=np.float64)
+    p_0_arr = np.empty(n, dtype=np.float64)
+    p_r_arr = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
+        elf_arr[j] = elf
+        egf_arr[j] = egf
+        nhs_arr[j] = nhs
+        gamma2_arr[j] = gamma2
+        has_gamma_arr[j] = has_gamma
+        has_sigma_arr[j] = has_sigma
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        p_l_arr[j] = p_l
+        p_0_arr[j] = p_0
+        p_r_arr[j] = p_r
+
+    for i in prange(m):
+        x = xs[i]
+        sum_p = 0.0
+        sum_p2 = 0.0
+        for j in range(n):
+            pred = 1.0 - _zeeman_pv_pred(
+                x,
+                freq[j],
+                zeeman_split[j],
+                hf_split[j],
+                p_l_arr[j],
+                p_0_arr[j],
+                p_r_arr[j],
+                elf_arr[j],
+                egf_arr[j],
+                nhs_arr[j],
+                gamma2_arr[j],
+                has_gamma_arr[j],
+                has_sigma_arr[j],
+            )
+            wi = weights[j]
             sum_p += wi * pred
             sum_p2 += wi * pred * pred
 

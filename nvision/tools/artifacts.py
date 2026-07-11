@@ -388,17 +388,24 @@ def ensure_plot_manifest_non_empty(plot_manifest: list[dict[str, object]], log: 
 
 
 def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
-    """Return a slimmed manifest entry — strips heavy/redundant fields, flattens coarse/fine."""
-    # Binary blobs and plot data (already in .json.gz files)
-    _ALWAYS_DROP = frozenset({
-        "content", "content_bin", "plot_data", "_bytes",
-        # Redundant: all fields already exist at top-level
-        "metrics",
-        # Timing / logging — not used by UI
-        "duration_ms", "last_run",
-        # sobol detail fields — only sobol_baseline_steps is kept for comparison cards
-        "sobol_freq_steps", "sobol_freq_uncert_at_conv", "sobol_freq_err_at_conv",
-    })
+    """Return a slimmed manifest entry — strips heavy fields, flattens coarse/fine.
+
+    ``metrics`` is a nested dict that partially duplicates top-level fields
+    (abs_err_x, uncert, duration_ms, ...) but is also the *only* place several
+    sweep-specific fields live (measurements_done, dips_detected,
+    expected_uniform_points, sweep_efficiency, acquisition_lo/hi, ...). The UI
+    reads it directly and inconsistently: most call sites check the top-level
+    field first and fall back to ``plot.metrics.X`` (safe either way), but at
+    least one (``getStoppingFrameLimit`` in app.js) reads ``currentPlot.metrics
+    .freq_converged_step`` with no top-level fallback at all. A prior version
+    of this function dropped ``metrics`` wholesale (silently blanking
+    measurements/duration/efficiency cards); deduplicating it against
+    top-level fields is tempting but wrong for the same reason — it would
+    silently break that no-fallback call site instead. Keep the full dict.
+    """
+    # Binary blobs and plot data (already in .json.gz files) — the only things
+    # safe to drop unconditionally.
+    _ALWAYS_DROP = frozenset({"content", "content_bin", "plot_data", "_bytes"})
 
     # Flatten coarse/fine measurements before dropping the nested dicts
     out: dict[str, object] = {}

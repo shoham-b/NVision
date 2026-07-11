@@ -174,31 +174,26 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         return self._empirical_uncertainty()
 
     def crlb_frequency(self) -> float:
-        """Analytical CRLB for frequency (physical Hz) for the NV Lorentzian model.
+        """Analytical CRLB for frequency (physical Hz) for the NV Lorentzian/Voigt models.
 
-        Uses the closed-form Fisher result for uniform sampling of a Lorentzian:
-        ``CRLB_f = sqrt(2σ²Ω / (πa²ρ))``
-        where σ = noise std, Ω = linewidth (FWHM, Hz), a = contrast (c_total),
-        ρ = n_obs / bandwidth (measurements per Hz).
+        Uses the closed-form Fisher result for uniform sampling of a single
+        population-normalized dip of height-normalized shape ``V`` (peak 1) and
+        amplitude ``a``:
+        ``I(f) = (ρ/σ²)·a²·J``, ``CRLB_f = sqrt(σ² / (ρ·a²·J))``
+        where σ = noise std, ρ = n_obs / bandwidth (measurements per Hz), and
+        ``J = ∫(V'(x))² dx`` depends only on the lineshape.
 
-        Derivation: integrating (∂S/∂f)²/σ² over a uniform density ρ gives
-        I(f) = πa²ρ / (2σ²Ω), so CRLB_var = 2σ²Ω/(πa²ρ).
+        For a Lorentzian of HWHM Ω, ``J = π/(4Ω)`` — verified by direct numerical
+        integration of ``(∂S/∂f)²`` against the coded ``nv_center_lorentzian_eval``
+        (confirms the ``4`` in the denominator here, not ``2``).
 
-        Returns ``math.inf`` for non-Lorentzian models or before any observations.
+        Returns ``math.inf`` for unsupported models or before any observations.
         """
-        from nvision.spectra.nv_center import NVCenterLorentzianModel
+        from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterSaturationVoigtModel
 
         inner = getattr(self.model, "inner", None)
-        if not isinstance(inner, NVCenterLorentzianModel):
-            return math.inf
 
         if self._obs_count == 0 or self.last_obs is None:
-            return math.inf
-
-        ests = self.estimates()  # physical-space values
-        linewidth = ests.get("linewidth")
-        c_total = ests.get("c_total")
-        if linewidth is None or c_total is None or c_total <= 0 or linewidth <= 0:
             return math.inf
 
         noise_std = float(self.last_obs.noise_std)
@@ -211,8 +206,48 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             return math.inf
 
         rho = self._obs_count / bandwidth  # measurements per Hz
-        variance = (2.0 * noise_std**2 * linewidth) / (math.pi * c_total**2 * rho)
-        return math.sqrt(max(variance, 0.0))
+
+        if isinstance(inner, NVCenterLorentzianModel):
+            ests = self.estimates()  # physical-space values
+            linewidth = ests.get("linewidth")
+            c_total = ests.get("c_total")
+            if linewidth is None or c_total is None or c_total <= 0 or linewidth <= 0:
+                return math.inf
+            variance = (4.0 * noise_std**2 * linewidth) / (math.pi * c_total**2 * rho)
+            return math.sqrt(max(variance, 0.0))
+
+        if isinstance(inner, NVCenterSaturationVoigtModel):
+            from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
+            from nvision.spectra.numba_kernels import _pv_factors
+
+            ests = self.estimates()  # physical-space values
+            saturation = ests.get("saturation")
+            sigma_inhom = ests.get("sigma_inhom")
+            if saturation is None or sigma_inhom is None:
+                return math.inf
+
+            fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam_scalar(
+                saturation, sigma_inhom, NV_SATURATION_C_MAX
+            )
+            if fwhm_total <= 0 or c_total <= 0:
+                return math.inf
+
+            elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
+            # J = ∫(V')²dx for the height-normalized pseudo-Voigt V, dropping the
+            # Lorentzian x Gaussian cross-term (single-dip approximation, matching
+            # the Lorentzian branch above). This underestimates J for genuinely
+            # mixed lineshapes, i.e. is a conservative (larger) CRLB — verified
+            # numerically to be exact in the sigma_inhom -> 0 (pure Lorentzian) limit.
+            j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
+            j_gauss = (egf**2) * math.sqrt(-math.pi * nhs / 2.0) if has_sigma and nhs < 0 else 0.0
+            j_total = j_lorentz + j_gauss
+            if j_total <= 0:
+                return math.inf
+
+            variance = noise_std**2 / (rho * c_total**2 * j_total)
+            return math.sqrt(max(variance, 0.0))
+
+        return math.inf
 
     def reported_uncertainty(self) -> ParameterValues[float]:
         """Physical uncertainty floored at K× the Lorentzian CRLB for frequency.
@@ -302,6 +337,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 f"Particles out of bounds after resampling in narrow_scan_parameter_physical_bounds: min {np.min(u_new)}, max {np.max(u_new)}"
             )
         self._particles[:, j] = np.clip(u_new, 0.0, 1.0)
+        self._belief_version += 1
 
         self.model.narrow_physical_interval_for_param(param_name, nl, nh, update_x_axis=sync_x)
         self.physical_param_bounds[param_name] = (nl, nh)
@@ -333,10 +369,21 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if cur_width <= 0:
             return
 
-        # Setup dip detection parameters
+        # Setup dip detection parameters (lineshape-agnostic effective HWHM estimate)
         estimates = self.estimates()
-        omega_phys = float(estimates.get("linewidth", estimates.get("fwhm_total", 2.0e6) / 2.0))
+        if "linewidth" in estimates:
+            omega_phys = float(estimates["linewidth"])
+        elif "saturation" in estimates and "sigma_inhom" in estimates:
+            from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
+
+            fwhm_total, _, _ = _saturation_voigt_reparam_scalar(
+                estimates["saturation"], estimates["sigma_inhom"], NV_SATURATION_C_MAX
+            )
+            omega_phys = fwhm_total / 2.0
+        else:
+            omega_phys = float(estimates.get("fwhm_total", 2.0e6)) / 2.0
         omega_phys = max(omega_phys, 1.0e5)  # at least 100 kHz
+        zeeman_hat_phys = float(estimates.get("zeeman_split", 0.0))
 
         # --- Active Boundary-Escape Guard ----------------------------------
         # If particles are piling up near the unit boundaries [0.0, 1.0], it
@@ -353,7 +400,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         import os
 
         if left_piling and lo_phys > lo_orig:
-            expansion = max(cur_width, 10.0 * omega_phys)
+            expansion = max(cur_width, 10.0 * omega_phys + 2.0 * zeeman_hat_phys)
             new_lo = max(lo_phys - expansion, lo_orig)
             new_hi = hi_phys
             logging.getLogger(__name__).debug(
@@ -370,7 +417,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             return
 
         if right_piling and hi_phys < hi_orig:
-            expansion = max(cur_width, 10.0 * omega_phys)
+            expansion = max(cur_width, 10.0 * omega_phys + 2.0 * zeeman_hat_phys)
             new_lo = lo_phys
             new_hi = min(hi_phys + expansion, hi_orig)
             logging.getLogger(__name__).debug(
@@ -414,11 +461,33 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         else:
             split_phys = np.zeros_like(freq_phys)
 
+        if "zeeman_split" in self._param_names:
+            j_zeeman = self._param_names.index("zeeman_split")
+            u_zeeman = self._particles[:, j_zeeman]
+            lo_z, hi_z = self.physical_param_bounds["zeeman_split"]
+            zeeman_phys = lo_z + u_zeeman * (hi_z - lo_z)
+        else:
+            zeeman_phys = np.zeros_like(freq_phys)
+
         if "linewidth" in self._param_names:
             j_line = self._param_names.index("linewidth")
             u_line = self._particles[:, j_line]
             lo_l, hi_l = self.physical_param_bounds["linewidth"]
             linewidth_phys = lo_l + u_line * (hi_l - lo_l)
+        elif "saturation" in self._param_names and "sigma_inhom" in self._param_names:
+            from nvision.spectra.nv_center import _saturation_voigt_reparam
+
+            j_sat = self._param_names.index("saturation")
+            j_sig = self._param_names.index("sigma_inhom")
+            lo_sat, hi_sat = self.physical_param_bounds["saturation"]
+            lo_sig, hi_sig = self.physical_param_bounds["sigma_inhom"]
+            saturation_phys = lo_sat + self._particles[:, j_sat] * (hi_sat - lo_sat)
+            sigma_inhom_phys = lo_sig + self._particles[:, j_sig] * (hi_sig - lo_sig)
+            # c_max doesn't affect fwhm_total; a placeholder array satisfies the vectorized signature.
+            fwhm_total, _, _ = _saturation_voigt_reparam(
+                saturation_phys, sigma_inhom_phys, np.ones_like(saturation_phys)
+            )
+            linewidth_phys = fwhm_total / 2.0
         elif "fwhm_total" in self._param_names:
             j_fwhm = self._param_names.index("fwhm_total")
             u_fwhm = self._particles[:, j_fwhm]
@@ -434,11 +503,31 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # barely moves the boundary).
         tail_percentile = 5.0
 
-        left_phys = freq_phys - split_phys - cover_factor * linewidth_phys
-        right_phys = freq_phys + split_phys + cover_factor * linewidth_phys
+        # Per particle, the active range is exactly symmetric about freq_i: both dips
+        # (or the hyperfine triplet) reach the same offset in either direction. Pool that
+        # offset across *all* particles into one two-sided quantile rather than computing
+        # independent one-sided quantiles of (freq_i - offset_i) and (freq_i + offset_i) --
+        # the latter effectively estimates the same offset distribution twice from disjoint
+        # tail subsets, and can produce an asymmetric window even though the underlying
+        # physics guarantees symmetry. The frequency-center term still uses its own
+        # percentiles (not the mean) so a wide or not-yet-unimodal frequency posterior is
+        # still respected.
+        offset_phys = zeeman_phys + split_phys + cover_factor * linewidth_phys
+        offset_q95 = float(np.percentile(offset_phys, 100.0 - tail_percentile))
 
-        new_lo = float(np.percentile(left_phys, tail_percentile))
-        new_hi = float(np.percentile(right_phys, 100.0 - tail_percentile))
+        freq_lo = float(np.percentile(freq_phys, tail_percentile))
+        freq_hi = float(np.percentile(freq_phys, 100.0 - tail_percentile))
+
+        new_lo = freq_lo - offset_q95
+        new_hi = freq_hi + offset_q95
+
+        # Floor: a single narrowing step must not undershoot the plausible
+        # dip span, even if the frequency marginal has already collapsed.
+        min_width = 2.0 * offset_q95
+        if (new_hi - new_lo) < min_width:
+            center = 0.5 * (new_hi + new_lo)
+            new_lo = center - min_width / 2.0
+            new_hi = center + min_width / 2.0
 
         lo_orig, hi_orig = self._original_physical_x_bounds
         new_lo = max(new_lo, lo_orig)

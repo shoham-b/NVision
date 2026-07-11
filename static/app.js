@@ -632,6 +632,11 @@ function main() {
     const scanDefault = scanPlots.length > 0 ? scanPlots[0] : null;
 
     const scanGenerator = document.getElementById('scan-generator');
+    const scanGeneratorFlatRow = document.getElementById('scan-generator-flat-row');
+    const scanGeneratorFamilyRow = document.getElementById('scan-generator-family-row');
+    const scanGeneratorFamily = document.getElementById('scan-generator-family');
+    const scanGeneratorFacetsRow = document.getElementById('scan-generator-facets-row');
+    const scanGeneratorFacets = document.getElementById('scan-generator-facets');
     const scanNoise = document.getElementById('scan-noise');
     const scanStrategy = document.getElementById('scan-strategy');
     const scanRepeat = document.getElementById('scan-repeat');
@@ -640,8 +645,16 @@ function main() {
     const scanIframe = document.getElementById('scan-iframe');
     const scanMetrics = document.getElementById('scan-metrics');
     const scanSweepMetrics = document.getElementById('scan-sweep-metrics');
+    const gridStatsScanAxisSelect = document.getElementById('grid-stats-scan-axis');
+    const gridStatsFixedSelects = document.getElementById('grid-stats-fixed-selects');
+    const gridStatsPlotDiv = document.getElementById('grid-stats-plot-div');
+    const gridStatsTableContainer = document.getElementById('grid-stats-table-container');
+    const gridStatsEmptyMessage = document.getElementById('grid-stats-empty-message');
+    let gridStatsScanAxisKey = null;
+    let gridStatsFixedValues = {};
     let currentRepeatItems = [];
     let measurementDistributionVisible = null;
+    let scanFlipViewEnabled = false;
 
     function isMeasurementDistributionTrace(trace) {
         const name = (trace && trace.name) ? String(trace.name).trim().toLowerCase() : '';
@@ -838,6 +851,10 @@ function main() {
                         measurements: plainMeas(raw.measurements),
                     };
                     if (raw.y_dense_noisy) out.y_dense_noisy = toPlainArr(raw.y_dense_noisy);
+                    if (raw.y_dense_noisy_lo) out.y_dense_noisy_lo = toPlainArr(raw.y_dense_noisy_lo);
+                    if (raw.y_dense_noisy_hi) out.y_dense_noisy_hi = toPlainArr(raw.y_dense_noisy_hi);
+                    if (raw.y_dense_noisy_lo2) out.y_dense_noisy_lo2 = toPlainArr(raw.y_dense_noisy_lo2);
+                    if (raw.y_dense_noisy_hi2) out.y_dense_noisy_hi2 = toPlainArr(raw.y_dense_noisy_hi2);
                     if (raw.y_dense_mode) out.y_dense_mode = toPlainArr(raw.y_dense_mode);
                     if (raw.focus_window) out.focus_window = Array.isArray(raw.focus_window) ? raw.focus_window : Array.from(raw.focus_window);
                     if (raw.narrowed_param_bounds) out.narrowed_param_bounds = raw.narrowed_param_bounds;
@@ -989,8 +1006,161 @@ function main() {
     }
 
 
+    // Fold a scan figure at the true center frequency: every trace is clipped to its
+    // right half (x >= center), and the true-signal curve's left half is reflected
+    // (x -> 2*center - x) and re-plotted as a dotted overlay on that same right-half
+    // range, so Zeeman/hyperfine symmetry can be checked visually with the halves
+    // superimposed instead of side by side. Fallback used when the signal has no
+    // Zeeman splitting to split into two per-group subplots.
+    function _foldScanFigureAtCenter(figData, figLayout, center) {
+        if (!Array.isArray(figData) || !figData.length) return { data: figData, layout: figLayout };
+
+        let lo = Infinity, hi = -Infinity;
+        for (const t of figData) {
+            if (!t.x || !t.x.length) continue;
+            for (const v of t.x) {
+                if (v == null || !Number.isFinite(v)) continue;
+                if (v < lo) lo = v;
+                if (v > hi) hi = v;
+            }
+        }
+        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { data: figData, layout: figLayout };
+        if (center === null || center === undefined) center = (lo + hi) / 2;
+
+        const filterRight = (t) => {
+            if (!t.x || !t.x.length) return t;
+            const idx = [];
+            for (let i = 0; i < t.x.length; i++) {
+                const v = t.x[i];
+                if (v != null && Number.isFinite(v) && v >= center) idx.push(i);
+            }
+            const pick = (arr) => (Array.isArray(arr) && arr.length === t.x.length) ? idx.map((i) => arr[i]) : arr;
+            return Object.assign({}, t, { x: idx.map((i) => t.x[i]), y: pick(t.y), customdata: pick(t.customdata) });
+        };
+
+        const newData = figData.map(filterRight);
+
+        // Mirror the true-signal curve's left half onto the right-half range.
+        const trueTrace = figData.find((t) => t.name === 'true signal');
+        if (trueTrace && trueTrace.x && trueTrace.x.length) {
+            const pts = [];
+            for (let i = 0; i < trueTrace.x.length; i++) {
+                const v = trueTrace.x[i];
+                if (v != null && Number.isFinite(v) && v < center) {
+                    pts.push([2 * center - v, trueTrace.y[i]]);
+                }
+            }
+            pts.sort((a, b) => a[0] - b[0]);
+            if (pts.length) {
+                newData.push({
+                    type: 'scatter', mode: 'lines',
+                    name: 'true signal (mirrored left half)',
+                    x: pts.map((p) => p[0]), y: pts.map((p) => p[1]),
+                    line: { color: 'blue', dash: 'dot', width: 1.5 },
+                });
+            }
+        }
+
+        const newLayout = Object.assign({}, figLayout, {
+            xaxis: Object.assign({}, figLayout && figLayout.xaxis, { range: [center, hi] }),
+        });
+        return { data: newData, layout: newLayout };
+    }
+
+    // Window one trace's points to [lo, hi] and, if mirrorAbout is given, reflect
+    // x -> 2*mirrorAbout - x (re-sorted by x) so a mirrored trace reads in the same
+    // left-to-right orientation as its un-mirrored counterpart.
+    function _windowAndMirrorTrace(t, lo, hi, mirrorAbout) {
+        if (!t.x || !t.x.length) return null;
+        const idx = [];
+        for (let i = 0; i < t.x.length; i++) {
+            const v = t.x[i];
+            if (v != null && Number.isFinite(v) && v >= lo && v <= hi) idx.push(i);
+        }
+        if (!idx.length) return null;
+        const pick = (arr) => (Array.isArray(arr) && arr.length === t.x.length) ? idx.map((i) => arr[i]) : arr;
+        let xs = idx.map((i) => t.x[i]);
+        let ys = pick(t.y);
+        let cd = pick(t.customdata);
+        if (mirrorAbout != null) {
+            const hasCd = Array.isArray(cd) && cd.length === xs.length;
+            const pts = xs.map((x, i) => [2 * mirrorAbout - x, ys[i], hasCd ? cd[i] : null]);
+            pts.sort((a, b) => a[0] - b[0]);
+            xs = pts.map((p) => p[0]);
+            ys = pts.map((p) => p[1]);
+            if (hasCd) cd = pts.map((p) => p[2]);
+        }
+        return Object.assign({}, t, { x: xs, y: ys, customdata: cd });
+    }
+
+    // Split a scan figure into two stacked subplots, one per Zeeman group (centered
+    // at frequency +/- zeeman_split). The lower-frequency group has every trace
+    // mirrored about its own center so both panels read in the same orientation and
+    // can be visually compared for symmetry -- each panel keeps its own measurement
+    // markers, so (unlike a single combined-overlay fold) you can see which specific
+    // measurements landed in each group.
+    function _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanSplit) {
+        const hw = Math.abs(zeemanSplit) * 0.9;
+        const c2 = center + zeemanSplit; // higher-frequency group, as-is
+        const c1 = center - zeemanSplit; // lower-frequency group, mirrored about c1
+
+        const topData = [];
+        const bottomData = [];
+        for (const t of figData) {
+            // Skip metrics-row traces (entropy/uncertainty vs. step) -- not meaningful
+            // windowed against a frequency range, and would collide with the x2/y2
+            // axes reused below for the second Zeeman-group panel.
+            if (t.xaxis === 'x2' || t.yaxis === 'y2') continue;
+
+            const top = _windowAndMirrorTrace(t, c2 - hw, c2 + hw, null);
+            if (top) topData.push(Object.assign({}, top, { xaxis: 'x', yaxis: 'y' }));
+
+            const bottom = _windowAndMirrorTrace(t, c1 - hw, c1 + hw, c1);
+            if (bottom) {
+                bottomData.push(Object.assign({}, bottom, {
+                    xaxis: 'x2', yaxis: 'y2',
+                    name: bottom.name ? bottom.name + ' (mirrored)' : bottom.name,
+                }));
+            }
+        }
+
+        const newLayout = Object.assign({}, figLayout, {
+            shapes: [],
+            annotations: [],
+            grid: { rows: 2, columns: 1, pattern: 'independent' },
+            xaxis: Object.assign({}, figLayout && figLayout.xaxis, {
+                domain: [0, 1], anchor: 'y', range: [c2 - hw, c2 + hw],
+                title: { text: 'frequency — Zeeman group @ f0+' + formatFrequency(Math.abs(zeemanSplit)) },
+            }),
+            yaxis: Object.assign({}, figLayout && figLayout.yaxis, { domain: [0.55, 1], anchor: 'x' }),
+            xaxis2: {
+                domain: [0, 1], anchor: 'y2', range: [c1 - hw, c1 + hw],
+                title: { text: 'frequency — Zeeman group @ f0-' + formatFrequency(Math.abs(zeemanSplit)) + ' (mirrored)' },
+                tickformat: figLayout && figLayout.xaxis && figLayout.xaxis.tickformat,
+            },
+            yaxis2: Object.assign({}, figLayout && figLayout.yaxis, { domain: [0, 0.45], anchor: 'x2' }),
+            height: 800,
+        });
+
+        return { data: topData.concat(bottomData), layout: newLayout };
+    }
+
+    // Dispatcher for the "Flip view" toggle: splits by Zeeman group when the true
+    // signal has Zeeman splitting, otherwise falls back to the single center-fold.
+    function _foldScanFigureForFlipView(figData, figLayout) {
+        if (!Array.isArray(figData) || !figData.length) return { data: figData, layout: figLayout };
+        const tp = figLayout && figLayout.meta && figLayout.meta.true_params && figLayout.meta.true_params.params;
+        const center = tp && Number.isFinite(tp.frequency) ? tp.frequency : null;
+        const zeemanSplit = tp && Number.isFinite(tp.zeeman_split) ? tp.zeeman_split : null;
+        if (center !== null && zeemanSplit !== null && Math.abs(zeemanSplit) > 1e-9) {
+            return _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanSplit);
+        }
+        return _foldScanFigureAtCenter(figData, figLayout, center);
+    }
+
     async function renderPlotFromJson(container, jsonPath) {
         if (!jsonPath) { container.innerHTML = ''; return; }
+        container._lastJsonPath = jsonPath;
         // Purge any pending Plotly operations on this container before replacing it.
         // Without this, an in-flight Plotly.restyle blocks the queue and subsequent
         // Plotly.react calls never execute.
@@ -1032,6 +1202,12 @@ function main() {
                 const fig = toPlain(raw);
                 figData = fig.data || [];
                 figLayout = Object.assign({}, fig.layout || {}, { autosize: true });
+            }
+
+            if (container.id === 'scan-plot-div' && scanFlipViewEnabled && raw && raw._graph_type === 'scan') {
+                const folded = _foldScanFigureForFlipView(figData, figLayout);
+                figData = folded.data;
+                figLayout = folded.layout;
             }
 
             // If this is a noise sweep summary plot, draw vertical reference line(s) for selected noise(s)
@@ -1271,6 +1447,38 @@ function main() {
             line: { color: '#2563eb', width: 2 },
         });
         if (
+            pdL.y_dense_noisy_lo &&
+            pdL.y_dense_noisy_lo.length &&
+            pdL.y_dense_noisy_lo.length === pdL.x_dense.length
+        ) {
+            if (
+                pdL.y_dense_noisy_lo2 &&
+                pdL.y_dense_noisy_lo2.length === pdL.x_dense.length
+            ) {
+                traces.push({
+                    type: 'scatter', x: pdL.x_dense, y: pdL.y_dense_noisy_lo2, mode: 'lines',
+                    line: { width: 0, color: 'rgba(100,100,100,0)' },
+                    showlegend: false, hoverinfo: 'skip',
+                });
+                traces.push({
+                    type: 'scatter', x: pdL.x_dense, y: pdL.y_dense_noisy_hi2, mode: 'lines',
+                    name: 'possible measurement range (±2σ)',
+                    line: { width: 0, color: 'rgba(100,100,100,0)' },
+                    fill: 'tonexty', fillcolor: 'rgba(100,100,100,0.15)',
+                });
+            }
+            traces.push({
+                type: 'scatter', x: pdL.x_dense, y: pdL.y_dense_noisy_lo, mode: 'lines',
+                line: { width: 0, color: 'rgba(100,100,100,0)' },
+                showlegend: false, hoverinfo: 'skip',
+            });
+            traces.push({
+                type: 'scatter', x: pdL.x_dense, y: pdL.y_dense_noisy_hi, mode: 'lines',
+                name: 'possible measurement range (±1σ)',
+                line: { width: 0, color: 'rgba(100,100,100,0)' },
+                fill: 'tonexty', fillcolor: 'rgba(100,100,100,0.30)',
+            });
+        } else if (
             pdL.y_dense_noisy &&
             pdL.y_dense_noisy.length &&
             pdL.y_dense_noisy.length === pdL.x_dense.length
@@ -1444,6 +1652,415 @@ function main() {
         return { value: nextValue, items: uniqueItems };
     }
 
+    // Parse a generator name produced by a parameter-grid study (see
+    // sim/presets.py's _fmt_sigma_inhom/_fmt_width/_fmt_contrast)
+    // into its swept axes, so the UI can offer one dropdown per axis instead of a
+    // flat list of opaque concatenated names. Returns null for non-grid generators
+    // (e.g. bare "NVCenter-lorentzian").
+    function parseGeneratorFacets(name) {
+        let m = /^NVCenter-saturation_voigt-c([\d.]+)-si([\d.]+)MHz$/.exec(name);
+        if (m) {
+            return {
+                family: 'saturation_voigt',
+                familyLabel: 'Saturation-Voigt (contrast × sigma_inhom)',
+                axes: [
+                    { key: 'contrast', label: 'Contrast', value: Number(m[1]) },
+                    { key: 'sigma_inhom', label: 'sigma_inhom (MHz)', value: Number(m[2]) },
+                ],
+            };
+        }
+        m = /^NVCenter-([a-zA-Z_]+)-w([\d.]+)MHz-c([\d.]+)-lf([\d.]+)$/.exec(name);
+        if (m) {
+            const variant = m[1];
+            return {
+                family: `${variant}_width_contrast_lorentzfrac`,
+                familyLabel: `${variant} (width × contrast × inhom)`,
+                axes: [
+                    { key: 'width', label: 'Width (MHz)', value: Number(m[2]) },
+                    { key: 'contrast', label: 'Contrast', value: Number(m[3]) },
+                    { key: 'lorentz_frac', label: 'Inhom (lorentz_frac)', value: Number(m[4]) },
+                ],
+            };
+        }
+        m = /^NVCenter-([a-zA-Z_]+)-w([\d.]+)MHz-c([\d.]+)$/.exec(name);
+        if (m) {
+            const variant = m[1];
+            return {
+                family: `${variant}_width_contrast`,
+                familyLabel: `${variant} (width × contrast)`,
+                axes: [
+                    { key: 'width', label: 'Width (MHz)', value: Number(m[2]) },
+                    { key: 'contrast', label: 'Contrast', value: Number(m[3]) },
+                ],
+            };
+        }
+        return null;
+    }
+
+    // Group generator names into parameter-study "families" (same variant + same
+    // swept axes) plus an "__ungrouped__" bucket for anything that doesn't parse
+    // (e.g. bare default generators from a plain, non-grid run).
+    function groupGeneratorsByFamily(items) {
+        const families = new Map();
+        const ungrouped = [];
+        for (const name of items) {
+            const parsed = parseGeneratorFacets(name);
+            if (!parsed) {
+                ungrouped.push(name);
+                continue;
+            }
+            if (!families.has(parsed.family)) {
+                families.set(parsed.family, { label: parsed.familyLabel, axes: parsed.axes.map((a) => a.key), members: [] });
+            }
+            families.get(parsed.family).members.push({ name, axisValues: parsed.axes });
+        }
+        return { families, ungrouped };
+    }
+
+    function axisDisplayValue(v) {
+        return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4)));
+    }
+
+    // Per-family, per-axis selected values (as axisDisplayValue strings), keyed by
+    // family key so a multi-selection survives the full facet re-render that
+    // every axis change triggers (via scanGenerator's 'controlchange' -->
+    // updateAllScanControls --> updateScanSignalControls --> this function again).
+    // Without this store, that re-render would reseed each axis from the single
+    // primary generator and silently collapse any multi-selection back to one.
+    const facetSelectionStore = new Map();
+
+    // Render one multi-select button group per axis for the given family (same
+    // click/range UX as the noise selector), wired so that any axis's selection
+    // recomputes the set of matching generator names. The primary (first) match
+    // is pushed into the existing #scan-generator control (dataset.value +
+    // 'controlchange') so single-generator consumers of controlValue(scanGenerator)
+    // keep working unchanged; the full match set is exposed via
+    // getSelectedScanGenerators() for consumers that compare across values.
+    function renderGeneratorFacetSelects(familyGroup, previousGeneratorName, familyKey) {
+        const axisMeta = familyGroup.members[0].axisValues.map((a) => ({ key: a.key, label: a.label }));
+        if (!facetSelectionStore.has(familyKey)) facetSelectionStore.set(familyKey, {});
+        const store = facetSelectionStore.get(familyKey);
+        const prevMember = familyGroup.members.find((m) => m.name === previousGeneratorName);
+
+        function computeMatches() {
+            return familyGroup.members.filter((m) =>
+                axisMeta.every((meta) => {
+                    const sel = store[meta.key];
+                    if (!sel || sel.size === 0) return false;
+                    return sel.has(axisDisplayValue(m.axisValues.find((a) => a.key === meta.key).value));
+                }),
+            );
+        }
+
+        function applySelection(options = {}) {
+            const matches = computeMatches();
+            const effective = matches.length ? matches : [familyGroup.members[0]];
+            scanGeneratorFacets.dataset.selectedGenerators = JSON.stringify(effective.map((m) => m.name));
+            setControlValue(scanGenerator, effective[0].name, options);
+        }
+
+        scanGeneratorFacets.innerHTML = '';
+        for (const meta of axisMeta) {
+            const wrapper = document.createElement('span');
+            wrapper.className = 'facet-select-wrapper';
+            const label = document.createElement('label');
+            label.textContent = `${meta.label}: `;
+            label.className = 'facet-select-label';
+
+            const values = [...new Set(familyGroup.members.map((m) => m.axisValues.find((a) => a.key === meta.key).value))]
+                .sort((a, b) => a - b)
+                .map(axisDisplayValue);
+
+            let seed = store[meta.key] ? [...store[meta.key]].filter((v) => values.includes(v)) : [];
+            if (!seed.length) {
+                const prevAxis = prevMember && axisDisplayValue(prevMember.axisValues.find((a) => a.key === meta.key).value);
+                seed = prevAxis && values.includes(prevAxis) ? [prevAxis] : [values[0]];
+            }
+
+            const btnGroup = document.createElement('span');
+            btnGroup.setAttribute('aria-label', meta.label);
+            renderMultiSelectButtonControl(btnGroup, values, seed, (a, b) => Number(a) - Number(b));
+            store[meta.key] = new Set(JSON.parse(btnGroup.dataset.selectedValues || '[]'));
+
+            btnGroup.addEventListener('controlchange', () => {
+                store[meta.key] = new Set(JSON.parse(btnGroup.dataset.selectedValues || '[]'));
+                // Apply silently -- setting scanGenerator's value with a dispatched
+                // 'controlchange' would trigger updateAllScanControls(), which calls
+                // this function again and rebuilds every axis's buttons (a fresh
+                // control has no _rangeAnchor), wiping the anchor before a second
+                // click can complete a range gesture. Instead, run only the narrower
+                // refresh (noise items + downstream controls) that a facet change
+                // actually needs; the full facet rebuild is reserved for family
+                // switches and other paths that go through scanGenerator directly.
+                applySelection({ silent: true });
+                lastComparePairIds = { a: null, b: null };
+                lastSummaryKey = null;
+                refreshScanNoiseControlForSelectedGenerators();
+                updateNoiseViewMode();
+                updateScanStrategyControl();
+                updateScanRepeatControl();
+                findAndDisplayPlot();
+            });
+
+            label.appendChild(btnGroup);
+            wrapper.appendChild(label);
+            scanGeneratorFacets.appendChild(wrapper);
+        }
+
+        // Initial render: set state without dispatching 'controlchange' (mirrors
+        // renderSegmentedControl's own silent initial setControlValue) -- avoids a
+        // reentrant updateScanSignalControls() call on every render, not just on
+        // user-driven changes.
+        applySelection({ silent: true });
+    }
+
+    // ── Grid Stats: pick a scan axis, hold the rest fixed, view censored stats ──
+    // Pure client-side exploration of already-run repeats (no new simulation runs).
+    // Mirrors the censored aggregation in nvision/viz/grid_study.py's _cell_stats /
+    // _plot_grid_vs_noise: group by the chosen scan axis, compute median/IQR of
+    // freq_converged_step over converged repeats only, plus convergence_rate.
+
+    function updateGridStatsButton(generator) {
+        const btn = document.getElementById('scan-view-grid-stats-btn');
+        if (!btn) return;
+        btn.style.display = parseGeneratorFacets(generator) ? '' : 'none';
+    }
+
+    // Returns { familyGroup, axes: [{key, label, values:[sorted numbers]}] } for the
+    // generator's family, with a synthetic 'noise' axis appended when numeric
+    // (Gaussian) noise data exists for the family. Returns null for non-grid generators.
+    function _gridStatsAxisInfo(generator) {
+        const parsed = parseGeneratorFacets(generator);
+        if (!parsed) return null;
+        const allGeneratorNames = [...new Set(scanPlots.map((p) => p.generator))];
+        const { families } = groupGeneratorsByFamily(allGeneratorNames);
+        const familyGroup = families.get(parsed.family);
+        if (!familyGroup) return null;
+
+        const axisMeta = familyGroup.members[0].axisValues.map((a) => ({ key: a.key, label: a.label }));
+        const memberNames = new Set(familyGroup.members.map((m) => m.name));
+        const axes = axisMeta.map((meta) => ({
+            key: meta.key,
+            label: meta.label,
+            values: [...new Set(familyGroup.members.map((m) => m.axisValues.find((a) => a.key === meta.key).value))]
+                .sort((a, b) => a - b),
+        }));
+
+        const noiseValues = [...new Set(
+            scanPlots
+                .filter((p) => memberNames.has(p.generator))
+                .map((p) => noiseSigma(p.noise))
+                .filter((v) => v !== null),
+        )].sort((a, b) => a - b);
+        if (noiseValues.length > 0) {
+            axes.push({ key: 'noise', label: 'Noise σ', values: noiseValues });
+        }
+
+        return { familyGroup, axes };
+    }
+
+    // Censored aggregation over already-run repeats: filters scanPlots to the given
+    // strategy and every fixed axis value, groups the rest by the scan axis, and
+    // computes n_total/n_converged/median/q25/q75(freq_converged_step among converged)
+    // plus convergence_rate — exactly mirroring grid_study.py's _cell_stats.
+    function computeGridStatsSeries(info, strategy, scanAxisKey, fixedValues) {
+        const memberByName = new Map(info.familyGroup.members.map((m) => [m.name, m]));
+
+        function axisValueOf(axisKey, plot) {
+            if (axisKey === 'noise') return noiseSigma(plot.noise);
+            const member = memberByName.get(plot.generator);
+            const found = member && member.axisValues.find((a) => a.key === axisKey);
+            return found ? found.value : null;
+        }
+
+        const filtered = scanPlots.filter((p) => {
+            if (p.type !== 'scan' || p.strategy !== strategy) return false;
+            if (!memberByName.has(p.generator)) return false;
+            for (const axis of info.axes) {
+                if (axis.key === scanAxisKey) continue;
+                if (axisValueOf(axis.key, p) !== fixedValues[axis.key]) return false;
+            }
+            return true;
+        });
+
+        const groups = new Map();
+        for (const p of filtered) {
+            const scanValue = axisValueOf(scanAxisKey, p);
+            if (scanValue === null || scanValue === undefined) continue;
+            if (!groups.has(scanValue)) groups.set(scanValue, []);
+            groups.get(scanValue).push(p.freq_converged_step);
+        }
+
+        const sortedKeys = [...groups.keys()].sort((a, b) => a - b);
+        const x = [], median = [], q25 = [], q75 = [], convergenceRate = [], nTotal = [], nConverged = [];
+        for (const key of sortedKeys) {
+            const steps = groups.get(key);
+            const converged = hlSorted(steps.filter((s) => s !== null && s !== undefined));
+            x.push(key);
+            median.push(converged.length ? hlQuantileSorted(converged, 0.5) : null);
+            q25.push(converged.length ? hlQuantileSorted(converged, 0.25) : null);
+            q75.push(converged.length ? hlQuantileSorted(converged, 0.75) : null);
+            nTotal.push(steps.length);
+            nConverged.push(converged.length);
+            convergenceRate.push(steps.length ? converged.length / steps.length : null);
+        }
+        return { x, median, q25, q75, convergenceRate, nTotal, nConverged };
+    }
+
+    // Renders an in-memory {_graph_type, ...} payload (no fetch) using the same
+    // figure builders as the pre-computed plot files, mirroring the generic render
+    // path used for fetched plots but skipping the fetch/typed-array-decode steps.
+    async function renderChartPayload(container, raw) {
+        try {
+            await ensurePlotly();
+            try { if (window.Plotly) Plotly.purge(container); } catch (_) {}
+            const built = await buildFigureFromData(raw);
+            const figLayout = Object.assign({}, built.layout, { autosize: true });
+            await Plotly.react(container, built.data, figLayout, { responsive: true });
+        } catch (e) {
+            console.error('Grid stats chart render failed', e);
+            container.innerHTML = `<div style="padding:1em;color:#ef4444;">Chart render error: ${e && e.message ? e.message : String(e)}</div>`;
+        }
+    }
+
+    function renderGridStatsTable(container, axisLabel, series) {
+        const table = document.createElement('table');
+        table.style.cssText = 'border-collapse:collapse;font-size:0.85em;';
+        const thead = table.createTHead();
+        const hrow = thead.insertRow();
+        for (const h of [axisLabel, 'N total', 'N converged', 'Convergence rate', 'Median steps', 'Q25', 'Q75']) {
+            const th = document.createElement('th');
+            th.textContent = h;
+            th.style.cssText = 'text-align:right;padding:5px 10px;border-bottom:2px solid #e2e8f0;white-space:nowrap;color:#475569;font-weight:600;';
+            if (h === axisLabel) th.style.textAlign = 'left';
+            hrow.appendChild(th);
+        }
+        const tbody = table.createTBody();
+        for (let i = 0; i < series.x.length; i++) {
+            const row = tbody.insertRow();
+            const cells = [
+                axisDisplayValue(series.x[i]),
+                String(series.nTotal[i]),
+                String(series.nConverged[i]),
+                series.convergenceRate[i] != null ? `${Math.round(series.convergenceRate[i] * 100)}%` : '—',
+                series.median[i] != null ? String(Math.round(series.median[i])) : '—',
+                series.q25[i] != null ? String(Math.round(series.q25[i])) : '—',
+                series.q75[i] != null ? String(Math.round(series.q75[i])) : '—',
+            ];
+            cells.forEach((c, idx) => {
+                const td = row.insertCell();
+                td.textContent = String(c);
+                td.style.cssText = 'text-align:right;padding:4px 10px;border-bottom:1px solid #f1f5f9;';
+                if (idx === 0) td.style.textAlign = 'left';
+            });
+        }
+        container.innerHTML = '';
+        container.appendChild(table);
+    }
+
+    function renderGridStatsTab(generator, strategy) {
+        if (!gridStatsScanAxisSelect || !gridStatsFixedSelects || !gridStatsPlotDiv) return;
+        const info = _gridStatsAxisInfo(generator);
+        if (!info) return;
+        const { axes } = info;
+
+        // Reset scan-axis choice if it's no longer valid (e.g. switched family).
+        if (!gridStatsScanAxisKey || !axes.some((a) => a.key === gridStatsScanAxisKey)) {
+            gridStatsScanAxisKey = axes[0].key;
+        }
+
+        // Seed fixed-value defaults from the current main-view selection so switching
+        // into Grid Stats keeps context; keep prior choices when still valid.
+        const parsedCurrent = parseGeneratorFacets(generator);
+        const currentNoiseSigma = noiseSigma(getEffectiveScanNoise());
+        for (const axis of axes) {
+            if (gridStatsFixedValues[axis.key] !== undefined && axis.values.includes(gridStatsFixedValues[axis.key])) {
+                continue;
+            }
+            let seed = axis.values[0];
+            if (axis.key === 'noise' && currentNoiseSigma !== null && axis.values.includes(currentNoiseSigma)) {
+                seed = currentNoiseSigma;
+            } else if (parsedCurrent) {
+                const match = parsedCurrent.axes.find((a) => a.key === axis.key);
+                if (match && axis.values.includes(match.value)) seed = match.value;
+            }
+            gridStatsFixedValues[axis.key] = seed;
+        }
+
+        gridStatsScanAxisSelect.innerHTML = '';
+        for (const axis of axes) {
+            const opt = document.createElement('option');
+            opt.value = axis.key;
+            opt.textContent = axis.label;
+            gridStatsScanAxisSelect.appendChild(opt);
+        }
+        gridStatsScanAxisSelect.value = gridStatsScanAxisKey;
+        gridStatsScanAxisSelect.onchange = () => {
+            gridStatsScanAxisKey = gridStatsScanAxisSelect.value;
+            renderGridStatsTab(controlValue(scanGenerator), controlValue(scanStrategy));
+        };
+
+        gridStatsFixedSelects.innerHTML = '';
+        for (const axis of axes) {
+            if (axis.key === gridStatsScanAxisKey) continue;
+            const wrapper = document.createElement('span');
+            wrapper.className = 'facet-select-wrapper';
+            const label = document.createElement('label');
+            label.className = 'facet-select-label';
+            label.textContent = `${axis.label}: `;
+            const select = document.createElement('select');
+            select.className = 'control-select';
+            select.setAttribute('aria-label', axis.label);
+            for (const v of axis.values) {
+                const opt = document.createElement('option');
+                opt.value = String(v);
+                opt.textContent = axisDisplayValue(v);
+                select.appendChild(opt);
+            }
+            select.value = String(gridStatsFixedValues[axis.key]);
+            select.addEventListener('change', () => {
+                gridStatsFixedValues[axis.key] = Number(select.value);
+                renderGridStatsTab(controlValue(scanGenerator), controlValue(scanStrategy));
+            });
+            label.appendChild(select);
+            wrapper.appendChild(label);
+            gridStatsFixedSelects.appendChild(wrapper);
+        }
+
+        const series = computeGridStatsSeries(info, strategy, gridStatsScanAxisKey, gridStatsFixedValues);
+        if (!series.x.length) {
+            if (gridStatsEmptyMessage) gridStatsEmptyMessage.style.display = '';
+            gridStatsPlotDiv.style.display = 'none';
+            if (gridStatsTableContainer) gridStatsTableContainer.innerHTML = '';
+            return;
+        }
+        if (gridStatsEmptyMessage) gridStatsEmptyMessage.style.display = 'none';
+        gridStatsPlotDiv.style.display = '';
+
+        const scanAxisMeta = axes.find((a) => a.key === gridStatsScanAxisKey);
+        const payload = {
+            _graph_type: 'chart',
+            title: `Steps to freq. convergence vs ${scanAxisMeta.label} (${strategy})`,
+            xaxis_title: scanAxisMeta.label,
+            yaxis_title: 'Median steps to freq. convergence (converged repeats)',
+            mode: 'lines+markers',
+            series: [{
+                name: 'median (IQR band)',
+                x: series.x,
+                y: series.median,
+                q25: series.q25,
+                q75: series.q75,
+                convergence_rate: series.convergenceRate,
+                n_total: series.nTotal,
+                n_converged: series.nConverged,
+            }],
+        };
+        renderChartPayload(gridStatsPlotDiv, payload);
+        if (gridStatsTableContainer) {
+            renderGridStatsTable(gridStatsTableContainer, scanAxisMeta.label, series);
+        }
+    }
+
     function updateRepeatNavButtons() {
         if (!scanRepeatPrev || !scanRepeatNext) {
             return;
@@ -1517,14 +2134,22 @@ function main() {
     }
 
     function renderMultiSelectNoiseControl(control, items, previousValues) {
-        const prev = Array.isArray(previousValues) ? previousValues : (previousValues ? [previousValues] : []);
-        const uniqueItems = [...new Set(items.filter(Boolean).map(String))].sort((a, b) => {
+        return renderMultiSelectButtonControl(control, items, previousValues, (a, b) => {
             const ga = a.match(/Gauss\(([\d.]+)\)/);
             const gb = b.match(/Gauss\(([\d.]+)\)/);
             if (ga && gb) return parseFloat(ga[1]) - parseFloat(gb[1]);
             if (ga) return -1; if (gb) return 1;
             return a.localeCompare(b);
         });
+    }
+
+    // Generic multi-select button group with click = select-one, click-another =
+    // commit contiguous range (same anchor/preview UX as the noise selector).
+    // `sortFn` orders the buttons left-to-right; pass a numeric comparator when
+    // items are numeric strings so range-select is contiguous in value order.
+    function renderMultiSelectButtonControl(control, items, previousValues, sortFn) {
+        const prev = Array.isArray(previousValues) ? previousValues : (previousValues ? [previousValues] : []);
+        const uniqueItems = [...new Set(items.filter(Boolean).map(String))].sort(sortFn);
 
         control.innerHTML = '';
         control.setAttribute('role', 'group');
@@ -1605,8 +2230,32 @@ function main() {
         return getSelectedScanNoises().length > 1;
     }
 
+    // getSelectedScanGenerators: the full set of generators matched by the
+    // Width/Contrast (or other parameter-grid axis) multi-select buttons.
+    // Falls back to the single #scan-generator value for plain/ungrouped
+    // generators, where there is no facet control.
+    function getSelectedScanGenerators() {
+        try {
+            const stored = JSON.parse(scanGeneratorFacets.dataset.selectedGenerators || '[]');
+            if (stored.length) return stored;
+        } catch { /* fall through to single-value fallback */ }
+        const v = controlValue(scanGenerator);
+        return v ? [v] : [];
+    }
+
+    function isGeneratorRangeMode() {
+        return getSelectedScanGenerators().length > 1;
+    }
+
+    // Generator argument the aggregate renderers (Speed/Accuracy/Failed Runs)
+    // expect: an array in generator-range mode, otherwise the single value.
+    function compareGeneratorsArg() {
+        const gens = getSelectedScanGenerators();
+        return gens.length > 1 ? gens : (gens[0] || '');
+    }
+
     function updateNoiseViewMode() {
-        const range = isNoiseRangeMode();
+        const range = isNoiseRangeMode() || isGeneratorRangeMode();
         const singleBtn = document.getElementById('scan-view-single-btn');
         if (singleBtn) singleBtn.style.display = range ? 'none' : '';
 
@@ -1619,18 +2268,101 @@ function main() {
         }
     }
 
-    /** Left column: generator, noise (signal / experiment path). */
-    function updateScanSignalControls() {
+    /** Left column: generator, noise (signal / experiment path).
+     *
+     * Parameter-grid studies (see sim/presets.py's saturation_voigt_param_grid_generators
+     * / param_grid_generators) produce many generator names that only differ by their
+     * swept-parameter values (e.g. "NVCenter-saturation_voigt-s5.00-si0.30MHz"). Scrolling
+     * a flat list of ~25 such names is hard to navigate, so when the manifest contains a
+     * parseable grid we offer one dropdown per swept axis instead. Falls back to the
+     * original flat segmented-control for plain (non-grid) generators, and adds a "Study"
+     * dropdown when both grid and non-grid generators are present in the same manifest
+     * (e.g. an artifacts directory accumulated across multiple run types).
+     */
+    // forcedFamilyKey: when the user just changed the family <select> itself, its new
+    // value must win over the family re-derived from the (not-yet-updated) previously
+    // selected generator -- otherwise this same function's own re-render, triggered by
+    // its onchange handler, would immediately revert the dropdown to the old family.
+    function updateScanSignalControls(forcedFamilyKey = null) {
         const scanGeneratorItems = [...new Set(scanPlots.map((p) => p.generator))].sort();
-        const selectedScanGenerator = renderSegmentedControl(
-            scanGenerator,
-            scanGeneratorItems,
-            controlValue(scanGenerator),
-        );
+        const { families, ungrouped } = groupGeneratorsByFamily(scanGeneratorItems);
+        const familyKeys = [...families.keys()];
+        const previousGenerator = controlValue(scanGenerator);
 
+        let selectedScanGenerator;
+
+        if (familyKeys.length === 0) {
+            // No parseable grid families: original flat list.
+            scanGeneratorFlatRow.style.display = '';
+            scanGeneratorFamilyRow.style.display = 'none';
+            scanGeneratorFacetsRow.style.display = 'none';
+            scanGeneratorFacets.dataset.selectedGenerators = '[]';
+            selectedScanGenerator = renderSegmentedControl(scanGenerator, scanGeneratorItems, previousGenerator);
+        } else {
+            const familyOptions = [
+                ...familyKeys.map((key) => ({ key, label: families.get(key).label })),
+                ...(ungrouped.length > 0 ? [{ key: '__ungrouped__', label: 'Default (ungrouped)' }] : []),
+            ];
+            const needsFamilyPicker = familyOptions.length > 1;
+
+            scanGeneratorFlatRow.style.display = 'none';
+            scanGeneratorFamilyRow.style.display = needsFamilyPicker ? '' : 'none';
+
+            let selectedFamilyKey;
+            if (needsFamilyPicker) {
+                const prevParsed = parseGeneratorFacets(previousGenerator);
+                const prevFamilyKey = prevParsed ? prevParsed.family : (ungrouped.includes(previousGenerator) ? '__ungrouped__' : null);
+                scanGeneratorFamily.innerHTML = '';
+                for (const opt of familyOptions) {
+                    const option = document.createElement('option');
+                    option.value = opt.key;
+                    option.textContent = opt.label;
+                    scanGeneratorFamily.appendChild(option);
+                }
+                const candidateKey = forcedFamilyKey ?? prevFamilyKey;
+                selectedFamilyKey = candidateKey && familyOptions.some((o) => o.key === candidateKey)
+                    ? candidateKey
+                    : familyOptions[0].key;
+                scanGeneratorFamily.value = selectedFamilyKey;
+                scanGeneratorFamily.onchange = () => {
+                    updateScanSignalControls(scanGeneratorFamily.value);
+                    updateScanStrategyControl();
+                    updateScanRepeatControl();
+                    findAndDisplayPlot();
+                };
+            } else {
+                selectedFamilyKey = familyOptions[0].key;
+            }
+
+            if (selectedFamilyKey === '__ungrouped__') {
+                scanGeneratorFacetsRow.style.display = 'none';
+                scanGeneratorFlatRow.style.display = '';
+                scanGeneratorFacets.dataset.selectedGenerators = '[]';
+                selectedScanGenerator = renderSegmentedControl(scanGenerator, ungrouped, previousGenerator);
+            } else {
+                scanGeneratorFacetsRow.style.display = '';
+                // Only carry the previous generator's facet selections into the new
+                // render when we're staying within the SAME family; switching families
+                // should default to that family's first combination instead.
+                const carryPrevious = !forcedFamilyKey || forcedFamilyKey === (parseGeneratorFacets(previousGenerator) || {}).family;
+                renderGeneratorFacetSelects(families.get(selectedFamilyKey), carryPrevious ? previousGenerator : null, selectedFamilyKey);
+                selectedScanGenerator = controlValue(scanGenerator);
+            }
+        }
+
+        refreshScanNoiseControlForSelectedGenerators();
+    }
+
+    // Rebuilds the noise multi-select from whichever generators are currently
+    // selected (single generator, or the full Width/Contrast facet match set).
+    // Pulled out of updateScanSignalControls so a facet-only change can refresh
+    // just the noise list without rebuilding the facet buttons themselves (see
+    // the facet 'controlchange' handler in renderGeneratorFacetSelects).
+    function refreshScanNoiseControlForSelectedGenerators() {
+        const selectedGenSet = new Set(getSelectedScanGenerators());
         const noiseItems = [...new Set(
             scanPlots
-                .filter((p) => p.generator === selectedScanGenerator)
+                .filter((p) => selectedGenSet.has(p.generator))
                 .map((p) => p.noise)
         )];
 
@@ -1664,7 +2396,8 @@ function main() {
         const selectedScanNoise = getEffectiveScanNoise();
         const selectedScanStrategy = controlValue(scanStrategy);
 
-        updateFailedRunsButton(selectedScanGenerator, compareNoisesArg());
+        updateFailedRunsButton(compareGeneratorsArg(), compareNoisesArg());
+        updateGridStatsButton(selectedScanGenerator);
 
         const scanRepeatItems = scanPlots
             .filter(
@@ -1712,7 +2445,7 @@ function main() {
         const scanRepeatValue = controlValue(scanRepeat);
 
         // In range mode the single-scan display is suppressed; view mode handles everything
-        if (isNoiseRangeMode()) {
+        if (isNoiseRangeMode() || isGeneratorRangeMode()) {
             currentPlot = null;
             setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), null);
             if (scanMetrics) scanMetrics.innerHTML = '';
@@ -2103,6 +2836,23 @@ function main() {
                 finalEst: finalEst,
                 fbAtMilestone: fbAtMilestone
             });
+
+            // Derived magnetic field, shown right after zeeman_split (zeeman_split is
+            // the Zeeman-group half-separation, i.e. gamma * B for the NV electron spin).
+            if (name === 'zeeman_split' && typeof val === 'number' && Number.isFinite(val)) {
+                const bTesla = zeemanSplitToMagneticFieldTesla(val);
+                items.push({
+                    label: 'Magnetic field',
+                    val: formatMagneticField(bTesla),
+                    bounds: null,
+                    rawVal: bTesla,
+                    fmtLo: null,
+                    fmtHi: null,
+                    name: 'magnetic_field',
+                    finalEst: null,
+                    fbAtMilestone: null
+                });
+            }
         }
         return items;
     }
@@ -3613,8 +4363,9 @@ function main() {
 
     function buildSummaryEntities(generator, noise) {
         const noiseSet = new Set(Array.isArray(noise) ? noise : [noise]);
+        const genSet = toGenSet(generator);
         const all = (window.MANIFEST || []).filter(p =>
-            p.generator === generator && noiseSet.has(p.noise) && p.type === 'scan' && isSuccessRun(p)
+            genSet.has(p.generator) && noiseSet.has(p.noise) && p.type === 'scan' && isSuccessRun(p)
         );
         const strategies = [...new Set(all.map(p => p.strategy))].sort();
         const entities = [];
@@ -4725,11 +5476,19 @@ function main() {
 
     function isSuccessRun(p) { return p.failure_reason == null; }
 
+    // Normalizes the aggregate-view "generator" argument (single string in the
+    // plain-generator case, array in Width/Contrast-style multi-select) into a
+    // Set for membership checks, mirroring the noise-array handling above.
+    function toGenSet(gen) {
+        return new Set((Array.isArray(gen) ? gen : [gen]).filter(Boolean));
+    }
+
     function hlCollect(generator, noises) {
         const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
+        const genSet = toGenSet(generator);
         const byStrategy = new Map();
         for (const p of scanPlots) {
-            if (p.generator !== generator || !noiseSet.has(p.noise) || !p.strategy) continue;
+            if (!genSet.has(p.generator) || !noiseSet.has(p.noise) || !p.strategy) continue;
             if (p.generator === 'Dummy-Generator') continue;
             if (!isSuccessRun(p)) continue;
             if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
@@ -4859,7 +5618,7 @@ function main() {
     // ── Speed tab ────────────────────────────────────────────────────────────
 
     function renderSpeedTab(gen, noises) {
-        if (!gen) return;
+        if (toGenSet(gen).size === 0) return;
         hlLastArgs = { generator: gen, noises };
         const byStrategy = hlCollect(gen, noises);
         const strategies = [...byStrategy.keys()].sort();
@@ -4902,7 +5661,7 @@ function main() {
         if (!container) return;
         container.innerHTML = '';
 
-        const genPlots = scanPlots.filter(p => p.generator === gen);
+        const genPlots = scanPlots.filter(p => toGenSet(gen).has(p.generator));
         const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
         const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
         const adaptive = strategies.filter(s => !isSweepBaseline(s));
@@ -5150,7 +5909,7 @@ function main() {
     // ── Accuracy tab ─────────────────────────────────────────────────────────
 
     function renderAccuracyTab(gen, noises) {
-        if (!gen) return;
+        if (toGenSet(gen).size === 0) return;
         hlLastArgs = { generator: gen, noises };
         const byStrategy = hlCollect(gen, noises);
         const strategies = [...byStrategy.keys()].sort();
@@ -5188,8 +5947,9 @@ function main() {
 
     function collectFailedRuns(generator, noises) {
         const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
+        const genSet = toGenSet(generator);
         return scanPlots.filter(p =>
-            p.generator === generator &&
+            genSet.has(p.generator) &&
             (noiseSet.size === 0 || noiseSet.has(p.noise)) &&
             !isSuccessRun(p)
         );
@@ -5385,7 +6145,7 @@ function main() {
         if (!container) return;
         container.innerHTML = '';
 
-        const genPlots = scanPlots.filter(p => p.generator === gen);
+        const genPlots = scanPlots.filter(p => toGenSet(gen).has(p.generator));
         const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
         const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
 
@@ -6715,14 +7475,16 @@ function main() {
         const speedView = document.getElementById('speed-view');
         const accuracyView = document.getElementById('accuracy-view');
         const failedRunsView = document.getElementById('failed-runs-view');
+        const gridStatsView = document.getElementById('grid-stats-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
-        const gen = controlValue(scanGenerator);
+        const gen = compareGeneratorsArg();
         const noises = compareNoisesArg();
 
         if (repeatView) repeatView.style.display = 'none';
         if (speedView) speedView.style.display = 'none';
         if (accuracyView) accuracyView.style.display = 'none';
         if (failedRunsView) failedRunsView.style.display = 'none';
+        if (gridStatsView) gridStatsView.style.display = 'none';
 
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
@@ -6745,6 +7507,12 @@ function main() {
             if (failedRunsView) {
                 failedRunsView.style.display = 'block';
                 renderFailedRunsTab(gen, noises);
+            }
+        } else if (mode === 'grid-stats') {
+            if (stoppingRow) stoppingRow.style.display = 'none';
+            if (gridStatsView) {
+                gridStatsView.style.display = 'block';
+                renderGridStatsTab(gen, controlValue(scanStrategy));
             }
         }
     }
@@ -7086,6 +7854,17 @@ function main() {
     if (scanRepeatNext) {
         scanRepeatNext.addEventListener('click', () => {
             selectRepeatByOffset(1);
+        });
+    }
+
+    const scanFlipViewToggle = document.getElementById('scan-flip-view-toggle');
+    if (scanFlipViewToggle) {
+        scanFlipViewToggle.addEventListener('change', () => {
+            scanFlipViewEnabled = scanFlipViewToggle.checked;
+            const scanPlotDiv = document.getElementById('scan-plot-div');
+            if (scanPlotDiv && scanPlotDiv._lastJsonPath) {
+                renderPlotFromJson(scanPlotDiv, scanPlotDiv._lastJsonPath);
+            }
         });
     }
 

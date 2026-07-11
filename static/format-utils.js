@@ -35,6 +35,29 @@ function formatFrequency(value) {
     return 'N/A';
 }
 
+// Standard NV-center electron gyromagnetic ratio (Hz/Tesla). zeeman_split is the
+// half-separation between the two Zeeman groups, i.e. gamma * B.
+const NV_GYROMAGNETIC_HZ_PER_TESLA = 28.025e9;
+
+function zeemanSplitToMagneticFieldTesla(zeemanSplitHz) {
+    if (typeof zeemanSplitHz !== 'number' || !Number.isFinite(zeemanSplitHz)) return null;
+    return zeemanSplitHz / NV_GYROMAGNETIC_HZ_PER_TESLA;
+}
+
+function formatMagneticField(teslaValue) {
+    if (typeof teslaValue !== 'number' || !Number.isFinite(teslaValue)) return 'N/A';
+    const absVal = Math.abs(teslaValue);
+    if (absVal >= 1) {
+        return teslaValue.toFixed(3) + ' T';
+    } else if (absVal >= 1e-3) {
+        return (teslaValue * 1e3).toFixed(2) + ' mT';
+    } else if (absVal >= 1e-6 || absVal === 0) {
+        return (teslaValue * 1e6).toFixed(2) + ' µT';
+    } else {
+        return (teslaValue * 1e6).toPrecision(3) + ' µT';
+    }
+}
+
 function formatCount(value) {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return Math.round(value).toString();

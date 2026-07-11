@@ -101,6 +101,7 @@ class LocatorResultsRepository:
         if ptr_df is None or ptr_df.is_empty():
             ptr_config_v8 = dict(ptr_config)
             ptr_config_v8["schema_version"] = 8
+            ptr_config_v8.pop("physics_fingerprint", None)  # v8-era configs predate this field
             ptr_key_v8 = stable_config_hash(ptr_config_v8)
             ptr_df_v8 = self._store.load_df(ptr_key_v8)
             if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
@@ -130,6 +131,7 @@ class LocatorResultsRepository:
 
         inline_config_v8 = dict(inline_config)
         inline_config_v8["schema_version"] = 8
+        inline_config_v8.pop("physics_fingerprint", None)  # v8-era configs predate this field
         return self._get_cached_results_for_config(inline_config_v8)
 
     def get_cached_combination_fast(
@@ -170,6 +172,7 @@ class LocatorResultsRepository:
         if ptr_df is None or ptr_df.is_empty():
             ptr_config_v8 = dict(ptr_config)
             ptr_config_v8["schema_version"] = 8
+            ptr_config_v8.pop("physics_fingerprint", None)  # v8-era configs predate this field
             ptr_key_v8 = stable_config_hash(ptr_config_v8)
             ptr_df_v8 = self._store.load_df(ptr_key_v8)
             if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
@@ -239,6 +242,7 @@ class LocatorResultsRepository:
         if ptr_df is None or ptr_df.is_empty():
             ptr_config_v8 = dict(ptr_config)
             ptr_config_v8["schema_version"] = 8
+            ptr_config_v8.pop("physics_fingerprint", None)  # v8-era configs predate this field
             ptr_key_v8 = stable_config_hash(ptr_config_v8)
             ptr_df_v8 = self._store.load_df(ptr_key_v8)
             if ptr_df_v8 is not None and not ptr_df_v8.is_empty():

@@ -6,6 +6,7 @@ import dataclasses
 import datetime
 import logging
 import math
+import os
 import random
 import time
 from collections.abc import Iterator
@@ -296,6 +297,7 @@ class _TaskRunner:
                     if ptr_df is None or ptr_df.is_empty():
                         ptr_config_v8 = dict(ptr_config)
                         ptr_config_v8["schema_version"] = 8
+                        ptr_config_v8.pop("physics_fingerprint", None)  # v8-era configs predate this field
                         ptr_key_v8 = stable_config_hash(ptr_config_v8)
                         ptr_df_v8 = self.cache._store.load_df(ptr_key_v8)
                         if ptr_df_v8 is not None and not ptr_df_v8.is_empty():
@@ -504,13 +506,23 @@ class _TaskRunner:
         except Exception:
             effective_max_steps = self.task.loc_max_steps
 
-        # Exact pointer doesn't exist. Let's look for similar combinations in the database
+        # Exact pointer doesn't exist. Let's look for similar combinations in the database.
+        # This requires deserializing every cache entry (there's no generator/noise/strategy
+        # index), so it's an O(cache size) tax paid on every miss -- and the cache only grows
+        # over a project's lifetime (10k+ entries in practice), turning a "nice log message"
+        # into a multi-second stall on every miss. Bounded to keep it a diagnostic nicety
+        # rather than something whose cost is unbounded; best-effort only, so a partial scan
+        # on a huge cache is an acceptable trade (may undersell how many similar runs exist,
+        # never wrong about the ones it does find).
+        max_scan = int(os.getenv("NVISION_CACHE_EXPLAIN_MAX_SCAN", "2000"))
         similar_configs = []
         try:
             from nvision.cache.locator_keys import CACHE_SCHEMA_VERSION
 
             backend = self.cache.backend
-            for k in backend:
+            for i, k in enumerate(backend):
+                if i >= max_scan:
+                    break
                 payload = backend.get(k)
                 if isinstance(payload, dict) and "config" in payload:
                     config = payload["config"]
@@ -792,6 +804,7 @@ class _TaskRunner:
                 max_steps=effective_max_steps,
                 seed=self.task.seed,
                 run_result=artifacts.run_results[i] if i < len(artifacts.run_results) else None,
+                generator_obj=self.task.generator,
             )
 
             entries = generate_attempt_plots(
@@ -889,7 +902,7 @@ class _TaskRunner:
         import math
 
         from nvision.runner.convert import belief_mode_estimates
-        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
         from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 
         # Create a fresh RNG for the Sobol baseline measurements
@@ -910,7 +923,9 @@ class _TaskRunner:
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
 
         # Build belief directly
-        belief = nv_center_smc_belief(parameter_bounds)
+        belief = nv_center_smc_belief(
+            parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model)
+        )
 
         locator = SimpleSobolBayesianLocator(
             belief=belief,
@@ -977,12 +992,14 @@ class _TaskRunner:
         import math
 
         from nvision.runner.convert import belief_mode_estimates
-        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
         from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
         sweep_rng = self._rng_for_simplesweep_baseline(rid)
         parameter_bounds = self._injected_parameter_bounds(experiment)
-        belief = nv_center_smc_belief(parameter_bounds)
+        belief = nv_center_smc_belief(
+            parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model)
+        )
 
         f_lo, f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
         domain_width = float(f_hi - f_lo)
@@ -999,6 +1016,8 @@ class _TaskRunner:
             signal_model=experiment.true_signal.model,
             max_steps=max_steps,
             noise_std=noise_std,
+            domain_lo=experiment.x_min,
+            domain_hi=experiment.x_max,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         )
@@ -1094,10 +1113,11 @@ class _TaskRunner:
     def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
         """Return the step count for this experiment, derived from the signal model.
 
-        All locators use the same budget: the number of uniformly-spaced points
-        required to resolve the narrowest expected dip in the signal model.
-        SimpleSweep uses ceil(domain / min_linewidth); all other locators use
-        compute_sweep_max_steps which applies coverage-factor and env-var caps.
+        SimpleSweep runs with a fixed NVISION_SIMPLESWEEP_MAX_STEPS budget.
+        SBED and Sobol baselines are still sized as a fraction of
+        ceil(domain / min_linewidth) (the "full resolution" step count), independent
+        of SimpleSweep's own budget. All other locators use compute_sweep_max_steps,
+        which applies coverage-factor and env-var caps.
         """
         bounds = self._injected_parameter_bounds(experiment)
         f_lo, f_hi = bounds["frequency"]
@@ -1117,7 +1137,9 @@ class _TaskRunner:
             "GenericSweepLocator",
             "GenericSweepLocator",
         ):
-            return simplesweep_steps
+            from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
+
+            return NVISION_SIMPLESWEEP_MAX_STEPS
 
         if locator_class.__name__ == "SequentialBayesianExperimentDesignLocator":
             from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
@@ -1374,7 +1396,24 @@ class _TaskRunner:
             from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
             if isinstance(locator_instance, GenericSweepLocator) and result.snapshots:
                 result.snapshots[-1].belief = locator_instance.belief.copy()
+                # Prefer the actual least-squares model fit over the SMC belief
+                # marginal mode for the "most likely signal" plot trace: the
+                # belief is batch-updated without resampling during a sweep and
+                # can collapse, drawing a garbage curve even on clean data.
+                result.fit_mode_estimates = locator_instance.fit_mode_estimates()
         locator_final_result = locator_instance.result()
+        # Fold the sweep's full least-squares fit (linewidth/split/k_np/c_total/
+        # zeeman_split/fwhm_total/...) into the estimate dict so the generic
+        # final_est_<param> metrics (and the True Signal Parameters UI panel) show a
+        # true-vs-converged value for SimpleSweep the same way they already do for
+        # Bayesian locators -- result() on its own only reports frequency/uncert.
+        # The locator's own result() values win on key conflicts.
+        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+
+        if isinstance(locator_instance, GenericSweepLocator):
+            fit_mode_estimates = locator_instance.fit_mode_estimates()
+            if fit_mode_estimates:
+                locator_final_result = {**fit_mode_estimates, **locator_final_result}
 
         history_df = run_result_to_history_df(result, rid, experiment.x_min, experiment.x_max)
         finalize_record = run_result_to_finalize_record(

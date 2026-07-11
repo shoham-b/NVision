@@ -68,6 +68,10 @@ def test_focus_window_automatic_narrowing_during_resampling():
     """
     np.random.seed(0)
     smc = _make_smc()
+    # _resample()'s Gaussian nudge draws from smc._rng (a `np.random.default_rng()`
+    # instance independent of the global `np.random` state), so it must be seeded
+    # separately for this test to be deterministic rather than flaky.
+    smc._rng = np.random.default_rng(0)
 
     f_idx = 0
     smc._particles[:, f_idx] = np.random.normal(loc=0.5, scale=1e-5, size=1000)

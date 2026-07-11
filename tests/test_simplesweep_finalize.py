@@ -38,6 +38,12 @@ def test_simplesweep_zero_noise_fit_beats_prior():
     truth = float(exp.true_signal.get_param_value("frequency"))
     prior_std = (exp.x_max - exp.x_min) / math.sqrt(12)
 
+    # Full physical bounds for every model parameter (not just frequency) —
+    # GenericSweepLocator's finalize() now requires a complete parameter set
+    # to fit the model; it no longer falls back to a boundless peak-detection
+    # heuristic when bounds are incomplete.
+    parameter_bounds = {k: v for k, v in exp.true_signal.bounds.items() if not k.startswith("_")}
+
     observer = Observer(exp.true_signal, exp.x_min, exp.x_max)
     result = observer.watch(
         run_loop(
@@ -45,7 +51,7 @@ def test_simplesweep_zero_noise_fit_beats_prior():
             exp,
             rng,
             max_steps=1000,
-            parameter_bounds={"frequency": (exp.x_min, exp.x_max)},
+            parameter_bounds=parameter_bounds,
         )
     )
     locator = observer.last_locator

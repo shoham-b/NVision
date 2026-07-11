@@ -48,6 +48,15 @@ _NV_SMC: dict[str, object] = {
 _GAUSS_RE = re.compile(r"^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)$")
 
 
+def parse_gauss_sigma(name: str) -> float | None:
+    """Extract the numeric sigma from a ``Gauss(sigma)`` noise name, else ``None``.
+
+    Gives metrics/plots a numeric noise axis instead of the opaque preset string.
+    """
+    m = _GAUSS_RE.match(name)
+    return float(m.group(1)) if m is not None else None
+
+
 def _parse_noise(name: str) -> CompositeNoise | None:
     """Dynamically parse a ``Gauss(sigma)`` noise descriptor into a :class:`CompositeNoise`.
 
@@ -87,8 +96,18 @@ class CombinationGrid:
     and render code never duplicate the mapping logic.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, extra_generators: dict[str, object] | None = None) -> None:
         self._generators: dict[str, object] = dict(sim_presets.generators_basic())
+        # Name -> generator lookup used only by resolve(), never by iter()/all_combinations().
+        # Always includes the SBED run-groups' study grids so cache/metrics/render
+        # tooling can resolve historical results by name regardless of how they were produced,
+        # without expanding what plain (non-run-group) `nvision run` iterates over.
+        self._resolve_generators: dict[str, object] = dict(self._generators)
+        self._resolve_generators.update(dict(sim_presets.param_grid_generators()))
+        self._resolve_generators.update(dict(sim_presets.param_grid_generators(variant="voigt")))
+        self._resolve_generators.update(dict(sim_presets.saturation_voigt_param_grid_generators()))
+        if extra_generators:
+            self._resolve_generators.update(extra_generators)
         self._noises: dict[str, CompositeNoise | None] = dict(sim_presets.noises_single_each())
 
     @property
@@ -107,6 +126,18 @@ class CombinationGrid:
 
     def strategies_for(self, generator_name: str) -> list[tuple[str, Any]]:
         """Return the locator strategies appropriate for *generator_name*."""
+        # Belief inference must match the generator's lineshape, or the locator
+        # models the wrong signal shape entirely. nv_center_smc_belief defaults
+        # to "lorentzian"; only study grids for other lineshapes need an override.
+        # Scoped to the "-w"-suffixed width x contrast grid names specifically --
+        # the bare "NVCenter-voigt" generator from generators_basic() has the same
+        # gap but is intentionally left alone here (pre-existing, separate issue).
+        nv_smc_config = dict(_NV_SMC)
+        if generator_name.startswith("NVCenter-saturation_voigt"):
+            nv_smc_config["lineshape"] = "saturation_voigt"
+        elif generator_name.startswith("NVCenter-voigt-w"):
+            nv_smc_config["lineshape"] = "voigt"
+
         strats = [
             ("SimpleSweep", GenericSweepLocator),
             ("StagedSobolSweep", StagedSobolSweepLocator),
@@ -114,7 +145,7 @@ class CombinationGrid:
                 "Bayesian-SBED",
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
-                    "config": {"max_steps": 200, **_NV_SMC},
+                    "config": {"max_steps": 200, **nv_smc_config},
                 },
             ),
             (
@@ -123,7 +154,7 @@ class CombinationGrid:
                     "class": SimpleSobolBayesianLocator,
                     "config": {
                         "max_steps": 10000,
-                        **_NV_SMC,
+                        **nv_smc_config,
                     },
                 },
             ),
@@ -217,7 +248,7 @@ class CombinationGrid:
         ``'Poisson(5000)'``).  This ensures ``run-single`` works for any valid noise
         value regardless of the active grid configuration.
         """
-        gen_obj = self._generators.get(gen_name)
+        gen_obj = self._resolve_generators.get(gen_name)
         if gen_obj is None:
             return None
         noise_obj: CompositeNoise | None

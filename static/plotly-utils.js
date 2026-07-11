@@ -104,7 +104,7 @@ const _defCache = new Map();
 async function fetchGraphDef(graphType) {
     if (_defCache.has(graphType)) return _defCache.get(graphType);
     const url = resolveAssetPath(`graphs/${graphType}.json`);
-    const r = await fetch(url);
+    const r = await fetch(url, { cache: 'no-store' });
     if (!r.ok) throw new Error(`Missing graph def: ${graphType} (${url})`);
     const def = await r.json();
     _defCache.set(graphType, def);
@@ -147,8 +147,17 @@ function _buildScanFigure(def, data) {
     // True signal
     traces.push(Object.assign({}, T.true_signal, { x: data.x_dense, y: data.y_dense }, sa));
 
-    // Noisy signal
-    if (data.y_dense_noisy && data.y_dense_noisy.length) {
+    // Possible-measurement-range bands (Monte-Carlo envelope): outer ±2σ drawn
+    // first so the inner ±1σ band layers on top of it. Falls back to the
+    // legacy single-draw dotted line for older cached data that predates the bands.
+    if (data.y_dense_noisy_lo && data.y_dense_noisy_lo.length) {
+        if (data.y_dense_noisy_lo2 && data.y_dense_noisy_lo2.length) {
+            traces.push(Object.assign({}, T.noisy_band_lo2, { x: data.x_dense, y: data.y_dense_noisy_lo2 }, sa));
+            traces.push(Object.assign({}, T.noisy_band_hi2, { x: data.x_dense, y: data.y_dense_noisy_hi2 }, sa));
+        }
+        traces.push(Object.assign({}, T.noisy_band_lo, { x: data.x_dense, y: data.y_dense_noisy_lo }, sa));
+        traces.push(Object.assign({}, T.noisy_band_hi, { x: data.x_dense, y: data.y_dense_noisy_hi }, sa));
+    } else if (data.y_dense_noisy && data.y_dense_noisy.length) {
         traces.push(Object.assign({}, T.noisy_signal, { x: data.x_dense, y: data.y_dense_noisy }, sa));
     }
 
@@ -298,6 +307,23 @@ function _buildScanFigure(def, data) {
         });
     }
 
+    // Mark the true (fixed, physical) center frequency with a vertical reference line.
+    if (data.true_params && data.true_params.params && Number.isFinite(data.true_params.params.frequency)) {
+        const cfs = def.center_freq_style;
+        const cf = data.true_params.params.frequency;
+        shapes.push({
+            type: 'line', xref: 'x', yref,
+            x0: cf, x1: cf, y0: 0, y1: 1,
+            line: { width: 1.5, color: cfs.line_color, dash: 'dash' },
+            layer: 'above',
+        });
+        extraAnnotations.push({
+            text: cfs.annotation, x: cf, xref: 'x',
+            y: 1, yref, yanchor: 'bottom', xanchor: 'center',
+            showarrow: false, font: { size: 11, color: cfs.line_color },
+        });
+    }
+
     if (shapes.length) baseLayout.shapes = shapes;
     if (extraAnnotations.length) {
         const existing = baseLayout.annotations || [];
@@ -368,13 +394,30 @@ function _buildViolinFigure(def, data) {
 
 // ── Generic chart figure builder (line / bar / scatter) ───────────────────────
 
+// Convergence-rate/n_total/n_converged are optional per-series arrays (already
+// present on grid_study.py's vs-noise payloads, and on the client-computed Grid
+// Stats payload) giving hover text like "3/5 converged (60%)" per point.
+function _convergenceHoverText(s) {
+    if (!s.convergence_rate) return null;
+    return s.convergence_rate.map((r, i) => {
+        const nTot = s.n_total ? s.n_total[i] : null;
+        const nConv = s.n_converged ? s.n_converged[i] : null;
+        const pct = r != null ? `${Math.round(r * 100)}%` : 'n/a';
+        return nTot != null && nConv != null ? `${nConv}/${nTot} converged (${pct})` : `converged: ${pct}`;
+    });
+}
+
 function _buildChartFigure(def, data) {
     const mode = data.mode || 'lines+markers';
     const traces = (data.series || []).map(s => {
+        const hoverText = _convergenceHoverText(s);
+        const hoverExtra = hoverText
+            ? { text: hoverText, hovertemplate: '%{y}<br>%{text}<extra>%{fullData.name}</extra>' }
+            : {};
         if (mode === 'bar') {
-            return { type: 'bar', name: s.name, x: s.x, y: s.y };
+            return Object.assign({ type: 'bar', name: s.name, x: s.x, y: s.y }, hoverExtra);
         }
-        return { type: 'scatter', name: s.name, x: s.x, y: s.y, mode };
+        return Object.assign({ type: 'scatter', name: s.name, x: s.x, y: s.y, mode }, hoverExtra);
     });
     const xaxisExtra = data.xaxis_type ? { type: data.xaxis_type } : {};
     const layout = Object.assign({}, def.layout, {

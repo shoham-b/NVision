@@ -46,6 +46,19 @@ def detect_milestone(
     return None
 
 
+def default_fc_param(run_result: RunResult) -> str:
+    """Splitting parameter for the fc milestone: ``zeeman_split`` when the model has it, else ``split``.
+
+    The default NV model is Zeeman-split (parameter ``zeeman_split``); hyperfine models
+    expose ``split``. Hardcoding ``split`` silently yields all-NaN fc metrics for Zeeman runs.
+    """
+    try:
+        params = run_result.true_signal.parameter_values()
+    except Exception:
+        return "split"
+    return "zeeman_split" if "zeeman_split" in params else "split"
+
+
 def extract_milestone_metrics(
     run_result: RunResult, step_idx: int, fb_param: str = "frequency", fc_param: str = "split"
 ) -> dict[str, Any]:
@@ -85,12 +98,16 @@ def calculate_zeeman_metrics(
     run_result: RunResult,
     threshold: float = NVISION_CONVERGENCE_THRESHOLD,
     fb_param: str = "frequency",
-    fc_param: str = "split",
+    fc_param: str | None = None,
 ) -> dict[str, Any]:
     """Compare the fb milestone to the final state.
 
-    Returns aggregated metrics for the repeat.
+    ``fc_param`` defaults to the model's splitting parameter (``zeeman_split`` when
+    present, else ``split``). Returns aggregated metrics for the repeat.
     """
+    if fc_param is None:
+        fc_param = default_fc_param(run_result)
+
     # 1. FB Milestone
     fb_idx = detect_milestone(run_result, fb_param, threshold)
 

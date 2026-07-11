@@ -730,9 +730,10 @@ def _compute_noisy_dense_values(
     ys: np.ndarray | list[float],
     over_frequency_noise: CompositeOverFrequencyNoise,
     noise_scale: float = 1.0,
+    rng: random.Random | None = None,
 ) -> np.ndarray:
     dense_batch = DataBatch.from_arrays(xs, ys, meta={})
-    noisy_batch = over_frequency_noise.apply(dense_batch, random.Random(0))
+    noisy_batch = over_frequency_noise.apply(dense_batch, rng if rng is not None else random.Random(0))
     vals = np.asarray(noisy_batch.signal_values, dtype=float)
     ys_arr = np.asarray(ys, dtype=float)
     bad = ~np.isfinite(vals)
@@ -740,6 +741,34 @@ def _compute_noisy_dense_values(
         vals = ys_arr + (vals - ys_arr) * noise_scale
     vals[bad] = ys_arr[bad]
     return vals
+
+
+def _compute_noisy_dense_band(
+    xs: np.ndarray,
+    ys: np.ndarray | list[float],
+    over_frequency_noise: CompositeOverFrequencyNoise,
+    noise_scale: float = 1.0,
+    n_draws: int = 200,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Monte-Carlo envelope of where a re-measurement could plausibly land.
+
+    Draws ``n_draws`` independent noise realizations over the dense true-signal
+    curve and returns two nested percentile bands per x -- an inner ~1 sigma
+    band (15.87/84.13 pct) and an outer ~2 sigma band (2.28/97.72 pct), so a
+    single outlier draw doesn't dominate the width.
+    """
+    seed_rng = random.Random(seed)
+    draws = np.empty((n_draws, len(xs)), dtype=float)
+    for i in range(n_draws):
+        draws[i] = _compute_noisy_dense_values(
+            xs, ys, over_frequency_noise, noise_scale, rng=random.Random(seed_rng.randint(0, 2**31 - 1))
+        )
+    lo1 = np.percentile(draws, 15.87, axis=0)
+    hi1 = np.percentile(draws, 84.13, axis=0)
+    lo2 = np.percentile(draws, 2.28, axis=0)
+    hi2 = np.percentile(draws, 97.72, axis=0)
+    return lo1, hi1, lo2, hi2
 
 
 def _splice_noisy_dense_at_measurements(
@@ -1055,7 +1084,14 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
                 plot_data: dict[str, Any] = {
                     k: raw[k] for k in ("x_dense", "y_dense", "has_metrics", "measurements") if k in raw
                 }
-                for k in ("focus_window", "narrowed_param_bounds", "y_dense_noisy", "y_dense_mode"):
+                for k in (
+                    "focus_window",
+                    "narrowed_param_bounds",
+                    "y_dense_noisy",
+                    "y_dense_noisy_lo",
+                    "y_dense_noisy_hi",
+                    "y_dense_mode",
+                ):
                     if k in raw:
                         plot_data[k] = raw[k]
                 entry["plot_data"] = plot_data
@@ -1182,8 +1218,13 @@ def _compute_scan_data_dict(
 
     if over_frequency_noise is not None:
         noise_scale = _noise_scale_for_scan(scan, over_frequency_noise)
-        noisy_vals = _compute_noisy_dense_values(xs, ys, over_frequency_noise, noise_scale)
-        out["y_dense_noisy"] = noisy_vals
+        noisy_lo1, noisy_hi1, noisy_lo2, noisy_hi2 = _compute_noisy_dense_band(
+            xs, ys, over_frequency_noise, noise_scale
+        )
+        out["y_dense_noisy_lo"] = noisy_lo1
+        out["y_dense_noisy_hi"] = noisy_hi1
+        out["y_dense_noisy_lo2"] = noisy_lo2
+        out["y_dense_noisy_hi2"] = noisy_hi2
 
     has_metrics = history.height > 0 and any(col in history.columns for col in ("entropy", "max_prob", "uncertainty"))
     out["has_metrics"] = has_metrics

@@ -35,7 +35,7 @@ def run_result_to_history_df(
     for step, snapshot in enumerate(result.snapshots):
         x = snapshot.obs.x
         # Detect if x is normalized [0,1] or already physical
-        # Normalized x is in [0, 1]; physical x for NV centers is ~2.6e9-3.1e9 (Hz)
+        # Normalized x is in [0, 1]; physical x for NV centers is ~2.72e9-3.02e9 (Hz)
         x_phys = (
             denormalize_x(x, x_min, x_max) if 0 <= x <= 1 else x
         )  # x is already in physical coordinates (e.g., from SweepingLocator)
@@ -156,6 +156,17 @@ def run_result_to_finalize_record(
     record: dict[str, Any] = {"repeat_id": repeat_id}
 
     belief_estimates = result.final_estimates()
+    if result.fit_mode_estimates:
+        # Sweep locators (GenericSweepLocator) batch-update their belief
+        # without resampling during the sweep, so it can collapse — the same
+        # reason the plotted "locator most likely signal" curve prefers
+        # fit_mode_estimates over the belief mode (see
+        # nvision/runner/executor.py). Every final_est_<param> column below
+        # was silently reading the collapsed belief instead of the actual
+        # least-squares fit for every parameter except frequency (which
+        # extract_peak_estimates seeds from locator_result); apply the same
+        # preference here.
+        belief_estimates = {**belief_estimates, **result.fit_mode_estimates}
     record.update(extract_peak_estimates(belief_estimates, locator_result, x_min, x_max))
 
     for key, value in belief_estimates.items():

@@ -67,7 +67,10 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         x_bounds_phys: tuple[float, float],
     ) -> None:
         self.inner = inner
-        self.param_bounds_phys = param_bounds_phys
+        # Copy: narrow_physical_interval_for_param mutates this dict in place;
+        # the caller's dict must not be silently narrowed along with it (it is
+        # often shared across locators/repeats as the pristine full-domain bounds).
+        self.param_bounds_phys = dict(param_bounds_phys)
         self.x_bounds_phys = x_bounds_phys
 
     @property

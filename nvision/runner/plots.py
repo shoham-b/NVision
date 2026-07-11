@@ -26,6 +26,7 @@ from nvision.sim.defaults import (
     param_converged,
     param_convergence_bound_width,
 )
+from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 
@@ -713,7 +714,7 @@ def get_or_run_sobol_baseline(
 
     from nvision.runner.convert import belief_mode_estimates
     from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
-    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 
     # 1. Setup locator noise/bounds
@@ -751,7 +752,7 @@ def get_or_run_sobol_baseline(
     if experiment.true_signal.noise_bounds:
         bounds.update(experiment.true_signal.noise_bounds)
 
-    belief = nv_center_smc_belief(bounds)
+    belief = nv_center_smc_belief(bounds, lineshape=nv_lineshape_for_model(model))
 
     locator = SimpleSobolBayesianLocator(
         belief=belief,
@@ -834,7 +835,7 @@ def get_or_run_simplesweep_baseline(
 
     from nvision.runner.convert import belief_mode_estimates
     from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
-    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
     from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
     noise_std = 0.05
@@ -866,7 +867,7 @@ def get_or_run_simplesweep_baseline(
     if experiment.true_signal.noise_bounds:
         bounds.update(experiment.true_signal.noise_bounds)
 
-    belief = nv_center_smc_belief(bounds)
+    belief = nv_center_smc_belief(bounds, lineshape=nv_lineshape_for_model(model))
 
     f_lo, f_hi = bounds.get("frequency", (experiment.x_min, experiment.x_max))
     f_domain_width = float(f_hi - f_lo)
@@ -883,6 +884,8 @@ def get_or_run_simplesweep_baseline(
         signal_model=model,
         max_steps=max_steps,
         noise_std=noise_std,
+        domain_lo=experiment.x_min,
+        domain_hi=experiment.x_max,
         **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
         **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
     )
@@ -903,7 +906,12 @@ def get_or_run_simplesweep_baseline(
     # finalize() flushes the deferred belief updates and runs the dip fit;
     # without it the belief is still the prior.
     locator.finalize()
-    sweep_mode_estimates = belief_mode_estimates(locator.belief)
+    # Prefer the actual least-squares model fit over the SMC belief marginal
+    # mode: during a sweep the belief is batch-updated without resampling and
+    # can collapse, drawing a garbage "most likely signal" curve.
+    sweep_mode_estimates = locator.fit_mode_estimates()
+    if sweep_mode_estimates is None:
+        sweep_mode_estimates = belief_mode_estimates(locator.belief)
 
     new_data = {
         "sweep_xs": sweep_xs,
@@ -988,9 +996,16 @@ def generate_attempt_plots(  # noqa: C901
     belief_unit_cube: UnitCubeSignalModel | None = None
     if run_result is not None and run_result.snapshots:
         last_belief = run_result.snapshots[-1].belief
-        me = belief_mode_estimates(last_belief)
-        if me:
-            mode_estimates = me
+        # Prefer the sweep locator's actual least-squares fit over the SMC belief
+        # marginal mode: during a sweep the belief is batch-updated without
+        # resampling and can collapse, drawing a garbage "most likely signal"
+        # curve even on clean data (see run_result.fit_mode_estimates).
+        if run_result.fit_mode_estimates:
+            mode_estimates = dict(run_result.fit_mode_estimates)
+        else:
+            me = belief_mode_estimates(last_belief)
+            if me:
+                mode_estimates = me
         m = getattr(last_belief, "model", None)
         if isinstance(m, UnitCubeSignalModel):
             belief_unit_cube = m
@@ -1072,6 +1087,7 @@ def generate_attempt_plots(  # noqa: C901
             "label": "True Signal Parameters",
             "params": run_result.true_signal.parameter_values(),
             "bounds": run_result.true_signal.all_bounds(),
+            "config_fingerprint": PHYSICS_CONFIG_FINGERPRINT,
         }
 
     scan_entry["_bytes"] = viz.plot_scan_measurements(

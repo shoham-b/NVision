@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 
-import numba
 import numpy as np
 from dotenv import load_dotenv
 from numba import njit, prange
@@ -19,6 +19,7 @@ from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.numba_kernels import (
     nv_center_lorentzian_eig_variance,
     nv_center_pseudo_voigt_eig_variance,
+    nv_center_zeeman_pseudo_voigt_eig_variance,
 )
 
 # --- Environment-driven defaults ---------------------------------------------
@@ -128,9 +129,18 @@ def _inverse_sum_squares(weights: np.ndarray) -> float:
     return 1.0 / s
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
-    """Find the argmax index within each chunk in parallel.
+    """Find the argmax index within each chunk.
+
+    Serial, not ``parallel=True``: called once per SBED step on realistic
+    candidate-grid sizes (hundreds to tens of thousands), where the per-chunk
+    work (a ~64-element linear scan) is microseconds — dwarfed by numba's
+    thread-pool coordination overhead (measured ~6ms, roughly constant
+    regardless of size). Serial is 200-1500x faster across that whole range;
+    see the ``_vectorized_many_fast_serial`` variants elsewhere in this module
+    for the same size-dependent parallel/serial tradeoff, documented at the
+    ~500k-element crossover -- this function never gets remotely close to it.
 
     Args:
         eig_scores: 1D array of EIG scores for all candidates.
@@ -143,7 +153,7 @@ def _chunk_argmax(eig_scores: np.ndarray, chunk_size: int) -> np.ndarray:
     n = eig_scores.shape[0]
     n_chunks = (n + chunk_size - 1) // chunk_size
     winners = np.empty(n_chunks, dtype=np.int64)
-    for c in numba.prange(n_chunks):
+    for c in range(n_chunks):
         start = c * chunk_size
         end = min(start + chunk_size, n)
         best_idx = start
@@ -235,6 +245,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
+
+    # Belief-state version: bumped on every mutation of _particles/_weights
+    # (update, batch_update, _resample, narrow_scan_parameter_physical_bounds).
+    # estimates()/uncertainty() are pure functions of that state and get called
+    # many times per step (convergence gates, noise estimation, dip detection,
+    # milestones) — memoizing on this counter turns N recomputes/step into 1.
+    _belief_version: int = field(init=False, default=0, repr=False)
+    _estimates_cache_version: int = field(init=False, default=-1, repr=False)
+    _estimates_cache: dict[str, float] | None = field(init=False, default=None, repr=False)
+    _uncertainty_cache_version: int = field(init=False, default=-1, repr=False)
+    _uncertainty_cache: ParameterValues[float] | None = field(init=False, default=None, repr=False)
 
     _particles: np.ndarray = field(init=False, repr=False)
     _weights: np.ndarray = field(init=False, repr=False)
@@ -383,7 +404,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # generic path that materializes the (n_candidates x n_eig) matrix.
         self._eig_needs_phys = False
         try:
-            from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterVoigtModel
+            from nvision.spectra.nv_center import (
+                NVCenterLorentzianModel,
+                NVCenterSaturationVoigtModel,
+                NVCenterVoigtModel,
+            )
             from nvision.spectra.unit_cube import UnitCubeSignalModel
 
             kernel_model = self.model
@@ -391,7 +416,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             if is_unit_cube:
                 kernel_model = kernel_model.inner
 
-            if isinstance(kernel_model, NVCenterLorentzianModel):
+            if isinstance(kernel_model, NVCenterSaturationVoigtModel):
+                self._eig_kernel_type = "saturation_voigt"
+                self._eig_needs_phys = is_unit_cube
+            elif isinstance(kernel_model, NVCenterLorentzianModel):
                 self._eig_kernel_type = "lorentzian"
                 self._eig_needs_phys = is_unit_cube
             elif isinstance(kernel_model, NVCenterVoigtModel):
@@ -492,6 +520,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
         else:
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
+        self._belief_version += 1
 
         # 4. Resample if Effective Sample Size (ESS) is too low [cite: 198, 199]
         ess = _inverse_sum_squares(self._weights)
@@ -601,6 +630,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
         else:
             self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
+        self._belief_version += 1
 
         # Evaluate Effective Sample Size (ESS) for resampling
         ess = _inverse_sum_squares(self._weights)
@@ -800,7 +830,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         df_zeeman_phys = _to_phys_delta("zeeman_split", estimates["zeeman_split"]) if "zeeman_split" in estimates else 0.0
 
         # 1. Determine linewidth Omega (HWHM) in physical space
-        if "linewidth" in estimates:
+        is_saturation_voigt = "saturation" in estimates and "sigma_inhom" in estimates
+        if is_saturation_voigt:
+            from nvision.spectra.nv_center import saturation_voigt_effective_hwhm_and_unc
+
+            saturation_phys = _to_phys("saturation", estimates["saturation"])
+            sigma_inhom_phys = _to_phys("sigma_inhom", estimates["sigma_inhom"])
+            omega_phys, _ = saturation_voigt_effective_hwhm_and_unc(saturation_phys, sigma_inhom_phys)
+        elif "linewidth" in estimates:
             omega_phys = _to_phys_delta("linewidth", estimates["linewidth"])
         elif "fwhm_total" in estimates:
             omega_phys = _to_phys_delta("fwhm_total", estimates["fwhm_total"] / 2.0)
@@ -809,7 +846,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 2. Extract uncertainties in physical space
         sigma_f_phys = _to_phys_delta("frequency", uncertainties["frequency"])
-        if "linewidth" in uncertainties:
+        if is_saturation_voigt:
+            sigma_s_phys = _to_phys_delta("saturation", uncertainties["saturation"])
+            sigma_sigma_inhom_phys = _to_phys_delta("sigma_inhom", uncertainties["sigma_inhom"])
+            _, sigma_omega_phys = saturation_voigt_effective_hwhm_and_unc(
+                saturation_phys, sigma_inhom_phys, sigma_s_phys, sigma_sigma_inhom_phys
+            )
+        elif "linewidth" in uncertainties:
             sigma_omega_phys = _to_phys_delta("linewidth", uncertainties["linewidth"])
         elif "fwhm_total" in uncertainties:
             sigma_omega_phys = _to_phys_delta("fwhm_total", uncertainties["fwhm_total"] / 2.0)
@@ -876,9 +919,21 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             obs_xs_phys = freq_rescale.to_phys(obs_xs)
             noise_std = self.estimated_noise_std()
             noise_std_unc = self.noise_std_uncertainty(noise_std)
-            # Derive cluster radius from the linewidth prior upper bound
-            lw_key = "linewidth" if "linewidth" in phys_bounds else "fwhm_total"
-            max_linewidth_hz = phys_bounds[lw_key][1]
+            # Derive cluster radius from the linewidth prior upper bound (lineshape-agnostic:
+            # mirrors sbed_locator._effective_max_linewidth_hz).
+            if "linewidth" in phys_bounds:
+                max_linewidth_hz = phys_bounds["linewidth"][1]
+            elif "saturation" in phys_bounds and "sigma_inhom" in phys_bounds:
+                from nvision.spectra.nv_center import NV_NATURAL_HWHM_HZ
+
+                s_hi = phys_bounds["saturation"][1]
+                sigma_inhom_hi = phys_bounds["sigma_inhom"][1]
+                gamma_hom_hi = NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + s_hi)
+                max_linewidth_hz = gamma_hom_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
+            elif "fwhm_total" in phys_bounds:
+                max_linewidth_hz = phys_bounds["fwhm_total"][1] / 2.0
+            else:
+                max_linewidth_hz = 1e6
             max_zeeman_hz = phys_bounds["zeeman_split"][1] if "zeeman_split" in phys_bounds else 0.0
             max_hf_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else 0.0
             if max_zeeman_hz > 0 or max_hf_split_hz > 0:
@@ -1060,19 +1115,32 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 9. Update cached candidate grid for the next epoch
         self._generate_epoch_candidates()
+        self._belief_version += 1
 
     def _marginal_std(self, dim_idx: int) -> float:
         _, var = _weighted_mean_variance_1d(self._particles[:, dim_idx], self._weights)
         return float(np.sqrt(max(0.0, var)))
 
     def _estimates_unit(self) -> dict[str, float]:
-        """Return parameter estimates in internal unit/belief space."""
+        """Return parameter estimates in internal unit/belief space.
+
+        Memoized on ``_belief_version`` — pure function of (particles, weights),
+        which only change in update/batch_update/_resample/narrow_scan_parameter_
+        physical_bounds. Callers get their own fresh dict each time (built from the
+        cached values) so mutating the returned dict can never corrupt the cache.
+        """
+        if self._estimates_cache_version == self._belief_version and self._estimates_cache is not None:
+            return dict(self._estimates_cache)
+
         means = _weighted_mean_axis0(self._particles, self._weights)
         res = {name: float(means[i]) for i, name in enumerate(self._param_names)}
         if getattr(self, "_use_rao_blackwell_noise", False):
             est_sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
             res["noise_sigma"] = float(np.sum(self._weights * est_sigmas))
-        return res
+
+        self._estimates_cache = res
+        self._estimates_cache_version = self._belief_version
+        return dict(res)
 
     def estimates(self) -> dict[str, float]:
         """Return parameter estimates (weighted mean)."""
@@ -1083,14 +1151,23 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         Computes all marginal variances in a single vectorized pass instead of
         calling the 1-D Numba kernel once per dimension.
+
+        Memoized on ``_belief_version`` (see ``_estimates_unit``). Safe to return
+        the cached instance directly — ``ParameterValues`` is a frozen dataclass.
         """
+        if self._uncertainty_cache_version == self._belief_version and self._uncertainty_cache is not None:
+            return self._uncertainty_cache
+
         w = self._weights
         sw = w.sum()
         if sw <= 0.0:
             stds = {name: 0.0 for name in self._param_names}
             if getattr(self, "_use_rao_blackwell_noise", False):
                 stds["noise_sigma"] = 0.0
-            return ParameterValues.from_mapping(list(stds.keys()), stds)
+            result = ParameterValues.from_mapping(list(stds.keys()), stds)
+            self._uncertainty_cache = result
+            self._uncertainty_cache_version = self._belief_version
+            return result
         p = self._particles  # (N, d)
         mean = (w @ p) / sw  # (d,)
         diff = p - mean  # (N, d)
@@ -1109,7 +1186,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             )
             stds["noise_sigma"] = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
 
-        return ParameterValues.from_mapping(list(stds.keys()), stds)
+        result = ParameterValues.from_mapping(list(stds.keys()), stds)
+        self._uncertainty_cache = result
+        self._uncertainty_cache_version = self._belief_version
+        return result
 
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         return self._uncertainty_unit()
@@ -1422,7 +1502,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             x_lo, x_hi = self.model.x_bounds_phys
             xs = np.float32(x_lo) + xs * (np.float32(x_hi) - np.float32(x_lo))
 
-            n_sig = 5 if kernel == "lorentzian" else 6
+            if kernel == "lorentzian":
+                n_sig = 5
+            elif kernel == "saturation_voigt":
+                # 3 (single dip) / 4 (Zeeman) / 5 (hyperfine) / 6 (Zeeman + hyperfine).
+                n_sig = self._d_signal
+            else:
+                n_sig = 6
             bounds = self.model.param_bounds_phys
             part_phys = np.empty((n_sig, part_t.shape[1]), dtype=np.float32)
             for j, name in enumerate(self._param_names[:n_sig]):
@@ -1459,6 +1545,50 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             )
             return out
 
+        if kernel == "saturation_voigt":
+            from nvision.spectra.nv_center import (
+                NV_N14_HYPERFINE_SPLIT_HZ,
+                NV_SATURATION_C_MAX,
+                _saturation_voigt_reparam,
+            )
+
+            n_p = part_t.shape[1]
+            # Signal columns follow parameter_names order:
+            #   freq, saturation, sigma_inhom, [zeeman_split,] [split, k_np]
+            # c_max is a fixed constant (NV_SATURATION_C_MAX), not a particle column.
+            has_zeeman = "zeeman_split" in self._param_names
+            has_hf = "split" in self._param_names
+            saturation = part_t[1]
+            sigma_inhom = part_t[2]
+            if has_zeeman:
+                zeeman_split = np.ascontiguousarray(part_t[3], dtype=np.float32)
+                next_idx = 4
+            else:
+                zeeman_split = np.zeros(n_p, dtype=np.float32)
+                next_idx = 3
+            if has_hf:
+                hf_split = np.ascontiguousarray(part_t[next_idx], dtype=np.float32)
+                k_np = np.ascontiguousarray(part_t[next_idx + 1], dtype=np.float32)
+            else:
+                hf_split = np.full(n_p, np.float32(NV_N14_HYPERFINE_SPLIT_HZ), dtype=np.float32)
+                k_np = np.ones(n_p, dtype=np.float32)
+            c_max = np.full(n_p, np.float32(NV_SATURATION_C_MAX), dtype=np.float32)
+
+            fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam(saturation, sigma_inhom, c_max)
+            nv_center_zeeman_pseudo_voigt_eig_variance(
+                xs,
+                np.ascontiguousarray(part_t[0], dtype=np.float32),  # freq
+                np.ascontiguousarray(fwhm_total, dtype=np.float32),
+                np.ascontiguousarray(lorentz_frac, dtype=np.float32),
+                zeeman_split,
+                hf_split,
+                k_np,
+                np.ascontiguousarray(c_total, dtype=np.float32),
+                w,
+                out,
+            )
+            return out
+
         # Generic fallback: two-step path for any other model type.
         arrays_in_order = [part_t[j] for j in range(self._d_signal)]
         predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
@@ -1475,6 +1605,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             if param_name in self._param_names:
                 idx = self._param_names.index(param_name)
                 self._particles[:, idx] = np.clip(self._particles[:, idx], lo, hi)
+                self._belief_version += 1
 
             # If the scan parameter was narrowed, update the global grid and candidates
             if param_name == "frequency":

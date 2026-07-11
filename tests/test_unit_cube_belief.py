@@ -199,10 +199,15 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     assert hi_expanded == hi_phys
 
     # Test 3: Right boundary piling triggers right expansion
-    # Reset bounds, narrow to the left, so there is space to expand to the right
-    b.narrow_scan_parameter_physical_bounds("frequency", orig_lo, mid)
+    # Reset bounds, narrow to the left, so there is space to expand to the right.
+    # Test 2's left-expansion remapped the piled-at-0.02 particles into unit space
+    # under the *new* (wider) bounds, landing them just above `mid` (not exactly at
+    # it) plus a little resampling jitter -- so narrow a bit past `mid` here to
+    # reliably keep them in-bounds rather than triggering the boundary-escape reject.
+    mid_hi = mid + 0.1 * (orig_hi - orig_lo)
+    b.narrow_scan_parameter_physical_bounds("frequency", orig_lo, mid_hi)
     lo_phys, hi_phys = b.physical_param_bounds["frequency"]
-    assert hi_phys == mid
+    assert hi_phys == mid_hi
 
     # Force particles to pile up near 1.0 in unit space (u_vals > 0.95)
     b._particles[:, j] = 0.98
@@ -246,7 +251,7 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 
     monkeypatch.setattr(SMCMarginalDistribution, "_resample", lambda self: None)
 
-    b = nv_center_smc_belief(num_particles=100, with_hyperfine_splitting=True)
+    b = nv_center_smc_belief(num_particles=100, with_hyperfine_splitting=True, with_zeeman_splitting=False)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
     b._step_count = 10  # > 5, narrowing runs
 

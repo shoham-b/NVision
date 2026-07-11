@@ -6,6 +6,7 @@ from typing import Any
 import plotly.graph_objects as go
 import polars as pl
 
+from nvision.spectra.nv_center import DEFAULT_NV_CENTER_FREQ_X_MAX, DEFAULT_NV_CENTER_FREQ_X_MIN
 from nvision.viz._f32_json import dump_gz, write_plotly_gz
 
 
@@ -257,6 +258,10 @@ class ExperimentsMixin:
         span_per_noise_plots = self.plot_savings_vs_span_per_noise(df)
         entries.extend(span_per_noise_plots)
 
+        # Parameter-grid study summaries (no-op unless grid_ columns are present)
+        grid_plots = self.plot_grid_study(df)
+        entries.extend(grid_plots)
+
         return entries
 
     def _add_correct_f_span(self, sub: pl.DataFrame) -> pl.DataFrame:
@@ -266,29 +271,54 @@ class ExperimentsMixin:
             hi_val = sweep_rows.get_column("acquisition_hi").drop_nulls().mean()
             lo_val = sweep_rows.get_column("acquisition_lo").drop_nulls().mean()
         else:
-            hi_val, lo_val = 3.1e9, 2.6e9
-        domain_width = hi_val - lo_val if hi_val is not None and lo_val is not None and hi_val > lo_val else 5.0e8
+            hi_val, lo_val = DEFAULT_NV_CENTER_FREQ_X_MAX, DEFAULT_NV_CENTER_FREQ_X_MIN
+        domain_width = (
+            hi_val - lo_val
+            if hi_val is not None and lo_val is not None and hi_val > lo_val
+            else DEFAULT_NV_CENTER_FREQ_X_MAX - DEFAULT_NV_CENTER_FREQ_X_MIN
+        )
+
+        # Lineshape-agnostic width source: prefer the derived effective-HWHM column
+        # (saturation-Voigt runs), fall back to the raw Lorentzian/Voigt columns.
+        width_candidates: list[pl.Expr] = []
+        if "final_est_effective_hwhm" in sub.columns:
+            width_candidates.append(pl.col("final_est_effective_hwhm"))
+        if "final_est_linewidth" in sub.columns:
+            width_candidates.append(pl.col("final_est_linewidth"))
+        if "final_est_fwhm_total" in sub.columns:
+            width_candidates.append(pl.col("final_est_fwhm_total") / 2.0)
+        width_expr = pl.coalesce(width_candidates) if width_candidates else pl.lit(None, dtype=pl.Float64)
+
+        # Total splitting extent: two Zeeman groups at +/- zeeman_split, plus hyperfine split.
+        zee_expr = (
+            pl.col("final_est_zeeman_split").fill_null(0.0) * 2.0
+            if "final_est_zeeman_split" in sub.columns
+            else pl.lit(0.0)
+        )
+        hf_expr = pl.col("final_est_split").fill_null(0.0) if "final_est_split" in sub.columns else pl.lit(0.0)
+
+        sub = sub.with_columns(width_expr.alias("_width_src"), (zee_expr + hf_expr).alias("_split_src"))
 
         best_est = (
             sub.filter(~pl.col("strategy").str.contains("Sweep"))
             .group_by(["noise", "attempt"])
             .agg([
-                pl.col("final_est_linewidth").mean().alias("ref_linewidth"),
-                pl.col("final_est_split").mean().alias("ref_split"),
+                pl.col("_width_src").mean().alias("ref_linewidth"),
+                pl.col("_split_src").mean().alias("ref_split"),
             ])
         )
 
-        if not best_est.is_empty():
-            sub = sub.join(best_est, on=["noise", "attempt"], how="left")
-            sub = sub.with_columns(
-                pl.col("ref_linewidth").fill_null(pl.col("final_est_linewidth")).alias("effective_lw"),
-                pl.col("ref_split").fill_null(pl.col("final_est_split")).alias("effective_split"),
-            )
-        else:
-            sub = sub.with_columns(
-                pl.col("final_est_linewidth").alias("effective_lw"),
-                pl.col("final_est_split").alias("effective_split"),
-            )
+        # Always join (even when best_est is empty -- a left join against an empty
+        # table just yields null ref_linewidth/ref_split) rather than branching on
+        # emptiness: the two branches previously added different column counts,
+        # which crashed the pl.concat() below whenever some generators had only
+        # Sweep-strategy rows (best_est empty) and others didn't (best_est non-empty)
+        # in the same summary pass.
+        sub = sub.join(best_est, on=["noise", "attempt"], how="left")
+        sub = sub.with_columns(
+            pl.col("ref_linewidth").fill_null(pl.col("_width_src")).alias("effective_lw"),
+            pl.col("ref_split").fill_null(pl.col("_split_src")).alias("effective_split"),
+        )
 
         def calc_row_f_span(row):
             lw = row["effective_lw"]
@@ -318,6 +348,9 @@ class ExperimentsMixin:
             for _c in [
                 "final_est_linewidth",
                 "final_est_split",
+                "final_est_effective_hwhm",
+                "final_est_zeeman_split",
+                "final_est_fwhm_total",
                 "acquisition_hi",
                 "acquisition_lo",
                 "expected_uniform_points",
@@ -404,6 +437,9 @@ class ExperimentsMixin:
             _numeric_cols = [
                 "final_est_linewidth",
                 "final_est_split",
+                "final_est_effective_hwhm",
+                "final_est_zeeman_split",
+                "final_est_fwhm_total",
                 "acquisition_hi",
                 "acquisition_lo",
                 "expected_uniform_points",

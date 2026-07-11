@@ -23,9 +23,17 @@
     <div class="scan-controls-split">
         <div class="panel panel-signal">
             <h3 class="panel-title">Signal</h3>
-            <div class="control-row">
+            <div class="control-row" id="scan-generator-flat-row">
                 <span class="control-label">Generator:</span>
                 <div aria-label="Scan generator" class="segmented-control" id="scan-generator" role="radiogroup"></div>
+            </div>
+            <div class="control-row" id="scan-generator-family-row" style="display: none;">
+                <span class="control-label">Study:</span>
+                <select aria-label="Parameter study" class="control-select" id="scan-generator-family"></select>
+            </div>
+            <div class="control-row" id="scan-generator-facets-row" style="display: none;">
+                <span class="control-label">Parameters:</span>
+                <span id="scan-generator-facets"></span>
             </div>
                 <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
         </div>
@@ -52,6 +60,7 @@
             <button type="button" role="radio" aria-checked="false" data-value="speed" tabindex="-1">Speed</button>
             <button type="button" role="radio" aria-checked="false" data-value="accuracy" tabindex="-1">Accuracy</button>
             <button type="button" role="radio" aria-checked="false" data-value="failed-runs" tabindex="-1" id="scan-view-failed-runs-btn" style="display:none;">Failed Runs</button>
+            <button type="button" role="radio" aria-checked="false" data-value="grid-stats" tabindex="-1" id="scan-view-grid-stats-btn" style="display:none;">Grid Stats</button>
         </div>
     </div>
     <div id="scan-repeat-view">
@@ -63,6 +72,10 @@
                 <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
                 <button aria-label="Next repeat" class="control-button" id="scan-repeat-next" type="button">Next</button>
             </div>
+            <label class="control-row" style="margin-left: 1.5em; display: inline-flex; align-items: center; gap: 0.4em;" title="Split into two stacked subplots, one per Zeeman group, with the lower-frequency group mirrored so both read in the same orientation -- to visually check Zeeman/hyperfine symmetry and see which measurements landed in each group. Falls back to a single center-fold when the signal has no Zeeman splitting.">
+                <input type="checkbox" id="scan-flip-view-toggle">
+                <span>Flip view (fold by Zeeman group)</span>
+            </label>
         </div>
     </div>
     <div class="metrics" id="scan-metrics"></div>
@@ -247,6 +260,22 @@
         <h2 style="margin:0 0 0.4em;">Failed Runs</h2>
         <div id="failed-runs-summary" style="margin-bottom:1em; padding:0.6em 1em; background:#fef3c7; border:1px solid #fde68a; border-radius:6px; font-size:0.9em; color:#92400e;"></div>
         <div id="failed-runs-table-container"></div>
+    </div>
+
+    <!-- ── Grid Stats tab: pick a scan axis, hold the rest fixed ────────── -->
+    <div id="grid-stats-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Grid Stats <span tabindex="0" class="help-icon-visible" title="Pick which swept parameter is the scan axis; the rest stay fixed at the chosen values. Shows censored median/IQR steps-to-convergence and convergence rate across the scanned axis, computed from already-run repeats.">?</span></h2>
+        <div class="control-row" id="grid-stats-axis-row">
+            <span class="control-label">Scan axis:</span>
+            <select aria-label="Grid stats scan axis" class="control-select" id="grid-stats-scan-axis"></select>
+        </div>
+        <div class="control-row" id="grid-stats-fixed-row" style="align-items:flex-start;">
+            <span class="control-label">Fixed:</span>
+            <span id="grid-stats-fixed-selects"></span>
+        </div>
+        <div id="grid-stats-empty-message" style="display:none; padding:1.5em; color:#64748b; text-align:center;">No data for this combination.</div>
+        <div id="grid-stats-plot-div" style="width:100%;min-height:420px;"></div>
+        <div id="grid-stats-table-container" style="margin-top:1em;"></div>
     </div>
 </div>
 

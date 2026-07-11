@@ -274,3 +274,264 @@ def lorentzian_sbed_only(
         gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
+
+
+@groups_app.command("voigt-sbed")
+def voigt_sbed(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run voigt-sbed``."""
+    _run_named_group(
+        "voigt-sbed",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("voigt-sweep-only")
+def voigt_sweep_only(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run voigt-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
+    _run_named_group(
+        "voigt-sweep-only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("voigt-sbed-only")
+def voigt_sbed_only(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run voigt-sbed-only`` (SBED only, no sweep/sobol baselines)."""
+    _run_named_group(
+        "voigt-sbed-only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("lorentzian-plain-sbed")
+def lorentzian_plain_sbed(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run lorentzian-plain-sbed`` (plain Lorentzian, not saturation-Voigt)."""
+    _run_named_group(
+        "lorentzian-plain-sbed",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("lorentzian-plain-sweep-only")
+def lorentzian_plain_sweep_only(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run lorentzian-plain-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
+    _run_named_group(
+        "lorentzian-plain-sweep-only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("lorentzian-plain-sbed-only")
+def lorentzian_plain_sbed_only(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run lorentzian-plain-sbed-only`` (SBED only, no sweep/sobol baselines)."""
+    _run_named_group(
+        "lorentzian-plain-sbed-only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("both-sbed")
+def both_sbed(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run both-sbed`` (plain Voigt + plain Lorentzian, Bayesian-SBED/SimpleSobol/SimpleSweep)."""
+    _run_named_group(
+        "both-sbed",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("both-sweep-only")
+def both_sweep_only(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run both-sweep-only`` (plain Voigt + plain Lorentzian, SimpleSweep only)."""
+    _run_named_group(
+        "both-sweep-only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )
+
+
+@groups_app.command("both-sbed-only")
+def both_sbed_only(
+    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+    no_cache: cli_options.NoCacheOption = False,
+    dry_run: cli_options.DryRunOption = False,
+    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
+    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
+    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+    no_progress: cli_options.NoProgressOption = False,
+    retry_failed: cli_options.RetryFailedOption = False,
+) -> None:
+    """Alias for ``groups run both-sbed-only`` (plain Voigt + plain Lorentzian, SBED only)."""
+    _run_named_group(
+        "both-sbed-only",
+        repeats_override=repeats,
+        no_cache=no_cache,
+        dry_run=dry_run,
+        runners=runners,
+        open_browser=open_browser,
+        loc_timeout_s=loc_timeout_s,
+        no_progress=no_progress,
+        gcp=gcp,
+        gcp_bucket=gcp_bucket,
+        retry_failed=retry_failed,
+    )

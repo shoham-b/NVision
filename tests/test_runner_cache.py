@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 from nvision.runner.cache import _decompress_text, embed_graph_content
+from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
 
 
 def test_embed_graph_content_happy_path(tmp_path: Path):
@@ -329,7 +330,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
             strategy="SimpleSweep",
             repeats=2,
             seed=1,
-            max_steps=2500,
+            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -342,7 +343,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
             strategy="SimpleSweep",
             repeats=5,
             seed=1,
-            max_steps=2500,
+            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -695,12 +696,13 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
             noise="Gauss(0.01)",
             strategy="SimpleSweep",
             seed=1,
-            max_steps=2500,
+            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
         )
         ptr_config_v8 = dict(ptr_config)
         ptr_config_v8["schema_version"] = 8
+        ptr_config_v8.pop("physics_fingerprint", None)  # v8-era configs predate this field
         ptr_key_v8 = stable_config_hash(ptr_config_v8)
 
         # Save pointer
