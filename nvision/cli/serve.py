@@ -80,7 +80,7 @@ class _APIHandler(http.server.SimpleHTTPRequestHandler):
     def _serve_manifest(self) -> None:
         """Serve plots_manifest.json.gz (or .json) with appropriate headers."""
         _restore_missing_graphs(self.directory_to_serve)
-        
+
         gz_path = self.directory_to_serve / "plots_manifest.json.gz"
         json_path = self.directory_to_serve / "plots_manifest.json"
 
