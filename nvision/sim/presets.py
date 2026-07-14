@@ -107,11 +107,15 @@ def generators_basic() -> list[tuple[str, object]]:
         # NV Center generators - different variants
         (
             "NVCenter-lorentzian",
-            NVCenterCoreGenerator(x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="lorentzian"),
+            NVCenterCoreGenerator(
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="lorentzian"
+            ),
         ),
         (
             "NVCenter-voigt",
-            NVCenterCoreGenerator(x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt"),
+            NVCenterCoreGenerator(
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt"
+            ),
         ),
         # Selectable inhomogeneous-broadening levels on the Voigt model. inhom-0 is
         # pure Lorentzian (lorentz_frac=1.0 -> zero Gaussian/inhomogeneous width);
@@ -120,19 +124,28 @@ def generators_basic() -> list[tuple[str, object]]:
         (
             "NVCenter-inhom-0",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt", lorentz_frac=1.0
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                variant="voigt",
+                lorentz_frac=1.0,
             ),
         ),
         (
             "NVCenter-inhom-low",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt", lorentz_frac=0.85
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                variant="voigt",
+                lorentz_frac=0.85,
             ),
         ),
         (
             "NVCenter-inhom-high",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt", lorentz_frac=0.55
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                variant="voigt",
+                lorentz_frac=0.55,
             ),
         ),
     ]
@@ -170,7 +183,11 @@ def param_grid_generators(variant: str = "lorentzian") -> list[tuple[str, object
                 (
                     name,
                     NVCenterCoreGenerator(
-                        x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant=variant, linewidth=width, c_total=contrast
+                        x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                        x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                        variant=variant,
+                        linewidth=width,
+                        c_total=contrast,
                     ),
                 )
             )
@@ -223,10 +240,7 @@ def voigt_lorentz_frac_param_grid_generators() -> list[tuple[str, object]]:
         for contrast in contrasts:
             for lorentz_frac in lorentz_fracs:
                 width, contrast, lorentz_frac = float(width), float(contrast), float(lorentz_frac)
-                name = (
-                    f"NVCenter-voigt-{_fmt_width(width)}-{_fmt_contrast(contrast)}"
-                    f"-{_fmt_lorentz_frac(lorentz_frac)}"
-                )
+                name = f"NVCenter-voigt-{_fmt_width(width)}-{_fmt_contrast(contrast)}-{_fmt_lorentz_frac(lorentz_frac)}"
                 generators.append(
                     (
                         name,

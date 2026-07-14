@@ -46,8 +46,8 @@ class DipCandidate:
     centroid_hz: float
     significance: float
     n_points: int
-    f_min: float = 0.0      # empirical left extent of dip cluster (Hz)
-    f_max: float = 0.0      # empirical right extent of dip cluster (Hz)
+    f_min: float = 0.0  # empirical left extent of dip cluster (Hz)
+    f_max: float = 0.0  # empirical right extent of dip cluster (Hz)
     confidence: float = 0.0  # binomial confidence of this cluster
     background: float = 1.0  # empirical baseline (70th pct of obs_ys)
 

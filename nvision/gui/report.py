@@ -108,8 +108,12 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     import shutil
 
     _JS_FILES = [
-        "app.js", "bootstrap.js", "format-utils.js",
-        "plotly-utils.js", "run-status.js", "reload.js",
+        "app.js",
+        "bootstrap.js",
+        "format-utils.js",
+        "plotly-utils.js",
+        "run-status.js",
+        "reload.js",
     ]
     for js_file in _JS_FILES:
         js_src = _STATIC_DIR / js_file
