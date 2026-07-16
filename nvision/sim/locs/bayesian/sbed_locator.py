@@ -26,6 +26,10 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 # Prevents false early stops on the first measurement, especially with no noise.
 NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
 
+# Kill-switch for the symmetry-probe acquisition branch (see _acquire). On by default;
+# set NVISION_SBED_SYMMETRY_PROBE=0 to fall back to the prior EIG/explore/dip-bias mix.
+_SYMMETRY_PROBE_ENABLED: bool = os.getenv("NVISION_SBED_SYMMETRY_PROBE", "1") not in ("0", "false", "False")
+
 
 def background_noise_std(
     xs: np.ndarray,
@@ -106,8 +110,10 @@ def _effective_max_linewidth_hz(phys_bounds: dict) -> float:
         sigma_inhom_hi = phys_bounds["sigma_inhom"][1]
         gamma_hom_hi = NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + s_hi)
         return gamma_hom_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
-    if "fwhm_total" in phys_bounds:
-        return phys_bounds["fwhm_total"][1] / 2.0
+    if "homogeneous_linewidth" in phys_bounds:
+        hl_hi = phys_bounds["homogeneous_linewidth"][1]
+        sigma_inhom_hi = phys_bounds.get("sigma_inhom", (0.0, 0.0))[1]
+        return hl_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
     return 1e6
 
 
@@ -119,7 +125,7 @@ def _effective_linewidth_and_contrast_estimate(
     Falls back to the bound's max effective linewidth when the current
     estimate is unavailable, mirroring the pre-existing ``lw_bounds[1]``
     fallback. Contrast is ``None`` when the model has no population-style
-    amplitude estimate (e.g. dip_depth-only Voigt without a matching field).
+    amplitude estimate.
     """
     if "linewidth" in est:
         lw_bounds = phys_bounds.get("linewidth", (0.0, 1e6))
@@ -133,10 +139,9 @@ def _effective_linewidth_and_contrast_estimate(
             return _effective_max_linewidth_hz(phys_bounds), None
         fwhm_total, _, c_total = _saturation_voigt_reparam_scalar(saturation, sigma_inhom, NV_SATURATION_C_MAX)
         return fwhm_total / 2.0, c_total
-    if "fwhm_total" in est:
-        fwhm_bounds = phys_bounds.get("fwhm_total", (0.0, 2e6))
-        lw = est.get("fwhm_total", fwhm_bounds[1]) / 2.0
-        return lw, est.get("dip_depth", est.get("c_total"))
+    if "homogeneous_linewidth" in est:
+        hl_bounds = phys_bounds.get("homogeneous_linewidth", (0.0, 2e6))
+        return est.get("homogeneous_linewidth", hl_bounds[1]), est.get("c_total")
     return _effective_max_linewidth_hz(phys_bounds), None
 
 
@@ -453,6 +458,12 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if hi <= lo:
             return float(lo)
 
+        # The belief's original (never-narrowed) domain -- used by the exploration branches
+        # below so they can still reach a location resampling has already narrowed away from.
+        # `_to_experiment_normalized` normalizes against this same full domain, not
+        # `_acquisition_bounds()`, so returning a value outside `lo, hi` here is valid.
+        orig_lo, orig_hi = getattr(self.belief, "_original_physical_x_bounds", (lo, hi))
+
         # Forced background calibration: sample out-of-span until we have
         # enough background points to estimate noise for the CRLB early-stop.
         if self._forced_bg_mode:
@@ -485,8 +496,15 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         decay = np.exp(-self.inference_step_count / 25.0)
         rand_val = np.random.rand()
         if rand_val < 0.1 * decay:
-            # Explore globally uniformly to find missing peaks (probability decays over time)
-            return float(np.random.uniform(lo, hi))
+            # Explore globally uniformly to find missing peaks (probability decays over time).
+            # Deliberately uses the ORIGINAL domain, not `lo, hi` -- `_acquisition_bounds()`
+            # reads the belief's *current*, already-narrowed focus window. Once resampling
+            # narrows that window around a wrong mode (e.g. one of two Zeeman dip groups
+            # mistaken for the true center, when the true split is small/near-merged), sampling
+            # only within `lo, hi` can never place a measurement near the missed true location --
+            # this branch's own stated purpose ("find missing peaks") was structurally
+            # impossible for exactly the peaks most likely to be missing.
+            return float(np.random.uniform(orig_lo, orig_hi))
         elif rand_val < 0.2:
             # Dip-observation biased sampling: find the empirically lowest measured signal values
             # and draw near one of them. This corrects for a biased posterior that has drifted
@@ -560,21 +578,27 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                     )
                     dip_centers = [c.centroid_hz for c in dip_candidates]
 
-                valid_dip_centers = [c for c in dip_centers if lo <= c <= hi]
+                # Filtered/clamped against the ORIGINAL domain, not the narrowed `lo, hi`: this
+                # branch's whole purpose is correcting a posterior that "has drifted away from
+                # the true dip location" -- exactly the case where the true dip's own empirical
+                # signature (a real, measured low point) sits outside the already-narrowed
+                # window. Confining it to `lo, hi` defeated that purpose the same way the global
+                # exploration branch above did.
+                valid_dip_centers = [c for c in dip_centers if orig_lo <= c <= orig_hi]
                 if valid_dip_centers:
-                    # Pick a random dip centroid and jitter within ±5 MHz around it, keeping it strictly within [lo, hi]
+                    # Pick a random dip centroid and jitter within ±5 MHz around it, keeping it strictly within the domain
                     center = float(np.random.choice(valid_dip_centers))
-                    j_min = max(-5e6, lo - center)
-                    j_max = min(5e6, hi - center)
+                    j_min = max(-5e6, orig_lo - center)
+                    j_max = min(5e6, orig_hi - center)
                     if j_max >= j_min:
                         jitter = float(np.random.uniform(j_min, j_max))
                         val = center + jitter
-                        if not (lo <= val <= hi):
-                            raise ValueError(f"Jittered dip value {val} is outside acquisition bounds {(lo, hi)}")
+                        if not (orig_lo <= val <= orig_hi):
+                            raise ValueError(f"Jittered dip value {val} is outside domain bounds {(orig_lo, orig_hi)}")
                         return val
                     else:
-                        if not (lo <= center <= hi):
-                            raise ValueError(f"Dip center {center} is outside acquisition bounds {(lo, hi)}")
+                        if not (orig_lo <= center <= orig_hi):
+                            raise ValueError(f"Dip center {center} is outside domain bounds {(orig_lo, orig_hi)}")
                         return center
 
             # Fallback: Thompson sampling from posterior particles
@@ -589,7 +613,73 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                         val = float(self.belief._particles[idx, p_idx])
                         return self.belief._to_physical(scan_param, val)
 
+        elif rand_val < 0.3 and _SYMMETRY_PROBE_ENABLED:
+            # Symmetry probe -- breaks the frequency/zeeman_split degeneracy. The NV signal
+            # is exactly mirror-symmetric about `frequency`, so measuring at the mirror image
+            # (about the current frequency estimate) of an already-observed dip directly tests
+            # that symmetry and is self-correcting in every case:
+            #   * estimate right, small split: observed dip and its mirror both sit near the
+            #     center -> re-measures the central dip (harmless reinforcement).
+            #   * estimate right, large split: mirror lands on the OTHER Zeeman group ->
+            #     confirms the symmetric partner dip (legitimately informative).
+            #   * estimate WRONG (the real center dip mistaken for a Zeeman flank, so the
+            #     estimate sits ~split away from truth): the mirror lands out in the baseline
+            #     where the wrong hypothesis predicts a symmetric partner dip -> measuring
+            #     baseline there disconfirms the wrong mode.
+            # This gathers exactly the evidence the EIG epoch grid never does: that grid is
+            # targeted at the believed *flank* dips (freq +/- split) and so systematically
+            # never samples the center -- the one place small-split (dip) and large-split
+            # (baseline) disagree. Diagnosed on near-merged-split signals where the correct
+            # small-split mode keeps particle support the whole run yet is never preferred.
+            probe = self._symmetry_probe_point(orig_lo, orig_hi)
+            if probe is not None:
+                return probe
+
         return self._eig_acquire()
+
+    def _symmetry_probe_point(self, orig_lo: float, orig_hi: float) -> float | None:
+        """Mirror of an observed dip about the current frequency estimate (or None).
+
+        See the symmetry-probe branch in :meth:`_acquire` for the rationale. Returns a
+        physical frequency clamped to the original (un-narrowed) domain, or None if there
+        aren't enough observations / no frequency estimate yet.
+
+        Anchoring on ``belief._dip_centers`` (the detector's own empirical symmetry axis)
+        instead of the belief's estimate was tried and measurably underperformed this
+        simpler version on the real run path (10-repeat A/B, same combo: 1/10 catastrophic
+        vs 0/10, worst 71.7 MHz vs 3.6 MHz) -- the detector's own dip clusters aren't
+        reliable enough (it frequently qualifies zero or one cluster, and the "outermost
+        pair" heuristic is itself fooled by the same wrong-mode measurements that corrupt
+        the belief) to be a better anchor than the particle posterior's own mean. Reverted
+        rather than kept as a strictly-worse alternative.
+        """
+        rescale_maps = getattr(self.belief, "_rescale_maps", None)
+        if hasattr(self.belief, "observation_arrays") and rescale_maps and "frequency" in rescale_maps:
+            obs_xs_unit, obs_ys = self.belief.observation_arrays()
+            obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
+        else:
+            obs_list = getattr(self.belief, "_observations", [])
+            if not obs_list or rescale_maps is None or "frequency" not in rescale_maps:
+                return None
+            obs_xs_phys = rescale_maps["frequency"].to_phys(np.array([o.x for o in obs_list]))
+            obs_ys = np.array([o.signal_value for o in obs_list])
+
+        if len(obs_xs_phys) < 3:
+            return None
+        est = self.belief.estimates()
+        f_hat = est.get("frequency")
+        if f_hat is None:
+            return None
+
+        # Mirror a randomly chosen deep observed point (not just the single minimum, so one
+        # noisy low sample can't dominate) about f_hat, then jitter within an estimated
+        # linewidth to land inside a dip rather than exactly on a node.
+        k = min(5, len(obs_ys))
+        deepest = np.argsort(obs_ys)[:k]
+        p = float(obs_xs_phys[int(np.random.choice(deepest))])
+        lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
+        mirror = 2.0 * float(f_hat) - p + float(np.random.uniform(-abs(lw_hat), abs(lw_hat)))
+        return float(np.clip(mirror, orig_lo, orig_hi))
 
     def _eig_acquire(self) -> float:
         """Maximize EIG over the belief's slope-targeted candidate grid."""

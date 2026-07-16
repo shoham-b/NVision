@@ -15,4 +15,5 @@ Welcome to the NVision documentation.
 -   [CLI Reference & Usage](cli_reference.md)
 -   [Caching & Interruption Salvaging](caching.md)
 -   [Classmethod Pattern](classmethod_pattern.md)
--   [Dip Depth Reparameterization](dip_depth_reparametrization.md)
+-   [Amplitude Reparametrization (dip_depth → c_total)](dip_depth_reparametrization.md)
+-   [Equations Reference (SBED/SMC inference stack + metrics)](equations/README.md)

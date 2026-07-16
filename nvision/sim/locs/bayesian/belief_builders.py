@@ -180,21 +180,32 @@ def nv_center_belief(
         nv_center_voigt_bounds_for_domain,
     )
 
-    is_voigt = "fwhm_total" in (parameter_bounds or {}) or n_grid_fwhm_total != 80 or "lorentz_frac" in _extra
+    is_voigt = (
+        "homogeneous_linewidth" in (parameter_bounds or {})
+        or "sigma_inhom" in (parameter_bounds or {})
+        or n_grid_fwhm_total != 80
+        or "lorentz_frac" in _extra
+    )
 
     if is_voigt:
-        model = NVCenterVoigtModel(with_zeeman_splitting=with_zeeman_splitting)
+        model = NVCenterVoigtModel(
+            with_hyperfine_splitting=with_hyperfine_splitting, with_zeeman_splitting=with_zeeman_splitting
+        )
         phys = nv_center_voigt_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_zeeman_splitting=with_zeeman_splitting
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            with_hyperfine_splitting=with_hyperfine_splitting,
+            with_zeeman_splitting=with_zeeman_splitting,
         )
         base_specs: list[tuple[str, tuple[float, float], int]] = [
             ("frequency", phys["frequency"], n_grid_freq),
-            ("fwhm_total", phys["fwhm_total"], n_grid_fwhm_total),
-            ("lorentz_frac", phys["lorentz_frac"], n_grid_lorentz_frac),
-            ("split", phys["split"], n_grid_split),
-            ("k_np", phys["k_np"], n_grid_k_np),
-            ("dip_depth", phys["dip_depth"], n_grid_depth),
+            ("homogeneous_linewidth", phys["homogeneous_linewidth"], n_grid_fwhm_total),
+            ("sigma_inhom", phys["sigma_inhom"], n_grid_lorentz_frac),
+            ("c_total", phys["c_total"], n_grid_depth),
         ]
+        if with_hyperfine_splitting:
+            base_specs.insert(3, ("split", phys["split"], n_grid_split))
+            base_specs.insert(4, ("k_np", phys["k_np"], n_grid_k_np))
         if with_zeeman_splitting:
             base_specs.insert(1, ("zeeman_split", phys["zeeman_split"], n_grid_split))
     elif with_zeeman_splitting and with_hyperfine_splitting:
@@ -296,9 +307,10 @@ def nv_center_smc_belief(  # noqa: C901
     ``lineshape`` selects the signal model:
 
     * ``"lorentzian"`` (default) — :class:`~nvision.spectra.nv_center.NVCenterLorentzianModel`.
-    * ``"voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterVoigtModel` (fixed
-      ``fwhm_total``/``lorentz_frac``; respects ``with_zeeman_splitting``, always
-      infers hyperfine ``split``/``k_np``).
+    * ``"voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterVoigtModel`, inferring
+      physically-decomposed ``homogeneous_linewidth``/``sigma_inhom`` (reparameterized to
+      the kernel-native ``fwhm_total``/``lorentz_frac`` internally) and population-normalized
+      ``c_total``. Respects ``with_hyperfine_splitting``/``with_zeeman_splitting``.
     * ``"saturation_voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterSaturationVoigtModel`,
       which replaces the lumped linewidth with two physically distinct, separately
       inferred broadening parameters: ``saturation`` (drive power, sets the
@@ -327,9 +339,15 @@ def nv_center_smc_belief(  # noqa: C901
             with_zeeman_splitting=with_zeeman_splitting,
         )
     elif lineshape == "voigt":
-        model = NVCenterVoigtModel(with_zeeman_splitting=with_zeeman_splitting)
+        model = NVCenterVoigtModel(
+            with_hyperfine_splitting=with_hyperfine_splitting,
+            with_zeeman_splitting=with_zeeman_splitting,
+        )
         merged_bounds = nv_center_voigt_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_zeeman_splitting=with_zeeman_splitting
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            with_hyperfine_splitting=with_hyperfine_splitting,
+            with_zeeman_splitting=with_zeeman_splitting,
         )
     else:
         model = NVCenterLorentzianModel(

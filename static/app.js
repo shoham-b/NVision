@@ -2821,7 +2821,7 @@ function main() {
         const params = trueData.params || {};
         const bounds = trueData.bounds || {};
         // Preferred order for common parameters
-        const preferred = ['frequency', 'linewidth', 'fwhm_total', 'split', 'dip_depth', 'k_np', 'lorentz_frac'];
+        const preferred = ['frequency', 'linewidth', 'homogeneous_linewidth', 'sigma_inhom', 'fwhm_total', 'split', 'c_total', 'dip_depth', 'k_np', 'lorentz_frac'];
         const keys = Object.keys(params).sort((a, b) => {
             const ia = preferred.indexOf(a);
             const ib = preferred.indexOf(b);
@@ -2843,7 +2843,7 @@ function main() {
             let fmtHi = b ? b[1] : null;
 
             const lowName = name.toLowerCase();
-            const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total';
+            const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total' || lowName === 'sigma_inhom';
 
             if (typeof val === 'number') {
                 if (isFreqLike) {
@@ -4262,7 +4262,7 @@ function main() {
 
                 if (typeof it.finalEst === 'number' && Number.isFinite(it.finalEst)) {
                     const finalPct = Math.min(100, Math.max(0, (it.finalEst - lo) / (hi - lo) * 100));
-                    const formattedFinal = it.name && (it.name.toLowerCase().includes('freq') || it.name.toLowerCase().includes('linewidth') || it.name.toLowerCase().includes('split') || it.name === 'fwhm_total') ? formatFrequency(it.finalEst) : it.finalEst.toFixed(3);
+                    const formattedFinal = it.name && (it.name.toLowerCase().includes('freq') || it.name.toLowerCase().includes('linewidth') || it.name.toLowerCase().includes('split') || it.name === 'fwhm_total' || it.name === 'sigma_inhom') ? formatFrequency(it.finalEst) : it.finalEst.toFixed(3);
                     markersHtml += '<div class="param-range-marker" title="Final Inferred: ' + formattedFinal + '" style="left: ' + finalPct + '%; background-color: #ef4444; width: 8px; height: 8px; z-index: 9;"></div>';
                 }
 

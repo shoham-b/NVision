@@ -60,9 +60,20 @@ def default_fc_param(run_result: RunResult) -> str:
 
 
 def extract_milestone_metrics(
-    run_result: RunResult, step_idx: int, fb_param: str = "frequency", fc_param: str = "split"
+    run_result: RunResult,
+    step_idx: int,
+    fb_param: str = "frequency",
+    fc_param: str = "split",
+    override_estimates: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Extract estimates and errors at a specific step milestone.
+
+    ``override_estimates``, when given, is merged on top of the belief's raw
+    estimates before ``fb_param``/``fc_param`` are read. Pass
+    ``run_result.fit_mode_estimates`` here for the final-state milestone: sweep
+    locators (``GenericSweepLocator``) defer their belief update to a batch flush
+    that can collapse to a garbage marginal (see ``executor.py``), so the actual
+    least-squares fit is the only trustworthy estimate at that step.
 
     Returns a dictionary of metrics at that step.
     """
@@ -71,6 +82,8 @@ def extract_milestone_metrics(
 
     snapshot = run_result.snapshots[step_idx]
     estimates = snapshot.belief.estimates()
+    if override_estimates:
+        estimates = {**estimates, **override_estimates}
     uncertainties = snapshot.belief.reported_uncertainty()
 
     param_values = run_result.true_signal.parameter_values()
@@ -142,7 +155,9 @@ def calculate_zeeman_metrics(
     # 2. Final state
     final_idx = len(run_result.snapshots) - 1
     if final_idx >= 0:
-        fs = extract_milestone_metrics(run_result, final_idx, fb_param, fc_param)
+        fs = extract_milestone_metrics(
+            run_result, final_idx, fb_param, fc_param, override_estimates=run_result.fit_mode_estimates
+        )
         metrics.update(
             {
                 "final_err_fb": fs["err_fb"],

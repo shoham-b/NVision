@@ -7,11 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 import polars as pl
 
-from nvision.belief.grid_marginal import GridMarginalDistribution
-from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.models.observer import RunResult
 
 
@@ -106,39 +103,15 @@ def extract_peak_estimates(
 
 
 def belief_mode_estimates(belief: object) -> dict[str, float]:
-    """Approximate most likely parameters in physical units (for plotting the locator's best guess).
+    """Most likely parameters in physical units (for plotting the locator's best guess).
 
-    Grid beliefs: independent marginal argmax on each 1D PMF (product approximation).
-    SMC: posterior mean (expected value) via estimates().
+    Delegates to the belief's own ``mode_estimates()`` — every concrete belief
+    type is required to implement it as one internally consistent joint state
+    (see ``AbstractMarginalDistribution.mode_estimates``), so there is no
+    fallback here to a different quantity (e.g. the posterior mean).
     """
-    # Unit-cube grid belief: map argmax on unit grid back to physical bounds.
-    if isinstance(belief, UnitCubeGridMarginalDistribution):
-        modes: dict[str, float] = {}
-        for p in belief.parameters:
-            name = p.name
-            base_param = GridMarginalDistribution.get_grid_param(belief, name)
-            idx = int(np.argmax(base_param.posterior))
-            u_mode = float(base_param.grid[idx])
-            lo, hi = belief.physical_param_bounds[name]
-            modes[name] = lo + u_mode * (hi - lo)
-        return modes
-
-    # Plain grid belief: argmax directly on each parameter grid.
-    if isinstance(belief, GridMarginalDistribution):
-        modes = {}
-        for p in belief.parameters:
-            idx = int(np.argmax(p.posterior))
-            modes[p.name] = float(p.grid[idx])
-        return modes
-
-    # Fallback for non-grid beliefs (e.g., SMC): use mode estimates if available, else posterior mean.
-    if hasattr(belief, "mode_estimates") and callable(belief.mode_estimates):
-        out = belief.mode_estimates()
-        return {k: float(v) for k, v in out.items() if isinstance(v, int | float)}
-    if hasattr(belief, "estimates") and callable(belief.estimates):
-        out = belief.estimates()
-        return {k: float(v) for k, v in out.items() if isinstance(v, int | float)}
-    return {}
+    out = belief.mode_estimates()
+    return {k: float(v) for k, v in out.items() if isinstance(v, int | float)}
 
 
 def run_result_to_finalize_record(

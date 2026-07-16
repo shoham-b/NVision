@@ -217,8 +217,8 @@ def _param_absolute_convergence_thresholds() -> dict[str, float]:
         ("linewidth", "NVISION_LINEWIDTH_CONVERGENCE_THRESHOLD"),
         ("split", "NVISION_SPLIT_CONVERGENCE_THRESHOLD"),
         ("dip_depth", "NVISION_DIP_DEPTH_CONVERGENCE_THRESHOLD"),
-        ("fwhm_total", "NVISION_FWHM_TOTAL_CONVERGENCE_THRESHOLD"),
-        ("lorentz_frac", "NVISION_LORENTZ_FRAC_CONVERGENCE_THRESHOLD"),
+        ("homogeneous_linewidth", "NVISION_HOMOGENEOUS_LINEWIDTH_CONVERGENCE_THRESHOLD"),
+        ("sigma_inhom", "NVISION_SIGMA_INHOM_CONVERGENCE_THRESHOLD"),
     ):
         value = _optional_env_float(env_name)
         if value is not None:

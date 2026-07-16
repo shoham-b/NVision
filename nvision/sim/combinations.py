@@ -137,6 +137,19 @@ class CombinationGrid:
             nv_smc_config["lineshape"] = "saturation_voigt"
         elif generator_name.startswith("NVCenter-voigt-w"):
             nv_smc_config["lineshape"] = "voigt"
+            # param_grid_generators(variant="voigt") (names WITHOUT a "-si" suffix)
+            # explicitly draws a real hyperfine triplet per Zeeman group
+            # (with_hyperfine_splitting=True, see presets.py) to preserve that grid's
+            # historical 6-dip behavior -- the belief must match. The separate
+            # voigt_sigma_inhom_param_grid_generators() grid (names WITH a "-si"
+            # suffix) does NOT set with_hyperfine_splitting (generator default: False,
+            # a plain Zeeman-only 2-dip signal) -- forcing True here for it as well
+            # was a real belief/generator mismatch (the belief hunting for a
+            # split/k_np hyperfine substructure that the true signal never has),
+            # so it's excluded from this override and falls through to
+            # nv_center_smc_belief's own with_hyperfine_splitting=False default.
+            if "-si" not in generator_name:
+                nv_smc_config["with_hyperfine_splitting"] = True
 
         strats = [
             ("SimpleSweep", GenericSweepLocator),

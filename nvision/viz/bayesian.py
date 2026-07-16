@@ -122,6 +122,8 @@ def _get_nv_parameter_descriptions(model: Any) -> dict[str, str]:
     base_descriptions: dict[str, str] = {
         "frequency": "f₀ — central frequency (center of main dip)",
         "linewidth": "ω — Lorentzian linewidth (HWHM)" if not is_voigt else "γ — Lorentzian FWHM",
+        "homogeneous_linewidth": "ω — Lorentzian (homogeneous) HWHM",
+        "sigma_inhom": "σ — inhomogeneous (Gaussian) width",
         "fwhm_total": "W — total effective linewidth (Lorentzian + Gaussian)",
         "lorentz_frac": "η — Lorentzian fraction [0, 1]",
         "fwhm_lorentz": "γ_L — Lorentzian FWHM",
@@ -129,6 +131,7 @@ def _get_nv_parameter_descriptions(model: Any) -> dict[str, str]:
         "split": "Δ — hyperfine splitting (outer peak distance)",
         "k_np": "k — non-polarization factor (asymmetry ratio)",
         "dip_depth": "A — dip depth (peak amplitude scaling)",
+        "c_total": "C — total contrast (population-normalized)",
         "background": "B — background signal level",
     }
 
@@ -140,6 +143,8 @@ def _build_subplot_title(param: str, descriptions: dict[str, str] | None) -> str
     param_units = {
         "frequency": " (GHz)",
         "linewidth": " (MHz)",
+        "homogeneous_linewidth": " (MHz)",
+        "sigma_inhom": " (MHz)",
         "split": " (MHz)",
         "fwhm_total": " (MHz)",
         "fwhm_lorentz": " (MHz)",
@@ -241,6 +246,8 @@ def _add_true_vline_subplots(
     param_units = {
         "frequency": " GHz",
         "linewidth": " MHz",
+        "homogeneous_linewidth": " MHz",
+        "sigma_inhom": " MHz",
         "split": " MHz",
         "fwhm_total": " MHz",
         "fwhm_lorentz": " MHz",
@@ -781,6 +788,8 @@ class BayesianMixin:
         param_scales = {
             "frequency": 1e9,
             "linewidth": 1e6,
+            "homogeneous_linewidth": 1e6,
+            "sigma_inhom": 1e6,
             "split": 1e6,
             "fwhm_total": 1e6,
             "fwhm_lorentz": 1e6,
@@ -1678,6 +1687,8 @@ class BayesianMixin:
         param_scales = {
             "frequency": 1e9,
             "linewidth": 1e6,
+            "homogeneous_linewidth": 1e6,
+            "sigma_inhom": 1e6,
             "split": 1e6,
             "fwhm_total": 1e6,
             "fwhm_lorentz": 1e6,
@@ -1686,6 +1697,8 @@ class BayesianMixin:
         param_units = {
             "frequency": " (GHz)",
             "linewidth": " (MHz)",
+            "homogeneous_linewidth": " (MHz)",
+            "sigma_inhom": " (MHz)",
             "split": " (MHz)",
             "fwhm_total": " (MHz)",
             "fwhm_lorentz": " (MHz)",
@@ -2016,6 +2029,8 @@ class BayesianMixin:
         param_scales = {
             "frequency": 1e9,
             "linewidth": 1e6,
+            "homogeneous_linewidth": 1e6,
+            "sigma_inhom": 1e6,
             "split": 1e6,
             "fwhm_total": 1e6,
             "fwhm_lorentz": 1e6,
@@ -2024,6 +2039,8 @@ class BayesianMixin:
         param_units = {
             "frequency": " (GHz)",
             "linewidth": " (MHz)",
+            "homogeneous_linewidth": " (MHz)",
+            "sigma_inhom": " (MHz)",
             "split": " (MHz)",
             "fwhm_total": " (MHz)",
             "fwhm_lorentz": " (MHz)",
@@ -2289,6 +2306,8 @@ class BayesianMixin:
         param_scales = {
             "frequency": 1e9,
             "linewidth": 1e6,
+            "homogeneous_linewidth": 1e6,
+            "sigma_inhom": 1e6,
             "split": 1e6,
             "fwhm_total": 1e6,
             "fwhm_lorentz": 1e6,
@@ -2297,6 +2316,8 @@ class BayesianMixin:
         param_units = {
             "frequency": " (GHz)",
             "linewidth": " (MHz)",
+            "homogeneous_linewidth": " (MHz)",
+            "sigma_inhom": " (MHz)",
             "split": " (MHz)",
             "fwhm_total": " (MHz)",
             "fwhm_lorentz": " (MHz)",
@@ -2443,6 +2464,8 @@ class BayesianMixin:
         param_scales = {
             "frequency": 1e9,
             "linewidth": 1e6,
+            "homogeneous_linewidth": 1e6,
+            "sigma_inhom": 1e6,
             "split": 1e6,
             "fwhm_total": 1e6,
             "fwhm_lorentz": 1e6,
@@ -2451,6 +2474,8 @@ class BayesianMixin:
         param_units = {
             "frequency": " (GHz)",
             "linewidth": " (MHz)",
+            "homogeneous_linewidth": " (MHz)",
+            "sigma_inhom": " (MHz)",
             "split": " (MHz)",
             "fwhm_total": " (MHz)",
             "fwhm_lorentz": " (MHz)",
@@ -2722,6 +2747,8 @@ class BayesianMixin:
         param_scales = {
             "frequency": 1e9,
             "linewidth": 1e6,
+            "homogeneous_linewidth": 1e6,
+            "sigma_inhom": 1e6,
             "split": 1e6,
             "fwhm_total": 1e6,
             "fwhm_lorentz": 1e6,
@@ -2730,6 +2757,8 @@ class BayesianMixin:
         param_units = {
             "frequency": " GHz",
             "linewidth": " MHz",
+            "homogeneous_linewidth": " MHz",
+            "sigma_inhom": " MHz",
             "split": " MHz",
             "fwhm_total": " MHz",
             "fwhm_lorentz": " MHz",

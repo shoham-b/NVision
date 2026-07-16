@@ -19,7 +19,6 @@ from nvision.spectra.nv_center import (
     MIN_LINEWIDTH,
     MIN_SPLIT,
     MIN_ZEEMAN_SPLIT,
-    NV_N14_HYPERFINE_SPLIT_HZ,
     PRIOR_STD_FRACTION,
     NVCenterLorentzianModel,
     NVCenterLorentzianSingleDipSpectrum,
@@ -31,10 +30,9 @@ from nvision.spectra.nv_center import (
     NVCenterSaturationVoigtZeemanHyperfineSpectrum,
     NVCenterSaturationVoigtZeemanSpectrum,
     NVCenterVoigtModel,
+    NVCenterVoigtSingleDipSpectrum,
     NVCenterVoigtSpectrum,
-    NVCenterVoigtSpectrumSamples,
     NVCenterVoigtZeemanSpectrum,
-    NVCenterVoigtZeemanSpectrumSamples,
     nv_center_lorentzian_bounds_for_domain,
     nv_center_saturation_voigt_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
@@ -110,7 +108,10 @@ class NVCenterCoreGenerator:
                 with_zeeman_splitting=self.with_zeeman_splitting,
             )
         elif self.variant == "voigt":
-            _margin_model = NVCenterVoigtModel(with_zeeman_splitting=self.with_zeeman_splitting)
+            _margin_model = NVCenterVoigtModel(
+                with_hyperfine_splitting=self.with_hyperfine_splitting,
+                with_zeeman_splitting=self.with_zeeman_splitting,
+            )
         else:
             _margin_model = NVCenterLorentzianModel(
                 with_hyperfine_splitting=self.with_hyperfine_splitting,
@@ -286,129 +287,113 @@ class NVCenterCoreGenerator:
 
             bounds = sv_bounds
             bounds["_priors"] = priors
-        else:  # voigt — always uses split and k_np; zeeman_split too when enabled
-            voigt_k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
+        else:  # voigt
+            homogeneous_linewidth = linewidth
             if self.sigma_inhom is not None:
-                # Convert the physical inhomogeneous (Gaussian) width directly to the
-                # Lorentzian-share ratio the model actually uses: fwhm_gauss =
-                # 2*sqrt(2 ln2)*sigma_inhom, fwhm_lorentz = 2*linewidth (this branch's
-                # HWHM), so lorentz_ratio = fwhm_gauss/fwhm_lorentz =
-                # sqrt(2 ln2)*sigma_inhom/linewidth. Same physical sigma_inhom as
-                # saturation_voigt, just expressed here relative to linewidth instead
-                # of being paired with a separately-solved saturation.
-                lorentz_ratio = (
-                    _VOIGT_SQRT2LOG2 * self.sigma_inhom / linewidth if linewidth > 0 else 0.0
-                )
-                lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
+                sigma_inhom = self.sigma_inhom
             elif self.lorentz_frac is not None:
-                lorentz_frac = self.lorentz_frac
-                lorentz_ratio = 1.0 / lorentz_frac - 1.0  # fwhm_gauss / fwhm_lorentz
+                # Backward-compat: convert a pinned lorentz_frac into the equivalent
+                # sigma_inhom (inverse of _voigt_reparam_scalar's fwhm_l/(fwhm_l+fwhm_g)
+                # -> lorentz_frac, evaluated at this draw's homogeneous_linewidth).
+                lorentz_ratio = 1.0 / self.lorentz_frac - 1.0 if self.lorentz_frac > 0 else 0.0
+                sigma_inhom = homogeneous_linewidth * lorentz_ratio / _VOIGT_SQRT2LOG2
             else:
                 lorentz_ratio = rng.uniform(0.1, 0.3)  # fwhm_gauss / fwhm_lorentz
-                lorentz_frac = 1.0 / (1.0 + lorentz_ratio)
+                sigma_inhom = homogeneous_linewidth * lorentz_ratio / _VOIGT_SQRT2LOG2
 
-            if self.with_zeeman_splitting:
-                voigt_split = rng.uniform(MIN_SPLIT, MAX_SPLIT)
-                fwhm_total = 2 * linewidth * (1.0 + lorentz_ratio)
-            else:
-                # No Zeeman splitting -> hyperfine structure alone is on screen. Fix the
-                # split to the physical N-14 constant (like NVCenterLorentzianModel's
-                # with_hyperfine_splitting=False) and, unless the caller pins ``linewidth``
-                # explicitly, draw fwhm_total as a large multiple of the hyperfine spacing
-                # (>= 4x(2*split), empirically the threshold past which the pseudo-Voigt
-                # triplet always collapses to one dip regardless of lorentz_frac/k_np — see
-                # tests/spectra/test_pseudo_voigt_accuracy.py) so the Gaussian/Lorentzian
-                # broadening reliably washes the triplet out into a single unresolved dip,
-                # matching the "no field -> one blob" physical expectation.
-                voigt_split = NV_N14_HYPERFINE_SPLIT_HZ
-                merge_ratio_min = 4.5  # fwhm_total / (2 * voigt_split); empirical merge threshold is ~4.0
-                if self.linewidth is not None:
-                    # A caller-pinned linewidth must still land in the merge-safe zone --
-                    # promote it to the floor implied by merge_ratio_min instead of letting
-                    # a too-small pinned value silently resolve the triplet.
-                    min_fwhm_total = merge_ratio_min * 2.0 * voigt_split
-                    linewidth_floor = min_fwhm_total / (2.0 * (1.0 + lorentz_ratio))
-                    effective_linewidth = max(linewidth, linewidth_floor)
-                    fwhm_total = 2 * effective_linewidth * (1.0 + lorentz_ratio)
-                else:
-                    merge_ratio = rng.uniform(merge_ratio_min, 6.0)
-                    fwhm_total = merge_ratio * 2.0 * voigt_split
+            c_total = self.c_total if self.c_total is not None else rng.uniform(0.1, 0.4)
+            linewidth_std = (MAX_LINEWIDTH - MIN_LINEWIDTH) * PRIOR_STD_FRACTION
+            # sigma_inhom's own bound range (mirrors nv_center_voigt_bounds_for_domain's
+            # sigma_inhom_hi, which doesn't depend on the hyperfine/zeeman flags) — not
+            # linewidth's range, which this previously (incorrectly) copied.
+            voigt_sigma_inhom_hi = max(1.2e6, (self.x_max - self.x_min) * 0.02)
+            sigma_inhom_std = voigt_sigma_inhom_hi * PRIOR_STD_FRACTION
+            c_total_std = 0.3 * PRIOR_STD_FRACTION  # c_total range is roughly [0.1, 0.4]
 
-            model = NVCenterVoigtModel(with_zeeman_splitting=self.with_zeeman_splitting)
-            # Scale a desired contrast onto the true peak-shape maximum
-            unit_dip_depth = self.c_total if self.c_total is not None else rng.uniform(0.3, 0.95)
+            if self.with_zeeman_splitting and self.with_hyperfine_splitting:
+                k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
+                model = NVCenterVoigtModel(with_zeeman_splitting=True, with_hyperfine_splitting=True)
+                from nvision.spectra.nv_center import NVCenterVoigtZeemanHyperfineSpectrum
 
-            split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
-            fwhm_total_std = (MAX_LINEWIDTH * 2 - MIN_LINEWIDTH * 2) * PRIOR_STD_FRACTION
-            lorentz_frac_std = 0.2 * PRIOR_STD_FRACTION
-            k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
-            dip_depth_std = 0.65 * PRIOR_STD_FRACTION
-
-            if self.with_zeeman_splitting:
-                half_domain = zeeman_split + voigt_split
-                xs = np.linspace(center_freq - half_domain, center_freq + half_domain, 400)
-                single = NVCenterVoigtZeemanSpectrumSamples(
-                    frequency=np.array([center_freq]),
-                    fwhm_total=np.array([fwhm_total]),
-                    lorentz_frac=np.array([lorentz_frac]),
-                    zeeman_split=np.array([zeeman_split]),
-                    split=np.array([voigt_split]),
-                    k_np=np.array([voigt_k_np]),
-                    dip_depth=np.array([1.0]),
+                typed_params = NVCenterVoigtZeemanHyperfineSpectrum(
+                    frequency=center_freq,
+                    homogeneous_linewidth=homogeneous_linewidth,
+                    sigma_inhom=sigma_inhom,
+                    zeeman_split=zeeman_split,
+                    split=split,
+                    k_np=k_np,
+                    c_total=c_total,
                 )
-                g_max = float(1.0 - np.min(model.compute_vectorized_many(xs, single)))
-                dip_depth = unit_dip_depth / g_max if g_max > 1e-12 else unit_dip_depth
-
+                bounds = nv_center_voigt_bounds_for_domain(
+                    self.x_min, self.x_max, with_hyperfine_splitting=True, with_zeeman_splitting=True
+                )
+                zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
+                split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
+                k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
+                bounds["_priors"] = {
+                    "zeeman_split": (rng.gauss(zeeman_split, zeeman_std), zeeman_std),
+                    "split": (rng.gauss(split, split_std), split_std),
+                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
+                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "k_np": (rng.gauss(k_np, k_np_std), k_np_std),
+                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                }
+            elif self.with_zeeman_splitting:
+                model = NVCenterVoigtModel(with_zeeman_splitting=True, with_hyperfine_splitting=False)
                 typed_params = NVCenterVoigtZeemanSpectrum(
                     frequency=center_freq,
-                    fwhm_total=fwhm_total,
-                    lorentz_frac=lorentz_frac,
+                    homogeneous_linewidth=homogeneous_linewidth,
+                    sigma_inhom=sigma_inhom,
                     zeeman_split=zeeman_split,
-                    split=voigt_split,
-                    k_np=voigt_k_np,
-                    dip_depth=dip_depth,
+                    c_total=c_total,
                 )
-                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, with_zeeman_splitting=True)
-
+                bounds = nv_center_voigt_bounds_for_domain(
+                    self.x_min, self.x_max, with_hyperfine_splitting=False, with_zeeman_splitting=True
+                )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
                     "zeeman_split": (rng.gauss(zeeman_split, zeeman_std), zeeman_std),
-                    "split": (rng.gauss(voigt_split, split_std), split_std),
-                    "fwhm_total": (rng.gauss(fwhm_total, fwhm_total_std), fwhm_total_std),
-                    "lorentz_frac": (rng.gauss(lorentz_frac, lorentz_frac_std), lorentz_frac_std),
-                    "k_np": (rng.gauss(voigt_k_np, k_np_std), k_np_std),
-                    "dip_depth": (rng.gauss(dip_depth, dip_depth_std), dip_depth_std),
+                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
+                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                }
+            elif self.with_hyperfine_splitting:
+                k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
+                model = NVCenterVoigtModel(with_hyperfine_splitting=True)
+                typed_params = NVCenterVoigtSpectrum(
+                    frequency=center_freq,
+                    homogeneous_linewidth=homogeneous_linewidth,
+                    sigma_inhom=sigma_inhom,
+                    split=split,
+                    k_np=k_np,
+                    c_total=c_total,
+                )
+                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=True)
+                split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
+                k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
+                bounds["_priors"] = {
+                    "split": (rng.gauss(split, split_std), split_std),
+                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
+                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "k_np": (rng.gauss(k_np, k_np_std), k_np_std),
+                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             else:
-                xs = np.linspace(center_freq - voigt_split, center_freq + voigt_split, 200)
-                single = NVCenterVoigtSpectrumSamples(
-                    frequency=np.array([center_freq]),
-                    fwhm_total=np.array([fwhm_total]),
-                    lorentz_frac=np.array([lorentz_frac]),
-                    split=np.array([voigt_split]),
-                    k_np=np.array([voigt_k_np]),
-                    dip_depth=np.array([1.0]),
-                )
-                g_max = float(1.0 - np.min(model.compute_vectorized_many(xs, single)))
-                dip_depth = unit_dip_depth / g_max if g_max > 1e-12 else unit_dip_depth
-
-                typed_params = NVCenterVoigtSpectrum(
+                model = NVCenterVoigtModel(with_hyperfine_splitting=False)
+                typed_params = NVCenterVoigtSingleDipSpectrum(
                     frequency=center_freq,
-                    fwhm_total=fwhm_total,
-                    lorentz_frac=lorentz_frac,
-                    split=voigt_split,
-                    k_np=voigt_k_np,
-                    dip_depth=dip_depth,
+                    homogeneous_linewidth=homogeneous_linewidth,
+                    sigma_inhom=sigma_inhom,
+                    c_total=c_total,
                 )
-                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max)
-
+                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=False)
                 bounds["_priors"] = {
-                    "split": (rng.gauss(voigt_split, split_std), split_std),
-                    "fwhm_total": (rng.gauss(fwhm_total, fwhm_total_std), fwhm_total_std),
-                    "lorentz_frac": (rng.gauss(lorentz_frac, lorentz_frac_std), lorentz_frac_std),
-                    "k_np": (rng.gauss(voigt_k_np, k_np_std), k_np_std),
-                    "dip_depth": (rng.gauss(dip_depth, dip_depth_std), dip_depth_std),
+                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
+                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
 

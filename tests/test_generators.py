@@ -116,7 +116,9 @@ def _dip_cluster_extent(variant: str, params: dict) -> tuple[float, float]:
             params["saturation"], params["sigma_inhom"], NV_SATURATION_C_MAX
         )
     elif variant == "voigt":
-        fwhm = params.get("fwhm_total", 0.0)
+        from nvision.spectra.nv_center import _voigt_reparam_scalar
+
+        fwhm, _ = _voigt_reparam_scalar(params.get("homogeneous_linewidth", 0.0), params.get("sigma_inhom", 0.0))
     else:
         fwhm = params.get("linewidth", 0.0) * 2.0
     return f - zeeman - split - fwhm / 2.0, f + zeeman + split + fwhm / 2.0
@@ -156,14 +158,15 @@ def test_nv_center_voigt_has_different_params_than_lorentzian():
     assert names_v != names_l, "Voigt and Lorentzian should have different parameter sets"
 
 
-def test_nv_center_voigt_fixed_contrast_changes_dip_depth():
-    """Regression: c_total used to be silently ignored for variant="voigt" (dip_depth
-    was always randomized regardless of the override); it must now flow through."""
+def test_nv_center_voigt_fixed_contrast_flows_through():
+    """c_total is now voigt's direct, population-normalized amplitude parameter
+    (no more dip_depth/g_max renormalization) -- an override must land exactly."""
     gen_a = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt", c_total=0.2)
     gen_b = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt", c_total=0.8)
     sig_a = gen_a.generate(random.Random(7))
     sig_b = gen_b.generate(random.Random(7))
-    assert sig_a.get_param_value("dip_depth") != sig_b.get_param_value("dip_depth")
+    assert sig_a.get_param_value("c_total") == 0.2
+    assert sig_b.get_param_value("c_total") == 0.8
 
 
 def test_nv_center_voigt_unset_contrast_still_randomized():
@@ -171,4 +174,4 @@ def test_nv_center_voigt_unset_contrast_still_randomized():
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="voigt")
     sig_a = gen.generate(random.Random(1))
     sig_b = gen.generate(random.Random(2))
-    assert sig_a.get_param_value("dip_depth") != sig_b.get_param_value("dip_depth")
+    assert sig_a.get_param_value("c_total") != sig_b.get_param_value("c_total")

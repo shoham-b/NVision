@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 from collections.abc import Callable, Mapping, Sequence
 
@@ -314,33 +313,33 @@ class SequentialBayesianLocator(Locator):
         """Return whether the Bayesian acquisition phase should stop.
 
         Stops when:
-        1. Target parameters have stayed converged for ``convergence_patience_steps``.
-        2. The theoretical steps required to hit the convergence threshold exceed
-           ``max_steps`` (fails fast for excessively noisy runs).
-        3. The safety-factored dynamic measurement budget is exhausted.
-        4. The absolute ``max_steps`` budget is exhausted.
+        1. Target parameters have stayed converged for ``convergence_patience_steps``
+           (``_target_params_converged`` / SBED's own ``_check_crlb_early_stop``,
+           both of which require several *consecutive* or empirically-grounded
+           confirmations, not a single snapshot).
+        2. The absolute ``max_steps`` budget is exhausted.
+
+        This used to also stop early whenever a dynamic budget estimate
+        (``n_req = step_count * (crlb_frequency()/threshold)**2``, scaled by
+        ``NVISION_FREQ_CRLB_SAFETY_FACTOR``) said the target precision was
+        unreachable, or already reached, within budget. Both the "unreachable"
+        and "reached early" branches trusted a single-step snapshot of
+        ``crlb_frequency()`` -- which is derived from the belief's *current*
+        (possibly still-wrong, possibly still-degenerate) parameter estimates,
+        not the true signal. Verified two concrete failure modes against a
+        width-degenerate Voigt signal (homogeneous_linewidth/sigma_inhom don't
+        converge on their own): (a) a pessimistic snapshot early on quit after a
+        single measurement even though frequency kept improving for the entire
+        step budget when forced to keep running; (b) the belief locked onto a
+        wrong mode whose *own* narrow-looking CRLB snapshot satisfied the
+        "budget reached" branch at a fraction of max_steps, reporting a
+        confidently wrong frequency tens of MHz off. Both are the same
+        underlying risk the convergence-patience streak and
+        `_check_crlb_early_stop` already guard against for the "declare
+        converged" path -- removing this second, snapshot-only stopping path
+        rather than trying to further patch its triggering condition.
         """
-        if self._is_converged:
-            return True
-
-        from nvision.sim.defaults import (
-            NVISION_FREQ_CRLB_SAFETY_FACTOR,
-            NVISION_FREQ_CONVERGENCE_THRESHOLD,
-        )
-
-        if self.step_count > 0:
-            crlb_fn = getattr(self.belief, "crlb_frequency", None)
-            if crlb_fn is not None:
-                crlb_f = crlb_fn()
-                if math.isfinite(crlb_f) and crlb_f > 0:
-                    n_req = self.step_count * (crlb_f / NVISION_FREQ_CONVERGENCE_THRESHOLD) ** 2
-                    if n_req > self.max_steps * NVISION_FREQ_CRLB_SAFETY_FACTOR:
-                        return True
-                    budget_limit = min(self.max_steps, int(NVISION_FREQ_CRLB_SAFETY_FACTOR * n_req) + 1)
-                    if self.inference_step_count >= budget_limit:
-                        return True
-
-        return self.inference_step_count >= self.max_steps
+        return self._is_converged or self.inference_step_count >= self.max_steps
 
     # ------------------------------------------------------------------
     # Locator interface — thin orchestrators that delegate to hooks above

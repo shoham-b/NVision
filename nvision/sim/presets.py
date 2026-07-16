@@ -170,7 +170,17 @@ def param_grid_generators(variant: str = "lorentzian") -> list[tuple[str, object
                 (
                     name,
                     NVCenterCoreGenerator(
-                        x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant=variant, linewidth=width, c_total=contrast
+                        x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                        x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                        variant=variant,
+                        linewidth=width,
+                        c_total=contrast,
+                        # Preserve this grid's historical 6-dip Voigt behavior (hyperfine
+                        # triplet resolved per Zeeman group) now that NVCenterVoigtModel's
+                        # own with_hyperfine_splitting default is False, matching
+                        # Lorentzian's pattern -- combinations.py's strategies_for() sets
+                        # the matching belief-side override for this grid's name pattern.
+                        with_hyperfine_splitting=(variant == "voigt"),
                     ),
                 )
             )
@@ -188,8 +198,8 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
     width x contrast and leaves the inhomogeneous (Gaussian) broadening either
     fixed or randomized per repeat, this grid makes ``sigma_inhom`` (the same
     physical Hz-scale inhomogeneous width :func:`saturation_voigt_param_grid_generators`
-    sweeps) an explicit, selectable third axis -- converted internally to the
-    voigt variant's ``lorentz_frac`` via ``linewidth`` (see
+    sweeps) an explicit, selectable third axis, passed straight through as
+    ``NVCenterVoigtModel``'s own ``sigma_inhom`` parameter (see
     :class:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator`).
     Reuses the same ``NVISION_SBED_SIGMA_INHOM_*`` range as the saturation-Voigt
     grid so the two lineshapes' inhomogeneous-broadening axis is directly

@@ -505,3 +505,97 @@ def purge_artifacts_for_combination(
                 )
         except Exception as exc:
             log.warning("Failed to update plots_manifest.json during cache purge: %s", exc)
+
+
+def purge_cache_and_artifacts_for_combinations(  # noqa: C901
+    out_dir: Path,
+    combos: set[tuple[str, str, str]],
+    log: logging.Logger,
+) -> int:
+    """Delete cache entries and on-disk artifacts for every (generator, noise, strategy)
+    triple in *combos*, e.g. right before a run starts with ``--purge``.
+
+    Deliberately does **not** loop over ``combos`` calling
+    :func:`~nvision.cache.locator_repository.LocatorResultsRepository.purge_cached_combination`
+    / :func:`purge_artifacts_for_combination` once per combo -- each of those does a full
+    cache-backend / artifact-directory / manifest scan on every call, which is
+    ``O(len(combos) x cache size)`` and can take hours against a large cache or a big
+    ``plots_manifest.json`` (see the ``nvision-run-monitoring`` skill's "purge/cleanup at
+    scale" note). This scans each cache backend, each artifact directory, and the manifest
+    exactly once regardless of how many combinations are being purged.
+
+    Returns the number of matched cache pointer/inline keys deleted.
+    """
+    from nvision.cache import CacheBridge
+    from nvision.cache.repeats_repository import RepeatsRepository
+    from nvision.tools.paths import slugify
+
+    if not combos:
+        return 0
+
+    bridge = CacheBridge(out_dir / "cache")
+    deleted_pointers = 0
+    try:
+        for cat_cache in (bridge.nv_center, bridge.complementary):
+            backend = cat_cache.backend
+            matched_keys: list[str] = []
+            for k in backend:
+                payload = backend.get(k)
+                if not (isinstance(payload, dict) and "config" in payload):
+                    continue
+                cfg = payload["config"]
+                if cfg.get("kind") not in ("locator_combination", "locator_combination_pointer"):
+                    continue
+                if (cfg.get("generator"), cfg.get("noise"), cfg.get("strategy")) in combos:
+                    matched_keys.append(k)
+
+            for k in matched_keys:
+                backend.delete(k)
+                for i in range(1000):
+                    rep_key = RepeatsRepository.make_repeat_key(k, i)
+                    backend.delete(rep_key)
+                    backend.delete(rep_key + ":meta")
+                deleted_pointers += 1
+    finally:
+        bridge.close()
+
+    if deleted_pointers == 0:
+        return 0
+
+    # Batch-delete matching on-disk graph files in one directory pass each, instead of
+    # one iterdir() per combo.
+    prefixes = tuple(f"{'_'.join(slugify(p) for p in combo)}_r" for combo in combos)
+    for directory in (out_dir / "graphs" / "scans", out_dir / "graphs" / "bayes"):
+        if not directory.exists():
+            continue
+        for p in directory.iterdir():
+            if p.is_file() and p.name.startswith(prefixes):
+                try:
+                    p.unlink()
+                except Exception as exc:
+                    log.warning("Failed to delete old artifact graph %s: %s", p.name, exc)
+
+    # Batch-update plots_manifest.json in one read/rewrite instead of one per combo.
+    manifest_path = plots_manifest_path(out_dir)
+    if manifest_path.exists():
+        try:
+            with manifest_path.open("r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            str_combos = {(str(g), str(n), str(s)) for g, n, s in combos}
+            new_manifest = [
+                e
+                for e in manifest
+                if (str(e.get("generator")), str(e.get("noise")), str(e.get("strategy"))) not in str_combos
+            ]
+            if len(new_manifest) != len(manifest):
+                with manifest_path.open("w", encoding="utf-8") as f:
+                    json.dump(new_manifest, f, indent=2)
+                log.info(
+                    "Removed %s manifest entries for %s purged combination(s)",
+                    len(manifest) - len(new_manifest),
+                    len(combos),
+                )
+        except Exception as exc:
+            log.warning("Failed to update plots_manifest.json during batch cache purge: %s", exc)
+
+    return deleted_pointers

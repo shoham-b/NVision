@@ -28,6 +28,7 @@ def run_single(
     repeats: cli_options.RepeatsOption = 1,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = 1,
     no_progress: cli_options.NoProgressOption = False,
@@ -54,6 +55,7 @@ def run_single(
         single_run=True,
         all_experiments=True,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         no_progress=no_progress,
@@ -69,6 +71,7 @@ def _run_named_group(
     all_experiments: bool = False,
     repeats_override: int | None = None,
     no_cache: bool = False,
+    purge: bool = False,
     dry_run: bool = False,
     runners: int = cli_defaults.DEFAULT_RUNNERS,
     open_browser: bool = False,
@@ -85,6 +88,7 @@ def _run_named_group(
         repeats=repeats_override if repeats_override is not None else cli_defaults.DEFAULT_REPEATS,
         run_group=group.name,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
@@ -127,6 +131,7 @@ def run_preset(
         help="Run full combination grid (disables category/strategy filtering)",
     ),
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -142,6 +147,7 @@ def run_preset(
         all_experiments=all_experiments,
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -161,6 +167,7 @@ def run_all(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -176,6 +183,7 @@ def run_all(
         loc_timeout_s=loc_timeout_s,
         run_group="lorentzian-sbed",
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -193,6 +201,7 @@ def run_all(
 def lorentzian_sbed(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -207,6 +216,7 @@ def lorentzian_sbed(
         "lorentzian-sbed",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -222,6 +232,7 @@ def lorentzian_sbed(
 def lorentzian_sweep_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -236,6 +247,7 @@ def lorentzian_sweep_only(
         "lorentzian-sweep-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -251,6 +263,7 @@ def lorentzian_sweep_only(
 def lorentzian_sbed_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -265,6 +278,7 @@ def lorentzian_sbed_only(
         "lorentzian-sbed-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -280,6 +294,7 @@ def lorentzian_sbed_only(
 def voigt_sbed(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -294,6 +309,7 @@ def voigt_sbed(
         "voigt-sbed",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -309,6 +325,7 @@ def voigt_sbed(
 def voigt_sweep_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -323,6 +340,7 @@ def voigt_sweep_only(
         "voigt-sweep-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -338,6 +356,7 @@ def voigt_sweep_only(
 def voigt_sbed_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -352,6 +371,7 @@ def voigt_sbed_only(
         "voigt-sbed-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -367,6 +387,7 @@ def voigt_sbed_only(
 def lorentzian_plain_sbed(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -381,6 +402,7 @@ def lorentzian_plain_sbed(
         "lorentzian-plain-sbed",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -396,6 +418,7 @@ def lorentzian_plain_sbed(
 def lorentzian_plain_sweep_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -410,6 +433,7 @@ def lorentzian_plain_sweep_only(
         "lorentzian-plain-sweep-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -425,6 +449,7 @@ def lorentzian_plain_sweep_only(
 def lorentzian_plain_sbed_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -439,6 +464,7 @@ def lorentzian_plain_sbed_only(
         "lorentzian-plain-sbed-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -454,6 +480,7 @@ def lorentzian_plain_sbed_only(
 def both_sbed(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -463,11 +490,12 @@ def both_sbed(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
-    """Alias for ``groups run both-sbed`` (plain Voigt + plain Lorentzian, Bayesian-SBED/SimpleSobol/SimpleSweep)."""
+    """Alias for ``groups run both-sbed`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; Bayesian-SBED/SimpleSobol/SimpleSweep)."""
     _run_named_group(
         "both-sbed",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -483,6 +511,7 @@ def both_sbed(
 def both_sweep_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -492,11 +521,12 @@ def both_sweep_only(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
-    """Alias for ``groups run both-sweep-only`` (plain Voigt + plain Lorentzian, SimpleSweep only)."""
+    """Alias for ``groups run both-sweep-only`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; SimpleSweep only)."""
     _run_named_group(
         "both-sweep-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
@@ -512,6 +542,7 @@ def both_sweep_only(
 def both_sbed_only(
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
@@ -521,11 +552,12 @@ def both_sbed_only(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
-    """Alias for ``groups run both-sbed-only`` (plain Voigt + plain Lorentzian, SBED only)."""
+    """Alias for ``groups run both-sbed-only`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; SBED only)."""
     _run_named_group(
         "both-sbed-only",
         repeats_override=repeats,
         no_cache=no_cache,
+        purge=purge,
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,

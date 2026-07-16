@@ -52,6 +52,11 @@ an audit of that claim, not a separate metric to optimize alone. The aggregate t
 approximation). Only call a strategy's uncertainty untrustworthy when the whole CI sits below
 nominal — a point estimate crossing nominal isn't enough given typical repeat counts.
 
+For a fast, mid-run version of this same audit (raw error/uncertainty ratio via
+`nv cache convergence`, no CI machinery, meant to catch a badly miscalibrated locator hours
+before a long run finishes rather than to make a final head-to-head call), see
+[[nvision-convergence-check]].
+
 ## Budget-censoring vs stalled (reading convergence-vs-noise)
 
 When a repeat never converges within `max_steps`, distinguish two causes before concluding the

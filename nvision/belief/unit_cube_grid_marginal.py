@@ -47,6 +47,10 @@ class UnitCubeGridMarginalDistribution(GridMarginalDistribution):
         raw = {p.name: p.mean() for p in self.parameters}
         return {k: self._to_physical(k, v) for k, v in raw.items()}
 
+    def mode_estimates(self) -> dict[str, float]:
+        raw = {p.name: p.mode() for p in self.parameters}
+        return {k: self._to_physical(k, v) for k, v in raw.items()}
+
     def _to_physical(self, name: str, u: float) -> float:
         lo, hi = self.physical_param_bounds[name]
         return lo + float(u) * (hi - lo)

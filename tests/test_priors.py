@@ -45,7 +45,8 @@ def test_generator_adds_gaussian_and_sin2_priors():
     for name in ("split", "linewidth", "k_np", "c_total"):
         assert name in priors_split
 
-    # 2. Voigt variant
+    # 2. Voigt variant (default: with_hyperfine_splitting=False, same as Lorentzian --
+    # split/k_np are fixed to the real N-14 constant / 1.0, not free/inferred priors)
     gen_voigt = NVCenterCoreGenerator(variant="voigt")
     signal_voigt = gen_voigt.generate(rng)
 
@@ -57,12 +58,21 @@ def test_generator_adds_gaussian_and_sin2_priors():
     assert priors_voigt["frequency"] == ("sin^2", expected_k)
 
     # Verify other parameter priors are Gaussian (val, std)
-    for name in ("split", "fwhm_total", "lorentz_frac", "k_np", "dip_depth"):
+    for name in ("homogeneous_linewidth", "sigma_inhom", "c_total"):
         assert name in priors_voigt
         val, std = priors_voigt[name]
         assert isinstance(val, float)
         assert isinstance(std, float)
         assert std > 0.0
+    assert "split" not in priors_voigt
+    assert "k_np" not in priors_voigt
+
+    # With hyperfine splitting enabled, split and k_np are present
+    gen_voigt_hf = NVCenterCoreGenerator(variant="voigt", with_hyperfine_splitting=True)
+    signal_voigt_hf = gen_voigt_hf.generate(rng)
+    priors_voigt_hf = signal_voigt_hf.bounds["_priors"]
+    for name in ("split", "k_np", "homogeneous_linewidth", "sigma_inhom", "c_total"):
+        assert name in priors_voigt_hf
 
 
 def test_smc_belief_initializes_with_sin2_and_gaussian_priors():

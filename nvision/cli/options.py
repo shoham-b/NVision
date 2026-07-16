@@ -36,6 +36,20 @@ NoCacheOption = Annotated[
     ),
 ]
 
+PurgeOption = Annotated[
+    bool,
+    typer.Option(
+        "--purge/--no-purge",
+        help=(
+            "Delete existing cache entries (and their on-disk plot artifacts) for every "
+            "combination this run is about to touch, before any task starts. Unlike "
+            "--no-cache, which only bypasses reading old entries and leaves them on disk, "
+            "--purge actually removes them first -- use it to guarantee a truly clean slate "
+            "instead of stale entries lingering under a combination the new run also writes."
+        ),
+    ),
+]
+
 DryRunOption = Annotated[
     bool,
     typer.Option(

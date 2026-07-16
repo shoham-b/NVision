@@ -559,6 +559,7 @@ def run(  # noqa: C901
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_cache: cli_options.NoCacheOption = False,
+    purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
     ignore_cache_strategy: Annotated[
         str | None,
@@ -952,6 +953,16 @@ def run(  # noqa: C901
             ),
             monitor=monitor,
         )
+
+        if purge and dry_run:
+            log.info("--purge requested but skipped: --dry-run doesn't make destructive changes.")
+        elif purge:
+            from nvision.tools.artifacts import purge_cache_and_artifacts_for_combinations
+
+            purge_combos = {(t.generator_name, t.noise_name, t.strategy_name) for t in tasks}
+            log.info("Purging existing cache entries for %s combination(s) before starting...", len(purge_combos))
+            purged_count = purge_cache_and_artifacts_for_combinations(out_dir, purge_combos, log)
+            log.info("Purged %s existing cache entr%s.", purged_count, "y" if purged_count == 1 else "ies")
 
         plot_manifest: list[dict[str, object]] = []
         df_rows: list[dict] = []

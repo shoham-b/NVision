@@ -146,7 +146,7 @@ A run's `failure_reason` (`None` = success) is assigned by the first matching ru
 Computed elsewhere and passed through `metrics.py` for reporting:
 
 - **`measurements`** — total observations recorded for the repeat.
-- **`final_est_<param>`** — final posterior-mean estimate for each parameter (`frequency`, `linewidth`, `split`, `dip_depth`, `c_total`, `k_np`, `fwhm_total`, `lorentz_frac`).
+- **`final_est_<param>`** — final posterior-mean estimate for each parameter (`frequency`, `linewidth`/`homogeneous_linewidth`, `split`, `sigma_inhom`, `c_total`, `k_np`), populated dynamically off whatever `parameter_names()` the model returns rather than a hardcoded list.
 - **`uncert`** — reported frequency uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at K_safety × CRLB_f).
 - **`freq_converged_step` / `all_converged_step`** — first step at which frequency / all target parameters converged.
 - **`duration_ms`** — wall-clock runtime of the repeat.

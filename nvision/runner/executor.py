@@ -757,11 +757,21 @@ class _TaskRunner:
                     entries=entries,
                     main_result_row=main_result_row,
                 )
+                # start_idx is only used (with new_results=[]) as the ceiling for
+                # append_cached_repeats' internal count_saved() scan. Passing just
+                # rid + 1 here caps that scan at *this* repeat's own index, which is
+                # wrong for a split sub-task: sub-tasks finish in whatever order their
+                # own repeats happen to complete in, not index order, so a later
+                # sub-task's index range can fill in before an earlier one's, and
+                # capping the scan at rid + 1 makes it stop at the first gap and
+                # permanently under-report achieved_repeats even once every repeat is
+                # actually saved. Use the full per-combination repeat count instead so
+                # any sub-task's completion can discover the true contiguous count.
                 self.cache.append_cached_repeats(
                     **combo_kw,
                     repeat_offset=0,
                     new_results=[],
-                    start_idx=rid + 1,
+                    start_idx=self.task.repeat_total or (rid + 1),
                 )
                 return
             except Exception:
@@ -846,7 +856,16 @@ class _TaskRunner:
         # The global index of the first NEW result
         first_new_idx = ro + n_cached
 
-        if self.repeats > STREAMING_REPEAT_THRESHOLD:
+        # Must agree with _run_repeats' is_streaming check (total repeats across the
+        # whole combination, not this sub-task's own chunk size). A sub-task's chunk
+        # from _split_oversized_tasks can be <= STREAMING_REPEAT_THRESHOLD even though
+        # the combination as a whole is streaming -- using self.repeats here caused
+        # such a sub-task to take the non-streaming branch below and re-embed content
+        # from its own already-stripped (heavy-fields-removed) results, finding no
+        # bytes and no on-disk file to fall back on, silently overwriting the correct,
+        # already-saved-with-content repeat rows with content-less ones.
+        total_repeats = self.task.repeat_total or self.repeats
+        if total_repeats > STREAMING_REPEAT_THRESHOLD:
             # Streaming: each repeat is already saved by _background_save_repeat.
             # Call save_cached_combination to ensure the pointer reflects the final
             # count (in case any background save raced).  Pass only the NEW results
@@ -916,8 +935,8 @@ class _TaskRunner:
         _domain = float(_f_hi - _f_lo)
         if "linewidth" in parameter_bounds:
             _min_lw = float(parameter_bounds["linewidth"][0])
-        elif "fwhm_total" in parameter_bounds:
-            _min_lw = float(parameter_bounds["fwhm_total"][0])
+        elif "homogeneous_linewidth" in parameter_bounds:
+            _min_lw = float(parameter_bounds["homogeneous_linewidth"][0])
         else:
             _min_lw = 200e3
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
@@ -1005,8 +1024,8 @@ class _TaskRunner:
         domain_width = float(f_hi - f_lo)
         if "linewidth" in parameter_bounds:
             min_linewidth = float(parameter_bounds["linewidth"][0])
-        elif "fwhm_total" in parameter_bounds:
-            min_linewidth = float(parameter_bounds["fwhm_total"][0])
+        elif "homogeneous_linewidth" in parameter_bounds:
+            min_linewidth = float(parameter_bounds["homogeneous_linewidth"][0])
         else:
             min_linewidth = 200e3
         max_steps = max(30, math.ceil(domain_width / min_linewidth))
@@ -1124,8 +1143,8 @@ class _TaskRunner:
         domain_width = f_hi - f_lo
         if "linewidth" in bounds:
             min_linewidth = bounds["linewidth"][0]
-        elif "fwhm_total" in bounds:
-            min_linewidth = bounds["fwhm_total"][0]
+        elif "homogeneous_linewidth" in bounds:
+            min_linewidth = bounds["homogeneous_linewidth"][0]
         else:
             min_linewidth = 200e3
         import numpy as np
@@ -1388,22 +1407,28 @@ class _TaskRunner:
         finalize_hook = getattr(locator_instance, "finalize", None)
         if callable(finalize_hook):
             finalize_hook()
-            # GenericSweepLocator defers all belief updates to finalize(). The
-            # run_result snapshots were copied before finalize ran, so they hold
-            # the prior-state belief.  Replace the last snapshot's belief with the
-            # finalized posterior so visualizations show the correct "most likely"
-            # curve instead of the prior mean.
-            from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-            if isinstance(locator_instance, GenericSweepLocator) and result.snapshots:
-                result.snapshots[-1].belief = locator_instance.belief.copy()
-                # Prefer the actual least-squares model fit over the SMC belief
-                # marginal mode for the "most likely signal" plot trace: the
-                # belief is batch-updated without resampling during a sweep and
-                # can collapse, drawing a garbage curve even on clean data.
-                result.fit_mode_estimates = locator_instance.fit_mode_estimates()
+        # Locators that defer belief updates -- sweep locators via finalize(),
+        # and chunked/buffered Bayesian locators like SimpleSobol via a final
+        # flush inside done() once the step budget is exhausted -- can mutate
+        # locator_instance.belief *after* Observer.watch() already copied the
+        # last snapshot. Re-sync so downstream metrics (final_err_fb, the
+        # freq milestone, etc.) read the same posterior that result() reports
+        # instead of a stale pre-flush copy. This is a no-op for locators that
+        # update their belief every step (e.g. SBED), since the two already
+        # match.
+        if result.snapshots:
+            result.snapshots[-1].belief = locator_instance.belief.copy()
+        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+
+        if isinstance(locator_instance, GenericSweepLocator):
+            # Prefer the actual least-squares model fit over the SMC belief
+            # marginal mode for the "most likely signal" plot trace: the
+            # belief is batch-updated without resampling during a sweep and
+            # can collapse, drawing a garbage curve even on clean data.
+            result.fit_mode_estimates = locator_instance.fit_mode_estimates()
         locator_final_result = locator_instance.result()
-        # Fold the sweep's full least-squares fit (linewidth/split/k_np/c_total/
-        # zeeman_split/fwhm_total/...) into the estimate dict so the generic
+        # Fold the sweep's full least-squares fit (linewidth/homogeneous_linewidth/
+        # sigma_inhom/split/k_np/c_total/zeeman_split/...) into the estimate dict so the generic
         # final_est_<param> metrics (and the True Signal Parameters UI panel) show a
         # true-vs-converged value for SimpleSweep the same way they already do for
         # Bayesian locators -- result() on its own only reports frequency/uncert.

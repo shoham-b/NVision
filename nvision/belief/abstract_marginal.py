@@ -83,6 +83,18 @@ class AbstractMarginalDistribution(ABC):
     def estimates(self) -> dict[str, float]:
         """Get current parameter estimates (e.g., posterior means)."""
 
+    @abstractmethod
+    def mode_estimates(self) -> dict[str, float]:
+        """Get the posterior mode as one internally consistent joint state.
+
+        Unlike :meth:`estimates` (the marginal mean, taken independently per
+        parameter), this must return values that could all belong to the same
+        underlying state — not an average that can fall in a low-density
+        trough between modes of a multimodal posterior, or combine
+        independently-averaged parameters into a combination nothing in the
+        posterior actually supports.
+        """
+
     def uncertainty(self) -> ParameterValues[float]:
         """Marginal standard deviation for each parameter from the belief itself.
 

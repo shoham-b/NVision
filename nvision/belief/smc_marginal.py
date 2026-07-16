@@ -420,11 +420,37 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 self._eig_kernel_type = "saturation_voigt"
                 self._eig_needs_phys = is_unit_cube
             elif isinstance(kernel_model, NVCenterLorentzianModel):
-                self._eig_kernel_type = "lorentzian"
-                self._eig_needs_phys = is_unit_cube
+                # Same issue as the NVCenterVoigtModel branch below:
+                # nv_center_lorentzian_eig_variance is a single-dip, 5-column
+                # kernel [freq, linewidth, split, k_np, c_total]. A Zeeman-split
+                # model has a 6th column (zeeman_split, inserted before split), so
+                # every column from "split" onward would be read one slot off and
+                # c_total wouldn't be read at all. No fused Zeeman-Lorentzian EIG
+                # kernel exists (nv_center_zeeman_lorentzian_eig_variance is
+                # referenced only in a docstring elsewhere, never implemented) --
+                # route to the generic path, which is correct by construction.
+                has_zeeman = "zeeman_split" in kernel_model.parameter_names()
+                self._eig_kernel_type = "generic" if has_zeeman else "lorentzian"
+                self._eig_needs_phys = is_unit_cube and not has_zeeman
             elif isinstance(kernel_model, NVCenterVoigtModel):
-                self._eig_kernel_type = "voigt"
-                self._eig_needs_phys = is_unit_cube
+                # nv_center_pseudo_voigt_eig_variance (the fused kernel below) is a
+                # single-dip kernel with a hardcoded 6-column layout [freq,
+                # fwhm_total, lorentz_frac, split, k_np, dip_depth]. A Zeeman-split
+                # NVCenterVoigtModel has a 7th column (zeeman_split, inserted before
+                # split), so every column from "split" onward would be read one slot
+                # off and dip_depth wouldn't be read at all -- scoring every
+                # acquisition candidate against a wrong-parameter single-dip
+                # prediction. There's also no fused Zeeman kernel for this model's
+                # dip_depth (physical-depth) amplitude scheme, unlike
+                # saturation_voigt's population-normalized c_total (which
+                # nv_center_zeeman_pseudo_voigt_eig_variance below actually
+                # implements) -- so route to the generic path instead of guessing.
+                # That path is correct-by-construction: it calls
+                # model.compute_vectorized_many_fast(), which already dispatches on
+                # with_zeeman_splitting.
+                has_zeeman = "zeeman_split" in kernel_model.parameter_names()
+                self._eig_kernel_type = "generic" if has_zeeman else "voigt"
+                self._eig_needs_phys = is_unit_cube and not has_zeeman
             else:
                 self._eig_kernel_type = "generic"
         except ImportError:
@@ -839,10 +865,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             omega_phys, _ = saturation_voigt_effective_hwhm_and_unc(saturation_phys, sigma_inhom_phys)
         elif "linewidth" in estimates:
             omega_phys = _to_phys_delta("linewidth", estimates["linewidth"])
+        elif "homogeneous_linewidth" in estimates:
+            omega_phys = _to_phys_delta("homogeneous_linewidth", estimates["homogeneous_linewidth"])
         elif "fwhm_total" in estimates:
             omega_phys = _to_phys_delta("fwhm_total", estimates["fwhm_total"] / 2.0)
         else:
-            raise KeyError("Linewidth parameter ('linewidth' or 'fwhm_total') not found in estimates")
+            raise KeyError(
+                "Linewidth parameter ('linewidth', 'homogeneous_linewidth', or 'fwhm_total') not found in estimates"
+            )
 
         # 2. Extract uncertainties in physical space
         sigma_f_phys = _to_phys_delta("frequency", uncertainties["frequency"])
@@ -854,10 +884,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             )
         elif "linewidth" in uncertainties:
             sigma_omega_phys = _to_phys_delta("linewidth", uncertainties["linewidth"])
+        elif "homogeneous_linewidth" in uncertainties:
+            sigma_omega_phys = _to_phys_delta("homogeneous_linewidth", uncertainties["homogeneous_linewidth"])
         elif "fwhm_total" in uncertainties:
             sigma_omega_phys = _to_phys_delta("fwhm_total", uncertainties["fwhm_total"] / 2.0)
         else:
-            raise KeyError("Linewidth uncertainty ('linewidth' or 'fwhm_total') not found in uncertainties")
+            raise KeyError(
+                "Linewidth uncertainty ('linewidth', 'homogeneous_linewidth', or 'fwhm_total') not found in uncertainties"
+            )
 
         # 3. Compute effective uncertainty and resolution in physical space
         sigma_eff_phys = np.sqrt(sigma_f_phys**2 + sigma_omega_phys**2)
@@ -930,6 +964,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 sigma_inhom_hi = phys_bounds["sigma_inhom"][1]
                 gamma_hom_hi = NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + s_hi)
                 max_linewidth_hz = gamma_hom_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
+            elif "homogeneous_linewidth" in phys_bounds:
+                hl_hi = phys_bounds["homogeneous_linewidth"][1]
+                sigma_inhom_hi = phys_bounds.get("sigma_inhom", (0.0, 0.0))[1]
+                max_linewidth_hz = hl_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
             elif "fwhm_total" in phys_bounds:
                 max_linewidth_hz = phys_bounds["fwhm_total"][1] / 2.0
             else:
@@ -1145,6 +1183,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def estimates(self) -> dict[str, float]:
         """Return parameter estimates (weighted mean)."""
         return self._estimates_unit()
+
+    def mode_estimates(self) -> dict[str, float]:
+        """Return the highest-weight particle's joint state (posterior mode).
+
+        A weighted mean over multimodal or correlated particles is not itself
+        a state the posterior supports; the highest-weight particle is one
+        that is.
+        """
+        idx = int(np.argmax(self._weights))
+        res = {name: float(self._particles[idx, i]) for i, name in enumerate(self._param_names)}
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            res["noise_sigma"] = float(np.sqrt(self._noise_betas[idx] / self._noise_alphas[idx]))
+        return res
 
     def _uncertainty_unit(self) -> ParameterValues[float]:
         """Return parameter uncertainties (std dev) in internal unit/belief space.

@@ -154,6 +154,17 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             for k, v in raw.items()
         }
 
+    def mode_estimates(self) -> dict[str, float]:
+        raw = super().mode_estimates()
+        return {
+            k: (
+                self._to_physical(k, v)
+                if (k != "noise_sigma" or not getattr(self, "_use_rao_blackwell_noise", False))
+                else v
+            )
+            for k, v in raw.items()
+        }
+
     def _to_physical(self, name: str, u: float) -> float:
         lo, hi = self.physical_param_bounds[name]
         return lo + float(u) * (hi - lo)
@@ -189,7 +200,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
         Returns ``math.inf`` for unsupported models or before any observations.
         """
-        from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterSaturationVoigtModel
+        from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterSaturationVoigtModel, NVCenterVoigtModel
 
         inner = getattr(self.model, "inner", None)
 
@@ -238,6 +249,36 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             # the Lorentzian branch above). This underestimates J for genuinely
             # mixed lineshapes, i.e. is a conservative (larger) CRLB — verified
             # numerically to be exact in the sigma_inhom -> 0 (pure Lorentzian) limit.
+            j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
+            j_gauss = (egf**2) * math.sqrt(-math.pi * nhs / 2.0) if has_sigma and nhs < 0 else 0.0
+            j_total = j_lorentz + j_gauss
+            if j_total <= 0:
+                return math.inf
+
+            variance = noise_std**2 / (rho * c_total**2 * j_total)
+            return math.sqrt(max(variance, 0.0))
+
+        if isinstance(inner, NVCenterVoigtModel):
+            from nvision.spectra.nv_center import _voigt_reparam_scalar
+            from nvision.spectra.numba_kernels import _pv_factors
+
+            ests = self.estimates()  # physical-space values
+            homogeneous_linewidth = ests.get("homogeneous_linewidth")
+            sigma_inhom = ests.get("sigma_inhom")
+            c_total = ests.get("c_total")
+            if homogeneous_linewidth is None or sigma_inhom is None or c_total is None:
+                return math.inf
+            if homogeneous_linewidth <= 0 or c_total <= 0:
+                return math.inf
+
+            fwhm_total, lorentz_frac = _voigt_reparam_scalar(homogeneous_linewidth, sigma_inhom)
+            if fwhm_total <= 0:
+                return math.inf
+
+            elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
+            # Same J = ∫(V')²dx single-dip approximation as the saturation-Voigt branch
+            # above (shared pseudo-Voigt shape function and now the same c_total
+            # amplitude convention too).
             j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
             j_gauss = (egf**2) * math.sqrt(-math.pi * nhs / 2.0) if has_sigma and nhs < 0 else 0.0
             j_total = j_lorentz + j_gauss
@@ -488,6 +529,17 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 saturation_phys, sigma_inhom_phys, np.ones_like(saturation_phys)
             )
             linewidth_phys = fwhm_total / 2.0
+        elif "homogeneous_linewidth" in self._param_names:
+            j_hl = self._param_names.index("homogeneous_linewidth")
+            u_hl = self._particles[:, j_hl]
+            lo_hl, hi_hl = self.physical_param_bounds["homogeneous_linewidth"]
+            linewidth_phys = lo_hl + u_hl * (hi_hl - lo_hl)
+            if "sigma_inhom" in self._param_names:
+                j_sig = self._param_names.index("sigma_inhom")
+                u_sig = self._particles[:, j_sig]
+                lo_sig, hi_sig = self.physical_param_bounds["sigma_inhom"]
+                sigma_inhom_phys = lo_sig + u_sig * (hi_sig - lo_sig)
+                linewidth_phys = linewidth_phys + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_phys
         elif "fwhm_total" in self._param_names:
             j_fwhm = self._param_names.index("fwhm_total")
             u_fwhm = self._particles[:, j_fwhm]

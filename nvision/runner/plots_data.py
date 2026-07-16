@@ -22,19 +22,25 @@ from nvision.viz._f32_json import dump_gz
 _PARAM_SCALES: dict[str, float] = {
     "frequency": 1e9,
     "linewidth": 1e6,
+    "homogeneous_linewidth": 1e6,
+    "sigma_inhom": 1e6,
     "split": 1e6,
     "fwhm_total": 1e6,
     "fwhm_lorentz": 1e6,
     "fwhm_gauss": 1e6,
+    "zeeman_split": 1e6,
 }
 
 _PARAM_UNITS: dict[str, str] = {
     "frequency": "GHz",
     "linewidth": "MHz",
+    "homogeneous_linewidth": "MHz",
+    "sigma_inhom": "MHz",
     "split": "MHz",
     "fwhm_total": "MHz",
     "fwhm_lorentz": "MHz",
     "fwhm_gauss": "MHz",
+    "zeeman_split": "MHz",
 }
 
 

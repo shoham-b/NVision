@@ -285,6 +285,8 @@ class ExperimentsMixin:
             width_candidates.append(pl.col("final_est_effective_hwhm"))
         if "final_est_linewidth" in sub.columns:
             width_candidates.append(pl.col("final_est_linewidth"))
+        if "final_est_homogeneous_linewidth" in sub.columns:
+            width_candidates.append(pl.col("final_est_homogeneous_linewidth"))
         if "final_est_fwhm_total" in sub.columns:
             width_candidates.append(pl.col("final_est_fwhm_total") / 2.0)
         width_expr = pl.coalesce(width_candidates) if width_candidates else pl.lit(None, dtype=pl.Float64)
@@ -347,6 +349,7 @@ class ExperimentsMixin:
         for gen_tuple, sub in df.partition_by("generator", as_dict=True).items():
             for _c in [
                 "final_est_linewidth",
+                "final_est_homogeneous_linewidth",
                 "final_est_split",
                 "final_est_effective_hwhm",
                 "final_est_zeeman_split",

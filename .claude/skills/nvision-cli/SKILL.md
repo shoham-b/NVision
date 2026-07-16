@@ -23,6 +23,9 @@ overwrites/reads the shared cache. Match the command to the intent:
 | Only changed plotting/viz code, sim results unchanged | `nv render` — rebuilds `plots_manifest.json` + UI from cache, no re-simulation |
 | View results in the browser | `nv serve` (port 18080; press `r` in-browser to reload) |
 | Inspect or prune the cache | `nv cache list` / `nv cache clean --filter-strategy <name>` |
+| Check progress on a still-running `nv run` | `nv cache progress --repeats N` — see `nvision-run-monitoring` skill |
+| Check whether repeats are converging well, not just finishing | `nv cache convergence --breakdown strategy` — see `nvision-convergence-check` skill |
+| Check that plot data actually decodes across the whole run | `nv cache check-plots --type scan` — see `nvision-plot-integrity-check` skill |
 
 ## Verifying a change cheaply
 

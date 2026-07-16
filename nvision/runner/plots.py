@@ -489,6 +489,10 @@ def _bayesian_auxiliary_entries(  # noqa: C901
                 ("dip_depth", "linewidth"),
                 ("frequency", "c_total"),
                 ("c_total", "linewidth"),
+                ("frequency", "homogeneous_linewidth"),
+                ("frequency", "sigma_inhom"),
+                ("homogeneous_linewidth", "sigma_inhom"),
+                ("c_total", "homogeneous_linewidth"),
             ]
             for p1, p2 in priority_pairs:
                 if p1 in param_names and p2 in param_names:
@@ -873,8 +877,8 @@ def get_or_run_simplesweep_baseline(
     f_domain_width = float(f_hi - f_lo)
     if "linewidth" in bounds:
         min_linewidth = float(bounds["linewidth"][0])
-    elif "fwhm_total" in bounds:
-        min_linewidth = float(bounds["fwhm_total"][0])
+    elif "homogeneous_linewidth" in bounds:
+        min_linewidth = float(bounds["homogeneous_linewidth"][0])
     else:
         min_linewidth = 200e3
     max_steps = max(30, math.ceil(f_domain_width / min_linewidth))

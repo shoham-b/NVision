@@ -205,12 +205,11 @@ def generate_attempt_metrics(  # noqa: C901
     for param_name in (
         "frequency",
         "linewidth",
+        "homogeneous_linewidth",
         "split",
         "dip_depth",
         "c_total",
         "k_np",
-        "fwhm_total",
-        "lorentz_frac",
         "saturation",
         "sigma_inhom",
         "zeeman_split",
@@ -220,7 +219,7 @@ def generate_attempt_metrics(  # noqa: C901
 
     # Lineshape-agnostic derived estimates — the preferred axes for cross-lineshape
     # comparison (effective HWHM and realized contrast mean the same thing whether the
-    # model parameterizes width as linewidth, fwhm_total, or saturation+sigma_inhom).
+    # model parameterizes width as linewidth, homogeneous_linewidth, or saturation+sigma_inhom).
     if "saturation" in estimate and "sigma_inhom" in estimate:
         from nvision.spectra.nv_center import (
             NV_SATURATION_C_MAX,
@@ -234,12 +233,11 @@ def generate_attempt_metrics(  # noqa: C901
         # always computable here rather than gated on an "if c_max estimated" check.
         c_derived, _ = saturation_voigt_realized_contrast_and_unc(estimate["saturation"], NV_SATURATION_C_MAX)
         metrics_serialized["final_est_realized_contrast"] = _maybe_finite(c_derived)
-    elif "linewidth" in estimate:
-        metrics_serialized["final_est_effective_hwhm"] = _maybe_finite(estimate["linewidth"])
-        if "c_total" in estimate:
-            metrics_serialized["final_est_realized_contrast"] = _maybe_finite(estimate["c_total"])
-    elif "fwhm_total" in estimate:
-        metrics_serialized["final_est_effective_hwhm"] = _maybe_finite(estimate["fwhm_total"] / 2.0)
+    elif "linewidth" in estimate or "homogeneous_linewidth" in estimate:
+        # Both are already HWHM-scale (unlike the old kernel-native fwhm_total, a
+        # full width, which this branch used to also have to halve).
+        hwhm = estimate.get("linewidth", estimate.get("homogeneous_linewidth"))
+        metrics_serialized["final_est_effective_hwhm"] = _maybe_finite(hwhm)
         if "c_total" in estimate:
             metrics_serialized["final_est_realized_contrast"] = _maybe_finite(estimate["c_total"])
 

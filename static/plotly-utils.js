@@ -57,8 +57,14 @@ async function _fetchJson(url) {
     if (url.endsWith('.gz')) {
         const ds = new DecompressionStream('gzip');
         const text = await new Response(resp.body.pipeThrough(ds)).text();
-        // JSON spec does not allow Infinity/NaN — replace with null
-        parsed = JSON.parse(text.replace(/\bInfinity\b/g, 'null').replace(/-Infinity\b/g, 'null').replace(/\bNaN\b/g, 'null'));
+        // JSON spec does not allow Infinity/NaN — replace with null. Must only match
+        // these as bare JSON *values* (immediately between a structural char and another
+        // structural char), not as a substring match anywhere in the text: a blind \b-bounded
+        // replace also matches "NaN"/"Infinity" occurring inside a quoted base64 typed-array
+        // payload whenever it happens to sit next to a non-word base64 char (+, /, =), silently
+        // corrupting that payload's length/alignment. Our own writer (_f32_json.py) always
+        // emits compact JSON with no whitespace, so requiring immediate adjacency is exact.
+        parsed = JSON.parse(text.replace(/(?<=[:,[])(-Infinity|Infinity|NaN)(?=[,\]}])/g, 'null'));
     } else {
         parsed = await resp.json();
     }

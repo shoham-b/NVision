@@ -266,7 +266,11 @@ def nv_center_zeeman_lorentzian_eval(
 ) -> float:
     """Zeeman + hyperfine NV ODMR scalar kernel.
 
-    Two symmetric triple-Lorentzian groups centered at freq ± zeeman_split.
+    Two triple-Lorentzian groups centered at freq ± zeeman_split, mirrored
+    about the true center: the ms=+1/ms=-1 groups are physical mirror images
+    of each other, so the sub-line closest to center in one group must carry
+    the same population weight as the sub-line closest to center in the
+    other, not the weight at the same offset from its own group's center.
     """
     omega = linewidth if linewidth > 1e-10 else 1e-10
     inv_omega = 1.0 / omega
@@ -285,7 +289,9 @@ def nv_center_zeeman_lorentzian_eval(
     left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
 
     x_p = x_dim - beta  # (x − (freq + zeeman_split)) / omega
-    right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+    # p_L/p_R swapped vs. the left group: x_p - alpha (closest to true center)
+    # mirrors x_m + alpha (closest to true center in the left group, p_R).
+    right = p_R / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_L / ((x_p - alpha) ** 2 + 1.0)
 
     return background - (left + right)
 
@@ -329,8 +335,10 @@ def nv_center_zeeman_lorentzian_vectorized_one_serial(
         x_m = x_dim + beta
         left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
 
+        # p_L/p_R swapped vs. the left group -- mirror the two Zeeman groups
+        # about the true center (see nv_center_zeeman_lorentzian_eval).
         x_p = x_dim - beta
-        right = p_L / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_R / ((x_p - alpha) ** 2 + 1.0)
+        right = p_R / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_L / ((x_p - alpha) ** 2 + 1.0)
 
         out[j] = bg - (left + right)
 
@@ -389,8 +397,10 @@ def nv_center_zeeman_lorentzian_vectorized_many(
             x_m = x_dim + beta
             left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
+            # p_l/p_r swapped vs. the left group -- mirror the two Zeeman groups
+            # about the true center (see nv_center_zeeman_lorentzian_eval).
             x_p = x_dim - beta
-            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
+            right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
 
             out[i, j] = background[j] - (left + right)
 
@@ -449,8 +459,10 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
             x_m = x_dim + beta
             left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
+            # p_l/p_r swapped vs. the left group -- mirror the two Zeeman groups
+            # about the true center (see nv_center_zeeman_lorentzian_eval).
             x_p = x_dim - beta
-            right = p_l / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_r / ((x_p - alpha) ** 2 + 1.0)
+            right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
 
             out[i, j] = background[j] - (left + right)
 
@@ -1433,7 +1445,17 @@ def _zeeman_pv_pred(
     has_gamma: bool,
     has_sigma: bool,
 ) -> float:
-    """Two-group hyperfine pseudo-Voigt contrast sum (background not subtracted)."""
+    """Two-group hyperfine pseudo-Voigt contrast sum (background not subtracted).
+
+    The ms=+1/ms=-1 Zeeman groups are physically mirror images of each other
+    about the true center: the hyperfine sub-line closest to center in one
+    group corresponds to the sub-line closest to center in the other, not to
+    the sub-line at the same absolute offset from its own group center. Using
+    the same (p_l, p_0, p_r) left-to-right order in both groups (as if they
+    were two independent, non-mirrored triplets) puts the asymmetric outer
+    lines on the same side in both groups instead of facing each other, which
+    doesn't match real NV ODMR spectra and their expected mirror symmetry.
+    """
     cm = freq - zeeman_split
     left = (
         p_l * _pv_norm(x - (cm - hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
@@ -1441,10 +1463,13 @@ def _zeeman_pv_pred(
         + p_r * _pv_norm(x - (cm + hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
     )
     cp = freq + zeeman_split
+    # p_l/p_r swapped relative to the left group: the sub-line closest to the
+    # true center (here, at cp - hf_split) mirrors the left group's
+    # closest-to-center sub-line (at cm + hf_split, weighted p_r).
     right = (
-        p_l * _pv_norm(x - (cp - hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        p_r * _pv_norm(x - (cp - hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
         + p_0 * _pv_norm(x - cp, elf, egf, nhs, gamma2, has_gamma, has_sigma)
-        + p_r * _pv_norm(x - (cp + hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        + p_l * _pv_norm(x - (cp + hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
     )
     return left + right
 
@@ -1601,195 +1626,6 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
                 freq[j],
                 zeeman_split[j],
                 hf_split[j],
-                p_l_arr[j],
-                p_0_arr[j],
-                p_r_arr[j],
-                elf_arr[j],
-                egf_arr[j],
-                nhs_arr[j],
-                gamma2_arr[j],
-                has_gamma_arr[j],
-                has_sigma_arr[j],
-            )
-
-
-@njit(cache=True, inline="always")
-def _zeeman_pv_dipdepth_populations(k_np: float, dip_depth: float):
-    """Per-group physical dip_depth weights ``(p_l, p_0, p_r)``.
-
-    Each Zeeman group gets half of ``dip_depth`` (unpolarized ms=+1/-1 population
-    split), reusing the same ``d/k, d, d*k`` physical-depth ratios as the
-    non-Zeeman :func:`nv_center_pseudo_voigt_eval` — NOT the ``c_total/p_sum``
-    normalization :func:`_zeeman_pv_populations` uses for the population-normalized
-    Lorentzian/saturation-Voigt kernels.
-    """
-    k = k_np if k_np > 1e-10 else 1e-10
-    actual_depth = 0.5 * dip_depth / k
-    p_0 = actual_depth
-    p_l = actual_depth / k
-    p_r = actual_depth * k
-    return p_l, p_0, p_r
-
-
-@njit(cache=True)
-def nv_center_zeeman_pseudo_voigt_dipdepth_eval(
-    x: float,
-    freq: float,
-    fwhm_total: float,
-    lorentz_frac: float,
-    zeeman_split: float,
-    split: float,
-    k_np: float,
-    dip_depth: float,
-    background: float,
-) -> float:
-    """Zeeman + hyperfine NV pseudo-Voigt scalar kernel (physical dip_depth parametrization).
-
-    Used by :class:`~nvision.spectra.nv_center.NVCenterVoigtModel` when
-    ``with_zeeman_splitting=True`` — keeps the ``dip_depth`` field's physical-depth
-    meaning (see :func:`nv_center_pseudo_voigt_eval`) instead of switching to the
-    population-normalized ``c_total`` scheme used by the Lorentzian/saturation-Voigt
-    Zeeman kernels.
-    """
-    elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
-    p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np, dip_depth)
-    return background - _zeeman_pv_pred(
-        x, freq, zeeman_split, split, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
-    )
-
-
-@njit(cache=True)
-def nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_one_serial(
-    x: float,
-    freq: np.ndarray,
-    fwhm_total: np.ndarray,
-    lorentz_frac: np.ndarray,
-    zeeman_split: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    background: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Serial Zeeman pseudo-Voigt (dip_depth) kernel: single probe ``x`` across many particles."""
-    n = freq.shape[0]
-    for j in range(n):
-        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
-        p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np[j], dip_depth[j])
-        out[j] = background[j] - _zeeman_pv_pred(
-            x, freq[j], zeeman_split[j], split[j], p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
-        )
-
-
-@njit(cache=True, parallel=True)
-def nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_many(
-    xs: np.ndarray,
-    freq: np.ndarray,
-    fwhm_total: np.ndarray,
-    lorentz_frac: np.ndarray,
-    zeeman_split: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    background: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Zeeman pseudo-Voigt (dip_depth) kernel: many probes x many particles -> out[m, n]."""
-    m = xs.shape[0]
-    n = freq.shape[0]
-
-    # Per-particle precompute: hoists the pseudo-Voigt + population setup out of
-    # the m x n inner loop — same pattern as nv_center_zeeman_pseudo_voigt_eig_variance.
-    elf_arr = np.empty(n, dtype=np.float64)
-    egf_arr = np.empty(n, dtype=np.float64)
-    nhs_arr = np.empty(n, dtype=np.float64)
-    gamma2_arr = np.empty(n, dtype=np.float64)
-    has_gamma_arr = np.empty(n, dtype=np.bool_)
-    has_sigma_arr = np.empty(n, dtype=np.bool_)
-    p_l_arr = np.empty(n, dtype=np.float64)
-    p_0_arr = np.empty(n, dtype=np.float64)
-    p_r_arr = np.empty(n, dtype=np.float64)
-    for j in range(n):
-        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
-        elf_arr[j] = elf
-        egf_arr[j] = egf
-        nhs_arr[j] = nhs
-        gamma2_arr[j] = gamma2
-        has_gamma_arr[j] = has_gamma
-        has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np[j], dip_depth[j])
-        p_l_arr[j] = p_l
-        p_0_arr[j] = p_0
-        p_r_arr[j] = p_r
-
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            out[i, j] = background[j] - _zeeman_pv_pred(
-                x,
-                freq[j],
-                zeeman_split[j],
-                split[j],
-                p_l_arr[j],
-                p_0_arr[j],
-                p_r_arr[j],
-                elf_arr[j],
-                egf_arr[j],
-                nhs_arr[j],
-                gamma2_arr[j],
-                has_gamma_arr[j],
-                has_sigma_arr[j],
-            )
-
-
-@njit(cache=True, parallel=True, fastmath=True)
-def nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_many_fast(
-    xs: np.ndarray,
-    freq: np.ndarray,
-    fwhm_total: np.ndarray,
-    lorentz_frac: np.ndarray,
-    zeeman_split: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    background: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Fast (fastmath) Zeeman pseudo-Voigt (dip_depth) kernel — acquisition / EIG path only."""
-    m = xs.shape[0]
-    n = freq.shape[0]
-
-    # Per-particle precompute (see nv_center_zeeman_pseudo_voigt_dipdepth_vectorized_many).
-    elf_arr = np.empty(n, dtype=np.float64)
-    egf_arr = np.empty(n, dtype=np.float64)
-    nhs_arr = np.empty(n, dtype=np.float64)
-    gamma2_arr = np.empty(n, dtype=np.float64)
-    has_gamma_arr = np.empty(n, dtype=np.bool_)
-    has_sigma_arr = np.empty(n, dtype=np.bool_)
-    p_l_arr = np.empty(n, dtype=np.float64)
-    p_0_arr = np.empty(n, dtype=np.float64)
-    p_r_arr = np.empty(n, dtype=np.float64)
-    for j in range(n):
-        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
-        elf_arr[j] = elf
-        egf_arr[j] = egf
-        nhs_arr[j] = nhs
-        gamma2_arr[j] = gamma2
-        has_gamma_arr[j] = has_gamma
-        has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_dipdepth_populations(k_np[j], dip_depth[j])
-        p_l_arr[j] = p_l
-        p_0_arr[j] = p_0
-        p_r_arr[j] = p_r
-
-    for i in prange(m):
-        x = xs[i]
-        for j in range(n):
-            out[i, j] = background[j] - _zeeman_pv_pred(
-                x,
-                freq[j],
-                zeeman_split[j],
-                split[j],
                 p_l_arr[j],
                 p_0_arr[j],
                 p_r_arr[j],

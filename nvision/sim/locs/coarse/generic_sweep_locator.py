@@ -278,15 +278,16 @@ class GenericSweepLocator(SweepingLocator):
         if scan_param not in param_names:
             raise ValueError(f"scan_param {scan_param!r} is not one of the model's parameters {param_names}")
         scan_idx = param_names.index(scan_param)
-        # Contrast/amplitude parameter name varies by model family: "c_total"
-        # (Lorentzian), "c_max" (saturation-Voigt), "dip_depth" (plain Voigt).
-        ct_idx = next((param_names.index(n) for n in ("c_total", "c_max", "dip_depth") if n in param_names), None)
+        # Contrast/amplitude parameter name: "c_total" for every lineshape now
+        # (Lorentzian, plain Voigt, saturation-Voigt all share this convention).
+        ct_idx = next((param_names.index(n) for n in ("c_total", "c_max") if n in param_names), None)
         zs_idx = param_names.index("zeeman_split") if "zeeman_split" in param_names else None
         split_idx = param_names.index("split") if "split" in param_names else None
 
         param_bounds_phys = self._resolve_physical_bounds(param_names)
         lo_bounds = [param_bounds_phys[n][0] for n in param_names]
         hi_bounds = [param_bounds_phys[n][1] for n in param_names]
+        phys_priors = self._resolve_physical_priors(param_names, scan_param, param_bounds_phys)
 
         domain_lo, domain_hi = self._domain_lo, self._domain_hi
         domain_width = domain_hi - domain_lo
@@ -296,9 +297,23 @@ class GenericSweepLocator(SweepingLocator):
         smoothed, window = self._smooth_for_peak_detection(ys)
         dip_depth = self._estimate_dip_depth(ys, smoothed, window)
         hwhm_est = self._estimate_hwhm(xs_norm, smoothed, dip_depth, domain_width)
-        # Width parameter name varies by model family: "linewidth" (Lorentzian,
-        # HWHM-scale) or "fwhm_total" (Voigt, full-width — 2x the HWHM).
-        width_idx = next((param_names.index(n) for n in ("linewidth", "fwhm_total") if n in param_names), None)
+        # Width parameter name: "linewidth" (Lorentzian) or "homogeneous_linewidth"
+        # (Voigt) — both HWHM-scale now, unlike the old kernel-native "fwhm_total"
+        # (full-width) Voigt used to expose directly.
+        width_idx = next(
+            (param_names.index(n) for n in ("linewidth", "homogeneous_linewidth") if n in param_names), None
+        )
+        # Voigt's inhomogeneous (Gaussian) width has no data-driven seed and would
+        # otherwise default to make_p0's generic bounds-midpoint fallback -- for the
+        # typical (0, ~1.2 MHz) sigma_inhom range that's ~0.6 MHz of *assumed* Gaussian
+        # width before the fit sees any data, frequently larger than the entire true
+        # dip. curve_fit then satisfies the total observed width by driving
+        # homogeneous_linewidth to its floor and letting sigma_inhom absorb the rest --
+        # a real local-minimum trap, not just an imprecise start. Seeding at the lineshape's
+        # own lower bound (Lorentzian-first assumption) starts the fit's total width at
+        # roughly hwhm_est instead of hwhm_est-plus-an-assumed-Gaussian-component, so the
+        # optimizer only grows sigma_inhom if the data actually supports it.
+        sigma_inhom_idx = param_names.index("sigma_inhom") if "sigma_inhom" in param_names else None
         seeds = self._seed_frequency_and_splits(
             xs_norm, ys, smoothed, dip_depth, domain_lo, domain_width, zs_idx, split_idx, lo_bounds, hi_bounds
         )
@@ -309,8 +324,19 @@ class GenericSweepLocator(SweepingLocator):
             if ct_idx is not None:
                 p0[ct_idx] = float(np.clip(dip_depth, lo_bounds[ct_idx], hi_bounds[ct_idx]))
             if width_idx is not None and hwhm_est is not None and hwhm_est > 0:
-                width_val = hwhm_est if param_names[width_idx] == "linewidth" else 2.0 * hwhm_est
+                # Both remaining width keys are HWHM-scale now; kept as an explicit
+                # membership check (rather than assuming) in case a future model adds
+                # a full-width key back.
+                width_val = hwhm_est if param_names[width_idx] in ("linewidth", "homogeneous_linewidth") else 2.0 * hwhm_est
                 p0[width_idx] = float(np.clip(width_val, lo_bounds[width_idx], hi_bounds[width_idx]))
+            if sigma_inhom_idx is not None:
+                # A tiny but nonzero fraction of hwhm_est, not the bare lower bound: at
+                # sigma_inhom=0 exactly, _pv_factors' has_sigma gate makes the Gaussian
+                # term's contribution (and curve_fit's numerical Jacobian column for this
+                # parameter) identically zero, which can stall the optimizer at that
+                # boundary instead of letting it explore away from it.
+                si_seed = 0.05 * hwhm_est if hwhm_est is not None and hwhm_est > 0 else lo_bounds[sigma_inhom_idx]
+                p0[sigma_inhom_idx] = float(np.clip(si_seed, lo_bounds[sigma_inhom_idx], hi_bounds[sigma_inhom_idx]))
             if zs_idx is not None and half_sep_hz is not None:
                 p0[zs_idx] = float(np.clip(half_sep_hz, lo_bounds[zs_idx], hi_bounds[zs_idx]))
             if split_idx is not None and hf_split_hz is not None:
@@ -334,10 +360,20 @@ class GenericSweepLocator(SweepingLocator):
             lw_guess = hwhm_est
         elif width_idx is not None:
             mid = (lo_bounds[width_idx] + hi_bounds[width_idx]) / 2.0
-            lw_guess = mid if param_names[width_idx] == "linewidth" else mid / 2.0
+            lw_guess = mid if param_names[width_idx] in ("linewidth", "homogeneous_linewidth") else mid / 2.0
         else:
             lw_guess = domain_width * 0.01
         xtol = self._fit_xtol(dip_depth, n_pts, domain_width, lw_guess)
+
+        # MAP regularization: append one synthetic "residual row" per prior'd parameter,
+        # each pinning curve_fn's output for that row directly to the parameter's own
+        # value (bypassing the physics model) so its residual reduces to
+        # (param - prior_mean) / prior_std — a Tikhonov/MAP penalty scipy's curve_fit has
+        # no native support for. Weighted jointly with the data residuals via `sigma` below
+        # (see _resolve_physical_priors for why this only matters on degenerate directions).
+        prior_names = list(phys_priors.keys())
+        prior_param_idx = [param_names.index(n) for n in prior_names]
+        n_prior_terms = len(prior_param_idx)
 
         # Evaluate in float64 (scalar path).  The vectorized kernel uses float32,
         # whose ~1e-7 relative resolution is coarser than curve_fit's numerical
@@ -345,10 +381,24 @@ class GenericSweepLocator(SweepingLocator):
         # the frequency gradient and stalls the fit.  float64 is required here.
         def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
             typed = inner.spec.unpack_params(list(params))
-            return np.array([float(inner.compute(float(x), typed)) for x in xs])
+            data_vals = np.array([float(inner.compute(float(x), typed)) for x in xs[:n_pts]])
+            if n_prior_terms:
+                prior_vals = np.array([params[i] for i in prior_param_idx])
+                return np.concatenate([data_vals, prior_vals])
+            return data_vals
+
+        if n_prior_terms:
+            xs_fit = np.concatenate([xs_phys, np.zeros(n_prior_terms)])
+            ys_fit = np.concatenate([ys, np.array([phys_priors[n][0] for n in prior_names])])
+            sigma_fit = np.concatenate([
+                np.full(n_pts, max(float(self._noise_std), 1e-12)),
+                np.array([phys_priors[n][1] for n in prior_names]),
+            ])
+        else:
+            xs_fit, ys_fit, sigma_fit = xs_phys, ys, None
 
         best_popt, best_pcov = self._run_curve_fit_candidates(
-            curve_fn, xs_phys, ys, candidates, make_p0, lo_bounds, hi_bounds, xtol
+            curve_fn, xs_fit, ys_fit, candidates, make_p0, lo_bounds, hi_bounds, xtol, sigma=sigma_fit
         )
 
         freq_phys = float(best_popt[scan_idx])
@@ -390,6 +440,58 @@ class GenericSweepLocator(SweepingLocator):
         # belief.physical_param_bounds in place during resampling — the fit
         # must not alias a dict that can shift under it.
         return dict(param_bounds_phys)
+
+    # Parameters MAP-regularized in _fit_model, via _resolve_physical_priors below.
+    # Deliberately narrow: homogeneous_linewidth/sigma_inhom is a genuine degenerate
+    # ridge (many combinations reproduce the same total width, so no amount of data
+    # ever picks one over another — the prior can only ever act as a tie-breaker
+    # among functionally-equivalent fits). Parameters that ARE identifiable from data
+    # (zeeman_split, split, k_np, c_total) were tried here too and made things worse:
+    # since curve_fit's multi-start races candidates by *total* residual including the
+    # prior rows, a prior mean that's a noisy draw away from truth can make a
+    # genuinely-worse-fitting candidate win the race outright, not just nudge the
+    # final answer within one basin — a real regression (40-seed clean-signal median
+    # |err| 52.9kHz -> 77.7kHz, mean 1915kHz -> 2568kHz) confirmed against a live run.
+    _MAP_REGULARIZED_PARAMS = frozenset({"homogeneous_linewidth", "sigma_inhom"})
+
+    def _resolve_physical_priors(
+        self,
+        param_names: list[str],
+        scan_param: str,
+        param_bounds_phys: dict[str, tuple[float, float]],
+    ) -> dict[str, tuple[float, float]]:
+        """Physical-unit Gaussian priors ``{name: (mean, std)}`` for MAP regularization.
+
+        The SMC belief already carries these (unit-space, via ``nv_center_smc_belief``'s
+        ``bounds["_priors"]`` -> ``priors=`` conversion in ``belief_builders.py``) to seed
+        initial particles and rejuvenate during resampling — but neither mechanism helps
+        ``curve_fit``, which has no Bayesian concept at all. Restricted to
+        ``_MAP_REGULARIZED_PARAMS`` (see its comment) rather than every parameter with a
+        belief prior — broader application actively hurt well-identified parameters.
+
+        ``scan_param`` (frequency) is excluded even if a prior exists for it: localizing
+        frequency from data is the entire point of the sweep, and its prior is a coarse
+        "sin^2" shape rather than a Gaussian mean/std anyway.
+        """
+        belief_priors = getattr(self.belief, "priors", None)
+        if not belief_priors:
+            return {}
+        phys_priors: dict[str, tuple[float, float]] = {}
+        for name in param_names:
+            if name == scan_param or name not in belief_priors or name not in self._MAP_REGULARIZED_PARAMS:
+                continue
+            prior_val = belief_priors[name]
+            if not (isinstance(prior_val, tuple) and len(prior_val) >= 2):
+                continue
+            if prior_val[0] == "sin^2":
+                continue
+            unit_mu, unit_std = prior_val
+            if unit_std <= 0:
+                continue
+            lo, hi = param_bounds_phys[name]
+            span = hi - lo
+            phys_priors[name] = (lo + float(unit_mu) * span, float(unit_std) * span)
+        return phys_priors
 
     def _smooth_for_peak_detection(self, ys: np.ndarray) -> tuple[np.ndarray, int]:
         """Smooth interior points only, to avoid edge artifacts from zero-padding.
@@ -672,9 +774,23 @@ class GenericSweepLocator(SweepingLocator):
         candidates = list(seeds)
         candidates.append((argmin_freq, half_sep, hf_split_init))
 
-        if split_idx is not None and all(s[2] is None for s in seeds):
+        if split_idx is not None:
+            # Unconditionally, not only when the seeds carry no split: a detected
+            # split can itself be a wrong-basin reading. With a strongly asymmetric
+            # triplet (k_np >~ 3, sub-dip depths 1/k² : 1/k : 1) each Zeeman group
+            # reads as one dominant dip (its rightmost hyperfine line, at
+            # group_center + split) plus a faint shoulder — so dip detection seeds
+            # the *frequency* offset by ~+split while zeeman_split stays correct,
+            # and reads the shoulder spacing as a too-small split. From that
+            # correlated-wrong start curve_fit converges to a half-split/
+            # k_np-at-bound local optimum ~split/2 off in frequency and never
+            # visits the true basin. Pair each split start h with the
+            # dominant-line-corrected frequency (freq_init - h) as well as the
+            # uncorrected one; a few extra starts are cheap next to that failure
+            # mode, and the residual race discards the wrong hypothesis.
             hf_grid0 = np.linspace(lo_bounds[split_idx], hi_bounds[split_idx], _FIT_ZEEMAN_STARTS)
             candidates += [(freq_init, half_sep, float(h)) for h in hf_grid0]
+            candidates += [(freq_init - float(h), half_sep, float(h)) for h in hf_grid0]
 
         snr = dip_depth / max(float(self._noise_std), 1e-9)
         if snr < _FIT_GRID_SNR:
@@ -721,6 +837,7 @@ class GenericSweepLocator(SweepingLocator):
         lo_bounds: list[float],
         hi_bounds: list[float],
         xtol: float,
+        sigma: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """Run curve_fit from each candidate start, keep the lowest-residual result.
 
@@ -733,11 +850,20 @@ class GenericSweepLocator(SweepingLocator):
         out fine but the fitted curve's depth/width visibly deviates from the
         data.
 
+        ``sigma``, when given, carries the per-residual weight (data points at
+        the measurement noise std, any appended MAP prior rows at their prior
+        std — see ``_fit_model``) with ``absolute_sigma=True`` so the two
+        differently-scaled residual types combine correctly instead of scipy's
+        default reduced-chi-square rescale conflating them. Candidate racing
+        uses the same weighting so "lowest residual" means the same thing the
+        optimizer itself minimized.
+
         Raises if every candidate fails to converge.
         """
         from scipy.optimize import curve_fit
 
         x_scale = np.maximum(np.asarray(hi_bounds, dtype=float) - np.asarray(lo_bounds, dtype=float), 1e-12)
+        sigma_kwargs = {} if sigma is None else {"sigma": sigma, "absolute_sigma": True}
 
         best_popt = None
         best_pcov = None
@@ -753,10 +879,14 @@ class GenericSweepLocator(SweepingLocator):
                     maxfev=_FIT_MAXFEV,
                     xtol=xtol,
                     x_scale=x_scale,
+                    **sigma_kwargs,
                 )
             except Exception:
                 continue
-            resid = float(np.sum((curve_fn(xs_phys, *popt) - ys) ** 2))
+            resid_vec = curve_fn(xs_phys, *popt) - ys
+            if sigma is not None:
+                resid_vec = resid_vec / sigma
+            resid = float(np.sum(resid_vec**2))
             if resid < best_resid:
                 best_resid = resid
                 best_popt = popt
@@ -785,7 +915,7 @@ class GenericSweepLocator(SweepingLocator):
             if var > 0:
                 fit_std = float(np.sqrt(var))
         contrast_fit = next(
-            (self._fit_params_phys[n] for n in ("c_total", "c_max", "dip_depth") if n in self._fit_params_phys),
+            (self._fit_params_phys[n] for n in ("c_total", "c_max") if n in self._fit_params_phys),
             dip_depth,
         )
         crlb_at_fit = _expected_frequency_crlb(
@@ -854,7 +984,7 @@ class GenericSweepLocator(SweepingLocator):
 
         dip_width = None
         if self._fit_params_phys is not None:
-            dip_width = self._fit_params_phys.get("linewidth") or self._fit_params_phys.get("fwhm_total")
+            dip_width = self._fit_params_phys.get("linewidth") or self._fit_params_phys.get("homogeneous_linewidth")
         dip_width = dip_width or self._model_signal_min_span()
 
         total_dip_width = expected_dips * dip_width if dip_width is not None and dip_width > 0 else 0.0
