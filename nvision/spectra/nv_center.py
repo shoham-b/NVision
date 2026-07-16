@@ -38,7 +38,7 @@ MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
 # relative to the (narrow) NV center frequency domain below so the two Zeeman
 # groups stay a visually significant fraction of the plotted domain rather than
 # being lost in a much wider empty range.
-MIN_ZEEMAN_SPLIT: float = 0.0   # dips fully overlap at zero field
+MIN_ZEEMAN_SPLIT: float = 0.0  # dips fully overlap at zero field
 MAX_ZEEMAN_SPLIT: float = 60e6  # 60 MHz → ~2.1 mT
 
 # N-14 parallel hyperfine coupling constant for NV⁻ in diamond.
@@ -448,8 +448,14 @@ class NVCenterLorentzianModel(
         k_np = params.k_np if self._with_hyperfine_splitting else 1.0
         if self._with_zeeman_splitting:
             return nv_center_zeeman_lorentzian_eval(
-                float(x), params.frequency, params.linewidth,
-                params.zeeman_split, hf_split, k_np, params.c_total, 1.0,
+                float(x),
+                params.frequency,
+                params.linewidth,
+                params.zeeman_split,
+                hf_split,
+                k_np,
+                params.c_total,
+                1.0,
             )
         return self.compute_nvcenter_lorentzian_model(
             float(x), params.frequency, params.linewidth, hf_split, k_np, params.c_total
@@ -462,20 +468,26 @@ class NVCenterLorentzianModel(
         out = np.empty(n, dtype=FLOAT_DTYPE)
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_one_serial(
-                float(x), freq,
+                float(x),
+                freq,
                 np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         else:
             nv_center_lorentzian_vectorized_one_serial(
-                float(x), freq,
+                float(x),
+                freq,
                 np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         return out
 
@@ -495,20 +507,26 @@ class NVCenterLorentzianModel(
 
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_many(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         else:
             nv_center_lorentzian_vectorized_many(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         return out
 
@@ -526,20 +544,26 @@ class NVCenterLorentzianModel(
 
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_many_fast(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         else:
             nv_center_lorentzian_vectorized_many_fast(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         return out
 

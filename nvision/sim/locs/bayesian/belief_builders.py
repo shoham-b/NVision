@@ -211,8 +211,10 @@ def nv_center_belief(
     elif with_zeeman_splitting and with_hyperfine_splitting:
         model = NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=True)
         phys = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
-            with_hyperfine_splitting=True, with_zeeman_splitting=True,
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            with_hyperfine_splitting=True,
+            with_zeeman_splitting=True,
         )
         base_specs = [
             ("frequency", phys["frequency"], n_grid_freq),
@@ -225,8 +227,10 @@ def nv_center_belief(
     elif with_zeeman_splitting:
         model = NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=False)
         phys = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
-            with_hyperfine_splitting=False, with_zeeman_splitting=True,
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            with_hyperfine_splitting=False,
+            with_zeeman_splitting=True,
         )
         base_specs = [
             ("frequency", phys["frequency"], n_grid_freq),
@@ -355,7 +359,8 @@ def nv_center_smc_belief(  # noqa: C901
             with_zeeman_splitting=with_zeeman_splitting,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
             with_hyperfine_splitting=with_hyperfine_splitting,
             with_zeeman_splitting=with_zeeman_splitting,
         )

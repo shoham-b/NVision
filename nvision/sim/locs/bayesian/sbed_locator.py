@@ -134,9 +134,7 @@ def _effective_max_linewidth_hz(phys_bounds: dict) -> float:
     return 1e6
 
 
-def _effective_linewidth_and_contrast_estimate(
-    est: dict, phys_bounds: dict
-) -> tuple[float, float | None]:
+def _effective_linewidth_and_contrast_estimate(est: dict, phys_bounds: dict) -> tuple[float, float | None]:
     """Return (effective HWHM Hz estimate, realized contrast estimate), lineshape-agnostic.
 
     Falls back to the bound's max effective linewidth when the current
@@ -1013,9 +1011,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
         span = max(NVISION_NOISE_BG_SPAN_FACTOR * abs(lw_hat), max_split_hz or 0.0)
         bg_count = int(np.sum(np.abs(obs_xs_phys - f_hat) > span))
-        sigma_hat = background_noise_std(
-            obs_xs_phys, obs_ys, f_hat, lw_hat, max_dip_cluster_span_hz=max_split_hz
-        )
+        sigma_hat = background_noise_std(obs_xs_phys, obs_ys, f_hat, lw_hat, max_dip_cluster_span_hz=max_split_hz)
 
         if (sigma_hat is None or sigma_hat <= 0) and self._empirical_batch_noise_std is not None:
             # No background points yet, but multi-shot batches give a direct,
@@ -1042,6 +1038,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             bandwidth = freq_hi - freq_lo
             if bandwidth > 0:
                 from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, NVISION_SBED_STEPS_THEORY_FACTOR
+
                 n_theory = (4.0 * sigma_hat**2 * lw_hat * bandwidth) / (
                     math.pi * c_hat**2 * NVISION_FREQ_CONVERGENCE_THRESHOLD**2
                 )
@@ -1067,9 +1064,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
         bounds = self.belief.physical_param_bounds
         target_params = (
-            list(self._convergence_params)
-            if self._convergence_params
-            else list(self.belief.model.parameter_names())
+            list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
         )
 
         from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
@@ -1103,9 +1098,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             if not (derived_unc is not None and name in _SATURATION_VOIGT_RAW_PARAMS)
         ]
         if derived_unc is not None:
-            eval_items.extend(
-                (dname, dunc, derived_crlbs.get(dname, math.inf)) for dname, dunc in derived_unc.items()
-            )
+            eval_items.extend((dname, dunc, derived_crlbs.get(dname, math.inf)) for dname, dunc in derived_unc.items())
 
         # Per-param evaluation. For each param with a valid threshold:
         #   done = unc < convergence threshold
@@ -1139,10 +1132,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
             if not crlb_done:
                 all_crlb_done = False
-                
+
             if not (crlb_done or abs_done):
                 all_milestone_done = False
-                
+
             if name == "frequency" and (crlb_done or abs_done):
                 freq_milestone_done = True
 

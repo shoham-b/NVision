@@ -179,7 +179,13 @@ def generate_attempt_metrics(  # noqa: C901
     _stop_reason = repeat_stop_reasons[attempt_idx_in_combo]
     if freq_converged_step is not None or is_converged:
         failure_reason: str | None = None
-    elif strat_name in ("SimpleSweep", "SimpleSobol", "StagedSobolSweep", "StagedSobolSweepLocator", "GenericSweepLocator"):
+    elif strat_name in (
+        "SimpleSweep",
+        "SimpleSobol",
+        "StagedSobolSweep",
+        "StagedSobolSweepLocator",
+        "GenericSweepLocator",
+    ):
         failure_reason = None
     elif _stop_reason == "infeasible_crlb":
         failure_reason = "infeasible_crlb"

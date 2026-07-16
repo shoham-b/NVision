@@ -56,9 +56,7 @@ _FIT_ZEEMAN_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZEEMAN_STARTS", "4"))
 _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
 
 
-def _expected_frequency_crlb(
-    linewidth: float, c_total: float, noise_std: float, n_obs: int, bandwidth: float
-) -> float:
+def _expected_frequency_crlb(linewidth: float, c_total: float, noise_std: float, n_obs: int, bandwidth: float) -> float:
     """Closed-form Cramér-Rao lower bound for frequency (physical Hz), uniform sweep.
 
     ``CRLB_f = sqrt(2 σ² Ω / (π a² ρ))`` with σ = noise std, Ω = linewidth,
@@ -122,7 +120,7 @@ class GenericSweepLocator(SweepingLocator):
     ) -> GenericSweepLocator:
         domain_lo = kwargs.get("domain_lo")
         domain_hi = kwargs.get("domain_hi")
-        
+
         if domain_lo is None or domain_hi is None:
             if parameter_bounds is not None:
                 param_name = scan_param or (
@@ -133,7 +131,7 @@ class GenericSweepLocator(SweepingLocator):
                         domain_lo = parameter_bounds[param_name][0]
                     if domain_hi is None:
                         domain_hi = parameter_bounds[param_name][1]
-        
+
         domain_lo = domain_lo if domain_lo is not None else 0.0
         domain_hi = domain_hi if domain_hi is not None else 1.0
 
@@ -235,23 +233,26 @@ class GenericSweepLocator(SweepingLocator):
         """
         if not self._pending_obs:
             return
-            
+
         mapped_obs = []
         is_unit_cube = type(self.belief.model).__name__ == "UnitCubeSignalModel"
-        
+
         if is_unit_cube:
             mapped_obs = self._pending_obs
         else:
             from nvision.models.observation import Observation
+
             width = self._domain_hi - self._domain_lo
             for o in self._pending_obs:
                 x_phys = self._domain_lo + o.x * width
-                mapped_obs.append(Observation(
-                    x=x_phys,
-                    signal_value=o.signal_value,
-                    noise_std=o.noise_std,
-                    frequency_noise_model=o.frequency_noise_model,
-                ))
+                mapped_obs.append(
+                    Observation(
+                        x=x_phys,
+                        signal_value=o.signal_value,
+                        noise_std=o.noise_std,
+                        frequency_noise_model=o.frequency_noise_model,
+                    )
+                )
 
         if hasattr(self.belief, "batch_update"):
             chunk = NVISION_SWEEP_BATCH_CHUNK_SIZE
@@ -327,7 +328,9 @@ class GenericSweepLocator(SweepingLocator):
                 # Both remaining width keys are HWHM-scale now; kept as an explicit
                 # membership check (rather than assuming) in case a future model adds
                 # a full-width key back.
-                width_val = hwhm_est if param_names[width_idx] in ("linewidth", "homogeneous_linewidth") else 2.0 * hwhm_est
+                width_val = (
+                    hwhm_est if param_names[width_idx] in ("linewidth", "homogeneous_linewidth") else 2.0 * hwhm_est
+                )
                 p0[width_idx] = float(np.clip(width_val, lo_bounds[width_idx], hi_bounds[width_idx]))
             if sigma_inhom_idx is not None:
                 # A tiny but nonzero fraction of hwhm_est, not the bare lower bound: at
@@ -390,10 +393,12 @@ class GenericSweepLocator(SweepingLocator):
         if n_prior_terms:
             xs_fit = np.concatenate([xs_phys, np.zeros(n_prior_terms)])
             ys_fit = np.concatenate([ys, np.array([phys_priors[n][0] for n in prior_names])])
-            sigma_fit = np.concatenate([
-                np.full(n_pts, max(float(self._noise_std), 1e-12)),
-                np.array([phys_priors[n][1] for n in prior_names]),
-            ])
+            sigma_fit = np.concatenate(
+                [
+                    np.full(n_pts, max(float(self._noise_std), 1e-12)),
+                    np.array([phys_priors[n][1] for n in prior_names]),
+                ]
+            )
         else:
             xs_fit, ys_fit, sigma_fit = xs_phys, ys, None
 
@@ -537,7 +542,9 @@ class GenericSweepLocator(SweepingLocator):
         return max(0.0, baseline - float(interior.min()))
 
     @staticmethod
-    def _estimate_hwhm(xs_norm: np.ndarray, smoothed: np.ndarray, dip_depth: float, domain_width: float) -> float | None:
+    def _estimate_hwhm(
+        xs_norm: np.ndarray, smoothed: np.ndarray, dip_depth: float, domain_width: float
+    ) -> float | None:
         """Estimate the deepest dip's half-width-at-half-max (HWHM) directly
         from the data, in the same units as this codebase's ``linewidth``
         parameter (see ``nv_center_lorentzian_eval``: ``omega`` in
@@ -714,15 +721,17 @@ class GenericSweepLocator(SweepingLocator):
         if split_idx is not None:
             if len(positions) >= 3:
                 # Full triplet resolved: middle dip = frequency, outer span = 2*split.
-                return [(float(positions[len(positions) // 2]), None, 0.5 * (float(positions[-1]) - float(positions[0])))]
+                return [
+                    (float(positions[len(positions) // 2]), None, 0.5 * (float(positions[-1]) - float(positions[0])))
+                ]
             # Two detected lines of a triplet — seed every consistent
             # assignment (see docstring); the residual race picks the winner.
             left, right = float(positions[0]), float(positions[1])
             gap = right - left
             return [
-                (left, None, gap),                  # (center, deepest): most likely for k_np > 1
+                (left, None, gap),  # (center, deepest): most likely for k_np > 1
                 (0.5 * (left + right), None, 0.5 * gap),  # (outer pair, center hidden)
-                (right, None, gap),                 # (shallow, center)
+                (right, None, gap),  # (shallow, center)
             ]
 
         # Generic doublet: midpoint of the outermost pair.
@@ -954,9 +963,7 @@ class GenericSweepLocator(SweepingLocator):
         self._signal_found = True
         signal_max_span = self._signal_max_span or self._model_signal_max_span()
         half_width_phys = (
-            min(domain_width / 2, 1.5 * signal_max_span)
-            if signal_max_span is not None
-            else domain_width * 0.2
+            min(domain_width / 2, 1.5 * signal_max_span) if signal_max_span is not None else domain_width * 0.2
         )
         self._acquisition_lo = max(self._domain_lo, freq_phys - half_width_phys)
         self._acquisition_hi = min(self._domain_hi, freq_phys + half_width_phys)
