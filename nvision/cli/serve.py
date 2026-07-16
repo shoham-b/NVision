@@ -222,6 +222,12 @@ def _restore_missing_graphs(directory: Path) -> None:
 
         for combo in combos:
             try:
+                # Fast path: lightweight :meta sidecars, skips loading plot bytes.
+                # Returns None (not "nothing to restore") whenever it can't prove
+                # every referenced file is already on disk — only then do we pay
+                # for the full deserialization needed to actually restore bytes.
+                if bridge.get_cached_combination_fast(out_dir=directory, **combo) is not None:
+                    continue
                 results = bridge.get_cached_combination(**combo)
                 if results:
                     # restore_graphs skips files that already exist on disk
