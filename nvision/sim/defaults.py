@@ -36,23 +36,6 @@ NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD: float = float(os.getenv("NVISION_DIP_NO
 NVISION_DIP_CONFIDENCE: float = float(os.getenv("NVISION_DIP_CONFIDENCE", "0.99"))
 
 
-# --- Grid Resolution Defaults (belief_builders.py) -------------------------
-
-NVISION_GRID_FREQ: int = int(os.getenv("NVISION_GRID_FREQ", "96"))
-NVISION_GRID_WIDTH: int = int(os.getenv("NVISION_GRID_WIDTH", "64"))
-NVISION_GRID_DEPTH: int = int(os.getenv("NVISION_GRID_DEPTH", "48"))
-NVISION_GRID_BACKGROUND: int = int(os.getenv("NVISION_GRID_BACKGROUND", "48"))
-
-# NV-center specific grid defaults
-NVISION_NV_GRID_FREQ: int = int(os.getenv("NVISION_NV_GRID_FREQ", "500"))
-NVISION_NV_GRID_LINEWIDTH: int = int(os.getenv("NVISION_NV_GRID_LINEWIDTH", "80"))
-NVISION_NV_GRID_FWHM_TOTAL: int = int(os.getenv("NVISION_NV_GRID_FWHM_TOTAL", "80"))
-NVISION_NV_GRID_LORENTZ_FRAC: int = int(os.getenv("NVISION_NV_GRID_LORENTZ_FRAC", "60"))
-NVISION_NV_GRID_SPLIT: int = int(os.getenv("NVISION_NV_GRID_SPLIT", "80"))
-NVISION_NV_GRID_K_NP: int = int(os.getenv("NVISION_NV_GRID_K_NP", "60"))
-NVISION_NV_GRID_DEPTH: int = int(os.getenv("NVISION_NV_GRID_DEPTH", "100"))
-NVISION_NV_GRID_BACKGROUND: int = int(os.getenv("NVISION_NV_GRID_BACKGROUND", "60"))
-
 # --- Sobol Sweep Defaults (sobol_locator.py) ---------------------------------
 
 NVISION_SOBOL_MIN_POINTS: int = int(os.getenv("NVISION_SOBOL_MIN_POINTS", "255"))

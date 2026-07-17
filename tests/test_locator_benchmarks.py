@@ -23,10 +23,7 @@ from nvision import (
     run_loop,
 )
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
-from nvision.sim.locs.bayesian.belief_builders import (
-    nv_center_belief,
-    nv_center_smc_belief,
-)
+from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator as SbedLocator
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.coarse import GenericSweepLocator

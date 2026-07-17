@@ -8,78 +8,15 @@ import numpy as np
 import pytest
 
 from nvision import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
     CoreExperiment,
     NVCenterCoreGenerator,
     Observer,
-    UnitCubeGridMarginalDistribution,
     UnitCubeSignalModel,
     UnitCubeSMCMarginalDistribution,
-    nv_center_belief,
-    nv_center_lorentzian_bounds_for_domain,
     nv_center_smc_belief,
     run_loop,
 )
-from nvision.belief.grid_marginal import GridMarginalDistribution
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
-
-
-def test_nv_center_default_bounds_align_with_generation_formulas():
-    # Default: Zeeman splitting → frequency, linewidth, zeeman_split, c_total
-    gen_z = nv_center_lorentzian_bounds_for_domain(
-        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
-        with_hyperfine_splitting=False, with_zeeman_splitting=True,
-    )
-    b = nv_center_belief()
-    for key in ("frequency", "linewidth", "zeeman_split"):
-        assert b.physical_param_bounds[key] == gen_z[key]
-    glo, ghi = gen_z["c_total"]
-    blo, bhi = b.physical_param_bounds["c_total"]
-    assert bhi == ghi
-    assert glo <= blo < bhi
-    assert "split" not in b.physical_param_bounds
-    assert "k_np" not in b.physical_param_bounds
-
-    # No Zeeman, no hyperfine → frequency, linewidth, c_total only
-    gen = nv_center_lorentzian_bounds_for_domain(
-        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=False
-    )
-    b_nodip = nv_center_belief(with_zeeman_splitting=False)
-    for key in ("frequency", "linewidth"):
-        assert b_nodip.physical_param_bounds[key] == gen[key]
-    assert "zeeman_split" not in b_nodip.physical_param_bounds
-    assert "split" not in b_nodip.physical_param_bounds
-
-    # With hyperfine splitting only: split and k_np are present
-    gen_hf = nv_center_lorentzian_bounds_for_domain(
-        DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX, with_hyperfine_splitting=True
-    )
-    b_hf = nv_center_belief(with_hyperfine_splitting=True, with_zeeman_splitting=False)
-    for key in ("frequency", "linewidth", "split", "k_np"):
-        assert b_hf.physical_param_bounds[key] == gen_hf[key]
-
-
-def test_nv_center_belief_is_unit_cube_with_wrapped_model():
-    b = nv_center_belief()
-    assert isinstance(b, UnitCubeGridMarginalDistribution)
-    assert isinstance(b.model, UnitCubeSignalModel)
-    for p in b.parameters:
-        assert p.bounds == (0.0, 1.0)
-        assert float(p.grid[0]) == 0.0
-        assert float(p.grid[-1]) == 1.0
-
-
-def test_unit_cube_estimates_are_physical_hz():
-    rng = random.Random(2025)
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
-    true_signal = gen.generate(rng)
-    phys_bounds = true_signal.all_param_bounds()
-    b = nv_center_belief(phys_bounds)
-    # Posterior means start at box centers in *unit* space → physical midpoints
-    est = b.estimates()
-    assert 2.6e9 < est["frequency"] < 3.1e9
-    assert "c_total" in est  # default: no hyperfine splitting, so no k_np/split
 
 
 @pytest.mark.slow
@@ -111,30 +48,6 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     freq_est = final.snapshots[-1].belief.estimates()["frequency"]
     freq_true = true_signal.get_param_value("frequency")
     assert abs(freq_est - freq_true) < 0.2e9
-
-
-def test_physical_param_grid_for_plots():
-    b = nv_center_belief()
-    g = b.physical_param_grid("frequency")
-    assert np.isfinite(g).all()
-    assert float(g[0]) < float(g[-1])
-
-
-def test_narrow_scan_parameter_physical_bounds_grid():
-    b = nv_center_belief(n_grid_freq=40)
-    old_lo, old_hi = b.physical_param_bounds["frequency"]
-    mid = 0.5 * (old_lo + old_hi)
-    quarter = 0.25 * (old_hi - old_lo)
-    nl, nh = mid - quarter, mid + quarter
-    b.narrow_scan_parameter_physical_bounds("frequency", nl, nh)
-    flo, fhi = b.physical_param_bounds["frequency"]
-    assert abs(flo - nl) < 1e-6 * (old_hi - old_lo)
-    assert abs(fhi - nh) < 1e-6 * (old_hi - old_lo)
-    assert b.physical_x_bounds == (flo, fhi)
-    assert b.model.param_bounds_phys["frequency"] == (flo, fhi)
-    assert b.model.x_bounds_phys == (flo, fhi)
-    g = GridMarginalDistribution.get_grid_param(b, "frequency")
-    assert abs(float(np.sum(g.posterior)) - 1.0) < 1e-9
 
 
 def test_narrow_scan_parameter_physical_bounds_smc():

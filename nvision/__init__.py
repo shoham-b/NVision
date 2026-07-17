@@ -1,4 +1,3 @@
-from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import locator_combination_cache_config
@@ -33,7 +32,6 @@ from nvision.sim.gen import (
     PeakSpec,
     nv_center_lorentzian_bounds_for_domain,
 )
-from nvision.sim.locs.bayesian import nv_center_belief
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.coarse import GenericSweepLocator, StagedSobolSweepLocator
 from nvision.spectra.gaussian import GaussianModel, GaussianSpectrum
@@ -103,7 +101,6 @@ __all__ = [
     "StagedSobolSweepLocator",
     "TrueSignal",
     # Belief
-    "UnitCubeGridMarginalDistribution",
     "UnitCubeSMCMarginalDistribution",
     "UnitCubeSignalModel",
     "VoigtZeemanModel",
@@ -120,7 +117,6 @@ __all__ = [
     "locator_combination_cache_config",
     # Runner
     "measurement_repeat_key",
-    "nv_center_belief",
     "nv_center_lorentzian_bounds_for_domain",
     "nv_center_smc_belief",
     "plot_data_from_scan_figure",

@@ -119,14 +119,8 @@ def _posterior_animation_inputs(  # noqa: C901
 
     from nvision.belief.grid_marginal import GridMarginalDistribution
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
 
     b0 = snapshots[0].belief
-    if isinstance(b0, UnitCubeGridMarginalDistribution):
-        grid = b0.physical_param_grid(scan_param)
-        # Use base get_grid_param to access unit-cube PMF directly.
-        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots]
-        return hist, grid
     if isinstance(b0, GridMarginalDistribution):
         grid = b0.get_grid_param(scan_param).grid
         hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in snapshots]
@@ -191,10 +185,6 @@ def _posterior_animation_inputs_all_params(  # noqa: C901
 
     from nvision.belief.grid_marginal import GridMarginalDistribution
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    from nvision.belief.unit_cube_grid_marginal import UnitCubeGridMarginalDistribution
-
-    if isinstance(b0, UnitCubeGridMarginalDistribution):
-        return _extract_unit_cube_grid_posterior(snapshots, names)
 
     if isinstance(b0, GridMarginalDistribution):
         return _extract_grid_posterior(snapshots, names)
@@ -204,20 +194,6 @@ def _posterior_animation_inputs_all_params(  # noqa: C901
 
     log.debug("No multi-parameter posterior extraction for belief type %s", type(b0).__name__)
     return None
-
-
-def _extract_unit_cube_grid_posterior(
-    snapshots: list, names: list[str]
-) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
-    from nvision.belief.grid_marginal import GridMarginalDistribution
-
-    out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
-    b0 = snapshots[0].belief
-    for scan_param in names:
-        grid = b0.physical_param_grid(scan_param)
-        hist = [GridMarginalDistribution.get_grid_param(s.belief, scan_param).posterior.copy() for s in snapshots]
-        out[scan_param] = (hist, grid)
-    return out
 
 
 def _extract_grid_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:

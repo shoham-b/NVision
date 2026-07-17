@@ -26,26 +26,10 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 # Prevents false early stops on the first measurement, especially with no noise.
 NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
 
-# Kill-switch for the symmetry-probe acquisition branch (see _acquire). On by default;
-# set NVISION_SBED_SYMMETRY_PROBE=0 to fall back to the prior EIG/explore/dip-bias mix.
-_SYMMETRY_PROBE_ENABLED: bool = os.getenv("NVISION_SBED_SYMMETRY_PROBE", "1") not in ("0", "false", "False")
-
-# Kill-switch for the end-of-run full-history reweighting pass (see
-# _rescore_against_full_history). On by default; set to "0" to fall back to the raw
-# sequential particle weights (today's behavior).
-_FULL_HISTORY_RESCORE_ENABLED: bool = os.getenv("NVISION_SBED_FULL_HISTORY_RESCORE", "1") not in (
-    "0",
-    "false",
-    "False",
-)
-
-# Minimum log-likelihood advantage (nats) the winning frequency cluster must have over
-# the runner-up before _rescore_against_full_history overrides the incumbent posterior-mean
-# answer. Deliberately large: with hundreds of observations a wrong Zeeman-mode hypothesis
-# loses by hundreds of nats (each off-hypothesis background measurement is itself a multi-
-# sigma miss), so this only ever fires on a genuine, decisive resolution -- never on a
-# marginal call -- making the override structurally unable to regress an already-good run.
-NVISION_SBED_FULL_HISTORY_MARGIN_NATS: float = float(os.getenv("NVISION_SBED_FULL_HISTORY_MARGIN_NATS", "10.0"))
+# Kill-switch for the dual symmetric-window acquisition strategy (see
+# _dual_window_acquire). On by default; set NVISION_SBED_DUAL_WINDOW=0 to fall back to
+# plain EIG over the single unioned focus window.
+_DUAL_WINDOW_ENABLED: bool = os.getenv("NVISION_SBED_DUAL_WINDOW", "1") not in ("0", "false", "False")
 
 
 def background_noise_std(
@@ -404,6 +388,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self._empirical_batch_noise_std: float | None = None
         self._batch_noise_sum: float = 0.0
         self._batch_noise_count: int = 0
+        # How many acquisitions have landed in each symmetric Zeeman-flank window so
+        # far (see _dual_window_acquire). Used to force balanced information between
+        # the two flanks rather than letting EIG greedily favor one.
+        self._dual_window_counts: dict[str, int] = {"left": 0, "right": 0}
         # Physical frequency of the most recent EIG selection, re-injected into
         # the candidate grid so a second batch there is a legitimate EIG outcome
         # rather than being dropped by minimum-spacing thinning.
@@ -630,73 +618,91 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                         val = float(self.belief._particles[idx, p_idx])
                         return self.belief._to_physical(scan_param, val)
 
-        elif rand_val < 0.3 and _SYMMETRY_PROBE_ENABLED:
-            # Symmetry probe -- breaks the frequency/zeeman_split degeneracy. The NV signal
-            # is exactly mirror-symmetric about `frequency`, so measuring at the mirror image
-            # (about the current frequency estimate) of an already-observed dip directly tests
-            # that symmetry and is self-correcting in every case:
-            #   * estimate right, small split: observed dip and its mirror both sit near the
-            #     center -> re-measures the central dip (harmless reinforcement).
-            #   * estimate right, large split: mirror lands on the OTHER Zeeman group ->
-            #     confirms the symmetric partner dip (legitimately informative).
-            #   * estimate WRONG (the real center dip mistaken for a Zeeman flank, so the
-            #     estimate sits ~split away from truth): the mirror lands out in the baseline
-            #     where the wrong hypothesis predicts a symmetric partner dip -> measuring
-            #     baseline there disconfirms the wrong mode.
-            # This gathers exactly the evidence the EIG epoch grid never does: that grid is
-            # targeted at the believed *flank* dips (freq +/- split) and so systematically
-            # never samples the center -- the one place small-split (dip) and large-split
-            # (baseline) disagree. Diagnosed on near-merged-split signals where the correct
-            # small-split mode keeps particle support the whole run yet is never preferred.
-            probe = self._symmetry_probe_point(orig_lo, orig_hi)
-            if probe is not None:
-                return probe
-
+        if _DUAL_WINDOW_ENABLED:
+            dual = self._dual_window_acquire()
+            if dual is not None:
+                return dual
         return self._eig_acquire()
 
-    def _symmetry_probe_point(self, orig_lo: float, orig_hi: float) -> float | None:
-        """Mirror of an observed dip about the current frequency estimate (or None).
+    def _dual_window_acquire(self) -> float | None:
+        """Explicit dual symmetric-window acquisition for Zeeman-split signals.
 
-        See the symmetry-probe branch in :meth:`_acquire` for the rationale. Returns a
-        physical frequency clamped to the original (un-narrowed) domain, or None if there
-        aren't enough observations / no frequency estimate yet.
+        Motivation (project memory ``sbed-voigt-fit-quality-fixes.md``): direct
+        instrumentation showed the catastrophic-tail failure is a *continuous*, biased,
+        unimodal frequency posterior -- not competition between discrete modes (ruled
+        out: gap-based clustering always found exactly 1 cluster). The two prior fixes
+        aimed at mode-competition and both failed their A/Bs. A concrete mechanism that
+        *would* produce exactly this signature: `frequency` and `zeeman_split` trade off
+        along a sloppy ridge whenever one Zeeman flank is measured with much better
+        precision than the other -- the model can equally well explain the well-measured
+        flank's dip with many (frequency, zeeman_split) combinations, as long as the
+        under-measured flank's *implied* position drifts along with the trade-off. EIG
+        alone has no reason to keep the two flanks balanced; it happily piles measurements
+        on whichever flank currently looks more informative.
 
-        Anchoring on ``belief._dip_centers`` (the detector's own empirical symmetry axis)
-        instead of the belief's estimate was tried and measurably underperformed this
-        simpler version on the real run path (10-repeat A/B, same combo: 1/10 catastrophic
-        vs 0/10, worst 71.7 MHz vs 3.6 MHz) -- the detector's own dip clusters aren't
-        reliable enough (it frequently qualifies zero or one cluster, and the "outermost
-        pair" heuristic is itself fooled by the same wrong-mode measurements that corrupt
-        the belief) to be a better anchor than the particle posterior's own mean. Reverted
-        rather than kept as a strictly-worse alternative.
+        This method breaks that ridge directly: define two windows, each `k` linewidths
+        wide, symmetric about the current `frequency` estimate at `+/- zeeman_split`, and
+        force the *next* acquisition into whichever flank has received fewer measurements
+        so far (a hard round-robin-toward-balance policy, not a preference) -- both flanks
+        end up anchored with comparable precision, closing the sloppy direction instead of
+        just searching within it. Within the chosen window, candidates are still ranked by
+        ordinary EIG, so this only changes *which flank* gets the next measurement, not how
+        good a candidate must be within it.
+
+        Falls back to None (caller uses plain EIG) when there is no Zeeman-split axis, the
+        split estimate is not yet meaningfully nonzero, or a window collapses to nothing.
         """
-        rescale_maps = getattr(self.belief, "_rescale_maps", None)
-        if hasattr(self.belief, "observation_arrays") and rescale_maps and "frequency" in rescale_maps:
-            obs_xs_unit, obs_ys = self.belief.observation_arrays()
-            obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
-        else:
-            obs_list = getattr(self.belief, "_observations", [])
-            if not obs_list or rescale_maps is None or "frequency" not in rescale_maps:
-                return None
-            obs_xs_phys = rescale_maps["frequency"].to_phys(np.array([o.x for o in obs_list]))
-            obs_ys = np.array([o.signal_value for o in obs_list])
-
-        if len(obs_xs_phys) < 3:
+        param_names = getattr(self.belief, "_param_names", None)
+        if not param_names or "zeeman_split" not in param_names or "frequency" not in param_names:
             return None
         est = self.belief.estimates()
-        f_hat = est.get("frequency")
-        if f_hat is None:
+        center_hat = est.get("frequency")
+        split_hat = est.get("zeeman_split")
+        if center_hat is None or split_hat is None:
+            return None
+        lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
+        lw_hat = abs(lw_hat)
+        # Below this, the two flanks are close enough to be one unresolved feature --
+        # let plain EIG (which already covers the merged region) handle it instead of
+        # forcing an artificial split that may not physically exist yet.
+        if split_hat < 3.0 * lw_hat:
             return None
 
-        # Mirror a randomly chosen deep observed point (not just the single minimum, so one
-        # noisy low sample can't dominate) about f_hat, then jitter within an estimated
-        # linewidth to land inside a dip rather than exactly on a node.
-        k = min(5, len(obs_ys))
-        deepest = np.argsort(obs_ys)[:k]
-        p = float(obs_xs_phys[int(np.random.choice(deepest))])
-        lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
-        mirror = 2.0 * float(f_hat) - p + float(np.random.uniform(-abs(lw_hat), abs(lw_hat)))
-        return float(np.clip(mirror, orig_lo, orig_hi))
+        orig_lo, orig_hi = getattr(self.belief, "_original_physical_x_bounds", self._acquisition_bounds())
+        half_width = 3.0 * lw_hat
+        windows = {
+            "left": (
+                max(orig_lo, center_hat - split_hat - half_width),
+                min(orig_hi, center_hat - split_hat + half_width),
+            ),
+            "right": (
+                max(orig_lo, center_hat + split_hat - half_width),
+                min(orig_hi, center_hat + split_hat + half_width),
+            ),
+        }
+
+        target = "left" if self._dual_window_counts["left"] <= self._dual_window_counts["right"] else "right"
+        lo, hi = windows[target]
+        if hi <= lo:
+            # This flank has been pushed outside the domain (e.g. a very large split
+            # estimate); fall back to the other one if it's still valid, else give up.
+            other = "right" if target == "left" else "left"
+            lo, hi = windows[other]
+            if hi <= lo:
+                return None
+            target = other
+
+        # Deliberately NOT routed through belief.select_max_information_gain(): that
+        # method converts physical candidates to unit space via self.physical_x_bounds,
+        # which is the belief's *narrowing* focus window -- if this window sits outside
+        # the currently-narrowed range (e.g. the far flank, while the belief has narrowed
+        # around the near one), the conversion produces out-of-[0,1] unit values. The
+        # balance between flanks is the whole point here, not EIG-optimized placement
+        # within an already-narrow window, so a plain uniform draw sidesteps that risk
+        # entirely rather than threading a second unit-conversion path through it.
+        result = float(np.random.uniform(lo, hi))
+        self._dual_window_counts[target] += 1
+        return result
 
     def _eig_acquire(self) -> float:
         """Maximize EIG over the belief's slope-targeted candidate grid."""
@@ -785,20 +791,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                     if conf.is_stable and self.focus_stable_step is None:
                         self.focus_stable_step = self.step_count
 
-            # Both paths above declare "converged" from the *sequential* particle weights,
-            # which look confidently unimodal even when a correct-but-minority mode (as
-            # little as 1-2% of the weight, per the diagnosed Zeeman mode-collapse failure)
-            # is still alive -- a weighted variance/CRLB check is barely moved by a 1%
-            # minority. Before actually letting the run stop, veto that verdict against the
-            # full observation history (order-independent, unaffected by how sequential
-            # resampling happened to go): if two frequency hypotheses are still genuinely
-            # competing, keep running (up to the normal max_steps ceiling) instead of
-            # locking in an answer that later steps might have corrected. Only pays the
-            # extra O(particles x observations) check in the (rare) moment it could matter.
-            if self._is_converged and _FULL_HISTORY_RESCORE_ENABLED and self._full_history_ambiguous():
-                self._is_converged = False
-                self._convergence_streak = 0
-
     def _acquisition_done(self) -> bool:
         """Extend base stop logic with a permissive theory-step-budget backstop.
 
@@ -812,173 +804,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if self._theory_step_budget is not None and self.inference_step_count > self._theory_step_budget:
             return True
         return False
-
-    def result(self) -> dict[str, float]:
-        """Return the posterior-mean estimate, after a final full-history reweighting pass.
-
-        See :meth:`_rescore_against_full_history` for the mechanism. Mutates
-        ``self.belief._weights`` in place when it decisively disagrees with the
-        sequential posterior mean, so the parent's ``estimates()``/``uncertainty()``
-        calls (used by ``result()`` and by the CSV metrics pipeline) automatically
-        reflect the corrected mode — no separate reporting path to keep in sync.
-        """
-        if _FULL_HISTORY_RESCORE_ENABLED:
-            self._rescore_against_full_history()
-        return super().result()
-
-    def _rescore_against_full_history(self) -> bool:
-        """Re-derive the frequency estimate from ALL observations, gated to a decisive win.
-
-        Motivation (see project memory ``sbed-voigt-fit-quality-fixes.md`` /
-        ``zeeman-mode-collapse-fix.md``): diagnosed that in every catastrophic Zeeman
-        mode-collapse repeat, the correct-mode particles never actually die out (they
-        keep 1-2% of the weight for the whole run) — the sequential, resample-decayed
-        particle weight just never favors them. That sequential weight is
-        *path-dependent*: it is the product of per-step likelihoods accumulated through
-        however resampling happened to go, not a clean function of the data. This method
-        instead computes each particle's log-likelihood against *every* observation at
-        once (order-independent, no resampling in between), clusters particles by
-        frequency (a genuinely bimodal posterior straddles two well-separated locations,
-        which a single weighted mean blends into a meaningless third point), and only
-        overrides the standard answer when one cluster's aggregate evidence beats the
-        runner-up by a decisive margin (``NVISION_SBED_FULL_HISTORY_MARGIN_NATS``) --
-        chosen large enough that a wrong Zeeman-mode hypothesis, which misses hundreds of
-        real background measurements it predicts should be dips, always loses by far more
-        than this margin, while an already-good unimodal run has no runner-up cluster at
-        all and is left untouched.
-
-        Evaluates directly in physical units via ``belief.model.inner`` (bypassing the
-        wrapped ``UnitCubeSignalModel``'s ``param_bounds_phys``/``x_bounds_phys``, which
-        narrow over the run and would misinterpret older stored unit-space observations
-        collected before that narrowing). Frequency uses the belief's stable
-        ``_rescale_maps["frequency"]`` (never narrows, see ``compute_focus_window_confidence``
-        for the same pattern); other parameters use ``physical_param_bounds`` directly,
-        which per ``_resample()`` stay at their full original range for the run's duration.
-
-        Returns True iff it overrode ``belief._weights`` (for tests/diagnostics).
-        """
-        clustering = self._full_history_cluster_scores()
-        if clustering is None:
-            return False
-        belief, full_loglik, f_phys, gap_thresh, scored, est = clustering
-        (best_logZ, best_idx), (second_logZ, _) = scored[0], scored[1]
-        margin = best_logZ - second_logZ
-
-        incumbent_freq = est.get("frequency")
-        if margin < NVISION_SBED_FULL_HISTORY_MARGIN_NATS:
-            return False
-        if incumbent_freq is not None and abs(float(np.mean(f_phys[best_idx])) - incumbent_freq) < gap_thresh:
-            return False  # winning cluster already agrees with the incumbent -- nothing to fix
-
-        # Restrict and renormalize weights to the winning cluster so estimates()/
-        # uncertainty() for ALL parameters (not just frequency) reflect the corrected
-        # mode, rather than a mean averaged across both.
-        ll_best = full_loglik[best_idx]
-        w = np.exp(ll_best - ll_best.max())
-        new_weights = np.zeros_like(belief._weights)
-        new_weights[best_idx] = w / w.sum()
-        belief._weights = new_weights
-        return True
-
-    def _full_history_cluster_scores(
-        self,
-    ) -> tuple[object, np.ndarray, np.ndarray, float, list[tuple[float, np.ndarray]], dict] | None:
-        """Shared clustering step for both the final rescore and the mid-run ambiguity gate.
-
-        Returns ``(belief, full_loglik, f_phys, gap_thresh, scored, est)`` where ``scored``
-        is a list of ``(logZ, particle_idx_array)`` per frequency cluster, sorted by
-        ``logZ`` descending -- or None when there are too few observations, required belief
-        internals are missing, or the frequency posterior is unimodal (nothing to arbitrate).
-
-        See ``_rescore_against_full_history`` for the full rationale of evaluating in
-        physical units via ``belief.model.inner`` and clustering by physical frequency gap.
-        """
-        belief = self.belief
-        if not hasattr(belief, "_particles") or not hasattr(belief, "_weights"):
-            return None
-        rescale_maps = getattr(belief, "_rescale_maps", None)
-        if not rescale_maps or "frequency" not in rescale_maps:
-            return None
-        param_names = getattr(belief, "_param_names", None)
-        if not param_names or "frequency" not in param_names:
-            return None
-        inner = getattr(belief.model, "inner", None)
-        if inner is None:
-            return None
-
-        if hasattr(belief, "observation_arrays"):
-            obs_xs_unit, obs_ys = belief.observation_arrays()
-        else:
-            obs_list = getattr(belief, "_observations", [])
-            if not obs_list:
-                return None
-            obs_xs_unit = np.array([o.x for o in obs_list])
-            obs_ys = np.array([o.signal_value for o in obs_list])
-        if len(obs_xs_unit) < 10:
-            return None
-        obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
-        obs_sigma = max(float(self._empirical_batch_noise_std or self._noise_std), 1e-12)
-
-        inner_names = list(inner.parameter_names())
-        try:
-            name_to_col = {n: param_names.index(n) for n in inner_names}
-        except ValueError:
-            return None
-        phys_arrays = []
-        for name in inner_names:
-            col = belief._particles[:, name_to_col[name]]
-            if name == "frequency":
-                phys_arrays.append(rescale_maps["frequency"].to_phys(col))
-            else:
-                lo, hi = belief.physical_param_bounds[name]
-                phys_arrays.append(lo + col * (hi - lo))
-
-        predictions = inner.compute_vectorized_many(obs_xs_phys, phys_arrays)  # (n_obs, n_particles)
-        residuals = obs_ys[:, None] - predictions
-        full_loglik = (-0.5 * (residuals / obs_sigma) ** 2).sum(axis=0)  # (n_particles,)
-
-        f_phys = phys_arrays[inner_names.index("frequency")]
-        est = belief.estimates()
-        lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, belief.physical_param_bounds)
-        domain_lo, domain_hi = getattr(self, "_full_domain_lo", None), getattr(self, "_full_domain_hi", None)
-        fallback_gap = 1e-3 * (domain_hi - domain_lo) if domain_lo is not None and domain_hi is not None else 1.0
-        gap_thresh = max(3.0 * abs(lw_hat), fallback_gap)
-
-        order = np.argsort(f_phys)
-        f_sorted = f_phys[order]
-        gaps = np.diff(f_sorted)
-        split_at = np.where(gaps > gap_thresh)[0] + 1
-        clusters = [order[idx] for idx in np.split(np.arange(len(f_sorted)), split_at) if len(idx) > 0]
-        if len(clusters) < 2:
-            return None  # unimodal (in frequency) -- nothing to arbitrate
-
-        def cluster_logZ(idx: np.ndarray) -> float:
-            ll = full_loglik[idx]
-            m = float(ll.max())
-            return m + float(np.log(np.sum(np.exp(ll - m))))
-
-        scored = sorted(((cluster_logZ(idx), idx) for idx in clusters), key=lambda t: t[0], reverse=True)
-        return belief, full_loglik, f_phys, gap_thresh, scored, est
-
-    def _full_history_ambiguous(self) -> bool:
-        """True when 2+ frequency clusters exist with comparable full-history evidence.
-
-        Used to gate convergence mid-run (see ``_check_and_resample``): the standard
-        convergence checks trust the *sequential* particle weights, which can look
-        confidently unimodal even while a correct-but-minority mode (as little as 1-2% of
-        the weight, per the diagnosed Zeeman mode-collapse failure) is still alive --  a
-        weighted variance is barely moved by a 1% minority. This recomputes evidence from
-        the full observation history instead (see ``_full_history_cluster_scores``) and
-        blocks a premature "converged" declaration whenever the top two clusters are still
-        genuinely competing (margin below the decisive threshold), rather than only firing
-        after the sequential filter happens to have already discarded the correct mode.
-        """
-        clustering = self._full_history_cluster_scores()
-        if clustering is None:
-            return False
-        _, _, _, _, scored, _ = clustering
-        margin = scored[0][0] - scored[1][0]
-        return margin < NVISION_SBED_FULL_HISTORY_MARGIN_NATS
 
     def _check_crlb_early_stop(self, physical_uncertainties) -> None:
         """Background-noise CRLB early-stop check, run on resample events only.
