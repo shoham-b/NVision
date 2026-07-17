@@ -853,7 +853,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         f_b_phys = _to_phys("frequency", estimates["frequency"])
         df_hf_phys = _to_phys_delta("split", estimates["split"]) if "split" in estimates else 0.0
-        df_zeeman_phys = _to_phys_delta("zeeman_split", estimates["zeeman_split"]) if "zeeman_split" in estimates else 0.0
+        df_zeeman_phys = (
+            _to_phys_delta("zeeman_split", estimates["zeeman_split"]) if "zeeman_split" in estimates else 0.0
+        )
 
         # 1. Determine linewidth Omega (HWHM) in physical space
         is_saturation_voigt = "saturation" in estimates and "sigma_inhom" in estimates
