@@ -631,7 +631,7 @@ class GenericSweepLocator(SweepingLocator):
         prom_floor = max(0.3 * dip_depth, 4.0 * max(float(self._noise_std), 1e-9))
         peaks, props = find_peaks(-smoothed, prominence=prom_floor)
         n_expected_dips = self._expected_dip_count_from_model()
-        if zs_idx is not None and split_idx is not None:
+        if zs_idx is not None:
             # Some models' expected_dip_count() assumes the nitrogen hyperfine
             # triplet is always merged into one dip per Zeeman group — but the
             # hyperfine splitting is a real physical constant
@@ -677,14 +677,23 @@ class GenericSweepLocator(SweepingLocator):
         positions = np.sort(domain_lo + xs_norm[peaks[top_order]] * domain_width)
 
         if zs_idx is not None:
-            # Split into the two Zeeman groups at the largest position gap.
+            # Split into the two Zeeman groups at the largest position gap —
+            # used below only to resolve within-group hyperfine candidates.
             split_at = int(np.argmax(np.diff(positions)))
             group_lo = positions[: split_at + 1]
             group_hi = positions[split_at + 1 :]
-            center_lo = float(np.mean(group_lo))
-            center_hi = float(np.mean(group_hi))
-            freq_init = 0.5 * (center_lo + center_hi)
-            half_sep = 0.5 * abs(center_hi - center_lo)
+
+            # frequency is the center of the *whole* two-dip Zeeman pattern:
+            # each group sits at frequency +/- zeeman_split, and any hyperfine
+            # fine structure inside a group is symmetric about that group's
+            # own center, so it never shifts where the pattern's outer edges
+            # fall. The midpoint of the outermost detected peaks is therefore
+            # a direct, physically-grounded estimate of frequency/zeeman_split
+            # — the same "generic doublet" logic used below when there's no
+            # Zeeman splitting at all — and it doesn't depend on the
+            # largest-gap grouping being correct.
+            freq_init = 0.5 * (float(positions[0]) + float(positions[-1]))
+            half_sep = 0.5 * (float(positions[-1]) - float(positions[0]))
 
             if split_idx is None:
                 return [(freq_init, half_sep, None)]
@@ -696,9 +705,8 @@ class GenericSweepLocator(SweepingLocator):
             # be the true split (adjacent pair) or 2x the true split (outer
             # pair) — picking only one seeds a wrong k_np/split local minimum
             # gradient descent can't escape.  Offer every group's candidates;
-            # freq_init/half_sep stay fixed (from the group means) since a
-            # partially-resolved group's mean is still a reasonable frequency
-            # estimate, and the residual race sorts out `split`.
+            # freq_init/half_sep stay fixed (from the outermost-peak midpoint
+            # above) since the residual race only needs to sort out `split`.
             hf_candidates: set[float] = set()
             for group in (group_lo, group_hi):
                 if len(group) >= 3:

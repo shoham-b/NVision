@@ -489,18 +489,15 @@ def nv_center_pseudo_voigt_vectorized_one(
     n = freq.shape[0]
     for j in prange(n):
         fwhm = fwhm_total[j]
-        lf = lorentz_frac[j]
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
         f = freq[j]
         s = split[j]
         k = k_np[j]
         d = dip_depth[j]
         bg = background[j]
 
-        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-        gamma = fwhm_l / 2.0
-        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        gamma = fwhm / 2.0
+        sigma = fwhm / (2.0 * _SQRT2LOG2)
+        ratio = lorentz_frac[j] if fwhm > 1e-30 else 0.0
         eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
         gamma2 = gamma * gamma
@@ -578,18 +575,15 @@ def nv_center_pseudo_voigt_vectorized_one_serial(
     n = freq.shape[0]
     for j in range(n):
         fwhm = fwhm_total[j]
-        lf = lorentz_frac[j]
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
         f = freq[j]
         s = split[j]
         k = k_np[j]
         d = dip_depth[j]
         bg = background[j]
 
-        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-        gamma = fwhm_l / 2.0
-        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        gamma = fwhm / 2.0
+        sigma = fwhm / (2.0 * _SQRT2LOG2)
+        ratio = lorentz_frac[j] if fwhm > 1e-30 else 0.0
         eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
         gamma2 = gamma * gamma
@@ -677,15 +671,12 @@ def nv_center_pseudo_voigt_vectorized_many(
     has_sigma_arr = np.empty(n, dtype=np.bool_)
     for j in range(n):
         fwhm = fwhm_total[j]
-        lf = lorentz_frac[j]
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
         k = k_np[j]
         d = dip_depth[j]
 
-        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-        gamma = fwhm_l / 2.0
-        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        gamma = fwhm / 2.0
+        sigma = fwhm / (2.0 * _SQRT2LOG2)
+        ratio = lorentz_frac[j] if fwhm > 1e-30 else 0.0
         eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
         gamma2 = gamma * gamma
@@ -789,15 +780,12 @@ def nv_center_pseudo_voigt_vectorized_many_fast_serial(
     has_sigma_arr = np.empty(n, dtype=np.bool_)
     for j in range(n):
         fwhm = fwhm_total[j]
-        lf = lorentz_frac[j]
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
         k = k_np[j]
         d = dip_depth[j]
 
-        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-        gamma = fwhm_l / 2.0
-        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        gamma = fwhm / 2.0
+        sigma = fwhm / (2.0 * _SQRT2LOG2)
+        ratio = lorentz_frac[j] if fwhm > 1e-30 else 0.0
         eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
         gamma2 = gamma * gamma
@@ -878,12 +866,10 @@ def nv_center_pseudo_voigt_eval(
     background: float,
 ) -> float:
     """NV triple pseudo-Voigt ODMR implementation."""
-    fwhm_l = lorentz_frac * fwhm_total
-    fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-    sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-    gamma = fwhm_l / 2.0
+    gamma = fwhm_total / 2.0
+    sigma = fwhm_total / (2.0 * _SQRT2LOG2)
 
-    ratio = fwhm_l / (fwhm_l + fwhm_g)
+    ratio = lorentz_frac if fwhm_total > 1e-30 else 0.0
     eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
     def _profile(xv, center):
@@ -1074,15 +1060,12 @@ def nv_center_pseudo_voigt_vectorized_many_fast(
     has_sigma_arr = np.empty(n, dtype=np.bool_)
     for j in range(n):
         fwhm = fwhm_total[j]
-        lf = lorentz_frac[j]
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
         k = k_np[j]
         d = dip_depth[j]
 
-        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-        gamma = fwhm_l / 2.0
-        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        gamma = fwhm / 2.0
+        sigma = fwhm / (2.0 * _SQRT2LOG2)
+        ratio = lorentz_frac[j] if fwhm > 1e-30 else 0.0
         eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
         gamma2 = gamma * gamma
@@ -1263,15 +1246,12 @@ def nv_center_pseudo_voigt_eig_variance(
     has_sigma_arr = np.empty(n, dtype=np.bool_)
     for j in range(n):
         fwhm = fwhm_total[j]
-        lf = lorentz_frac[j]
-        fwhm_l = lf * fwhm
-        fwhm_g = (1.0 - lf) * fwhm
         k = k_np[j]
         d = dip_depth[j]
 
-        sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-        gamma = fwhm_l / 2.0
-        ratio = fwhm_l / (fwhm_l + fwhm_g)
+        gamma = fwhm / 2.0
+        sigma = fwhm / (2.0 * _SQRT2LOG2)
+        ratio = lorentz_frac[j] if fwhm > 1e-30 else 0.0
         eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
         gamma2 = gamma * gamma
@@ -1376,14 +1356,11 @@ def _pv_factors(fwhm_total: float, lorentz_frac: float):
     ``V_norm(dx) = elf/(dx²+gamma2) + egf·exp(nhs·dx²)`` has unit peak height.
     ``elf = eta·gamma/center_height`` and ``egf = (1-eta)·gauss_center/center_height``.
     """
-    fwhm_l = lorentz_frac * fwhm_total
-    fwhm_g = (1.0 - lorentz_frac) * fwhm_total
-    denom = fwhm_l + fwhm_g
-    ratio = fwhm_l / denom if denom > 1e-30 else 0.0
+    ratio = lorentz_frac if fwhm_total > 1e-30 else 0.0
     eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
 
-    sigma = fwhm_g / (2.0 * _SQRT2LOG2)
-    gamma = fwhm_l / 2.0
+    gamma = fwhm_total / 2.0
+    sigma = fwhm_total / (2.0 * _SQRT2LOG2)
     gamma2 = gamma * gamma
 
     has_gamma = abs(gamma) > 1e-12

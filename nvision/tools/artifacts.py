@@ -599,3 +599,93 @@ def purge_cache_and_artifacts_for_combinations(  # noqa: C901
             log.warning("Failed to update plots_manifest.json during batch cache purge: %s", exc)
 
     return deleted_pointers
+
+
+def purge_cache_and_artifacts_for_strategies(
+    out_dir: Path,
+    strategies: set[str],
+    log: logging.Logger,
+) -> int:
+    """Delete cache entries and on-disk artifacts for every entry whose ``strategy`` is in
+    *strategies*, regardless of generator/noise -- used by ``nv groups <name> --purge`` so a
+    group purge is complete even when the group's generator-naming scheme has since changed
+    (e.g. a parametrization rename that added/removed a suffix). An exact-triple purge like
+    :func:`purge_cache_and_artifacts_for_combinations` can never match entries written under
+    an old name that current code no longer produces, so they'd otherwise linger forever.
+
+    Deliberately broader and less safe than the exact-triple purge: any cache entry sharing
+    one of *strategies* is deleted even if it belongs to an unrelated experiment that happens
+    to use the same strategy name. Only use this for a purge explicitly scoped to a whole
+    run-group's own strategy set.
+
+    Returns the number of matched cache pointer/inline keys deleted.
+    """
+    from nvision.cache import CacheBridge
+    from nvision.cache.repeats_repository import RepeatsRepository
+    from nvision.tools.paths import slugify
+
+    if not strategies:
+        return 0
+
+    bridge = CacheBridge(out_dir / "cache")
+    deleted_pointers = 0
+    matched_combos: set[tuple[str, str, str]] = set()
+    try:
+        for cat_cache in (bridge.nv_center, bridge.complementary):
+            backend = cat_cache.backend
+            matched_keys: list[str] = []
+            for k in backend:
+                payload = backend.get(k)
+                if not (isinstance(payload, dict) and "config" in payload):
+                    continue
+                cfg = payload["config"]
+                if cfg.get("kind") not in ("locator_combination", "locator_combination_pointer"):
+                    continue
+                if cfg.get("strategy") not in strategies:
+                    continue
+                matched_keys.append(k)
+                matched_combos.add((str(cfg.get("generator")), str(cfg.get("noise")), str(cfg.get("strategy"))))
+
+            for k in matched_keys:
+                backend.delete(k)
+                for i in range(1000):
+                    rep_key = RepeatsRepository.make_repeat_key(k, i)
+                    backend.delete(rep_key)
+                    backend.delete(rep_key + ":meta")
+                deleted_pointers += 1
+    finally:
+        bridge.close()
+
+    if deleted_pointers == 0:
+        return 0
+
+    prefixes = tuple(f"{'_'.join(slugify(p) for p in combo)}_r" for combo in matched_combos)
+    for directory in (out_dir / "graphs" / "scans", out_dir / "graphs" / "bayes"):
+        if not directory.exists():
+            continue
+        for p in directory.iterdir():
+            if p.is_file() and p.name.startswith(prefixes):
+                try:
+                    p.unlink()
+                except Exception as exc:
+                    log.warning("Failed to delete old artifact graph %s: %s", p.name, exc)
+
+    manifest_path = plots_manifest_path(out_dir)
+    if manifest_path.exists():
+        try:
+            with manifest_path.open("r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            new_manifest = [e for e in manifest if str(e.get("strategy")) not in strategies]
+            if len(new_manifest) != len(manifest):
+                with manifest_path.open("w", encoding="utf-8") as f:
+                    json.dump(new_manifest, f, indent=2)
+                log.info(
+                    "Removed %s manifest entries for %s purged strateg%s",
+                    len(manifest) - len(new_manifest),
+                    len(strategies),
+                    "y" if len(strategies) == 1 else "ies",
+                )
+        except Exception as exc:
+            log.warning("Failed to update plots_manifest.json during strategy-scoped cache purge: %s", exc)
+
+    return deleted_pointers

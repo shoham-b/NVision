@@ -956,6 +956,20 @@ def run(  # noqa: C901
 
         if purge and dry_run:
             log.info("--purge requested but skipped: --dry-run doesn't make destructive changes.")
+        elif purge and run_group is not None:
+            # Strategy-scoped purge for named groups: an exact (generator, noise, strategy)
+            # purge can never catch cache entries left over from an old generator-naming
+            # scheme the group no longer produces (see purge_cache_and_artifacts_for_strategies).
+            from nvision.tools.artifacts import purge_cache_and_artifacts_for_strategies
+
+            purge_strategies = set(group.strategy_names)
+            log.info(
+                "Purging existing cache entries for group %r by strategy (%s) before starting...",
+                run_group,
+                ", ".join(sorted(purge_strategies)),
+            )
+            purged_count = purge_cache_and_artifacts_for_strategies(out_dir, purge_strategies, log)
+            log.info("Purged %s existing cache entr%s.", purged_count, "y" if purged_count == 1 else "ies")
         elif purge:
             from nvision.tools.artifacts import purge_cache_and_artifacts_for_combinations
 

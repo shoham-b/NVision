@@ -70,12 +70,12 @@ class _VoigtZeemanSpec(
 class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSamples, VoigtZeemanSpectrumUncertainty]):
     """Voigt-broadened NV center model with Zeeman splitting.
 
-    Uses a two-width pseudo-Voigt approximation
+    Uses a pseudo-Voigt approximation
     (:func:`~nvision.spectra.numba_kernels.nv_center_zeeman_pseudo_voigt_eval`), not a true Voigt
     profile (no ``wofz``/error-function evaluation). The Lorentzian and Gaussian components are
-    evaluated at their own split widths rather than the combined Voigt FWHM the standard
-    Thompson-Cox-Hastings mixing weight assumes, so the approximation error vs. a true Voigt is
-    uncontrolled by that calibration; see ``tests/spectra/test_pseudo_voigt_accuracy.py``.
+    evaluated at the shared combined ``fwhm_total``, matching the standard Thompson-Cox-Hastings
+    mixing weight's calibration; see ``tests/spectra/test_pseudo_voigt_accuracy.py`` for the
+    residual approximation error.
 
     Models an NV center as two Zeeman-split groups (ms=+1/-1), each group a hyperfine
     triplet of Voigt profile dips. Each Lorentzian dip is convolved with a Gaussian, which

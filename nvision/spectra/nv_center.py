@@ -729,9 +729,9 @@ class NVCenterVoigtModel(
     ``tests/spectra/test_pseudo_voigt_accuracy.py``, which exercises
     :func:`~nvision.spectra.numba_kernels.nv_center_pseudo_voigt_eval` directly), not a true
     Voigt profile (no ``wofz``/error-function evaluation). The Lorentzian and Gaussian
-    components are evaluated at their own split widths rather than the combined Voigt FWHM the
-    standard Thompson-Cox-Hastings mixing weight assumes, so the approximation error vs. a true
-    Voigt is uncontrolled by that calibration; see ``tests/spectra/test_pseudo_voigt_accuracy.py``.
+    components are evaluated at the shared combined ``fwhm_total``, matching the standard
+    Thompson-Cox-Hastings mixing weight's calibration; see
+    ``tests/spectra/test_pseudo_voigt_accuracy.py`` for the residual approximation error.
 
     Mirrors :class:`NVCenterSaturationVoigtModel` structurally: always evaluated via the
     population-normalized Zeeman pseudo-Voigt kernel (``zeeman_split=0`` when Zeeman splitting
