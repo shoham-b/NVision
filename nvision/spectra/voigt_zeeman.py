@@ -195,9 +195,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         )
         return out.astype(FLOAT_DTYPE, copy=False)
 
-    def compute_vectorized_many_fast(
-        self, x_array: Sequence[float], samples: VoigtZeemanSpectrumSamples
-    ) -> np.ndarray:
+    def compute_vectorized_many_fast(self, x_array: Sequence[float], samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
         """Acquisition-only fast variant: uses the fastmath Zeeman pseudo-Voigt kernel."""
         if not hasattr(samples, "frequency"):
             return super().compute_vectorized_many_fast(x_array, samples)  # type: ignore[arg-type]
