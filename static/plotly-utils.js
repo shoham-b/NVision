@@ -140,6 +140,17 @@ function _scanBaseline(yDense) {
     return b > 1e-12 ? b : 1.0;
 }
 
+// Real (e.g. MATLAB) runs have no ground truth, so y_dense is all-NaN — a
+// "true signal" legend entry that never draws anything reads as a broken
+// trace rather than "no ground truth for real data". Omit it in that case.
+function _hasFiniteValues(arr) {
+    if (!arr) return false;
+    for (const v of arr) {
+        if (v != null && Number.isFinite(v)) return true;
+    }
+    return false;
+}
+
 function _depthPct(y, baseline) {
     return y == null ? 0 : Math.max(0, (baseline - y) / baseline * 100);
 }
@@ -150,8 +161,10 @@ function _buildScanFigure(def, data) {
     const sa = hasMetrics ? { xaxis: 'x', yaxis: 'y' } : {};
     const T = def.traces;
 
-    // True signal
-    traces.push(Object.assign({}, T.true_signal, { x: data.x_dense, y: data.y_dense }, sa));
+    // True signal (omitted when there's no known ground truth, e.g. real data)
+    if (_hasFiniteValues(data.y_dense)) {
+        traces.push(Object.assign({}, T.true_signal, { x: data.x_dense, y: data.y_dense }, sa));
+    }
 
     // Possible-measurement-range bands (Monte-Carlo envelope): outer ±2σ drawn
     // first so the inner ±1σ band layers on top of it. Falls back to the

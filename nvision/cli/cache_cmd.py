@@ -844,14 +844,16 @@ def clean_manifest(  # noqa: C901
     invalid_generators = set()
     stale_physics_generators = set()
 
-    # Identify invalid entries and collect invalid generator names. The two checks are
-    # independent: a dynamically-named grid generator (e.g. "NVCenter-lorentzian-w0.50MHz-c0.10")
-    # is absent from the static GeneratorName enum and would always fail the first check, so it
-    # must not be allowed to short-circuit past the (separate) stale-physics check below.
+    # Identify invalid entries and collect invalid generator names. Dynamically-named grid
+    # generators (e.g. "NVCenter-voigt-w0.50MHz-c0.10-si0.00MHz") are absent from the static
+    # GeneratorName enum by construction, so they're matched by prefix against the enum's base
+    # names rather than exact membership -- otherwise every grid-sweep entry would be flagged
+    # invalid regardless of the (separate) stale-physics check below.
     valid_plots = []
     for p in plots:
         gen = p.get("generator", "")
-        is_invalid_generator = gen not in valid_generators or p.get("generator_type") == "Supplemental"
+        is_known_generator = any(gen == base or gen.startswith(base + "-") for base in valid_generators)
+        is_invalid_generator = not is_known_generator or p.get("generator_type") == "Supplemental"
         is_stale_physics = False
         if stale_physics and p.get("type") == "scan":
             fp = (p.get("true_params") or {}).get("config_fingerprint")
@@ -901,8 +903,9 @@ def clean_manifest(  # noqa: C901
     if dry_run:
         console.print(f"[dim]Would remove {removed} manifest entries and {cache_removed} cache entries.[/dim]")
     else:
-        with open(manifest_path, "w") as f:
-            json.dump(valid_plots, f, indent=2)
+        from nvision.tools.artifacts import _atomic_write_bytes
+
+        _atomic_write_bytes(manifest_path, json.dumps(valid_plots, indent=2).encode("utf-8"))
         console.print(f"[green]Removed {removed} manifest entries and {cache_removed} cache entries.[/green]")
 
 

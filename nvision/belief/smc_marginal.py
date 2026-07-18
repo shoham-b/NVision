@@ -1151,6 +1151,50 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 else:
                     self._particles[-num_random:, j] = self._rng.uniform(lo, hi, num_random)
 
+        # 8.6 Joint dip-informed rejuvenation for (frequency, zeeman_split).
+        # The per-dimension loop above samples each parameter independently, so
+        # the chance a rejuvenated particle lands near the *correct joint*
+        # (frequency, zeeman_split) combination is negligible once other
+        # dimensions have converged -- this is how the filter mode-locks onto a
+        # mirror-symmetric wrong solution (mistaking one real Zeeman dip for the
+        # other, frequency off by ~1 zeeman_split) and never recovers: no
+        # particle exists near the true mode to be reweighted back up. When
+        # both params are free and at least two dip candidates were detected in
+        # observed data (self._dip_centers, most-significant first, from the
+        # prior epoch's dip detection), overwrite a slice of the rejuvenated
+        # particles with the joint (frequency, zeeman_split) implied directly
+        # by the two most significant detected dips -- the same "midpoint /
+        # half-separation of the two dips" physics used by
+        # GenericSweepLocator's fit seeding (see generic_sweep_locator.py) --
+        # so the correct mode gets a chance to be rediscovered and reweighted
+        # by the next likelihood update. The other dimensions of these
+        # particles are set to the pre-resample weighted mean (not left at the
+        # independent-uniform draw above) so they represent the current
+        # best-fit shape at the alternate frequency/zeeman position, a
+        # meaningfully competing hypothesis rather than pure noise.
+        if (
+            num_random > 0
+            and "frequency" in self._param_names
+            and "zeeman_split" in self._param_names
+            and len(self._dip_centers) >= 2
+        ):
+            freq_idx = self._param_names.index("frequency")
+            zeeman_idx = self._param_names.index("zeeman_split")
+            d0, d1 = sorted(self._dip_centers[:2])
+            freq_candidate_phys = 0.5 * (d0 + d1)
+            zeeman_candidate_phys = 0.5 * (d1 - d0)
+            rescale = self._rescale_maps
+            freq_candidate = rescale["frequency"].to_unit(freq_candidate_phys)
+            zeeman_candidate = rescale["zeeman_split"].to_unit(zeeman_candidate_phys)
+            f_lo, f_hi = self.parameter_bounds["frequency"]
+            z_lo, z_hi = self.parameter_bounds["zeeman_split"]
+
+            self._particles[-num_random:, :] = mean
+            jitter_f = self._rng.normal(0.0, 0.01 * (f_hi - f_lo), num_random)
+            jitter_z = self._rng.normal(0.0, 0.01 * (z_hi - z_lo), num_random)
+            self._particles[-num_random:, freq_idx] = np.clip(freq_candidate + jitter_f, f_lo, f_hi)
+            self._particles[-num_random:, zeeman_idx] = np.clip(zeeman_candidate + jitter_z, z_lo, z_hi)
+
         # 9. Update cached candidate grid for the next epoch
         self._generate_epoch_candidates()
         self._belief_version += 1

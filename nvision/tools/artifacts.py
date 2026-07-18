@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +24,26 @@ def locator_results_path(out_dir: Path) -> Path:
 
 def plots_manifest_path(out_dir: Path) -> Path:
     return out_dir / PLOTS_MANIFEST_JSON
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write *data* to *path* atomically via a same-directory temp file + rename.
+
+    Prevents byte-interleaving corruption when multiple processes (e.g. a
+    purge and a concurrent render) write plots_manifest.json at the same
+    time -- a plain ``open(path, "w")`` from two writers can splice their
+    output together mid-key. ``os.replace`` is atomic on both POSIX and
+    Windows, so readers only ever see a complete old or complete new file.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 def run_status_path(out_dir: Path) -> Path:
@@ -293,8 +316,6 @@ def merge_run_plot_manifest_with_existing_on_disk(
         # Keep track of active file paths in the new manifest to avoid unlinking them
         new_paths = {str(row.get("path")) for row in plot_manifest if row.get("path")}
 
-        import contextlib
-
         filtered_old: list[dict[str, object]] = []
         for entry in old_manifest:
             # Drop old summaries - they are rebuilt per run
@@ -430,9 +451,9 @@ def write_plots_manifest(plot_manifest: list[dict[str, object]], out_dir: Path) 
     path = plots_manifest_path(out_dir)
     stripped = [_slim_manifest_entry(e) for e in plot_manifest]
     json_bytes = json.dumps(stripped, separators=(",", ":")).encode("utf-8")
-    path.write_bytes(json_bytes)
+    _atomic_write_bytes(path, json_bytes)
     # Also write a compressed version for fast network transfer
-    path.with_suffix(".json.gz").write_bytes(_gzip.compress(json_bytes, compresslevel=6))
+    _atomic_write_bytes(path.with_suffix(".json.gz"), _gzip.compress(json_bytes, compresslevel=6))
     return path
 
 
@@ -494,8 +515,7 @@ def purge_artifacts_for_combination(
                 new_manifest.append(entry)
 
             if removed_count > 0:
-                with manifest_path.open("w", encoding="utf-8") as f:
-                    json.dump(new_manifest, f, indent=2)
+                _atomic_write_bytes(manifest_path, json.dumps(new_manifest, indent=2).encode("utf-8"))
                 log.debug(
                     "Removed %s entries from plots_manifest.json for combination %s/%s/%s",
                     removed_count,
@@ -588,8 +608,7 @@ def purge_cache_and_artifacts_for_combinations(  # noqa: C901
                 if (str(e.get("generator")), str(e.get("noise")), str(e.get("strategy"))) not in str_combos
             ]
             if len(new_manifest) != len(manifest):
-                with manifest_path.open("w", encoding="utf-8") as f:
-                    json.dump(new_manifest, f, indent=2)
+                _atomic_write_bytes(manifest_path, json.dumps(new_manifest, indent=2).encode("utf-8"))
                 log.info(
                     "Removed %s manifest entries for %s purged combination(s)",
                     len(manifest) - len(new_manifest),
@@ -677,8 +696,7 @@ def purge_cache_and_artifacts_for_strategies(
                 manifest = json.load(f)
             new_manifest = [e for e in manifest if str(e.get("strategy")) not in strategies]
             if len(new_manifest) != len(manifest):
-                with manifest_path.open("w", encoding="utf-8") as f:
-                    json.dump(new_manifest, f, indent=2)
+                _atomic_write_bytes(manifest_path, json.dumps(new_manifest, indent=2).encode("utf-8"))
                 log.info(
                     "Removed %s manifest entries for %s purged strateg%s",
                     len(manifest) - len(new_manifest),

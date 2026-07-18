@@ -54,6 +54,7 @@ class _MatlabExperiment:
 
     def __init__(self, data: Any, true_signal: _MatlabSignalProxy, freq_lo: float, freq_hi: float) -> None:
         self.true_signal = true_signal
+        self.noise = None  # real measurements: no CompositeNoise model, mirrors CoreExperiment.noise
         self.x_min = freq_lo
         self.x_max = freq_hi
         self._data = data
@@ -62,6 +63,11 @@ class _MatlabExperiment:
 
     def measure(self, x_unit: float, rng: Any = None):  # noqa: ANN001
         return self._data.measure(x_unit, self._freq_lo, self._freq_hi)
+
+    @property
+    def signal(self):
+        """Physical-domain signal callable — for viz compatibility (mirrors CoreExperiment.signal)."""
+        return self.true_signal
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +274,7 @@ def _write_artifacts(  # noqa: C901
     ts_str: str,
 ) -> Path:
     """Write locator_results.csv, plots_manifest.json, and Bayesian plots."""
+    from nvision.gui.report import prepare_static_ui_data
     from nvision.runner.convert import run_result_to_finalize_record, run_result_to_history_df
     from nvision.runner.metrics import generate_attempt_metrics
     from nvision.runner.plots import generate_attempt_plots
@@ -349,8 +356,26 @@ def _write_artifacts(  # noqa: C901
     loc_df = merge_locator_results_with_existing(loc_df, out_dir, log)
     write_locator_results_csv(loc_df, out_dir)
 
+    # Flush each entry's in-memory plot bytes to its .json.gz path. The normal
+    # `nv run` pipeline does this via the SQLite cache + restore_graphs when
+    # `nv serve` starts; matlab-run writes a standalone tree with no cache, so
+    # it must write these directly — write_plots_manifest only strips _bytes,
+    # it never writes the file itself.
+    for plot_entry in plot_manifest:
+        entry_bytes = plot_entry.get("_bytes")
+        entry_path = plot_entry.get("path")
+        if entry_bytes is not None and entry_path:
+            file_path = out_dir / entry_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_bytes(entry_bytes)
+
     # Write plots manifest
     write_plots_manifest(plot_manifest, out_dir)
+
+    try:
+        prepare_static_ui_data(out_dir)
+    except Exception as exc:
+        log.warning(f"Failed to build HTML index: {exc}")
 
     write_run_status(out_dir, "done", total_tasks=1, completed_tasks=1)
 

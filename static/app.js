@@ -2196,17 +2196,46 @@ function main() {
         });
     }
 
-    // Generic multi-select button group with click = select-one, click-another =
-    // commit contiguous range (same anchor/preview UX as the noise selector).
-    // `sortFn` orders the buttons left-to-right; pass a numeric comparator when
-    // items are numeric strings so range-select is contiguous in value order.
+    // Generic multi-select button group. Plain click (or keyboard Enter/Space)
+    // selects a single item, replacing the prior selection. Press-and-drag from
+    // one button to another selects the contiguous range between them, previewed
+    // live as the drag crosses buttons. `sortFn` orders the buttons left-to-right;
+    // pass a numeric comparator when items are numeric strings so range-select is
+    // contiguous in value order.
     function renderMultiSelectButtonControl(control, items, previousValues, sortFn) {
         const prev = Array.isArray(previousValues) ? previousValues : (previousValues ? [previousValues] : []);
         const uniqueItems = [...new Set(items.filter(Boolean).map(String))].sort(sortFn);
 
         control.innerHTML = '';
         control.setAttribute('role', 'group');
-        control._rangeAnchor = null;
+        control._dragAnchor = null;
+        control._dragCurrent = null;
+        control._dragMoved = false;
+        control._justDragged = false;
+
+        const commitDrag = () => {
+            if (!control._dragAnchor) return;
+            const allBtns = [...control.querySelectorAll('button')];
+            allBtns.forEach(b => b.classList.remove('is-range-preview', 'is-range-anchor'));
+            if (control._dragMoved) {
+                const ai = allBtns.findIndex(b => b.dataset.value === control._dragAnchor);
+                const bi = allBtns.findIndex(b => b.dataset.value === control._dragCurrent);
+                const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
+                const range = allBtns.slice(lo, hi + 1).map(b => b.dataset.value);
+                control._justDragged = true;
+                _setNoiseSelected(control, range);
+            }
+            control._dragAnchor = null;
+            control._dragCurrent = null;
+            control._dragMoved = false;
+        };
+
+        // Bound once per control element (survives re-renders that only replace
+        // the buttons), so a drag released outside any button still commits.
+        if (!control._dragCommitBound) {
+            control._dragCommitBound = true;
+            document.addEventListener('mouseup', commitDrag);
+        }
 
         for (const item of uniqueItems) {
             const btn = document.createElement('button');
@@ -2218,35 +2247,20 @@ function main() {
             btn.textContent = item;
             btn.className = 'noise-btn';
 
-            btn.addEventListener('click', () => {
-                const allBtns = [...control.querySelectorAll('button')];
-                allBtns.forEach(b => b.classList.remove('is-range-preview'));
-
-                if (!control._rangeAnchor) {
-                    // First click: set anchor, select only this item
-                    control._rangeAnchor = item;
-                    allBtns.forEach(b => b.classList.toggle('is-range-anchor', b.dataset.value === item));
-                    _setNoiseSelected(control, [item]);
-                } else {
-                    const ai = allBtns.findIndex(b => b.dataset.value === control._rangeAnchor);
-                    const bi = allBtns.findIndex(b => b.dataset.value === item);
-                    if (ai === bi) {
-                        // Re-clicked the anchor — keep it as a fresh single-item anchor
-                        return;
-                    }
-                    // Second click: commit range from anchor to here
-                    const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
-                    const range = allBtns.slice(lo, hi + 1).map(b => b.dataset.value);
-                    control._rangeAnchor = null;
-                    allBtns.forEach(b => b.classList.remove('is-range-anchor'));
-                    _setNoiseSelected(control, range);
-                }
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // avoid text-selection while dragging
+                control._dragAnchor = item;
+                control._dragCurrent = item;
+                control._dragMoved = false;
+                btn.classList.add('is-range-anchor');
             });
 
             btn.addEventListener('mouseenter', () => {
-                if (!control._rangeAnchor || item === control._rangeAnchor) return;
+                if (!control._dragAnchor) return;
+                control._dragCurrent = item;
+                control._dragMoved = item !== control._dragAnchor;
                 const allBtns = [...control.querySelectorAll('button')];
-                const ai = allBtns.findIndex(b => b.dataset.value === control._rangeAnchor);
+                const ai = allBtns.findIndex(b => b.dataset.value === control._dragAnchor);
                 const bi = allBtns.findIndex(b => b.dataset.value === item);
                 const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
                 allBtns.forEach((b, i) =>
@@ -2254,9 +2268,17 @@ function main() {
                 );
             });
 
-            btn.addEventListener('mouseleave', () => {
-                if (!control._rangeAnchor) return;
-                control.querySelectorAll('.is-range-preview').forEach(b => b.classList.remove('is-range-preview'));
+            btn.addEventListener('click', () => {
+                // A completed drag already committed via the document mouseup
+                // handler above; this plain click (mouse, or keyboard Enter/Space
+                // which never fires mousedown/mouseenter) selects one item.
+                if (control._justDragged) {
+                    control._justDragged = false;
+                    return;
+                }
+                const allBtns = [...control.querySelectorAll('button')];
+                allBtns.forEach(b => b.classList.remove('is-range-preview', 'is-range-anchor'));
+                _setNoiseSelected(control, [item]);
             });
 
             control.appendChild(btn);
@@ -2749,7 +2771,7 @@ function main() {
                         '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.fine.label) + '</div>' +
                         '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
 
-                    if (plot.true_params) {
+                    if (plot.true_params && _hasKnownTrueParams(plot.true_params)) {
                         html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
                     }
@@ -2766,7 +2788,7 @@ function main() {
                             '<span>Inference: ' + formatCount(plot.fine_measurements) + ' meas.</span></div>';
                     }
 
-                    if (plot.true_params) {
+                    if (plot.true_params && _hasKnownTrueParams(plot.true_params)) {
                         html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
                             '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
                     }
@@ -2814,6 +2836,15 @@ function main() {
         }
         // Apply stopping-criteria cap to posterior animation after plot change
         applyStoppingFrameLimit();
+    }
+
+    // Real (e.g. MATLAB) runs carry a true_params object with no known ground
+    // truth (all params null/NaN, since there's nothing to compare against).
+    // Showing "True Signal Parameters: N/A" in that case reads as a broken
+    // computation rather than "no ground truth" — skip the panel entirely.
+    function _hasKnownTrueParams(trueData) {
+        const params = (trueData && trueData.params) || {};
+        return Object.values(params).some((v) => typeof v === 'number' && Number.isFinite(v));
     }
 
     function buildTrueParamItems(trueData, plot) {
