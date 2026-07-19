@@ -125,7 +125,8 @@ def nv_center_smc_belief(  # noqa: C901
             with_zeeman_splitting=with_zeeman_splitting,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
             with_hyperfine_splitting=with_hyperfine_splitting,
             with_zeeman_splitting=with_zeeman_splitting,
         )
