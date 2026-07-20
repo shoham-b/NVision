@@ -98,3 +98,13 @@ class CategoryDataStore:
         """Delete a key from the store."""
         with suppress(Exception):
             self._backend.delete(key)
+
+    def save_blob(self, key: str, data: bytes) -> None:
+        """Persist raw bytes under ``key`` in the BLOB table — no text encoding at all."""
+        self._backend.blob_set(key, data)
+
+    def load_blob(self, key: str) -> bytes | None:
+        return self._backend.blob_get(key)
+
+    def load_blob_batch(self, keys: list[str]) -> dict[str, bytes]:
+        return self._backend.blob_batch_get(keys)

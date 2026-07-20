@@ -100,7 +100,13 @@ class ArtifactTree:
 
 
 def prepare_artifact_tree(out_dir: Path, *, clear_cache: bool = False) -> ArtifactTree:
-    """Create standard cache/graphs subdirectories under ``out_dir``.
+    """Resolve the standard artifact paths under ``out_dir`` and create the cache dir.
+
+    The graphs/scans/bayes paths are only *names* now — used to derive relative
+    paths embedded in cache entries — and are not created on disk: graph bytes
+    live in the SQLite cache and are served on demand by ``nv serve``'s API.
+    The few writers that still materialize files (``nv render``, matlab import)
+    mkdir their own targets on write.
 
     When ``clear_cache`` is True, removes an existing cache directory before recreating it
     (used by ``nvision run --no-cache``).
@@ -112,18 +118,12 @@ def prepare_artifact_tree(out_dir: Path, *, clear_cache: bool = False) -> Artifa
     ensure_out_dir(cache_dir)
 
     graphs_dir = out_dir / "graphs"
-    ensure_out_dir(graphs_dir)
-    scans_dir = graphs_dir / "scans"
-    ensure_out_dir(scans_dir)
-    bayes_dir = graphs_dir / "bayes"
-    ensure_out_dir(bayes_dir)
-
     return ArtifactTree(
         out_dir=out_dir,
         cache_dir=cache_dir,
         graphs_dir=graphs_dir,
-        scans_dir=scans_dir,
-        bayes_dir=bayes_dir,
+        scans_dir=graphs_dir / "scans",
+        bayes_dir=graphs_dir / "bayes",
     )
 
 

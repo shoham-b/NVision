@@ -1,33 +1,32 @@
-"""Serve artifacts via a local HTTP server.
+"""Serve artifacts via a local FastAPI/uvicorn server, backed live by the SQLite cache.
 
 Usage:
-    uv run python -m nvision serve                       # Serve main artifacts (port 8080)
-    uv run python -m nvision serve --dir demo_artifacts  # Serve demo artifacts (port 8081)
+    uv run python -m nvision serve                       # Serve main artifacts (port 18080)
+    uv run python -m nvision serve --dir demo_artifacts  # Serve demo artifacts (port 18081)
     uv run python -m nvision serve --port 9000           # Custom port
-    uv run python -m nvision serve --demo                # Run demo then serve results
 
 Keyboard shortcuts (in browser):
     'r' - Reload/recalculate results
+
+Nothing is pre-rendered to disk: the manifest and every graph/aggregate view are
+built on demand from ``<directory>/cache`` on each request (see
+``nvision.cli.api_server``).
 """
 
 from __future__ import annotations
 
-import contextlib
-import http.server
 import json
 import logging
-import socketserver
-import subprocess
-import sys
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 import typer
+import uvicorn
 from rich.console import Console
 
-from nvision.cli import defaults
+from nvision.cli.api_server import build_app
 from nvision.cli.app_instance import app
 from nvision.tools.paths import ARTIFACTS_ROOT
 
@@ -39,207 +38,8 @@ PORT_MAIN = 18080
 PORT_DEMO = 18081
 PORT_BETA = 18082
 
-# Global state for reload tracking
-_reload_state: dict = {"running": False, "last_output": ""}
-
 # Global server instance for shutdown control
-_server_instance: socketserver.TCPServer | None = None
-_server_thread: threading.Thread | None = None
-
-# Tracks directories already restored this server session so the heavy DB scan
-# only happens once per directory, not on every /api/manifest request.
-_restored_dirs: set[str] = set()
-
-
-class _APIHandler(http.server.SimpleHTTPRequestHandler):
-    """HTTP handler with API endpoints for reload functionality."""
-
-    # Class variables set by the server
-    directory_to_serve: ClassVar[Path] = Path(".")
-    is_demo: ClassVar[bool] = False
-
-    def log_message(self, format: str, *args: object) -> None:
-        pass
-
-    def do_GET(self) -> None:
-        """Handle GET requests - check for API endpoints first."""
-        if self.path == "/api/status":
-            self._send_json(
-                {
-                    "reload_running": _reload_state["running"],
-                    "last_output": _reload_state["last_output"],
-                }
-            )
-            return
-        if self.path == "/api/manifest":
-            self._serve_manifest()
-            return
-        # Fall through to static file serving
-        super().do_GET()
-
-    def _serve_manifest(self) -> None:
-        """Serve plots_manifest.json.gz (or .json) with appropriate headers."""
-        _restore_missing_graphs(self.directory_to_serve)
-        
-        gz_path = self.directory_to_serve / "plots_manifest.json.gz"
-        json_path = self.directory_to_serve / "plots_manifest.json"
-
-        if gz_path.exists():
-            data = gz_path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Encoding", "gzip")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
-        elif json_path.exists():
-            data = json_path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
-        else:
-            # No manifest yet — return empty array so UI doesn't block
-            self._send_json([])
-
-    def do_POST(self) -> None:
-        """Handle POST requests for API endpoints."""
-        if self.path == "/api/reload":
-            self._handle_reload()
-            return
-        if self.path == "/api/stop":
-            self._handle_stop()
-            return
-        self.send_error(404, "Not found")
-
-    def _handle_stop(self) -> None:
-        """Trigger server shutdown."""
-        global _server_instance
-
-        self._send_json({"status": "stopping", "message": "Server shutting down"})
-
-        # Shutdown server in a thread to avoid blocking the response
-        if _server_instance is not None:
-            thread = threading.Thread(target=_server_instance.shutdown, daemon=True)
-            thread.start()
-
-    def _handle_reload(self) -> None:
-        """Trigger a reload/recalculation in the background."""
-        global _reload_state
-
-        if _reload_state["running"]:
-            self._send_json({"status": "already_running", "message": "Reload already in progress"})
-            return
-
-        _reload_state["running"] = True
-        _reload_state["last_output"] = ""
-
-        # Start reload in background thread
-        thread = threading.Thread(target=self._run_reload, daemon=True)
-        thread.start()
-
-        self._send_json({"status": "started", "message": "Reload started"})
-
-    def _run_reload(self) -> None:
-        """Run the actual reload command."""
-        global _reload_state
-
-        try:
-            if self.is_demo:
-                # Run demo command
-                cmd = [sys.executable, "-m", "nvision", "demo", "--no-open"]
-            else:
-                # Run render to regenerate from cache
-                cmd = [sys.executable, "-m", "nvision", "render"]
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(self.directory_to_serve.parent),
-            )
-            _reload_state["last_output"] = result.stdout + result.stderr
-            if result.returncode != 0:
-                _reload_state["last_output"] += f"\n[Exit code: {result.returncode}]"
-        except Exception as e:
-            _reload_state["last_output"] = f"Error: {e}"
-        finally:
-            _reload_state["running"] = False
-
-    def _send_json(self, data: dict) -> None:
-        """Send JSON response."""
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
-
-    def end_headers(self) -> None:
-        """Add CORS headers and disable caching.
-
-        Artifacts (JS/CSS/HTML/graphs) change on every run/render, so browsers
-        must always revalidate — otherwise a stale cached script (e.g.
-        format-utils.js before a new helper was added) silently breaks the UI
-        with no visible network error, since the browser never re-requests it.
-        """
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Cache-Control", "no-store")
-        super().end_headers()
-
-    def handle(self) -> None:
-        """Handle requests with graceful client disconnect handling."""
-        with contextlib.suppress(ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
-            super().handle()  # Silently ignore benign client disconnects (browser refresh/close)
-
-
-def _restore_missing_graphs(directory: Path) -> None:
-    """Restore graph files from cache that are referenced in the manifest but missing on disk.
-
-    This is the complement of the lazy-write architecture: graph bytes are kept
-    in the cache DB during runs and only materialised to disk when the server
-    starts (or when files were explicitly deleted to free space).
-
-    The scan is guarded by a per-session set so the expensive DB iteration only
-    runs once per directory (subsequent calls from _serve_manifest are no-ops).
-    """
-    dir_str = str(directory)
-    if dir_str in _restored_dirs:
-        return
-
-    cache_dir = directory / "cache"
-    if not cache_dir.is_dir():
-        _restored_dirs.add(dir_str)
-        return
-    try:
-        from nvision.cache import CacheBridge
-        from nvision.runner.cache import restore_graphs
-
-        bridge = CacheBridge(cache_dir)
-        combos = bridge.list_combinations()
-
-        for combo in combos:
-            try:
-                # Fast path: lightweight :meta sidecars, skips loading plot bytes.
-                # Returns None (not "nothing to restore") whenever it can't prove
-                # every referenced file is already on disk — only then do we pay
-                # for the full deserialization needed to actually restore bytes.
-                if bridge.get_cached_combination_fast(out_dir=directory, **combo) is not None:
-                    continue
-                results = bridge.get_cached_combination(**combo)
-                if results:
-                    # restore_graphs skips files that already exist on disk
-                    restore_graphs(results, directory)
-            except Exception as exc:
-                log.debug("Failed to restore graphs for combo %s: %s", combo, exc)
-        bridge.close()
-        log.debug("Graph restore from cache complete for %s", directory)
-    except Exception as exc:
-        log.debug("Could not restore graphs from cache: %s", exc)
-    finally:
-        _restored_dirs.add(dir_str)
+_server_instance: uvicorn.Server | None = None
 
 
 def _default_port_for_dir(directory: Path) -> int:
@@ -262,7 +62,6 @@ def _port_is_open(port: int) -> bool:
     import urllib.error
     import urllib.request
 
-    # First: can we connect at TCP level?
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         try:
@@ -270,8 +69,6 @@ def _port_is_open(port: int) -> bool:
         except (ConnectionRefusedError, OSError):
             return False
 
-    # Second: does it actually respond to HTTP requests?
-    # This filters out TIME_WAIT sockets and zombie processes
     try:
         req = urllib.request.Request(f"http://localhost:{port}/api/status", method="GET")
         with urllib.request.urlopen(req, timeout=2) as response:
@@ -281,7 +78,7 @@ def _port_is_open(port: int) -> bool:
 
 
 @app.command()
-def serve(  # noqa: C901
+def serve(
     directory: Annotated[
         Path,
         typer.Option("--dir", help="Directory to serve (default: artifacts)"),
@@ -302,75 +99,41 @@ def serve(  # noqa: C901
         bool,
         typer.Option("--background", help="Run server in background and exit immediately"),
     ] = False,
-    gcp: Annotated[
-        bool,
-        typer.Option("--gcp", help="Serve from GCP instead of local"),
-    ] = defaults.DEFAULT_GCP,
-    gcp_bucket: Annotated[
-        str | None,
-        typer.Option("--gcp-bucket", help="GCP bucket to serve results from"),
-    ] = defaults.DEFAULT_GCP_BUCKET,
 ) -> None:
-    """Start a local HTTP server for viewing NVision results.
+    """Start a local API server for viewing NVision results, live from the cache.
 
-    Serves the artifacts directory so that all graphs, iframes, and
-    fetch-based resources load correctly in the browser.
-    Uses port 18080 for main artifacts and 18081 for demo artifacts.
+    Serves the frontend assets plus a FastAPI backend that answers every
+    manifest/graph/aggregate request straight from ``<directory>/cache`` — nothing
+    is written to disk. Uses port 18080 for main artifacts and 18081 for demo.
 
     Press 'r' in the browser to reload/recalculate results.
     Use --background to run server in background and return immediately.
     """
-    # Run demo first if requested
     if demo:
         from nvision.cli.demo import DEMO_ARTIFACTS_ROOT
         from nvision.cli.demo import demo as demo_cmd
 
         directory = DEMO_ARTIFACTS_ROOT
-        index = directory / "index.html"
-        if not index.exists():
+        if not (directory / "cache").exists():
             console.print("[bold cyan]Running demo first...[/bold cyan]")
-            result = demo_cmd(open_browser=False, gcp=gcp, gcp_bucket=gcp_bucket)
+            result = demo_cmd(open_browser=False)
             if result != 0:
                 console.print("[bold red]Demo failed![/bold red]")
                 raise typer.Exit(result)
-
-    if gcp:
-        if not gcp_bucket:
-            console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket to be specified")
-            raise typer.Exit(1)
-        from nvision.tools.gcp import download_artifacts
-
-        directory.mkdir(parents=True, exist_ok=True)
-        download_artifacts(directory, gcp_bucket)
-        # Fall through to local serving below
 
     directory = directory.resolve()
     if not directory.exists():
         console.print(f"[bold red]Directory not found:[/bold red] {directory}")
         raise typer.Exit(1)
 
-    index = directory / "index.html"
-    if not index.exists():
-        console.print(f"[yellow]Warning: no index.html in {directory}[/yellow]")
+    if not (directory / "cache").exists():
+        console.print(f"[yellow]Warning: no cache found in {directory}[/yellow]")
         console.print("[dim]Run 'nvision run' or 'nvision demo' first to generate results.[/dim]")
         raise typer.Exit(1)
 
-    # Restore any graph files that are in the cache but not yet on disk.
-    _restore_missing_graphs(directory)
-
-    import os
-
-    is_render = os.environ.get("RENDER") == "true"
-    if is_render:
-        no_open = True
-
     if port is None:
-        port = int(os.environ["PORT"]) if is_render and "PORT" in os.environ else _default_port_for_dir(directory)
-
-    if is_render and "RENDER_EXTERNAL_URL" in os.environ:
-        url = os.environ["RENDER_EXTERNAL_URL"]
-    else:
-        url = f"http://localhost:{port}"
+        port = _default_port_for_dir(directory)
+    url = f"http://localhost:{port}"
 
     # If port is already in use, assume existing server — just open browser
     if _port_is_open(port):
@@ -379,10 +142,6 @@ def serve(  # noqa: C901
             webbrowser.open(url)
         return
 
-    # Configure handler class variables
-    _APIHandler.directory_to_serve = directory
-    _APIHandler.is_demo = "demo" in directory.name.lower()
-
     console.print(f"[bold cyan]Serving:[/bold cyan] {directory}")
     console.print(f"[bold cyan]URL:[/bold cyan]     {url}")
     console.print("[dim]Keyboard: 'r' = reload/recalculate | Ctrl+C = stop[/dim]")
@@ -390,65 +149,25 @@ def serve(  # noqa: C901
     if not no_open:
         webbrowser.open(url)
 
-    import os
+    fastapi_app = build_app(cache_dir=directory / "cache", run_dir=directory)
+    config = uvicorn.Config(fastapi_app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    fastapi_app.state.uvicorn_server = server
 
-    original_dir = os.getcwd()
-
-    class _ReuseAddrTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-        """TCP server that allows address reuse (critical on Windows) and handles
-        requests concurrently.
-
-        Plain ``TCPServer`` serves one request at a time. A browser page load opens
-        many parallel connections (HTML, several JS files, the manifest fetch —
-        multi-MB gzip for a large cache — and per-graph fetches); serializing them
-        means a single slow request (e.g. the manifest) blocks everything else
-        behind it, which manifests as the page loading incompletely, cards/plots
-        silently failing to populate, or the browser giving up with a connection
-        error. ThreadingMixIn serves each request on its own thread instead.
-        """
-
-        allow_reuse_address = True
-        daemon_threads = True
-
-    def _run_server() -> None:
-        global _server_instance
-        is_render = os.environ.get("RENDER") == "true"
-        try:
-            os.chdir(directory)
-            host = "0.0.0.0" if is_render else ""
-            with _ReuseAddrTCPServer((host, port), _APIHandler) as httpd:
-                _server_instance = httpd
-                httpd.serve_forever(poll_interval=0.1)
-        except OSError as e:
-            if "Address already in use" in str(e) or "Only one usage" in str(e):
-                log.debug("Server already running on port %s", port)
-            else:
-                log.error("Server error: %s", e)
-        finally:
-            _server_instance = None
-            os.chdir(original_dir)
+    global _server_instance
+    _server_instance = server
 
     if background:
-        thread = threading.Thread(target=_run_server, daemon=True)
+        thread = threading.Thread(target=server.run, daemon=True)
         thread.start()
         console.print("[bold green]Server running in background.[/bold green]")
         return
 
     try:
-        _run_server()
+        server.run()
     except KeyboardInterrupt:
         log.warning("Server interrupted by user (Ctrl+C)")
         console.print("\n[yellow]Interrupted by user. Stopping server...[/yellow]")
-        # Graceful shutdown of server
-        if _server_instance is not None:
-            _server_instance.shutdown()
-    except OSError as e:
-        if "Address already in use" in str(e) or "Only one usage" in str(e):
-            console.print(f"[bold cyan]Server already running:[/bold cyan] {url}")
-            if not no_open:
-                webbrowser.open(url)
-        else:
-            raise
 
 
 @app.command(name="serve-stop")
@@ -467,17 +186,9 @@ def serve_stop(
     Sends a shutdown signal to the server on the specified port.
     If port is not provided, auto-detects based on the directory.
     """
-    import os
-
-    is_render = os.environ.get("RENDER") == "true"
-
     if port is None:
-        port = int(os.environ["PORT"]) if is_render and "PORT" in os.environ else _default_port_for_dir(directory)
-
-    if is_render and "RENDER_EXTERNAL_URL" in os.environ:
-        url = os.environ["RENDER_EXTERNAL_URL"]
-    else:
-        url = f"http://localhost:{port}"
+        port = _default_port_for_dir(directory)
+    url = f"http://localhost:{port}"
 
     if not _port_is_open(port):
         console.print(f"[yellow]No server running on port {port}[/yellow]")

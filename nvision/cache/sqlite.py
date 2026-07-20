@@ -352,6 +352,80 @@ class ShardedSqliteCache:
             return self._legacy_path
         return self._shard_path(shard_id)
 
+    def blob_get(self, key: str) -> bytes | None:
+        """Read raw bytes from the `graphs` BLOB table — zero text-encoding overhead.
+
+        Shares the same key->shard_id index as the JSON `cache` table (blob keys
+        use a distinct prefix, so there's no collision); the shard file just
+        holds two tables instead of one.
+        """
+        try:
+            shard_id = self._index_get_shard_id(key)
+            if shard_id is None:
+                return None
+            db_path = self._path_for_shard_id(shard_id)
+            conn = self._get_conn_for_path(db_path)
+            self._ensure_graphs_table(conn)
+            cur = conn.execute("SELECT data FROM graphs WHERE key = ?", (key,))
+            row = cur.fetchone()
+            return bytes(row[0]) if row else None
+        except Exception:
+            return None
+
+    def blob_set(self, key: str, data: bytes) -> None:
+        shard_id = self._index_get_shard_id(key)
+        if shard_id is None:
+            shard_id = self._choose_write_shard_id()
+            self._get_shard_cache()[key] = shard_id
+
+        db_path = self._path_for_shard_id(shard_id)
+        conn = self._get_conn_for_path(db_path)
+        self._ensure_graphs_table(conn)
+
+        def _write():
+            conn.execute(
+                "INSERT OR REPLACE INTO graphs (key, data) VALUES (?, ?)",
+                (key, data),
+            )
+            conn.commit()
+
+        _retry_on_locked(_write)
+        self._index_set_shard_id(key, shard_id)
+
+    def blob_batch_get(self, keys: list[str]) -> dict[str, bytes]:
+        """Fetch multiple blob keys in one round-trip per shard (mirrors batch_get)."""
+        if not keys:
+            return {}
+        result: dict[str, bytes] = {}
+        shard_to_keys: dict[int, list[str]] = {}
+        try:
+            conn = self._get_index_conn()
+            placeholders = ",".join("?" * len(keys))
+            cur = conn.execute(
+                f"SELECT key, shard_id FROM cache_index WHERE key IN ({placeholders})",
+                keys,
+            )
+            for k, sid in cur.fetchall():
+                shard_to_keys.setdefault(int(sid), []).append(k)
+        except Exception:
+            pass
+
+        for shard_id, shard_keys in shard_to_keys.items():
+            try:
+                db_path = self._path_for_shard_id(shard_id)
+                conn = self._get_conn_for_path(db_path)
+                self._ensure_graphs_table(conn)
+                placeholders = ",".join("?" * len(shard_keys))
+                cur = conn.execute(
+                    f"SELECT key, data FROM graphs WHERE key IN ({placeholders})",
+                    shard_keys,
+                )
+                for k, v in cur.fetchall():
+                    result[k] = bytes(v)
+            except Exception:
+                pass
+        return result
+
     def get(self, key: str) -> dict | None:
         try:
             # Fast path: consult index DB.

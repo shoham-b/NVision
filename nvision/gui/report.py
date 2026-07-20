@@ -19,11 +19,19 @@ def _strategy_grid_json() -> str:
     return json.dumps(strategy_grid, indent=2)
 
 
-def _read_manifest_json(out_dir: Path) -> str:
+def _read_manifest_json(out_dir: Path) -> str | None:
+    """Return the static manifest's JSON text, or None when no file exists.
+
+    None must NOT degrade to "[]": bootstrap.js treats an inlined array as
+    final and never fetches /api/manifest, so a missing file (the normal state
+    now that `nv run` no longer writes one — the API serves the manifest live
+    from the cache) has to inline ``window.MANIFEST = null`` to trigger the
+    fetch fallback.
+    """
     manifest_path = plots_manifest_path(out_dir)
     if not manifest_path.exists():
-        return "[]"
-    return manifest_path.read_text(encoding="utf-8") or "[]"
+        return None
+    return manifest_path.read_text(encoding="utf-8") or None
 
 
 def _write_js_data_file(path: Path, var_name: str, value_json: str) -> None:
@@ -35,13 +43,14 @@ def _write_js_data_file(path: Path, var_name: str, value_json: str) -> None:
 _MAX_INLINE_MANIFEST_BYTES: int = 50 * 1024 * 1024  # 50 MB threshold
 
 
-def prepare_static_ui_data(out_dir: Path) -> Path:
-    """Prepare data files consumed by the static HTML UI.
+def render_index_html(out_dir: Path) -> str:
+    """Build the index.html content for *out_dir* — pure string, no disk writes.
 
-    Generates a standalone index.html in out_dir with all assets and data inline
-    or properly referenced for both HTTP serving and local file opening.
+    Used both by `prepare_static_ui_data` (the static-export path: `nv render`,
+    matlab import, GCS upload — these need a genuinely self-contained bundle
+    with no live repo behind them) and directly by `nv serve`'s API, which
+    generates this on the fly per request instead of reading a per-run copy.
     """
-
     if not _STATIC_INDEX_PATH.exists():
         msg = f"Static UI not found: {_STATIC_INDEX_PATH}"
         raise FileNotFoundError(msg)
@@ -49,15 +58,15 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     # Read the static HTML template
     index_html = _STATIC_INDEX_PATH.read_text(encoding="utf-8")
 
-    # Read manifest data
+    # Read manifest data (None = no static manifest — the live API serves it)
     manifest_json = _read_manifest_json(out_dir)
-    manifest_bytes = len(manifest_json.encode("utf-8"))
 
     # Build the data scripts that will be injected into the HTML
     data_scripts = []
 
-    # If manifest is too large, don't inline it - app.js will fetch it
-    if manifest_bytes > _MAX_INLINE_MANIFEST_BYTES:
+    # Missing or too-large manifest: inline null so bootstrap.js fetches it
+    # (from /api/manifest first, static files as fallback).
+    if manifest_json is None or len(manifest_json.encode("utf-8")) > _MAX_INLINE_MANIFEST_BYTES:
         data_scripts.append("<script>window.MANIFEST = null;</script>")
     else:
         # Inline the manifest
@@ -104,6 +113,19 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
         css_pattern = '<link rel="stylesheet" href="styles.css">'
         index_html = index_html.replace(css_pattern, css_inline)
 
+    return index_html
+
+
+def prepare_static_ui_data(out_dir: Path) -> Path:
+    """Write a standalone, self-contained UI bundle to out_dir.
+
+    Only needed for the static-export path (`nv render`, matlab import, GCS
+    upload) where the bundle must work with no live repo/server behind it.
+    `nv serve` does NOT call this — its API generates index.html on the fly
+    and serves JS/CSS/graph-defs straight from the repo's static/ directory.
+    """
+    index_html = render_index_html(out_dir)
+
     # Copy all split JS files to out_dir
     import shutil
 
@@ -125,10 +147,9 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
         for def_file in graphs_def_src.glob("*.json"):
             shutil.copy2(def_file, graphs_def_dst / def_file.name)
 
-    # If manifest was too large to inline, write it as JSON for fetching
-    if manifest_bytes > _MAX_INLINE_MANIFEST_BYTES:
-        # Also write the JSON file
-        (out_dir / "plots_manifest.json").write_text(manifest_json, encoding="utf-8")
+    # Note: when the manifest wasn't inlined (missing or too large), nothing is
+    # written here — bootstrap.js fetches /api/manifest live, and a static
+    # plots_manifest.json only exists if `nv render` explicitly produced one.
 
     # Write the final index.html
     index_path = out_dir / "index.html"

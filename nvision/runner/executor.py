@@ -21,7 +21,7 @@ from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
 from nvision.models.observer import Observer, RunResult
 from nvision.models.task import LocatorTask
-from nvision.runner.cache import embed_graph_content, restore_graphs, strip_heavy_fields
+from nvision.runner.cache import embed_graph_content, strip_heavy_fields
 from nvision.runner.convert import run_result_to_finalize_record, run_result_to_history_df
 from nvision.runner.metrics import generate_attempt_metrics
 from nvision.runner.plots import generate_attempt_plots
@@ -441,9 +441,13 @@ class _TaskRunner:
 
         cached = self.cache.get_cached_combination(**combo_kw, repeat_offset=ro, allow_gaps=allow_gaps)
         if cached:
-            restore_graphs(cached, self.task.out_dir)
+            # Deliberately NOT calling restore_graphs() here: the run doesn't need the
+            # .gz files on disk, only the content_bin already embedded in the cached
+            # entries (stripped below). Materializing them is deferred to whatever
+            # actually serves the UI (`nv render` / `nv serve`), which restore graphs
+            # lazily from that same content_bin -- keeps `nv run` DB-only.
             log.debug(
-                "Full cache hit for %s/%s/%s (seed=%s); restoring.",
+                "Full cache hit for %s/%s/%s (seed=%s); reusing without restoring graphs to disk.",
                 self.generator_name,
                 self.noise_name,
                 self.strategy_name,
@@ -459,9 +463,9 @@ class _TaskRunner:
             **combo_kw, repeat_offset=ro, chunk_size=self.repeats, allow_gaps=allow_gaps
         )
         if n > 0:
-            restore_graphs(partial, self.task.out_dir)
+            # See full-hit branch above: graphs are intentionally not restored to disk here.
             log.debug(
-                "Partial cache hit for %s/%s/%s (seed=%s); restoring %s/%s repeats.",
+                "Partial cache hit for %s/%s/%s (seed=%s); reusing %s/%s repeats without restoring graphs.",
                 self.generator_name,
                 self.noise_name,
                 self.strategy_name,

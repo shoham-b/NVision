@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,11 @@ if TYPE_CHECKING:
 
 # Matches LocatorResultsRepository.CachedComboResults
 RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
+
+
+def _blob_key(combo_key: str, repeat_idx: int, entry: dict) -> str:
+    """Storage key for one entry's heavy graph payload in the `graphs` BLOB table."""
+    return f"blob:{combo_key}:{repeat_idx}:{entry.get('type', 'unknown')}"
 
 
 class RepeatsRepository:
@@ -27,6 +33,38 @@ class RepeatsRepository:
 
     _HEAVY_FIELDS = frozenset({"content", "content_bin", "plot_data", "_bytes"})
 
+    def _extract_blobs(self, combo_key: str, repeat_idx: int, entries: list[dict]) -> list[dict]:
+        """Move each entry's ``content_bin`` (base85-in-JSON) to a raw-bytes BLOB row.
+
+        Eliminates base85's ~25% inflation entirely instead of just shrinking it —
+        the entry keeps a lightweight ``_blob: True`` marker so :meth:`_rehydrate_blobs`
+        knows to fetch it back on read. Legacy ``content`` (old zlib+base85 text
+        format) is left as-is; it's a dead/rare path not worth the same treatment.
+        """
+        out = []
+        for e in entries:
+            content_bin = e.get("content_bin")
+            if content_bin is not None:
+                e = dict(e)
+                raw = base64.b85decode(e.pop("content_bin"))
+                self._store.save_blob(_blob_key(combo_key, repeat_idx, e), raw)
+                e["_blob"] = True
+            out.append(e)
+        return out
+
+    def _rehydrate_blobs(self, combo_key: str, repeat_idx: int, entries: list[dict]) -> None:
+        """Reattach ``content_bin`` (base85) from the BLOB table, in place.
+
+        Restores the exact shape every other caller (restore_graphs,
+        api_server's _graph_bytes_for_entry, embed_graph_content) already
+        expects — the BLOB optimization is invisible outside this module.
+        """
+        for e in entries:
+            if e.pop("_blob", False):
+                raw = self._store.load_blob(_blob_key(combo_key, repeat_idx, e))
+                if raw is not None:
+                    e["content_bin"] = base64.b85encode(raw).decode("ascii")
+
     def save_repeat(
         self, combo_key: str, repeat_idx: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]
     ) -> None:
@@ -35,6 +73,7 @@ class RepeatsRepository:
         The batch_set path commits both keys in one transaction per shard (instead of
         two separate transactions), halving the index and shard I/O overhead.
         """
+        entries = self._extract_blobs(combo_key, repeat_idx, entries)
         key = self.make_repeat_key(combo_key, repeat_idx)
         payload = {"entries": entries, "main_result_row": main_result_row}
         stripped_entries = [{k: v for k, v in e.items() if k not in self._HEAVY_FIELDS} for e in entries]
@@ -67,6 +106,7 @@ class RepeatsRepository:
                     payload = json.loads(raw)
                     entries = payload["entries"]
                     row = payload["main_result_row"]
+                    self._rehydrate_blobs(combo_key, repeat_idx, entries)
                     # Backfill sidecar if missing so next load can use fast path
                     meta_key = key + ":meta"
                     if self._store.load_df(meta_key) is None:
@@ -117,7 +157,7 @@ class RepeatsRepository:
         df_map = self._store.load_df_batch(keys)
 
         results: list[RepeatResult] = []
-        for key in keys:
+        for i, key in enumerate(keys):
             df = df_map.get(key)
             if df is None or df.is_empty():
                 if not allow_gaps:
@@ -132,6 +172,7 @@ class RepeatsRepository:
                 payload = json.loads(raw)
                 entries = payload["entries"]
                 row = payload["main_result_row"]
+                self._rehydrate_blobs(combo_key, start_idx + i, entries)
                 # Backfill :meta sidecar if missing so next render can use the fast path
                 meta_key = key + ":meta"
                 if self._store.load_df(meta_key) is None:

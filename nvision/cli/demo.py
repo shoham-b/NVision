@@ -132,14 +132,13 @@ def demo(
 
     # Open browser via local HTTP server (runs in background so CLI finishes)
     if open_browser:
-        ui_path = demo_artifacts_root / "index.html"
-        if ui_path.exists():
+        if (demo_artifacts_root / "cache").exists():
             from nvision.cli.serve import serve as _serve_cmd
 
             console.print()
             _serve_cmd(directory=demo_artifacts_root, port=None, no_open=False, background=True)
         else:
-            console.print(f"[yellow]UI not found at {ui_path}[/yellow]")
+            console.print(f"[yellow]No cache found at {demo_artifacts_root}[/yellow]")
 
     return 0
 

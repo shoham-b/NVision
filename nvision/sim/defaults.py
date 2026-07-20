@@ -45,6 +45,20 @@ NVISION_SOBOL_MIN_DEPTH_SIGMA: float = float(os.getenv("NVISION_SOBOL_MIN_DEPTH_
 NVISION_SOBOL_DEPTH_FRACTION: float = float(os.getenv("NVISION_SOBOL_DEPTH_FRACTION", "0.5"))
 NVISION_SOBOL_PAD_FRACTION: float = float(os.getenv("NVISION_SOBOL_PAD_FRACTION", "0.005"))
 
+# Observations are buffered and flushed to belief.batch_update() every this-many
+# steps (StagedSobolSweepLocator.observe), instead of a full SMC posterior
+# update per single observation. Stage transitions/stopping only read raw
+# history (never the belief -- see _check_for_dips/_noise_estimate_stable), so
+# deferring the belief by up to this many steps changes nothing about what the
+# locator measures next. Still bounded (never "buffer everything with no cap"),
+# but 512 sits above the SimpleSobol max_steps ceiling itself
+# (compute_sweep_max_steps's NVISION_SWEEP_MAX_STEPS=500 -- see sweep_steps.py),
+# so in practice most repeats now do a single flush at done()/finalize() rather
+# than multiple periodic ones. That's fine: peak memory is still trivial (a few
+# hundred Observation objects) at this size, and the periodic mid-run flush was
+# only ever a visualization-freshness nicety, never a correctness requirement.
+NVISION_SOBOL_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SOBOL_BATCH_CHUNK_SIZE", "512"))
+
 # --- Sweep Steps Defaults (sweep_steps.py) -----------------------------------
 
 NVISION_SWEEP_COVERAGE_FACTOR: float = float(os.getenv("NVISION_SWEEP_COVERAGE_FACTOR", "3.0"))

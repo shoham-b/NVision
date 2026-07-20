@@ -180,12 +180,7 @@ class ComparisonsMixin:
 
         filename = f"comparison_{gen}_{noise}_{metric}.json.gz"
         safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
-        out_path = self.out_dir / safe_filename
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
-        from nvision.viz._f32_json import dump_gz
-
-        dump_gz(data, out_path)
+        out_path = self._emit(data, safe_filename)
 
         manifest_entries.append(
             {

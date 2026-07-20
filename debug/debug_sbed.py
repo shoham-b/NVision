@@ -106,8 +106,6 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
         # Determine Phase
         if hasattr(locator, "_staged_sobol") and not locator._staged_sobol.done():
             phase = "Sweep"
-        elif hasattr(locator, "_warmup_obs_buffer") and len(locator._warmup_obs_buffer) > 0:
-            phase = "Warmup"
         else:
             phase = "Bayesian"
 

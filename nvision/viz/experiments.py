@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 import polars as pl
 
 from nvision.spectra.nv_center import DEFAULT_NV_CENTER_FREQ_X_MAX, DEFAULT_NV_CENTER_FREQ_X_MIN
-from nvision.viz._f32_json import dump_gz, write_plotly_gz
 
 
 class ExperimentsMixin:
@@ -72,9 +71,10 @@ class ExperimentsMixin:
                 except Exception:
                     pivot = pivot.sort("noise")
 
-                out_path = self.out_dir / f"summary_{gen}_{metric}.json.gz"
-                self._plot_pivot_from_polars(pivot, f"Summary: {gen} ({metric})", "Noise Level", ylabel, out_path)
-                plots.append({"type": "summary", "path": str(out_path), "generator": gen, "metric": metric})
+                out_path = self._plot_pivot_from_polars(
+                    pivot, f"Summary: {gen} ({metric})", "Noise Level", ylabel, f"summary_{gen}_{metric}.json.gz"
+                )
+                plots.append({"type": "summary", "path": out_path.as_posix(), "generator": gen, "metric": metric})
 
             # Compute Absolute Step Savings relative to Sweeps
             if "measurements" in sub.columns:
@@ -118,11 +118,9 @@ class ExperimentsMixin:
                                 "mode": "lines+markers",
                                 "series": savings_series,
                             }
-                            out_path = self.out_dir / f"summary_{gen}_savings.json.gz"
-                            out_path.parent.mkdir(parents=True, exist_ok=True)
-                            dump_gz(savings_data, out_path)
+                            out_path = self._emit(savings_data, f"summary_{gen}_savings.json.gz")
                             plots.append(
-                                {"type": "summary", "path": str(out_path), "generator": gen, "metric": "savings"}
+                                {"type": "summary", "path": out_path.as_posix(), "generator": gen, "metric": "savings"}
                             )
                 except Exception:
                     pass
@@ -192,12 +190,10 @@ class ExperimentsMixin:
                             "mode": "lines+markers",
                             "series": conv_savings_series,
                         }
-                        out_path = self.out_dir / f"summary_{gen}_{sav_suffix}.json.gz"
-                        out_path.parent.mkdir(parents=True, exist_ok=True)
-                        dump_gz(conv_sav_data, out_path)
+                        out_path = self._emit(conv_sav_data, f"summary_{gen}_{sav_suffix}.json.gz")
                         plots.append({
                             "type": "summary",
-                            "path": str(out_path),
+                            "path": out_path.as_posix(),
                             "generator": gen,
                             "metric": sav_suffix,
                         })
@@ -207,8 +203,8 @@ class ExperimentsMixin:
         return plots
 
     def _plot_pivot_from_polars(
-        self, pivot_pl: pl.DataFrame, title: str, xlabel: str, ylabel: str, out_path: Path
-    ) -> None:
+        self, pivot_pl: pl.DataFrame, title: str, xlabel: str, ylabel: str, rel_name: str
+    ) -> Path:
         """Serialize pivot chart data (definition lives in static/graphs/chart.json)."""
         index_col = pivot_pl.columns[0]
         strategies = pivot_pl.columns[1:]
@@ -228,8 +224,7 @@ class ExperimentsMixin:
             "mode": "lines+markers" if is_line_chart else "bar",
             "series": series,
         }
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        dump_gz(data, out_path)
+        return self._emit(data, rel_name)
 
     def plot_locator_summary(self, df: pl.DataFrame) -> list[dict]:
         """Create comparison plots for locator sweeps."""
@@ -410,13 +405,11 @@ class ExperimentsMixin:
                         "series": span_series,
                     }
                     safe_noise = str(noise).replace(".", "_")
-                    out_path = self.out_dir / f"model_comp_{gen}_{safe_noise}_savings_span.json.gz"
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    dump_gz(span_data, out_path)
+                    out_path = self._emit(span_data, f"model_comp_{gen}_{safe_noise}_savings_span.json.gz")
                     plots.append(
                         {
                             "type": "model_comparison",
-                            "path": str(out_path),
+                            "path": out_path.as_posix(),
                             "generator": gen,
                             "noise": noise,
                             "metric": "savings_vs_span_per_noise",
@@ -514,13 +507,11 @@ class ExperimentsMixin:
                     "mode": "markers",
                     "series": vs_span_series,
                 }
-                out_path = self.out_dir / f"summary_{gen}_savings_vs_span.json.gz"
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                dump_gz(vs_span_data, out_path)
+                out_path = self._emit(vs_span_data, f"summary_{gen}_savings_vs_span.json.gz")
                 plots.append(
                     {
                         "type": "summary",
-                        "path": str(out_path),
+                        "path": out_path.as_posix(),
                         "generator": gen,
                         "metric": "savings_vs_span",
                         "title": "Savings vs Span",
@@ -554,7 +545,6 @@ class ExperimentsMixin:
 
         # 1. Distribution of steps to fb convergence
         if "steps_to_fb" in df.columns:
-            out_path = self.out_dir / "milestone_steps_to_fb.json.gz"
             fig = go.Figure()
             # Histogram of steps per strategy
             for (strat,), sub in partitions.items():
@@ -569,13 +559,11 @@ class ExperimentsMixin:
                 barmode="overlay",
                 template="plotly_white",
             )
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            write_plotly_gz(fig, out_path)
-            entries.append({"type": "milestone", "path": str(out_path), "title": "Steps to fb Convergence"})
+            out_path = self._emit(fig, "milestone_steps_to_fb.json.gz", is_figure=True)
+            entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Steps to fb Convergence"})
 
         # 2. Error comparison (Milestone vs Final)
         if "err_fc_at_milestone" in df.columns and "final_err_fc" in df.columns:
-            out_path = self.out_dir / "milestone_error_comparison_fc.json.gz"
             fig = go.Figure()
             for (strat,), sub in partitions.items():
                 m_err = sub.get_column("err_fc_at_milestone").drop_nans().drop_nulls()
@@ -591,12 +579,11 @@ class ExperimentsMixin:
                 yaxis_title="Absolute Error (Hz)",
                 template="plotly_white",
             )
-            write_plotly_gz(fig, out_path)
-            entries.append({"type": "milestone", "path": str(out_path), "title": "Splitting Error Comparison"})
+            out_path = self._emit(fig, "milestone_error_comparison_fc.json.gz", is_figure=True)
+            entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Splitting Error Comparison"})
 
         # 3. Zeeman resolution sufficiency (Error Delta)
         if "err_fc_diff" in df.columns:
-            out_path = self.out_dir / "milestone_error_delta_fc.json.gz"
             fig = go.Figure()
             for (strat,), sub in partitions.items():
                 err_diff = sub.get_column("err_fc_diff").drop_nans().drop_nulls()
@@ -608,7 +595,7 @@ class ExperimentsMixin:
                 yaxis_title="Error Reduction (Hz)",
                 template="plotly_white",
             )
-            write_plotly_gz(fig, out_path)
-            entries.append({"type": "milestone", "path": str(out_path), "title": "Zeeman Resolution Gain"})
+            out_path = self._emit(fig, "milestone_error_delta_fc.json.gz", is_figure=True)
+            entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Zeeman Resolution Gain"})
 
         return entries

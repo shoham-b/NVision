@@ -17,6 +17,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "google-cloud-storage>=3.10.1",
     "numdifftools>=0.9.41",
+    "fastapi>=0.139.2",
+    "uvicorn[standard]>=0.51.0",
 ]
 
 [project.optional-dependencies]
@@ -106,6 +108,7 @@ dev = [
     "intel-cmplr-lib-rt>=2025.3.2",
     "scipy-stubs>=1.16.3.0",
     "pytest-benchmark>=5.2.3",
+    "httpx>=0.28.1",
 ]
 
 [tool.ruff.lint.per-file-ignores]

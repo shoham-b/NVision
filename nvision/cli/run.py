@@ -33,19 +33,14 @@ from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import run_groups as sim_run_groups
 from nvision.sim.grid_enums import GeneratorName, NoiseName
 from nvision.tools.artifacts import (
-    ensure_plot_manifest_non_empty,
     merge_locator_results_with_existing,
-    merge_run_plot_manifest_with_existing_on_disk,
     prepare_artifact_tree,
-    relativize_summary_plot_paths,
     write_locator_results_csv,
-    write_plots_manifest,
     write_run_status,
 )
 from nvision.tools.log_context import CombinationLogFilter
 from nvision.tools.paths import ARTIFACTS_ROOT, LOGS_ROOT, ensure_out_dir
 from nvision.tools.utils import NVISION_RNG_SEED
-from nvision.viz import Viz
 
 log = logging.getLogger("nvision")
 console = Console()
@@ -309,8 +304,14 @@ def _run_tasks_process_pool(  # noqa: C901
                     if not shutdown_called:
                         executor.shutdown(wait=False, cancel_futures=True)
                         shutdown_called = True
+                    # Only tasks still running (not yet completed, and not successfully
+                    # cancelled before ever starting) could have new cache entries from
+                    # this run — harvesting the rest is a guaranteed-empty or already-merged
+                    # cache lookup, and with hundreds of tasks that scan is what makes Ctrl-C
+                    # feel like it hangs.
+                    still_running_tasks = [t for f, t in future_to_task.items() if not f.done()]
                     _harvest_partial_results_from_cache(
-                        list(future_to_task.values()), cache_bridge, df_rows, plot_manifest, log
+                        still_running_tasks, cache_bridge, df_rows, plot_manifest, log
                     )
                     return plot_manifest, df_rows, errors, completed_count, True
 
@@ -409,8 +410,12 @@ def _run_tasks_process_pool(  # noqa: C901
                 if sys.platform == "win32":
                     time.sleep(0.5)
 
+            # See the exit_requested branch above: only harvest tasks that were actually
+            # running (not done/cancelled) when we interrupted, to avoid a slow full-grid
+            # cache scan on Ctrl-C.
+            still_running_tasks = [t for f, t in future_to_task.items() if not f.done()]
             _harvest_partial_results_from_cache(
-                list(future_to_task.values()), cache_bridge, df_rows, plot_manifest, log
+                still_running_tasks, cache_bridge, df_rows, plot_manifest, log
             )
             return plot_manifest, df_rows, errors, completed_count, True
         finally:
@@ -1028,6 +1033,7 @@ def run(  # noqa: C901
                 sweep_shm_lock = manager.Lock()
 
         log.info(f"DEBUG: Found {len(tasks)} tasks")
+        already_harvested = False
         try:
             with monitor:
                 # Tasks are now actually executing
@@ -1053,6 +1059,10 @@ def run(  # noqa: C901
                         sweep_shm_lock=sweep_shm_lock,
                     )
                     if _pool_interrupted:
+                        # _run_tasks_process_pool already harvested partial results
+                        # internally before returning; doing it again here over the
+                        # full, unfiltered task list would be pure duplicate work.
+                        already_harvested = True
                         raise KeyboardInterrupt("User requested exit")
                 else:
                     for locator_task in tasks:
@@ -1085,7 +1095,8 @@ def run(  # noqa: C901
             monitor.stop()
             console.print("\n[yellow]Interrupted by user. Saving partial results and generating UI...[/yellow]")
             log.warning("Run interrupted by user (Ctrl-C). Saving partial results...")
-            _harvest_partial_results_from_cache(tasks, cache_bridge, df_rows, plot_manifest, log)
+            if not already_harvested:
+                _harvest_partial_results_from_cache(tasks, cache_bridge, df_rows, plot_manifest, log)
         finally:
             if cache_bridge is not None:
                 cache_bridge.close()
@@ -1153,19 +1164,9 @@ def run(  # noqa: C901
     out_path = write_locator_results_csv(df_loc, out_dir)
     log.info(f"Wrote locator results to: {out_path}")
 
-    viz = Viz(tree.graphs_dir)
-    summary_plots_meta: list[dict[str, object]] = []
-    try:
-        summary_plots_meta = viz.plot_locator_summary(df_loc) or []
-        relativize_summary_plot_paths(summary_plots_meta, out_dir)
-        log.info(f"Saved {len(summary_plots_meta)} summary plots")
-    except Exception as exc:
-        log.warning(f"Plotting failed: {exc}")
-
-    merge_run_plot_manifest_with_existing_on_disk(plot_manifest, out_dir, log)
-    plot_manifest.extend(summary_plots_meta)
-    ensure_plot_manifest_non_empty(plot_manifest, log)
-    write_plots_manifest(plot_manifest, out_dir)
+    # No summary plots or plots_manifest.json are written anymore: `nv serve`'s
+    # API computes both live from the cache on request (nvision/cli/api_server.py).
+    # `nv render` remains the explicit tool for producing a static file export.
 
     try:
         ui_entrypoint = prepare_static_ui_data(out_dir)

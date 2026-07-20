@@ -17,8 +17,6 @@ from typing import Any
 
 import polars as pl
 
-from nvision.viz._f32_json import dump_gz
-
 # (x_col, y_col, x_label, y_label) — checked in order; first pair with data wins.
 _GRID_AXIS_CANDIDATES: tuple[tuple[str, str, str, str], ...] = (
     ("grid_saturation", "grid_sigma_inhom", "Saturation s", "sigma_inhom (Hz)"),
@@ -144,9 +142,7 @@ class GridStudyMixin:
             "n_infeasible": _grid("n_infeasible"),
         }
         noise_slug = _num_slug(noise_key) if isinstance(noise_key, int | float) else str(noise_key)
-        out_path = self.out_dir / f"grid_heatmap_{strat}_n{noise_slug}.json.gz"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        dump_gz(payload, out_path)
+        out_path = self._emit(payload, f"grid_heatmap_{strat}_n{noise_slug}.json.gz")
         return {
             "type": "grid_summary",
             "kind": "heatmap",
@@ -200,9 +196,7 @@ class GridStudyMixin:
             "mode": "lines+markers",
             "series": series,
         }
-        out_path = self.out_dir / f"grid_vs_noise_{strat}.json.gz"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        dump_gz(payload, out_path)
+        out_path = self._emit(payload, f"grid_vs_noise_{strat}.json.gz")
         return {
             "type": "grid_summary",
             "kind": "vs_noise",

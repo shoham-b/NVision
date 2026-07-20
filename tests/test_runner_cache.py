@@ -737,6 +737,99 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
     assert cached[0][0][0]["path"] == "p0.png"
 
 
+def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Path):
+    """Cache hits during a run must stay DB-only: `_restore_cached_results` should not
+    write the referenced .gz file back to disk, even though it has everything it needs
+    to (the embedded content_bin) via ``restore_graphs``. Materializing graph files is
+    left entirely to whatever actually serves the UI (`nv render` / `nv serve`), since
+    writing them on every cache-hit run was pure overhead (and, when the disk was full,
+    a source of hard failures) for something the run itself never reads back off disk.
+    """
+    import base64
+
+    from nvision import GenericSweepLocator
+    from nvision.cache import CacheBridge
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
+    from nvision.noises import OverFrequencyGaussianNoise
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
+    combo = Combination(
+        generator=sig,
+        noise=noise,
+        strategy=GenericSweepLocator,
+        generator_name="NVCenter-lorentzian",
+        noise_name="Gauss(0.01)",
+        strategy_name="SimpleSweep",
+    )
+
+    out_dir = tmp_path / "out"
+    task = LocatorTask(
+        combination=combo,
+        repeats=1,
+        seed=1,
+        slug="test_slug",
+        out_dir=out_dir,
+        scans_dir=out_dir / "scans",
+        bayes_dir=out_dir / "bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=True,
+        cache_dir=tmp_path / "cache",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+    rel_path = "graphs/scans/test_r1.json.gz"
+    fake_bytes = b"not-really-gzip-but-doesnt-matter"
+    entry = {"path": rel_path, "content_bin": base64.b85encode(fake_bytes).decode("ascii")}
+
+    bridge = CacheBridge(task.cache_dir)
+    try:
+        repo = bridge.get_cache_for_category("NVCenter")
+        repo.save_cached_combination(
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="SimpleSweep",
+            repeats=1,
+            seed=1,
+            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
+            timeout_s=10,
+            repeat_offset=0,
+            results=[(
+                [entry],
+                {
+                    "generator": "NVCenter-lorentzian",
+                    "noise": "Gauss(0.01)",
+                    "strategy": "SimpleSweep",
+                    "seed": 1,
+                    "attempt": 1,
+                },
+            )],
+        )
+    finally:
+        bridge.close()
+
+    file_path = out_dir / rel_path
+    assert not file_path.exists()
+
+    runner = _TaskRunner(task)
+    cached, n_cached = runner._restore_cached_results()
+
+    # The cached result itself is still returned correctly...
+    assert n_cached == 1
+    assert len(cached) == 1
+    # ...but the run must not have written the graph file to disk.
+    assert not file_path.exists()
+
+
 def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
     monkeypatch.setattr(
@@ -814,5 +907,58 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
             repeat_offset=0,
         )
         assert loaded is None
+    finally:
+        bridge.close()
+
+
+def test_content_bin_stored_as_blob_not_base85_text(tmp_path: Path):
+    """The whole point of the BLOB migration: content_bin must round-trip
+    byte-identically, but must NOT sit as base85 text inside the JSON row —
+    it should live in the `graphs` BLOB table instead."""
+    import base64
+    import gzip
+    import json
+    import sqlite3
+
+    from nvision.cache import CacheBridge
+
+    raw_payload = gzip.compress(b'{"hello": "blob world"}')
+    content_bin = base64.b85encode(raw_payload).decode("ascii")
+
+    cache_dir = tmp_path / "cache"
+    bridge = CacheBridge(cache_dir)
+    try:
+        repo = bridge.get_cache_for_category("NVCenter")
+        combo_key = "deadbeefcafefeed"
+        repo._repeats.save_repeat(
+            combo_key,
+            0,
+            [{"path": "x.json.gz", "type": "scan", "content_bin": content_bin}],
+            {"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)", "strategy": "SimpleSweep"},
+        )
+
+        # 1. Round-trips byte-identically through the public API.
+        entries, _row = repo._repeats.load_repeat(combo_key, 0)
+        assert base64.b85decode(entries[0]["content_bin"]) == raw_payload
+
+        # 2. The raw stored JSON text does NOT contain the base85 string — it
+        # moved to the graphs BLOB table, not just re-encoded some other way.
+        db_path = cache_dir / "nv_center_shard0001.db"
+        assert db_path.exists()
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.execute("SELECT value FROM cache WHERE key = ?", (f"repeat:{combo_key}:0",))
+            stored_text = cur.fetchone()[0]
+            assert content_bin not in stored_text
+            parsed = json.loads(stored_text)
+            assert parsed["data"][0]["results"].find(content_bin) == -1
+
+            # 3. The blob genuinely lives in the graphs table, byte-identical.
+            cur = conn.execute("SELECT data FROM graphs WHERE key = ?", (f"blob:{combo_key}:0:scan",))
+            blob_row = cur.fetchone()
+            assert blob_row is not None
+            assert bytes(blob_row[0]) == raw_payload
+        finally:
+            conn.close()
     finally:
         bridge.close()

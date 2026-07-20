@@ -4,14 +4,20 @@
     {
       "name": "nvision-serve",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "nvision", "serve", "--no-open", "--port", "18082"],
+      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18082"],
       "port": 18082
     },
     {
       "name": "nvision-serve-midrun",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "nvision", "serve", "--no-open", "--port", "18083", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\021b041a-8901-4f87-8036-d21f063ff04a\\scratchpad\\midrun_check"],
+      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18083", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\021b041a-8901-4f87-8036-d21f063ff04a\\scratchpad\\midrun_check"],
       "port": 18083
+    },
+    {
+      "name": "nvision-serve-verify",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18084", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\7a07601d-f9dd-4669-b900-99af84e3f67e\\scratchpad\\verify_serve_dir"],
+      "port": 18084
     }
   ]
 }

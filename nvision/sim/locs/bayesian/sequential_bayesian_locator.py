@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
-from dotenv import load_dotenv
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
@@ -20,15 +18,6 @@ _POSTERIOR_NARROWING_INTERVAL: int = 20
 _POSTERIOR_CREDIBLE_LEVEL: float = 0.95
 _POSTERIOR_MIN_NARROWING_FRACTION: float = 0.05
 _CONVERGENCE_CHECK_INTERVAL: int = 100
-
-load_dotenv()
-
-# Number of Bayesian acquisitions to buffer before the first belief update.
-# Sequential w *= likelihood calls during warmup compound multiplicatively,
-# drifting weights far toward one mode before resampling can correct them.
-# Buffering and flushing as one batch_update (log-space, epistemically tempered)
-# gives the filter a gentler, more robust initial update.
-_WARMUP_BUFFER_SIZE: int = int(os.getenv("NVISION_BAYESIAN_WARMUP_STEPS", "5"))
 
 # Raw saturation-Voigt parameters whose convergence is gated via the derived
 # effective-HWHM / realized-contrast quantities instead of per-param thresholds.
@@ -185,8 +174,6 @@ class SequentialBayesianLocator(Locator):
         self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
         # Non-scan parameter bounds narrowed (empty = not yet set).
         self._narrowed_param_bounds: dict[str, tuple[float, float]] = {}
-        # Buffer for the first _WARMUP_BUFFER_SIZE Bayesian observations (narrow mode only).
-        self._warmup_obs_buffer: list[Observation] = []
 
     @classmethod
     def create(

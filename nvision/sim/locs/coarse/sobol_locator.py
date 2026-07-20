@@ -16,6 +16,7 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.defaults import (
+    NVISION_SOBOL_BATCH_CHUNK_SIZE,
     NVISION_SOBOL_CHECK_INTERVAL,
     NVISION_SOBOL_DEPTH_FRACTION,
     NVISION_SOBOL_MAX_POINTS,
@@ -498,6 +499,13 @@ class StagedSobolSweepLocator(Locator):
         self._signal_found = False
         self._true_signal = None
 
+        # Observations buffered here and flushed to belief.batch_update() in
+        # bounded chunks (see observe()/done()/finalize()) instead of paying a
+        # full SMC posterior update on every single step. Safe because no stage
+        # transition or stopping decision below ever reads self.belief -- only
+        # self.history (raw x/y arrays).
+        self._pending_obs: list[Observation] = []
+
         # Track stage boundaries for Observer phase coloring
         self._initial_sweep_steps = 0
         self._stage1_end_step = 0
@@ -528,9 +536,28 @@ class StagedSobolSweepLocator(Locator):
         return self._active_locator.next()
 
     def done(self) -> bool:
-        if self.step_count >= self.max_steps:
-            return True
-        return bool(self._active_locator is self._stage3 and self._stage3.done())
+        is_done = self.step_count >= self.max_steps or bool(
+            self._active_locator is self._stage3 and self._stage3.done()
+        )
+        if is_done:
+            # Guarantee the belief reflects every observation by the time the
+            # run loop stops calling observe() -- run_loop()'s "yield" happens
+            # right after observe(), one step before this done() check, so
+            # without this the very last chunk could be left un-flushed for
+            # the executor's post-finalize() belief re-sync to pick up.
+            self._flush_pending_obs()
+        return is_done
+
+    def _flush_pending_obs(self) -> None:
+        """Apply buffered observations to the belief in one vectorized update.
+
+        Bounded by NVISION_SOBOL_BATCH_CHUNK_SIZE (see observe()), so this never
+        holds more than one chunk's worth of Observations at a time.
+        """
+        if not self._pending_obs:
+            return
+        self.belief.batch_update(self._pending_obs)
+        self._pending_obs.clear()
 
     def observe(self, obs: Observation) -> None:
         if self.step_count > self.max_steps:
@@ -550,9 +577,12 @@ class StagedSobolSweepLocator(Locator):
             obs_physical = obs
 
         self.history.append(obs_physical)
-        # Set last_obs so Observer can create snapshots for plotting
+        # Set last_obs so Observer can create snapshots for plotting, every
+        # step -- independent of the deferred/batched belief update below.
         self.belief.last_obs = obs_physical
-        self.belief.update(obs_physical)
+        self._pending_obs.append(obs_physical)
+        if len(self._pending_obs) >= NVISION_SOBOL_BATCH_CHUNK_SIZE:
+            self._flush_pending_obs()
         self._active_locator.observe(obs_physical)
 
         if self._active_locator is self._stage1 and self._active_locator.done():
@@ -612,7 +642,10 @@ class StagedSobolSweepLocator(Locator):
         return 0
 
     def finalize(self) -> None:
-        """Infer the focus window from collected data if stages didn't complete."""
+        """Flush any buffered belief updates, then infer the focus window from
+        collected data if stages didn't complete.
+        """
+        self._flush_pending_obs()
         if self._stage3 is None and self.history.count > 0:
             lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
             if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):

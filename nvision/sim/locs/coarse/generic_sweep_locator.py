@@ -55,6 +55,18 @@ _FIT_ZEEMAN_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZEEMAN_STARTS", "4"))
 # landing in wrong basins and the grid is needed.
 _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
 
+# Experimental: evaluate curve_fn via the model's vectorized float32 Numba kernel
+# instead of a per-point Python loop in float64. Off by default -- needs an A/B
+# against the float64 path (see NVISION_SWEEP_FIT_FLOAT32_DIFF_STEP below for why
+# float32 alone isn't enough) before it can replace the default.
+NVISION_SWEEP_FIT_FLOAT32: bool = os.getenv("NVISION_SWEEP_FIT_FLOAT32", "0") not in ("0", "false", "False")
+# Relative finite-difference step for curve_fit's numerical Jacobian when the
+# float32 path is active. curve_fit's default step (~sqrt(float64 eps) ~= 1.5e-8)
+# is finer than float32's ~1.2e-7 relative resolution, so the perturbed model
+# output rounds back to the same float32 value and the Jacobian column goes to
+# zero. A step well above the float32 noise floor keeps the gradient nonzero.
+_FIT_FLOAT32_DIFF_STEP: float = float(os.getenv("NVISION_SWEEP_FIT_FLOAT32_DIFF_STEP", "1e-4"))
+
 
 def _expected_frequency_crlb(
     linewidth: float, c_total: float, noise_std: float, n_obs: int, bandwidth: float
@@ -375,17 +387,34 @@ class GenericSweepLocator(SweepingLocator):
         prior_param_idx = [param_names.index(n) for n in prior_names]
         n_prior_terms = len(prior_param_idx)
 
-        # Evaluate in float64 (scalar path).  The vectorized kernel uses float32,
-        # whose ~1e-7 relative resolution is coarser than curve_fit's numerical
-        # Jacobian step for a GHz-scale frequency (~tens of Hz), which zeroes out
-        # the frequency gradient and stalls the fit.  float64 is required here.
-        def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
-            typed = inner.spec.unpack_params(list(params))
-            data_vals = np.array([float(inner.compute(float(x), typed)) for x in xs[:n_pts]])
-            if n_prior_terms:
-                prior_vals = np.array([params[i] for i in prior_param_idx])
-                return np.concatenate([data_vals, prior_vals])
-            return data_vals
+        if NVISION_SWEEP_FIT_FLOAT32:
+            # Vectorized float32 path: one Numba call over all n_pts instead of a
+            # per-point Python loop. Requires a widened curve_fit diff_step (see
+            # _FIT_FLOAT32_DIFF_STEP above) so the Jacobian doesn't get quantized
+            # away by float32's coarser resolution.
+            from nvision.spectra.dtypes import FLOAT_DTYPE
+
+            def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
+                samples = inner.spec.unpack_samples([np.array([v], dtype=FLOAT_DTYPE) for v in params])
+                data_vals = np.asarray(
+                    inner.compute_vectorized_many(xs[:n_pts], samples), dtype=np.float64
+                )[:, 0]
+                if n_prior_terms:
+                    prior_vals = np.array([params[i] for i in prior_param_idx])
+                    return np.concatenate([data_vals, prior_vals])
+                return data_vals
+        else:
+            # Evaluate in float64 (scalar path).  The vectorized kernel uses float32,
+            # whose ~1e-7 relative resolution is coarser than curve_fit's numerical
+            # Jacobian step for a GHz-scale frequency (~tens of Hz), which zeroes out
+            # the frequency gradient and stalls the fit.  float64 is required here.
+            def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
+                typed = inner.spec.unpack_params(list(params))
+                data_vals = np.array([float(inner.compute(float(x), typed)) for x in xs[:n_pts]])
+                if n_prior_terms:
+                    prior_vals = np.array([params[i] for i in prior_param_idx])
+                    return np.concatenate([data_vals, prior_vals])
+                return data_vals
 
         if n_prior_terms:
             xs_fit = np.concatenate([xs_phys, np.zeros(n_prior_terms)])
@@ -872,6 +901,7 @@ class GenericSweepLocator(SweepingLocator):
 
         x_scale = np.maximum(np.asarray(hi_bounds, dtype=float) - np.asarray(lo_bounds, dtype=float), 1e-12)
         sigma_kwargs = {} if sigma is None else {"sigma": sigma, "absolute_sigma": True}
+        diff_step_kwargs = {"diff_step": _FIT_FLOAT32_DIFF_STEP} if NVISION_SWEEP_FIT_FLOAT32 else {}
 
         best_popt = None
         best_pcov = None
@@ -888,6 +918,7 @@ class GenericSweepLocator(SweepingLocator):
                     xtol=xtol,
                     x_scale=x_scale,
                     **sigma_kwargs,
+                    **diff_step_kwargs,
                 )
             except Exception:
                 continue

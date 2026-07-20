@@ -18,22 +18,16 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from nvision.cache import CacheBridge, stable_config_hash
 from nvision.cli import defaults as cli_defaults
 from nvision.cli.app_instance import app
-from nvision.gui.report import prepare_static_ui_data
-from nvision.runner.cache import restore_graphs, strip_heavy_fields
+from nvision.runner.cache import strip_heavy_fields
 from nvision.sim.combinations import CombinationGrid
 from nvision.tools.artifacts import (
-    ensure_plot_manifest_non_empty,
     merge_locator_results_with_existing,
-    merge_run_plot_manifest_with_existing_on_disk,
     plots_manifest_path,
     prepare_artifact_tree,
-    relativize_summary_plot_paths,
     write_locator_results_csv,
-    write_plots_manifest,
 )
 from nvision.tools.paths import ARTIFACTS_ROOT
 from nvision.tools.utils import NVISION_RNG_SEED
-from nvision.viz import Viz
 from nvision.viz.measurements import backfill_scan_plot_data_if_missing
 
 log = logging.getLogger("nvision")
@@ -44,23 +38,6 @@ def _postprocess_manifest_entries(plot_manifest: list[dict[str, object]], out_di
     """Backfill ``plot_data`` on scan rows from existing HTML when cache predates it."""
     for entry in plot_manifest:
         backfill_scan_plot_data_if_missing(entry, out_dir)
-
-
-def _any_file_missing(entries: list[dict], out_dir: Path) -> bool:
-    """Return True if any entry's plot file does not yet exist on disk."""
-    for e in entries:
-        path_str = e.get("path")
-        if not path_str:
-            continue
-        p = out_dir / path_str
-        if p.exists():
-            continue
-        # Accept the upgraded .json.gz path in case of legacy .json entries
-        if path_str.endswith(".json") and not path_str.endswith(".json.gz"):
-            if (out_dir / (path_str + ".gz")).exists():
-                continue
-        return True
-    return False
 
 
 def _collect_cache_results(
@@ -108,10 +85,11 @@ def _collect_cache_results(
                 combo.noise_name,
                 combo.strategy_name,
             )
-            restore_graphs(cached_results, out_dir)
+            # No restore_graphs(): nv render no longer materializes graph files to
+            # disk — nv serve's API serves them live from the cache instead.
             for entries, main_result_row in cached_results:
-                # Strip content field (used for cache storage only) to keep manifest small
-                cleaned_entries = [{k: v for k, v in entry.items() if k != "content"} for entry in entries]
+                # Strip content/content_bin (cache storage only) to keep manifest small
+                cleaned_entries = [strip_heavy_fields(entry) for entry in entries]
                 plot_manifest.extend(cleaned_entries)
                 df_rows.append(main_result_row)
         else:
@@ -269,46 +247,21 @@ def _load_one_combo(
         if ptr_df is not None and not ptr_df.is_empty():
             achieved_repeats = int(ptr_df.get_column("achieved_repeats")[0])
 
-        # Fast path: meta sidecars (no binary content deserialization)
+        # No restore_graphs(): nv render no longer materializes graph files to
+        # disk, so the meta (no content_bin) sidecar is always sufficient here —
+        # there's no "missing file" case left to detect or repair.
         meta_results = cache._repeats.load_repeats_meta(key, achieved_repeats)
         if meta_results is not None:
-            # Restore only repeats with files missing — in parallel per repeat
-            missing = [(idx, me) for idx, (me, _) in enumerate(meta_results) if _any_file_missing(me, out_dir)]
-            if missing:
-                def _restore_one(idx_and_entries):
-                    idx, meta_entries = idx_and_entries
-                    full = cache._repeats.load_repeat(key, idx)
-                    if full:
-                        before = [e.get("path") for e in full[0]]
-                        restore_graphs([full], out_dir)
-                        after = [e.get("path") for e in full[0]]
-                        path_map = dict(zip(before, after))
-                        for me in meta_entries:
-                            old = me.get("path")
-                            if old in path_map and path_map[old] != old:
-                                me["path"] = path_map[old]
-
-                n_restore = min(8, len(missing))
-                with concurrent.futures.ThreadPoolExecutor(max_workers=n_restore) as inner:
-                    list(inner.map(_restore_one, missing))
-
             cached_results = meta_results
         else:
-            # Old cache: parallel full load + restore per repeat
-            def _load_restore(idx: int):
-                full = cache._repeats.load_repeat(key, idx)
-                if full:
-                    restore_graphs([full], out_dir)
-                return full
-
+            # Old cache with no :meta sidecar yet — full load, just for the
+            # scalar fields; strip_heavy_fields() below drops content_bin anyway.
             n_workers = min(8, achieved_repeats or 1)
             with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as inner:
-                results = list(inner.map(_load_restore, range(achieved_repeats)))
+                results = list(inner.map(cache._repeats.load_repeat, [key] * achieved_repeats, range(achieved_repeats)))
             cached_results = [r for r in results if r is not None]
     else:
         cached_results = cache.get_cached_combination_by_config(cfg)
-        if cached_results:
-            restore_graphs(cached_results, out_dir)
 
     if not cached_results:
         return [], [], None
@@ -753,58 +706,10 @@ def render(  # noqa: C901
     out_path = write_locator_results_csv(df_loc, out_dir)
     log.info(f"Wrote locator results to: {out_path}")
 
-    viz = Viz(tree.graphs_dir)
-
-    def _run_summary():
-        try:
-            meta = viz.plot_locator_summary(df_loc) or []
-            relativize_summary_plot_paths(meta, out_dir)
-            log.info(f"Saved {len(meta)} summary plots")
-            return meta
-        except Exception as exc:
-            log.warning(f"Plotting failed: {exc}")
-            return []
-
-    def _run_metrics():
-        try:
-            meta = viz.plot_all_metrics(df_loc) or []
-            relativize_summary_plot_paths(meta, out_dir)
-            log.info(f"Saved {len(meta)} metric plots")
-            return meta
-        except Exception as exc:
-            log.warning(f"Metric plotting failed: {exc}")
-            return []
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        fut_summary = pool.submit(_run_summary)
-        fut_metrics = pool.submit(_run_metrics)
-        summary_plots_meta: list[dict[str, object]] = fut_summary.result()
-        metric_plots_meta: list[dict[str, object]] = fut_metrics.result()
-
-    # Add metric plots to manifest
-    plot_manifest.extend(metric_plots_meta)
-
-    # Duplicate metric plotting blocks removed
-
-    merge_run_plot_manifest_with_existing_on_disk(plot_manifest, out_dir, log)
-    # Keep summary rows fresh for the rendered dataset; keep all non-summary entries (scan, bayesian_interactive, etc.)
-    plot_manifest = [
-        entry
-        for entry in plot_manifest
-        if entry.get("type") != "summary"
-        and not (entry.get("type") == "scan" and entry.get("generator") == "Dummy-Generator" and not entry.get("path"))
-    ]
-    plot_manifest.extend(summary_plots_meta)
-
-    ensure_plot_manifest_non_empty(plot_manifest, log)
-    manifest_path = write_plots_manifest(plot_manifest, out_dir)
-    log.info("Wrote manifest with %s entries to: %s", len(plot_manifest), manifest_path)
-
-    try:
-        ui_entrypoint = prepare_static_ui_data(out_dir)
-        log.info(f"Prepared static UI data. Open: {ui_entrypoint.absolute().as_uri()}")
-    except Exception as exc:
-        log.warning(f"Failed to build HTML index: {exc}")
+    # No summary/metric plots, no plots_manifest.json, no static UI bundle:
+    # nv serve's API computes all of that live from the cache on request
+    # (nvision/cli/api_server.py) — building it here just to discard it (nothing
+    # reads a manifest file anymore) would be pure wasted computation.
 
     log.info(f"Render complete. Results in: {out_dir}")
 

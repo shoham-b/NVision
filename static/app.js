@@ -2513,6 +2513,33 @@ function main() {
         updateScanRepeatControl();
     }
 
+    // /api/manifest strips series/true_params/metrics from every entry (they're
+    // large — the single biggest driver of manifest size at real cache scale) and
+    // serves them per-repeat instead via /api/repeat-meta. The per-plot metrics
+    // panel only ever needs them for the one currently-selected repeat, so fetch
+    // and merge them into the manifest entry in place (cached on the object itself
+    // so re-selecting the same plot doesn't refetch) before rendering.
+    function ensureRepeatMeta(plot) {
+        if (!plot || plot._metaFetched) return Promise.resolve(plot);
+        const m = /\/api\/graph\/([^/]+)\/(\d+)\//.exec(plot.path || '');
+        if (!m) return Promise.resolve(plot); // static/legacy path — nothing to fetch
+        return fetch(`${window.NVISION_ASSET_PREFIX || ''}api/repeat-meta/${m[1]}/${m[2]}`, { cache: 'no-store' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                if (data) {
+                    if (data.metrics != null) plot.metrics = data.metrics;
+                    if (data.true_params != null) plot.true_params = data.true_params;
+                    if (data.series != null) plot.series = data.series;
+                }
+                plot._metaFetched = true;
+                return plot;
+            })
+            .catch(() => {
+                plot._metaFetched = true; // don't retry forever on a persistent error
+                return plot;
+            });
+    }
+
     function findAndDisplayPlot() {
         const scanGeneratorValue = controlValue(scanGenerator);
         const scanNoiseValue = getEffectiveScanNoise();
@@ -2548,6 +2575,7 @@ function main() {
             currentPlot = plot;
             setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), plot ? plot.path : null);
             if (plot) {
+              ensureRepeatMeta(plot).then(() => {
                 function buildScanItems(phaseData, isOverall, totalMeasurements) {
                     const repeatTotal = plot.repeat_total ?? null;
                     const attemptLabel = repeatTotal
@@ -2801,6 +2829,9 @@ function main() {
                 updateBayesStatsView(plot);
                 updateBayesInteractiveView(plot);
                 updateBayesTabs();
+                // metrics just arrived — re-apply now that plot.metrics is actually populated.
+                applyStoppingFrameLimit();
+              });
             } else {
                 setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), null);
                 scanMetrics.className = '';
@@ -5492,8 +5523,17 @@ function main() {
     function hlFSpan(p) {
         const tp = p.true_params;
         if (!tp || !tp.params) return null;
-        const lw = tp.params.linewidth;
-        const split = tp.params.split || 0.0;
+        const params = tp.params;
+        // Lineshape-agnostic width: Lorentzian models use "linewidth", Voigt/
+        // saturation-Voigt use "homogeneous_linewidth" — mirrors the same
+        // fallback chain server-side in nvision/viz/experiments.py's
+        // _add_correct_f_span (final_est_linewidth / _homogeneous_linewidth /
+        // _effective_hwhm), just against ground truth instead of estimates.
+        const lw = params.linewidth ?? params.homogeneous_linewidth ?? params.effective_hwhm ?? null;
+        // Total splitting extent: two Zeeman groups at +/- zeeman_split, plus
+        // any hyperfine "split" component — same combination as the Python side.
+        const zeeman = params.zeeman_split || 0.0;
+        const split = (params.split || 0.0) + zeeman * 2.0;
         let domainWidth = 5.0e8;
         const fb = tp.bounds && tp.bounds.frequency;
         if (fb && fb.length === 2 && fb[1] > fb[0]) domainWidth = fb[1] - fb[0];
@@ -5567,6 +5607,37 @@ function main() {
         return new Set((Array.isArray(gen) ? gen : [gen]).filter(Boolean));
     }
 
+    // series/true_params are stripped from /api/manifest (they're what made it
+    // 653MB against a real large cache) and served instead via /api/scan-fields,
+    // scoped to whatever generator/noise selection Highlights/Speed/Accuracy is
+    // currently showing. Fetch once per distinct selection and merge in place
+    // (mutating the shared scanPlots entries), so hlCollect's existing filtering
+    // logic runs completely unchanged against already-enriched data.
+    const hlFetchedSelections = new Set();
+    function ensureScanFieldsFor(generator, noises) {
+        const genList = [...toGenSet(generator)].sort();
+        const noiseList = [...new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean))].sort();
+        if (!genList.length || !noiseList.length) return Promise.resolve();
+        const key = genList.join(',') + '::' + noiseList.join(',');
+        if (hlFetchedSelections.has(key)) return Promise.resolve();
+        const params = new URLSearchParams({ generator: genList.join(','), noise: noiseList.join(',') });
+        return fetch(`${window.NVISION_ASSET_PREFIX || ''}api/scan-fields?${params}`, { cache: 'no-store' })
+            .then((r) => (r.ok ? r.json() : []))
+            .then((rows) => {
+                for (const row of rows) {
+                    const p = scanPlots.find((sp) =>
+                        sp.generator === row.generator && sp.noise === row.noise &&
+                        sp.strategy === row.strategy && sp.repeat === row.repeat);
+                    if (p) {
+                        if (row.series != null) p.series = row.series;
+                        if (row.true_params != null) p.true_params = row.true_params;
+                    }
+                }
+                hlFetchedSelections.add(key);
+            })
+            .catch(() => { hlFetchedSelections.add(key); });
+    }
+
     function hlCollect(generator, noises) {
         const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
         const genSet = toGenSet(generator);
@@ -5619,6 +5690,7 @@ function main() {
         const view = document.getElementById('highlights-view');
         if (!view || !generator) return;
         hlLastArgs = { generator, noises };
+        ensureScanFieldsFor(generator, noises).then(() => {
         const byStrategy = hlCollect(generator, noises);
         const strategies = [...byStrategy.keys()].sort();
         const sweepCandidates = strategies.filter(isSweepBaseline);
@@ -5648,6 +5720,7 @@ function main() {
             renderHlCoverage(byStrategy, strategies);
             renderHlSpan(byStrategy, strategies, sweepName);
             renderHlHeadline(byStrategy, strategies, sweepName);
+        });
         });
     }
 
@@ -5704,6 +5777,7 @@ function main() {
     function renderSpeedTab(gen, noises) {
         if (toGenSet(gen).size === 0) return;
         hlLastArgs = { generator: gen, noises };
+        ensureScanFieldsFor(gen, noises).then(() => {
         const byStrategy = hlCollect(gen, noises);
         const strategies = [...byStrategy.keys()].sort();
         const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
@@ -5737,6 +5811,7 @@ function main() {
         }).catch(err => {
             const warn = document.getElementById('hl-warning');
             if (warn) warn.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;margin:1em 0;"><strong>Speed render error:</strong> ${err.message || err}<br><pre style="white-space:pre-wrap;font-size:11px">${err.stack || ''}</pre></div>`;
+        });
         });
     }
 
@@ -5995,6 +6070,7 @@ function main() {
     function renderAccuracyTab(gen, noises) {
         if (toGenSet(gen).size === 0) return;
         hlLastArgs = { generator: gen, noises };
+        ensureScanFieldsFor(gen, noises).then(() => {
         const byStrategy = hlCollect(gen, noises);
         const strategies = [...byStrategy.keys()].sort();
         const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
@@ -6017,6 +6093,7 @@ function main() {
                 msg.innerHTML = `<strong>Accuracy render error:</strong> ${err.message || err}<br><pre style="white-space:pre-wrap;font-size:11px">${err.stack || ''}</pre>`;
                 errDiv.prepend(msg);
             }
+        });
         });
     }
 

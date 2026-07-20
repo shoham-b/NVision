@@ -12,7 +12,13 @@ from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 # v5: NV Bayesian belief uses unit-cube parameter grids + physical signal wrapper (likelihood x-mapping).
 # v6: Streaming repeat cache (pointer rows + separate repeat rows).
 # v9: Sub-task cache slicing fix — partial loads capped to chunk_size, saves start at repeat_offset+n_cached.
-CACHE_SCHEMA_VERSION = 9
+# v10: Graph payloads move from base85-in-JSON (content_bin) to raw bytes in the
+# sharded SQLite `graphs` BLOB table (nvision/cache/sqlite.py) — eliminates the
+# ~25% base85 inflation entirely instead of just shrinking it. Old v9 entries
+# are cleanly unreachable (repeat keys derive from combo_key, which changes
+# with this bump) rather than needing dual-format read support; delete
+# artifacts/cache to reclaim the disk they'd otherwise sit on unused.
+CACHE_SCHEMA_VERSION = 10
 
 # PHYSICS_CONFIG_FINGERPRINT (nvision/spectra/nv_center.py) is folded into every cache
 # config below instead of relying on a manual CACHE_SCHEMA_VERSION bump: a generator's
