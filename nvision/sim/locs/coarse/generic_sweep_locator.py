@@ -137,9 +137,16 @@ class GenericSweepLocator(SweepingLocator):
         
         if domain_lo is None or domain_hi is None:
             if parameter_bounds is not None:
-                param_name = scan_param or (
-                    signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
-                )
+                # "frequency" is always the probe x-axis for NV-center models even
+                # when fixed (not inferred) and therefore absent from
+                # signal_model.parameter_names() -- same landmine as
+                # SweepingLocator.__init__'s own scan_param default.
+                if scan_param:
+                    param_name = scan_param
+                elif "frequency" in parameter_bounds:
+                    param_name = "frequency"
+                else:
+                    param_name = signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
                 if param_name in parameter_bounds:
                     if domain_lo is None:
                         domain_lo = parameter_bounds[param_name][0]
@@ -287,9 +294,24 @@ class GenericSweepLocator(SweepingLocator):
         inner = self._inner_model()
         param_names = inner.parameter_names()
         scan_param = self._scan_param
-        if scan_param not in param_names:
-            raise ValueError(f"scan_param {scan_param!r} is not one of the model's parameters {param_names}")
-        scan_idx = param_names.index(scan_param)
+        # scan_param (almost always "frequency") may be fixed rather than a free
+        # fit parameter (e.g. NVCenterVoigtModel(with_fixed_frequency=True)) --
+        # curve_fit then only fits the *other* parameters (linewidth, zeeman_split,
+        # c_total, ...); the scan axis's value comes from the model's fixed_values
+        # instead of the fitted vector, with zero uncertainty (it wasn't estimated).
+        scan_idx: int | None
+        fixed_scan_value: float | None = None
+        if scan_param in param_names:
+            scan_idx = param_names.index(scan_param)
+        else:
+            scan_idx = None
+            fixed_vals = getattr(inner.spec, "fixed_values", None) or {}
+            if scan_param not in fixed_vals:
+                raise ValueError(
+                    f"scan_param {scan_param!r} is neither one of the model's fitted "
+                    f"parameters {param_names} nor a fixed value on its spec."
+                )
+            fixed_scan_value = float(fixed_vals[scan_param])
         # Contrast/amplitude parameter name: "c_total" for every lineshape now
         # (Lorentzian, plain Voigt, saturation-Voigt all share this convention).
         ct_idx = next((param_names.index(n) for n in ("c_total", "c_max") if n in param_names), None)
@@ -332,7 +354,8 @@ class GenericSweepLocator(SweepingLocator):
 
         def make_p0(freq_hz: float, half_sep_hz: float | None, hf_split_hz: float | None) -> list[float]:
             p0 = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
-            p0[scan_idx] = float(np.clip(freq_hz, domain_lo, domain_hi))
+            if scan_idx is not None:
+                p0[scan_idx] = float(np.clip(freq_hz, domain_lo, domain_hi))
             if ct_idx is not None:
                 p0[ct_idx] = float(np.clip(dip_depth, lo_bounds[ct_idx], hi_bounds[ct_idx]))
             if width_idx is not None and hwhm_est is not None and hwhm_est > 0:
@@ -430,15 +453,24 @@ class GenericSweepLocator(SweepingLocator):
             curve_fn, xs_fit, ys_fit, candidates, make_p0, lo_bounds, hi_bounds, xtol, sigma=sigma_fit
         )
 
-        freq_phys = float(best_popt[scan_idx])
+        freq_phys = float(best_popt[scan_idx]) if scan_idx is not None else fixed_scan_value
         if not (domain_lo <= freq_phys <= domain_hi):
             raise RuntimeError(f"fitted frequency {freq_phys} fell outside the domain [{domain_lo}, {domain_hi}]")
 
         # Store the full fitted parameter vector so the visualization can draw the
-        # actual fit instead of the (collapsed) SMC belief marginal mode.
+        # actual fit instead of the (collapsed) SMC belief marginal mode. scan_param
+        # isn't part of best_popt when fixed, so add it back explicitly.
         self._fit_params_phys = {n: float(v) for n, v in zip(param_names, best_popt)}
+        if scan_idx is None:
+            self._fit_params_phys[scan_param] = freq_phys
 
-        uncert_phys = self._report_fit_uncertainty(best_pcov, scan_idx, dip_depth, n_pts, domain_width, lw_guess)
+        # scan_idx is None => scan_param was fixed, not fit -- no covariance to
+        # report, and it wasn't estimated, so its uncertainty is exactly zero.
+        uncert_phys = (
+            self._report_fit_uncertainty(best_pcov, scan_idx, dip_depth, n_pts, domain_width, lw_guess)
+            if scan_idx is not None
+            else 0.0
+        )
         return freq_phys, uncert_phys
 
     def _resolve_physical_bounds(self, param_names: list[str]) -> dict[str, tuple[float, float]]:

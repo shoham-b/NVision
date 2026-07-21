@@ -822,6 +822,23 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # algebraically combined in unit space.
         phys_bounds = self.physical_param_bounds
 
+        # "frequency" may be fixed (not a particle dimension, e.g.
+        # NVCenterVoigtModel(with_fixed_frequency=True)) and therefore absent from
+        # estimates/uncertainties above. Slope-targeting still needs a center and
+        # a (zero) uncertainty for it, so pull the fixed value from the model spec
+        # and synthesize both entries -- exact center, no spread.
+        if "frequency" not in estimates and "frequency" in phys_bounds:
+            inner = getattr(self.model, "inner", None)
+            fixed_vals = getattr(getattr(inner, "spec", None), "fixed_values", None) or {}
+            if "frequency" not in fixed_vals:
+                raise RuntimeError(
+                    "_generate_epoch_candidates: 'frequency' is not a particle dimension and "
+                    "not in the model spec's fixed_values -- cannot determine its value."
+                )
+            lo, hi = phys_bounds["frequency"]
+            estimates = {**estimates, "frequency": (fixed_vals["frequency"] - lo) / (hi - lo) if hi != lo else 0.5}
+            uncertainties = {**uncertainties, "frequency": 0.0}
+
         def _to_phys(name: str, unit_val: float) -> float:
             if name not in phys_bounds:
                 raise RuntimeError(

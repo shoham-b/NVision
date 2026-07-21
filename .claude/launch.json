@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "nvision-serve-18080",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18080"],
+      "port": 18080
+    },
+    {
       "name": "nvision-serve",
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18082"],

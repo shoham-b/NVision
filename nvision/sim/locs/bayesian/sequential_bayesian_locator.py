@@ -143,7 +143,11 @@ class SequentialBayesianLocator(Locator):
         self.step_count: int = 0
         # Bayesian acquisition count
         self.inference_step_count: int = 0
-        self._scan_param = scan_param or belief.model.parameter_names()[0]
+        # "frequency" is always the probe x-axis even when it's a fixed (not
+        # inferred) model parameter and therefore absent from parameter_names().
+        self._scan_param = scan_param or (
+            "frequency" if "frequency" in belief.physical_param_bounds else belief.model.parameter_names()[0]
+        )
         # Default convergence target is all model parameters.
         self._convergence_params: tuple[str, ...] = (
             tuple(convergence_params) if convergence_params is not None else tuple(self.belief.model.parameter_names())

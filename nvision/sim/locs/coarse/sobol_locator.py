@@ -452,9 +452,16 @@ class StagedSobolSweepLocator(Locator):
         **kwargs: Any,
     ) -> StagedSobolSweepLocator:
         if parameter_bounds is not None:
-            param_name = scan_param or (
-                signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
-            )
+            # "frequency" is always the probe x-axis for NV-center models even
+            # when fixed (not inferred) and therefore absent from
+            # signal_model.parameter_names() -- same landmine as
+            # GenericSweepLocator.create()'s own domain resolution.
+            if scan_param:
+                param_name = scan_param
+            elif "frequency" in parameter_bounds:
+                param_name = "frequency"
+            else:
+                param_name = signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
             if param_name in parameter_bounds:
                 domain_lo, domain_hi = parameter_bounds[param_name]
 

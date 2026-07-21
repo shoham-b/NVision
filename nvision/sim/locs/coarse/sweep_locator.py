@@ -64,7 +64,15 @@ class SweepingLocator(Locator):
         self._noise_max_dev = noise_max_dev
         self._signal_min_span = signal_min_span
         self._signal_max_span = signal_max_span
-        self._scan_param = scan_param or (signal_model.parameter_names()[0] if signal_model.parameter_names() else "x")
+        _names = signal_model.parameter_names()
+        if scan_param:
+            self._scan_param = scan_param
+        elif "frequency" in _names or hasattr(signal_model, "_with_fixed_frequency"):
+            # "frequency" is always the probe x-axis for NV-center models even
+            # when fixed (not inferred) and therefore absent from _names.
+            self._scan_param = "frequency"
+        else:
+            self._scan_param = _names[0] if _names else "x"
         self._domain_lo = domain_lo
         self._domain_hi = domain_hi
 

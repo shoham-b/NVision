@@ -87,11 +87,16 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
                 "__post_init__ set _original_physical_x_bounds."
             )
         phys = self.physical_param_bounds
-        maps: dict[str, RescaleMap] = {}
+        # "frequency" is always the probe/measurement x-axis, independent of
+        # whether it's also a free/inferred particle dimension (it may not be,
+        # e.g. NVCenterVoigtModel(with_fixed_frequency=True)) -- so its rescale
+        # map is built unconditionally rather than gated on self._param_names.
+        lo, hi = self._original_physical_x_bounds
+        maps: dict[str, RescaleMap] = {"frequency": RescaleMap(lo=float(lo), hi=float(hi))}
         for name in self._param_names:
             if name == "frequency":
-                lo, hi = self._original_physical_x_bounds
-            elif name in phys:
+                continue
+            if name in phys:
                 lo, hi = phys[name]
             else:
                 raise RuntimeError(
@@ -116,6 +121,13 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             all_names.extend(n for n in self.noise_model.spec.names if n not in all_names)
 
         self.parameter_bounds = {name: (0.0, 1.0) for name in all_names}
+        # "frequency" is always the probe/measurement x-axis (needed by the base
+        # class's __post_init__ to size the global candidate grid) even when it's
+        # fixed and therefore absent from all_names/model.parameter_names(). This
+        # doesn't reintroduce it as a particle dimension -- _param_names below is
+        # set directly from model.parameter_names(), not from this dict's keys.
+        if "frequency" not in self.parameter_bounds and "frequency" in self.physical_param_bounds:
+            self.parameter_bounds["frequency"] = (0.0, 1.0)
         super().__post_init__()
         self._original_physical_x_bounds = self.physical_x_bounds
 
@@ -395,15 +407,18 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         """
         super()._resample()
 
-        # Identify the scan parameter (almost always "frequency").
-        scan_param = "frequency" if "frequency" in self.physical_param_bounds else None
+        # Identify the scan parameter (almost always "frequency"). Must also be a
+        # free particle dimension (self._param_names) -- "frequency" stays in
+        # physical_param_bounds even when fixed (it's still the probe x-axis),
+        # but there's nothing to narrow from particle spread if it's not inferred.
+        scan_param = "frequency" if "frequency" in self._param_names else None
         if scan_param is None:
             for name, bounds in self.physical_param_bounds.items():
-                if bounds == self.physical_x_bounds:
+                if name in self._param_names and bounds == self.physical_x_bounds:
                     scan_param = name
                     break
         if scan_param is None:
-            return  # Nothing to narrow — no frequency axis found.
+            return  # Nothing to narrow — no free frequency axis found.
 
         lo_phys, hi_phys = self.physical_param_bounds[scan_param]
         cur_width = hi_phys - lo_phys

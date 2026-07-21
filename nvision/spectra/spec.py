@@ -78,30 +78,46 @@ class BasicParamSpec:
 
 
 class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
-    """Auto-implement ParamSpec methods using dataclass field introspection."""
+    """Auto-implement ParamSpec methods using dataclass field introspection.
+
+    ``fixed_values`` lets a subset of the dataclass's fields be locked to a
+    constant instead of exposed as a free/inferred dimension: ``.names``/``.dim``
+    (and therefore particle dimensionality) exclude them, while ``unpack_params``/
+    ``unpack_samples`` still populate the full dataclass by filling those fields
+    in from ``fixed_values`` -- so ``params_cls``/``samples_cls`` instances are
+    always fully populated regardless of which fields are free.
+    """
 
     params_cls: type[ParamsT]
     samples_cls: type[SampleParamsT]
     uncertainty_cls: type[UncertaintyT]
+    fixed_values: dict[str, float]
+
+    def __init__(self, fixed_values: dict[str, float] | None = None) -> None:
+        self.fixed_values = dict(fixed_values) if fixed_values else {}
 
     @property
     def names(self) -> tuple[str, ...]:
         from dataclasses import fields
 
-        return tuple(f.name for f in fields(self.params_cls))
+        return tuple(f.name for f in fields(self.params_cls) if f.name not in self.fixed_values)
 
     @property
     def dim(self) -> int:
         return len(self.names)
 
     def unpack_params(self, values: Sequence[float]) -> ParamsT:
-        return self.params_cls(**dict(zip(self.names, values, strict=False)))
+        d = dict(zip(self.names, values, strict=False))
+        d.update(self.fixed_values)
+        return self.params_cls(**d)
 
     def pack_params(self, params: ParamsT) -> tuple[float, ...]:
         return tuple(getattr(params, name) for name in self.names)
 
     def unpack_uncertainty(self, values: Sequence[float]) -> UncertaintyT:
-        return self.uncertainty_cls(**dict(zip(self.names, values, strict=False)))
+        d = dict(zip(self.names, values, strict=False))
+        d.update(dict.fromkeys(self.fixed_values, 0.0))
+        return self.uncertainty_cls(**d)
 
     def pack_uncertainty(self, u: UncertaintyT) -> tuple[float, ...]:
         return tuple(getattr(u, name) for name in self.names)
@@ -109,9 +125,12 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
     def unpack_samples(self, arrays_in_order: Sequence[np.ndarray]) -> SampleParamsT:
         from nvision.spectra.dtypes import FLOAT_DTYPE
 
-        return self.samples_cls(
-            **{name: np.asarray(arr, dtype=FLOAT_DTYPE) for name, arr in zip(self.names, arrays_in_order, strict=True)}
-        )
+        d = {name: np.asarray(arr, dtype=FLOAT_DTYPE) for name, arr in zip(self.names, arrays_in_order, strict=True)}
+        if self.fixed_values:
+            n = next(iter(d.values())).shape[0] if d else 0
+            for name, val in self.fixed_values.items():
+                d[name] = np.full(n, val, dtype=FLOAT_DTYPE)
+        return self.samples_cls(**d)
 
     def pack_samples(self, samples: SampleParamsT) -> tuple[np.ndarray, ...]:
         from nvision.spectra.dtypes import FLOAT_DTYPE

@@ -344,10 +344,22 @@ class NVCenterLorentzianModel(
     _SPEC_SINGLE = _NVCenterLorentzianSingleDipSpec()
     _SPEC_ZEEMAN = _NVCenterLorentzianZeemanSpec()
     _SPEC_ZEEMAN_HF = _NVCenterLorentzianZeemanHyperfineSpec()
+    _SPEC_FULL_FIXED_FREQ = _NVCenterLorentzianSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_SINGLE_FIXED_FREQ = _NVCenterLorentzianSingleDipSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterLorentzianZeemanSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_ZEEMAN_HF_FIXED_FREQ = _NVCenterLorentzianZeemanHyperfineSpec(
+        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
 
-    def __init__(self, with_hyperfine_splitting: bool = True, with_zeeman_splitting: bool = False) -> None:
+    def __init__(
+        self,
+        with_hyperfine_splitting: bool = True,
+        with_zeeman_splitting: bool = False,
+        with_fixed_frequency: bool = True,
+    ) -> None:
         self._with_hyperfine_splitting = with_hyperfine_splitting
         self._with_zeeman_splitting = with_zeeman_splitting
+        self._with_fixed_frequency = with_fixed_frequency
 
     @staticmethod
     def compute_nvcenter_lorentzian_model(
@@ -397,20 +409,25 @@ class NVCenterLorentzianModel(
     @property
     def spec(self):
         if self._with_zeeman_splitting:
-            return self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
-        return self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
+            base = self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
+            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_ZEEMAN_FIXED_FREQ
+        else:
+            base = self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
+            fixed = self._SPEC_FULL_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_SINGLE_FIXED_FREQ
+        return fixed if self._with_fixed_frequency else base
 
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("linewidth", "c_total")
 
     def parameter_weights(self) -> dict[str, float]:
+        freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
         if self._with_zeeman_splitting and self._with_hyperfine_splitting:
-            return {"frequency": 2.0, "linewidth": 1.0, "zeeman_split": 1.5, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
+            return {**freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
         if self._with_zeeman_splitting:
-            return {"frequency": 2.0, "linewidth": 1.0, "zeeman_split": 1.5, "c_total": 1.0}
+            return {**freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "c_total": 1.0}
         if self._with_hyperfine_splitting:
-            return {"frequency": 2.0, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
-        return {"frequency": 2.0, "linewidth": 1.0, "c_total": 1.0}
+            return {**freq_w, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
+        return {**freq_w, "linewidth": 1.0, "c_total": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         return 4.0 * domain_width * 0.0001
@@ -769,24 +786,41 @@ class NVCenterVoigtModel(
     _SPEC_SINGLE = _NVCenterVoigtSingleDipSpec()
     _SPEC_ZEEMAN = _NVCenterVoigtZeemanSpec()
     _SPEC_ZEEMAN_HF = _NVCenterVoigtZeemanHyperfineSpec()
+    _SPEC_FULL_FIXED_FREQ = _NVCenterVoigtSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_SINGLE_FIXED_FREQ = _NVCenterVoigtSingleDipSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterVoigtZeemanSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_ZEEMAN_HF_FIXED_FREQ = _NVCenterVoigtZeemanHyperfineSpec(
+        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
 
-    def __init__(self, with_hyperfine_splitting: bool = False, with_zeeman_splitting: bool = False) -> None:
+    def __init__(
+        self,
+        with_hyperfine_splitting: bool = False,
+        with_zeeman_splitting: bool = False,
+        with_fixed_frequency: bool = True,
+    ) -> None:
         self._with_hyperfine_splitting = with_hyperfine_splitting
         self._with_zeeman_splitting = with_zeeman_splitting
+        self._with_fixed_frequency = with_fixed_frequency
 
     @property
     def spec(self):
         if self._with_zeeman_splitting:
-            return self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
-        return self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
+            base = self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
+            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_ZEEMAN_FIXED_FREQ
+        else:
+            base = self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
+            fixed = self._SPEC_FULL_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_SINGLE_FIXED_FREQ
+        return fixed if self._with_fixed_frequency else base
 
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("homogeneous_linewidth", "sigma_inhom", "c_total")
 
     def parameter_weights(self) -> dict[str, float]:
+        freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
         if self._with_zeeman_splitting and self._with_hyperfine_splitting:
             return {
-                "frequency": 2.0,
+                **freq_w,
                 "homogeneous_linewidth": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
@@ -796,7 +830,7 @@ class NVCenterVoigtModel(
             }
         if self._with_zeeman_splitting:
             return {
-                "frequency": 2.0,
+                **freq_w,
                 "homogeneous_linewidth": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
@@ -804,14 +838,14 @@ class NVCenterVoigtModel(
             }
         if self._with_hyperfine_splitting:
             return {
-                "frequency": 2.0,
+                **freq_w,
                 "homogeneous_linewidth": 1.0,
                 "sigma_inhom": 1.0,
                 "split": 1.0,
                 "k_np": 1.0,
                 "c_total": 1.0,
             }
-        return {"frequency": 2.0, "homogeneous_linewidth": 1.0, "sigma_inhom": 1.0, "c_total": 1.0}
+        return {**freq_w, "homogeneous_linewidth": 1.0, "sigma_inhom": 1.0, "c_total": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         fwhm_total_lo = 70e3
@@ -1276,24 +1310,45 @@ class NVCenterSaturationVoigtModel(
     _SPEC_SINGLE = _NVCenterSaturationVoigtSingleDipSpec()
     _SPEC_ZEEMAN = _NVCenterSaturationVoigtZeemanSpec()
     _SPEC_ZEEMAN_HF = _NVCenterSaturationVoigtZeemanHyperfineSpec()
+    _SPEC_FULL_FIXED_FREQ = _NVCenterSaturationVoigtSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_SINGLE_FIXED_FREQ = _NVCenterSaturationVoigtSingleDipSpec(
+        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
+    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterSaturationVoigtZeemanSpec(
+        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
+    _SPEC_ZEEMAN_HF_FIXED_FREQ = _NVCenterSaturationVoigtZeemanHyperfineSpec(
+        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
 
-    def __init__(self, with_hyperfine_splitting: bool = False, with_zeeman_splitting: bool = False) -> None:
+    def __init__(
+        self,
+        with_hyperfine_splitting: bool = False,
+        with_zeeman_splitting: bool = False,
+        with_fixed_frequency: bool = True,
+    ) -> None:
         self._with_hyperfine_splitting = with_hyperfine_splitting
         self._with_zeeman_splitting = with_zeeman_splitting
+        self._with_fixed_frequency = with_fixed_frequency
 
     @property
     def spec(self):
         if self._with_zeeman_splitting:
-            return self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
-        return self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
+            base = self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
+            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_ZEEMAN_FIXED_FREQ
+        else:
+            base = self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
+            fixed = self._SPEC_FULL_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_SINGLE_FIXED_FREQ
+        return fixed if self._with_fixed_frequency else base
 
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("saturation", "sigma_inhom")
 
     def parameter_weights(self) -> dict[str, float]:
+        freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
         if self._with_zeeman_splitting and self._with_hyperfine_splitting:
             return {
-                "frequency": 2.0,
+                **freq_w,
                 "saturation": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
@@ -1302,20 +1357,20 @@ class NVCenterSaturationVoigtModel(
             }
         if self._with_zeeman_splitting:
             return {
-                "frequency": 2.0,
+                **freq_w,
                 "saturation": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
             }
         if self._with_hyperfine_splitting:
             return {
-                "frequency": 2.0,
+                **freq_w,
                 "saturation": 1.0,
                 "sigma_inhom": 1.0,
                 "split": 1.0,
                 "k_np": 1.0,
             }
-        return {"frequency": 2.0, "saturation": 1.0, "sigma_inhom": 1.0}
+        return {**freq_w, "saturation": 1.0, "sigma_inhom": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         fwhm_total_lo = 2.0 * NV_NATURAL_HWHM_HZ

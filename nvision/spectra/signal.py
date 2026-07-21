@@ -213,9 +213,14 @@ class TrueSignal[ParamsT]:
 
     def get_param_value(self, name: str) -> float:
         values = self.parameter_values()
-        if name not in values:
-            raise KeyError(name)
-        return float(values[name])
+        if name in values:
+            return float(values[name])
+        # Not a free/inferred parameter (e.g. a fixed value like frequency under
+        # with_fixed_frequency=True) -- fall back to the concrete value still
+        # present on typed_parameters, since it's fully populated regardless.
+        if hasattr(self.typed_parameters, name):
+            return float(getattr(self.typed_parameters, name))
+        raise KeyError(name)
 
     def is_scale_parameter(self, name: str) -> bool:
         """Forward checks to the inner model."""
