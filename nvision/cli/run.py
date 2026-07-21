@@ -310,9 +310,7 @@ def _run_tasks_process_pool(  # noqa: C901
                     # cache lookup, and with hundreds of tasks that scan is what makes Ctrl-C
                     # feel like it hangs.
                     still_running_tasks = [t for f, t in future_to_task.items() if not f.done()]
-                    _harvest_partial_results_from_cache(
-                        still_running_tasks, cache_bridge, df_rows, plot_manifest, log
-                    )
+                    _harvest_partial_results_from_cache(still_running_tasks, cache_bridge, df_rows, plot_manifest, log)
                     return plot_manifest, df_rows, errors, completed_count, True
 
                 locator_task = future_to_task[future]
@@ -414,9 +412,7 @@ def _run_tasks_process_pool(  # noqa: C901
             # running (not done/cancelled) when we interrupted, to avoid a slow full-grid
             # cache scan on Ctrl-C.
             still_running_tasks = [t for f, t in future_to_task.items() if not f.done()]
-            _harvest_partial_results_from_cache(
-                still_running_tasks, cache_bridge, df_rows, plot_manifest, log
-            )
+            _harvest_partial_results_from_cache(still_running_tasks, cache_bridge, df_rows, plot_manifest, log)
             return plot_manifest, df_rows, errors, completed_count, True
         finally:
             # If we didn't terminate early, wait for workers to finish.
