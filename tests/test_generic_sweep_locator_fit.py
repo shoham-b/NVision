@@ -30,7 +30,7 @@ _BOUNDS = {
 
 
 def _build_locator(domain_lo=2.82, domain_hi=2.92, n_steps=100) -> GenericSweepLocator:
-    phys_model = NVCenterLorentzianModel()
+    phys_model = NVCenterLorentzianModel(with_fixed_frequency=False)
     unit_model = UnitCubeSignalModel(
         phys_model,
         param_bounds_phys=dict(_BOUNDS) | {"frequency": (domain_lo, domain_hi)},
@@ -63,7 +63,7 @@ def _inject_sweep_data(
     seed: int = 42,
 ) -> None:
     """Directly populate locator history with synthetic noisy observations."""
-    phys_model = NVCenterLorentzianModel()
+    phys_model = NVCenterLorentzianModel(with_fixed_frequency=False)
     true_params = NVCenterLorentzianSpectrum(
         frequency=true_freq,
         linewidth=true_lw,
@@ -208,7 +208,7 @@ def test_sweep_fit_via_run_loop():
         "split": (0.001, 0.01),
     }
     true_signal = TrueSignal(
-        model=NVCenterLorentzianModel(),
+        model=NVCenterLorentzianModel(with_fixed_frequency=False),
         typed_parameters=true_params,
         bounds=bounds,
     )
@@ -264,7 +264,7 @@ def test_sweep_fit_full_parameter_recovery():
 def test_sweep_fit_zeeman_only():
     """Zeeman-split (2-dip) spectrum: frequency and zeeman_split recovered accurately."""
     domain_lo, domain_hi = 2.7, 3.0
-    model = NVCenterLorentzianModel(with_hyperfine_splitting=False, with_zeeman_splitting=True)
+    model = NVCenterLorentzianModel(with_hyperfine_splitting=False, with_zeeman_splitting=True, with_fixed_frequency=False)
     true_params = NVCenterLorentzianZeemanSpectrum(frequency=2.85, linewidth=0.0015, zeeman_split=0.03, c_total=0.3)
     bounds = {
         "frequency": (2.75, 2.95),
@@ -305,7 +305,7 @@ def test_sweep_fit_zeeman_only_narrow_linewidth_resolves_fixed_hyperfine():
     [[sweep-fit-bounds-aliasing]].
     """
     domain_lo, domain_hi = 2.78e9, 2.96e9
-    model = NVCenterLorentzianModel(with_hyperfine_splitting=False, with_zeeman_splitting=True)
+    model = NVCenterLorentzianModel(with_hyperfine_splitting=False, with_zeeman_splitting=True, with_fixed_frequency=False)
     true_params = NVCenterLorentzianZeemanSpectrum(
         frequency=2.87e9, linewidth=0.5e6, zeeman_split=53.29e6, c_total=0.25
     )
@@ -339,7 +339,7 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
     systematically wrong (see NVCenterLorentzianModel.expected_dip_count()).
     """
     domain_lo, domain_hi = 2.7, 3.0
-    model = NVCenterLorentzianModel(with_hyperfine_splitting=True, with_zeeman_splitting=True)
+    model = NVCenterLorentzianModel(with_hyperfine_splitting=True, with_zeeman_splitting=True, with_fixed_frequency=False)
     true_params = NVCenterLorentzianZeemanHyperfineSpectrum(
         frequency=2.85, linewidth=0.0015, zeeman_split=0.03, split=0.004, k_np=2.0, c_total=0.3
     )
@@ -388,7 +388,7 @@ def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
         "k_np": (1.0, 5.0),
         "c_total": (0.1, 0.7),
     }
-    model = NVCenterLorentzianModel()
+    model = NVCenterLorentzianModel(with_fixed_frequency=False)
     true_params = NVCenterLorentzianSpectrum(
         frequency=true_freq, linewidth=0.8e6, split=true_split, k_np=true_k_np, c_total=0.55
     )
@@ -424,7 +424,7 @@ def test_sweep_fit_raises_when_bounds_incomplete():
 
     true_params = NVCenterLorentzianSpectrum(frequency=2.85, linewidth=0.003, c_total=0.3, k_np=3.4, split=0.003)
     true_signal = TrueSignal(
-        model=NVCenterLorentzianModel(),
+        model=NVCenterLorentzianModel(with_fixed_frequency=False),
         typed_parameters=true_params,
         bounds={"frequency": (2.8, 2.9)},
     )
@@ -497,7 +497,7 @@ def test_sweep_then_fit_finds_good_fit_at_low_snr(seed):
         "k_np": (1.0, 5.0),
         "c_total": (0.05, 0.5),
     }
-    model = NVCenterLorentzianModel()
+    model = NVCenterLorentzianModel(with_fixed_frequency=False)
     true_params = NVCenterLorentzianSpectrum(
         frequency=true_freq, linewidth=0.001, split=0.002, k_np=2.0, c_total=0.3
     )
@@ -544,7 +544,7 @@ def test_sweep_fit_zeeman_hyperfine_no_spurious_dips():
     from nvision.spectra.nv_center import NVCenterSaturationVoigtModel, NVCenterSaturationVoigtZeemanHyperfineSpectrum
 
     domain_lo, domain_hi = 2.7e9, 3.0e9
-    model = NVCenterSaturationVoigtModel(with_hyperfine_splitting=True, with_zeeman_splitting=True)
+    model = NVCenterSaturationVoigtModel(with_hyperfine_splitting=True, with_zeeman_splitting=True, with_fixed_frequency=False)
     true_params = NVCenterSaturationVoigtZeemanHyperfineSpectrum(
         frequency=2.85e9, saturation=2.0, sigma_inhom=0.3e6, zeeman_split=30e6, split=4e6, k_np=2.0
     )
@@ -622,7 +622,7 @@ def test_sweep_fit_linewidth_not_blind_seeded():
     from nvision.spectra.nv_center import NVCenterLorentzianZeemanSpectrum, nv_center_lorentzian_bounds_for_domain
 
     domain_lo, domain_hi = 2.6e9, 3.1e9
-    model = NVCenterLorentzianModel(with_hyperfine_splitting=False, with_zeeman_splitting=True)
+    model = NVCenterLorentzianModel(with_hyperfine_splitting=False, with_zeeman_splitting=True, with_fixed_frequency=False)
     true_params = NVCenterLorentzianZeemanSpectrum(
         frequency=2.87e9, linewidth=2.0e6, zeeman_split=42925601.76703225, c_total=0.2529513412260511
     )

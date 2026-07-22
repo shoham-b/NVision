@@ -13,7 +13,11 @@ def test_generic_sweep_classic_fit():
     # Using k_np=1.5: freq+split dip is 1.5x deeper than the other two,
     # which matches the actual physical constraint (k_np in [1, 5]).
     true_freq = 2871.23
-    phys_model = NVCenterLorentzianModel()
+    # This test recovers an unknown frequency from data on a synthetic
+    # (non-physical-Hz-scale) domain -- it needs "frequency" to stay a free
+    # fit parameter, not fixed to the real NV_ZERO_FIELD_SPLITTING_HZ constant
+    # (which the default with_fixed_frequency=True now uses).
+    phys_model = NVCenterLorentzianModel(with_fixed_frequency=False)
 
     true_params = {
         "frequency": true_freq,
