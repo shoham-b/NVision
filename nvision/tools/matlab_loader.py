@@ -41,13 +41,11 @@ def _load_mat_v73(path: Path):
         import h5py
     except ImportError as exc:
         raise ImportError(
-            "This .mat file uses the HDF5/v7.3 format which requires h5py. "
-            "Install it with: pip install h5py"
+            "This .mat file uses the HDF5/v7.3 format which requires h5py. Install it with: pip install h5py"
         ) from exc
 
     raise NotImplementedError(
-        "HDF5/v7.3 .mat files are not yet supported. "
-        "Save the file in MATLAB v5 format (-v7.3 flag off) and retry."
+        "HDF5/v7.3 .mat files are not yet supported. Save the file in MATLAB v5 format (-v7.3 flag off) and retry."
     )
 
 
@@ -56,15 +54,11 @@ def _extract_esr(mat: dict):
     if "myStruct" not in mat:
         available = [k for k in mat if not k.startswith("_")]
         raise KeyError(
-            f"Expected top-level key 'myStruct' in .mat file, "
-            f"but found: {available}. Is this an NVision ESR file?"
+            f"Expected top-level key 'myStruct' in .mat file, but found: {available}. Is this an NVision ESR file?"
         )
     top = mat["myStruct"]
     if not hasattr(top, "ESR"):
-        raise KeyError(
-            "'myStruct' exists but has no 'ESR' field. "
-            "Check that this is an ESR measurement file."
-        )
+        raise KeyError("'myStruct' exists but has no 'ESR' field. Check that this is an ESR measurement file.")
     return top.ESR
 
 
@@ -113,8 +107,7 @@ class MatlabDataFile:
         resolved = _resolve_mat_path(path)
         if not resolved.exists():
             raise FileNotFoundError(
-                f"MATLAB file not found: {path!r}\n"
-                f"Also checked: {_MATLAB_DATA_DIR / Path(path).name}"
+                f"MATLAB file not found: {path!r}\nAlso checked: {_MATLAB_DATA_DIR / Path(path).name}"
             )
 
         log.debug("Loading MATLAB file: %s", resolved)
@@ -132,15 +125,12 @@ class MatlabDataFile:
         # --- Signal array ---
         raw = np.asarray(esr.signal, dtype=np.float64)  # (2, N_freqs, N_shots_max)
         if raw.ndim != 3 or raw.shape[0] != 2:
-            raise ValueError(
-                f"Expected esr.signal shape (2, N_freqs, N_shots), got {raw.shape}"
-            )
+            raise ValueError(f"Expected esr.signal shape (2, N_freqs, N_shots), got {raw.shape}")
         n_freqs, n_shots_max = raw.shape[1], raw.shape[2]
 
         if len(freq_hz) != n_freqs:
             raise ValueError(
-                f"Frequency array length ({len(freq_hz)}) does not match "
-                f"signal N_freqs dimension ({n_freqs})"
+                f"Frequency array length ({len(freq_hz)}) does not match signal N_freqs dimension ({n_freqs})"
             )
 
         # Determine valid shot count
@@ -152,7 +142,7 @@ class MatlabDataFile:
                 "The measurement may not have started yet."
             )
 
-        baseline = raw[0, :, :n_valid].copy()   # (N_freqs, N_valid)
+        baseline = raw[0, :, :n_valid].copy()  # (N_freqs, N_valid)
         with_freq = raw[1, :, :n_valid].copy()  # (N_freqs, N_valid)
 
         # Mask zero/NaN slots per frequency
@@ -160,7 +150,7 @@ class MatlabDataFile:
         baseline = np.where(good, baseline, np.nan)
         with_freq = np.where(good, with_freq, np.nan)
 
-        b_mean = np.nanmean(baseline, axis=1)   # (N_freqs,)
+        b_mean = np.nanmean(baseline, axis=1)  # (N_freqs,)
         w_mean = np.nanmean(with_freq, axis=1)
 
         # Guard divide-near-zero
@@ -170,8 +160,7 @@ class MatlabDataFile:
         if np.any(np.isnan(signal)):
             n_nan = int(np.sum(np.isnan(signal)))
             log.warning(
-                "%d frequency bins have NaN signal (all shots masked). "
-                "They will return the nearest valid neighbour.",
+                "%d frequency bins have NaN signal (all shots masked). They will return the nearest valid neighbour.",
                 n_nan,
             )
             # Fill NaN bins with nearest valid neighbour
