@@ -1116,6 +1116,20 @@ class _TaskRunner:
                 if name == "frequency" and x_min is None:
                     x_min, x_max = lo, hi
 
+        # "frequency" may be fixed (not a free/inferred parameter, e.g.
+        # NVCenterVoigtModel(with_fixed_frequency=True)) and therefore absent
+        # from parameter_values() above -- it's still the probe x-axis and its
+        # bounds are always present on true_signal.bounds regardless of
+        # free/fixed status, so check it directly rather than only via the
+        # free-parameter scan.
+        if x_min is None or x_max is None:
+            try:
+                lo, hi = true_signal.get_param_bounds("frequency")
+            except KeyError:
+                lo = hi = None
+            if lo is not None and hi > lo:
+                x_min, x_max = lo, hi
+
         if (x_min is None or x_max is None) and freq_like_bounds:
             x_min = min(lo for lo, _ in freq_like_bounds)
             x_max = max(hi for _, hi in freq_like_bounds)

@@ -578,7 +578,20 @@ class GenericSweepLocator(SweepingLocator):
         domain_width = self._domain_hi - self._domain_lo
         if min_span is not None and min_span > 0 and domain_width > 0:
             samples_per_min_span = int(n_pts * min_span / domain_width)
-            window = max(3, min(window, samples_per_min_span))
+            # Only cap if the theoretical minimum feature is actually resolvable
+            # at this sampling density (>= a few samples across it). When min_span
+            # is finer than the sweep's own per-sample resolution (e.g. a 140 kHz
+            # worst-case minimum over 450 kHz/sample), samples_per_min_span
+            # collapses to ~0 and the cap floors the window to 3 regardless of
+            # this draw's *actual* dip width -- badly under-smoothing a dip that's
+            # much wider than the theoretical minimum, which corrupts hwhm_est and
+            # feeds find_peaks spurious noise-scale features instead of the real
+            # dip edges (confirmed against a captured real sweep: a 4.6 MHz-wide
+            # true dip produced hwhm_est=0.23 MHz and a zeeman_split seed ~40% low
+            # under the old unconditional cap). A cap that can't resolve anything
+            # at this sampling density protects against nothing, so skip it.
+            if samples_per_min_span >= 3:
+                window = max(3, min(window, samples_per_min_span))
         smoothed = np.convolve(ys, np.ones(window) / window, mode="same") if window > 1 else ys
         return smoothed, window
 
