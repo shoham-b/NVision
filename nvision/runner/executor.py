@@ -780,7 +780,7 @@ class _TaskRunner:
                 return
             except Exception:
                 if attempt < 4:
-                    time.sleep(0.1 * (2 ** attempt))
+                    time.sleep(0.1 * (2**attempt))
                 else:
                     log.error("Failed to save repeat %s to cache after 5 attempts", rid, exc_info=True)
 
@@ -946,9 +946,7 @@ class _TaskRunner:
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
 
         # Build belief directly
-        belief = nv_center_smc_belief(
-            parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model)
-        )
+        belief = nv_center_smc_belief(parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model))
 
         locator = SimpleSobolBayesianLocator(
             belief=belief,
@@ -1020,9 +1018,7 @@ class _TaskRunner:
 
         sweep_rng = self._rng_for_simplesweep_baseline(rid)
         parameter_bounds = self._injected_parameter_bounds(experiment)
-        belief = nv_center_smc_belief(
-            parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model)
-        )
+        belief = nv_center_smc_belief(parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model))
 
         f_lo, f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
         domain_width = float(f_hi - f_lo)
