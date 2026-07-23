@@ -19,6 +19,7 @@ from nvision.spectra.nv_center import (
     MIN_LINEWIDTH,
     MIN_SPLIT,
     MIN_ZEEMAN_SPLIT,
+    NV_ZERO_FIELD_SPLITTING_HZ,
     PRIOR_STD_FRACTION,
     NVCenterLorentzianModel,
     NVCenterLorentzianSingleDipSpectrum,
@@ -128,9 +129,18 @@ class NVCenterCoreGenerator:
 
         # Zero-field center is a fixed, known reference (like a calibrated instrument
         # constant) -- only zeeman_split/hyperfine/linewidth/contrast vary between
-        # draws. Fixed at the midpoint of the safe (margin-adjusted) range so the
-        # full dip cluster fits in [x_min, x_max] regardless of what gets drawn above.
-        center_freq = (usable_lo + usable_hi) / 2.0
+        # draws. Prefer the real physical zero-field splitting constant (the same
+        # value every NVCenterXModel's with_fixed_frequency=True bakes into its own
+        # spec.fixed_values) so a locator that falls back to that constant -- because
+        # frequency isn't a free fit parameter -- reports the *actual* generated
+        # frequency instead of silently diverging from it. Only fall back to the
+        # margin-adjusted midpoint when the constant doesn't fit the safe range for
+        # this domain, to preserve the existing guarantee that the full dip cluster
+        # fits in [x_min, x_max] regardless of what gets drawn above.
+        if usable_lo <= NV_ZERO_FIELD_SPLITTING_HZ <= usable_hi:
+            center_freq = NV_ZERO_FIELD_SPLITTING_HZ
+        else:
+            center_freq = (usable_lo + usable_hi) / 2.0
 
         if self.variant == "lorentzian":
             c_total = self.c_total if self.c_total is not None else rng.uniform(0.1, 0.4)

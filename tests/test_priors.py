@@ -83,26 +83,14 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     # Build SMC belief with generator priors
     belief = nv_center_smc_belief(signal.bounds, num_particles=1000)
 
-    # Verify particles for frequency follow sin^2(k f) prior
-    f_idx = belief._param_names.index("frequency")
-    freq_particles_unit = belief._particles[:, f_idx]
-
-    # In UnitCube, particles are in [0, 1]
-    assert np.all((freq_particles_unit >= 0.0) & (freq_particles_unit <= 1.0))
-
-    # Convert frequency particles to physical space
-    f_lo, f_hi = belief.physical_param_bounds["frequency"]
-    freq_particles_phys = f_lo + freq_particles_unit * (f_hi - f_lo)
-
-    # Verify rejection sampling shape: evaluate sin^2(k f)
+    # frequency is fixed (a known, calibrated zero-field reference), not inferred
+    # by the belief -- so it has no particle dimension. Its sin^2(k f) prior is
+    # still recorded on the signal's bounds, though, for consumers that only need
+    # the prior shape (e.g. the generator's own metadata, or a future locator
+    # that infers frequency explicitly).
+    assert "frequency" not in belief._param_names
     k = np.pi / (2.0 * MIN_LINEWIDTH)
-    probs = np.sin(k * (freq_particles_phys - f_lo)) ** 2
-
-    # The mean of sin^2(k f) over accepted particles should be significantly higher
-    # than the analytical mean of uniform [0, 1] density passing through the sin^2 filter
-    # Let's ensure that the particles actually represent the distribution (none are rejected below 0)
-    assert np.min(probs) >= 0.0
-    assert np.max(probs) <= 1.0
+    assert signal.bounds["_priors"]["frequency"] == ("sin^2", k)
 
     # Let's check another Gaussian prior parameter, e.g. linewidth (default: no split)
     lw_idx = belief._param_names.index("linewidth")

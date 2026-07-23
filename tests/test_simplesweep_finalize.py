@@ -21,12 +21,9 @@ from nvision.runner.metrics import _scan_attempt_metrics
 def _make_experiment(rng: random.Random) -> CoreExperiment:
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    x_min, x_max = None, None
-    for name in true_signal.parameter_names:
-        if "frequency" in name:
-            x_min, x_max = true_signal.get_param_bounds(name)
-            break
-    assert x_min is not None
+    # "frequency" is the probe x-axis even when it's fixed (not a free/inferred
+    # parameter) -- its bounds are always present on the signal regardless.
+    x_min, x_max = true_signal.get_param_bounds("frequency")
     # noise=None -> zero measurement noise
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
 

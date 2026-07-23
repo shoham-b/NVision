@@ -13,7 +13,7 @@ def test_generic_sweep_classic_fit():
     # Using k_np=1.5: freq+split dip is 1.5x deeper than the other two,
     # which matches the actual physical constraint (k_np in [1, 5]).
     true_freq = 2871.23
-    phys_model = NVCenterLorentzianModel()
+    phys_model = NVCenterLorentzianModel(with_fixed_frequency=False)
 
     true_params = {
         "frequency": true_freq,

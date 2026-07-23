@@ -45,13 +45,13 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
     )
     assert final.snapshots
-    freq_est = final.snapshots[-1].belief.estimates()["frequency"]
-    freq_true = true_signal.get_param_value("frequency")
-    assert abs(freq_est - freq_true) < 0.2e9
+    # frequency is fixed (a known, calibrated zero-field reference), not inferred
+    # by the SBED belief -- it has no particle dimension or estimate entry.
+    assert "frequency" not in final.snapshots[-1].belief.estimates()
 
 
 def test_narrow_scan_parameter_physical_bounds_smc():
-    b = nv_center_smc_belief(num_particles=200)
+    b = nv_center_smc_belief(num_particles=200, with_fixed_frequency=False)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
     old_lo, old_hi = b.physical_param_bounds["frequency"]
     mid = 0.5 * (old_lo + old_hi)
@@ -69,7 +69,7 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     # Set the environment variable to 8 steps
     monkeypatch.setenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8")
 
-    b = nv_center_smc_belief(num_particles=100)
+    b = nv_center_smc_belief(num_particles=100, with_fixed_frequency=False)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
 
     # Capture original bounds
@@ -164,7 +164,9 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 
     monkeypatch.setattr(SMCMarginalDistribution, "_resample", lambda self: None)
 
-    b = nv_center_smc_belief(num_particles=100, with_hyperfine_splitting=True, with_zeeman_splitting=False)
+    b = nv_center_smc_belief(
+        num_particles=100, with_hyperfine_splitting=True, with_zeeman_splitting=False, with_fixed_frequency=False
+    )
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
     b._step_count = 10  # > 5, narrowing runs
 
@@ -213,7 +215,7 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 def _make_unit_cube_nv_model():
     from nvision.spectra.nv_center import NVCenterLorentzianModel
 
-    model = NVCenterLorentzianModel()
+    model = NVCenterLorentzianModel(with_fixed_frequency=False)
     phys_bounds = {
         "frequency": (2.86e9, 2.88e9),
         "linewidth": (5e6, 15e6),
