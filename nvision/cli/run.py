@@ -43,6 +43,24 @@ from nvision.tools.paths import ARTIFACTS_ROOT, LOGS_ROOT, ensure_out_dir
 from nvision.tools.utils import NVISION_RNG_SEED
 
 log = logging.getLogger("nvision")
+
+
+def _maybe_autostart_server(out_dir: Path, open_browser: bool) -> None:
+    """Start `nv serve` in the background so progress can be watched live while this
+    run executes, instead of only after it finishes.
+
+    Safe to call unconditionally: `serve()` no-ops (just reuses/opens the browser) if
+    a healthy server is already answering on the target port, and never blocks or
+    raises into the caller — a UI-convenience feature must not take down a run.
+    """
+    if not open_browser:
+        return
+    try:
+        from nvision.cli.serve import serve as _serve_cmd
+
+        _serve_cmd(directory=out_dir, port=None, no_open=False, background=True)
+    except Exception:
+        log.warning("Could not auto-start the results server; continuing without it.", exc_info=True)
 console = Console()
 
 
@@ -897,6 +915,7 @@ def run(  # noqa: C901
 
         out_dir: Path = out
         tree = prepare_artifact_tree(out_dir, clear_cache=False)
+        _maybe_autostart_server(out_dir, open_browser)
 
         # Apply remaining signal-parameter CLI overrides (noise-grid overrides were
         # already applied above, before --run-group resolution).

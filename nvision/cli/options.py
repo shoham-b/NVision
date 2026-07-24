@@ -71,7 +71,8 @@ OpenBrowserOption = Annotated[
     bool,
     typer.Option(
         "--open/--no-open",
-        help="Open results in browser after run",
+        help="Start the results server (and open it in a browser) as soon as the run starts, "
+        "so progress can be watched live instead of only after it finishes.",
     ),
 ]
 

@@ -20,8 +20,8 @@ overwrites/reads the shared cache. Match the command to the intent:
 | Run the full batch of scenarios | `nv run` |
 | One specific (generator, noise, strategy) combo | `nv run-single <generator> <noise> <strategy>` |
 | A preset scenario bundle | `nv groups list` / `nv groups run <name>` / `nv groups <name>` (shortcut) |
-| Only changed plotting/viz code, sim results unchanged | `nv render` — rebuilds `plots_manifest.json` + UI from cache, no re-simulation |
-| View results in the browser | `nv serve` (port 18080; press `r` in-browser to reload) |
+| Only changed plotting/viz code, sim results unchanged | Restart `nv serve` (it serves live from cache, no `nv render`/manifest-file step) |
+| View results in the browser | `nv serve` (port 18080; safe to start before/during a run — press `r` in-browser to pick up new repeats or restart the process to pick up viz code changes) |
 | Inspect or prune the cache | `nv cache list` / `nv cache clean --filter-strategy <name>` |
 | Check progress on a still-running `nv run` | `nv cache progress --repeats N` — see `nvision-run-monitoring` skill |
 | Check whether repeats are converging well, not just finishing | `nv cache convergence --breakdown strategy` — see `nvision-convergence-check` skill |
@@ -45,16 +45,23 @@ alone can't exercise what changed.
 - `--no-cache`: **bypasses reading** the cache (forces fresh computation) but still **writes**
   results back. Use to force a clean re-run whose output should stick around.
 
-## After an edit: render vs re-run
+## After an edit: restart-serve vs re-run
+
+`nv serve` builds the UI live from `artifacts/cache/` on each request (`nvision/cli/api_server.py`)
+— there's no `plots_manifest.json` or other rendered-to-disk step in between. `nv render` still
+exists but only writes `locator_results.csv`; it's unrelated to what the UI shows.
 
 - **Plotting/viz code only** (`nvision/viz/`, plot mixins) — the cached simulation results are
-  still valid, so just rebuild the report:
+  still valid. But since `nv serve` is a live Python process, it already has the *old* viz code
+  imported — restart it, then reload the browser tab (or press 'r') to see the change:
   ```bash
-  uv run nv render
+  # stop the running nv serve, then:
+  uv run nv serve
   ```
 - **Core algorithmic code** (SMC resampling, Bayesian likelihood, locator logic, generators) —
   the cache is now stale. Tell the user explicitly whether they need a full re-run of
-  `artifacts/cache/` or whether `render` is enough; don't silently assume. See `docs/caching.md`.
+  `artifacts/cache/`; restarting `nv serve` alone won't fix stale simulation results, only stale
+  viz code. See `docs/caching.md`.
 
 ## Windows: `uv run` lock error
 

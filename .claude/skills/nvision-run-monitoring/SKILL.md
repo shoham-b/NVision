@@ -1,6 +1,6 @@
 ---
 name: nvision-run-monitoring
-description: Guides checking progress on an in-progress (still-running) `nv run`/`nv groups` job and actually verifying its graphs render correctly, as opposed to just trusting the process is "probably fine." Use whenever the user asks to check on a run, see mid-run/in-progress results, find out how many repeats are done, or wants proof that a long-running job's output is actually good — not just that it hasn't crashed. Covers the `nv cache progress` command, the manifest-rebuild step required to see new data, and gotchas that look like bugs but aren't: `nv serve`'s slow startup pass on a big cache, and huge manifests freezing the browser's screenshot/computer tools while the page is actually fine.
+description: Guides checking progress on an in-progress (still-running) `nv run`/`nv groups` job and actually verifying its graphs render correctly, as opposed to just trusting the process is "probably fine." Use whenever the user asks to check on a run, see mid-run/in-progress results, find out how many repeats are done, or wants proof that a long-running job's output is actually good — not just that it hasn't crashed. Covers the `nv cache progress` command, running `nv serve` live alongside `nv run`/`nv groups` (no `nv render` step needed — press 'r'/POST `/api/reload` to invalidate the server's in-process manifest cache and pick up new repeats), and gotchas that look like bugs but aren't: a slow first `/api/manifest` build on a big cache, and huge manifests freezing the browser's screenshot/computer tools while the page is actually fine.
 ---
 
 > This skill's step 4 verification recipe only spot-checks one combo at a time. For bulk,
@@ -11,10 +11,14 @@ description: Guides checking progress on an in-progress (still-running) `nv run`
 
 # Monitoring an in-progress NVision run
 
-A long `nv run`/`nv groups ... --repeats N` job writes to the cache continuously but the
-UI (`plots_manifest.json`) is a **snapshot** — it does not update itself. "Checking on a run"
-is therefore two separate questions: *how far along is it* (cheap, cache-only) and
-*does its output actually look right* (needs a manifest rebuild + real browser check).
+Since the "use api for serving the UI" refactor, `nv serve` reads live from the SQLite
+cache (`nvision/cli/api_server.py`) — there is no `plots_manifest.json` file, no
+`nv render` step, and no per-graph disk materialization. It's safe and expected to start
+`nv serve` **before or during** a long `nv run`/`nv groups ... --repeats N` job (the cache is
+WAL-mode SQLite, so concurrent reads while the job writes are fine) and just reload the browser
+tab to see new repeats land. "Checking on a run" is therefore two separate questions: *how far
+along is it* (cheap, cache-only, no browser needed) and *does its output actually look right*
+(needs a real browser check, but no rebuild step first).
 
 ## 1. How far along is it — `nv cache progress`
 
@@ -39,25 +43,33 @@ count and is unreadable. Don't write an ad-hoc script to query `artifacts/cache/
 
 ## 2. Seeing the actual graphs mid-run
 
-The UI reads `artifacts/plots_manifest.json`, which is only written by `nv render` (or at the
-end of `nv run`). To see graphs for repeats that landed *after* the manifest was last built:
-
 ```bash
-uv run nv render      # rebuilds the manifest from current cache state, no re-simulation
-uv run nv serve       # or press 'r' in an already-open UI tab to reload
+uv run nv serve       # start any time before or during nv run / nv groups
 ```
 
-`nv render` is safe to run against a cache that's still being written to. Re-run it any time
-you want a fresher snapshot; it does not disturb the in-progress run.
+`nv serve`'s manifest is built lazily from the cache on first request, then held in an
+in-process cache (`nvision/cli/api_server.py`'s `cache["manifest"]`) so repeat page loads don't
+re-walk the whole cache every time. That means a plain browser refresh (F5) will **not** show
+repeats that landed after the manifest was built — you need to invalidate it first:
+
+- Press **'r'** in the UI tab (or click the "Recalculate" button) — this POSTs `/api/reload`,
+  which drops the in-process cache and rebuilds it from current cache state, then reloads the
+  page automatically once done.
+- Equivalently: `curl -X POST http://localhost:PORT/api/reload`, then reload the tab yourself.
+
+No `nv render` step is needed for the UI at all anymore — `nv render` still exists but now only
+writes `locator_results.csv`; it's unrelated to what `nv serve` shows.
 
 ## 3. Two things that look like bugs but are just scale
 
-**`nv serve` can take minutes to start responding.** On startup it runs
-`_restore_missing_graphs` (`nvision/cli/serve.py`), which walks every cached combination once to
-materialize any graph files that only exist as bytes in the cache DB. With a big/in-progress
-cache (hundreds of combos, tens of thousands of repeats) this can take several minutes *before
-the port even opens*. `ERR_CONNECTION_REFUSED` during this window is expected, not a crash.
-Poll instead of assuming failure:
+**The server itself starts fast** (no more pre-scan on startup — `nv serve` opens the port
+almost immediately, even against a huge/in-progress cache). But **the first `/api/manifest`
+request after startup or a reload can take a while** on a big cache: `_build_manifest`
+(`nvision/cli/api_server.py`) walks every cached combination once, in a thread pool, to build
+the response. On hundreds of combos / tens of thousands of repeats this first load (or first
+load after pressing 'r') can take real time even though `/api/status` already returns 200. If
+you need to confirm the server is up before checking the page, poll `/api/status`, but don't
+mistake a slow first manifest load for the server being down:
 
 ```bash
 until curl -s -o /dev/null -w "%{http_code}" http://localhost:PORT/api/status | grep -q 200; do sleep 3; done
@@ -95,10 +107,13 @@ in-progress combo's output "working" without doing this, in order:
 
 1. **DB check**: query the relevant combo's cache row directly and confirm its plot entries have
    `content_bin` (or `content`) populated — not just a `path`. A `path` with no content means the
-   file was never actually captured, and will 404 regardless of what the manifest says.
-2. **Render**: `nv render` so the manifest reflects the current cache.
-3. **Serve**: start (or reuse) `nv serve`, wait for it to actually accept connections (§3 above).
-4. **Browser proof**: select the specific (generator, noise, strategy, repeat) combo you're
+   file was never actually captured, and will 404 regardless of what the manifest says
+   (`/api/graph/...` reads straight from this field — see `_graph_bytes_for_entry` in
+   `nvision/cli/api_server.py`).
+2. **Serve**: start (or reuse) `nv serve`. If it was already running before the repeat you care
+   about landed, press 'r' in the tab (or POST `/api/reload`) to invalidate the in-process
+   manifest cache so the new repeat is actually included (§2 above).
+3. **Browser proof**: select the specific (generator, noise, strategy, repeat) combo you're
    checking, then confirm via §3's text/JS techniques — real network 200s, no "Failed to load
    plot" text, nonzero Plotly div count, and (via `get_page_text`) numbers that look like real
    physics output, not placeholders.
