@@ -16,15 +16,19 @@ from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, 
 from nvision.models.observer import Observer
 from nvision.runner.convert import run_result_to_finalize_record
 from nvision.runner.metrics import _scan_attempt_metrics
+from nvision.spectra.nv_center import DEFAULT_NV_CENTER_FREQ_X_MAX, DEFAULT_NV_CENTER_FREQ_X_MIN
 
 
 def _make_experiment(rng: random.Random) -> CoreExperiment:
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    # x_min/x_max must stay symmetric around NV_ZERO_FIELD_SPLITTING_HZ -- the
+    # model's fixed (not inferred) frequency parameter -- or the "true" center_freq
+    # the generator draws drifts away from what the locator's fit assumes.
+    gen = NVCenterCoreGenerator(x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="lorentzian")
     true_signal = gen.generate(rng)
     x_min, x_max = None, None
-    for name in true_signal.parameter_names:
+    for name, bounds in true_signal.bounds.items():
         if "frequency" in name:
-            x_min, x_max = true_signal.get_param_bounds(name)
+            x_min, x_max = bounds
             break
     assert x_min is not None
     # noise=None -> zero measurement noise

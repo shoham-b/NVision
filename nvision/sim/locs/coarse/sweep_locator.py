@@ -65,11 +65,16 @@ class SweepingLocator(Locator):
         self._signal_min_span = signal_min_span
         self._signal_max_span = signal_max_span
         _names = signal_model.parameter_names()
+        _fixed_names = getattr(getattr(signal_model, "spec", None), "fixed_values", None) or {}
         if scan_param:
             self._scan_param = scan_param
-        elif "frequency" in _names or hasattr(signal_model, "_with_fixed_frequency"):
+        elif "frequency" in _names or "frequency" in _fixed_names or hasattr(signal_model, "_with_fixed_frequency"):
             # "frequency" is always the probe x-axis for NV-center models even
-            # when fixed (not inferred) and therefore absent from _names.
+            # when fixed (not inferred) and therefore absent from _names. Checking
+            # "_with_fixed_frequency" alone misses the common case where signal_model
+            # is a UnitCubeSignalModel wrapper (no such attribute of its own) --
+            # its .spec property delegates to the inner model's spec, so
+            # spec.fixed_values still surfaces "frequency" there.
             self._scan_param = "frequency"
         else:
             self._scan_param = _names[0] if _names else "x"

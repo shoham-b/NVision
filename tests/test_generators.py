@@ -15,7 +15,9 @@ def test_nv_center_lorentzian_default_has_zeeman_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "zeeman_split", "c_total"}
+    # "frequency" is fixed (a known instrument constant), not a free/inferred
+    # parameter, and is therefore absent from parameter_names.
+    assert names == {"linewidth", "zeeman_split", "c_total"}
 
 
 def test_nv_center_lorentzian_no_zeeman_has_three_parameters():
@@ -25,7 +27,7 @@ def test_nv_center_lorentzian_no_zeeman_has_three_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "c_total"}
+    assert names == {"linewidth", "c_total"}
 
 
 def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
@@ -38,7 +40,7 @@ def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "split", "k_np", "c_total"}
+    assert names == {"linewidth", "split", "k_np", "c_total"}
 
 
 def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
@@ -51,7 +53,7 @@ def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "zeeman_split", "split", "k_np", "c_total"}
+    assert names == {"linewidth", "zeeman_split", "split", "k_np", "c_total"}
 
 
 def test_nv_center_lorentzian_fixed_linewidth_and_contrast():
@@ -73,17 +75,18 @@ def test_nv_center_lorentzian_unset_linewidth_and_contrast_still_randomized():
 
 
 def test_nv_center_saturation_voigt_default_has_zeeman_parameters():
-    """Default generator uses Zeeman splitting: frequency, saturation, sigma_inhom, zeeman_split.
+    """Default generator uses Zeeman splitting: saturation, sigma_inhom, zeeman_split.
 
     c_max is not a parameter -- it's a fixed constant (NV_SATURATION_C_MAX), not
-    inferred/drawn per repeat.
+    inferred/drawn per repeat. "frequency" is likewise fixed (a known instrument
+    constant), not a free/inferred parameter.
     """
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="saturation_voigt")
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "saturation", "sigma_inhom", "zeeman_split"}
+    assert names == {"saturation", "sigma_inhom", "zeeman_split"}
 
 
 def test_nv_center_saturation_voigt_fixed_values_used_verbatim():
@@ -139,7 +142,10 @@ def test_dip_cluster_stays_within_domain_for_all_variants():
         gen = NVCenterCoreGenerator(x_min=x_min, x_max=x_max, variant=variant, **kwargs)
         for seed in range(100):
             sig = gen.generate(random.Random(seed))
-            outer_lo, outer_hi = _dip_cluster_extent(variant, sig.parameter_values())
+            # "frequency" is fixed (not a free parameter_values() entry) --
+            # merge it back in via the get_param_value() fallback to typed_parameters.
+            params = {**sig.parameter_values(), "frequency": sig.get_param_value("frequency")}
+            outer_lo, outer_hi = _dip_cluster_extent(variant, params)
             assert outer_lo >= x_min, (variant, kwargs, seed, outer_lo)
             assert outer_hi <= x_max, (variant, kwargs, seed, outer_hi)
 

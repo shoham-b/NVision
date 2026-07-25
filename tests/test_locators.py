@@ -18,9 +18,9 @@ from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)
     x_min, x_max = None, None
-    for name in true_signal.parameter_names:
+    for name, bounds in true_signal.bounds.items():
         if "frequency" in name:
-            x_min, x_max = true_signal.get_param_bounds(name)
+            x_min, x_max = bounds
             break
     assert x_min is not None
     return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)
