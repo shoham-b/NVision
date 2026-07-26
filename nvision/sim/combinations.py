@@ -21,7 +21,6 @@ from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
@@ -159,16 +158,6 @@ class CombinationGrid:
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
                     "config": {"max_steps": 200, **nv_smc_config},
-                },
-            ),
-            (
-                "SimpleSobol",
-                {
-                    "class": SimpleSobolBayesianLocator,
-                    "config": {
-                        "max_steps": 10000,
-                        **nv_smc_config,
-                    },
                 },
             ),
         ]

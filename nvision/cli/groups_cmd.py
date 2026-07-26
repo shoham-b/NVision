@@ -490,7 +490,7 @@ def both_sbed(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
-    """Alias for ``groups run both-sbed`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; Bayesian-SBED/SimpleSobol/SimpleSweep)."""
+    """Alias for ``groups run both-sbed`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; Bayesian-SBED/SimpleSweep)."""
     _run_named_group(
         "both-sbed",
         repeats_override=repeats,

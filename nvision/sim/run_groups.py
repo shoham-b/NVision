@@ -66,11 +66,11 @@ def _group_lorentzian_sbed() -> RunGroup:
         name="lorentzian-sbed",
         description=(
             "Saturation x sigma_inhom x noise grid (saturation-Voigt) for "
-            "Bayesian-SBED/SimpleSobol/SimpleSweep."
+            "Bayesian-SBED/SimpleSweep."
         ),
         generator_names=list(extra_generators.keys()),
         noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
+        strategy_names=["Bayesian-SBED", "SimpleSweep"],
         extra_generators=extra_generators,
     )
 
@@ -111,11 +111,11 @@ def _group_voigt_sbed() -> RunGroup:
         name="voigt-sbed",
         description=(
             "Width x contrast x noise grid (plain Voigt) for "
-            "Bayesian-SBED/SimpleSobol/SimpleSweep."
+            "Bayesian-SBED/SimpleSweep."
         ),
         generator_names=list(extra_generators.keys()),
         noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
+        strategy_names=["Bayesian-SBED", "SimpleSweep"],
         extra_generators=extra_generators,
     )
 
@@ -163,11 +163,11 @@ def _group_voigt_inhom_sbed() -> RunGroup:
         description=(
             "Width x contrast x sigma_inhom x noise grid (plain Voigt, "
             "inhomogeneous/Gaussian broadening selectable) for "
-            "Bayesian-SBED/SimpleSobol/SimpleSweep."
+            "Bayesian-SBED/SimpleSweep."
         ),
         generator_names=list(extra_generators.keys()),
         noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
+        strategy_names=["Bayesian-SBED", "SimpleSweep"],
         extra_generators=extra_generators,
     )
 
@@ -210,11 +210,11 @@ def _group_lorentzian_plain_sbed() -> RunGroup:
         name="lorentzian-plain-sbed",
         description=(
             "Width x contrast x noise grid (plain Lorentzian) for "
-            "Bayesian-SBED/SimpleSobol/SimpleSweep."
+            "Bayesian-SBED/SimpleSweep."
         ),
         generator_names=list(extra_generators.keys()),
         noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
+        strategy_names=["Bayesian-SBED", "SimpleSweep"],
         extra_generators=extra_generators,
     )
 
@@ -263,11 +263,11 @@ def _group_both_sbed() -> RunGroup:
         name="both-sbed",
         description=(
             "Width x contrast x sigma_inhom x noise grid (plain Voigt; sigma_inhom=0 "
-            "is the pure-Lorentzian limit) for Bayesian-SBED/SimpleSobol/SimpleSweep."
+            "is the pure-Lorentzian limit) for Bayesian-SBED/SimpleSweep."
         ),
         generator_names=list(extra_generators.keys()),
         noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
+        strategy_names=["Bayesian-SBED", "SimpleSweep"],
         extra_generators=extra_generators,
     )
 
