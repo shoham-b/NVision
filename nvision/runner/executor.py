@@ -1424,24 +1424,30 @@ class _TaskRunner:
         # match.
         if result.snapshots:
             result.snapshots[-1].belief = locator_instance.belief.copy()
-        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
-        if isinstance(locator_instance, GenericSweepLocator):
+        # Every point-collecting locator that can produce a real least-squares
+        # fit (GenericSweepLocator, StagedSobolSweepLocator,
+        # SimpleSobolBayesianLocator -- see CurveFitEstimator) exposes
+        # fit_mode_estimates(); checked by capability, not a growing isinstance
+        # tuple, so a locator can opt in just by defining the method.
+        has_fit = callable(getattr(locator_instance, "fit_mode_estimates", None))
+        if has_fit:
             # Prefer the actual least-squares model fit over the SMC belief
             # marginal mode for the "most likely signal" plot trace: the
-            # belief is batch-updated without resampling during a sweep and
-            # can collapse, drawing a garbage curve even on clean data.
+            # belief can be batch-updated/resampled without ever being
+            # anchored to a dense, well-conditioned update and can collapse,
+            # drawing a garbage curve even on clean data.
             result.fit_mode_estimates = locator_instance.fit_mode_estimates()
         locator_final_result = locator_instance.result()
-        # Fold the sweep's full least-squares fit (linewidth/homogeneous_linewidth/
-        # sigma_inhom/split/k_np/c_total/zeeman_split/...) into the estimate dict so the generic
-        # final_est_<param> metrics (and the True Signal Parameters UI panel) show a
-        # true-vs-converged value for SimpleSweep the same way they already do for
-        # Bayesian locators -- result() on its own only reports frequency/uncert.
-        # The locator's own result() values win on key conflicts.
-        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-
-        if isinstance(locator_instance, GenericSweepLocator):
+        # Fold the fit's full least-squares parameter vector (linewidth/
+        # homogeneous_linewidth/sigma_inhom/split/k_np/c_total/zeeman_split/...)
+        # into the estimate dict so the generic final_est_<param> metrics (and
+        # the True Signal Parameters UI panel) show a true-vs-converged value
+        # the same way they already do for locators whose result() reports
+        # every parameter directly -- result() on its own only reports
+        # frequency/uncert for sweep-family locators. The locator's own
+        # result() values win on key conflicts.
+        if has_fit:
             fit_mode_estimates = locator_instance.fit_mode_estimates()
             if fit_mode_estimates:
                 locator_final_result = {**fit_mode_estimates, **locator_final_result}
