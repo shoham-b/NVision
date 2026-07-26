@@ -17,6 +17,7 @@ class StrategyFilter(StrEnum):
     SIMPLE_SWEEP = "SimpleSweep"
     STAGED_SOBOL_SWEEP = "StagedSobolSweep"
     BAYESIAN_SBED = "Bayesian-SBED"
+    SIMPLE_SOBOL = "SimpleSobol"
 
 
 class GeneratorName(StrEnum):
