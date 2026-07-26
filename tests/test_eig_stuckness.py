@@ -8,8 +8,11 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 def test_select_max_information_gain_diversity():
     """Test that the locator doesn't get stuck at a single point for a flat/sampled prior."""
     np.random.seed(42)
-    # Setup a standard NV center model
-    model = NVCenterLorentzianModel()
+    # Setup a standard NV center model. with_fixed_frequency=False: this test
+    # exercises candidate-selection diversity driven by genuine positional
+    # uncertainty in "frequency", which requires it to be a free particle
+    # dimension rather than a fixed known constant.
+    model = NVCenterLorentzianModel(with_fixed_frequency=False)
     phys_bounds = {
         "frequency": (2.86e9, 2.88e9),
         "linewidth": (5e6, 15e6),

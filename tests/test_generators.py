@@ -9,27 +9,27 @@ from nvision import (
 
 
 def test_nv_center_lorentzian_default_has_zeeman_parameters():
-    """Default generator uses Zeeman splitting (4 params)."""
+    """Default generator uses Zeeman splitting (3 free params; frequency is fixed)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "zeeman_split", "c_total"}
+    assert names == {"linewidth", "zeeman_split", "c_total"}
 
 
-def test_nv_center_lorentzian_no_zeeman_has_three_parameters():
-    """Explicit with_zeeman_splitting=False gives single-dip 3-param model."""
+def test_nv_center_lorentzian_no_zeeman_has_two_parameters():
+    """Explicit with_zeeman_splitting=False gives single-dip 2-param model (frequency is fixed)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "c_total"}
+    assert names == {"linewidth", "c_total"}
 
 
-def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
-    """Hyperfine-only (no Zeeman) gives 5-param model."""
+def test_nv_center_lorentzian_with_hyperfine_only_has_four_parameters():
+    """Hyperfine-only (no Zeeman) gives 4-param model (frequency is fixed)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(
         x_min=2.6e9, x_max=3.1e9, variant="lorentzian",
@@ -38,11 +38,11 @@ def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "split", "k_np", "c_total"}
+    assert names == {"linewidth", "split", "k_np", "c_total"}
 
 
-def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
-    """Zeeman + hyperfine gives 6-param model."""
+def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_five_parameters():
+    """Zeeman + hyperfine gives 5-param model (frequency is fixed)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(
         x_min=2.6e9, x_max=3.1e9, variant="lorentzian",
@@ -51,7 +51,7 @@ def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "linewidth", "zeeman_split", "split", "k_np", "c_total"}
+    assert names == {"linewidth", "zeeman_split", "split", "k_np", "c_total"}
 
 
 def test_nv_center_lorentzian_fixed_linewidth_and_contrast():
@@ -83,7 +83,7 @@ def test_nv_center_saturation_voigt_default_has_zeeman_parameters():
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
-    assert names == {"frequency", "saturation", "sigma_inhom", "zeeman_split"}
+    assert names == {"saturation", "sigma_inhom", "zeeman_split"}
 
 
 def test_nv_center_saturation_voigt_fixed_values_used_verbatim():
@@ -104,9 +104,10 @@ def test_nv_center_saturation_voigt_unset_values_still_randomized():
     assert sig_a.get_param_value("sigma_inhom") != sig_b.get_param_value("sigma_inhom")
 
 
-def _dip_cluster_extent(variant: str, params: dict) -> tuple[float, float]:
+def _dip_cluster_extent(variant: str, sig) -> tuple[float, float]:
     """Worst-case (outer_lo, outer_hi) of the full dip cluster for one drawn signal."""
-    f = params["frequency"]
+    params = sig.parameter_values()
+    f = sig.get_param_value("frequency")
     zeeman = params.get("zeeman_split", 0.0)
     split = params.get("split", 0.0)
     if variant == "saturation_voigt":
@@ -139,7 +140,7 @@ def test_dip_cluster_stays_within_domain_for_all_variants():
         gen = NVCenterCoreGenerator(x_min=x_min, x_max=x_max, variant=variant, **kwargs)
         for seed in range(100):
             sig = gen.generate(random.Random(seed))
-            outer_lo, outer_hi = _dip_cluster_extent(variant, sig.parameter_values())
+            outer_lo, outer_hi = _dip_cluster_extent(variant, sig)
             assert outer_lo >= x_min, (variant, kwargs, seed, outer_lo)
             assert outer_hi <= x_max, (variant, kwargs, seed, outer_hi)
 

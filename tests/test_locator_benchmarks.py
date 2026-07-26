@@ -32,11 +32,9 @@ from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)
-    x_min, x_max = None, None
-    for name in true_signal.parameter_names:
-        if "frequency" in name:
-            x_min, x_max = true_signal.get_param_bounds(name)
-            break
+    # "frequency" is the probe x-axis regardless of whether it's a free/inferred
+    # parameter or fixed (see NVCenterCoreGenerator) -- its bounds are always present.
+    x_min, x_max = true_signal.get_param_bounds("frequency")
     assert x_min is not None
     return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)
 

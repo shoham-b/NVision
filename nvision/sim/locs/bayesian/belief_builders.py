@@ -66,6 +66,7 @@ def nv_center_smc_belief(  # noqa: C901
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR,
     with_hyperfine_splitting: bool = False,
     with_zeeman_splitting: bool = True,
+    with_fixed_frequency: bool = True,
     lineshape: str = "lorentzian",
     **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
@@ -73,6 +74,9 @@ def nv_center_smc_belief(  # noqa: C901
 
     By default uses Zeeman splitting (two dips). Set ``with_zeeman_splitting=False``
     for a single-dip model. Set ``with_hyperfine_splitting=True`` to also infer split and k_np.
+    ``with_fixed_frequency=True`` (default) fixes the center frequency at the known
+    zero-field-splitting constant instead of treating it as a free/inferred particle
+    dimension (see ``NVCenterLorentzianModel``); set to ``False`` to infer it.
 
     ``lineshape`` selects the signal model:
 
@@ -101,6 +105,7 @@ def nv_center_smc_belief(  # noqa: C901
         model = NVCenterSaturationVoigtModel(
             with_hyperfine_splitting=with_hyperfine_splitting,
             with_zeeman_splitting=with_zeeman_splitting,
+            with_fixed_frequency=with_fixed_frequency,
         )
         merged_bounds = nv_center_saturation_voigt_bounds_for_domain(
             DEFAULT_NV_CENTER_FREQ_X_MIN,
@@ -112,6 +117,7 @@ def nv_center_smc_belief(  # noqa: C901
         model = NVCenterVoigtModel(
             with_hyperfine_splitting=with_hyperfine_splitting,
             with_zeeman_splitting=with_zeeman_splitting,
+            with_fixed_frequency=with_fixed_frequency,
         )
         merged_bounds = nv_center_voigt_bounds_for_domain(
             DEFAULT_NV_CENTER_FREQ_X_MIN,
@@ -123,6 +129,7 @@ def nv_center_smc_belief(  # noqa: C901
         model = NVCenterLorentzianModel(
             with_hyperfine_splitting=with_hyperfine_splitting,
             with_zeeman_splitting=with_zeeman_splitting,
+            with_fixed_frequency=with_fixed_frequency,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
             DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
