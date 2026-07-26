@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
@@ -24,12 +25,15 @@ from nvision.sim.defaults import (
     NVISION_SOBOL_MIN_POINTS,
     NVISION_SOBOL_PAD_FRACTION,
 )
+from nvision.sim.locs.coarse.curve_fit_estimator import CurveFitEstimator
 from nvision.sim.locs.refocus import infer_focus_window_physical as _refocus_infer_focus_window
 from nvision.sim.locs.refocus.strategies import detect_dips as _refocus_detect_dips
 from nvision.spectra.signal import SignalModel
 
 if TYPE_CHECKING:
     pass
+
+log = logging.getLogger(__name__)
 
 
 def _infer_tight_focus_window(
@@ -465,7 +469,7 @@ class StagedSobolSweepLocator(Locator):
             if param_name in parameter_bounds:
                 domain_lo, domain_hi = parameter_bounds[param_name]
 
-        return cls(
+        inst = cls(
             belief=belief,
             signal_model=signal_model,
             max_steps=max_steps,
@@ -476,6 +480,9 @@ class StagedSobolSweepLocator(Locator):
             signal_max_span=signal_max_span,
             scan_param=scan_param,
         )
+        if parameter_bounds is not None:
+            inst._parameter_bounds = dict(parameter_bounds)
+        return inst
 
     def __init__(
         self,
@@ -498,7 +505,20 @@ class StagedSobolSweepLocator(Locator):
         self.noise_std = noise_std
         self.noise_max_dev = noise_max_dev
         self.signal_max_span = signal_max_span
-        self.scan_param = scan_param
+        # "frequency" is always the probe x-axis for NV-center models even when
+        # fixed (not inferred) and therefore absent from parameter_names() --
+        # same fallback SweepingLocator.__init__ uses, needed here too since
+        # finalize()'s curve fit (see CurveFitEstimator) requires a concrete
+        # scan_param, not just a domain range.
+        _names = signal_model.parameter_names()
+        if scan_param:
+            self.scan_param = scan_param
+        elif "frequency" in _names or hasattr(signal_model, "_with_fixed_frequency"):
+            self.scan_param = "frequency"
+        else:
+            self.scan_param = _names[0] if _names else None
+        self._parameter_bounds: dict[str, tuple[float, float]] | None = None
+        self._fit_params_phys: dict[str, float] | None = None
 
         self.step_count = 0
         self.history = ObservationHistory(self.max_steps)
@@ -650,7 +670,16 @@ class StagedSobolSweepLocator(Locator):
 
     def finalize(self) -> None:
         """Flush any buffered belief updates, then infer the focus window from
-        collected data if stages didn't complete.
+        collected data if stages didn't complete, then fit the physical model
+        to every point collected this run via the same least-squares fit
+        ``GenericSweepLocator`` uses (``CurveFitEstimator``).
+
+        This locator's own value is in *where* it looks (3-stage Sobol-based
+        window narrowing) -- it never had a real parameter-estimate fit at
+        all, only the inferred window above. The fit gives it one, on the same
+        footing as SimpleSweep, without changing its acquisition strategy.
+        Best-effort: a fit failure just leaves the window/belief-based
+        estimate as before the fit existed, not a raised exception.
         """
         self._flush_pending_obs()
         if self._stage3 is None and self.history.count > 0:
@@ -659,6 +688,32 @@ class StagedSobolSweepLocator(Locator):
                 self._signal_found = True
                 self._inferred_lo = lo
                 self._inferred_hi = hi
+
+        domain_width = self.domain_hi - self.domain_lo
+        if self.signal_model is not None and self.scan_param is not None and self.history.count >= 2 and domain_width > 0:
+            xs_norm = (self.history.xs - self.domain_lo) / domain_width
+            estimator = CurveFitEstimator(
+                signal_model=self.signal_model,
+                belief=self.belief,
+                scan_param=self.scan_param,
+                domain_lo=self.domain_lo,
+                domain_hi=self.domain_hi,
+                noise_std=self.noise_std,
+                parameter_bounds=self._parameter_bounds,
+            )
+            try:
+                estimator.fit(xs_norm, self.history.ys)
+            except Exception:
+                log.warning("StagedSobolSweepLocator: curve fit failed, falling back to window/belief estimate", exc_info=True)
+            else:
+                self._fit_params_phys = estimator.fit_params_phys
+
+    def fit_mode_estimates(self) -> dict[str, float] | None:
+        """Full fitted physical parameters from the model fit, or None if unavailable.
+
+        Mirrors ``GenericSweepLocator.fit_mode_estimates()``.
+        """
+        return dict(self._fit_params_phys) if self._fit_params_phys is not None else None
 
     def acquisition_window(self) -> tuple[float, float]:
         if self._stage3 is not None:
