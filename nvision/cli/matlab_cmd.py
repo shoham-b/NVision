@@ -158,7 +158,7 @@ def matlab_run(  # noqa: C901
     n_freqs = len(data.freq_hz)
 
     typer.echo(
-        f"Loaded {n_freqs} frequencies: {freq_lo/1e6:.1f} to {freq_hi/1e6:.1f} MHz  |  "
+        f"Loaded {n_freqs} frequencies: {freq_lo / 1e6:.1f} to {freq_hi / 1e6:.1f} MHz  |  "
         f"valid shots: {data.n_valid_shots}  |  noise_std: {data.noise_std:.4f}"
     )
 
@@ -206,7 +206,7 @@ def matlab_run(  # noqa: C901
         unc_val = final_unc.get(param, float("nan"))
         unit = "MHz" if "frequency" in param or "split" in param or "linewidth" in param else ""
         scale = 1e-6 if unit == "MHz" else 1.0
-        typer.echo(f"  {param:20s}: {val*scale:.4f} +/- {unc_val*scale:.4f} {unit}".rstrip())
+        typer.echo(f"  {param:20s}: {val * scale:.4f} +/- {unc_val * scale:.4f} {unit}".rstrip())
 
     # --- Write artifacts ---
     if run_result is not None:

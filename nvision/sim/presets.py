@@ -107,11 +107,15 @@ def generators_basic() -> list[tuple[str, object]]:
         # NV Center generators - different variants
         (
             "NVCenter-lorentzian",
-            NVCenterCoreGenerator(x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="lorentzian"),
+            NVCenterCoreGenerator(
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="lorentzian"
+            ),
         ),
         (
             "NVCenter-voigt",
-            NVCenterCoreGenerator(x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt"),
+            NVCenterCoreGenerator(
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt"
+            ),
         ),
         # Selectable inhomogeneous-broadening levels on the Voigt model. inhom-0 is
         # pure Lorentzian (lorentz_frac=1.0 -> zero Gaussian/inhomogeneous width);
@@ -120,19 +124,28 @@ def generators_basic() -> list[tuple[str, object]]:
         (
             "NVCenter-inhom-0",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt", lorentz_frac=1.0
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                variant="voigt",
+                lorentz_frac=1.0,
             ),
         ),
         (
             "NVCenter-inhom-low",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt", lorentz_frac=0.85
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                variant="voigt",
+                lorentz_frac=0.85,
             ),
         ),
         (
             "NVCenter-inhom-high",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN, x_max=DEFAULT_NV_CENTER_FREQ_X_MAX, variant="voigt", lorentz_frac=0.55
+                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                variant="voigt",
+                lorentz_frac=0.55,
             ),
         ),
     ]
@@ -230,10 +243,7 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
         for contrast in contrasts:
             for sigma_inhom in sigma_inhoms:
                 width, contrast, sigma_inhom = float(width), float(contrast), float(sigma_inhom)
-                name = (
-                    f"NVCenter-voigt-{_fmt_width(width)}-{_fmt_contrast(contrast)}"
-                    f"-{_fmt_sigma_inhom(sigma_inhom)}"
-                )
+                name = f"NVCenter-voigt-{_fmt_width(width)}-{_fmt_contrast(contrast)}-{_fmt_sigma_inhom(sigma_inhom)}"
                 generators.append(
                     (
                         name,

@@ -195,14 +195,16 @@ def cache_progress(
             data = payload.get("data")
             if isinstance(data, list) and data:
                 achieved = int(data[0].get("achieved_repeats", 0) or 0)
-            rows.append((
-                cat_name,
-                str(cfg.get("generator", "-")),
-                str(cfg.get("noise", "-")),
-                str(cfg.get("strategy", "-")),
-                achieved,
-                str(payload.get("updated_at", "-")),
-            ))
+            rows.append(
+                (
+                    cat_name,
+                    str(cfg.get("generator", "-")),
+                    str(cfg.get("noise", "-")),
+                    str(cfg.get("strategy", "-")),
+                    achieved,
+                    str(payload.get("updated_at", "-")),
+                )
+            )
 
     if not rows:
         console.print("[yellow]No matching cached combinations found.[/yellow]")
@@ -212,7 +214,9 @@ def cache_progress(
     n_combos = len(rows)
     total_achieved = sum(r[4] for r in rows)
 
-    console.print(f"[bold]{n_combos}[/bold] combination(s) found, [bold]{total_achieved}[/bold] repeats completed so far.")
+    console.print(
+        f"[bold]{n_combos}[/bold] combination(s) found, [bold]{total_achieved}[/bold] repeats completed so far."
+    )
 
     if target_repeats:
         target_total = target_repeats * n_combos
@@ -610,9 +614,7 @@ def check_plots(  # noqa: C901
     corrupt: list[tuple[dict[str, Any], str]] = []
     ok_entries: list[dict[str, Any]] = []
 
-    with Progress(
-        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
-    ) as progress:
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True) as progress:
         task_id = progress.add_task(f"Checking {len(entries)} plot file(s)...", total=len(entries))
         for entry in entries:
             progress.advance(task_id)
