@@ -427,18 +427,6 @@ class _TaskRunner:
         combo_kw = self._combination_cache_kwargs()
         ro = self.task.repeat_offset
 
-        # 1. Try exact full match — fast path first (no binary content loaded when gz files exist)
-        fast = self.cache.get_cached_combination_fast(**combo_kw, repeat_offset=ro, out_dir=self.task.out_dir)
-        if fast is not None:
-            log.debug(
-                "Full cache hit (fast) for %s/%s/%s (seed=%s); gz files on disk, skipping restore.",
-                self.generator_name,
-                self.noise_name,
-                self.strategy_name,
-                self.task.seed,
-            )
-            return fast, len(fast)
-
         cached = self.cache.get_cached_combination(**combo_kw, repeat_offset=ro, allow_gaps=allow_gaps)
         if cached:
             # Deliberately NOT calling restore_graphs() here: the run doesn't need the

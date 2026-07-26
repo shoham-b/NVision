@@ -159,7 +159,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             # Best-effort: a column-shape surprise in one aggregate view (e.g. a
             # locator that never recorded acquisition_hi) must not take down the
             # per-repeat graph entries above, same as render.py's _run_summary guard.
-            viz = Viz(Path("."), no_disk_write=True)
+            viz = Viz(Path("."))
             try:
                 df = pl.from_dicts(result_rows, infer_schema_length=None) if result_rows else pl.DataFrame()
                 aggregate_entries = viz.plot_locator_summary(df) if not df.is_empty() else []

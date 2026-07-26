@@ -77,21 +77,6 @@ class CacheBridge:
         repo = self.get_cache_for_category(category)
         return repo.get_cached_combination(**kwargs)
 
-    def get_cached_combination_fast(self, **kwargs: Any) -> CachedComboResults | None:
-        """Route get_cached_combination_fast to the correct category store.
-
-        Same category resolution as :meth:`get_cached_combination`, but uses the
-        lightweight ``:meta`` sidecar path that skips loading plot bytes. Returns
-        ``None`` when the fast path can't be used (see
-        :meth:`LocatorResultsRepository.get_cached_combination_fast`).
-        """
-        from nvision.sim.combinations import CombinationGrid
-
-        generator = kwargs.get("generator", "")
-        category = CombinationGrid.generator_category(str(generator))
-        repo = self.get_cache_for_category(category)
-        return repo.get_cached_combination_fast(**kwargs)
-
     def close(self) -> None:
         self.nv_center.close()
         self.complementary.close()

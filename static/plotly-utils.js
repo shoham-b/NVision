@@ -79,6 +79,28 @@ function _decodeBase64F32(b64) {
     return new Float32Array(u8.buffer);
 }
 
+// IEEE 754 half-precision -> JS double. No native Float16Array decode path
+// (browser support for it is still spotty), so unpack sign/exponent/mantissa by hand.
+function _halfToFloat(h) {
+    const s = (h & 0x8000) ? -1 : 1;
+    const e = (h & 0x7C00) >> 10;
+    const f = h & 0x03FF;
+    if (e === 0) return s * Math.pow(2, -14) * (f / 1024);
+    if (e === 0x1F) return f ? NaN : s * Infinity;
+    return s * Math.pow(2, e - 15) * (1 + f / 1024);
+}
+
+function _decodeBase64F16(b64) {
+    const bin = atob(b64);
+    const len = bin.length;
+    const u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    const u16 = new Uint16Array(u8.buffer);
+    const out = new Float32Array(u16.length);
+    for (let i = 0; i < u16.length; i++) out[i] = _halfToFloat(u16[i]);
+    return out;
+}
+
 function _decodeBase64Typed(b64, dtype) {
     const bin = atob(b64);
     const u8 = new Uint8Array(bin.length);
@@ -91,8 +113,16 @@ function _decodePlotlyFigure(obj) {
     if (obj === null || obj === undefined || typeof obj !== 'object') return obj;
     // TypedArrays (Float32Array, Float64Array) are already decoded — pass through
     if (ArrayBuffer.isView(obj)) return obj;
-    // Custom f32 encoding (our own format)
+    // Custom f32/f16 encoding (our own format)
     if (obj.__f32__ !== undefined) return _decodeBase64F32(obj.__f32__);
+    if (obj.__f16__ !== undefined) return _decodeBase64F16(obj.__f16__);
+    if (obj.__f16s__ !== undefined) {
+        const [lo, span, b64] = obj.__f16s__;
+        const half = _decodeBase64F16(b64);
+        const out = new Float32Array(half.length);
+        for (let i = 0; i < half.length; i++) out[i] = half[i] * span + lo;
+        return out;
+    }
     // Plotly Python 5.x numpy serialization: {dtype, bdata[, shape]}
     if (obj.bdata !== undefined && obj.dtype !== undefined) {
         return _decodeBase64Typed(obj.bdata, obj.dtype);
