@@ -20,7 +20,11 @@ load_dotenv()
 NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", "1500"))
 
 # Fraction of SimpleSweep max_steps allocated to SBED and Sobol baseline locators.
-NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "0.32"))
+# SBED's effective budget is ceil(domain_width / min_linewidth) * this fraction. Was silently
+# running at 0.5 via a local, gitignored .env override while this default said 0.32 -- 0.5 is
+# the value the last full grid run actually used, so it's committed here instead of only living
+# in an untracked file.
+NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "0.5"))
 NVISION_SOBOL_STEPS_FRACTION: float = float(os.getenv("NVISION_SOBOL_STEPS_FRACTION", "0.5"))
 
 # Actual step count SimpleSweep itself runs with. Kept independent of the

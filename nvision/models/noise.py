@@ -11,6 +11,17 @@ from typing import Any
 from nvision.sim.batch import DataBatch, OverFrequencyNoise
 from nvision.spectra.noise_model import NoiseSignalModel
 
+# Used only when no noise model is configured at all (true noise level unknown).
+_UNKNOWN_NOISE_STD_DEFAULT = 0.05
+
+# Used when a noise model IS configured but evaluates to ~0 (e.g. Gauss(0.0)):
+# the true noise level is known to be negligible, not unknown, so falling back
+# to _UNKNOWN_NOISE_STD_DEFAULT would understate measurement precision by ~3
+# orders of magnitude and starve the Bayesian likelihood of information it
+# should have. This floor exists only to keep the likelihood non-degenerate
+# (avoid a literal sigma=0 Dirac spike), not to model real uncertainty.
+_NEGLIGIBLE_NOISE_STD_FLOOR = 1e-4
+
 
 class CompositeOverFrequencyNoise(OverFrequencyNoise):
     """Applies multiple over-frequency noise models in sequence."""
@@ -90,14 +101,19 @@ class CompositeNoise:
         -------
         float
             Square-root of summed squared stds from each noise component.
-            Falls back to 0.05 if no noise components or all return 0.
+            Falls back to ``_UNKNOWN_NOISE_STD_DEFAULT`` only when no noise
+            model is configured at all. When a noise model IS configured but
+            evaluates to ~0 (e.g. ``Gauss(0.0)``), the true noise is known to
+            be negligible rather than unknown, so only the much smaller
+            ``_NEGLIGIBLE_NOISE_STD_FLOOR`` is applied (numerical safety
+            floor, not an assumed uncertainty).
         """
         if self.over_frequency_noise is None:
-            return 0.05
+            return _UNKNOWN_NOISE_STD_DEFAULT
         parts = getattr(self.over_frequency_noise, "_parts", [])
         rss = sum(p.noise_std() ** 2 for p in parts)
         std = rss**0.5
-        return std if std > 1e-12 else 0.05
+        return std if std > 1e-12 else _NEGLIGIBLE_NOISE_STD_FLOOR
 
     def estimated_max_noise_deviation(self, n_samples: int = 20) -> float:
         """Expected maximum downward deviation across n_samples, from all noise components.

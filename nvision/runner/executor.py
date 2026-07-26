@@ -1483,15 +1483,30 @@ class _TaskRunner:
             finalize_record["bg_points_used"] = getattr(last_loc, "_bg_points_used", 0)
             finalize_record["forced_bg_measurements"] = getattr(last_loc, "_forced_bg_measurements", 0)
             finalize_record["theory_step_budget"] = getattr(last_loc, "_theory_step_budget", None)
+            # The literal noise_std the SMC likelihood weighting and CRLB floor actually used
+            # for the final observation -- distinct from (and, pre-noise-floor-fix, potentially
+            # very different from) bg_noise_std's independent MAD-based estimate. Comparing the
+            # two per-repeat is how a likelihood/CRLB noise-assumption mismatch is diagnosed.
+            last_obs = getattr(last_loc.belief, "last_obs", None) if hasattr(last_loc, "belief") else None
+            finalize_record["assumed_noise_std_at_last_obs"] = (
+                float(last_obs.noise_std) if last_obs is not None else None
+            )
         else:
             finalize_record["bg_noise_std"] = None
             finalize_record["bg_points_used"] = None
             finalize_record["forced_bg_measurements"] = None
             finalize_record["theory_step_budget"] = None
+            finalize_record["assumed_noise_std_at_last_obs"] = None
+        # Ground truth: the configured noise preset's raw combined std, read directly off
+        # over_frequency_noise (bypasses estimated_noise_std()'s unknown/negligible-noise
+        # fallback floor entirely) -- unlike the fallback-laden estimate, this is 0.0 for an
+        # actually-configured-zero preset (e.g. Gauss(0.0)), not an inflated placeholder. None
+        # when no noise model is configured at all (true noise genuinely unknown).
         true_noise_std: float | None = None
-        if experiment.noise is not None and hasattr(experiment.noise, "estimated_noise_std"):
+        over_freq_noise = getattr(experiment.noise, "over_frequency_noise", None) if experiment.noise else None
+        if over_freq_noise is not None and hasattr(over_freq_noise, "noise_std"):
             try:
-                true_noise_std = float(experiment.noise.estimated_noise_std())
+                true_noise_std = float(over_freq_noise.noise_std())
             except Exception:
                 pass
         finalize_record["true_noise_std"] = true_noise_std
