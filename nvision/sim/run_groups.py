@@ -43,16 +43,13 @@ def _sbed_noise_names() -> list[str]:
     return [name for name, _ in sim_presets.sbed_study_noises()]
 
 
-def _voigt_param_grid() -> dict[str, object]:
-    """Width x contrast grid (plain Voigt lineshape) for the voigt run-groups below."""
-    return dict(sim_presets.param_grid_generators(variant="voigt"))
-
-
-def _lorentzian_plain_param_grid() -> dict[str, object]:
-    """Width x contrast grid (plain Lorentzian lineshape) for the lorentzian-plain
-    run-groups below. Distinct from ``_sbed_param_grid()``, which despite its use
-    in the "lorentzian-sbed" group names actually generates saturation-Voigt data."""
-    return dict(sim_presets.param_grid_generators(variant="lorentzian"))
+def _voigt_inhom_param_grid() -> dict[str, object]:
+    """Width x contrast x sigma_inhom grid (plain Voigt) for the voigt-inhom
+    run-groups below. sigma_inhom=0 is the pure-Lorentzian limit (Voigt's
+    reparam draws lorentz_frac=1.0 there), so this single grid's sigma_inhom
+    axis already spans "plain Lorentzian" through "plain Voigt" -- there is no
+    separate plain-Lorentzian or non-inhom plain-Voigt run-group."""
+    return dict(sim_presets.voigt_sigma_inhom_param_grid_generators())
 
 
 # ---------------------------------------------------------------------------
@@ -105,64 +102,13 @@ def _group_lorentzian_sweep_only() -> RunGroup:
     )
 
 
-def _group_voigt_sbed() -> RunGroup:
-    extra_generators = _voigt_param_grid()
-    return RunGroup(
-        name="voigt-sbed",
-        description=(
-            "Width x contrast x noise grid (plain Voigt) for "
-            "Bayesian-SBED/SimpleSobol/SimpleSweep."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_voigt_sbed_only() -> RunGroup:
-    extra_generators = _voigt_param_grid()
-    return RunGroup(
-        name="voigt-sbed-only",
-        description=(
-            "Width x contrast x noise grid (plain Voigt) for "
-            "Bayesian-SBED only (no sweep/sobol baselines)."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_voigt_sweep_only() -> RunGroup:
-    extra_generators = _voigt_param_grid()
-    return RunGroup(
-        name="voigt-sweep-only",
-        description=(
-            "Width x contrast x noise grid (plain Voigt) for "
-            "SimpleSweep only (no SBED/Sobol baselines)."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["SimpleSweep"],
-        extra_generators=extra_generators,
-    )
-
-
-def _voigt_inhom_param_grid() -> dict[str, object]:
-    """Width x contrast x sigma_inhom grid (plain Voigt, inhomogeneous broadening
-    as an explicit axis) for the voigt-inhom run-groups below."""
-    return dict(sim_presets.voigt_sigma_inhom_param_grid_generators())
-
-
 def _group_voigt_inhom_sbed() -> RunGroup:
     extra_generators = _voigt_inhom_param_grid()
     return RunGroup(
         name="voigt-inhom-sbed",
         description=(
-            "Width x contrast x sigma_inhom x noise grid (plain Voigt, "
-            "inhomogeneous/Gaussian broadening selectable) for "
+            "Width x contrast x sigma_inhom x noise grid (plain Voigt; "
+            "sigma_inhom=0 is the pure-Lorentzian limit) for "
             "Bayesian-SBED/SimpleSobol/SimpleSweep."
         ),
         generator_names=list(extra_generators.keys()),
@@ -177,8 +123,8 @@ def _group_voigt_inhom_sbed_only() -> RunGroup:
     return RunGroup(
         name="voigt-inhom-sbed-only",
         description=(
-            "Width x contrast x sigma_inhom x noise grid (plain Voigt, "
-            "inhomogeneous/Gaussian broadening selectable) for "
+            "Width x contrast x sigma_inhom x noise grid (plain Voigt; "
+            "sigma_inhom=0 is the pure-Lorentzian limit) for "
             "Bayesian-SBED only (no sweep/sobol baselines)."
         ),
         generator_names=list(extra_generators.keys()),
@@ -193,107 +139,9 @@ def _group_voigt_inhom_sweep_only() -> RunGroup:
     return RunGroup(
         name="voigt-inhom-sweep-only",
         description=(
-            "Width x contrast x sigma_inhom x noise grid (plain Voigt, "
-            "inhomogeneous/Gaussian broadening selectable) for "
+            "Width x contrast x sigma_inhom x noise grid (plain Voigt; "
+            "sigma_inhom=0 is the pure-Lorentzian limit) for "
             "SimpleSweep only (no SBED/Sobol baselines)."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["SimpleSweep"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_lorentzian_plain_sbed() -> RunGroup:
-    extra_generators = _lorentzian_plain_param_grid()
-    return RunGroup(
-        name="lorentzian-plain-sbed",
-        description=(
-            "Width x contrast x noise grid (plain Lorentzian) for "
-            "Bayesian-SBED/SimpleSobol/SimpleSweep."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_lorentzian_plain_sbed_only() -> RunGroup:
-    extra_generators = _lorentzian_plain_param_grid()
-    return RunGroup(
-        name="lorentzian-plain-sbed-only",
-        description=(
-            "Width x contrast x noise grid (plain Lorentzian) for "
-            "Bayesian-SBED only (no sweep/sobol baselines)."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_lorentzian_plain_sweep_only() -> RunGroup:
-    extra_generators = _lorentzian_plain_param_grid()
-    return RunGroup(
-        name="lorentzian-plain-sweep-only",
-        description=(
-            "Width x contrast x noise grid (plain Lorentzian) for "
-            "SimpleSweep only (no SBED/Sobol baselines)."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["SimpleSweep"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_both_sbed() -> RunGroup:
-    # sigma_inhom=0 makes NVCenterVoigtModel's reparam draw lorentz_frac=1.0 -- a
-    # pure-Lorentzian-shaped pseudo-Voigt profile (verified: the Thompson-Cox-Hastings
-    # eta polynomial evaluates to exactly 1.0 there too). Since NVCenterVoigtModel now
-    # uses the same homogeneous_linewidth/c_total conventions as NVCenterLorentzianModel
-    # (not the old fwhm_total/lorentz_frac/dip_depth parametrization), this is genuinely
-    # the same physical lineshape a separate Lorentzian generator would draw, reached as
-    # one endpoint of this grid's own sigma_inhom axis instead of a second model class.
-    # "both" now means "the whole sigma_inhom range, Lorentzian limit included."
-    extra_generators = _voigt_inhom_param_grid()
-    return RunGroup(
-        name="both-sbed",
-        description=(
-            "Width x contrast x sigma_inhom x noise grid (plain Voigt; sigma_inhom=0 "
-            "is the pure-Lorentzian limit) for Bayesian-SBED/SimpleSobol/SimpleSweep."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_both_sbed_only() -> RunGroup:
-    extra_generators = _voigt_inhom_param_grid()
-    return RunGroup(
-        name="both-sbed-only",
-        description=(
-            "Width x contrast x sigma_inhom x noise grid (plain Voigt; sigma_inhom=0 "
-            "is the pure-Lorentzian limit) for Bayesian-SBED only (no sweep/sobol baselines)."
-        ),
-        generator_names=list(extra_generators.keys()),
-        noise_names=_sbed_noise_names(),
-        strategy_names=["Bayesian-SBED"],
-        extra_generators=extra_generators,
-    )
-
-
-def _group_both_sweep_only() -> RunGroup:
-    extra_generators = _voigt_inhom_param_grid()
-    return RunGroup(
-        name="both-sweep-only",
-        description=(
-            "Width x contrast x sigma_inhom x noise grid (plain Voigt; sigma_inhom=0 "
-            "is the pure-Lorentzian limit) for SimpleSweep only (no SBED/Sobol baselines)."
         ),
         generator_names=list(extra_generators.keys()),
         noise_names=_sbed_noise_names(),
@@ -308,18 +156,9 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_lorentzian_sbed(),
         _group_lorentzian_sbed_only(),
         _group_lorentzian_sweep_only(),
-        _group_voigt_sbed(),
-        _group_voigt_sbed_only(),
-        _group_voigt_sweep_only(),
         _group_voigt_inhom_sbed(),
         _group_voigt_inhom_sbed_only(),
         _group_voigt_inhom_sweep_only(),
-        _group_lorentzian_plain_sbed(),
-        _group_lorentzian_plain_sbed_only(),
-        _group_lorentzian_plain_sweep_only(),
-        _group_both_sbed(),
-        _group_both_sbed_only(),
-        _group_both_sweep_only(),
     )
 
 
