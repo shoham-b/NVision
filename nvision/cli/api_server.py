@@ -35,8 +35,13 @@ from nvision.viz import Viz
 # to copy these into every out_dir via prepare_static_ui_data; nv serve doesn't
 # need that indirection at all, only the static-export path does).
 _STATIC_ASSET_NAMES = (
-    "app.js", "bootstrap.js", "format-utils.js",
-    "plotly-utils.js", "run-status.js", "reload.js", "styles.css",
+    "app.js",
+    "bootstrap.js",
+    "format-utils.js",
+    "plotly-utils.js",
+    "run-status.js",
+    "reload.js",
+    "styles.css",
 )
 
 log = logging.getLogger("nvision.api_server")
@@ -269,9 +274,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                 combos = bridge.list_combinations()
                 with lock:
                     cache["combos"] = combos
-            matching = [
-                c for c in combos if c["generator"] in wanted_generators and c["noise"] in wanted_noises
-            ]
+            matching = [c for c in combos if c["generator"] in wanted_generators and c["noise"] in wanted_noises]
             out: list[dict] = []
             for combo in matching:
                 category = CombinationGrid.generator_category(str(combo["generator"]))
@@ -287,17 +290,19 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                     scan_entry = next((e for e in repeat_entries if e.get("type") == "scan"), None)
                     if scan_entry is None:
                         continue
-                    out.append({
-                        "generator": combo["generator"],
-                        "noise": combo["noise"],
-                        "strategy": combo["strategy"],
-                        "repeat": main_row.get("attempt"),
-                        "failure_reason": main_row.get("failure_reason"),
-                        "measurements": main_row.get("measurements"),
-                        "freq_converged_step": main_row.get("freq_converged_step"),
-                        "series": scan_entry.get("series"),
-                        "true_params": scan_entry.get("true_params"),
-                    })
+                    out.append(
+                        {
+                            "generator": combo["generator"],
+                            "noise": combo["noise"],
+                            "strategy": combo["strategy"],
+                            "repeat": main_row.get("attempt"),
+                            "failure_reason": main_row.get("failure_reason"),
+                            "measurements": main_row.get("measurements"),
+                            "freq_converged_step": main_row.get("freq_converged_step"),
+                            "series": scan_entry.get("series"),
+                            "true_params": scan_entry.get("true_params"),
+                        }
+                    )
             return out
         finally:
             bridge.close()
