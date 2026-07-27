@@ -785,11 +785,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             # Uses background-scatter noise estimate (robust to signal-region bias).
             if not self._is_converged:
                 self._check_crlb_early_stop(physical_uncertainties)
-                conf = compute_focus_window_confidence(self.belief, noise_std=self._noise_std)
-                if conf is not None:
-                    self._focus_window_conf = conf
-                    if conf.is_stable and self.focus_stable_step is None:
-                        self.focus_stable_step = self.step_count
+                # Only needed to catch the *first* stable step; identify_dip_candidates
+                # (inside compute_focus_window_confidence) is O(n_observations) and was
+                # costing ~20% of the per-step budget when run unconditionally on every
+                # step for the whole run, including long after stability was reached.
+                if self.focus_stable_step is None:
+                    conf = compute_focus_window_confidence(self.belief, noise_std=self._noise_std)
+                    if conf is not None:
+                        self._focus_window_conf = conf
+                        if conf.is_stable:
+                            self.focus_stable_step = self.step_count
 
     def _acquisition_done(self) -> bool:
         """Extend base stop logic with a permissive theory-step-budget backstop.
