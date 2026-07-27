@@ -355,7 +355,7 @@ class NVCenterLorentzianModel(
         self,
         with_hyperfine_splitting: bool = True,
         with_zeeman_splitting: bool = False,
-        with_fixed_frequency: bool = True,
+        with_fixed_frequency: bool = False,
     ) -> None:
         self._with_hyperfine_splitting = with_hyperfine_splitting
         self._with_zeeman_splitting = with_zeeman_splitting
@@ -797,7 +797,7 @@ class NVCenterVoigtModel(
         self,
         with_hyperfine_splitting: bool = False,
         with_zeeman_splitting: bool = False,
-        with_fixed_frequency: bool = True,
+        with_fixed_frequency: bool = False,
     ) -> None:
         self._with_hyperfine_splitting = with_hyperfine_splitting
         self._with_zeeman_splitting = with_zeeman_splitting
@@ -1325,7 +1325,7 @@ class NVCenterSaturationVoigtModel(
         self,
         with_hyperfine_splitting: bool = False,
         with_zeeman_splitting: bool = False,
-        with_fixed_frequency: bool = True,
+        with_fixed_frequency: bool = False,
     ) -> None:
         self._with_hyperfine_splitting = with_hyperfine_splitting
         self._with_zeeman_splitting = with_zeeman_splitting

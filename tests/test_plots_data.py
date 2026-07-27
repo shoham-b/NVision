@@ -110,7 +110,10 @@ class TestWritePosteriorData:
         data = _load(out)
         for step in data["steps"]:
             w_sum = sum(step["frequency"]["weights"])
-            assert abs(w_sum - 1.0) < 1e-5
+            # Weights round-trip through the lossy float16/float32 typed-array
+            # encoding (see _f32_json.py), so an exact sum-to-one isn't
+            # preserved -- only approximate, within quantization noise.
+            assert abs(w_sum - 1.0) < 2e-4
 
     def test_frequency_scaled_to_ghz(self, tmp_path):
         rng = np.random.default_rng(4)
