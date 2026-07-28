@@ -27,6 +27,12 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
             out = part.apply(out, rng)
         return out
 
+    def apply_scalar(self, x: float, signal_value: float, rng: random.Random) -> float:
+        val = signal_value
+        for part in self._parts:
+            val = part.apply_scalar(x, val, rng)
+        return val
+
     def noise_std(self) -> float:
         """Return the combined RMS noise standard deviation for all over-frequency components."""
         rss = sum(p.noise_std() ** 2 for p in self._parts)
@@ -80,6 +86,11 @@ class CompositeNoise:
         if self.over_frequency_noise is not None:
             return self.over_frequency_noise.apply(data, rng)
         return data
+
+    def apply_scalar(self, x: float, signal_value: float, rng: random.Random) -> float:
+        if self.over_frequency_noise is not None:
+            return self.over_frequency_noise.apply_scalar(x, signal_value, rng)
+        return signal_value
 
     def estimated_noise_std(self) -> float:
         """Return the combined RMS noise standard deviation for all over-frequency components.

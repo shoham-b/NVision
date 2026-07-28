@@ -14,6 +14,8 @@ import numpy as np
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import (
     get_background_ones,
+    get_background_zeros,
+    get_cached_constant_array,
     nv_center_lorentzian_eval,
     nv_center_lorentzian_vectorized_many,
     nv_center_lorentzian_vectorized_many_fast,
@@ -322,6 +324,31 @@ class _NVCenterLorentzianZeemanHyperfineSpec(
     uncertainty_cls = NVCenterLorentzianZeemanHyperfineSpectrumUncertainty
 
 
+def _nv_hf_arrays(with_hyperfine_splitting: bool, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
+    """Return (hf_split_arr, k_np_arr) for n particles.
+
+    When hyperfine splitting is disabled both arrays are fixed constants, so they are
+    served from module-level caches (see :func:`~nvision.spectra.numba_kernels.get_cached_constant_array`)
+    instead of allocating fresh ``n``-length arrays on every belief-update call.
+    """
+    if with_hyperfine_splitting and samples is not None:
+        return (
+            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+        )
+    return (
+        get_cached_constant_array(NV_N14_HYPERFINE_SPLIT_HZ, n),
+        get_background_ones(n),
+    )
+
+
+def _nv_zeeman_array(with_zeeman_splitting: bool, n: int, samples=None) -> np.ndarray:
+    """Return the zeeman_split array (a cached zeros array when Zeeman splitting is disabled)."""
+    if with_zeeman_splitting and samples is not None:
+        return np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE)
+    return get_background_zeros(n)
+
+
 class NVCenterLorentzianModel(
     SignalModel[
         NVCenterLorentzianSpectrum,
@@ -450,15 +477,7 @@ class NVCenterLorentzianModel(
 
     def _hf_arrays(self, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
         """Return (hf_split_arr, k_np_arr) for n particles."""
-        if self._with_hyperfine_splitting and samples is not None:
-            return (
-                np.asarray(samples.split, dtype=FLOAT_DTYPE),
-                np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-            )
-        return (
-            np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE),
-            np.ones(n, dtype=FLOAT_DTYPE),
-        )
+        return _nv_hf_arrays(self._with_hyperfine_splitting, n, samples)
 
     def compute(self, x: float, params) -> float:
         hf_split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
@@ -865,21 +884,11 @@ class NVCenterVoigtModel(
 
     def _hf_arrays(self, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
         """Return (hf_split_arr, k_np_arr) for n particles."""
-        if self._with_hyperfine_splitting and samples is not None:
-            return (
-                np.asarray(samples.split, dtype=FLOAT_DTYPE),
-                np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-            )
-        return (
-            np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE),
-            np.ones(n, dtype=FLOAT_DTYPE),
-        )
+        return _nv_hf_arrays(self._with_hyperfine_splitting, n, samples)
 
     def _zeeman_array(self, n: int, samples=None) -> np.ndarray:
         """Return the zeeman_split array (zeros when Zeeman splitting is disabled)."""
-        if self._with_zeeman_splitting and samples is not None:
-            return np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE)
-        return np.zeros(n, dtype=FLOAT_DTYPE)
+        return _nv_zeeman_array(self._with_zeeman_splitting, n, samples)
 
     def compute(self, x: float, params) -> float:
         hf_split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
@@ -1389,21 +1398,11 @@ class NVCenterSaturationVoigtModel(
 
     def _hf_arrays(self, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
         """Return (hf_split_arr, k_np_arr) for n particles."""
-        if self._with_hyperfine_splitting and samples is not None:
-            return (
-                np.asarray(samples.split, dtype=FLOAT_DTYPE),
-                np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
-            )
-        return (
-            np.full(n, NV_N14_HYPERFINE_SPLIT_HZ, dtype=FLOAT_DTYPE),
-            np.ones(n, dtype=FLOAT_DTYPE),
-        )
+        return _nv_hf_arrays(self._with_hyperfine_splitting, n, samples)
 
     def _zeeman_array(self, n: int, samples=None) -> np.ndarray:
         """Return the zeeman_split array (zeros when Zeeman splitting is disabled)."""
-        if self._with_zeeman_splitting and samples is not None:
-            return np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE)
-        return np.zeros(n, dtype=FLOAT_DTYPE)
+        return _nv_zeeman_array(self._with_zeeman_splitting, n, samples)
 
     def compute(self, x: float, params) -> float:
         hf_split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ

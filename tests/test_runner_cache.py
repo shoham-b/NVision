@@ -3,6 +3,13 @@ from pathlib import Path
 
 from nvision.runner.cache import _decompress_text, embed_graph_content
 from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
+from nvision.sim.locs.dyadic import round_to_dyadic_points
+
+# The executor rounds SimpleSweep's step count to a dyadic (2**k + 1) grid so
+# SimpleSobol can reuse its measurements (see nvision/sim/locs/dyadic.py) --
+# tests that pre-seed a cache entry keyed by SimpleSweep's max_steps must use
+# the same rounded value the runner actually resolves, not the raw constant.
+SIMPLESWEEP_EFFECTIVE_MAX_STEPS = round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
 
 
 def test_embed_graph_content_happy_path(tmp_path: Path):
@@ -330,7 +337,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
             strategy="SimpleSweep",
             repeats=2,
             seed=1,
-            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
+            max_steps=SIMPLESWEEP_EFFECTIVE_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -343,7 +350,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
             strategy="SimpleSweep",
             repeats=5,
             seed=1,
-            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
+            max_steps=SIMPLESWEEP_EFFECTIVE_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -696,7 +703,7 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
             noise="Gauss(0.01)",
             strategy="SimpleSweep",
             seed=1,
-            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
+            max_steps=SIMPLESWEEP_EFFECTIVE_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
         )
@@ -800,7 +807,7 @@ def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Pa
             strategy="SimpleSweep",
             repeats=1,
             seed=1,
-            max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
+            max_steps=SIMPLESWEEP_EFFECTIVE_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
             results=[(

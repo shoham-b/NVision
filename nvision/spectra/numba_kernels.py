@@ -39,6 +39,32 @@ def get_background_ones(n: int) -> np.ndarray:
     return _BG_ONES[:n]
 
 
+_BG_ZEROS: np.ndarray = np.zeros(0, dtype=FLOAT_DTYPE)
+
+
+def get_background_zeros(n: int) -> np.ndarray:
+    """Same zero-allocation pattern as :func:`get_background_ones`, for a fixed 0.0
+    array (e.g. zeeman_split when Zeeman splitting is disabled)."""
+    global _BG_ZEROS
+    if len(_BG_ZEROS) < n:
+        _BG_ZEROS = np.zeros(n, dtype=FLOAT_DTYPE)
+    return _BG_ZEROS[:n]
+
+
+_CONST_ARRAY_CACHE: dict[float, np.ndarray] = {}
+
+
+def get_cached_constant_array(value: float, n: int) -> np.ndarray:
+    """Same zero-allocation pattern as :func:`get_background_ones`, generalized to an
+    arbitrary fixed constant (e.g. the N-14 hyperfine split when hyperfine splitting is
+    disabled), cached per distinct value."""
+    arr = _CONST_ARRAY_CACHE.get(value)
+    if arr is None or len(arr) < n:
+        arr = np.full(n, value, dtype=FLOAT_DTYPE)
+        _CONST_ARRAY_CACHE[value] = arr
+    return arr[:n]
+
+
 @njit(cache=True)
 def lorentzian_dip_term(x: float, center: float, linewidth: float, dip_depth: float) -> float:
     """``dip_depth * linewidth² / ((x - center)² + linewidth²)`` — one Lorentzian dip contribution."""

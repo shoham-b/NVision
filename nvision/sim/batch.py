@@ -111,6 +111,20 @@ class OverFrequencyNoise(ABC):
     @abstractmethod
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch: ...
 
+    def apply_scalar(self, x: float, signal_value: float, rng: random.Random) -> float:
+        """Apply this noise to a single ``(x, signal_value)`` pair, returning the noisy value.
+
+        Default implementation round-trips through :meth:`apply` on a length-1
+        :class:`DataBatch` (correct but pays Polars' per-call construction cost).
+        Override for a real scalar fast path -- this is the per-measurement
+        acquisition hot loop (:meth:`~nvision.models.experiment.CoreExperiment.measure`
+        calls it once per step), so the Polars round-trip dominates runtime at
+        the thousands-of-steps scale (SimpleSweep/SimpleSobol).
+        """
+        batch = DataBatch(x=[x], signal_values=[signal_value])
+        noisy = self.apply(batch, rng)
+        return float(noisy.df.get_column("signal_values")[0])
+
     def noise_std(self) -> float:
         """Return the known standard deviation of this noise model.
 

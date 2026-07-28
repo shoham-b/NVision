@@ -55,6 +55,21 @@ class OverFrequencyGaussianNoise(OverFrequencyNoise):
         df = data.df.with_columns(noisy.alias("signal_values"))
         return DataBatch.from_frame(df, meta=dict(data.meta))
 
+    def apply_scalar(self, x: float, signal_value: float, rng: random.Random) -> float:
+        """Scalar fast path -- skips the Polars round-trip in :meth:`apply`'s n==1 branch.
+
+        Draws from ``rng`` exactly like that branch (``rng.gauss(0.0, sigma)``, one
+        draw), so the RNG stream -- and therefore every existing cached result -- is
+        unchanged.
+        """
+        sigma = max(self.std, 0.0)
+        val = signal_value + rng.gauss(0.0, sigma)
+        if self.clip_min is not None:
+            val = max(val, self.clip_min)
+        if self.clip_max is not None:
+            val = min(val, self.clip_max)
+        return val
+
     def noise_std(self) -> float:
         return max(self.std, 0.0)
 

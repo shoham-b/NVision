@@ -93,13 +93,9 @@ class CoreExperiment:
         # signal is deterministic, so all shots coincide (zero empirical variance);
         # aggregate_shots then falls back to the prior noise_std.
         if frequency_noise_model is not None:
-            from nvision.sim.batch import DataBatch
-
             shots = np.empty(n_shots, dtype=np.float64)
             for i in range(n_shots):
-                batch = DataBatch(x=[x_physical], signal_values=[signal_value])
-                noisy_batch = self.noise.over_frequency_noise.apply(batch, rng)
-                shots[i] = float(noisy_batch.df["signal_values"][0])
+                shots[i] = self.noise.over_frequency_noise.apply_scalar(x_physical, signal_value, rng)
         else:
             shots = np.full(n_shots, float(signal_value), dtype=np.float64)
 

@@ -34,7 +34,9 @@ from nvision.runner.sweep_cache import (
 )
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse import SweepingLocator
+from nvision.sim.locs.dyadic import van_der_corput_fraction
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
 
@@ -122,12 +124,38 @@ def run_loop(
             if sweep_cache.has(experiment, sweep_steps):
                 cached_sweep = sweep_cache.get(experiment, sweep_steps)
 
+    # SimpleSweep and SimpleSobol sample the same nested dyadic grid (see
+    # nvision/sim/locs/dyadic.py): SimpleSweep's uniform 2**k+1-point scan and
+    # SimpleSobol's base-2 van der Corput sequence visit identical physical
+    # positions, just in a different order. If SimpleSweep already ran for this
+    # experiment (same generator/noise/repeat -- the sweep_cache key is a pure
+    # function of the experiment, not the strategy), reuse its measurements
+    # instead of drawing fresh noise at the same positions.
+    dyadic_table: list[Observation] | None = None
+    dyadic_denominator = 0
+    is_sobol = sweep_cache is not None and isinstance(locator, SimpleSobolBayesianLocator)
+    if is_sobol:
+        from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
+        from nvision.sim.locs.dyadic import round_to_dyadic_points
+
+        dyadic_n = round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
+        if sweep_cache.has(experiment, dyadic_n):
+            dyadic_table = sweep_cache.get(experiment, dyadic_n)
+            dyadic_denominator = dyadic_n - 1
+
+    # SimpleSweep, symmetrically, records its own full sweep so a SimpleSobol
+    # run for the same experiment (in this process or another, via the shared
+    # sweep_cache) can reuse it -- see the dyadic_table lookup above.
+    is_sweep_locator = sweep_cache is not None and isinstance(locator, SweepingLocator) and cached_sweep is None
+    collected_sweep_observations: list[Observation] | None = [] if is_sweep_locator else None
+
     step = 0
     while not locator.done():
         _check_memory_limit()
         step += 1
         x_current = locator.next()
 
+        obs: Observation | None = None
         # Use cached observation if in sweep phase and cache available
         if cached_sweep is not None and step <= len(cached_sweep):
             cached_obs = cached_sweep[step - 1]
@@ -137,11 +165,48 @@ def run_loop(
                 noise_std=cached_obs.noise_std,
                 frequency_noise_model=cached_obs.frequency_noise_model,
             )
-        else:
+        elif dyadic_table is not None:
+            frac = van_der_corput_fraction(getattr(locator, "inference_step_count", step))
+            if dyadic_denominator % frac.denominator == 0:
+                idx = frac.numerator * (dyadic_denominator // frac.denominator)
+                cached_obs = dyadic_table[idx]
+                obs = Observation(
+                    x=x_current,
+                    signal_value=cached_obs.signal_value,
+                    noise_std=cached_obs.noise_std,
+                    frequency_noise_model=cached_obs.frequency_noise_model,
+                )
+
+        if obs is None:
+            if is_sobol and dyadic_table is not None:
+                import builtins
+
+                builtins._DYADIC_MISS = getattr(builtins, "_DYADIC_MISS", 0) + 1
             obs = experiment.measure(x_current, rng, n_shots=n_shots)
+        elif is_sobol and dyadic_table is not None:
+            import builtins
+
+            builtins._DYADIC_HIT = getattr(builtins, "_DYADIC_HIT", 0) + 1
+
+        if collected_sweep_observations is not None:
+            collected_sweep_observations.append(obs)
 
         locator.observe(obs)
         yield locator
+
+    if is_sobol:
+        import builtins
+
+        print(
+            f"DEBUG dyadic hit/miss for Sobol: hit={getattr(builtins, '_DYADIC_HIT', 0)} "
+            f"miss={getattr(builtins, '_DYADIC_MISS', 0)} table_present={dyadic_table is not None}",
+            flush=True,
+        )
+
+    if collected_sweep_observations and sweep_cache is not None:
+        sweep_steps = getattr(locator, "max_steps", 0)
+        if sweep_steps > 0 and not sweep_cache.has(experiment, sweep_steps):
+            sweep_cache.put(experiment, sweep_steps, collected_sweep_observations)
 
 
 def run_task(
@@ -1163,8 +1228,13 @@ class _TaskRunner:
             "GenericSweepLocator",
         ):
             from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
+            from nvision.sim.locs.dyadic import round_to_dyadic_points
 
-            return NVISION_SIMPLESWEEP_MAX_STEPS
+            # Rounded to a 2**k + 1 point grid so SimpleSobol (whose base-2 van der
+            # Corput sequence visits exactly this grid's interior, see
+            # nvision/sim/locs/dyadic.py) can reuse its measurements instead of
+            # re-measuring the same physical positions with fresh noise.
+            return round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
 
         if locator_class.__name__ == "SequentialBayesianExperimentDesignLocator":
             from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION

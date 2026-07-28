@@ -1603,14 +1603,22 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         built), so the estimator uses explicit importance weights instead of the
         per-step weight-stratified resample used by the fused path.
         """
-        cand = np.ascontiguousarray(candidates, dtype=np.float32)
-        n_c = cand.shape[0]
-        key = (self._eig_epoch, n_c, float(cand[0]), float(cand[-1])) if n_c else (self._eig_epoch, 0, 0.0, 0.0)
+        n_c = candidates.shape[0]
+        # Key from the raw array -- no dtype/contiguity conversion needed just to
+        # read a length and two endpoint values. The float32-contiguous copy is
+        # only actually consumed inside the cache-miss branch below, so it must
+        # not be paid on every call regardless of whether the epoch matrix hits.
+        key = (
+            (self._eig_epoch, n_c, float(candidates[0]), float(candidates[-1]))
+            if n_c
+            else (self._eig_epoch, 0, 0.0, 0.0)
+        )
 
         cache = self._eig_cache
         if cache is not None and cache[0] == key:
             _, mat, mat2, sub_idx = cache
         else:
+            cand = np.ascontiguousarray(candidates, dtype=np.float32)
             if n_total > n_eig:
                 # Fix the subset for this epoch. Built right after a resample,
                 # so the current weights are ~uniform and a stratified draw
