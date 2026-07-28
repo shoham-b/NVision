@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nvision.viz._f32_json import _decode_arrays, payload_to_gz_bytes  # noqa: E402
+from nvision.viz._f32_json import _decode_arrays, payload_to_gz_bytes
 
 
 def _migrate_blob(raw_gz: bytes) -> tuple[bytes, int, int]:
@@ -38,17 +38,13 @@ def migrate_shard(db_path: Path, dry_run: bool = False, batch_size: int = 200) -
     conn = sqlite3.connect(db_path, timeout=60.0)
     conn.execute("PRAGMA journal_mode=WAL;")
 
-    has_graphs = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='graphs'"
-    ).fetchone()
+    has_graphs = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='graphs'").fetchone()
     if not has_graphs:
         print(f"[{db_path.name}] no 'graphs' table (pre-dates blob extraction) -- nothing to do")
         conn.close()
         return
 
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS graphs_migrated_f16 (key TEXT PRIMARY KEY)"
-    )
+    conn.execute("CREATE TABLE IF NOT EXISTS graphs_migrated_f16 (key TEXT PRIMARY KEY)")
     conn.commit()
 
     cur = conn.execute("SELECT COUNT(*) FROM graphs")
@@ -101,14 +97,13 @@ def migrate_shard(db_path: Path, dry_run: bool = False, batch_size: int = 200) -
         pct = 100 * (already_done + done_this_run) / total if total else 100
         saved_pct = 100 * (1 - new_bytes_total / orig_bytes_total) if orig_bytes_total else 0
         print(
-            f"  {already_done + done_this_run}/{total} ({pct:.1f}%)  "
-            f"{rate:.0f} rows/s  running_saved={saved_pct:.1f}%"
+            f"  {already_done + done_this_run}/{total} ({pct:.1f}%)  {rate:.0f} rows/s  running_saved={saved_pct:.1f}%"
         )
 
     print(
         f"[{db_path.name}] done. {done_this_run} rows this run, "
-        f"{orig_bytes_total/1e6:.1f}MB -> {new_bytes_total/1e6:.1f}MB "
-        f"({100*(1-new_bytes_total/orig_bytes_total) if orig_bytes_total else 0:.1f}% saved this run)"
+        f"{orig_bytes_total / 1e6:.1f}MB -> {new_bytes_total / 1e6:.1f}MB "
+        f"({100 * (1 - new_bytes_total / orig_bytes_total) if orig_bytes_total else 0:.1f}% saved this run)"
     )
     conn.close()
 

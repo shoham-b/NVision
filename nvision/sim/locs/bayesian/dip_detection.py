@@ -46,8 +46,8 @@ class DipCandidate:
     centroid_hz: float
     significance: float
     n_points: int
-    f_min: float = 0.0      # empirical left extent of dip cluster (Hz)
-    f_max: float = 0.0      # empirical right extent of dip cluster (Hz)
+    f_min: float = 0.0  # empirical left extent of dip cluster (Hz)
+    f_max: float = 0.0  # empirical right extent of dip cluster (Hz)
     confidence: float = 0.0  # binomial confidence of this cluster
     background: float = 1.0  # empirical baseline (70th pct of obs_ys)
 
@@ -115,10 +115,7 @@ def identify_dip_candidates(
 
     # Normalize weights to sum to 1.0
     w_sum = np.sum(particle_weights)
-    if w_sum > 0:
-        particle_weights = particle_weights / w_sum
-    else:
-        particle_weights = np.ones_like(particle_weights) / len(particle_weights)
+    particle_weights = particle_weights / w_sum if w_sum > 0 else np.ones_like(particle_weights) / len(particle_weights)
 
     # 4. Background signal level (70th percentile)
     background = float(np.percentile(obs_ys, 70))
@@ -165,7 +162,7 @@ def identify_dip_candidates(
     clusters: list[list[tuple[float, float, float]]] = []
     current_cluster: list[tuple[float, float, float]] = []
 
-    for x, y, sup in zip(sorted_xs, sorted_ys, sorted_support):
+    for x, y, sup in zip(sorted_xs, sorted_ys, sorted_support, strict=False):
         if not current_cluster:
             current_cluster.append((float(x), float(y), float(sup)))
         else:
@@ -197,34 +194,28 @@ def identify_dip_candidates(
         in_window = (obs_xs >= f_min - cluster_radius_hz) & (obs_xs <= f_max + cluster_radius_hz)
         n_local = int(np.sum(in_window))
 
-        S = float(np.sum(sups))
-        k_binom = int(np.round(S)) - 1
+        s_total = float(np.sum(sups))
+        k_binom = int(np.round(s_total)) - 1
 
-        if k_binom < 0:
-            p_val = 1.0
-        else:
-            p_val = float(1.0 - binom.cdf(k_binom, n_local, p_false))
+        p_val = 1.0 if k_binom < 0 else float(1.0 - binom.cdf(k_binom, n_local, p_false))
 
         confidence = 1.0 - p_val
         if confidence < confidence_threshold:
             logging.debug(
                 f"Cluster around {np.mean(xs):.3f} Hz dropped by confidence gate: "
                 f"confidence={confidence:.4f} < threshold={confidence_threshold:.4f} "
-                f"(S={S:.2f}, n_local={n_local})"
+                f"(S={s_total:.2f}, n_local={n_local})"
             )
             continue
 
         # Centroid weighted by dip_support[j] * (background - y_j)
         weights = sups * (background - ys)
-        if np.sum(weights) <= 0:
-            centroid = float(np.mean(xs))
-        else:
-            centroid = float(np.sum(xs * weights) / np.sum(weights))
+        centroid = float(np.mean(xs)) if np.sum(weights) <= 0 else float(np.sum(xs * weights) / np.sum(weights))
 
         candidates.append(
             DipCandidate(
                 centroid_hz=centroid,
-                significance=S,
+                significance=s_total,
                 n_points=len(cluster),
                 f_min=float(np.min(xs)),
                 f_max=float(np.max(xs)),

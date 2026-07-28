@@ -129,11 +129,15 @@ def prepare_static_ui_data(out_dir: Path) -> Path:
     # Copy all split JS files to out_dir
     import shutil
 
-    _JS_FILES = [
-        "app.js", "bootstrap.js", "format-utils.js",
-        "plotly-utils.js", "run-status.js", "reload.js",
+    js_files = [
+        "app.js",
+        "bootstrap.js",
+        "format-utils.js",
+        "plotly-utils.js",
+        "run-status.js",
+        "reload.js",
     ]
-    for js_file in _JS_FILES:
+    for js_file in js_files:
         js_src = _STATIC_DIR / js_file
         if js_src.exists():
             shutil.copy2(js_src, out_dir / js_file)

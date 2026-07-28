@@ -22,11 +22,10 @@ bounds — is the root coordinate-system defect this module fixes.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 
-_Numeric = Union[float, np.ndarray]
+_Numeric = float | np.ndarray
 
 
 @dataclass(frozen=True)

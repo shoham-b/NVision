@@ -1,11 +1,10 @@
-import os
 import numpy as np
 import pytest
 
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.models.observation import Observation
 from nvision.spectra.gaussian import GaussianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+
 
 @pytest.fixture(autouse=True)
 def mock_narrowing_steps(monkeypatch):
@@ -108,7 +107,7 @@ def test_shoulder_based_narrowing_single_dip():
     smc._particles = np.random.normal(loc=0.5, scale=1e-3, size=smc._particles.shape)
     smc._particles[:, 0] = np.random.normal(loc=(dip_center - freq_lo) / (freq_hi - freq_lo), scale=1e-3, size=1000)
     smc._particles = np.clip(smc._particles, 0.0, 1.0)
-    
+
     smc._resample()
 
     new_lo, new_hi = smc.physical_param_bounds["frequency"]
@@ -132,18 +131,18 @@ def test_shoulder_based_narrowing_connected_dips():
     freq_lo, freq_hi = 2.7e9, 2.8e9
     smc = _make_smc(freq_lo, freq_hi)
 
-    bg = 1.0
     dip_a = 2.74e9
     dip_b = 2.76e9  # Only 20 MHz apart — no baseline recovery between them.
-    dip_sigma = 3e6
 
     # Fake clustered particles spanning both dips
     half = smc._particles.shape[0] // 2
     smc._particles = np.random.normal(loc=0.5, scale=1e-3, size=smc._particles.shape)
     smc._particles[:half, 0] = np.random.normal(loc=(dip_a - freq_lo) / (freq_hi - freq_lo), scale=1e-3, size=half)
-    smc._particles[half:, 0] = np.random.normal(loc=(dip_b - freq_lo) / (freq_hi - freq_lo), scale=1e-3, size=smc._particles.shape[0] - half)
+    smc._particles[half:, 0] = np.random.normal(
+        loc=(dip_b - freq_lo) / (freq_hi - freq_lo), scale=1e-3, size=smc._particles.shape[0] - half
+    )
     smc._particles = np.clip(smc._particles, 0.0, 1.0)
-    
+
     smc._resample()
 
     new_lo, new_hi = smc.physical_param_bounds["frequency"]

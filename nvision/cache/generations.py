@@ -14,7 +14,7 @@ import sqlite3
 import subprocess
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 GENERATIONS_DIRNAME = "cache_generations"
@@ -83,7 +83,7 @@ def save_generation(out: Path, label: str | None = None) -> Path:
 
     commit = _git_commit(Path(__file__).resolve().parent)
     resolved_label = _sanitize_label(label) if label else (commit or "snapshot")
-    name = f"{datetime.now().strftime(_TIMESTAMP_FMT)}_{resolved_label}"
+    name = f"{datetime.now(UTC).strftime(_TIMESTAMP_FMT)}_{resolved_label}"
 
     generations_root = out / GENERATIONS_DIRNAME
     generations_root.mkdir(parents=True, exist_ok=True)
@@ -96,7 +96,7 @@ def save_generation(out: Path, label: str | None = None) -> Path:
 
     metadata = {
         "label": resolved_label,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "commit": commit,
     }
     (dest / _METADATA_FILENAME).write_text(json.dumps(metadata, indent=2), encoding="utf-8")

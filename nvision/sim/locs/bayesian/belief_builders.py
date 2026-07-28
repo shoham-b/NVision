@@ -55,7 +55,7 @@ def nv_lineshape_for_model(model: object) -> str:
     return "lorentzian"
 
 
-def nv_center_smc_belief(  # noqa: C901
+def nv_center_smc_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
     num_particles: int = NVISION_SMC_NUM_PARTICLES,
@@ -133,7 +133,8 @@ def nv_center_smc_belief(  # noqa: C901
             with_fixed_frequency=with_fixed_frequency,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX,
+            DEFAULT_NV_CENTER_FREQ_X_MIN,
+            DEFAULT_NV_CENTER_FREQ_X_MAX,
             with_hyperfine_splitting=with_hyperfine_splitting,
             with_zeeman_splitting=with_zeeman_splitting,
         )

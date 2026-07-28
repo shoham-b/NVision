@@ -14,7 +14,7 @@ import time
 
 import numpy as np
 
-from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, run_loop
+from nvision import CoreExperiment, GenericSweepLocator, NVCenterCoreGenerator, run_loop
 
 # ── Experiment setup ─────────────────────────────────────────────────────────
 

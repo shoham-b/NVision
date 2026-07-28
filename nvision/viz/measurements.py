@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import random
@@ -448,7 +449,7 @@ def _add_per_dip_windows_overlay(
         )
 
 
-def _detect_dip_segments(  # noqa: C901
+def _detect_dip_segments(
     xs: np.ndarray,
     ys: np.ndarray,
     *,
@@ -945,7 +946,7 @@ def _trace_xy_lists(tr: Any) -> tuple[list[float], list[float | None]]:
     return xs[:n], ys[:n]
 
 
-def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:  # noqa: C901
+def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:
     """Rebuild ``plot_data`` from a scan figure (must match ``plot_scan_measurements``)."""
     x_dense: list[float] | None = None
     y_dense: list[float] | None = None
@@ -1113,7 +1114,7 @@ def backfill_scan_plot_data_if_missing(entry: dict[str, Any], out_dir: Path) -> 
         entry["plot_data"] = plot_data
 
 
-def _setup_scan_layout(  # noqa: C901
+def _setup_scan_layout(
     fig: go.Figure,
     has_metrics: bool,
     *,
@@ -1201,7 +1202,7 @@ def _compute_scan_data_dict(
     true_params: dict | None = None,
 ) -> dict[str, Any]:
     """Build the lean scan data dict written to disk (replaces the full Plotly figure)."""
-    history_xs_raw, history_ys_raw = _extract_history_xy(history)
+    history_xs_raw, _history_ys_raw = _extract_history_xy(history)
     xs = _dense_xs_with_measurements(scan, history_xs_raw, n_dense=5000)
     ys = _true_signal_dense_y(scan, xs)
 
@@ -1242,10 +1243,8 @@ def _compute_scan_data_dict(
     # Filter per-dip windows to expected dip count (same guard as old plotting code)
     if per_dip_windows:
         expected_dips: int | None = None
-        try:
+        with contextlib.suppress(AttributeError, TypeError, ValueError):
             expected_dips = int(scan.true_signal.model.expected_dip_count())
-        except (AttributeError, TypeError, ValueError):
-            pass
         filtered = per_dip_windows
         if expected_dips is not None and len(per_dip_windows) > expected_dips:
             filtered = None

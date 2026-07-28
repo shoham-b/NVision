@@ -148,5 +148,3 @@ class OverFrequencyNoise(ABC):
         if std <= 0 or n_samples < 2:
             return 0.0
         return std * math.sqrt(2.0 * math.log(max(n_samples, 2)))
-
-

@@ -4,20 +4,17 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import ClassVar
 
 import numpy as np
-import pytest
 
 from nvision.models.fisher_information import marginal_crlbs_at_budget
-from nvision.sim.locs.bayesian.sbed_locator import background_noise_std, SequentialBayesianExperimentDesignLocator
+from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator, background_noise_std
 from nvision.spectra.nv_center import (
-    NVCenterLorentzianSpectrum,
     NVCenterLorentzianModel,
     NVCenterVoigtModel,
     NVCenterVoigtSpectrum,
 )
-
 
 # ---------------------------------------------------------------------------
 # Minimal synthetic model with analytical gradient (for FIM tests)
@@ -26,6 +23,7 @@ from nvision.spectra.nv_center import (
 # Gradient: dS/da = exp(...),  dS/dmu = a * (x - mu) / 0.01 * exp(...)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class _GaussParams:
     amplitude: float
@@ -33,7 +31,7 @@ class _GaussParams:
 
 
 class _GaussSpec:
-    names = ["amplitude", "center"]
+    names: ClassVar[list[str]] = ["amplitude", "center"]
 
     def pack_params(self, p: _GaussParams):
         return (p.amplitude, p.center)
@@ -59,7 +57,7 @@ class _SimpleGaussModel:
 
     def gradient(self, x: float, p: _GaussParams) -> dict[str, float]:
         z = (x - p.center) / self._sigma
-        g = np.exp(-0.5 * z ** 2)
+        g = np.exp(-0.5 * z**2)
         return {
             "amplitude": float(g),
             "center": float(p.amplitude * z / self._sigma * g),
@@ -83,9 +81,7 @@ def test_background_noise_std_recovers_true_sigma() -> None:
     result = background_noise_std(xs, ys, f_hat, lw_hat, k=3.0, min_bg_points=15)
 
     assert result is not None
-    assert abs(result - true_sigma) / true_sigma < 0.15, (
-        f"Expected ~{true_sigma}, got {result}"
-    )
+    assert abs(result - true_sigma) / true_sigma < 0.15, f"Expected ~{true_sigma}, got {result}"
 
 
 def test_background_noise_std_ignores_in_span_signal() -> None:
@@ -176,9 +172,7 @@ def test_marginal_crlbs_infeasible_high_noise() -> None:
         n_grid=256,
     )
 
-    assert crlbs_few["center"] > crlbs_many["center"], (
-        "High-noise/low-step CRLB should exceed low-noise/many-step CRLB"
-    )
+    assert crlbs_few["center"] > crlbs_many["center"], "High-noise/low-step CRLB should exceed low-noise/many-step CRLB"
 
 
 def test_marginal_crlbs_scales_with_noise() -> None:
@@ -187,10 +181,12 @@ def test_marginal_crlbs_scales_with_noise() -> None:
     params = _GaussParams(amplitude=0.5, center=0.5)
     n_steps = 200
 
-    crlbs_low = marginal_crlbs_at_budget(model=model, true_typed_params=params,
-                                          x_lo=0.0, x_hi=1.0, noise_std=0.01, n_steps=n_steps)
-    crlbs_high = marginal_crlbs_at_budget(model=model, true_typed_params=params,
-                                           x_lo=0.0, x_hi=1.0, noise_std=0.02, n_steps=n_steps)
+    crlbs_low = marginal_crlbs_at_budget(
+        model=model, true_typed_params=params, x_lo=0.0, x_hi=1.0, noise_std=0.01, n_steps=n_steps
+    )
+    crlbs_high = marginal_crlbs_at_budget(
+        model=model, true_typed_params=params, x_lo=0.0, x_hi=1.0, noise_std=0.02, n_steps=n_steps
+    )
 
     ratio = crlbs_high["center"] / crlbs_low["center"]
     assert 1.8 < ratio < 2.2, f"CRLB ratio for 2× noise = {ratio:.3f}, expected ~2.0"
@@ -211,8 +207,12 @@ def test_marginal_crlbs_empty_for_no_gradient() -> None:
     )
 
     result = marginal_crlbs_at_budget(
-        model=model, true_typed_params=params,
-        x_lo=2.6e9, x_hi=3.1e9, noise_std=0.01, n_steps=100,
+        model=model,
+        true_typed_params=params,
+        x_lo=2.6e9,
+        x_hi=3.1e9,
+        noise_std=0.01,
+        n_steps=100,
     )
     assert result == {}
 
@@ -262,9 +262,7 @@ def test_sbed_forced_bg_mode_samples_outside_span() -> None:
             in_span_count += 1
 
     # Most acquisitions must be out-of-span
-    assert in_span_count < n_trials * 0.3, (
-        f"Too many in-span draws: {in_span_count}/{n_trials}"
-    )
+    assert in_span_count < n_trials * 0.3, f"Too many in-span draws: {in_span_count}/{n_trials}"
 
 
 # ---------------------------------------------------------------------------
@@ -312,17 +310,18 @@ def test_theory_step_budget_computed_after_check() -> None:
     # calling _check_crlb_early_stop on a locator with observations.
     # Instead, verify the formula directly via the locator's internals.
     import math
+
     from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, NVISION_SBED_STEPS_THEORY_FACTOR
 
     sigma_hat = 0.02
     phys_bounds = locator.belief.physical_param_bounds
     freq_lo, freq_hi = phys_bounds["frequency"]
     bandwidth = freq_hi - freq_lo
-    lw_hat = 3e6   # mid-range linewidth
+    lw_hat = 3e6  # mid-range linewidth
     c_hat = 0.175  # mid-range c_total
-    T = NVISION_FREQ_CONVERGENCE_THRESHOLD
+    threshold = NVISION_FREQ_CONVERGENCE_THRESHOLD
 
-    n_theory = (2.0 * sigma_hat**2 * lw_hat * bandwidth) / (math.pi * c_hat**2 * T**2)
+    n_theory = (2.0 * sigma_hat**2 * lw_hat * bandwidth) / (math.pi * c_hat**2 * threshold**2)
     expected_budget = int(NVISION_SBED_STEPS_THEORY_FACTOR * n_theory) + 1
 
     assert expected_budget > 0

@@ -333,7 +333,9 @@ def _trace_one_marginal_posterior(
                     name=f"{param} (particles)",
                     showlegend=False,
                     customdata=customdata,
-                    hovertemplate="Density: %{y:.3g}<br>Bin: [%{customdata[0]:.4g}, %{customdata[1]:.4g}]<extra></extra>",
+                    hovertemplate=(
+                        "Density: %{y:.3g}<br>Bin: [%{customdata[0]:.4g}, %{customdata[1]:.4g}]<extra></extra>"
+                    ),
                 ),
                 go.Scatter(
                     x=jitter_x,
@@ -907,7 +909,7 @@ class BayesianMixin:
         )
         timeline_row = total_rows
 
-        def traces_for_step(step_idx: int) -> list[object]:  # noqa: C901
+        def traces_for_step(step_idx: int) -> list[object]:
             traces: list[object] = []
             for param_idx, param in enumerate(param_names, start=1):
                 posterior_history, grid = posterior_inputs_by_param[param]
@@ -1665,7 +1667,7 @@ class BayesianMixin:
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html_content)
 
-    def plot_parameter_convergence(  # noqa: C901
+    def plot_parameter_convergence(
         self,
         parameter_history: list[dict[str, float]],
         out_path: Path,
@@ -2006,7 +2008,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         write_plotly_gz(fig, out_path)
 
-    def plot_covariance_ellipses(  # noqa: C901
+    def plot_covariance_ellipses(
         self,
         covariance_history: list[np.ndarray],
         param_names: list[str],
@@ -2049,8 +2051,8 @@ class BayesianMixin:
 
         # Create scale matrix
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D = np.diag(1.0 / scales)
-        covariance_history = [D @ cov @ D for cov in covariance_history]
+        scale_diag = np.diag(1.0 / scales)
+        covariance_history = [scale_diag @ cov @ scale_diag for cov in covariance_history]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
 
@@ -2418,7 +2420,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         write_plotly_gz(fig, out_path)
 
-    def plot_fisher_crlb_pairs(  # noqa: C901
+    def plot_fisher_crlb_pairs(
         self,
         fisher_hist: list[np.ndarray],
         param_names: list[str],
@@ -2483,8 +2485,8 @@ class BayesianMixin:
         }
 
         scales = np.array([param_scales.get(p, 1.0) for p in param_names], dtype=float)
-        D_inv = np.diag(scales)
-        fisher_hist = [D_inv @ fim @ D_inv for fim in fisher_hist]
+        scale_diag_inv = np.diag(scales)
+        fisher_hist = [scale_diag_inv @ fim @ scale_diag_inv for fim in fisher_hist]
 
         param_names_scaled = [f"{p}{param_units.get(p, '')}" for p in param_names]
 
@@ -2723,7 +2725,7 @@ class BayesianMixin:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         write_plotly_gz(fig, out_path)
 
-    def plot_convergence_metrics(  # noqa: C901
+    def plot_convergence_metrics(
         self,
         conv_metrics: list[dict],
         param_names: list[str],
@@ -2776,15 +2778,15 @@ class BayesianMixin:
         conv_metrics = conv_metrics_scaled
 
         def _subplot_title(p: str) -> str:
-            if p == "frequency":
-                base = "frequency (absolute uncertainty, KHz)"
-            else:
-                base = f"{p} (relative uncertainty)"
+            base = "frequency (absolute uncertainty, KHz)" if p == "frequency" else f"{p} (relative uncertainty)"
             if param_bounds and p in param_bounds:
                 lo, hi = param_bounds[p]
                 scale = param_scales.get(p, 1.0)
                 unit = param_units.get(p, "")
-                base += f"<br><sup>bounds: [{lo / scale:.4g}, {hi / scale:.4g}]{unit} (width={(hi - lo) / scale:.4g}{unit})</sup>"
+                base += (
+                    f"<br><sup>bounds: [{lo / scale:.4g}, {hi / scale:.4g}]{unit} "
+                    f"(width={(hi - lo) / scale:.4g}{unit})</sup>"
+                )
             return base
 
         # Create subplots - one row per parameter, plus one for convergence streak

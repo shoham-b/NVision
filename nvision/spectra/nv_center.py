@@ -6,10 +6,12 @@ These signal implement the actual ODMR signal equations for NV centers in diamon
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
+from dotenv import load_dotenv
 
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.numba_kernels import (
@@ -40,7 +42,7 @@ MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
 # relative to the (narrow) NV center frequency domain below so the two Zeeman
 # groups stay a visually significant fraction of the plotted domain rather than
 # being lost in a much wider empty range.
-MIN_ZEEMAN_SPLIT: float = 0.0   # dips fully overlap at zero field
+MIN_ZEEMAN_SPLIT: float = 0.0  # dips fully overlap at zero field
 MAX_ZEEMAN_SPLIT: float = 60e6  # 60 MHz → ~2.1 mT
 
 # N-14 parallel hyperfine coupling constant for NV⁻ in diamond.
@@ -77,10 +79,6 @@ NV_NATURAL_HWHM_HZ: float = 150e3  # 150 kHz — typical NV T2*-limited natural 
 
 # Gaussian prior std as a fraction of parameter range (1/10 of range by default)
 # Can be configured via NVISION_PRIOR_STD_FRACTION environment variable
-import os
-
-from dotenv import load_dotenv
-
 _load_env = load_dotenv()  # Ensure .env is loaded
 PRIOR_STD_FRACTION: float = float(os.getenv("NVISION_PRIOR_STD_FRACTION", "0.1"))
 
@@ -388,9 +386,19 @@ def _lorentzian_group_grad(
     # d/du [1/(u^2+1)] = -2u/(u^2+1)^2 = -2u*L(u)^2; du_i/dcenter = -1/omega for
     # all three terms, du_i/domega = -u_i/omega for all three (each u_i is a
     # fixed numerator over omega), du_plus/dsplit=+1/omega, du_minus/dsplit=-1/omega.
-    dg_dcenter = 2.0 * inv_omega * (wp * u_plus * l_plus * l_plus + wz * u_zero * l_zero * l_zero + wm * u_minus * l_minus * l_minus)
-    dg_domega = 2.0 * inv_omega * (
-        wp * u_plus * u_plus * l_plus * l_plus + wz * u_zero * u_zero * l_zero * l_zero + wm * u_minus * u_minus * l_minus * l_minus
+    dg_dcenter = (
+        2.0
+        * inv_omega
+        * (wp * u_plus * l_plus * l_plus + wz * u_zero * l_zero * l_zero + wm * u_minus * l_minus * l_minus)
+    )
+    dg_domega = (
+        2.0
+        * inv_omega
+        * (
+            wp * u_plus * u_plus * l_plus * l_plus
+            + wz * u_zero * u_zero * l_zero * l_zero
+            + wm * u_minus * u_minus * l_minus * l_minus
+        )
     )
     dg_dsplit = -2.0 * inv_omega * (wp * u_plus * l_plus * l_plus - wm * u_minus * l_minus * l_minus)
 
@@ -556,8 +564,14 @@ class NVCenterLorentzianModel(
         k_np = params.k_np if self._with_hyperfine_splitting else 1.0
         if self._with_zeeman_splitting:
             return nv_center_zeeman_lorentzian_eval(
-                float(x), params.frequency, params.linewidth,
-                params.zeeman_split, hf_split, k_np, params.c_total, 1.0,
+                float(x),
+                params.frequency,
+                params.linewidth,
+                params.zeeman_split,
+                hf_split,
+                k_np,
+                params.c_total,
+                1.0,
             )
         return self.compute_nvcenter_lorentzian_model(
             float(x), params.frequency, params.linewidth, hf_split, k_np, params.c_total
@@ -604,11 +618,11 @@ class NVCenterLorentzianModel(
             dp0h_dc, dplh_dc, dprh_dc = 0.5 * dp0_dc, 0.5 * dpl_dc, 0.5 * dpr_dc
 
             # "left" group centered at freq - zeeman_split, weights (wp=p_L, wz=p_0, wm=p_R)
-            g_a, dga_dc_, dga_do, dga_ds, dga_dwp, dga_dwz, dga_dwm = _lorentzian_group_grad(
+            _g_a, dga_dc_, dga_do, dga_ds, dga_dwp, dga_dwz, dga_dwm = _lorentzian_group_grad(
                 xf, freq - zeeman, omega, hf_split, plh, p0h, prh
             )
             # "right" group centered at freq + zeeman_split, weights swapped (wp=p_R, wz=p_0, wm=p_L)
-            g_b, dgb_dc_, dgb_do, dgb_ds, dgb_dwp, dgb_dwz, dgb_dwm = _lorentzian_group_grad(
+            _g_b, dgb_dc_, dgb_do, dgb_ds, dgb_dwp, dgb_dwz, dgb_dwm = _lorentzian_group_grad(
                 xf, freq + zeeman, omega, hf_split, prh, p0h, plh
             )
 
@@ -626,7 +640,7 @@ class NVCenterLorentzianModel(
             dgb_dc = dgb_dwp * dprh_dc + dgb_dwz * dp0h_dc + dgb_dwm * dplh_dc
             grads["c_total"] = -(dga_dc + dgb_dc)
         else:
-            g, dg_dcenter, dg_domega, dg_dsplit, dg_dwp, dg_dwz, dg_dwm = _lorentzian_group_grad(
+            _g, dg_dcenter, dg_domega, dg_dsplit, dg_dwp, dg_dwz, dg_dwm = _lorentzian_group_grad(
                 xf, freq, omega, hf_split, p_l, p0, p_r
             )
             if not self._with_fixed_frequency:
@@ -648,20 +662,26 @@ class NVCenterLorentzianModel(
         out = np.empty(n, dtype=FLOAT_DTYPE)
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_one_serial(
-                float(x), freq,
+                float(x),
+                freq,
                 np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         else:
             nv_center_lorentzian_vectorized_one_serial(
-                float(x), freq,
+                float(x),
+                freq,
                 np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         return out
 
@@ -681,20 +701,26 @@ class NVCenterLorentzianModel(
 
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_many(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         else:
             nv_center_lorentzian_vectorized_many(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         return out
 
@@ -712,20 +738,26 @@ class NVCenterLorentzianModel(
 
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_many_fast(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         else:
             nv_center_lorentzian_vectorized_many_fast(
-                xs, freq,
+                xs,
+                freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
-                hf_arr, k_arr,
+                hf_arr,
+                k_arr,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
-                get_background_ones(n), out,
+                get_background_ones(n),
+                out,
             )
         return out
 
@@ -1473,9 +1505,7 @@ class NVCenterSaturationVoigtModel(
     _SPEC_SINGLE_FIXED_FREQ = _NVCenterSaturationVoigtSingleDipSpec(
         fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
     )
-    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterSaturationVoigtZeemanSpec(
-        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
-    )
+    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterSaturationVoigtZeemanSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
     _SPEC_ZEEMAN_HF_FIXED_FREQ = _NVCenterSaturationVoigtZeemanHyperfineSpec(
         fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
     )

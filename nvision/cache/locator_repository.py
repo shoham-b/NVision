@@ -278,7 +278,7 @@ class LocatorResultsRepository:
         """Append new repeats to a streaming cache entry and update pointer."""
         import datetime
 
-        updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        updated_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
 
         ptr_config = combination_base_cache_config(
             generator=generator,

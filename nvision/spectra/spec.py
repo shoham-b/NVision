@@ -102,9 +102,7 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
         # introspection on every access.
         from dataclasses import fields
 
-        self._names: tuple[str, ...] = tuple(
-            f.name for f in fields(self.params_cls) if f.name not in self.fixed_values
-        )
+        self._names: tuple[str, ...] = tuple(f.name for f in fields(self.params_cls) if f.name not in self.fixed_values)
 
     @property
     def names(self) -> tuple[str, ...]:

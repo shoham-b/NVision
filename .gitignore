@@ -126,4 +126,4 @@ junit-result.xml
 *artifact*/
 check_*.py
 scratch/
-test*
+/test_*

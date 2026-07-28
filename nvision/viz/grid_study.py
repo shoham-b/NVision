@@ -82,9 +82,7 @@ class GridStudyMixin:
                 else strat_df.partition_by("noise", as_dict=True)
             )
             for (noise_key,), noise_df in noise_groups.items():
-                entry = self._plot_grid_heatmap(
-                    noise_df, strat, noise_key, x_col, y_col, x_label, y_label
-                )
+                entry = self._plot_grid_heatmap(noise_df, strat, noise_key, x_col, y_col, x_label, y_label)
                 if entry:
                     entries.append(entry)
 
@@ -118,10 +116,7 @@ class GridStudyMixin:
             return [[(cell.get((x, y)) or {}).get(key) for x in xs] for y in ys]
 
         rates = [
-            [
-                (c["n_converged"] / c["n_total"]) if (c := cell.get((x, y))) and c["n_total"] else None
-                for x in xs
-            ]
+            [(c["n_converged"] / c["n_total"]) if (c := cell.get((x, y))) and c["n_total"] else None for x in xs]
             for y in ys
         ]
 

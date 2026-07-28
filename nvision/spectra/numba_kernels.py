@@ -103,11 +103,11 @@ def nv_center_lorentzian_eval(
     p_sum = (1.0 / k) + 1.0 + k
 
     p_0 = c_total / p_sum
-    p_L = c_total * ((1.0 / k) / p_sum)
-    p_R = c_total * (k / p_sum)
+    p_l = c_total * ((1.0 / k) / p_sum)
+    p_r = c_total * (k / p_sum)
 
     return background - (
-        p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0)
+        p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0)
     )
 
 
@@ -217,10 +217,10 @@ def nv_center_lorentzian_vectorized_one(
         p_sum = (1.0 / k_safe) + 1.0 + k_safe
 
         p_0 = c / p_sum
-        p_L = c * ((1.0 / k_safe) / p_sum)
-        p_R = c * (k_safe / p_sum)
+        p_l = c * ((1.0 / k_safe) / p_sum)
+        p_r = c * (k_safe / p_sum)
 
-        out[j] = bg - (p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0))
+        out[j] = bg - (p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0))
 
 
 @njit(cache=True)
@@ -262,10 +262,10 @@ def nv_center_lorentzian_vectorized_one_serial(
         p_sum = (1.0 / k_safe) + 1.0 + k_safe
 
         p_0 = c / p_sum
-        p_L = c * ((1.0 / k_safe) / p_sum)
-        p_R = c * (k_safe / p_sum)
+        p_l = c * ((1.0 / k_safe) / p_sum)
+        p_r = c * (k_safe / p_sum)
 
-        out[j] = bg - (p_L / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_R / ((x_dim - alpha) ** 2 + 1.0))
+        out[j] = bg - (p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0))
 
 
 # ---------------------------------------------------------------------------
@@ -308,16 +308,16 @@ def nv_center_zeeman_lorentzian_eval(
     p_sum = (1.0 / k) + 1.0 + k
 
     p_0 = 0.5 * c_total / p_sum
-    p_L = 0.5 * c_total * (1.0 / k) / p_sum
-    p_R = 0.5 * c_total * k / p_sum
+    p_l = 0.5 * c_total * (1.0 / k) / p_sum
+    p_r = 0.5 * c_total * k / p_sum
 
     x_m = x_dim + beta  # (x − (freq − zeeman_split)) / omega
-    left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+    left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
     x_p = x_dim - beta  # (x − (freq + zeeman_split)) / omega
-    # p_L/p_R swapped vs. the left group: x_p - alpha (closest to true center)
-    # mirrors x_m + alpha (closest to true center in the left group, p_R).
-    right = p_R / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_L / ((x_p - alpha) ** 2 + 1.0)
+    # p_l/p_r swapped vs. the left group: x_p - alpha (closest to true center)
+    # mirrors x_m + alpha (closest to true center in the left group, p_r).
+    right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
 
     return background - (left + right)
 
@@ -355,16 +355,16 @@ def nv_center_zeeman_lorentzian_vectorized_one_serial(
         p_sum = (1.0 / k_safe) + 1.0 + k_safe
 
         p_0 = 0.5 * c / p_sum
-        p_L = 0.5 * c * (1.0 / k_safe) / p_sum
-        p_R = 0.5 * c * k_safe / p_sum
+        p_l = 0.5 * c * (1.0 / k_safe) / p_sum
+        p_r = 0.5 * c * k_safe / p_sum
 
         x_m = x_dim + beta
-        left = p_L / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_R / ((x_m - alpha) ** 2 + 1.0)
+        left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
-        # p_L/p_R swapped vs. the left group -- mirror the two Zeeman groups
+        # p_l/p_r swapped vs. the left group -- mirror the two Zeeman groups
         # about the true center (see nv_center_zeeman_lorentzian_eval).
         x_p = x_dim - beta
-        right = p_R / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_L / ((x_p - alpha) ** 2 + 1.0)
+        right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
 
         out[j] = bg - (left + right)
 
@@ -421,12 +421,12 @@ def nv_center_zeeman_lorentzian_vectorized_many(
             p_r = p_r_arr[j]
 
             x_m = x_dim + beta
-            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
+            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
             # p_l/p_r swapped vs. the left group -- mirror the two Zeeman groups
             # about the true center (see nv_center_zeeman_lorentzian_eval).
             x_p = x_dim - beta
-            right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
+            right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
 
             out[i, j] = background[j] - (left + right)
 
@@ -483,12 +483,12 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
             p_r = p_r_arr[j]
 
             x_m = x_dim + beta
-            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m ** 2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
+            left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
             # p_l/p_r swapped vs. the left group -- mirror the two Zeeman groups
             # about the true center (see nv_center_zeeman_lorentzian_eval).
             x_p = x_dim - beta
-            right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p ** 2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
+            right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
 
             out[i, j] = background[j] - (left + right)
 

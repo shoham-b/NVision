@@ -82,6 +82,7 @@ __all__ = [
     "DataBatch",
     "GaussianModel",
     "GaussianSpectrum",
+    "GenericSweepLocator",
     # Locators
     "Locator",
     "LocatorResultsRepository",
@@ -95,7 +96,6 @@ __all__ = [
     # Peak specs
     "PeakSpec",
     "RunResult",
-    "GenericSweepLocator",
     "StagedSobolSweepLocator",
     "TrueSignal",
     # Belief

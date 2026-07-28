@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import time
-from collections.abc import Generator, Iterator
-from datetime import datetime, timezone
+from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -61,7 +60,7 @@ class _MatlabExperiment:
         self._freq_lo = freq_lo
         self._freq_hi = freq_hi
 
-    def measure(self, x_unit: float, rng: Any = None):  # noqa: ANN001
+    def measure(self, x_unit: float, rng: Any = None):
         return self._data.measure(x_unit, self._freq_lo, self._freq_hi)
 
     @property
@@ -81,7 +80,7 @@ def _matlab_loop(
     freq_lo: float,
     freq_hi: float,
     no_progress: bool,
-) -> Generator[Locator, None, None]:
+) -> Generator[Locator]:
     """Adaptive measurement loop — yields locator state after each observation."""
     while not locator.done():
         x_unit = locator.next()
@@ -109,7 +108,7 @@ def _matlab_loop(
 
 
 @app.command("matlab-run")
-def matlab_run(  # noqa: C901
+def matlab_run(
     matlab_file: Annotated[
         Path,
         typer.Argument(help="Path to the ESR .mat file (or bare filename resolved via data/matlab/)."),
@@ -158,7 +157,7 @@ def matlab_run(  # noqa: C901
     n_freqs = len(data.freq_hz)
 
     typer.echo(
-        f"Loaded {n_freqs} frequencies: {freq_lo/1e6:.1f} to {freq_hi/1e6:.1f} MHz  |  "
+        f"Loaded {n_freqs} frequencies: {freq_lo / 1e6:.1f} to {freq_hi / 1e6:.1f} MHz  |  "
         f"valid shots: {data.n_valid_shots}  |  noise_std: {data.noise_std:.4f}"
     )
 
@@ -174,7 +173,7 @@ def matlab_run(  # noqa: C901
 
     # --- Run (with or without artifact tracking) ---
     t0 = time.monotonic()
-    ts_str = datetime.now(timezone.utc).isoformat()
+    ts_str = datetime.now(UTC).isoformat()
 
     if not no_ui:
         run_result = _run_with_observer(locator, data, freq_lo, freq_hi, no_progress)
@@ -206,7 +205,7 @@ def matlab_run(  # noqa: C901
         unc_val = final_unc.get(param, float("nan"))
         unit = "MHz" if "frequency" in param or "split" in param or "linewidth" in param else ""
         scale = 1e-6 if unit == "MHz" else 1.0
-        typer.echo(f"  {param:20s}: {val*scale:.4f} +/- {unc_val*scale:.4f} {unit}".rstrip())
+        typer.echo(f"  {param:20s}: {val * scale:.4f} +/- {unc_val * scale:.4f} {unit}".rstrip())
 
     # --- Write artifacts ---
     if run_result is not None:
@@ -261,7 +260,7 @@ def _run_with_observer(
     return observer.watch(_matlab_loop(locator, data, freq_lo, freq_hi, no_progress))
 
 
-def _write_artifacts(  # noqa: C901
+def _write_artifacts(
     *,
     locator: Locator,
     run_result: Any,

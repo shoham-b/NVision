@@ -802,16 +802,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     lo, hi = bounds["noise_sigma"]
                     return float(np.sqrt(max(lo * hi, 0.0)))
             raise ValueError(
-                "estimated_noise_std() called but no active noise model or noise parameters are configured in the belief."
+                "estimated_noise_std() called but no active noise model or noise "
+                "parameters are configured in the belief."
             )
 
         # Compute the 90th percentile of the weighted sigmas distribution
         weights = self._weights
         sum_w = np.sum(weights)
-        if sum_w > 1e-30:
-            norm_weights = weights / sum_w
-        else:
-            norm_weights = np.ones_like(weights) / len(weights)
+        norm_weights = weights / sum_w if sum_w > 1e-30 else np.ones_like(weights) / len(weights)
 
         sort_idx = np.argsort(sigmas)
         sorted_sigmas = sigmas[sort_idx]
@@ -928,7 +926,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         f_b_phys = _to_phys("frequency", estimates["frequency"])
         df_hf_phys = _to_phys_delta("split", estimates["split"]) if "split" in estimates else 0.0
-        df_zeeman_phys = _to_phys_delta("zeeman_split", estimates["zeeman_split"]) if "zeeman_split" in estimates else 0.0
+        df_zeeman_phys = (
+            _to_phys_delta("zeeman_split", estimates["zeeman_split"]) if "zeeman_split" in estimates else 0.0
+        )
 
         # 1. Determine linewidth Omega (HWHM) in physical space
         is_saturation_voigt = "saturation" in estimates and "sigma_inhom" in estimates
@@ -965,7 +965,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             sigma_omega_phys = _to_phys_delta("fwhm_total", uncertainties["fwhm_total"] / 2.0)
         else:
             raise KeyError(
-                "Linewidth uncertainty ('linewidth', 'homogeneous_linewidth', or 'fwhm_total') not found in uncertainties"
+                "Linewidth uncertainty ('linewidth', 'homogeneous_linewidth', or "
+                "'fwhm_total') not found in uncertainties"
             )
 
         # 3. Compute effective uncertainty and resolution in physical space

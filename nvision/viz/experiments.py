@@ -105,7 +105,7 @@ class ExperimentsMixin:
                             strat_vals = pivot.get_column(strat).to_list()
                             savings = [
                                 b - s if b is not None and s is not None else None
-                                for b, s in zip(baseline_vals, strat_vals)
+                                for b, s in zip(baseline_vals, strat_vals, strict=False)
                             ]
                             savings_series.append({"name": strat, "x": indices, "y": savings})
 
@@ -152,14 +152,18 @@ class ExperimentsMixin:
                     sweep_baseline = meas_pivot.select(["noise", sweep_col]).rename({sweep_col: "_baseline"})
                     try:
                         sweep_baseline = (
-                            sweep_baseline
-                            .with_columns(pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n"))
-                            .sort("_n").drop("_n")
+                            sweep_baseline.with_columns(
+                                pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n")
+                            )
+                            .sort("_n")
+                            .drop("_n")
                         )
                         conv_agg = (
-                            conv_agg
-                            .with_columns(pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n"))
-                            .sort("_n").drop("_n")
+                            conv_agg.with_columns(
+                                pl.col("noise").str.extract(r"([\d\.]+)").cast(pl.Float64).alias("_n")
+                            )
+                            .sort("_n")
+                            .drop("_n")
                         )
                     except Exception:
                         sweep_baseline = sweep_baseline.sort("noise")
@@ -177,7 +181,7 @@ class ExperimentsMixin:
                         conv_steps = strat_data.get_column(conv_metric).to_list()
                         savings = [
                             b - s if b is not None and s is not None else None
-                            for b, s in zip(baseline, conv_steps)
+                            for b, s in zip(baseline, conv_steps, strict=False)
                         ]
                         conv_savings_series.append({"name": strat, "x": noises, "y": savings})
 
@@ -191,12 +195,14 @@ class ExperimentsMixin:
                             "series": conv_savings_series,
                         }
                         out_path = self._emit(conv_sav_data, f"summary_{gen}_{sav_suffix}.json.gz")
-                        plots.append({
-                            "type": "summary",
-                            "path": out_path.as_posix(),
-                            "generator": gen,
-                            "metric": sav_suffix,
-                        })
+                        plots.append(
+                            {
+                                "type": "summary",
+                                "path": out_path.as_posix(),
+                                "generator": gen,
+                                "metric": sav_suffix,
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -299,10 +305,12 @@ class ExperimentsMixin:
         best_est = (
             sub.filter(~pl.col("strategy").str.contains("Sweep"))
             .group_by(["noise", "attempt"])
-            .agg([
-                pl.col("_width_src").mean().alias("ref_linewidth"),
-                pl.col("_split_src").mean().alias("ref_split"),
-            ])
+            .agg(
+                [
+                    pl.col("_width_src").mean().alias("ref_linewidth"),
+                    pl.col("_split_src").mean().alias("ref_split"),
+                ]
+            )
         )
 
         # Always join (even when best_est is empty -- a left join against an empty
@@ -341,7 +349,7 @@ class ExperimentsMixin:
 
         # Add correct f_span column to df grouped by generator first
         df_list = []
-        for gen_tuple, sub in df.partition_by("generator", as_dict=True).items():
+        for _gen_tuple, sub in df.partition_by("generator", as_dict=True).items():
             for _c in [
                 "final_est_linewidth",
                 "final_est_homogeneous_linewidth",
@@ -385,7 +393,7 @@ class ExperimentsMixin:
                     strat_savings = []
                     valid_f_spans = []
 
-                    for b, s, f in zip(baseline_vals, strat_vals, f_spans):
+                    for b, s, f in zip(baseline_vals, strat_vals, f_spans, strict=False):
                         if b is not None and s is not None and f is not None:
                             strat_savings.append(b - s)
                             valid_f_spans.append(f)
@@ -417,6 +425,7 @@ class ExperimentsMixin:
                     )
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(f"Could not plot span per noise for {gen} {noise}: {e}")
 
         return plots
@@ -487,11 +496,13 @@ class ExperimentsMixin:
 
                     if pts:
                         pts.sort()
-                        vs_span_series.append({
-                            "name": strat,
-                            "x": [p[0] for p in pts],
-                            "y": [p[1] for p in pts],
-                        })
+                        vs_span_series.append(
+                            {
+                                "name": strat,
+                                "x": [p[0] for p in pts],
+                                "y": [p[1] for p in pts],
+                            }
+                        )
 
                 # Only emit the chart when there is genuine x-variation
                 all_x = [x for s in vs_span_series for x in s["x"]]
@@ -520,11 +531,12 @@ class ExperimentsMixin:
 
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(f"Failed to plot savings vs span: {e}")
 
         return plots
 
-    def plot_milestone_analysis(self, df: pl.DataFrame) -> list[dict]:  # noqa: C901
+    def plot_milestone_analysis(self, df: pl.DataFrame) -> list[dict]:
         """Create plots for milestone-based convergence analysis."""
         milestone_cols = [
             "steps_to_fb",

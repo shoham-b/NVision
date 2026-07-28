@@ -45,7 +45,7 @@ def _downsample_indices(n: int, max_points: int) -> list[int]:
     ratio = (n - 1) / head
     for k in range(remaining):
         t = (k + 1) / (remaining + 1)
-        indices.add(int(round(head * ratio**t)))
+        indices.add(round(head * ratio**t))
     indices.add(n - 1)
     return sorted(i for i in indices if 0 <= i < n)
 

@@ -1,10 +1,11 @@
 import numpy as np
-import pytest
+
+from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.spectra.unit_cube import UnitCubeSignalModel
-from nvision.models.observation import Observation
+
 
 def test_generic_sweep_classic_fit():
     np.random.seed(42)

@@ -1,5 +1,7 @@
 """Tests for the per-step series export (nvision.metrics.series)."""
 
+from itertools import pairwise
+
 import numpy as np
 
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
@@ -78,7 +80,8 @@ def test_extract_step_series_basic():
     assert series["e"][-1] < series["e"][0]
     assert series["u"][-1] < series["u"][0]
     # tau is present (absolute frequency threshold or relative fallback)
-    assert series.get("tau") is not None and series["tau"] > 0
+    assert series.get("tau") is not None
+    assert series["tau"] > 0
 
 
 def test_extract_step_series_downsamples_long_runs():
@@ -90,7 +93,7 @@ def test_extract_step_series_downsamples_long_runs():
     assert series["s"][0] == 1
     assert series["s"][-1] == 500
     # Steps strictly increasing
-    assert all(a < b for a, b in zip(series["s"], series["s"][1:]))
+    assert all(a < b for a, b in zip(series["s"], series["s"][1:], strict=False))
 
 
 def test_extract_step_series_handles_empty_run():
@@ -110,4 +113,4 @@ def test_downsample_indices_bounds_and_count():
     assert len(idx) <= 80
     assert idx[0] == 0
     assert idx[-1] == 9_999
-    assert all(a < b for a, b in zip(idx, idx[1:]))
+    assert all(a < b for a, b in pairwise(idx))

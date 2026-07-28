@@ -9,6 +9,7 @@ from __future__ import annotations
 import random
 
 import numpy as np
+from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
 from rich.console import Console
 from rich.table import Table
 
@@ -18,7 +19,6 @@ from nvision import (
     nv_center_smc_belief,
 )
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
-from nvision.sim.locs.bayesian.students_t_locator import StudentsTLocator
 
 
 def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = "sbed"):
@@ -104,10 +104,7 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
         belief = locator.belief
 
         # Determine Phase
-        if hasattr(locator, "_staged_sobol") and not locator._staged_sobol.done():
-            phase = "Sweep"
-        else:
-            phase = "Bayesian"
+        phase = "Sweep" if hasattr(locator, "_staged_sobol") and not locator._staged_sobol.done() else "Bayesian"
 
         # Get estimates
         est = belief.estimates()

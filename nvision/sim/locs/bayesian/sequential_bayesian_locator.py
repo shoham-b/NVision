@@ -58,9 +58,7 @@ def saturation_voigt_derived_sigmas(
     _, sigma_omega = saturation_voigt_effective_hwhm_and_unc(
         s, sigma_inhom, float(sigmas["saturation"]), float(sigmas["sigma_inhom"])
     )
-    _, sigma_c = saturation_voigt_realized_contrast_and_unc(
-        s, NV_SATURATION_C_MAX, float(sigmas["saturation"]), 0.0
-    )
+    _, sigma_c = saturation_voigt_realized_contrast_and_unc(s, NV_SATURATION_C_MAX, float(sigmas["saturation"]), 0.0)
     return {"linewidth": sigma_omega, "c_total": sigma_c}
 
 
@@ -432,7 +430,7 @@ class SequentialBayesianLocator(Locator):
             res["expected_uniform_points"] = expected_uniform
         return res
 
-    def _compute_expected_uniform_points(self) -> float:  # noqa: C901
+    def _compute_expected_uniform_points(self) -> float:
         """Compute the expected points a simple Sobol sweep would require."""
         true_signal = getattr(self, "_true_signal", None)
         if true_signal is None:

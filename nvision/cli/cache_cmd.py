@@ -201,14 +201,16 @@ def cache_progress(
             data = payload.get("data")
             if isinstance(data, list) and data:
                 achieved = int(data[0].get("achieved_repeats", 0) or 0)
-            rows.append((
-                cat_name,
-                str(cfg.get("generator", "-")),
-                str(cfg.get("noise", "-")),
-                str(cfg.get("strategy", "-")),
-                achieved,
-                str(payload.get("updated_at", "-")),
-            ))
+            rows.append(
+                (
+                    cat_name,
+                    str(cfg.get("generator", "-")),
+                    str(cfg.get("noise", "-")),
+                    str(cfg.get("strategy", "-")),
+                    achieved,
+                    str(payload.get("updated_at", "-")),
+                )
+            )
 
     if not rows:
         console.print("[yellow]No matching cached combinations found.[/yellow]")
@@ -218,7 +220,9 @@ def cache_progress(
     n_combos = len(rows)
     total_achieved = sum(r[4] for r in rows)
 
-    console.print(f"[bold]{n_combos}[/bold] combination(s) found, [bold]{total_achieved}[/bold] repeats completed so far.")
+    console.print(
+        f"[bold]{n_combos}[/bold] combination(s) found, [bold]{total_achieved}[/bold] repeats completed so far."
+    )
 
     if target_repeats:
         target_total = target_repeats * n_combos
@@ -260,7 +264,7 @@ def cache_progress(
 
 
 @cache_app.command(name="convergence")
-def cache_convergence(  # noqa: C901
+def cache_convergence(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     csv_path: Annotated[
         Path | None,
@@ -486,7 +490,7 @@ def _iter_typed_array_payloads(obj: Any) -> Any:
 
 
 @cache_app.command(name="check-plots")
-def check_plots(  # noqa: C901
+def check_plots(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     plot_type: Annotated[
         str,
@@ -616,9 +620,7 @@ def check_plots(  # noqa: C901
     corrupt: list[tuple[dict[str, Any], str]] = []
     ok_entries: list[dict[str, Any]] = []
 
-    with Progress(
-        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
-    ) as progress:
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True) as progress:
         task_id = progress.add_task(f"Checking {len(entries)} plot file(s)...", total=len(entries))
         for entry in entries:
             progress.advance(task_id)
@@ -893,7 +895,7 @@ def cache_clean(
 
 
 @cache_app.command(name="clean-manifest")
-def clean_manifest(  # noqa: C901
+def clean_manifest(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
     stale_physics: Annotated[
@@ -999,7 +1001,7 @@ def clean_manifest(  # noqa: C901
 
 
 @cache_app.command(name="recalc")
-def recalculate_metrics(  # noqa: C901
+def recalculate_metrics(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     category: Annotated[str | None, typer.Option("--category", help="Category filter")] = None,
     strategy: Annotated[StrategyFilter | None, typer.Option("--strategy", help="Strategy filter")] = None,

@@ -11,6 +11,7 @@ import numpy as np
 from nvision.belief.abstract_marginal import ParameterValues
 from nvision.belief.coordinate import RescaleMap
 from nvision.belief.smc_marginal import SMCMarginalDistribution
+from nvision.models.observation import Observation
 from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
@@ -263,8 +264,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             return math.sqrt(max(variance, 0.0))
 
         if isinstance(inner, NVCenterSaturationVoigtModel):
-            from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
             from nvision.spectra.numba_kernels import _pv_factors
+            from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
 
             ests = self.estimates()  # physical-space values
             saturation = ests.get("saturation")
@@ -294,8 +295,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             return math.sqrt(max(variance, 0.0))
 
         if isinstance(inner, NVCenterVoigtModel):
-            from nvision.spectra.nv_center import _voigt_reparam_scalar
             from nvision.spectra.numba_kernels import _pv_factors
+            from nvision.spectra.nv_center import _voigt_reparam_scalar
 
             ests = self.estimates()  # physical-space values
             homogeneous_linewidth = ests.get("homogeneous_linewidth")
@@ -436,7 +437,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         tol = 1e-7
         if np.any((u_new < -tol) | (u_new > 1.0 + tol)):
             raise ValueError(
-                f"Particles out of bounds after resampling in narrow_scan_parameter_physical_bounds: min {np.min(u_new)}, max {np.max(u_new)}"
+                "Particles out of bounds after resampling in "
+                f"narrow_scan_parameter_physical_bounds: min {np.min(u_new)}, max {np.max(u_new)}"
             )
         self._particles[:, j] = np.clip(u_new, 0.0, 1.0)
         self._belief_version += 1
@@ -509,7 +511,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             new_lo = max(lo_phys - expansion, lo_orig)
             new_hi = hi_phys
             logging.getLogger(__name__).debug(
-                "SMC particles piling up at left boundary (%.2f%%). Expanding physical scan window to the left: [%.6f, %.6f] GHz",
+                "SMC particles piling up at left boundary (%.2f%%). "
+                "Expanding physical scan window to the left: [%.6f, %.6f] GHz",
                 float(np.mean(u_vals < 0.05)) * 100,
                 new_lo / 1e9,
                 new_hi / 1e9,
@@ -526,7 +529,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             new_lo = lo_phys
             new_hi = min(hi_phys + expansion, hi_orig)
             logging.getLogger(__name__).debug(
-                "SMC particles piling up at right boundary (%.2f%%). Expanding physical scan window to the right: [%.6f, %.6f] GHz",
+                "SMC particles piling up at right boundary (%.2f%%). "
+                "Expanding physical scan window to the right: [%.6f, %.6f] GHz",
                 float(np.mean(u_vals > 0.95)) * 100,
                 new_lo / 1e9,
                 new_hi / 1e9,

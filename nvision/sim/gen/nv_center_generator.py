@@ -65,14 +65,18 @@ class NVCenterCoreGenerator:
     with_zeeman_splitting: bool = True  # default: Zeeman-split two-dip model
     linewidth: float | None = None  # if set, fix linewidth (HWHM, Hz) instead of randomizing (lorentzian, voigt)
     c_total: float | None = None  # if set, fix contrast instead of randomizing (lorentzian, voigt)
-    lorentz_frac: float | None = None  # if set, fix Lorentzian share of broadening instead of randomizing (voigt only); 1.0 = pure Lorentzian (no inhomogeneous/Gaussian broadening)
+    # if set, fix Lorentzian share of broadening instead of randomizing (voigt only);
+    # 1.0 = pure Lorentzian (no inhomogeneous/Gaussian broadening)
+    lorentz_frac: float | None = None
     saturation: float | None = None  # if set, fix drive saturation (homogeneous channel; saturation_voigt only)
-    sigma_inhom: float | None = None  # if set, fix inhomogeneous width, Hz (saturation_voigt; also voigt, converted to lorentz_frac via linewidth -- ignored if lorentz_frac is also set)
+    # if set, fix inhomogeneous width, Hz (saturation_voigt; also voigt, converted to
+    # lorentz_frac via linewidth -- ignored if lorentz_frac is also set)
+    sigma_inhom: float | None = None
     # c_max (saturated contrast scale) is not a per-generator field: it's a fixed
     # physical constant (NV_SATURATION_C_MAX in nv_center.py), not something that
     # varies between repeats or studies.
 
-    def generate(self, rng: random.Random):  # noqa: C901
+    def generate(self, rng: random.Random):
         """Generate NV center ODMR signal.
 
         Parameters
@@ -141,6 +145,7 @@ class NVCenterCoreGenerator:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 model = NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=True)
                 from nvision.spectra.nv_center import NVCenterLorentzianZeemanHyperfineSpectrum
+
                 typed_params = NVCenterLorentzianZeemanHyperfineSpectrum(
                     frequency=center_freq,
                     linewidth=linewidth,

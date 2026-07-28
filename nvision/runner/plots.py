@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +95,7 @@ def _resolve_scan_param(strat_obj: Any, run_result: RunResult) -> str:
     return "frequency"
 
 
-def _posterior_animation_inputs(  # noqa: C901
+def _posterior_animation_inputs(
     run_result: RunResult,
     scan_param: str,
     start_idx: int = 0,
@@ -155,7 +156,7 @@ def _posterior_animation_inputs(  # noqa: C901
     return None
 
 
-def _posterior_animation_inputs_all_params(  # noqa: C901
+def _posterior_animation_inputs_all_params(
     run_result: RunResult,
     start_idx: int = 0,
 ) -> dict[str, tuple[list[np.ndarray], np.ndarray]] | None:
@@ -177,9 +178,8 @@ def _posterior_animation_inputs_all_params(  # noqa: C901
 
     b0 = snapshots[0].belief
     names = list(b0.model.parameter_names())
-    if getattr(b0, "_use_rao_blackwell_noise", False):
-        if "noise_sigma" not in names:
-            names.append("noise_sigma")
+    if getattr(b0, "_use_rao_blackwell_noise", False) and "noise_sigma" not in names:
+        names.append("noise_sigma")
     if not names:
         return None
 
@@ -301,7 +301,7 @@ def _initial_sweep_steps_from_strategy(strat_obj: Any) -> int:
     return 0
 
 
-def _bayesian_auxiliary_entries(  # noqa: C901
+def _bayesian_auxiliary_entries(
     viz: Viz,
     entry_base: dict[str, Any],
     run_result: RunResult,
@@ -320,11 +320,8 @@ def _bayesian_auxiliary_entries(  # noqa: C901
     scan_param = _resolve_scan_param(strat_obj, run_result)
     true_params = run_result.true_signal.parameter_values()
     if experiment is not None and experiment.noise is not None:
-        try:
+        with suppress(Exception):
             true_params["noise_sigma"] = float(experiment.noise.estimated_noise_std())
-        except Exception:
-            pass
-    experiment_domain = (float(experiment.x_min), float(experiment.x_max))
     posterior_path = bayes_dir / f"{attempt_slug}_posterior.json.gz"
 
     # Subsample snapshots for all visualization loops.  Locators like SimpleSobol
@@ -903,7 +900,7 @@ def get_or_run_simplesweep_baseline(
     return new_data
 
 
-def generate_attempt_plots(  # noqa: C901
+def generate_attempt_plots(
     viz: Viz,
     entry_base: dict[str, Any],
     attempt_idx_in_combo: int,

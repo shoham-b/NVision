@@ -119,7 +119,6 @@ class TestWritePosteriorData:
             assert abs(w_sum - 1.0) < 3e-3
 
     def test_frequency_scaled_to_ghz(self, tmp_path):
-        rng = np.random.default_rng(4)
         # Particles centered around 2.87 GHz
         vals = np.full(100, 2.87e9, dtype=np.float32)
         raw_w = np.ones(100, dtype=np.float32) / 100
@@ -132,7 +131,6 @@ class TestWritePosteriorData:
         assert abs(mean_val - 2.87) < 0.01, f"Expected ~2.87 GHz, got {mean_val}"
 
     def test_linewidth_scaled_to_mhz(self, tmp_path):
-        rng = np.random.default_rng(5)
         vals = np.full(100, 10e6, dtype=np.float32)
         raw_w = np.ones(100, dtype=np.float32) / 100
         history = [np.column_stack([vals, raw_w])]
@@ -222,8 +220,8 @@ class TestWriteCovarianceData:
         param_names = ["frequency", "linewidth", "split"][:d]
         cov_hist = []
         for _ in range(n_steps):
-            A = rng.random((d, d))
-            cov_hist.append(A @ A.T)
+            a = rng.random((d, d))
+            cov_hist.append(a @ a.T)
         means_hist = [{"frequency": 2.87e9, "linewidth": 8e6, "split": 2e6} for _ in range(n_steps)]
         pairs = [(0, 1), (0, 2)]
         return param_names, cov_hist, means_hist, pairs
@@ -267,7 +265,6 @@ class TestWriteCovarianceData:
         assert abs(means["linewidth"] - 8.0) < 1e-6
 
     def test_covariance_scaled_to_display_units(self, tmp_path):
-        rng = np.random.default_rng(24)
         d = 2
         param_names = ["frequency", "linewidth"]
         # Identity covariance in physical units
@@ -333,7 +330,6 @@ class TestWriteParameterConvergenceData:
         assert len(data["steps"]) == 7
 
     def test_uncertainties_scaled(self, tmp_path):
-        rng = np.random.default_rng(31)
         param_hist = [{"frequency": 2e6, "linewidth": 3e6}]
         estimates_hist = [{"frequency": 2.87e9, "linewidth": 8e6}]
         out = tmp_path / "conv.json"
@@ -346,7 +342,6 @@ class TestWriteParameterConvergenceData:
         assert abs(unc["linewidth"] - 3.0) < 1e-9
 
     def test_estimates_scaled(self, tmp_path):
-        rng = np.random.default_rng(32)
         param_hist = [{"frequency": 1e6}]
         estimates_hist = [{"frequency": 2.87e9}]
         out = tmp_path / "conv.json"
@@ -482,8 +477,8 @@ class TestWriteFisherData:
         actual_uncertainty_hist = [{p: float(rng.random() * 2e6) for p in param_names} for _ in range(n_steps)]
         fisher_hist = []
         for _ in range(n_steps):
-            A = rng.random((n_params, n_params))
-            fisher_hist.append(A @ A.T)
+            a = rng.random((n_params, n_params))
+            fisher_hist.append(a @ a.T)
         return param_names, fisher_bounds_hist, actual_uncertainty_hist, fisher_hist
 
     def test_schema_and_step_count(self, tmp_path):
@@ -496,7 +491,6 @@ class TestWriteFisherData:
         assert len(data["steps"]) == 6
 
     def test_fisher_bounds_scaled(self, tmp_path):
-        rng = np.random.default_rng(41)
         param_names = ["frequency", "linewidth"]
         fisher_bounds = [{"frequency": 2e6, "linewidth": 3e6}]
         actual_unc = [{"frequency": 4e6, "linewidth": 5e6}]

@@ -75,7 +75,8 @@ def test_measure_batch_produces_variance():
 
     obs = exp.measure(0.5, random.Random(0), n_shots=16)
     assert obs.n_shots == 16
-    assert obs.sample_var is not None and obs.sample_var > 0.0
+    assert obs.sample_var is not None
+    assert obs.sample_var > 0.0
     # noise_std must equal the batch-mean precision s/sqrt(k)
     assert obs.noise_std == np.float64(math.sqrt(obs.sample_var) / math.sqrt(16))
     # The empirical spread should be in the right ballpark of the injected sigma
@@ -187,9 +188,7 @@ class _FakeBelief:
 def _make_sbed(fake_belief, prior_noise=0.02):
     from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
-    return SequentialBayesianExperimentDesignLocator(
-        fake_belief, max_steps=10, noise_std=prior_noise
-    )
+    return SequentialBayesianExperimentDesignLocator(fake_belief, max_steps=10, noise_std=prior_noise)
 
 
 def test_eig_uses_constructor_prior_before_any_batch():

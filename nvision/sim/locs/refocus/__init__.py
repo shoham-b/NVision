@@ -43,9 +43,9 @@ from nvision.sim.locs.refocus.window import (
 
 __all__ = [
     "detect_dips",
+    "dip_noise_threshold",
+    "infer_acquisition_window",
     "infer_dip_widths",
     "infer_focus_window",
     "infer_focus_window_physical",
-    "dip_noise_threshold",
-    "infer_acquisition_window",
 ]

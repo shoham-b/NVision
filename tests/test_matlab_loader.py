@@ -18,7 +18,6 @@ from nvision.tools.matlab_loader import (
     _resolve_mat_path,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -108,6 +107,7 @@ def test_resolve_mat_path_bare_name_resolved(tmp_path, monkeypatch):
     f = tmp_path / "data.mat"
     f.touch()
     import nvision.tools.matlab_loader as ml
+
     monkeypatch.setattr(ml, "_MATLAB_DATA_DIR", tmp_path)
     result = _resolve_mat_path(Path("data.mat"))
     assert result == f
@@ -115,6 +115,7 @@ def test_resolve_mat_path_bare_name_resolved(tmp_path, monkeypatch):
 
 def test_resolve_mat_path_bare_name_missing_returns_as_is(tmp_path, monkeypatch):
     import nvision.tools.matlab_loader as ml
+
     monkeypatch.setattr(ml, "_MATLAB_DATA_DIR", tmp_path)
     result = _resolve_mat_path(Path("nonexistent.mat"))
     assert result == Path("nonexistent.mat")
@@ -125,7 +126,7 @@ def test_resolve_mat_path_bare_name_missing_returns_as_is(tmp_path, monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def simple_mat():
     """5-frequency, 10-shot flat signal with a 4% dip at index 2."""
     freq_mhz = np.linspace(2770.0, 2970.0, 5)
@@ -222,9 +223,11 @@ def test_load_nan_bins_filled(tmp_path):
 def test_load_missing_my_struct_raises(tmp_path):
     mat_file = tmp_path / "bad.mat"
     mat_file.touch()
-    with patch("nvision.tools.matlab_loader._load_mat_v5", return_value={"other_key": None}):
-        with pytest.raises(KeyError, match="myStruct"):
-            MatlabDataFile.load(mat_file)
+    with (
+        patch("nvision.tools.matlab_loader._load_mat_v5", return_value={"other_key": None}),
+        pytest.raises(KeyError, match="myStruct"),
+    ):
+        MatlabDataFile.load(mat_file)
 
 
 def test_load_missing_esr_field_raises(tmp_path):
@@ -232,9 +235,8 @@ def test_load_missing_esr_field_raises(tmp_path):
     mat = {"myStruct": top}
     mat_file = tmp_path / "bad.mat"
     mat_file.touch()
-    with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
-        with pytest.raises(KeyError, match="ESR"):
-            MatlabDataFile.load(mat_file)
+    with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat), pytest.raises(KeyError, match="ESR"):
+        MatlabDataFile.load(mat_file)
 
 
 def test_load_wrong_signal_shape_raises(tmp_path):
@@ -247,9 +249,11 @@ def test_load_wrong_signal_shape_raises(tmp_path):
     mat = {"myStruct": top}
     mat_file = tmp_path / "bad.mat"
     mat_file.touch()
-    with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
-        with pytest.raises(ValueError, match="shape"):
-            MatlabDataFile.load(mat_file)
+    with (
+        patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat),
+        pytest.raises(ValueError, match="shape"),
+    ):
+        MatlabDataFile.load(mat_file)
 
 
 def test_load_freq_length_mismatch_raises(tmp_path):
@@ -262,9 +266,11 @@ def test_load_freq_length_mismatch_raises(tmp_path):
     mat = {"myStruct": top}
     mat_file = tmp_path / "bad.mat"
     mat_file.touch()
-    with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
-        with pytest.raises(ValueError, match="Frequency array length"):
-            MatlabDataFile.load(mat_file)
+    with (
+        patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat),
+        pytest.raises(ValueError, match="Frequency array length"),
+    ):
+        MatlabDataFile.load(mat_file)
 
 
 def test_load_file_not_found():
@@ -278,9 +284,11 @@ def test_load_zero_valid_shots_raises(tmp_path):
     mat = _make_mat(freq_mhz, signal_3d, curr_iter=0)
     mat_file = tmp_path / "esr.mat"
     mat_file.touch()
-    with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
-        with pytest.raises(ValueError, match="No valid shots"):
-            MatlabDataFile.load(mat_file)
+    with (
+        patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat),
+        pytest.raises(ValueError, match="No valid shots"),
+    ):
+        MatlabDataFile.load(mat_file)
 
 
 def test_load_implausible_noise_falls_back_to_default(tmp_path):
@@ -302,7 +310,7 @@ def test_load_implausible_noise_falls_back_to_default(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def simple_data():
     """A 5-frequency MatlabDataFile with a dip at index 2."""
     freq_hz = np.array([2770e6, 2820e6, 2870e6, 2920e6, 2970e6])
@@ -354,7 +362,7 @@ def test_measure_round_trip_unit_conversion(simple_data):
     freq_lo, freq_hi = 2770e6, 2970e6
     grid_step = (freq_hi - freq_lo) / (len(simple_data.freq_hz) - 1)
     for x_unit in np.linspace(0.0, 1.0, 11):
-        obs = simple_data.measure(x_unit, freq_lo, freq_hi)
+        simple_data.measure(x_unit, freq_lo, freq_hi)
         phys_hz = freq_lo + x_unit * (freq_hi - freq_lo)
         nearest = simple_data.freq_hz[np.argmin(np.abs(simple_data.freq_hz - phys_hz))]
         assert abs(phys_hz - nearest) <= grid_step / 2 + 1e-3

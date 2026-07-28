@@ -229,7 +229,7 @@ class Observer:
         self.snapshots: list[StepSnapshot] = []
         self.last_locator: Locator | None = None
 
-    def watch(self, runner: Iterator[Locator]) -> RunResult:  # noqa: C901
+    def watch(self, runner: Iterator[Locator]) -> RunResult:
         """Watch a run and accumulate snapshots.
 
         Parameters

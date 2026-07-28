@@ -365,7 +365,7 @@ def _collect_cache_results_from_configs(
     return df_rows, plot_manifest, hits
 
 
-def _rows_from_existing_manifest(out_dir: Path) -> list[dict[str, object]]:  # noqa: C901
+def _rows_from_existing_manifest(out_dir: Path) -> list[dict[str, object]]:
     """Best-effort recovery of locator result rows from existing scan manifest entries."""
     path = plots_manifest_path(out_dir)
     if not path.exists():
@@ -559,7 +559,7 @@ def _load_cache_rows_for_render(
 
 
 @app.command()
-def render(  # noqa: C901
+def render(
     out: Annotated[
         Path,
         typer.Option("--out", help="Output directory for rendered artifacts"),
@@ -568,7 +568,8 @@ def render(  # noqa: C901
         Path | None,
         typer.Option(
             "--cache-dir",
-            help="Cache directory to read from (defaults to <out>/cache). Use this to render from a different run's cache.",
+            help="Cache directory to read from (defaults to <out>/cache). "
+            "Use this to render from a different run's cache.",
         ),
     ] = None,
     repeats: int = typer.Option(
@@ -648,7 +649,7 @@ def render(  # noqa: C901
     grid = CombinationGrid()
     bridge = CacheBridge(resolved_cache_dir)
     try:
-        df_rows, plot_manifest = _load_cache_rows_for_render(
+        df_rows, _plot_manifest = _load_cache_rows_for_render(
             bridge,
             out_dir,
             grid,

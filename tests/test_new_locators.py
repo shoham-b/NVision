@@ -10,10 +10,10 @@ import numpy as np
 from nvision import (
     CoreExperiment,
     GaussianModel,
+    GenericSweepLocator,
     Locator,
     Observer,
     RunResult,
-    GenericSweepLocator,
     TrueSignal,
     run_loop,
 )

@@ -426,7 +426,7 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
     """
     # Binary blobs and plot data (already in .json.gz files) — the only things
     # safe to drop unconditionally.
-    _ALWAYS_DROP = frozenset({"content", "content_bin", "plot_data", "_bytes"})
+    always_drop = frozenset({"content", "content_bin", "plot_data", "_bytes"})
 
     # Flatten coarse/fine measurements before dropping the nested dicts
     out: dict[str, object] = {}
@@ -438,7 +438,7 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
         out["fine_measurements"] = fine.get("measurements")
 
     for k, v in entry.items():
-        if k in _ALWAYS_DROP or k in ("coarse", "fine"):
+        if k in always_drop or k in ("coarse", "fine"):
             continue
         out[k] = v
 
@@ -527,7 +527,7 @@ def purge_artifacts_for_combination(
             log.warning("Failed to update plots_manifest.json during cache purge: %s", exc)
 
 
-def purge_cache_and_artifacts_for_combinations(  # noqa: C901
+def purge_cache_and_artifacts_for_combinations(
     out_dir: Path,
     combos: set[tuple[str, str, str]],
     log: logging.Logger,

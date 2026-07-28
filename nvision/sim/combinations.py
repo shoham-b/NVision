@@ -19,8 +19,8 @@ from nvision.belief.smc_marginal import (
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import presets as sim_presets
-from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
@@ -179,7 +179,7 @@ class CombinationGrid:
         """Iterate all combinations (no filtering, no dedup)."""
         return self.all_combinations()
 
-    def iter(  # noqa: C901
+    def iter(
         self,
         filter_category: str | None = None,
         filter_strategy: str | None = None,

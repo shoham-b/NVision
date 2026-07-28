@@ -11,7 +11,7 @@ import time
 
 import numpy as np
 
-from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, run_loop
+from nvision import CoreExperiment, GenericSweepLocator, NVCenterCoreGenerator, run_loop
 from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 
@@ -59,8 +59,6 @@ def _eager_observe(self, obs: Observation) -> None:
 
 
 # Temporarily swap in the eager observe for GenericSweepLocator
-from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-
 _gsl_observe_saved = GenericSweepLocator.observe
 GenericSweepLocator.observe = _eager_observe
 

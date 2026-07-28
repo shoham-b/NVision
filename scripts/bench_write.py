@@ -93,7 +93,7 @@ def bench_scan(tmp: Path):
         return p.stat().st_size
 
     plain_sz = _timer("Plain fig.to_json() + write", _plain_write, fig)
-    f32_s = _timer("Float32 JSON encode (str only)", _f32_str, fig)
+    _timer("Float32 JSON encode (str only)", _f32_str, fig)
     gz_sz = _timer("Float32 + gzip write (.json.gz)", _gz_write, fig)
     print(f"  File size: plain={plain_sz // 1024} KB  gz={gz_sz // 1024} KB  ({plain_sz / gz_sz:.1f}x smaller)")
 
@@ -130,7 +130,7 @@ def bench_posterior(tmp: Path):
         anim_all, _ = _make_posterior_inputs(n_frames, n_particles)
 
         # Old: raw float64 JSON to plain file
-        def _old_write(anim_all):
+        def _old_write(anim_all, n_frames=n_frames):
             payload = {
                 "schema": "posterior_v1",
                 "param_names": ["frequency", "split", "linewidth"],

@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import random
 
-from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, run_loop
+from nvision import CoreExperiment, GenericSweepLocator, NVCenterCoreGenerator, run_loop
 from nvision.models.observer import Observer
 from nvision.runner.convert import run_result_to_finalize_record
 from nvision.runner.metrics import _scan_attempt_metrics

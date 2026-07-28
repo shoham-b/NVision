@@ -166,5 +166,3 @@ class SweepingLocator(Locator):
             Number of steps in the initial sweep phase.
         """
         return self.effective_step_count()
-
-

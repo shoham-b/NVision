@@ -123,7 +123,10 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
             phys_values.append(min(max(v, lo), hi))
         phys_typed = self.inner.spec.unpack_params(phys_values)
         phys_grad = self.inner.gradient(x_phys, phys_typed)
-        return {name: phys_grad[name] * (self.param_bounds_phys[name][1] - self.param_bounds_phys[name][0]) for name in names}
+        return {
+            name: phys_grad[name] * (self.param_bounds_phys[name][1] - self.param_bounds_phys[name][0])
+            for name in names
+        }
 
     def compute_vectorized_samples(self, x: float, samples: SampleParamsT) -> np.ndarray:
         return self.compute_vectorized(x, *self.spec.pack_samples(samples))

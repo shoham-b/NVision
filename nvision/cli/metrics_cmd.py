@@ -18,8 +18,8 @@ from rich.table import Table
 
 from nvision.cache import CacheBridge, stable_config_hash
 from nvision.cache.locator_keys import combination_base_cache_config
-from nvision.cli.app_instance import app
 from nvision.cli import defaults as cli_defaults
+from nvision.cli.app_instance import app
 from nvision.runner.cache import strip_heavy_fields
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen.nv_center_generator import (
@@ -89,10 +89,7 @@ def _crlb_min_obs(noise_std: float, linewidth: float, c_total: float, threshold_
     """
     if c_total <= 0 or linewidth <= 0 or noise_std <= 0 or threshold_hz <= 0:
         return 0
-    return math.ceil(
-        8.0 * noise_std**2 * linewidth * _CRLB_BANDWIDTH
-        / (math.pi * c_total**2 * threshold_hz**2)
-    )
+    return math.ceil(8.0 * noise_std**2 * linewidth * _CRLB_BANDWIDTH / (math.pi * c_total**2 * threshold_hz**2))
 
 
 def _apply_crlb_convergence_steps(row: dict[str, Any], noise_std: float, threshold_hz: float) -> dict[str, Any]:
@@ -127,10 +124,7 @@ def _apply_crlb_convergence_steps(row: dict[str, Any], noise_std: float, thresho
             continue  # run never converged empirically — leave as None
         old = int(old)
         new = max(old, crlb_step)
-        if new > total:
-            new_val = None  # CRLB requires more measurements than the run had
-        else:
-            new_val = new
+        new_val = None if new > total else new  # None: CRLB requires more measurements than the run had
         if new_val != old:
             updated[field] = new_val
             changed = True
@@ -237,14 +231,11 @@ def _entries_differ(
     old_scan = next((e for e in old_entries if e.get("type") == "scan"), None)
     if old_scan is None:
         return False
-    for key, val in metrics.items():
-        if old_scan.get(key) != val:
-            return True
-    return False
+    return any(old_scan.get(key) != val for key, val in metrics.items())
 
 
 @metrics_app.command(name="recalc")
-def recalc_metrics(  # noqa: C901
+def recalc_metrics(
     out: Annotated[
         Path,
         typer.Option("--out", help="Output directory (same as used for nvision run/render)"),
@@ -292,12 +283,12 @@ def recalc_metrics(  # noqa: C901
         console.print(f"[yellow]Cache directory not found: {cache_dir}[/yellow]")
         raise typer.Exit(1)
 
-    from nvision.runner.metrics import _scan_attempt_metrics, _truth_positions
     from nvision.models.experiment import CoreExperiment
+    from nvision.runner.metrics import _scan_attempt_metrics, _truth_positions
 
     bridge = CacheBridge(cache_dir)
     grid = CombinationGrid()
-    tree = prepare_artifact_tree(out_dir)
+    prepare_artifact_tree(out_dir)
 
     # Collect all unique cached combination configs
     stores = [("NVCenter", bridge.nv_center), ("Complementary", bridge.complementary)]
@@ -332,9 +323,10 @@ def recalc_metrics(  # noqa: C901
 
             # Resolve achieved_repeats for pointer entries
             cfg_copy = dict(cfg)
-            if kind == "locator_combination_pointer":
-                if "data" in payload and payload["data"] and isinstance(payload["data"], list):
-                    cfg_copy["repeats"] = payload["data"][0].get("achieved_repeats", cfg.get("repeats", 0))
+            if kind == "locator_combination_pointer" and (
+                "data" in payload and payload["data"] and isinstance(payload["data"], list)
+            ):
+                cfg_copy["repeats"] = payload["data"][0].get("achieved_repeats", cfg.get("repeats", 0))
 
             inferred_category = CombinationGrid.generator_category(generator)
             category = inferred_category if inferred_category != "Unknown" else store_category
@@ -389,7 +381,6 @@ def recalc_metrics(  # noqa: C901
             seed = int(cfg.get("seed", NVISION_RNG_SEED))
             max_steps = int(cfg.get("max_steps", 0))
             timeout_s = int(cfg.get("timeout_s", cli_defaults.DEFAULT_LOC_TIMEOUT_S))
-            achieved_repeats = int(cfg.get("repeats", 0))
 
             progress.update(task_id, description=f"{gen_name}/{noise_name}/{strat_name}")
 
@@ -439,9 +430,6 @@ def recalc_metrics(  # noqa: C901
                 x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
             )
             truth_positions = _truth_positions(experiment)
-            noise_std = combo.noise.estimated_noise_std()
-            from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
-            threshold_hz = float(PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get("frequency", 100_000.0))
 
             combo_updated = 0
             combo_entries: list[dict[str, Any]] = []

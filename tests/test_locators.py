@@ -7,9 +7,9 @@ import numpy as np
 from nvision import (
     CoreExperiment,
     GaussianModel,
+    GenericSweepLocator,
     Locator,
     NVCenterCoreGenerator,
-    GenericSweepLocator,
     run_loop,
 )
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter

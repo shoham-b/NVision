@@ -218,9 +218,7 @@ class ShardedSqliteCache:
         conn.commit()
 
     def _ensure_graphs_table(self, conn: sqlite3.Connection) -> None:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS graphs (key TEXT PRIMARY KEY, data BLOB)"
-        )
+        conn.execute("CREATE TABLE IF NOT EXISTS graphs (key TEXT PRIMARY KEY, data BLOB)")
         conn.commit()
 
     def _get_index_conn(self) -> sqlite3.Connection:
@@ -528,10 +526,8 @@ class ShardedSqliteCache:
                     shard_keys,
                 )
                 for k, v in cur.fetchall():
-                    try:
+                    with suppress(Exception):
                         result[k] = json.loads(v)
-                    except Exception:
-                        pass
             except Exception:
                 pass
 

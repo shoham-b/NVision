@@ -97,10 +97,10 @@ NVISION_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_CONVERGENCE_THRE
 # Unset optional vars fall back to relative NVISION_CONVERGENCE_THRESHOLD × bound width.
 NVISION_FREQ_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_FREQ_CONVERGENCE_THRESHOLD", "100000.0"))
 
-# Safety factor K applied as a measurement budget multiplier. 
-# If the Cramér–Rao Lower Bound (CRLB) dictates that N measurements are 
-# theoretically required to reach the frequency convergence threshold, the locator 
-# allocates a maximum budget of K × N measurements to account for non-ideal 
+# Safety factor K applied as a measurement budget multiplier.
+# If the Cramér–Rao Lower Bound (CRLB) dictates that N measurements are
+# theoretically required to reach the frequency convergence threshold, the locator
+# allocates a maximum budget of K × N measurements to account for non-ideal
 # sampling and SMC inefficiencies before failing fast.
 NVISION_FREQ_CRLB_SAFETY_FACTOR: float = float(os.getenv("NVISION_FREQ_CRLB_SAFETY_FACTOR", "4.0"))
 
@@ -235,12 +235,8 @@ NVISION_SBED_NOISE_STEPS: int = int(os.getenv("NVISION_SBED_NOISE_STEPS", "6"))
 NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD: float = float(
     os.getenv("NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD", "100000.0")
 )
-NVISION_WIDTH_CONVERGENCE_THRESHOLD: float = float(
-    os.getenv("NVISION_WIDTH_CONVERGENCE_THRESHOLD", "500000.0")
-)
-NVISION_C_TOTAL_CONVERGENCE_THRESHOLD: float = float(
-    os.getenv("NVISION_C_TOTAL_CONVERGENCE_THRESHOLD", "0.01")
-)
+NVISION_WIDTH_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_WIDTH_CONVERGENCE_THRESHOLD", "500000.0"))
+NVISION_C_TOTAL_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_C_TOTAL_CONVERGENCE_THRESHOLD", "0.01"))
 
 
 def _param_absolute_convergence_thresholds() -> dict[str, float]:

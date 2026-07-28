@@ -98,12 +98,12 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
 
     from nvision.cache import CacheBridge
     from nvision.cli.run import _harvest_partial_results_from_cache
-    from nvision.models.task import LocatorTask
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
-    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 
     sig = NVCenterCoreGenerator(variant="lorentzian")
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
@@ -320,7 +320,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     )
 
     runner3 = _TaskRunner(task3)
-    cached3, n_cached3 = runner3._restore_cached_results()
+    _cached3, n_cached3 = runner3._restore_cached_results()
     assert n_cached3 == 0  # skip cache should not restore anything!
 
     results3 = runner3.run()
@@ -365,12 +365,12 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
 
     from nvision.cache import CacheBridge
     from nvision.cli.run import _harvest_partial_results_from_cache
-    from nvision.models.task import LocatorTask
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
-    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 
     sig = NVCenterCoreGenerator(variant="lorentzian")
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
@@ -468,7 +468,9 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
 
         ptr_df = pl.DataFrame({"achieved_repeats": [5], "streaming": [True]})
         repo._store.save_df(
-            ptr_df, ptr_key, metadata={"config": config, "updated_at": datetime.datetime.now().isoformat()}
+            ptr_df,
+            ptr_key,
+            metadata={"config": config, "updated_at": datetime.datetime.now(datetime.UTC).isoformat()},
         )
     finally:
         bridge.close()
@@ -586,7 +588,6 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
         ignore_cache_strategy=None,
         repeat_offset=0,
     )
-    runner_diff_seed = _TaskRunner(task_diff_seed)
     # Save seed=2 to the cache database
     from nvision.cache import CacheBridge
 
@@ -810,16 +811,18 @@ def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Pa
             max_steps=SIMPLESWEEP_EFFECTIVE_MAX_STEPS,
             timeout_s=10,
             repeat_offset=0,
-            results=[(
-                [entry],
-                {
-                    "generator": "NVCenter-lorentzian",
-                    "noise": "Gauss(0.01)",
-                    "strategy": "SimpleSweep",
-                    "seed": 1,
-                    "attempt": 1,
-                },
-            )],
+            results=[
+                (
+                    [entry],
+                    {
+                        "generator": "NVCenter-lorentzian",
+                        "noise": "Gauss(0.01)",
+                        "strategy": "SimpleSweep",
+                        "seed": 1,
+                        "attempt": 1,
+                    },
+                )
+            ],
         )
     finally:
         bridge.close()

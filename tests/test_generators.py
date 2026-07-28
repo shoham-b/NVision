@@ -35,8 +35,11 @@ def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
     not in parameter_names)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(
-        x_min=2.6e9, x_max=3.1e9, variant="lorentzian",
-        with_hyperfine_splitting=True, with_zeeman_splitting=False,
+        x_min=2.6e9,
+        x_max=3.1e9,
+        variant="lorentzian",
+        with_hyperfine_splitting=True,
+        with_zeeman_splitting=False,
     )
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
@@ -49,8 +52,11 @@ def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
     parameter_names)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(
-        x_min=2.6e9, x_max=3.1e9, variant="lorentzian",
-        with_hyperfine_splitting=True, with_zeeman_splitting=True,
+        x_min=2.6e9,
+        x_max=3.1e9,
+        variant="lorentzian",
+        with_hyperfine_splitting=True,
+        with_zeeman_splitting=True,
     )
     sig = gen.generate(rng)
     assert isinstance(sig, TrueSignal)
@@ -93,9 +99,7 @@ def test_nv_center_saturation_voigt_default_has_zeeman_parameters():
 
 def test_nv_center_saturation_voigt_fixed_values_used_verbatim():
     rng = random.Random(11)
-    gen = NVCenterCoreGenerator(
-        x_min=2.6e9, x_max=3.1e9, variant="saturation_voigt", saturation=10.0, sigma_inhom=5e5
-    )
+    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="saturation_voigt", saturation=10.0, sigma_inhom=5e5)
     sig = gen.generate(rng)
     assert sig.get_param_value("saturation") == 10.0
     assert sig.get_param_value("sigma_inhom") == 5e5
@@ -117,9 +121,7 @@ def _dip_cluster_extent(variant: str, params: dict) -> tuple[float, float]:
     if variant == "saturation_voigt":
         from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
 
-        fwhm, _, _ = _saturation_voigt_reparam_scalar(
-            params["saturation"], params["sigma_inhom"], NV_SATURATION_C_MAX
-        )
+        fwhm, _, _ = _saturation_voigt_reparam_scalar(params["saturation"], params["sigma_inhom"], NV_SATURATION_C_MAX)
     elif variant == "voigt":
         from nvision.spectra.nv_center import _voigt_reparam_scalar
 

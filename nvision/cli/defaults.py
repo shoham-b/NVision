@@ -15,6 +15,7 @@ load_dotenv()
 # Core Execution Config
 DEFAULT_REPEATS: int = int(os.getenv("NVISION_DEFAULT_REPEATS", "5"))
 
+
 def _default_runners() -> int:
     """Runner processes to use when the caller does not specify.
 
