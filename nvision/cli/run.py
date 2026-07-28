@@ -887,7 +887,7 @@ def run(  # noqa: C901
         )
         filter_noise_str = getattr(filter_noise, "value", filter_noise) if filter_noise is not None else None
         if not all_experiments and filter_noise_str is None:
-            filter_noise_str = "Poisson,Gauss,NoNoise"
+            filter_noise_str = "Gauss,NoNoise"
             defaulted_noise = True
         filter_signal_str = filter_signal if filter_signal is not None else None
 

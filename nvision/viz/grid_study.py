@@ -146,7 +146,7 @@ class GridStudyMixin:
         return {
             "type": "grid_summary",
             "kind": "heatmap",
-            "path": str(out_path),
+            "path": out_path.as_posix(),
             "strategy": strat,
             "noise": str(noise_key),
             "x_param": x_col,
@@ -200,7 +200,7 @@ class GridStudyMixin:
         return {
             "type": "grid_summary",
             "kind": "vs_noise",
-            "path": str(out_path),
+            "path": out_path.as_posix(),
             "strategy": strat,
             "x_param": x_col,
             "y_param": y_col,

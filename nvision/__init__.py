@@ -12,7 +12,6 @@ from nvision.models.noise import (
 from nvision.models.observer import Observer, RunResult
 from nvision.noises import (
     OverFrequencyGaussianNoise,
-    OverFrequencyPoissonNoise,
 )
 from nvision.runner.executor import run_loop
 from nvision.runner.repeat_keys import (
@@ -92,7 +91,6 @@ __all__ = [
     "NVCenterCoreGenerator",
     "Observer",
     "OverFrequencyGaussianNoise",
-    "OverFrequencyPoissonNoise",
     "Parameter",
     # Peak specs
     "PeakSpec",

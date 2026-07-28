@@ -38,13 +38,13 @@ def run_single(
 ) -> int:
     """Run a single (generator, noise, strategy) combination.
 
-    Accepts any noise descriptor (e.g. ``Gauss(0.15)``, ``Poisson(5000)``) even
-    if it is not in the active preset noise grid.  The noise is built dynamically
-    from the descriptor string via :func:`~nvision.sim.combinations._parse_noise`.
+    Accepts any noise descriptor (e.g. ``Gauss(0.15)``) even if it is not in
+    the active preset noise grid.  The noise is built dynamically from the
+    descriptor string via :func:`~nvision.sim.combinations._parse_noise`.
     """
     # Use single_run=True which routes through resolve() for an exact triple lookup.
-    # This supports any noise value (Gauss(sigma), Poisson(scale)) regardless
-    # of the active .env grid configuration.
+    # This supports any noise value (Gauss(sigma)) regardless of the active
+    # .env grid configuration.
     return run(
         out=ARTIFACTS_ROOT,
         repeats=repeats,

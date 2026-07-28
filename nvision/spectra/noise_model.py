@@ -98,64 +98,6 @@ class GaussianNoiseSignalModel(NoiseSignalModel):
         )
 
 
-@njit(cache=True, parallel=True)
-def _poisson_composite_ll_jit(
-    obs_y: float,
-    predicted: np.ndarray,
-    scale_arr: np.ndarray,
-    sigma_epistemic: float,
-) -> np.ndarray:
-    n = predicted.shape[0]
-    out = np.empty(n, dtype=np.float64)
-    eps_sq = sigma_epistemic * sigma_epistemic
-    for i in prange(n):
-        scale = max(scale_arr[i], 1e-12)
-        lam = max(predicted[i] * scale, 1e-12)
-        k = max(round(obs_y * scale), 0)
-
-        # Poisson log-likelihood: k*log(lam) - lam - log(k!)
-        log_p = k * math.log(lam) - lam - math.lgamma(k + 1.0)
-
-        if eps_sq > 1e-12:
-            # Broaden Poisson by adding epistemic uncertainty in quadrature
-            # sigma_total^2 = lam + (sigma_epistemic * scale)^2
-            # We approximate the broadened Poisson as Gaussian-like tempering
-            sigma_eff_sq = lam + eps_sq * scale * scale
-            tempering = lam / sigma_eff_sq
-            out[i] = log_p * tempering
-        else:
-            out[i] = log_p
-    return out
-
-
-class PoissonNoiseSignalModel(NoiseSignalModel):
-    """Poisson noise with an uncertain scale (counts per unit signal)."""
-
-    def __init__(self, prior_bounds: dict[str, tuple[float, float]]):
-        self._spec = BasicParamSpec(["poisson_scale"], prior_bounds)
-
-    @property
-    def spec(self) -> ParamSpec:
-        return self._spec
-
-    def composite_log_likelihood(
-        self,
-        predicted: np.ndarray,
-        residuals: np.ndarray,
-        noise_param_arrays: Sequence[np.ndarray],
-        sigma_epistemic: float,
-    ) -> np.ndarray:
-        # obs_y = predicted + residuals
-        # We only need the first element of obs_y if it's a scalar measurement
-        obs_y = float(predicted[0] + residuals[0])
-        return _poisson_composite_ll_jit(
-            obs_y,
-            predicted,
-            noise_param_arrays[0],
-            sigma_epistemic,
-        )
-
-
 class DriftNoiseSignalModel(NoiseSignalModel):
     """Adds a slow linear drift across sequential probes."""
 

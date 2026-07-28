@@ -1,4 +1,3 @@
 from __future__ import annotations
 
 from .gaussian_noise import OverFrequencyGaussianNoise as OverFrequencyGaussianNoise
-from .poisson_noise import OverFrequencyPoissonNoise as OverFrequencyPoissonNoise

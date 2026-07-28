@@ -373,6 +373,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if hasattr(self.belief, "auto_resample"):
             self.belief.auto_resample = False
         self._is_converged = False
+        # Separate streak from `_convergence_streak` (which gates
+        # `_target_params_converged`) -- `_check_crlb_early_stop`'s `all_crlb_done`
+        # is its own independent single-snapshot signal and must not be allowed to
+        # set `_is_converged` on one lucky reading (see `_check_crlb_early_stop`).
+        self._crlb_convergence_streak: int = 0
 
         # Background noise estimation / forced calibration state
         self._forced_bg_mode: bool = False
@@ -974,8 +979,21 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if checked == 0:
             return
 
+        # `all_crlb_done` is a single-snapshot read of the current (possibly still
+        # locally-plausible-but-wrong-mode) belief state -- require it to hold for
+        # `_convergence_patience_steps` consecutive checks before trusting it enough
+        # to stop, same bar `_target_params_converged` already has to clear via
+        # `_convergence_streak`. Without this, one lucky low-uncertainty snapshot
+        # (common in the first ~10 steps, before the particle cloud has had a
+        # chance to discriminate between candidate modes) locks in a confidently
+        # wrong answer -- empirically ~1-2% of Bayesian-SBED/Voigt repeats stopped
+        # at exactly step 9-11 with >1 MHz final error before this gate existed.
         if all_crlb_done:
-            self._is_converged = True
+            self._crlb_convergence_streak += 1
+            if self._crlb_convergence_streak >= self._convergence_patience_steps:
+                self._is_converged = True
+        else:
+            self._crlb_convergence_streak = 0
 
         if freq_milestone_done and self.freq_converged_step is None:
             self.freq_converged_step = self.step_count

@@ -31,4 +31,3 @@ class NoiseName(StrEnum):
     """Noise family names matched as prefixes against registered noise keys."""
 
     GAUSS = "Gauss"
-    POISSON = "Poisson"

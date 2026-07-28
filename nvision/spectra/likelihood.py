@@ -21,30 +21,9 @@ def _gaussian_likelihood_jit(obs_y: float, predicted: np.ndarray, sigma: float) 
     return out
 
 
-@njit(cache=True)
-def _poisson_likelihood_jit(k: int, predicted: np.ndarray, scale: float) -> np.ndarray:
-    lam = np.maximum(predicted * scale, 1e-12)
-    lgamma_k = math.lgamma(k + 1.0)
-    log_p = k * np.log(lam) - lam - lgamma_k
-    return np.exp(log_p - np.max(log_p))
-
-
 def _gaussian_likelihood(obs_y: float, predicted: np.ndarray, sigma: float) -> np.ndarray:
     pred = np.asarray(predicted, dtype=np.float64)
     return _gaussian_likelihood_jit(float(obs_y), pred, float(sigma))
-
-
-def _poisson_likelihood_from_scaled_observation(obs_y: float, predicted: np.ndarray, scale: float) -> np.ndarray:
-    """Poisson likelihood where observation is stored as k/scale.
-
-    Noise pipeline for OverFrequencyPoissonNoise stores the measured value as
-    ``obs_y = k / scale``. We recover integer ``k`` and evaluate ``P(k | lambda)``
-    with ``lambda = predicted * scale``.
-    """
-    scale = max(float(scale), 1e-12)
-    k = max(round(float(obs_y) * scale), 0)
-    pred = np.asarray(predicted, dtype=np.float64)
-    return _poisson_likelihood_jit(k, pred, scale)
 
 
 def likelihood_from_observation_model(
@@ -57,20 +36,8 @@ def likelihood_from_observation_model(
 ) -> np.ndarray:
     """Compute per-prediction likelihoods using observation noise metadata.
 
-    Supported exact path:
-    - single-component Poisson over-frequency noise
-
-    Fallback:
-    - Gaussian approximation with ``noise_std``
+    Gaussian approximation with ``noise_std``.
 
     A tempering factor > 1.0 slows down Bayesian concentration by increasing effective noise.
     """
-    if not frequency_noise_model:
-        return _gaussian_likelihood(obs_y, predicted, noise_std * np.sqrt(tempering_factor))
-
-    if len(frequency_noise_model) == 1 and frequency_noise_model[0].get("type") == "poisson":
-        scale = float(frequency_noise_model[0].get("scale", 0.0))
-        if scale > 0:
-            return _poisson_likelihood_from_scaled_observation(obs_y, predicted, scale / tempering_factor)
-
     return _gaussian_likelihood(obs_y, predicted, noise_std * np.sqrt(tempering_factor))

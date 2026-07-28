@@ -65,8 +65,6 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
             if name == "OverFrequencyGaussianNoise":
                 sigma_val = getattr(part, "std", getattr(part, "sigma", 0.0))
                 specs.append({"type": "gaussian", "sigma": float(sigma_val)})
-            elif name == "OverFrequencyPoissonNoise":
-                specs.append({"type": "poisson", "scale": float(getattr(part, "scale", 0.0))})
             else:
                 specs.append({"type": "unknown", "name": name})
         return tuple(specs)

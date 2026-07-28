@@ -110,7 +110,13 @@ class TestWritePosteriorData:
         data = _load(out)
         for step in data["steps"]:
             w_sum = sum(step["frequency"]["weights"])
-            assert abs(w_sum - 1.0) < 1e-5
+            # dump_gz opportunistically float16-encodes arrays (including these
+            # weights) whenever the round-trip error stays within its own
+            # documented tolerance (_VALUE_REL_TOL = 2e-3 relative-to-span, see
+            # nvision/viz/_f32_json.py) -- a deliberate lossy-compression tradeoff,
+            # not a bug, so the sum-to-one check must tolerate that, not float32-
+            # level precision.
+            assert abs(w_sum - 1.0) < 3e-3
 
     def test_frequency_scaled_to_ghz(self, tmp_path):
         rng = np.random.default_rng(4)

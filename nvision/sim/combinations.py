@@ -257,9 +257,9 @@ class CombinationGrid:
         For *noise_name*, the registered grid is checked first.  If the name is not
         found there (e.g. because :envvar:`NVISION_NOISE_MAX_GAUSS` caps the preset
         grid below the requested sigma), :func:`_parse_noise` is used to build the
-        noise object on the fly from the descriptor string (e.g. ``'Gauss(0.15)'``,
-        ``'Poisson(5000)'``).  This ensures ``run-single`` works for any valid noise
-        value regardless of the active grid configuration.
+        noise object on the fly from the descriptor string (e.g. ``'Gauss(0.15)'``).
+        This ensures ``run-single`` works for any valid noise value regardless of
+        the active grid configuration.
         """
         gen_obj = self._resolve_generators.get(gen_name)
         if gen_obj is None:

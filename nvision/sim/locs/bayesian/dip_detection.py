@@ -133,13 +133,17 @@ def identify_dip_candidates(
     dip_support = np.zeros_like(obs_ys, dtype=np.float64)
     required_sigmas = (background - obs_ys) / n_sigma
 
-    for j in range(len(obs_ys)):
-        # Particle i votes "dip" iff background - y_j > 0.01 * background AND sigma_i < (background - y_j) / n_sigma
-        if background - obs_ys[j] > 0.01 * bg_clamp:
-            # Find the first index where sigma_i >= required_sigma_j
-            k = np.searchsorted(sorted_sigmas, required_sigmas[j], side="left")
-            # Particles with indices < k have sigma_i < required_sigma_j -> they vote "dip"
-            dip_support[j] = cumulative_w[k - 1] if k > 0 else 0.0
+    # Particle i votes "dip" for point j iff background - y_j > 0.01 * background AND
+    # sigma_i < (background - y_j) / n_sigma. Vectorized over j: searchsorted natively
+    # takes an array of query values, so the whole per-point binary search + cumulative-
+    # weight lookup below is equivalent to the old per-j Python loop, just without the
+    # per-iteration interpreter overhead (this was the hottest line in the function).
+    eligible = (background - obs_ys) > 0.01 * bg_clamp
+    if np.any(eligible):
+        # Find, for each eligible point, the first index where sigma_i >= required_sigma_j.
+        k = np.searchsorted(sorted_sigmas, required_sigmas[eligible], side="left")
+        # Particles with indices < k have sigma_i < required_sigma_j -> they vote "dip".
+        dip_support[eligible] = np.where(k > 0, cumulative_w[np.maximum(k - 1, 0)], 0.0)
 
     # 6. Filter candidate points with dip_support > 0
     candidate_mask = dip_support > 0.0

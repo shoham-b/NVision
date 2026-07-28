@@ -32,7 +32,17 @@ class DataBatch:
             if len(x) != len(signal_values):
                 msg = "x and signal_values must be the same length."
                 raise ValueError(msg)
-            df = pl.DataFrame({"x": list(x), "signal_values": list(signal_values)})
+            # Build columns with an explicit dtype up front (skips Polars' per-column
+            # type-inference pass) so they land as Float64 already -- this makes the
+            # `already_normalized` fast path in __post_init__ apply every time instead
+            # of just on DataFrame-supplied input, which matters for the SBED hot path
+            # of constructing a fresh single-row DataBatch every measurement.
+            df = pl.DataFrame(
+                [
+                    pl.Series("x", x, dtype=pl.Float64),
+                    pl.Series("signal_values", signal_values, dtype=pl.Float64),
+                ]
+            )
         else:
             if x is not None or signal_values is not None:
                 msg = "Cannot pass both a DataFrame and x/signal_values to DataBatch."

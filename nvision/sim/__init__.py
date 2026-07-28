@@ -8,7 +8,6 @@ from nvision.sim.batch import (
 from .gen import NVCenterCoreGenerator
 from nvision.noises import (
     OverFrequencyGaussianNoise,
-    OverFrequencyPoissonNoise,
 )
 # isort: on
 
@@ -17,5 +16,4 @@ __all__ = [
     "NVCenterCoreGenerator",
     "OverFrequencyGaussianNoise",
     "OverFrequencyNoise",
-    "OverFrequencyPoissonNoise",
 ]

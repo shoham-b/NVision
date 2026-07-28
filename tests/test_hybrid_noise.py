@@ -8,7 +8,6 @@ from nvision.spectra.noise_model import (
     CompositeNoiseSignalModel,
     DriftNoiseSignalModel,
     GaussianNoiseSignalModel,
-    PoissonNoiseSignalModel,
 )
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
@@ -37,21 +36,6 @@ def test_gaussian_noise_likelihood():
     ll_pure_large = model.composite_log_likelihood(predicted, residuals_large, noise_params, sigma_epistemic=0.0)
     ll_broad_large = model.composite_log_likelihood(predicted, residuals_large, noise_params, sigma_epistemic=0.5)
     assert ll_broad_large[1] > ll_pure_large[1]  # Large residuals become "less unlikely"
-
-
-def test_poisson_noise_likelihood():
-    """Verify Poisson scale-based likelihood."""
-    model = PoissonNoiseSignalModel(prior_bounds={"poisson_scale": (10, 1000)})
-
-    # mu=1.0, scale=100 -> lambda=100
-    # obs_y = 1.1 (residuals = 0.1) -> k = 110
-    predicted = np.array([1.0, 1.0])
-    residuals = np.array([0.1, 0.1])
-    noise_params = [np.array([100.0, 100.0])]
-
-    ll = model.composite_log_likelihood(predicted, residuals, noise_params, sigma_epistemic=0.0)
-    assert not np.isnan(ll).any()
-    assert ll[0] == ll[1]
 
 
 def test_composite_noise_model():

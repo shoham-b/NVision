@@ -16,16 +16,24 @@ from nvision import CoreExperiment, NVCenterCoreGenerator, GenericSweepLocator, 
 from nvision.models.observer import Observer
 from nvision.runner.convert import run_result_to_finalize_record
 from nvision.runner.metrics import _scan_attempt_metrics
+from nvision.spectra.nv_center import NVCenterLorentzianModel
 
 
 def _make_experiment(rng: random.Random) -> CoreExperiment:
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    x_min, x_max = None, None
-    for name in true_signal.parameter_names:
-        if "frequency" in name:
-            x_min, x_max = true_signal.get_param_bounds(name)
-            break
+    # NVCenterCoreGenerator always fixes frequency (a known instrument constant,
+    # not inferred -- see its docstring), so the generated model's frequency isn't
+    # a free/fit parameter. This test specifically checks that GenericSweepLocator's
+    # dip fit recovers *frequency* (not, say, zeeman_split), so swap in an
+    # otherwise-identical model with frequency free -- typed_parameters/bounds
+    # (and hence the randomized draw) are unaffected.
+    true_signal.model = NVCenterLorentzianModel(
+        with_hyperfine_splitting=gen.with_hyperfine_splitting,
+        with_zeeman_splitting=gen.with_zeeman_splitting,
+        with_fixed_frequency=False,
+    )
+    x_min, x_max = true_signal.get_param_bounds("frequency")
     assert x_min is not None
     # noise=None -> zero measurement noise
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)

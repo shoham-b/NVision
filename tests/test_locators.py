@@ -17,11 +17,10 @@ from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)
-    x_min, x_max = None, None
-    for name in true_signal.parameter_names:
-        if "frequency" in name:
-            x_min, x_max = true_signal.get_param_bounds(name)
-            break
+    # "frequency" is always in true_signal.bounds (the domain the signal was
+    # generated over), even though it's fixed (not inferred, not in
+    # parameter_names) by NVCenterCoreGenerator's default -- see its docstring.
+    x_min, x_max = true_signal.get_param_bounds("frequency")
     assert x_min is not None
     return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)
 

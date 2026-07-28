@@ -80,8 +80,12 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     gen = NVCenterCoreGenerator(variant="lorentzian")
     signal = gen.generate(rng)
 
-    # Build SMC belief with generator priors
-    belief = nv_center_smc_belief(signal.bounds, num_particles=1000)
+    # Build SMC belief with generator priors. with_fixed_frequency=False: this test
+    # specifically exercises the sin^2 prior on the frequency dimension, which
+    # requires frequency to be a free particle dimension (it's fixed by default --
+    # see NVCenterCoreGenerator's docstring -- so nv_center_smc_belief's own default
+    # would otherwise leave it out of belief._param_names entirely).
+    belief = nv_center_smc_belief(signal.bounds, num_particles=1000, with_fixed_frequency=False)
 
     # Verify particles for frequency follow sin^2(k f) prior
     f_idx = belief._param_names.index("frequency")

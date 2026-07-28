@@ -1,6 +1,7 @@
 import random
 from dataclasses import dataclass
 
+import numpy as np
 import polars as pl
 
 from nvision.sim import OverFrequencyNoise
@@ -34,7 +35,20 @@ class OverFrequencyGaussianNoise(OverFrequencyNoise):
         if n == 0:
             return data
         sigma = max(self.std, 0.0)
-        noise = pl.Series("noise", [rng.gauss(0.0, sigma) for _ in range(n)], dtype=pl.Float64)
+        if n == 1:
+            # Scalar path (the real per-measurement acquisition draw): keep using
+            # `rng` directly so the RNG stream driving locator results is unchanged.
+            noise_values: list[float] | np.ndarray = [rng.gauss(0.0, sigma)]
+        else:
+            # Bulk path (dense plot/animation overlays only -- see gaussian_noise.py
+            # callers): vectorize with numpy, reseeded from `rng` so it stays
+            # deterministic per-call. Draws a different value sequence than the
+            # old per-element `rng.gauss()` loop, which is fine here since these
+            # callers already use an isolated `random.Random(0)` never shared with
+            # the acquisition stream.
+            seed = rng.getrandbits(64)
+            noise_values = np.random.default_rng(seed).normal(0.0, sigma, size=n)
+        noise = pl.Series("noise", noise_values, dtype=pl.Float64)
         noisy = data.df.get_column("signal_values") + noise
         if self.clip_min is not None or self.clip_max is not None:
             noisy = noisy.clip(self.clip_min, self.clip_max)

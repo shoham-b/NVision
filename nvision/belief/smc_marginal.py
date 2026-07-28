@@ -53,6 +53,65 @@ NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ: float = float(os.getenv("NVISION_SMC_EPOCH_G
 
 _EIG_CHUNK_SIZE: int = 64
 
+# Beyond this many standard deviations, scipy's truncnorm loses precision (both
+# CDF endpoints round to the same float), so the far-tail branch of
+# _sample_truncated_normal takes over.
+_TRUNC_NORM_TAIL_SIGMAS: float = 30.0
+
+
+def _sample_truncated_normal(
+    mean: float,
+    std: float,
+    lo: float,
+    hi: float,
+    size: int,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """Draw ``size`` samples from ``N(mean, std)`` **truncated** to ``[lo, hi]``.
+
+    Prior means are drawn per-repeat and routinely land outside a parameter's
+    physical range (e.g. ``zeeman_split``'s prior mean is
+    ``gauss(true_split, 6 MHz)`` while the parameter itself is bounded at 0, so a
+    true split well under 6 MHz makes a negative prior mean the common case).
+    The obvious ``clip(normal(...))`` implementation turns *all* of that
+    out-of-range mass into a Dirac atom exactly on the boundary: with a prior
+    mean 1.6 sigma below the bound, ~95% of particles start at literally the same
+    value. That is particle degeneracy at initialization -- the filter has almost
+    no diversity left to reweight, so the posterior stays pinned to the boundary
+    with an artificially tight spread and reports a confidently wrong estimate.
+    Truncation is what "a Gaussian prior on a bounded parameter" means; clipping
+    is a different (and degenerate) distribution.
+
+    ``rng`` defaults to the legacy global ``np.random`` state so seeding via
+    ``np.random.seed`` keeps working for callers that rely on it.
+    """
+    if size <= 0:
+        return np.empty(0, dtype=float)
+    if not (hi > lo):
+        return np.full(size, lo, dtype=float)
+    if not (std > 0) or not math.isfinite(std):
+        return np.full(size, min(max(mean, lo), hi), dtype=float)
+
+    a = (lo - mean) / std
+    b = (hi - mean) / std
+
+    # Far-tail branches: the truncation window sits so deep in one tail that the
+    # normal is indistinguishable from an exponential with rate |a|/std (resp.
+    # |b|/std) anchored at the near bound. Sampling that directly keeps the
+    # spread finite instead of collapsing back onto the boundary.
+    if a >= _TRUNC_NORM_TAIL_SIGMAS or b <= -_TRUNC_NORM_TAIL_SIGMAS:
+        near, far, rate = (lo, hi, a) if a >= _TRUNC_NORM_TAIL_SIGMAS else (hi, lo, -b)
+        scale = std / rate
+        draws = (rng or np.random).exponential(scale, size)
+        return np.clip(near + math.copysign(1.0, far - near) * draws, min(lo, hi), max(lo, hi))
+
+    from scipy.stats import truncnorm
+
+    # random_state=None makes scipy use numpy's global state, which is what the
+    # previous np.random.normal call here used.
+    return truncnorm.rvs(a, b, loc=mean, scale=std, size=size, random_state=rng)
+
+
 # --- Numba helpers (particle weights / resampling) ----------------------------
 
 
@@ -334,8 +393,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         self._particles[:, i] = sampled
                 else:
                     mean, std = prior_val
-                    self._particles[:, i] = np.random.normal(mean, std, self.num_particles)
-                    self._particles[:, i] = np.clip(self._particles[:, i], lo, hi)
+                    self._particles[:, i] = _sample_truncated_normal(mean, std, lo, hi, self.num_particles)
             else:
                 self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
 
@@ -1163,8 +1221,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                             self._particles[-num_random:, j] = sampled
                     else:
                         mean_prior, std_prior = prior_val
-                        random_vals = self._rng.normal(mean_prior, std_prior, num_random)
-                        self._particles[-num_random:, j] = np.clip(random_vals, lo, hi)
+                        self._particles[-num_random:, j] = _sample_truncated_normal(
+                            mean_prior, std_prior, lo, hi, num_random, rng=self._rng
+                        )
                 else:
                     self._particles[-num_random:, j] = self._rng.uniform(lo, hi, num_random)
 
