@@ -114,36 +114,47 @@ def marginal_crlbs_at_budget(
     x_hi: float,
     noise_std: float,
     n_steps: int,
+    param_bounds: dict[str, tuple[float, float]] | None = None,
     n_grid: int = 512,
 ) -> dict[str, float]:
     """Per-parameter marginal CRLB achievable with ``n_steps`` uniform measurements.
 
     Computes the expected Fisher information for a uniform grid of ``n_grid``
     probe positions over ``[x_lo, x_hi]``, averages across them, scales by
-    ``n_steps``, and returns per-parameter marginal CRLBs as
-    ``sqrt(diag(pinv(n_steps * mean_FIM)))``.
+    ``n_steps``, and returns per-parameter marginal CRLBs (in each parameter's
+    own physical units) as ``sqrt(diag(pinv(n_steps * mean_FIM)))``.
 
     Uses Gaussian noise with ``sigma = noise_std`` throughout (Gaussian branch only).
-    Returns an empty dict if the model has no analytical ``gradient`` method.
+    Returns an empty dict if the model has no analytical ``gradient`` method
+    (e.g. Voigt/Saturation-Voigt NV-center models, which don't have one yet;
+    NVCenterLorentzianModel and NVCenterOnePeakLorentzianModel do).
 
-    .. warning::
-        This is currently **inert for every NV-center model** -- none of them define
-        ``gradient``, so the early return fires and the only caller (the pre-run CRLB
-        feasibility gate in ``runner/executor.py``) has never gated anything. Two
-        things must be fixed together before reviving it, or it will silently produce
-        nonsense: (1) fall back to :func:`numerical_gradient_vector` like
-        :func:`fisher_information_matrix` now does, and (2) normalize the gradients by
-        each parameter's range first -- it builds the FIM from *physical* parameters,
-        which is exactly the case :func:`single_shot_marginal_stds_from_fim`'s absolute
-        ridge breaks on (every CRLB returns 1000 regardless of the data). Reviving it
-        also turns the feasibility gate live, which can start skipping runs outright
-        (``stop_reason="infeasible_crlb"``), so measure that before switching it on.
+    ``param_bounds`` normalizes each parameter's gradient by its own range
+    before building the FIM (and un-normalizes the resulting stds back to
+    physical units afterward) -- **pass this whenever available.**
+    :func:`single_shot_marginal_stds_from_fim`'s ridge is absolute and only
+    meaningful when every parameter has comparable scale; built directly from
+    physical gradients, Hz-scale widths (~1e6) and a dimensionless contrast
+    (~0.1) differ by ~7 orders of magnitude, so the ridge dominates every
+    Hz-scale direction and its CRLB silently saturates at ``sqrt(1/ridge) ==
+    1000`` regardless of the data -- the caller-visible symptom this function
+    almost shipped with in that state before the ``param_bounds`` normalization
+    fed by ``runner/executor.py``'s CRLB feasibility gate was added. Omitting
+    ``param_bounds`` reproduces that unnormalized (unsafe) behavior; only skip
+    it for callers that have already normalized the gradient themselves.
     """
     if not hasattr(model, "gradient") or not callable(getattr(model, "gradient", None)):
         return {}
 
     names = list(model.parameter_names())
     n_params = len(names)
+    ranges = np.ones(n_params, dtype=np.float64)
+    if param_bounds is not None:
+        for i, name in enumerate(names):
+            lo, hi = param_bounds.get(name, (0.0, 0.0))
+            if hi > lo:
+                ranges[i] = hi - lo
+
     xs = np.linspace(x_lo, x_hi, n_grid)
     cum_fim = np.zeros((n_params, n_params), dtype=np.float64)
     valid = 0
@@ -154,7 +165,7 @@ def marginal_crlbs_at_budget(
             continue
         if grads is None:
             continue
-        grad_vec = np.array([grads[name] for name in names], dtype=np.float64)
+        grad_vec = np.array([grads[name] for name in names], dtype=np.float64) * ranges
         cum_fim += gaussian_fisher_matrix(grad_vec, noise_std)
         valid += 1
 
@@ -163,8 +174,8 @@ def marginal_crlbs_at_budget(
 
     mean_fim = cum_fim / valid
     total_fim = mean_fim * n_steps
-    stds = single_shot_marginal_stds_from_fim(total_fim, n_params)
-    return {names[i]: float(stds[i]) for i in range(n_params)}
+    stds_normalized = single_shot_marginal_stds_from_fim(total_fim, n_params)
+    return {names[i]: float(stds_normalized[i] * ranges[i]) for i in range(n_params)}
 
 
 def single_shot_marginal_stds_from_fim(

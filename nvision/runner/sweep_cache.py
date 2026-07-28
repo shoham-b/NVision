@@ -181,6 +181,10 @@ def put_cached_sweep(experiment: CoreExperiment, sweep_steps: int, observations:
         with _LOCK:
             if key not in _SWEEP_OBSERVATIONS_BY_KEY:
                 _SWEEP_OBSERVATIONS_BY_KEY[key] = observations
+                # get_cached_sweep/has_cached_sweep only ever read _DESERIALIZED_CACHE
+                # (see below) -- without this, single-process runs (no SHM attached)
+                # write here and can never read it back.
+                _DESERIALIZED_CACHE[key] = observations
 
 
 def has_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> bool:

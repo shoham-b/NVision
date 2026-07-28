@@ -227,6 +227,7 @@ class Observer:
         self.x_min = x_min
         self.x_max = x_max
         self.snapshots: list[StepSnapshot] = []
+        self.last_locator: Locator | None = None
 
     def watch(self, runner: Iterator[Locator]) -> RunResult:  # noqa: C901
         """Watch a run and accumulate snapshots.

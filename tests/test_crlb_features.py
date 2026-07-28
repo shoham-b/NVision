@@ -11,7 +11,12 @@ import pytest
 
 from nvision.models.fisher_information import marginal_crlbs_at_budget
 from nvision.sim.locs.bayesian.sbed_locator import background_noise_std, SequentialBayesianExperimentDesignLocator
-from nvision.spectra.nv_center import NVCenterLorentzianSpectrum, NVCenterLorentzianModel
+from nvision.spectra.nv_center import (
+    NVCenterLorentzianSpectrum,
+    NVCenterLorentzianModel,
+    NVCenterVoigtModel,
+    NVCenterVoigtSpectrum,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +197,18 @@ def test_marginal_crlbs_scales_with_noise() -> None:
 
 
 def test_marginal_crlbs_empty_for_no_gradient() -> None:
-    """Returns empty dict for models with no gradient method."""
-    model = NVCenterLorentzianModel()  # has no .gradient
-    params = NVCenterLorentzianSpectrum(frequency=2.87e9, linewidth=2e6, split=4e6, k_np=1.5, c_total=0.15)
+    """Returns empty dict for models with no gradient method.
+
+    NVCenterLorentzianModel now has an analytical gradient (see
+    NVCenterLorentzianModel.gradient), so this uses NVCenterVoigtModel --
+    still numerical-gradient-only -- to keep testing the actual no-gradient
+    fallback path rather than a premise the Lorentzian gradient rollout
+    invalidated.
+    """
+    model = NVCenterVoigtModel()  # has no .gradient
+    params = NVCenterVoigtSpectrum(
+        frequency=2.87e9, homogeneous_linewidth=1e6, sigma_inhom=1e6, split=4e6, k_np=1.5, c_total=0.15
+    )
 
     result = marginal_crlbs_at_budget(
         model=model, true_typed_params=params,

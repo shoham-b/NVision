@@ -349,6 +349,78 @@ def _nv_zeeman_array(with_zeeman_splitting: bool, n: int, samples=None) -> np.nd
     return get_background_zeros(n)
 
 
+# ---------------------------------------------------------------------------
+# Analytical gradients for the Lorentzian family -- closed-form derivatives of
+# the exact same rational expressions evaluated by nv_center_lorentzian_eval /
+# nv_center_zeeman_lorentzian_eval, hand-derived (not autodiff) and verified
+# against numerical_gradient_vector before being wired into `gradient()`.
+# ---------------------------------------------------------------------------
+
+
+def _lorentzian_group_grad(
+    x: float, center: float, omega: float, split: float, wp: float, wz: float, wm: float
+) -> tuple[float, float, float, float, float, float, float]:
+    """Value and partial derivatives of one triple-Lorentzian group.
+
+    ``G(center, omega, split, wp, wz, wm) = wp*L(u_plus) + wz*L(u_zero) + wm*L(u_minus)``
+    with ``L(u) = 1/(u**2+1)``, ``u_zero = (x-center)/omega``,
+    ``u_plus = u_zero + split/omega``, ``u_minus = u_zero - split/omega``.
+
+    This is exactly the bracketed sum in ``nv_center_lorentzian_eval`` (single
+    group) and, called twice with the center/weights below, exactly the
+    ``left``/``right`` groups of ``nv_center_zeeman_lorentzian_eval``.
+
+    Returns ``(G, dG/dcenter, dG/domega, dG/dsplit, dG/dwp, dG/dwz, dG/dwm)``.
+    """
+    inv_omega = 1.0 / omega
+    x_dim = (x - center) * inv_omega
+    a = split * inv_omega
+    u_plus = x_dim + a
+    u_zero = x_dim
+    u_minus = x_dim - a
+
+    l_plus = 1.0 / (u_plus * u_plus + 1.0)
+    l_zero = 1.0 / (u_zero * u_zero + 1.0)
+    l_minus = 1.0 / (u_minus * u_minus + 1.0)
+
+    g = wp * l_plus + wz * l_zero + wm * l_minus
+
+    # d/du [1/(u^2+1)] = -2u/(u^2+1)^2 = -2u*L(u)^2; du_i/dcenter = -1/omega for
+    # all three terms, du_i/domega = -u_i/omega for all three (each u_i is a
+    # fixed numerator over omega), du_plus/dsplit=+1/omega, du_minus/dsplit=-1/omega.
+    dg_dcenter = 2.0 * inv_omega * (wp * u_plus * l_plus * l_plus + wz * u_zero * l_zero * l_zero + wm * u_minus * l_minus * l_minus)
+    dg_domega = 2.0 * inv_omega * (
+        wp * u_plus * u_plus * l_plus * l_plus + wz * u_zero * u_zero * l_zero * l_zero + wm * u_minus * u_minus * l_minus * l_minus
+    )
+    dg_dsplit = -2.0 * inv_omega * (wp * u_plus * l_plus * l_plus - wm * u_minus * l_minus * l_minus)
+
+    return g, dg_dcenter, dg_domega, dg_dsplit, l_plus, l_zero, l_minus
+
+
+def _nv_population_weights_and_kderiv(k_np: float, c_total: float) -> tuple[float, float, float, float, float, float]:
+    """Population weights (p0, pL, pR) from Population-Normalized Geometric Reparameterization, plus d/dk_np.
+
+    Mirrors the ``p_sum``/``p_0``/``p_L``/``p_R`` block shared by
+    ``nv_center_lorentzian_eval`` and ``nv_center_zeeman_lorentzian_eval``.
+    ``d/dc_total`` is not returned: each weight is exactly linear in
+    ``c_total``, so ``dp_i/dc_total = p_i / c_total`` always (Zeeman's extra
+    0.5 factor is a constant multiplier and cancels in that ratio).
+    """
+    k = k_np if k_np > 1e-10 else 1e-10
+    s = (1.0 / k) + 1.0 + k
+    s_prime = 1.0 - 1.0 / (k * k)
+
+    p0 = c_total / s
+    p_l = c_total * (1.0 / k) / s
+    p_r = c_total * k / s
+
+    dp0_dk = -p0 * (s_prime / s)
+    dpl_dk = -p_l * (1.0 / k + s_prime / s)
+    dpr_dk = p_r * (1.0 / k - s_prime / s)
+
+    return p0, p_l, p_r, dp0_dk, dpl_dk, dpr_dk
+
+
 class NVCenterLorentzianModel(
     SignalModel[
         NVCenterLorentzianSpectrum,
@@ -490,6 +562,84 @@ class NVCenterLorentzianModel(
         return self.compute_nvcenter_lorentzian_model(
             float(x), params.frequency, params.linewidth, hf_split, k_np, params.c_total
         )
+
+    def gradient(self, x: float, params) -> dict[str, float]:
+        """Closed-form d(signal)/d(parameter), in the same units as ``compute``.
+
+        Hand-derived from the exact rational expressions in
+        ``nv_center_lorentzian_eval`` / ``nv_center_zeeman_lorentzian_eval``
+        (see ``_lorentzian_group_grad`` for the per-group derivation) and
+        validated against ``numerical_gradient_vector`` (central differences)
+        rather than trusted on the algebra alone -- see the validation script
+        referenced in project memory for the Lorentzian gradient rollout.
+
+        Only includes entries for parameters that are actually free
+        (``self.parameter_names()``); fixed frequency / disabled hyperfine or
+        Zeeman splitting are simply omitted, matching ``fisher_information_matrix``'s
+        lookup by name.
+        """
+        xf = float(x)
+        freq = float(params.frequency)
+        linewidth = float(params.linewidth)
+        omega = linewidth if linewidth > 1e-10 else 1e-10
+        hf_split = float(params.split) if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
+        k_np = float(params.k_np) if self._with_hyperfine_splitting else 1.0
+        c_total = float(params.c_total)
+
+        p0, p_l, p_r, dp0_dk, dpl_dk, dpr_dk = _nv_population_weights_and_kderiv(k_np, c_total)
+        # Every weight is exactly linear in c_total (Zeeman's extra 0.5 factor
+        # is a constant multiplier that cancels in this ratio).
+        inv_c = 1.0 / c_total if c_total != 0.0 else 0.0
+        dp0_dc, dpl_dc, dpr_dc = p0 * inv_c, p_l * inv_c, p_r * inv_c
+
+        grads: dict[str, float] = {}
+
+        if self._with_zeeman_splitting:
+            zeeman = float(params.zeeman_split)
+            # Each group carries half the total contrast (see
+            # nv_center_zeeman_lorentzian_eval); the 0.5 factor is constant so
+            # it applies identically to the weights and their k/c derivatives.
+            p0h, plh, prh = 0.5 * p0, 0.5 * p_l, 0.5 * p_r
+            dp0h_dk, dplh_dk, dprh_dk = 0.5 * dp0_dk, 0.5 * dpl_dk, 0.5 * dpr_dk
+            dp0h_dc, dplh_dc, dprh_dc = 0.5 * dp0_dc, 0.5 * dpl_dc, 0.5 * dpr_dc
+
+            # "left" group centered at freq - zeeman_split, weights (wp=p_L, wz=p_0, wm=p_R)
+            g_a, dga_dc_, dga_do, dga_ds, dga_dwp, dga_dwz, dga_dwm = _lorentzian_group_grad(
+                xf, freq - zeeman, omega, hf_split, plh, p0h, prh
+            )
+            # "right" group centered at freq + zeeman_split, weights swapped (wp=p_R, wz=p_0, wm=p_L)
+            g_b, dgb_dc_, dgb_do, dgb_ds, dgb_dwp, dgb_dwz, dgb_dwm = _lorentzian_group_grad(
+                xf, freq + zeeman, omega, hf_split, prh, p0h, plh
+            )
+
+            if not self._with_fixed_frequency:
+                grads["frequency"] = -(dga_dc_ + dgb_dc_)
+            grads["linewidth"] = -(dga_do + dgb_do)
+            # d(freq-zeeman)/dzeeman = -1, d(freq+zeeman)/dzeeman = +1
+            grads["zeeman_split"] = dga_dc_ - dgb_dc_
+            if self._with_hyperfine_splitting:
+                grads["split"] = -(dga_ds + dgb_ds)
+                dga_dk = dga_dwp * dplh_dk + dga_dwz * dp0h_dk + dga_dwm * dprh_dk
+                dgb_dk = dgb_dwp * dprh_dk + dgb_dwz * dp0h_dk + dgb_dwm * dplh_dk
+                grads["k_np"] = -(dga_dk + dgb_dk)
+            dga_dc = dga_dwp * dplh_dc + dga_dwz * dp0h_dc + dga_dwm * dprh_dc
+            dgb_dc = dgb_dwp * dprh_dc + dgb_dwz * dp0h_dc + dgb_dwm * dplh_dc
+            grads["c_total"] = -(dga_dc + dgb_dc)
+        else:
+            g, dg_dcenter, dg_domega, dg_dsplit, dg_dwp, dg_dwz, dg_dwm = _lorentzian_group_grad(
+                xf, freq, omega, hf_split, p_l, p0, p_r
+            )
+            if not self._with_fixed_frequency:
+                grads["frequency"] = -dg_dcenter
+            grads["linewidth"] = -dg_domega
+            if self._with_hyperfine_splitting:
+                grads["split"] = -dg_dsplit
+                dg_dk = dg_dwp * dpl_dk + dg_dwz * dp0_dk + dg_dwm * dpr_dk
+                grads["k_np"] = -dg_dk
+            dg_dc = dg_dwp * dpl_dc + dg_dwz * dp0_dc + dg_dwm * dpr_dc
+            grads["c_total"] = -dg_dc
+
+        return grads
 
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
@@ -1730,6 +1880,23 @@ class NVCenterOnePeakLorentzianModel(
         lw2 = params.linewidth**2
         denom = (float(x) - params.frequency) ** 2 + lw2
         return float(1.0 - (params.dip_depth * lw2) / denom)
+
+    def gradient(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> dict[str, float]:
+        """Closed-form d(signal)/d(parameter) for ``f = 1 - dip_depth*lw^2/D``, ``D=(x-freq)^2+lw^2``."""
+        xf = float(x)
+        freq = params.frequency
+        lw = params.linewidth
+        depth = params.dip_depth
+        lw2 = lw * lw
+        dx = xf - freq
+        denom = dx * dx + lw2
+        inv_denom2 = 1.0 / (denom * denom)
+
+        return {
+            "frequency": -2.0 * depth * lw2 * dx * inv_denom2,
+            "linewidth": -2.0 * depth * lw * dx * dx * inv_denom2,
+            "dip_depth": -lw2 / denom,
+        }
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
         x_f = float(x)

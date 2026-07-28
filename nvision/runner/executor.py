@@ -178,30 +178,13 @@ def run_loop(
                 )
 
         if obs is None:
-            if is_sobol and dyadic_table is not None:
-                import builtins
-
-                builtins._DYADIC_MISS = getattr(builtins, "_DYADIC_MISS", 0) + 1
             obs = experiment.measure(x_current, rng, n_shots=n_shots)
-        elif is_sobol and dyadic_table is not None:
-            import builtins
-
-            builtins._DYADIC_HIT = getattr(builtins, "_DYADIC_HIT", 0) + 1
 
         if collected_sweep_observations is not None:
             collected_sweep_observations.append(obs)
 
         locator.observe(obs)
         yield locator
-
-    if is_sobol:
-        import builtins
-
-        print(
-            f"DEBUG dyadic hit/miss for Sobol: hit={getattr(builtins, '_DYADIC_HIT', 0)} "
-            f"miss={getattr(builtins, '_DYADIC_MISS', 0)} table_present={dyadic_table is not None}",
-            flush=True,
-        )
 
     if collected_sweep_observations and sweep_cache is not None:
         sweep_steps = getattr(locator, "max_steps", 0)
@@ -1223,10 +1206,7 @@ class _TaskRunner:
         simplesweep_steps = int(np.ceil(domain_width / min_linewidth))
 
         locator_class = self.task.strategy_spec.locator_class
-        if self.strategy_name == "SimpleSweep" or locator_class.__name__ in (
-            "GenericSweepLocator",
-            "GenericSweepLocator",
-        ):
+        if self.strategy_name == "SimpleSweep" or locator_class.__name__ == "GenericSweepLocator":
             from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
             from nvision.sim.locs.dyadic import round_to_dyadic_points
 
@@ -1408,6 +1388,14 @@ class _TaskRunner:
             # Each acquisition step is now a batch of n_shots — use the same
             # batch-precision noise as the locator's own prior so the gate
             # stays consistent with the real batched run.
+            #
+            # param_bounds normalizes each parameter's gradient by its own range
+            # before the FIM is built -- required now that NVCenterLorentzianModel
+            # has an analytical gradient (see marginal_crlbs_at_budget's docstring):
+            # without it, Hz-scale widths vs a dimensionless contrast differ by ~7
+            # orders of magnitude and every CRLB silently saturates at a meaningless
+            # ridge-dominated 1000, independent of the data.
+            param_bounds_for_gate = self._injected_parameter_bounds(experiment)
             crlbs_gate = marginal_crlbs_at_budget(
                 model=experiment.true_signal.model,
                 true_typed_params=experiment.true_signal.typed_parameters,
@@ -1415,9 +1403,9 @@ class _TaskRunner:
                 x_hi=float(experiment.x_max),
                 noise_std=batch_noise_std,
                 n_steps=max_steps,
+                param_bounds=param_bounds_for_gate,
             )
             if crlbs_gate:
-                param_bounds_for_gate = self._injected_parameter_bounds(experiment)
                 convergence_threshold = float(locator_config.get("convergence_threshold", 0.01))
                 for param_name, crlb_val in crlbs_gate.items():
                     absolute = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param_name)

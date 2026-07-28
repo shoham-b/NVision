@@ -103,4 +103,10 @@ uv run nv cache list
 
 # Delete specific runs from cache
 uv run nv cache clean --filter-strategy Sweep
+
+# Snapshot, list, restore, and prune whole-cache "generations" (see docs/caching.md #4)
+uv run nv cache gen save --label before-optimization
+uv run nv cache gen list
+uv run nv cache gen restore before-optimization
+uv run nv cache gen prune --keep 2
 ```

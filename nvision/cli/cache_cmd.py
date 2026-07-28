@@ -31,6 +31,12 @@ log = logging.getLogger("nvision.cache_cmd")
 cache_app = typer.Typer(help="Manage simulation cache.", pretty_exceptions_show_locals=False)
 app.add_typer(cache_app, name="cache")
 
+gen_app = typer.Typer(
+    help="Manage cache 'generations' -- named snapshots of the whole cache directory.",
+    pretty_exceptions_show_locals=False,
+)
+cache_app.add_typer(gen_app, name="gen")
+
 
 def _get_caches(root: Path) -> list[tuple[str, CategoryDataStore]]:
     bridge = CacheBridge(root)
@@ -692,6 +698,89 @@ def check_plots(  # noqa: C901
         console.print(table)
         if len(ok_entries) > 50:
             console.print(f"[dim]... and {len(ok_entries) - 50} more.[/dim]")
+
+
+@gen_app.command(name="save")
+def gen_save(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    label: Annotated[
+        str | None,
+        typer.Option("--label", help="Label for this generation (default: current git commit short hash)."),
+    ] = None,
+) -> None:
+    """Snapshot the current cache into a new generation.
+
+    Copies ``<out>/cache`` into ``<out>/cache_generations/<timestamp>_<label>/`` -- never
+    moves or clears the live cache. Run this before starting a run that will change
+    numerics (not just performance), so the old batch of results stays reachable
+    instead of being silently overwritten in place.
+    """
+    from nvision.cache.generations import save_generation
+
+    dest = save_generation(out, label=label)
+    console.print(f"[green]Saved generation[/green] {dest.name} -> {dest}")
+
+
+@gen_app.command(name="list")
+def gen_list(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+) -> None:
+    """List saved cache generations, most recent first."""
+    from nvision.cache.generations import list_generations
+
+    infos = list_generations(out)
+    if not infos:
+        console.print(f"[yellow]No generations found under {out / 'cache_generations'}.[/yellow]")
+        return
+
+    table = Table(title="Cache generations")
+    table.add_column("Name", style="blue")
+    table.add_column("Label")
+    table.add_column("Commit")
+    table.add_column("Created")
+    table.add_column("Size", justify="right")
+    for info in infos:
+        table.add_row(info.name, info.label, info.commit or "-", info.created_at, f"{info.size_bytes / 1e6:.1f} MB")
+    console.print(table)
+
+
+@gen_app.command(name="restore")
+def gen_restore(
+    name: Annotated[str, typer.Argument(help="Generation name or label to restore.")],
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    archive_current: Annotated[
+        bool,
+        typer.Option(
+            "--archive-current/--no-archive-current",
+            help="Save the current live cache as its own generation before overwriting it.",
+        ),
+    ] = True,
+    force: Annotated[bool, typer.Option("--force", help="Skip confirmation")] = False,
+) -> None:
+    """Replace the live cache with a previously saved generation."""
+    from nvision.cache.generations import restore_generation
+
+    if not force and not Confirm.ask(f"Replace the live cache at {out / 'cache'} with generation {name!r}?"):
+        return
+    restore_generation(out, name, archive_current=archive_current)
+    console.print(f"[green]Restored generation[/green] {name} into {out / 'cache'}")
+
+
+@gen_app.command(name="prune")
+def gen_prune(
+    out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
+    keep: Annotated[int, typer.Option("--keep", help="Number of most recent generations to keep.")] = 2,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be removed without deleting")] = False,
+) -> None:
+    """Delete all but the N most recent generations."""
+    from nvision.cache.generations import prune_generations
+
+    removed = prune_generations(out, keep=keep, dry_run=dry_run)
+    if not removed:
+        console.print(f"[green]Nothing to prune (kept {keep} most recent).[/green]")
+        return
+    verb = "Would remove" if dry_run else "Removed"
+    console.print(f"[yellow]{verb}[/yellow] {len(removed)} generation(s): {', '.join(removed)}")
 
 
 @cache_app.command(name="clean")

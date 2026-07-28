@@ -1027,7 +1027,15 @@ class GenericSweepLocator(SweepingLocator):
         can show a belief.
 
         Raises if the fit fails — see ``_fit_model``.
+
+        No-ops if no measurements were taken (e.g. the run was skipped
+        outright by the pre-run CRLB feasibility gate in ``executor.py``,
+        which still calls ``finalize()`` on a freshly-created, unobserved
+        locator instance) — mirrors ``SimpleSobolBayesianLocator.finalize()``'s
+        own ``history.count > 0`` guard for the same "never ran" state.
         """
+        if self.history.count == 0:
+            return
         domain_width = self._domain_hi - self._domain_lo
         freq_phys, uncert_phys = self._fit_model(self.history.xs, self.history.ys)
 

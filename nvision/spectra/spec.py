@@ -95,12 +95,20 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
 
     def __init__(self, fixed_values: dict[str, float] | None = None) -> None:
         self.fixed_values = dict(fixed_values) if fixed_values else {}
+        # `names` is fully determined by `params_cls` (a class attribute) and
+        # `fixed_values` (set once above, never mutated afterward), so it is
+        # safe -- and, since every pack/unpack call re-derives it, worthwhile
+        # -- to compute once here instead of re-running dataclass field
+        # introspection on every access.
+        from dataclasses import fields
+
+        self._names: tuple[str, ...] = tuple(
+            f.name for f in fields(self.params_cls) if f.name not in self.fixed_values
+        )
 
     @property
     def names(self) -> tuple[str, ...]:
-        from dataclasses import fields
-
-        return tuple(f.name for f in fields(self.params_cls) if f.name not in self.fixed_values)
+        return self._names
 
     @property
     def dim(self) -> int:

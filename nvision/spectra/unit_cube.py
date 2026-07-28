@@ -92,6 +92,39 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         phys_typed = self.inner.spec.unpack_params(phys_values)
         return float(self.inner.compute(x_phys, phys_typed))
 
+    def gradient(self, x: float, params: ParamsT) -> dict[str, float]:
+        """d(signal)/d(unit-cube parameter), delegating to the inner model's analytical gradient.
+
+        ``fisher_information_matrix`` duck-types on ``hasattr(model, "gradient")``
+        and catches ``AttributeError`` from the call itself (not just a missing
+        attribute) to fall back to :func:`numerical_gradient_vector` -- so this
+        deliberately raises ``AttributeError`` rather than returning ``None``
+        when ``self.inner`` has no analytical gradient (e.g. Voigt/Saturation-Voigt
+        models, which don't have one yet), instead of silently going numerical
+        for gradients while claiming to have an analytical path.
+
+        Physical-space gradients are converted to unit-cube space via the
+        chain rule: ``d(signal)/d(unit) = d(signal)/d(phys) * d(phys)/d(unit)``,
+        and ``phys = lo + unit*(hi-lo)`` so ``d(phys)/d(unit) = hi-lo``.
+        """
+        if not (hasattr(self.inner, "gradient") and callable(getattr(self.inner, "gradient", None))):
+            raise AttributeError(f"{type(self.inner).__name__} has no analytical gradient")
+
+        u_values = self.spec.pack_params(params)
+        names = self.parameter_names()
+        x_lo, x_hi = self.x_bounds_phys
+        x_phys = x_lo + float(x) * (x_hi - x_lo)
+        phys_values: list[float] = []
+        for name, u in zip(names, u_values, strict=True):
+            lo, hi = self.param_bounds_phys[name]
+            v = lo + float(u) * (hi - lo)
+            if v < lo - self._BOUND_TOL or v > hi + self._BOUND_TOL:
+                raise ValueError(f"Parameter {name} value {v} outside bounds {(lo, hi)}")
+            phys_values.append(min(max(v, lo), hi))
+        phys_typed = self.inner.spec.unpack_params(phys_values)
+        phys_grad = self.inner.gradient(x_phys, phys_typed)
+        return {name: phys_grad[name] * (self.param_bounds_phys[name][1] - self.param_bounds_phys[name][0]) for name in names}
+
     def compute_vectorized_samples(self, x: float, samples: SampleParamsT) -> np.ndarray:
         return self.compute_vectorized(x, *self.spec.pack_samples(samples))
 

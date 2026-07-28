@@ -41,3 +41,34 @@ When a simulation is interrupted by user command (`Ctrl-C` / `KeyboardInterrupt`
 3. The harvester bypasses `skip_cache` checks and queries the SQLite database to retrieve all completed repeats for the task.
 4. Harvester appends the completed repeats directly into the final `locator_results.csv` output file and static UI plots manifest.
 5. The next cached run will automatically load the completed repeats and resume exactly where it was interrupted, preventing any lost progress.
+
+---
+
+## 4. Generations (`nv cache gen`)
+
+The cache is a single mutable store keyed by `(generator, noise, strategy, repeats, ...)` --
+a fresh `--no-cache` run purges and overwrites a combination's old entry once its first
+repeat finishes. That's fine when the new run is just faster; it's lossy when the new code
+also changes numerics (a "performance and convergence" change, not just performance), since
+the old and new results can't coexist in the same key.
+
+`nv cache gen` manages named snapshots of the whole `<out>/cache` directory so you can archive
+before that kind of change, keep a rolling window of recent attempts, and roll back:
+
+```bash
+# Snapshot the current cache (label defaults to the current git commit short hash)
+uv run nv cache gen save --label before-optimization
+
+# List saved generations, most recent first
+uv run nv cache gen list
+
+# Replace the live cache with a saved generation (archives the current one first, unless --no-archive-current)
+uv run nv cache gen restore before-optimization
+
+# Keep only the 2 most recent generations, deleting the rest
+uv run nv cache gen prune --keep 2
+```
+
+`save`/`restore` only ever copy — the live cache is never modified by `save`, and `restore`
+archives whatever is live before overwriting it. Best done while no `nv run`/`nv groups` is
+actively writing to the cache, for a fully consistent snapshot.
