@@ -67,9 +67,15 @@ class SweepingLocator(Locator):
         _names = signal_model.parameter_names()
         if scan_param:
             self._scan_param = scan_param
-        elif "frequency" in _names or hasattr(signal_model, "_with_fixed_frequency"):
+        elif "frequency" in _names or hasattr(signal_model, "_with_fixed_frequency") or hasattr(
+            signal_model.inner, "_with_fixed_frequency"
+        ):
             # "frequency" is always the probe x-axis for NV-center models even
-            # when fixed (not inferred) and therefore absent from _names.
+            # when fixed (not inferred) and therefore absent from _names. Check
+            # both signal_model and signal_model.inner since wrappers like
+            # UnitCubeSignalModel don't forward this attribute from the model
+            # they wrap (SignalModel.inner defaults to self, so this is safe
+            # for unwrapped models too).
             self._scan_param = "frequency"
         else:
             self._scan_param = _names[0] if _names else "x"

@@ -19,12 +19,9 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
     for i in range(repeats):
         rng = random.Random(rng_seed + i)
         true_signal = generator.generate(rng)
-        # Find frequency parameter bounds for x_min/x_max
-        x_min, x_max = true_signal.all_param_bounds()[true_signal.parameter_names[0]]
-        for name in true_signal.parameter_names:
-            if "frequency" in name:
-                x_min, x_max = true_signal.get_param_bounds(name)
-                break
+        # frequency is fixed (not a free/inferred parameter) by default, but its
+        # bounds are still present on the signal regardless.
+        x_min, x_max = true_signal.get_param_bounds("frequency")
         experiment = CoreExperiment(
             true_signal=true_signal,
             noise=None,

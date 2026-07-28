@@ -23,7 +23,12 @@ from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentD
 @pytest.mark.timeout(120)
 def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    # NVCenterCoreGenerator's default x_min/x_max are symmetric around
+    # NV_ZERO_FIELD_SPLITTING_HZ, matching the model's fixed "frequency" value
+    # (with_fixed_frequency=True default) and nv_center_smc_belief's own
+    # default frequency bounds -- an arbitrary asymmetric domain would desync
+    # the generator's computed center_freq from those constants.
+    gen = NVCenterCoreGenerator(variant="lorentzian")
     true_signal = gen.generate(rng)
     x_min, x_max = true_signal.get_param_bounds("frequency")
     assert x_min is not None
@@ -45,13 +50,18 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
     )
     assert final.snapshots
-    freq_est = final.snapshots[-1].belief.estimates()["frequency"]
-    freq_true = true_signal.get_param_value("frequency")
-    assert abs(freq_est - freq_true) < 0.2e9
+    # frequency is fixed (not inferred) by default, so it has no belief estimate;
+    # check a genuinely free/inferred parameter converges instead.
+    estimates = final.snapshots[-1].belief.estimates()
+    zeeman_est = estimates["zeeman_split"]
+    zeeman_true = true_signal.get_param_value("zeeman_split")
+    assert abs(zeeman_est - zeeman_true) < 5e6
 
 
 def test_narrow_scan_parameter_physical_bounds_smc():
-    b = nv_center_smc_belief(num_particles=200)
+    # frequency must be a free particle dimension to exercise narrowing here;
+    # by default it's fixed to a physical constant (with_fixed_frequency=True).
+    b = nv_center_smc_belief(num_particles=200, with_fixed_frequency=False)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
     old_lo, old_hi = b.physical_param_bounds["frequency"]
     mid = 0.5 * (old_lo + old_hi)
@@ -69,7 +79,9 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     # Set the environment variable to 8 steps
     monkeypatch.setenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8")
 
-    b = nv_center_smc_belief(num_particles=100)
+    # frequency must be a free particle dimension to exercise narrowing here;
+    # by default it's fixed to a physical constant (with_fixed_frequency=True).
+    b = nv_center_smc_belief(num_particles=100, with_fixed_frequency=False)
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
 
     # Capture original bounds
@@ -164,7 +176,11 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 
     monkeypatch.setattr(SMCMarginalDistribution, "_resample", lambda self: None)
 
-    b = nv_center_smc_belief(num_particles=100, with_hyperfine_splitting=True, with_zeeman_splitting=False)
+    # frequency must be a free particle dimension to exercise narrowing here;
+    # by default it's fixed to a physical constant (with_fixed_frequency=True).
+    b = nv_center_smc_belief(
+        num_particles=100, with_hyperfine_splitting=True, with_zeeman_splitting=False, with_fixed_frequency=False
+    )
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
     b._step_count = 10  # > 5, narrowing runs
 
@@ -213,7 +229,9 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 def _make_unit_cube_nv_model():
     from nvision.spectra.nv_center import NVCenterLorentzianModel
 
-    model = NVCenterLorentzianModel()
+    # with_fixed_frequency=False: these dispatch tests pass 5 param arrays
+    # (frequency, linewidth, split, k_np, c_total), matching the free-frequency spec.
+    model = NVCenterLorentzianModel(with_fixed_frequency=False)
     phys_bounds = {
         "frequency": (2.86e9, 2.88e9),
         "linewidth": (5e6, 15e6),
