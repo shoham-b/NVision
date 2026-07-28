@@ -19,6 +19,7 @@ dependencies = [
     "numdifftools>=0.9.41",
     "fastapi>=0.139.2",
     "uvicorn[standard]>=0.51.0",
+    "pymysql>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +49,9 @@ exclude = [
     "README.md",
     "scratch"
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 50
 
 [tool.ruff.lint]
 select = [

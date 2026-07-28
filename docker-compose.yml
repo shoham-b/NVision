@@ -1,0 +1,74 @@
+# Local dev stack for the MySQL cache backend (see nvision/cache/mysql.py and
+# .env.example's "MySQL cache backend" section). New in this repo -- no prior
+# docker-compose.yml existed.
+#
+# Usage:
+#   docker compose up mysql serve          # browse results at http://localhost:18080
+#   docker compose run --rm worker         # run RUN_GROUP against the local mysql
+#
+# To point worker/serve at a remote Cloud SQL instance instead of the local
+# `mysql` service, override the connection env vars -- no code/image changes
+# needed, MySqlCache resolves its connection purely from env vars:
+#   docker compose run --rm \
+#     -e NVISION_MYSQL_HOST=<cloud-sql-public-ip> \
+#     -e NVISION_MYSQL_SSL_DISABLED=False \
+#     worker
+
+services:
+  mysql:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${NVISION_MYSQL_DATABASE:-nvision}
+      MYSQL_USER: ${NVISION_MYSQL_USER:-nvision}
+      MYSQL_PASSWORD: ${NVISION_MYSQL_PASSWORD:-nvision}
+    volumes:
+      - nvision_mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306" # host-side debugging only; container-to-container traffic uses the service DNS name
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      NVISION_CACHE_BACKEND: mysql
+      NVISION_MYSQL_HOST: mysql
+      NVISION_MYSQL_PORT: "3306"
+      NVISION_MYSQL_USER: ${NVISION_MYSQL_USER:-nvision}
+      NVISION_MYSQL_PASSWORD: ${NVISION_MYSQL_PASSWORD:-nvision}
+      NVISION_MYSQL_DATABASE: ${NVISION_MYSQL_DATABASE:-nvision}
+      # The local mysql:8 service isn't configured for a client-verifiable TLS
+      # chain -- disable SSL for local-only traffic. Remote Cloud SQL requires it.
+      NVISION_MYSQL_SSL_DISABLED: "True"
+      RUN_GROUP: ${RUN_GROUP:-both-sbed-only}
+
+  serve:
+    build:
+      context: .
+      dockerfile: docker/serve/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      NVISION_CACHE_BACKEND: mysql
+      NVISION_MYSQL_HOST: mysql
+      NVISION_MYSQL_PORT: "3306"
+      NVISION_MYSQL_USER: ${NVISION_MYSQL_USER:-nvision}
+      NVISION_MYSQL_PASSWORD: ${NVISION_MYSQL_PASSWORD:-nvision}
+      NVISION_MYSQL_DATABASE: ${NVISION_MYSQL_DATABASE:-nvision}
+      NVISION_MYSQL_SSL_DISABLED: "True"
+    ports:
+      - "18080:18080"
+
+volumes:
+  nvision_mysql_data:

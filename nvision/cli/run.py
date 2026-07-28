@@ -61,6 +61,8 @@ def _maybe_autostart_server(out_dir: Path, open_browser: bool) -> None:
         _serve_cmd(directory=out_dir, port=None, no_open=False, background=True)
     except Exception:
         log.warning("Could not auto-start the results server; continuing without it.", exc_info=True)
+
+
 console = Console()
 
 
@@ -241,7 +243,7 @@ def _harvest_partial_results_from_cache(
         cache_dir = tasks[0].cache_dir
         if cache_dir:
             try:
-                bridge = CacheBridge(cache_dir)
+                bridge = CacheBridge(cache_dir, shard_suffix=tasks[0].shard_index)
                 owns_bridge = True
             except Exception as exc:
                 log.warning("Failed to open temporary CacheBridge for harvesting: %s", exc)
@@ -287,7 +289,7 @@ def _harvest_partial_results_from_cache(
             bridge.close()
 
 
-def _run_tasks_process_pool(  # noqa: C901
+def _run_tasks_process_pool(
     tasks: list[object],
     *,
     runners: int,
@@ -397,9 +399,7 @@ def _run_tasks_process_pool(  # noqa: C901
                     # cache lookup, and with hundreds of tasks that scan is what makes Ctrl-C
                     # feel like it hangs.
                     still_running_tasks = [t for f, t in future_to_task.items() if not f.done()]
-                    _harvest_partial_results_from_cache(
-                        still_running_tasks, cache_bridge, df_rows, plot_manifest, log
-                    )
+                    _harvest_partial_results_from_cache(still_running_tasks, cache_bridge, df_rows, plot_manifest, log)
                     return plot_manifest, df_rows, errors, completed_count, True
 
                 locator_task = future_to_task[future]
@@ -501,9 +501,7 @@ def _run_tasks_process_pool(  # noqa: C901
             # running (not done/cancelled) when we interrupted, to avoid a slow full-grid
             # cache scan on Ctrl-C.
             still_running_tasks = [t for f, t in future_to_task.items() if not f.done()]
-            _harvest_partial_results_from_cache(
-                still_running_tasks, cache_bridge, df_rows, plot_manifest, log
-            )
+            _harvest_partial_results_from_cache(still_running_tasks, cache_bridge, df_rows, plot_manifest, log)
             return plot_manifest, df_rows, errors, completed_count, True
         finally:
             # If we didn't terminate early, wait for workers to finish.
@@ -603,6 +601,17 @@ def _parse_memory_error_combos_from_log(log_path: Path) -> list[tuple[str, str, 
                 if len(parts) == 3:
                     found.add((parts[0], parts[1], parts[2]))
     return sorted(found)
+
+
+def _int_env(name: str) -> int | None:
+    """Parse an integer env var, returning None if unset or unparseable."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _apply_retry_failed_filter(
@@ -794,6 +803,8 @@ def run(  # noqa: C901
             ),
         ),
     ] = False,
+    shard_index: cli_options.ShardIndexOption = None,
+    shard_count: cli_options.ShardCountOption = None,
 ) -> int:
     """Typer-driven command-line interface entry point."""
     console = Console()
@@ -856,6 +867,35 @@ def run(  # noqa: C901
         if not combination_names:
             console.print("[yellow]--retry-failed: no MemoryError failures found — nothing to retry.[/yellow]")
             return 0
+
+    # Cross-pod sharding: slice the fully-resolved combination list so each shard
+    # runs a disjoint subset. Applied last so it composes with --run-group,
+    # --combination, --single-run, filters, and --retry-failed above.
+    effective_shard_index = shard_index if shard_index is not None else _int_env("CLOUD_RUN_TASK_INDEX")
+    effective_shard_count = shard_count if shard_count is not None else _int_env("CLOUD_RUN_TASK_COUNT")
+    shard_index_str: str | None = None
+    if effective_shard_count and effective_shard_count > 1:
+        if combination_names is None:
+            console.print(
+                "[bold red]Error:[/bold red] sharding requires --run-group, --combination, or "
+                "--single-run (an explicit combination list) — plain filter-based runs can't be "
+                "sliced deterministically."
+            )
+            raise typer.Exit(1)
+        if effective_shard_index is None:
+            console.print(
+                "[bold red]Error:[/bold red] --shard-count given without --shard-index "
+                "(and CLOUD_RUN_TASK_INDEX not set)."
+            )
+            raise typer.Exit(1)
+        combination_names = combination_names[effective_shard_index::effective_shard_count]
+        shard_index_str = str(effective_shard_index)
+        log.info(
+            "Shard %s/%s: %s combination(s) after slicing",
+            effective_shard_index,
+            effective_shard_count,
+            len(combination_names),
+        )
 
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
     suppress_list: list[object] = [typer]
@@ -1043,6 +1083,7 @@ def run(  # noqa: C901
                 filter_signal=filter_signal_str,
                 combination_names=combination_names,
                 extra_generators=extra_generators,
+                shard_index=shard_index_str,
             ),
             monitor=monitor,
         )
@@ -1096,7 +1137,7 @@ def run(  # noqa: C901
         # For process-based parallelism we intentionally do not construct it in the parent.
         cache_bridge: CacheBridge | None = None
         if not no_cache and runners == 1:
-            cache_bridge = CacheBridge(tree.cache_dir)
+            cache_bridge = CacheBridge(tree.cache_dir, shard_suffix=shard_index_str)
 
         shm: shared_memory.SharedMemory | None = None
         shm_lock: Any | None = None

@@ -67,6 +67,24 @@ RunnersOption = Annotated[
     ),
 ]
 
+ShardIndexOption = Annotated[
+    int | None,
+    typer.Option(
+        "--shard-index",
+        help="0-based index of this shard, for splitting one run across multiple hosts/pods. "
+        "Falls back to the CLOUD_RUN_TASK_INDEX env var when unset.",
+    ),
+]
+
+ShardCountOption = Annotated[
+    int | None,
+    typer.Option(
+        "--shard-count",
+        help="Total number of shards this run is split across. "
+        "Falls back to the CLOUD_RUN_TASK_COUNT env var when unset.",
+    ),
+]
+
 OpenBrowserOption = Annotated[
     bool,
     typer.Option(

@@ -44,6 +44,14 @@ class LocatorTask:
     work-stealing parallelisation), each sub-task carries a ``repeat_offset``
     so that the executor knows which global repeat indices it owns without
     needing a separate total_repeats field.
+
+    ``shard_index`` is the cross-pod counterpart: when the whole run is sharded
+    across separate hosts (see ``nv run --shard-index/--shard-count``), it
+    identifies which shard built this task, and is threaded into the worker's
+    ``CacheBridge`` so the MySQL backend writes to that shard's own table
+    (see ``nvision.cache.mysql.MySqlCache``). It travels on the task itself
+    (not a parent-process env var) because ``ProcessPoolExecutor`` workers on
+    Windows use spawn, not fork, and don't inherit parent process state.
     """
 
     combination: Combination
@@ -68,6 +76,7 @@ class LocatorTask:
     strategy_spec: StrategySpec = field(init=False, repr=False)
     repeat_offset: int = 0
     repeat_total: int = 0
+    shard_index: str | None = None
 
     def __post_init__(self) -> None:
         self.strategy_spec = StrategySpec.from_raw(self.combination.strategy)

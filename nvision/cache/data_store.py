@@ -1,7 +1,8 @@
-"""SQLite-backed persistence for Polars payloads (DB layer only)."""
+"""Persistence for Polars payloads (DB layer only) — SQLite or shared MySQL backend."""
 
 from __future__ import annotations
 
+import os
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -9,19 +10,35 @@ from typing import Any
 import polars as pl
 from polars.exceptions import ColumnNotFoundError
 
+from nvision.cache.mysql import MySqlCache
 from nvision.cache.sqlite import ShardedSqliteCache
 
 
 class CategoryDataStore:
-    """One category DB file: opaque string keys → serialized Polars frames."""
+    """One category DB: opaque string keys → serialized Polars frames.
 
-    def __init__(self, db_path: Path) -> None:
+    Backed by local SQLite files by default, or a shared MySQL database when
+    ``NVISION_CACHE_BACKEND=mysql`` -- see ``nvision.cache.mysql.MySqlCache``.
+    ``shard_suffix`` is only meaningful for the MySQL backend: pass the
+    current shard's index when writing from a sharded worker pod, or leave it
+    ``None`` (the default) for local/single-writer runs and for read-only
+    aggregate access (``nv serve``, `nv render`, `nv cache` admin commands),
+    which transparently see all shards' data merged.
+    """
+
+    def __init__(self, db_path: Path, *, shard_suffix: str | None = None) -> None:
         self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._backend = ShardedSqliteCache(db_path)
+        backend_kind = os.getenv("NVISION_CACHE_BACKEND", "sqlite").lower()
+        if backend_kind == "mysql":
+            self._backend: ShardedSqliteCache | MySqlCache = MySqlCache(
+                table_prefix=db_path.stem, shard_suffix=shard_suffix
+            )
+        else:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._backend = ShardedSqliteCache(db_path)
 
     @property
-    def backend(self) -> ShardedSqliteCache:
+    def backend(self) -> ShardedSqliteCache | MySqlCache:
         """Low-level KV store (used by admin CLI for iteration)."""
         return self._backend
 

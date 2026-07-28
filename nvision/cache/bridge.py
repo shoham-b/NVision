@@ -9,12 +9,17 @@ from nvision.cache.locator_repository import CachedComboResults, LocatorResultsR
 
 
 class CacheBridge:
-    """Root cache access: category-scoped data stores and locator repositories."""
+    """Root cache access: category-scoped data stores and locator repositories.
 
-    def __init__(self, cache_root: Path) -> None:
+    ``shard_suffix`` is forwarded to each ``CategoryDataStore`` -- only relevant
+    under the MySQL backend, where it selects a sharded worker's own table
+    (write mode) vs. the default read-aggregate-across-all-shards mode.
+    """
+
+    def __init__(self, cache_root: Path, *, shard_suffix: str | None = None) -> None:
         self.cache_root = cache_root
-        self.nv_center = CategoryDataStore(cache_root / "nv_center.db")
-        self.complementary = CategoryDataStore(cache_root / "complementary.db")
+        self.nv_center = CategoryDataStore(cache_root / "nv_center.db", shard_suffix=shard_suffix)
+        self.complementary = CategoryDataStore(cache_root / "complementary.db", shard_suffix=shard_suffix)
 
     def get_cache_for_category(self, category: str) -> LocatorResultsRepository:
         """Business API for locator results (combination + repeat rows) in this category."""
@@ -49,16 +54,18 @@ class CacheBridge:
                     achieved = int(data[0].get("achieved_repeats", 0))
                     if achieved <= 0:
                         continue
-                    results.append({
-                        "generator": config["generator"],
-                        "noise": config["noise"],
-                        "strategy": config["strategy"],
-                        "repeats": achieved,
-                        "seed": config["seed"],
-                        "max_steps": config["max_steps"],
-                        "timeout_s": config["timeout_s"],
-                        "repeat_offset": int(config.get("repeat_offset", 0)),
-                    })
+                    results.append(
+                        {
+                            "generator": config["generator"],
+                            "noise": config["noise"],
+                            "strategy": config["strategy"],
+                            "repeats": achieved,
+                            "seed": config["seed"],
+                            "max_steps": config["max_steps"],
+                            "timeout_s": config["timeout_s"],
+                            "repeat_offset": int(config.get("repeat_offset", 0)),
+                        }
+                    )
                 except Exception:
                     continue
         return results

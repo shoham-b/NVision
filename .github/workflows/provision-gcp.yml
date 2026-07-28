@@ -1,0 +1,69 @@
+name: Provision GCP Cloud SQL (one-time / rare)
+
+# WARNING: this creates a standing, continuously-billed Cloud SQL instance --
+# unlike run-worker-gcp.yml's ephemeral Cloud Run Job task executions, this
+# resource keeps costing money until deleted. Deliberately NOT bundled into
+# the per-run workflow: trigger this manually, once (or rarely, e.g. to bump
+# the tier). Everything it does is idempotent, so re-running it is safe.
+#
+# Needs only the MYSQL_PASSWORD secret, reused as both the Cloud SQL root
+# password and the app user's password -- no other manual GCP configuration
+# is required anywhere in this repo's cloud setup.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "Cloud SQL machine tier (db-f1-micro is the cheapest; verify pricing before bumping)"
+        required: true
+        default: "db-f1-micro"
+        type: string
+
+env:
+  PROJECT_ID: nvision-lab
+  REGION: us-central1
+  MYSQL_INSTANCE: nvision-mysql
+  MYSQL_DB: nvision
+  MYSQL_USER: nvision
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: GCP Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Create Cloud SQL instance (idempotent)
+        run: |
+          if gcloud sql instances describe "$MYSQL_INSTANCE" --project "${{ env.PROJECT_ID }}" >/dev/null 2>&1; then
+            echo "Instance $MYSQL_INSTANCE already exists -- skipping creation."
+          else
+            gcloud sql instances create "$MYSQL_INSTANCE" \
+              --database-version=MYSQL_8_0 \
+              --region "${{ env.REGION }}" \
+              --tier "${{ github.event.inputs.tier }}" \
+              --root-password "${{ secrets.MYSQL_PASSWORD }}" \
+              --require-ssl
+          fi
+
+      - name: Create database (idempotent)
+        run: gcloud sql databases create "$MYSQL_DB" --instance="$MYSQL_INSTANCE" || true
+
+      - name: Create app user (idempotent)
+        run: gcloud sql users create "$MYSQL_USER" --instance="$MYSQL_INSTANCE" --password="${{ secrets.MYSQL_PASSWORD }}" || true
+
+      - name: Print instance public IP
+        run: |
+          echo "Cloud SQL public IP (also resolved automatically by run-worker-gcp.yml -- nothing to copy manually):"
+          gcloud sql instances describe "$MYSQL_INSTANCE" --format="value(ipAddresses[0].ipAddress)"

@@ -11,6 +11,7 @@ import random
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -254,7 +255,7 @@ class _TaskRunner:
             self.bridge = cache_bridge
             self._owns_bridge = False
         else:
-            self.bridge = CacheBridge(task.cache_dir)
+            self.bridge = CacheBridge(task.cache_dir, shard_suffix=task.shard_index)
             self._owns_bridge = True
         self.cache = self.bridge.get_cache_for_category(category)
         self._viz: Viz | None = None
@@ -816,7 +817,7 @@ class _TaskRunner:
                 return
             except Exception:
                 if attempt < 4:
-                    time.sleep(0.1 * (2 ** attempt))
+                    time.sleep(0.1 * (2**attempt))
                 else:
                     log.error("Failed to save repeat %s to cache after 5 attempts", rid, exc_info=True)
 
@@ -982,9 +983,7 @@ class _TaskRunner:
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
 
         # Build belief directly
-        belief = nv_center_smc_belief(
-            parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model)
-        )
+        belief = nv_center_smc_belief(parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model))
 
         locator = SimpleSobolBayesianLocator(
             belief=belief,
@@ -1056,9 +1055,7 @@ class _TaskRunner:
 
         sweep_rng = self._rng_for_simplesweep_baseline(rid)
         parameter_bounds = self._injected_parameter_bounds(experiment)
-        belief = nv_center_smc_belief(
-            parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model)
-        )
+        belief = nv_center_smc_belief(parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model))
 
         f_lo, f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
         domain_width = float(f_hi - f_lo)
@@ -1278,7 +1275,7 @@ class _TaskRunner:
 
         precompute_sweep(locator_class, experiment, rng, self._sweep_cache, **cfg)
 
-    def _run_single_repeat(  # noqa: C901
+    def _run_single_repeat(
         self,
         *,
         rid: int,
@@ -1548,10 +1545,8 @@ class _TaskRunner:
             finalize_record["theory_step_budget"] = None
         true_noise_std: float | None = None
         if experiment.noise is not None and hasattr(experiment.noise, "estimated_noise_std"):
-            try:
+            with suppress(Exception):
                 true_noise_std = float(experiment.noise.estimated_noise_std())
-            except Exception:
-                pass
         finalize_record["true_noise_std"] = true_noise_std
 
         finalize_record["sobol_baseline_steps"] = sobol_baseline_steps

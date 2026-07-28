@@ -48,6 +48,9 @@ class TaskListBuildConfig:
     # Generator objects for names referenced by combination_names but not present
     # in the default CombinationGrid (e.g. a run-group's parameter-sweep grid).
     extra_generators: dict[str, object] | None = None
+    # This run's shard index (see nv run --shard-index), threaded onto every
+    # built task so worker processes know which MySQL shard table to use.
+    shard_index: str | None = None
 
 
 def build_task_list(
@@ -118,6 +121,7 @@ def build_task_list(
                 progress_queue=config.progress_queue,
                 task_id=task_id,
                 repeat_total=config.repeats,
+                shard_index=config.shard_index,
             )
         )
 

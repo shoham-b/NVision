@@ -80,6 +80,8 @@ def _run_named_group(
     gcp: bool = cli_defaults.DEFAULT_GCP,
     gcp_bucket: str | None = cli_defaults.DEFAULT_GCP_BUCKET,
     retry_failed: bool = False,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
 ) -> None:
     """Execute a named :class:`~nvision.sim.run_groups.RunGroup` via :func:`nvision.cli.run.run`."""
     group = sim_run_groups.get_run_group(group_name)
@@ -99,6 +101,8 @@ def _run_named_group(
         gcp=gcp,
         gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
+        shard_index=shard_index,
+        shard_count=shard_count,
     )
 
 
@@ -113,6 +117,47 @@ def list_groups(
             typer.echo(f"{group_cmd_name}\t{group.description}")
         else:
             typer.echo(group_cmd_name)
+
+
+@groups_app.command("count")
+def count_group(
+    group_name: Annotated[
+        str,
+        typer.Argument(help="Preset group name (same values as `nvision groups list`)."),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help='Emit {"count": N, "capped": M} instead of a bare integer.'),
+    ] = False,
+    max_shards: Annotated[
+        int,
+        typer.Option("--max-shards", help="Cap the reported count at this value."),
+    ] = 20,
+) -> None:
+    """Print the (generator x noise x strategy) combination count for a run group.
+
+    Used to size cross-pod sharding (e.g. Cloud Run Jobs `--tasks`) before a run
+    starts, without executing anything. Plain mode prints exactly one line (the
+    capped integer) to stdout, so a calling shell script can do
+    `SHARD_COUNT=$(nv groups count <name>)`. On an unknown group name, prints
+    the error to stderr and exits non-zero -- nothing is printed to stdout, so
+    a caller can't accidentally deploy with an empty/zero task count.
+    """
+    try:
+        group = sim_run_groups.get_run_group(group_name)
+    except KeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    count = len(group.generator_names) * len(group.noise_names) * len(group.strategy_names)
+    capped = min(count, max_shards) if max_shards > 0 else count
+
+    if json_output:
+        import json
+
+        typer.echo(json.dumps({"count": count, "capped": capped}))
+    else:
+        typer.echo(str(capped))
 
 
 @groups_app.command("run")
@@ -140,6 +185,8 @@ def run_preset(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    shard_index: cli_options.ShardIndexOption = None,
+    shard_count: cli_options.ShardCountOption = None,
 ) -> None:
     """Run any registered preset group by name (single entry point for all groups)."""
     _run_named_group(
@@ -156,6 +203,8 @@ def run_preset(
         gcp=gcp,
         gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
+        shard_index=shard_index,
+        shard_count=shard_count,
     )
 
 
@@ -490,7 +539,10 @@ def both_sbed(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
-    """Alias for ``groups run both-sbed`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; Bayesian-SBED/SimpleSobol/SimpleSweep)."""
+    """Alias for ``groups run both-sbed`` (plain Voigt width x contrast x sigma_inhom,
+
+    sigma_inhom=0 = pure Lorentzian limit; Bayesian-SBED/SimpleSobol/SimpleSweep).
+    """
     _run_named_group(
         "both-sbed",
         repeats_override=repeats,
@@ -521,7 +573,10 @@ def both_sweep_only(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
-    """Alias for ``groups run both-sweep-only`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; SimpleSweep only)."""
+    """Alias for ``groups run both-sweep-only`` (plain Voigt width x contrast x sigma_inhom,
+
+    sigma_inhom=0 = pure Lorentzian limit; SimpleSweep only).
+    """
     _run_named_group(
         "both-sweep-only",
         repeats_override=repeats,
@@ -552,7 +607,10 @@ def both_sbed_only(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> None:
-    """Alias for ``groups run both-sbed-only`` (plain Voigt width x contrast x sigma_inhom, sigma_inhom=0 = pure Lorentzian limit; SBED only)."""
+    """Alias for ``groups run both-sbed-only`` (plain Voigt width x contrast x sigma_inhom,
+
+    sigma_inhom=0 = pure Lorentzian limit; SBED only).
+    """
     _run_named_group(
         "both-sbed-only",
         repeats_override=repeats,
