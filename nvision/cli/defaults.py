@@ -14,7 +14,24 @@ load_dotenv()
 
 # Core Execution Config
 DEFAULT_REPEATS: int = int(os.getenv("NVISION_DEFAULT_REPEATS", "5"))
-DEFAULT_RUNNERS: int = int(os.getenv("NVISION_DEFAULT_RUNNERS", "4"))
+
+def _default_runners() -> int:
+    """Runner processes to use when the caller does not specify.
+
+    Scales with the machine instead of a fixed 4: tasks are independent, so throughput
+    tracks process count. Uses half the logical CPUs, which approximates the physical
+    core count on hyperthreaded machines -- HT siblings share an FP unit, so the second
+    sibling adds little for this FP-bound work while doubling memory footprint (each
+    worker carries its own numpy/numba/polars import and particle arrays). Capped at 8
+    to bound that footprint on many-core boxes; raise via NVISION_DEFAULT_RUNNERS.
+    Paired with the per-worker thread cap in `cli/run.py::_thread_budget`, which hands
+    each worker the leftover cores so the two never oversubscribe.
+    """
+    cores = os.cpu_count() or 1
+    return max(1, min(8, cores // 2))
+
+
+DEFAULT_RUNNERS: int = int(os.getenv("NVISION_DEFAULT_RUNNERS", str(_default_runners())))
 MIN_RUNNERS: int = int(os.getenv("NVISION_MIN_RUNNERS", "1"))
 DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", str(sim_presets.DEFAULT_LOC_MAX_STEPS)))
 DEFAULT_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEFAULT_LOC_TIMEOUT_S", "1500"))

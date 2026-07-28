@@ -181,6 +181,29 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         lo, hi = self.physical_param_bounds[name]
         return lo + float(u) * (hi - lo)
 
+    def _fim_param_values(self) -> dict[str, float]:
+        """Unit-cube estimates — ``self.model`` is the unit-cube wrapper (see base docstring)."""
+        return super().estimates()
+
+    def crlb_per_param(self) -> dict[str, float]:
+        """Marginal CRLB per parameter in **physical** units.
+
+        The cumulative FIM is accumulated in unit-cube coordinates (that is the
+        space ``self.model`` and ``obs.x`` live in), so its CRLBs come out as
+        unit-cube stds and are rescaled by each parameter's physical range here
+        — the same conversion :meth:`_empirical_uncertainty` applies, so the two
+        are directly comparable by callers such as the CRLB early-stop.
+        """
+        raw = super().crlb_per_param()
+        out: dict[str, float] = {}
+        for name, std in raw.items():
+            if name in self.physical_param_bounds:
+                lo, hi = self.physical_param_bounds[name]
+                out[name] = std * (hi - lo)
+            else:
+                out[name] = std
+        return out
+
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         raw = super()._empirical_uncertainty()
         data = {}
@@ -303,13 +326,35 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         return math.inf
 
     def reported_uncertainty(self) -> ParameterValues[float]:
-        """Physical uncertainty floored at K× the Lorentzian CRLB for frequency.
+        """Physical uncertainty, floored so it never claims impossible precision.
 
-        K is ``NVISION_FREQ_CRLB_SAFETY_FACTOR`` — the same factor the locator
-        uses to raise the frequency convergence threshold, so at convergence the
-        reported σ equals the convergence ceiling. Only the frequency entry is
-        floored; all other parameters pass through unchanged. Control-flow paths
-        must use :meth:`uncertainty` instead.
+        Two independent floors:
+
+        * ``frequency`` — ``K × crlb_frequency()`` (closed-form), where K is
+          ``NVISION_FREQ_CRLB_SAFETY_FACTOR``, the same factor the locator uses to
+          raise the frequency convergence threshold, so at convergence the reported
+          σ equals the convergence ceiling.
+        * every other parameter — its own **marginal** CRLB from the cumulative
+          FIM (``crlb_per_param()``, i.e. ``sqrt(diag(pinv(FIM)))``, so nuisance
+          parameters are profiled out rather than held fixed).
+
+        The second floor exists because the particle spread alone understates the
+        uncertainty exactly where it matters most. When two parameters trade off
+        along a near-flat ridge — ``zeeman_split`` against the width pair below the
+        dip-resolution threshold is the standard case — the SMC posterior can be
+        narrow and *wrong*, while the marginal CRLB correctly blows up because the
+        FIM is near-singular in that direction. Measured over 120 mixed repeats
+        (56 deliberately degenerate), flooring moves the median ``error / reported σ``
+        for ``zeeman_split`` from 1.21 to 0.90 and cuts the fraction beyond 3σ from
+        8.3% to 2.5%; ``c_total`` goes 1.61 -> 0.96 and 18.3% -> 3.3%. The width pair
+        becomes ~2-3× conservative (medians 1.03/1.38 -> 0.36/0.49) because both sit
+        *in* the degenerate direction even though their sum stays well determined --
+        an accepted trade: overstating precision is the dangerous direction.
+
+        No safety factor is applied to the per-parameter floor deliberately: the CRLB
+        is already a hard lower bound on any unbiased estimator's variance, so 1× is
+        the principled choice, and 4× (matching K) over-corrects badly (medians drop
+        to 0.09-0.25). Control-flow paths must use :meth:`uncertainty` instead.
         """
         from nvision.sim.defaults import NVISION_FREQ_CRLB_SAFETY_FACTOR
 
@@ -317,6 +362,10 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         crlb = self.crlb_frequency()
         if math.isfinite(crlb) and "frequency" in data:
             data["frequency"] = max(data["frequency"], NVISION_FREQ_CRLB_SAFETY_FACTOR * crlb)
+
+        for name, floor in self.crlb_per_param().items():
+            if name != "frequency" and name in data and math.isfinite(floor) and floor > 0:
+                data[name] = max(data[name], floor)
         return ParameterValues.from_mapping(list(data.keys()), data)
 
     def converged(self, threshold: float) -> bool:

@@ -207,8 +207,50 @@ NVISION_SBED_NOISE_MAX: float = float(os.getenv("NVISION_SBED_NOISE_MAX", "0.01"
 NVISION_SBED_NOISE_STEPS: int = int(os.getenv("NVISION_SBED_NOISE_STEPS", "6"))
 
 
+# Convergence targets for the NV shape parameters, in the units of each parameter.
+#
+# These replace the old fall-back of ``(bound_hi - bound_lo) * convergence_threshold``,
+# which set the target from how wide a parameter's *prior box* happens to be rather than
+# from anything achievable. Measured consequences of that fallback on the voigt grid
+# (64 runs, median final uncertainty vs the threshold it had to clear):
+#
+#   param                  old target   achieved unc   blocked convergence in
+#   zeeman_split             600 kHz       26 kHz        0% of runs  <- never bound
+#   homogeneous_linewidth    148 kHz      184 kHz       65% of runs
+#   sigma_inhom               60 kHz      175 kHz       85% of runs  <- main blocker
+#   c_total                    0.003       0.0029       45% of runs
+#
+# So the run length was set by `sigma_inhom`'s 60 kHz target -- a number that comes from
+# its 6 MHz bound range, is below the noise floor for these signals, and is asking for
+# something physically unavailable: `homogeneous_linewidth` and `sigma_inhom` are the
+# degenerate width pair, individually unidentifiable below the dip-resolution threshold
+# (only their combined width is determined). Meanwhile `zeeman_split` -- the parameter
+# the study actually cares about -- had a target 23x looser than its own achieved
+# uncertainty and never gated anything.
+#
+# The widths and contrast are therefore loosened to values they can actually reach, and
+# `zeeman_split` is made the binding constraint at the same 100 kHz used for frequency.
+# `max_steps` remains the backstop for signals where even that is unreachable (the
+# genuinely degenerate ones), which is the correct outcome rather than a convergence claim.
+NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD", "100000.0")
+)
+NVISION_WIDTH_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_WIDTH_CONVERGENCE_THRESHOLD", "500000.0")
+)
+NVISION_C_TOTAL_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_C_TOTAL_CONVERGENCE_THRESHOLD", "0.01")
+)
+
+
 def _param_absolute_convergence_thresholds() -> dict[str, float]:
-    thresholds: dict[str, float] = {"frequency": NVISION_FREQ_CONVERGENCE_THRESHOLD}
+    thresholds: dict[str, float] = {
+        "frequency": NVISION_FREQ_CONVERGENCE_THRESHOLD,
+        "zeeman_split": NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD,
+        "homogeneous_linewidth": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
+        "sigma_inhom": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
+        "c_total": NVISION_C_TOTAL_CONVERGENCE_THRESHOLD,
+    }
     for param_name, env_name in (
         ("k_np", "NVISION_K_NP_CONVERGENCE_THRESHOLD"),
         ("linewidth", "NVISION_LINEWIDTH_CONVERGENCE_THRESHOLD"),

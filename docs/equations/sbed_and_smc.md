@@ -146,6 +146,29 @@ The unit-space std σᵘ_j is scaled by the physical range:
 
 $$\sigma^{\rm phys}_j = \sigma^u_j \cdot (h_j - l_j)$$
 
+#### Per-parameter CRLB floor (`reported_uncertainty`)
+
+`reported_uncertainty()` floors every non-frequency parameter at its own marginal CRLB
+(§4.3's `crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
+profiling out the other parameters rather than holding them fixed), unconditionally — this floor
+is independent of the `NVISION_SBED_FIM_CRLB_STOP` switch in §5.5, which only governs whether the
+same quantity may *stop* a run:
+
+$$\sigma^{\rm reported}_j = \max\!\left(\sigma^{\rm phys}_j,\; \text{CRLB}_j\right), \qquad j \neq \text{frequency}$$
+
+The particle spread alone understates uncertainty exactly where it matters: when two parameters
+trade off along a near-flat ridge (`zeeman_split` against the width pair below dip-resolution is
+the standard case), the SMC posterior can be narrow and *wrong*, while the marginal CRLB
+correctly blows up because the FIM is near-singular in that direction. Measured over 120 mixed
+repeats (56 deliberately degenerate configs), flooring moves the median `error/reported σ` for
+`zeeman_split` from 1.21 to 0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; `c_total`
+goes 1.61→0.96 and 18.3%→3.3%. The width pair becomes ~2–3× conservative (medians 1.03/1.38 →
+0.36/0.49) since both sit *in* the degenerate direction even though their sum stays well
+determined — accepted, since overstating precision is the dangerous direction. No safety factor
+is applied here (unlike the frequency floor's $K_{\rm safety}$, §2.3): the CRLB is already a hard
+lower bound on any unbiased estimator's variance, so 1× is the principled choice — a 4× factor
+was measured to over-correct badly (medians drop to 0.09–0.25).
+
 ### 2.3 Analytical CRLB for Frequency (Lorentzian, Gaussian noise)
 
 For a Lorentzian signal measured under Gaussian noise with uniform measurement density ρ = N/W (measurements per Hz, W = bandwidth), the closed-form Cramér-Rao lower bound on frequency variance is:
@@ -248,6 +271,19 @@ The window is flagged **stable** (`is_stable`) when all of:
 2. `methods_agree`: l ≤ f̄ ≤ r
 3. σ_f < ρ_stab·(r − l), with `stability_ratio` ρ_stab = 0.5
 
+#### Check cadence (`_should_check_focus_confidence`)
+
+`compute_focus_window_confidence` re-runs the empirical dip detector over the full
+observation history, making it the single most expensive per-step check in the
+locator. Its only effects are recording `_focus_window_conf` and the `focus_stable_step`
+milestone — it does not gate stopping — so while the detector confidence is still below
+`NVISION_DIP_CONFIDENCE` (nothing can be recorded as stable yet) it is evaluated only
+every `NVISION_FOCUS_CONF_INTERVAL` = 4 steps. The first reading is always taken (it is
+what promotes the check to dense mode), and once detector confidence clears the floor
+the cadence switches to every step permanently, so the exact step at which `is_stable`
+first holds is still captured rather than rounded up to the next interval boundary.
+Set `NVISION_FOCUS_CONF_INTERVAL=1` to restore the previous every-step behavior.
+
 ---
 
 ## 4. Gaussian Fisher Information & CRLB (`fisher_information.py`, `abstract_marginal.py`)
@@ -265,6 +301,43 @@ $$\mathbf{I}_{\rm cum} = \sum_{n=1}^{N} \mathbf{I}(\theta; x_n)$$
 and the marginal CRLB for parameter j is the diagonal of the inverse, computed via a ridge-regularised Moore-Penrose pseudo-inverse (ε = 1e−6):
 
 $$\text{CRLB}_j = \sqrt{\left[(\mathbf{I}_{\rm cum} + \epsilon \mathbf{I})^+\right]_{jj}}$$
+
+### 4.3 Numerical Gradient Fallback (`numerical_gradient_vector`)
+
+`fisher_information_matrix` needs `∇_θ S`; none of the NV-center models (`NVCenterVoigtModel`,
+`NVCenterLorentzianModel`, `NVCenterSaturationVoigtModel`) define an analytical `gradient`, so
+until this fallback existed `crlb_per_param()` always returned `{}` for every NV-center run and
+the cumulative FIM was never built — `_check_crlb_early_stop`'s per-parameter path (§5.5) and
+`reported_uncertainty`'s CRLB floor (§2.2) were both dead code.
+
+When no analytical gradient is available, `fisher_information_matrix` falls back to a central
+difference per parameter j:
+
+$$\frac{\partial S}{\partial \theta_j}(x) \approx \frac{S(x;\theta_j{+}h_j) - S(x;\theta_j{-}h_j)}{2h_j}, \qquad h_j = r\cdot(h^{\rm bd}_j - l^{\rm bd}_j)$$
+
+with relative step r = 1e−4 and $[l^{\rm bd}_j, h^{\rm bd}_j]$ the parameter's own bound range —
+not a value-relative step, since these parameters span ~7 orders of magnitude (Hz-scale
+widths vs. a dimensionless contrast ≈ 0.25) and a value-relative step degenerates near zero.
+Steps are clamped into the bounds and the realized (possibly one-sided) denominator is used, so
+a parameter sitting on a bound still yields a valid derivative instead of `NaN`.
+
+**Coordinate system.** `obs.x` and `model.compute` must agree on the coordinate system the
+gradient is taken in. For `UnitCubeSMCMarginalDistribution`, `estimates()` reports *physical*
+values but `self.model` is the unit-cube wrapper, so the FIM point is taken from
+`_fim_param_values()` (unit-cube coordinates there) rather than `estimates()` directly — using
+the wrong one silently produces a meaningless FIM. The resulting cumulative FIM is therefore in
+unit-cube coordinates, and `crlb_per_param()` on that class rescales each diagonal entry by its
+parameter's physical range ($\text{CRLB}^{\rm phys}_j = \text{CRLB}^{u}_j\cdot(h_j-l_j)$) before
+returning — the same rescaling `_empirical_uncertainty()` applies, so the two are directly
+comparable.
+
+`single_shot_marginal_stds_from_fim`'s ridge ε=1e−6 is absolute, so it is only meaningful in
+unit-cube coordinates (diagonal ~1e4–1e7, ridge negligible); handed a physical-coordinate FIM
+(Hz-scale entries ~1e−10) the ridge dominates and every CRLB comes back at exactly
+$\sqrt{1/\epsilon}=1000$ regardless of the data. This is why `marginal_crlbs_at_budget` (the
+pre-run feasibility gate in `runner/executor.py`) remains inert even after this fallback: it
+builds its FIM from physical parameters and would need gradient normalization by parameter range
+before it could be revived safely.
 
 ---
 
@@ -344,6 +417,74 @@ $$\sigma_j < K_{\rm safety}\cdot \text{CRLB}^{\rm scaled}_j$$
 - Frequency passes (CRLB **or** absolute threshold) → records `freq_converged_step`.
 - All parameters pass (CRLB **or** absolute threshold each) → records `all_converged_step`.
 
+**The multi-parameter FIM gate (`crlbs_stored`) is off by default** (`NVISION_SBED_FIM_CRLB_STOP=0`).
+Until §4.3's numerical-gradient fallback existed, `crlb_per_param()` returned `{}` for every
+NV-center model and this branch was dead code, so the frequency-only closed-form CRLB
+(§2.3/§5.4) was the only thing this check ever actually gated. Switching the FIM gate on once the
+fallback made it live was tested and measurably improves the reported numbers — median run
+length 450→24 steps, catastrophic rate on known-degenerate configs 67%→12% — but that improvement
+is an artifact, not a win, so it stays off:
+
+- **Trivially-passing near-degenerate points.** `_crlb_done` asks "is my spread already below the
+  information limit?" At a near-degenerate point the marginal CRLB is inflated by a
+  near-singular FIM (e.g. 11.8 MHz measured on `zeeman_split` where the achieved error was only
+  1.3 MHz), so the test passes from the first steps — exactly when the problem is hardest.
+- **Prior leakage from the benchmark itself.** Generators draw each repeat's prior mean as
+  `gauss(true_value, sigma)`, so stopping early scores well precisely because it reports a
+  truth-centred prior it never had to earn. Real hardware has no such prior. This is the same
+  failure class as three earlier snapshot-CRLB early-stop bugs in this locator's history.
+
+Frequency-only CRLB stopping (§5.4, closed-form and not FIM-dependent) is unaffected and remains
+active regardless of this switch.
+
+### 5.6 Adaptive Plateau Stop (`_check_estimate_plateau`, default-on)
+
+Stops once the *estimate itself* has stopped moving relative to its own error bar, rather than
+waiting on a derived quantity's claim that the information limit has been reached — the
+replacement for what §5.5's FIM gate was meant to provide.
+
+For each target parameter, the current estimate is compared against the one from
+`NVISION_SBED_PLATEAU_WINDOW` = 30 convergence checks ago, expressed in units of that
+parameter's *current* uncertainty:
+
+$$\text{plateaued}_j \iff \left|\hat\theta_j^{(t)} - \hat\theta_j^{(t-W)}\right| < f_\sigma\cdot\sigma_j^{(t)}$$
+
+with window W = `NVISION_SBED_PLATEAU_WINDOW` = 30 and fraction f_σ = `NVISION_SBED_PLATEAU_SIGMA_FRAC`
+= 0.25. When *every* target parameter plateaus for `convergence_patience_steps` consecutive
+checks, the run stops (`plateau_stop_step`). A parameter with a non-finite or non-positive σ
+cannot be judged and blocks the check entirely, so an unmeasurable parameter is never silently
+treated as converged. Movement is scaled by each parameter's own σ (not its bound range) so one
+threshold works across parameters spanning orders of magnitude without a per-parameter table.
+
+**Why the estimate, not the uncertainty or a CRLB.** Derived quantities have repeatedly produced
+premature stops in this locator's history (four separate bugs): a near-singular FIM inflates the
+CRLB, and particle spread can be narrow and wrong. The estimate holding still is the thing
+actually being claimed at the end of a run.
+
+**Motivation and calibration.** On the NV Voigt grid (120 repeats), median `zeeman_split` error
+falls from 1.483 MHz at step 10 to 0.237 at step 25, 0.059 at 50, 0.022 at 100, 0.016 at 450 — a
+knee around step 100, after which the last 350 of a 450-step budget buy ~1.3× accuracy for 4.5×
+the measurements. f_σ was calibrated by replaying the criterion inside full-budget runs (so the
+stop step and the budget estimate share one run, avoiding a cross-arm confound), then confirmed
+with a live A/B (120 configs/arm):
+
+| f_σ | fires (ordinary) | med. step | saving | fires (degenerate) | med. step | saving |
+|---|---|---|---|---|---|---|
+| 0.10 | 41% | 367 | 1.2× | 79% | 284 | 1.6× *(unreliable)* |
+| 0.15 | 83% | 330 | 1.4× | 98% | 201 | 2.2× |
+| **0.25** (default) | 100% | 197 | 2.3× | 100% | 124 | 3.6× |
+| 0.40 | 100% | 132 | 3.4× | 100% | 86 | 5.2× |
+
+Live A/B at f_σ=0.25 (median steps 450→220 ordinary, 450→124 degenerate): ordinary
+`zeeman_split` error 0.0211→0.0233 MHz, `homogeneous_linewidth` 0.165→0.154 (better),
+`sigma_inhom` 0.136→0.164, `c_total` 0.0025→0.0032. Degenerate-config `zeeman_split`
+0.406→0.604, widths slightly better. Both beat the naive √n rule of thumb — a 2–3.6× cut in
+measurements costs well under the √2–√3.6 error increase that would imply.
+
+**Cost to track when tuning:** on the degenerate configs the catastrophic rate (`zeeman_split`
+error > 1 MHz) went 7.1%→12.5% (4→7 of 56, small counts). Dropping f_σ to 0.15 keeps most of
+that margin at a 2.2× rather than 3.6× saving.
+
 ---
 
 ## 6. Key Default Constants
@@ -364,6 +505,11 @@ $$\sigma_j < K_{\rm safety}\cdot \text{CRLB}^{\rm scaled}_j$$
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
 | p_conf | `NVISION_DIP_CONFIDENCE` | 0.99 | — |
 | f_expl | `NVISION_SMC_MIN_EXPLORATION_FRAC` | 0.01 | — |
+| — | `NVISION_FOCUS_CONF_INTERVAL` | 4 | steps |
+| — | `NVISION_SBED_FIM_CRLB_STOP` | 0 (off) | bool |
+| — | `NVISION_SBED_PLATEAU_STOP` | 1 (on) | bool |
+| W | `NVISION_SBED_PLATEAU_WINDOW` | 30 | steps |
+| f_σ | `NVISION_SBED_PLATEAU_SIGMA_FRAC` | 0.25 | — |
 
 ---
 

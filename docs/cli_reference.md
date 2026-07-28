@@ -23,7 +23,7 @@ Runs a batch of simulations across multiple locators and noise levels.
 - `--repeats`: Number of repeat experiments (default: 5).
 - `--loc-max-steps`: Maximum steps for Bayesian locator (default: 1200).
 - `--filter-category`, `--filter-strategy`, `--filter-generator`, `--filter-noise`: Filter scenarios to run.
-- `--runners`: Number of parallel runner processes (default: 8, use 1 for sequential execution).
+- `--runners`: Number of parallel runner processes (default: `min(8, cpu_count // 2)`, scales with the machine — see `NVISION_DEFAULT_RUNNERS`; use 1 for sequential execution). Each worker's numba/BLAS thread count is capped to the leftover cores (`cpu_count // runners`) so processes and intra-worker threads don't oversubscribe.
 - `--no-cache`: Force bypass of the simulation cache.
 - `--dry-run`: Do not write results to cache.
 - `--open`: Open the results browser after completing.

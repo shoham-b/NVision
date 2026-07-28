@@ -158,7 +158,11 @@ def fig_to_f32_json(fig: Any) -> str:
 
 def to_gz_bytes(fig: Any) -> bytes:
     """Serialize a Plotly figure to gzip-compressed Float16/Float32 JSON bytes (no disk I/O)."""
-    return gzip.compress(fig_to_f32_json(fig).encode("utf-8"), compresslevel=9)
+    # mtime=0: gzip's header otherwise embeds the current wall-clock time, so two
+    # calls encoding identical content a second (or more) apart produce different
+    # bytes -- pinning it makes output byte-for-byte reproducible for identical
+    # input, which content-addressed caching/serving and byte-identity tests rely on.
+    return gzip.compress(fig_to_f32_json(fig).encode("utf-8"), compresslevel=9, mtime=0)
 
 
 def _sanitize_non_finite(obj: Any) -> Any:
@@ -219,7 +223,9 @@ def _encode_payload(obj: Any) -> Any:
 def payload_to_gz_bytes(payload: Any) -> bytes:
     """Serialize any JSON-serializable payload (numpy arrays welcome) to gzip-compressed Float16/Float32 JSON bytes."""
     encoded = _encode_payload(payload)
-    return gzip.compress(json.dumps(encoded, separators=(",", ":")).encode("utf-8"), compresslevel=9)
+    # mtime=0: see to_gz_bytes for why this is pinned rather than left to default
+    # to the current wall-clock time.
+    return gzip.compress(json.dumps(encoded, separators=(",", ":")).encode("utf-8"), compresslevel=9, mtime=0)
 
 
 def write_plotly_gz(fig: Any, out_path: Path | None = None) -> bytes:

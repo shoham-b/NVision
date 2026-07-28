@@ -227,13 +227,14 @@ class AbstractMarginalDistribution(ABC):
         (e.g. when flushing a Sobol buffer after a batch update).
         """
         names = self.model.parameter_names()
-        est = self.estimates()
+        est = self._fim_param_values()
         typed = self.model.spec.unpack_params([est[n] for n in names])
         fim_i = fisher_information_matrix(
             x=obs.x,
             model=self.model,
             parameters=typed,
             last_obs=obs,
+            param_bounds=getattr(self, "parameter_bounds", None),
         )
         if fim_i is None:
             return
@@ -242,11 +243,25 @@ class AbstractMarginalDistribution(ABC):
             cum = np.zeros((len(names), len(names)))
         self._cum_fim: np.ndarray = cum + fim_i
 
+    def _fim_param_values(self) -> dict[str, float]:
+        """Parameter point for FIM gradients, in ``self.model``'s own coordinates.
+
+        ``obs.x`` and ``self.model`` must agree on the coordinate system, so this
+        deliberately is *not* ``estimates()`` for every subclass: a unit-cube
+        belief reports physical estimates but wraps a model whose ``compute``
+        takes unit-cube parameters, and mixing the two silently produces a
+        meaningless FIM (or trips the wrapper's own bounds check). Subclasses
+        that rescale ``estimates()`` override this to undo the rescaling.
+        """
+        return self.estimates()
+
     def crlb_per_param(self) -> dict[str, float]:
-        """Return the marginal CRLB (physical std) for each model parameter.
+        """Return the marginal CRLB (std, in ``self.model``'s coordinates) per model parameter.
 
         Computed as ``sqrt(diag(pinv(cumulative_FIM)))``.  Returns an empty dict
-        before any observations or when the model has no analytical gradients.
+        before any observations or when no gradient could be obtained.
+        Subclasses whose model is in rescaled coordinates override this to
+        return physical units (see :class:`UnitCubeSMCMarginalDistribution`).
         """
         cum: np.ndarray | None = getattr(self, "_cum_fim", None)
         if cum is None:

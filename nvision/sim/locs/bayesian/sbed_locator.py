@@ -26,10 +26,77 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 # Prevents false early stops on the first measurement, especially with no noise.
 NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
 
+# Step cadence for the focus-window confidence check while the dip detector is still
+# below its confidence floor (see _should_check_focus_confidence). Set to 1 to restore
+# the previous every-step behavior.
+NVISION_FOCUS_CONF_INTERVAL: int = int(os.getenv("NVISION_FOCUS_CONF_INTERVAL", "4"))
+
 # Kill-switch for the dual symmetric-window acquisition strategy (see
 # _dual_window_acquire). On by default; set NVISION_SBED_DUAL_WINDOW=0 to fall back to
 # plain EIG over the single unioned focus window.
 _DUAL_WINDOW_ENABLED: bool = os.getenv("NVISION_SBED_DUAL_WINDOW", "1") not in ("0", "false", "False")
+
+# Whether the FIM-derived per-parameter CRLB may drive the early-stop decision in
+# `_check_crlb_early_stop`. OFF by default, deliberately.
+#
+# `crlb_per_param()` returned {} for every NV-center run until numerical gradients
+# were added (the models define no analytical `gradient`), so this stop path was
+# dead code and the locator always ran to `max_steps`. Switching it on measurably
+# makes things *look* much better -- median run length 450 -> 24 steps, catastrophic
+# rate on the known-degenerate configs 67% -> 12% -- but that is an artifact, not a
+# win: `_crlb_done` asks "is my spread already below the information limit?", and at
+# a near-degenerate point the marginal CRLB is inflated by a near-singular FIM (e.g.
+# 11.8 MHz on `zeeman_split` where the achieved error is 1.3 MHz), so the test passes
+# trivially from the first steps -- exactly when the problem is hardest. The accuracy
+# "gain" is the benchmark's own prior leaking in: generators draw each repeat's prior
+# mean as `gauss(true_value, sigma)`, so stopping early scores well precisely because
+# it reports a truth-centred prior it never had to earn. Real hardware has no such prior.
+# This is the same failure class as the three snapshot-CRLB early-stop bugs already
+# fixed here; leave it off unless a stopping rule is validated against something other
+# than simulated-prior-centred accuracy.
+_FIM_CRLB_STOP_ENABLED: bool = os.getenv("NVISION_SBED_FIM_CRLB_STOP", "0") not in ("0", "false", "False")
+
+# Adaptive plateau stop: give up when the *estimate itself* stops moving, rather than
+# when some derived quantity claims the information limit has been reached.
+#
+# Motivated by the measured error-vs-steps curve on the NV voigt grid (120 repeats,
+# median |error| on `zeeman_split`): 1.483 MHz at step 10 -> 0.237 at 25 -> 0.059 at 50
+# -> 0.022 at 100 -> 0.016 at 450. The knee is around step 100; the last 350 steps of a
+# 450-step budget buy ~1.3x while costing 4.5x the measurements. So there IS a real
+# early-stop win here -- roughly 3-4x fewer measurements for a few percent of accuracy --
+# but the FIM-CRLB rule above cannot capture it: it fires at median step 24, i.e. just
+# *before* the steepest part of the curve, where the estimate is still 14x worse than it
+# will be. Tracking movement of the estimate measures diminishing returns directly, so it
+# fires where the curve actually flattens and adapts per-run instead of encoding a budget.
+#
+# Movement is normalized by each parameter's own current uncertainty, so the test reads
+# "the estimate has drifted less than a fraction of its own error bar over the last
+# WINDOW steps" -- scale-free across parameters that differ by orders of magnitude.
+#
+# SIGMA_FRAC was calibrated by replaying the criterion inside full-budget runs (so the
+# stop step and the budget estimate come from the SAME run, no cross-arm confound) over
+# 120 repeats, then confirmed with a live A/B of the shipped rule (120 configs/arm):
+#
+#            ordinary configs                  degenerate configs
+#   frac  fires  med step  saving          fires  med step  saving
+#   0.10   41%      367     1.2x            79%      284     1.6x   <- unreliable
+#   0.15   83%      330     1.4x            98%      201     2.2x
+#   0.25  100%      197     2.3x           100%      124     3.6x   <- default
+#   0.40  100%      132     3.4x           100%       86     5.2x
+#
+# Live A/B at 0.25 (median steps 450 -> 220 ordinary, 450 -> 124 degenerate):
+# ordinary `zeeman_split` error 0.0211 -> 0.0233 MHz, `homogeneous_linewidth` 0.165 ->
+# 0.154 (better), `sigma_inhom` 0.136 -> 0.164, `c_total` 0.0025 -> 0.0032. Degenerate:
+# `zeeman_split` 0.406 -> 0.604, widths slightly better. Both beat the sqrt(n) rule of
+# thumb -- a 2-3.6x cut in measurements costs well under the sqrt(2)-sqrt(3.6) error
+# increase it would naively imply.
+#
+# Cost to be aware of when tuning: on the degenerate configs the catastrophic rate
+# (`zeeman_split` error > 1 MHz) went 7.1% -> 12.5% (4 -> 7 of 56, small counts). Drop
+# SIGMA_FRAC to 0.15 to keep most of that margin at a 2.2x rather than 3.6x saving.
+_PLATEAU_STOP_ENABLED: bool = os.getenv("NVISION_SBED_PLATEAU_STOP", "1") not in ("0", "false", "False")
+_PLATEAU_WINDOW: int = int(os.getenv("NVISION_SBED_PLATEAU_WINDOW", "30"))
+_PLATEAU_SIGMA_FRAC: float = float(os.getenv("NVISION_SBED_PLATEAU_SIGMA_FRAC", "0.25"))
 
 
 def background_noise_std(
@@ -378,6 +445,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # is its own independent single-snapshot signal and must not be allowed to
         # set `_is_converged` on one lucky reading (see `_check_crlb_early_stop`).
         self._crlb_convergence_streak: int = 0
+        # Rolling history of parameter estimates, for the plateau stop (see
+        # _check_estimate_plateau). One dict per convergence check, oldest first.
+        self._estimate_history: list[dict[str, float]] = []
+        self._plateau_streak: int = 0
+        self.plateau_stop_step: int | None = None
 
         # Background noise estimation / forced calibration state
         self._forced_bg_mode: bool = False
@@ -386,6 +458,9 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self._bg_points_used: int = 0
         self._focus_window_conf: FocusWindowConfidence | None = None
         self.focus_stable_step: int | None = None
+        # Coarse-then-dense cadence for the focus-window confidence check.
+        self._focus_conf_interval: int = max(1, NVISION_FOCUS_CONF_INTERVAL)
+        self._focus_conf_dense: bool = False
         # Empirical batch-mean noise (running mean of received obs.noise_std over
         # multi-shot batches). Reflects the σ/√k precision of the measurement the
         # locator will actually take; used for EIG scoring and as a noise-floor
@@ -786,15 +861,45 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 self._convergence_streak = 0
             self._check_convergence_milestones(physical_uncertainties)
 
+            if not self._is_converged:
+                self._check_estimate_plateau(physical_uncertainties)
+
             # CRLB-based early-stop: evaluated every step for deterministic convergence reporting.
             # Uses background-scatter noise estimate (robust to signal-region bias).
             if not self._is_converged:
                 self._check_crlb_early_stop(physical_uncertainties)
-                conf = compute_focus_window_confidence(self.belief, noise_std=self._noise_std)
-                if conf is not None:
-                    self._focus_window_conf = conf
-                    if conf.is_stable and self.focus_stable_step is None:
-                        self.focus_stable_step = self.step_count
+                if self._should_check_focus_confidence():
+                    conf = compute_focus_window_confidence(self.belief, noise_std=self._noise_std)
+                    if conf is not None:
+                        self._focus_window_conf = conf
+                        # Once the detector clears its confidence floor we are in the
+                        # region where `is_stable` can flip, so switch to every-step
+                        # checking from here on -- see _should_check_focus_confidence.
+                        if conf.detector_confidence >= NVISION_DIP_CONFIDENCE:
+                            self._focus_conf_dense = True
+                        if conf.is_stable and self.focus_stable_step is None:
+                            self.focus_stable_step = self.step_count
+
+    def _should_check_focus_confidence(self) -> bool:
+        """Whether to run the (expensive) focus-window confidence check this step.
+
+        `compute_focus_window_confidence` re-runs the full empirical dip detector over
+        the whole observation history every call -- the single most expensive per-step
+        check here. It does not gate stopping (that is `_target_params_converged`'s
+        streak and `_check_crlb_early_stop`); it only records `_focus_window_conf` and
+        the `focus_stable_step` milestone.
+
+        So evaluate it on a coarse cadence while the detector is still far from its
+        confidence floor -- nothing can be recorded there anyway -- and switch to every
+        step permanently once the floor is cleared, so the step at which `is_stable`
+        first holds is captured exactly rather than rounded up to the next interval.
+        """
+        if self._focus_conf_dense or self._focus_conf_interval <= 1:
+            return True
+        # Always take the first reading: it is what promotes us to dense mode.
+        if self._focus_window_conf is None:
+            return True
+        return self.step_count % self._focus_conf_interval == 0
 
     def _acquisition_done(self) -> bool:
         """Extend base stop logic with a permissive theory-step-budget backstop.
@@ -809,6 +914,75 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if self._theory_step_budget is not None and self.inference_step_count > self._theory_step_budget:
             return True
         return False
+
+    def _check_estimate_plateau(self, physical_uncertainties) -> None:
+        """Stop once the estimate has stopped moving relative to its own error bar.
+
+        For each target parameter, compares the current estimate against the one from
+        ``_PLATEAU_WINDOW`` checks ago and expresses the drift in units of that
+        parameter's current uncertainty. When *every* target parameter has drifted less
+        than ``_PLATEAU_SIGMA_FRAC`` sigma for ``_convergence_patience_steps``
+        consecutive checks, further measurements are not changing the answer and the run
+        stops.
+
+        Two deliberate choices:
+
+        * Movement is scaled by the parameter's own sigma, not by its bounds, so one
+          threshold works across parameters spanning orders of magnitude (Hz-scale
+          widths and a dimensionless contrast) without a per-parameter table.
+        * It watches the *estimate*, not the uncertainty or a CRLB. Derived quantities
+          have repeatedly produced premature stops here (four separate bugs) because
+          they can look converged while the estimate is still walking -- a near-singular
+          FIM inflates the CRLB, and the particle spread can be narrow and wrong. The
+          estimate holding still is the thing actually being claimed at the end of a run.
+
+        Requires the uncertainty to be positive and finite before it will fire, so a
+        collapsed or degenerate belief cannot trivially satisfy it.
+        """
+        if not _PLATEAU_STOP_ENABLED or _PLATEAU_WINDOW <= 0:
+            return
+
+        est = self.belief.estimates()
+        target_params = (
+            list(self._convergence_params)
+            if self._convergence_params
+            else list(self.belief.model.parameter_names())
+        )
+        self._estimate_history.append({p: float(est[p]) for p in target_params if p in est})
+        # Only the window endpoints are ever compared; keep the list bounded.
+        if len(self._estimate_history) > _PLATEAU_WINDOW + 1:
+            self._estimate_history.pop(0)
+        if len(self._estimate_history) <= _PLATEAU_WINDOW:
+            return
+
+        past = self._estimate_history[0]
+        current = self._estimate_history[-1]
+        checked = 0
+        plateaued = True
+        for name, now in current.items():
+            if name not in past:
+                continue
+            sigma = float(physical_uncertainties.get(name, math.nan))
+            if not math.isfinite(sigma) or sigma <= 0:
+                # No usable error bar for this parameter -> cannot judge the drift, and
+                # must not silently treat "unmeasurable" as "converged".
+                return
+            checked += 1
+            if abs(now - past[name]) > _PLATEAU_SIGMA_FRAC * sigma:
+                plateaued = False
+                break
+
+        if checked == 0:
+            return
+
+        if plateaued:
+            self._plateau_streak += 1
+            if self._plateau_streak >= self._convergence_patience_steps:
+                self._is_converged = True
+                if self.plateau_stop_step is None:
+                    self.plateau_stop_step = self.step_count
+        else:
+            self._plateau_streak = 0
 
     def _check_crlb_early_stop(self, physical_uncertainties) -> None:
         """Background-noise CRLB early-stop check, run on resample events only.
@@ -880,7 +1054,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # Build per-param CRLBs scaled to σ̂.
         # Primary: cumulative FIM accumulated during observations (needs model.gradient).
         # Fallback: analytical closed-form crlb_frequency() for frequency only.
-        crlbs_stored = self.belief.crlb_per_param()
+        crlbs_stored = self.belief.crlb_per_param() if _FIM_CRLB_STOP_ENABLED else {}
         scale = sigma_hat / max(self._noise_std, 1e-12)
 
         if not crlbs_stored:

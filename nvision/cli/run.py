@@ -64,6 +64,27 @@ def _maybe_autostart_server(out_dir: Path, open_browser: bool) -> None:
 console = Console()
 
 
+def _thread_budget(runners: int, n_tasks: int | None = None) -> tuple[int, int]:
+    """Split the core budget into (n_processes, threads_per_process).
+
+    Cores are worth far more as processes than as threads here: tasks are fully
+    independent (no synchronization, near-linear scaling), whereas the intra-task
+    kernels run over ~1k-particle arrays where numba's fork/join barrier overhead is
+    a large fraction of the work, and much of the per-step cost is Python-level
+    orchestration that does not thread at all. So we keep the requested process count
+    and hand each worker only the leftover cores, rather than the reverse.
+
+    Never spawns more workers than there are tasks -- on Windows each worker pays a
+    fresh ~1s interpreter+import startup, so idle workers are pure cost.
+    """
+    cores = os.cpu_count() or 1
+    n_proc = max(1, int(runners))
+    if n_tasks is not None:
+        n_proc = max(1, min(n_proc, int(n_tasks)))
+    threads = max(1, cores // n_proc)
+    return n_proc, threads
+
+
 def _worker_init(
     log_queue: multiprocessing.Queue,
     log_level: int,
@@ -71,14 +92,45 @@ def _worker_init(
     shm_lock: Any | None = None,
     sweep_shm_name: str | None = None,
     sweep_shm_lock: Any | None = None,
+    threads_per_worker: int = 1,
 ) -> None:
     """Initialize worker process: set up logging and shared signal/sweep caches."""
+    # Cap intra-process threading BEFORE numba/numpy are imported here. Each worker
+    # otherwise defaults to one thread per core for both numba's `parallel=True`
+    # kernels and numpy's BLAS (the EIG `M @ w` matvecs), so N runners x C cores
+    # oversubscribes the machine N-fold. Numba's threading layer busy-waits at
+    # parallel-region barriers, so oversubscription actively burns cycles rather
+    # than merely failing to help. The parent picks the split (see
+    # `_thread_budget`); tasks are independent, so cores are better spent on
+    # processes than on threads inside 1k-particle kernels.
+    _t = str(max(1, int(threads_per_worker)))
+    for _var in ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        os.environ[_var] = _t
+
     from nvision.runner.signal_cache import initialize_shared_cache
     from nvision.runner.sweep_cache import initialize_shared_sweep_cache
     from nvision.tools.log_context import CombinationLogFilter
 
     initialize_shared_cache(shm_name, shm_lock)
     initialize_shared_sweep_cache(sweep_shm_name, sweep_shm_lock)
+
+    # Defensive: by the time this runs, numba has typically already been imported
+    # (as a side effect of unpickling this very initializer's module) and cached
+    # NUMBA_NUM_THREADS from the pre-worker-init environment, before the loop above
+    # set it. reload_config() re-reads the env now, while the threading layer is
+    # still unlaunched, so it updates the cached value instead of conflicting with
+    # it. Without this, set_num_threads() below would launch the thread pool at the
+    # stale cached count and mark the threading layer initialized, and the first
+    # real numba compile's own reload_config() call would then raise trying to
+    # reconcile the env value against that already-launched, now-immutable count.
+    with contextlib.suppress(Exception):
+        from numba.core import config as _numba_config
+
+        _numba_config.reload_config()
+
+        import numba
+
+        numba.set_num_threads(max(1, int(threads_per_worker)))
 
     root = logging.getLogger()
     root.setLevel(log_level)
@@ -298,10 +350,27 @@ def _run_tasks_process_pool(  # noqa: C901
     total_count = len(pending_tasks)
 
     while pending_tasks and current_runners > 0:
+        # Recomputed each pass: `current_runners` shrinks on retry, and the surviving
+        # workers should pick up the freed cores as threads rather than leave them idle.
+        n_workers, threads_per_worker = _thread_budget(current_runners, len(pending_tasks))
+        log.info(
+            "Core budget: %s worker(s) x %s thread(s) on %s logical CPU(s).",
+            n_workers,
+            threads_per_worker,
+            os.cpu_count() or 1,
+        )
         executor = concurrent.futures.ProcessPoolExecutor(
-            max_workers=current_runners,
+            max_workers=n_workers,
             initializer=_worker_init,
-            initargs=(log_queue, log_level, shm_name, shm_lock, sweep_shm_name, sweep_shm_lock),
+            initargs=(
+                log_queue,
+                log_level,
+                shm_name,
+                shm_lock,
+                sweep_shm_name,
+                sweep_shm_lock,
+                threads_per_worker,
+            ),
         )
         future_to_task: dict[concurrent.futures.Future, object] = {}
         retry_tasks: list[object] = []
