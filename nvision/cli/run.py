@@ -929,13 +929,17 @@ def run(  # noqa: C901
     )
 
     if no_progress:
-        stream_handlers: list[logging.Handler] = [_rich_handler(console, suppress_list)]
+        _console_handler = _rich_handler(console, suppress_list)
+        _console_handler.setLevel(log_level_value)
+        stream_handlers: list[logging.Handler] = [_console_handler]
     else:
+        _monitor_log_handler = MonitorLogHandler(
+            log_display_queue,
+            formatter=logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"),
+        )
+        _monitor_log_handler.setLevel(log_level_value)
         stream_handlers = [
-            MonitorLogHandler(
-                log_display_queue,
-                formatter=logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"),
-            ),
+            _monitor_log_handler,
             MonitorErrorHandler(
                 error_display_queue,
                 formatter=logging.Formatter(
@@ -1161,7 +1165,7 @@ def run(  # noqa: C901
                 shm_lock = manager.Lock()
                 sweep_shm_lock = manager.Lock()
 
-        log.info(f"DEBUG: Found {len(tasks)} tasks")
+        log.info(f"Found {len(tasks)} tasks")
         already_harvested = False
         try:
             with monitor:
