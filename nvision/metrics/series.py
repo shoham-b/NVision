@@ -67,6 +67,25 @@ def effective_convergence_threshold(
     return None
 
 
+def _resolve_series_param(run_result: RunResult, param: str) -> str:
+    """Fall back to the model's splitting parameter when ``param`` isn't actually free.
+
+    ``frequency`` is fixed by default (``NVCenterVoigtModel(with_fixed_frequency=True)``
+    and friends), so it never appears in a snapshot's belief estimates -- the Zeeman/
+    hyperfine split is what's actually being localized in that case. Mirrors
+    ``milestones.default_fc_param``, which the per-repeat metrics already use for the
+    same reason.
+    """
+    try:
+        if param in run_result.snapshots[0].belief.estimates():
+            return param
+    except Exception:
+        pass
+    from nvision.metrics.milestones import default_fc_param
+
+    return default_fc_param(run_result)
+
+
 def extract_step_series(
     run_result: RunResult | None,
     param: str = "frequency",
@@ -75,6 +94,7 @@ def extract_step_series(
     """Build the compact per-step series for one run, or None when unavailable."""
     if run_result is None or not run_result.snapshots:
         return None
+    param = _resolve_series_param(run_result, param)
     try:
         true_value = float(run_result.true_signal.get_param_value(param))
     except Exception:

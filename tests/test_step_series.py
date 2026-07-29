@@ -104,6 +104,81 @@ def test_extract_step_series_handles_empty_run():
     assert extract_step_series(None) is None
 
 
+class MockZeemanSignalModel(SignalModel):
+    """A signal model where 'frequency' is fixed and 'zeeman_split' is the free parameter."""
+
+    @property
+    def spec(self):
+        return BasicParamSpec(names=["zeeman_split"], bounds={"zeeman_split": (0.0, 1.0)})
+
+    def parameter_names(self):
+        return ["zeeman_split"]
+
+    def compute(self, x, params):
+        return 1.0
+
+    def compute_from_params(self, x, params):
+        return 1.0
+
+    def compute_vectorized_samples(self, x, samples):
+        return np.ones(len(samples))
+
+
+def _make_mock_zeeman_belief(model, est, uncert):
+    class MockBelief(GridMarginalDistribution):
+        def estimates(self):
+            return {"zeeman_split": est}
+
+        def uncertainty(self):
+            return {"zeeman_split": uncert}
+
+        def copy(self):
+            return self
+
+        @property
+        def physical_param_bounds(self):
+            return {"zeeman_split": (0.0, 1.0)}
+
+    param = GridParameter(
+        name="zeeman_split",
+        bounds=(0.0, 1.0),
+        grid=np.linspace(0.0, 1.0, 10),
+        posterior=np.ones(10) / 10,
+    )
+    return MockBelief(model=model, parameters=[param])
+
+
+def _make_fixed_frequency_run(n_steps=10, true_value=0.5):
+    """A run where the belief only tracks 'zeeman_split' -- 'frequency' is fixed."""
+    model = MockZeemanSignalModel()
+    true_signal = TrueSignal(
+        model=model,
+        typed_parameters=(true_value,),
+        bounds={"zeeman_split": (0.0, 1.0)},
+    )
+    snapshots = []
+    for i in range(n_steps):
+        est = true_value + 0.1 / (i + 1)
+        uncert = 0.2 / (i + 1)
+        belief = _make_mock_zeeman_belief(model, est, uncert)
+        obs = Observation(x=0.5, signal_value=1.0, noise_std=0.01)
+        snapshots.append(StepSnapshot(obs=obs, belief=belief, true_signal=true_signal))
+    return RunResult(snapshots=snapshots, true_signal=true_signal)
+
+
+def test_extract_step_series_falls_back_when_frequency_is_fixed():
+    """When 'frequency' isn't a free parameter (belief never estimates it), the
+    series should fall back to the model's splitting parameter instead of
+    silently returning None for every repeat."""
+    run = _make_fixed_frequency_run(n_steps=10)
+    series = extract_step_series(run, param="frequency")
+
+    assert series is not None
+    assert series["s"] == list(range(1, 11))
+    assert len(series["e"]) == 10
+    assert abs(series["e"][0] - 0.1) < 1e-9
+
+
 def test_downsample_indices_short_input_kept_verbatim():
     assert _downsample_indices(5, 80) == [0, 1, 2, 3, 4]
 
