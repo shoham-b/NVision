@@ -122,6 +122,11 @@ jobs:
           ENV_VARS="$ENV_VARS,NVISION_MYSQL_USER=$MYSQL_USER"
           ENV_VARS="$ENV_VARS,NVISION_MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}"
           ENV_VARS="$ENV_VARS,NVISION_MYSQL_DATABASE=$MYSQL_DB"
+          # os.cpu_count() isn't cgroup-aware, so cli/defaults.py's runner autodetect
+          # can size the process pool off the *host's* core count instead of this
+          # container's quota -- pin it explicitly to match --cpu below, or workers
+          # get OOM-killed mid-run (BrokenProcessPool) once memory is oversubscribed.
+          ENV_VARS="$ENV_VARS,NVISION_DEFAULT_RUNNERS=4"
 
           # --shard-index is deliberately NOT passed via --args (a single arg string
           # can't vary per task) -- it resolves from the CLOUD_RUN_TASK_INDEX env var
@@ -129,12 +134,19 @@ jobs:
           # --parallelism belongs here (create/update), not on `execute` -- it's a
           # job-spec property, not a per-execution override. `execute` only accepts
           # --tasks (which can override the task count for a single run).
+          # --cpu/--memory: unset previously, which left the job on Cloud Run's default
+          # 512Mi/1vCPU -- nowhere near enough for NVISION_DEFAULT_RUNNERS worker
+          # processes each importing numpy/scipy/numba, so the kernel OOM-killed a
+          # worker mid-run and broke the whole process pool for that shard.
           if gcloud run jobs describe $JOB_NAME --region $REGION >/dev/null 2>&1; then
             gcloud run jobs update $JOB_NAME \
               --image $IMAGE \
               --region $REGION \
               --tasks $TASKS \
               --parallelism $TASKS \
+              --cpu 4 \
+              --memory 8Gi \
+              --task-timeout 24h \
               --set-env-vars "$ENV_VARS" \
               --max-retries=1
           else
@@ -143,6 +155,9 @@ jobs:
               --region $REGION \
               --tasks $TASKS \
               --parallelism $TASKS \
+              --cpu 4 \
+              --memory 8Gi \
+              --task-timeout 24h \
               --set-env-vars "$ENV_VARS" \
               --max-retries=1
           fi
