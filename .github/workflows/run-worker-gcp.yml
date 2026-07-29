@@ -126,11 +126,15 @@ jobs:
           # --shard-index is deliberately NOT passed via --args (a single arg string
           # can't vary per task) -- it resolves from the CLOUD_RUN_TASK_INDEX env var
           # Cloud Run Jobs injects into each task automatically.
+          # --parallelism belongs here (create/update), not on `execute` -- it's a
+          # job-spec property, not a per-execution override. `execute` only accepts
+          # --tasks (which can override the task count for a single run).
           if gcloud run jobs describe $JOB_NAME --region $REGION >/dev/null 2>&1; then
             gcloud run jobs update $JOB_NAME \
               --image $IMAGE \
               --region $REGION \
               --tasks $TASKS \
+              --parallelism $TASKS \
               --set-env-vars "$ENV_VARS" \
               --max-retries=1
           else
@@ -138,6 +142,7 @@ jobs:
               --image $IMAGE \
               --region $REGION \
               --tasks $TASKS \
+              --parallelism $TASKS \
               --set-env-vars "$ENV_VARS" \
               --max-retries=1
           fi
@@ -149,7 +154,6 @@ jobs:
             --region ${{ env.REGION }} \
             --wait \
             --tasks "$TASKS" \
-            --parallelism "$TASKS" \
             --args="--repeats=${{ github.event.inputs.repeats }},--shard-count=$TASKS"
 
       # Aggregation: with sharded workers, each pod owns its own MySQL table
