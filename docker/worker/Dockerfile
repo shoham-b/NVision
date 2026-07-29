@@ -30,4 +30,4 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY nvision ./nvision
 
-ENTRYPOINT ["sh", "-c", "python -m nvision groups run $RUN_GROUP \"$@\"", "--"]
+ENTRYPOINT ["sh", "-c", "python -m nvision groups run $RUN_GROUP --no-progress \"$@\"", "--"]
