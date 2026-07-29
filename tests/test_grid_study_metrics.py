@@ -155,7 +155,8 @@ def test_target_params_converged_uses_derived_gating():
         "saturation": 0.25,  # raw 1%-of-bound gate would need < 0.2998 — borderline
         "sigma_inhom": 1e3,
         "c_max": 1e-4,
-        "zeeman_split": 1e5,  # 0.1% of 1e8 bound
+        "zeeman_split": 5e4,  # zeeman_split has its own absolute 100 kHz threshold (same as
+        # frequency, see NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD) -- comfortably below it.
     }
     assert _make_locator(unc)._target_params_converged(unc) is True
 
@@ -167,7 +168,7 @@ def test_target_params_converged_fails_on_wide_derived_width():
         "saturation": 0.25,
         "sigma_inhom": 5e5,  # sqrt(2ln2)*5e5 ~ 590 kHz >> 1% of the ~2.1 MHz effective range
         "c_max": 1e-4,
-        "zeeman_split": 1e5,
+        "zeeman_split": 5e4,
     }
     assert _make_locator(unc)._target_params_converged(unc) is False
 
