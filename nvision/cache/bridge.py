@@ -36,13 +36,23 @@ class CacheBridge:
         Iterates both DB backends and returns one dict per streaming pointer entry,
         with ``repeats`` set to the achieved count. Used by _restore_missing_graphs
         to restore graph files from cache without knowing the original run params.
+
+        Pointer rows are bare hashes; every repeat payload and its ``:meta``
+        sidecar are always keyed ``repeat:...`` (see
+        ``RepeatsRepository.make_repeat_key``). Filtering those out client-side
+        before fetching means one key-listing query plus one batched IN(...)
+        fetch per store, instead of one network round-trip per row in the
+        entire cache table (under MySQL, that's every repeat across every
+        shard -- the dominant cost of building /api/manifest).
         """
         results: list[dict[str, Any]] = []
         stores = [self.nv_center, self.complementary]
         for store in stores:
-            for key in store.backend:
+            backend = store.backend
+            candidate_keys = [k for k in backend if not k.startswith("repeat:")]
+            payloads = backend.batch_get(candidate_keys)
+            for payload in payloads.values():
                 try:
-                    payload = store.backend.get(key)
                     if not isinstance(payload, dict):
                         continue
                     config = payload.get("config")

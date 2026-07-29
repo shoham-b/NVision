@@ -30,4 +30,13 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY nvision ./nvision
 
+# Warm the numba `@njit(cache=True)` on-disk cache into this image layer. Cloud
+# Run Job tasks start from a cold container every execution, so without this
+# every shard pays the full JIT-compile cost for the lorentzian/voigt EIG
+# kernels on its first step. --dry-run still runs the real locator pipeline
+# (only cache writes/disk artifacts are skipped), so this exercises the actual
+# njit call sites with tiny, cheap inputs (1 repeat, 1 runner).
+RUN nv run-single NVCenter-lorentzian "Gauss(0.01)" Bayesian-SBED --repeats 1 --runners 1 --dry-run --no-progress \
+    && nv run-single NVCenter-voigt "Gauss(0.01)" Bayesian-SBED --repeats 1 --runners 1 --dry-run --no-progress
+
 ENTRYPOINT ["sh", "-c", "python -m nvision groups run $RUN_GROUP --no-progress \"$@\"", "--"]

@@ -32,7 +32,7 @@ on:
       max_shards:
         description: "Cap on the number of parallel Cloud Run Job tasks (shards)"
         required: true
-        default: "20"
+        default: "100"
         type: string
       gcp_bucket:
         description: "GCP bucket"
@@ -126,7 +126,12 @@ jobs:
           # can size the process pool off the *host's* core count instead of this
           # container's quota -- pin it explicitly to match --cpu below, or workers
           # get OOM-killed mid-run (BrokenProcessPool) once memory is oversubscribed.
-          ENV_VARS="$ENV_VARS,NVISION_DEFAULT_RUNNERS=4"
+          # Set equal to --cpu (not lower) so run.py's _thread_budget hands every
+          # core to a process rather than a numba thread: tasks are independent
+          # (near-linear process scaling) while numba's parallel=True kernels run
+          # over ~1k-particle arrays where fork/join barrier overhead eats most of
+          # the benefit of extra threads per process.
+          ENV_VARS="$ENV_VARS,NVISION_DEFAULT_RUNNERS=8"
 
           # --shard-index is deliberately NOT passed via --args (a single arg string
           # can't vary per task) -- it resolves from the CLOUD_RUN_TASK_INDEX env var
@@ -144,8 +149,8 @@ jobs:
               --region $REGION \
               --tasks $TASKS \
               --parallelism $TASKS \
-              --cpu 4 \
-              --memory 8Gi \
+              --cpu 8 \
+              --memory 16Gi \
               --task-timeout 24h \
               --set-env-vars "$ENV_VARS" \
               --max-retries=1
@@ -155,8 +160,8 @@ jobs:
               --region $REGION \
               --tasks $TASKS \
               --parallelism $TASKS \
-              --cpu 4 \
-              --memory 8Gi \
+              --cpu 8 \
+              --memory 16Gi \
               --task-timeout 24h \
               --set-env-vars "$ENV_VARS" \
               --max-retries=1
