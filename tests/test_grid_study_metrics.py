@@ -155,7 +155,7 @@ def test_target_params_converged_uses_derived_gating():
         "saturation": 0.25,  # raw 1%-of-bound gate would need < 0.2998 — borderline
         "sigma_inhom": 1e3,
         "c_max": 1e-4,
-        "zeeman_split": 1e5,  # 0.1% of 1e8 bound
+        "zeeman_split": 5e4,  # << 100 kHz absolute threshold (NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD)
     }
     assert _make_locator(unc)._target_params_converged(unc) is True
 
