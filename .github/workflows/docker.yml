@@ -78,7 +78,15 @@ jobs:
 
       - name: Smoke test container (PRs)
         if: github.event_name != 'push' && matrix.image == 'worker'
-        run: docker run --rm -e RUN_GROUP=all "$IMAGE" --repeats 1
+        # Overrides the default `groups run $RUN_GROUP` entrypoint: every registered
+        # run group is 150+ combinations, too heavy for a smoke test, and RUN_GROUP=all
+        # was never a valid group name anyway. --dry-run exercises the CLI/locator
+        # pipeline end-to-end (no cache writes, no DB backend needed) in seconds --
+        # same cheap-verification pattern as the project's nvision-cli skill.
+        run: >
+          docker run --rm --entrypoint nv "$IMAGE"
+          run-single NVCenter-lorentzian "Gauss(0.01)" Bayesian-SBED
+          --repeats 1 --runners 1 --dry-run
         env:
           IMAGE: ${{ steps.pick.outputs.tag }}
 
