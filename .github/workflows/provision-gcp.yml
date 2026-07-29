@@ -46,6 +46,14 @@ jobs:
 
       - name: Create Cloud SQL instance (idempotent)
         run: |
+          # --ssl-mode=ENCRYPTED_ONLY requires TLS but not a client certificate --
+          # the older --require-ssl flag instead sets TRUSTED_CLIENT_CERTIFICATE_REQUIRED
+          # (mutual TLS), which only the Cloud SQL Auth Proxy satisfies easily. We're
+          # doing plain public-IP + password + TLS, so ENCRYPTED_ONLY is what we want.
+          #
+          # --authorized-networks=0.0.0.0/0: GitHub-hosted runners use a large,
+          # unpredictable IP range, so there's no practical allowlist -- required-TLS
+          # + the password are the actual security boundary here, not network ACLs.
           if gcloud sql instances describe "$MYSQL_INSTANCE" --project "${{ env.PROJECT_ID }}" >/dev/null 2>&1; then
             echo "Instance $MYSQL_INSTANCE already exists -- skipping creation."
           else
@@ -54,7 +62,8 @@ jobs:
               --region "${{ env.REGION }}" \
               --tier "${{ github.event.inputs.tier }}" \
               --root-password "${{ secrets.MYSQL_PASSWORD }}" \
-              --require-ssl
+              --ssl-mode=ENCRYPTED_ONLY \
+              --authorized-networks=0.0.0.0/0
           fi
 
       - name: Create database (idempotent)
