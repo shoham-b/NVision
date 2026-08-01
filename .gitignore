@@ -118,6 +118,9 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...but not the checked-in graph-def templates the API server reads at runtime.
+!/static/graphs/
+!/static/graphs/*.json
 /.hypothesis/
 
 .gemini/

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75,
+    "nbinsx": 15
+  },
+  "layout": {
+    "paper_bgcolor": "white",
+    "plot_bgcolor": "#E5ECF6",
+    "barmode": "overlay",
+    "legend": {
+      "orientation": "h",
+      "yanchor": "bottom",
+      "y": 1.02,
+      "xanchor": "right",
+      "x": 1
+    }
+  }
+}
