@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box",
+    "boxpoints": "outliers",
+    "boxmean": true,
+    "marker": { "color": "#4C78A8" }
+  },
+  "layout": {
+    "template": "plotly_white",
+    "showlegend": false,
+    "margin": { "t": 90 }
+  }
+}

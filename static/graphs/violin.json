@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "points": "outliers",
+    "box": { "visible": true },
+    "meanline": { "visible": true },
+    "line": { "color": "#4C78A8" }
+  },
+  "layout": {
+    "template": "plotly_white",
+    "showlegend": false,
+    "margin": { "t": 90 }
+  }
+}
