@@ -48,7 +48,7 @@ def generate_attempt_metrics(  # noqa: C901
     tuple
         ``(entry_base, main_result_row, current_history_df)``
     """
-    from nvision.metrics.milestones import calculate_zeeman_metrics
+    from nvision.metrics.milestones import calculate_zeeman_metrics, resolve_primary_param
 
     if not final_history_df.is_empty():
         current_history_df = final_history_df.filter(pl.col("repeat_id") == attempt_idx_in_combo).drop("repeat_id")
@@ -110,7 +110,8 @@ def generate_attempt_metrics(  # noqa: C901
 
     # Milestone metrics
     if run_result:
-        milestone_data = calculate_zeeman_metrics(run_result)
+        primary_param = resolve_primary_param(run_result.true_signal.parameter_values().keys()) or "frequency"
+        milestone_data = calculate_zeeman_metrics(run_result, fb_param=primary_param)
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
 
@@ -153,14 +154,14 @@ def generate_attempt_metrics(  # noqa: C901
             if val is not None:
                 sobol_freq_err_at_conv = float(val)
 
-    freq_converged_step: int | None = None
+    splitting_converged_step: int | None = None
     all_converged_step: int | None = None
     theory_step_budget: int | None = None
     if not finalize_row.is_empty():
-        if "freq_converged_step" in finalize_row.columns:
-            val = finalize_row.get_column("freq_converged_step")[0]
+        if "splitting_converged_step" in finalize_row.columns:
+            val = finalize_row.get_column("splitting_converged_step")[0]
             if val is not None:
-                freq_converged_step = int(val)
+                splitting_converged_step = int(val)
         if "all_converged_step" in finalize_row.columns:
             val = finalize_row.get_column("all_converged_step")[0]
             if val is not None:
@@ -177,7 +178,7 @@ def generate_attempt_metrics(  # noqa: C901
             is_converged = bool(val)
 
     _stop_reason = repeat_stop_reasons[attempt_idx_in_combo]
-    if freq_converged_step is not None or is_converged:
+    if splitting_converged_step is not None or is_converged:
         failure_reason: str | None = None
     elif strat_name in (
         "SimpleSweep",
@@ -279,10 +280,10 @@ def generate_attempt_metrics(  # noqa: C901
     # Convergence step milestones — pre-existing gap: these were computed above and
     # forwarded to entry_base (plot-manifest rows) but never to main_result_row, so
     # locator_results.csv never had them and every summary plot that checks for
-    # "freq_converged_step"/"all_converged_step" (plot_experiment_summary,
+    # "splitting_converged_step"/"all_converged_step" (plot_experiment_summary,
     # plot_savings_vs_span_per_noise, plot_model_comparisons, plot_grid_study) was
     # silently skipping that metric.
-    metrics_serialized["freq_converged_step"] = freq_converged_step
+    metrics_serialized["splitting_converged_step"] = splitting_converged_step
     metrics_serialized["all_converged_step"] = all_converged_step
     metrics_serialized["theory_step_budget"] = theory_step_budget
 
@@ -323,7 +324,7 @@ def generate_attempt_metrics(  # noqa: C901
         "steps_to_fb": metrics_serialized.get("steps_to_fb"),
         "err_fb_at_milestone": metrics_serialized.get("err_fb_at_milestone"),
         "uncert_fb_at_milestone": metrics_serialized.get("uncert_fb_at_milestone"),
-        "freq_converged_step": freq_converged_step,
+        "splitting_converged_step": splitting_converged_step,
         "all_converged_step": all_converged_step,
         "theory_step_budget": theory_step_budget,
         "failure_reason": failure_reason,

@@ -1102,13 +1102,13 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         #   done = unc < convergence threshold
         #
         # Stop conditions:
-        #   all_converged_step  : ALL checked params are done (abs or crlb)
-        #   freq_converged_step : frequency is done (abs or crlb)
-        #   _is_converged       : ALL checked params hit strict CRLB floor
+        #   all_converged_step       : ALL checked params are done (abs or crlb)
+        #   splitting_converged_step : self._primary_param is done (abs or crlb)
+        #   _is_converged             : ALL checked params hit strict CRLB floor
         checked = 0
         all_crlb_done = True
         all_milestone_done = True
-        freq_milestone_done = False
+        splitting_milestone_done = False
 
         for name, unc, crlb_scaled in eval_items:
             # 1. CRLB check
@@ -1134,8 +1134,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             if not (crlb_done or abs_done):
                 all_milestone_done = False
 
-            if name == "frequency" and (crlb_done or abs_done):
-                freq_milestone_done = True
+            if name == self._primary_param and (crlb_done or abs_done):
+                splitting_milestone_done = True
 
         if checked == 0:
             return
@@ -1156,8 +1156,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         else:
             self._crlb_convergence_streak = 0
 
-        if freq_milestone_done and self.freq_converged_step is None:
-            self.freq_converged_step = self.step_count
+        if splitting_milestone_done and self.splitting_converged_step is None:
+            self.splitting_converged_step = self.step_count
 
         if all_milestone_done and self.all_converged_step is None:
             self.all_converged_step = self.step_count

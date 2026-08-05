@@ -418,7 +418,7 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
     reads it directly and inconsistently: most call sites check the top-level
     field first and fall back to ``plot.metrics.X`` (safe either way), but at
     least one (``getStoppingFrameLimit`` in app.js) reads ``currentPlot.metrics
-    .freq_converged_step`` with no top-level fallback at all. A prior version
+    .splitting_converged_step`` with no top-level fallback at all. A prior version
     of this function dropped ``metrics`` wholesale (silently blanking
     measurements/duration/efficiency cards); deduplicating it against
     top-level fields is tempting but wrong for the same reason — it would
@@ -442,14 +442,39 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
             continue
         out[k] = v
 
+    # Zeeman-split generators never populate top-level abs_err_x --
+    # _truth_positions() (nvision/runner/metrics.py) only matches parameter
+    # names containing "frequency"/"position", so a fixed-frequency Zeeman
+    # signal (whose free parameter is named "zeeman_split") is treated as a
+    # single-truth-position case with no matching x_hat-style estimate key,
+    # and abs_err_x/abs_err_x1/abs_err_x2/pair_rmse all stay None. The real,
+    # populated final-state error for these runs is final_err_fc (final
+    # splitting error) from calculate_zeeman_metrics (nvision/metrics/
+    # milestones.py), nested under entry["metrics"]. Promote it (and
+    # pair_rmse, for any future generator where that branch does fire) to
+    # top-level fields here so they survive the API server's bulk-manifest
+    # stripping of "metrics" and the frontend can fall back without a
+    # per-repeat round-trip.
+    metrics = out.get("metrics")
+    if isinstance(metrics, dict):
+        if out.get("final_err_fc") is None and metrics.get("final_err_fc") is not None:
+            out["final_err_fc"] = metrics["final_err_fc"]
+        if out.get("pair_rmse") is None and metrics.get("pair_rmse") is not None:
+            out["pair_rmse"] = metrics["pair_rmse"]
+
     return out
 
 
 def write_plots_manifest(plot_manifest: list[dict[str, object]], out_dir: Path) -> Path:
     import gzip as _gzip
 
+    from nvision.tools.json_sanitize import sanitize_non_finite
+
     path = plots_manifest_path(out_dir)
-    stripped = [_slim_manifest_entry(e) for e in plot_manifest]
+    # Unconverged fits legitimately carry math.nan/math.inf (see
+    # nvision/runner/metrics.py) -- json.dumps's default emits those as bare
+    # NaN/Infinity tokens, which browsers' JSON.parse rejects outright.
+    stripped = [sanitize_non_finite(_slim_manifest_entry(e)) for e in plot_manifest]
     json_bytes = json.dumps(stripped, separators=(",", ":")).encode("utf-8")
     _atomic_write_bytes(path, json_bytes)
     # Also write a compressed version for fast network transfer
@@ -527,6 +552,72 @@ def purge_artifacts_for_combination(
             log.warning("Failed to update plots_manifest.json during cache purge: %s", exc)
 
 
+def purge_artifacts_for_combinations(
+    out_dir: Path,
+    combos: list[tuple[str, str, str, int | None, int | None]],
+    log: logging.Logger,
+) -> None:
+    """Batched sibling of :func:`purge_artifacts_for_combination`.
+
+    Takes many ``(generator, noise, strategy, max_steps, seed)`` tuples and does exactly
+    one directory pass over the graph dirs and one read/rewrite of ``plots_manifest.json``
+    for all of them, instead of one pass per combo. Calling
+    :func:`purge_artifacts_for_combination` once per combo makes every deletion
+    ``O(len(combos) x artifact-dir-size)`` (each call re-lists the graph directories and
+    re-reads/rewrites the whole manifest), which dominates when cleaning hundreds of
+    combinations -- see the ``nvision-run-monitoring`` skill's purge/cleanup-at-scale note.
+    """
+    if not combos:
+        return
+
+    from nvision.tools.paths import slugify
+
+    prefixes = tuple(f"{'_'.join(slugify(p) for p in combo[:3])}_r" for combo in combos)
+    for directory in (out_dir / "graphs" / "scans", out_dir / "graphs" / "bayes"):
+        if not directory.exists():
+            continue
+        for p in directory.iterdir():
+            if p.is_file() and p.name.startswith(prefixes):
+                try:
+                    p.unlink()
+                    log.debug("Purged old artifact graph: %s", p.name)
+                except Exception as exc:
+                    log.warning("Failed to delete old artifact graph %s: %s", p.name, exc)
+
+    manifest_path = plots_manifest_path(out_dir)
+    if not manifest_path.exists():
+        return
+    try:
+        with manifest_path.open("r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        def _matches(entry: dict[str, object]) -> bool:
+            g, n, s = entry.get("generator"), entry.get("noise"), entry.get("strategy")
+            ms, sd = entry.get("max_steps"), entry.get("seed")
+            for generator, noise, strategy, max_steps, seed in combos:
+                if (
+                    str(g) == str(generator)
+                    and str(n) == str(noise)
+                    and str(s) == str(strategy)
+                    and (ms is None or max_steps is None or int(ms) == int(max_steps))
+                    and (sd is None or seed is None or int(sd) == int(seed))
+                ):
+                    return True
+            return False
+
+        new_manifest = [e for e in manifest if not _matches(e)]
+        removed_count = len(manifest) - len(new_manifest)
+        if removed_count > 0:
+            _atomic_write_bytes(manifest_path, json.dumps(new_manifest, indent=2).encode("utf-8"))
+            log.debug(
+                "Removed %s entries from plots_manifest.json for %s combination(s)",
+                removed_count,
+                len(combos),
+            )
+    except Exception as exc:
+        log.warning("Failed to update plots_manifest.json during batch cache purge: %s", exc)
+
+
 def purge_cache_and_artifacts_for_combinations(
     out_dir: Path,
     combos: set[tuple[str, str, str]],
@@ -569,13 +660,19 @@ def purge_cache_and_artifacts_for_combinations(
                 if (cfg.get("generator"), cfg.get("noise"), cfg.get("strategy")) in combos:
                     matched_keys.append(k)
 
+            # Batch every pointer key plus its speculative repeat/meta keys into one
+            # delete_many() call instead of looping delete() -- each delete() commits
+            # (fsyncs) individually, which is O(len(matched_keys) x 2000) wasted commits
+            # against a filter that mostly probes nonexistent repeat indices.
+            all_keys: list[str] = []
             for k in matched_keys:
-                backend.delete(k)
+                all_keys.append(k)
                 for i in range(1000):
                     rep_key = RepeatsRepository.make_repeat_key(k, i)
-                    backend.delete(rep_key)
-                    backend.delete(rep_key + ":meta")
-                deleted_pointers += 1
+                    all_keys.append(rep_key)
+                    all_keys.append(rep_key + ":meta")
+            backend.delete_many(all_keys)
+            deleted_pointers += len(matched_keys)
     finally:
         bridge.close()
 
@@ -665,13 +762,18 @@ def purge_cache_and_artifacts_for_strategies(
                 matched_keys.append(k)
                 matched_combos.add((str(cfg.get("generator")), str(cfg.get("noise")), str(cfg.get("strategy"))))
 
+            # Batch every pointer key plus its speculative repeat/meta keys into one
+            # delete_many() call instead of looping delete() -- see
+            # purge_cache_and_artifacts_for_combinations for why the per-key loop is slow.
+            all_keys: list[str] = []
             for k in matched_keys:
-                backend.delete(k)
+                all_keys.append(k)
                 for i in range(1000):
                     rep_key = RepeatsRepository.make_repeat_key(k, i)
-                    backend.delete(rep_key)
-                    backend.delete(rep_key + ":meta")
-                deleted_pointers += 1
+                    all_keys.append(rep_key)
+                    all_keys.append(rep_key + ":meta")
+            backend.delete_many(all_keys)
+            deleted_pointers += len(matched_keys)
     finally:
         bridge.close()
 

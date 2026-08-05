@@ -187,10 +187,10 @@ def matlab_run(
 
     # --- Final report ---
     typer.echo("")
-    if locator.freq_converged_step is not None:
-        typer.echo(f"Frequency converged at step {locator.freq_converged_step}.")
+    if locator.splitting_converged_step is not None:
+        typer.echo(f"Converged at step {locator.splitting_converged_step}.")
     else:
-        typer.echo("Frequency did not converge within the step budget.")
+        typer.echo("Did not converge within the step budget.")
 
     if locator.all_converged_step is not None:
         typer.echo(f"All parameters converged at step {locator.all_converged_step}.")
@@ -234,7 +234,7 @@ def matlab_run(
             "noise_std": data.noise_std,
             "max_steps": max_steps,
             "total_steps": locator.step_count,
-            "freq_converged_step": locator.freq_converged_step,
+            "splitting_converged_step": locator.splitting_converged_step,
             "all_converged_step": locator.all_converged_step,
             "elapsed_s": round(elapsed, 2),
             "estimates": {k: float(v) for k, v in final_est.items()},
@@ -307,13 +307,13 @@ def _write_artifacts(
 
     locator_result = locator.result()
     finalize_record = run_result_to_finalize_record(run_result, locator_result, repeat_id, freq_lo, freq_hi)
-    finalize_record["freq_converged_step"] = locator.freq_converged_step
+    finalize_record["splitting_converged_step"] = locator.splitting_converged_step
     finalize_record["all_converged_step"] = locator.all_converged_step
     finalize_record["locator_steps"] = locator.step_count
     finalize_record["duration_ms"] = elapsed * 1000
     finalize_df = pl.DataFrame([finalize_record])
 
-    stop_reason = "converged" if locator.freq_converged_step is not None else "max_steps"
+    stop_reason = "converged" if locator.splitting_converged_step is not None else "max_steps"
 
     entry_base, main_result_row, current_history_df = generate_attempt_metrics(
         n_repeats=1,

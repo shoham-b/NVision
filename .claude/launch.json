@@ -24,6 +24,12 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18084", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\7a07601d-f9dd-4669-b900-99af84e3f67e\\scratchpad\\verify_serve_dir"],
       "port": 18084
+    },
+    {
+      "name": "nvision-serve-nan-repro",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18085", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\3be03e73-8b7c-4ece-b60c-fae0709f7bb0\\scratchpad\\repro_artifacts"],
+      "port": 18085
     }
   ]
 }

@@ -34,11 +34,6 @@ on:
         required: true
         default: "100"
         type: string
-      gcp_bucket:
-        description: "GCP bucket"
-        required: true
-        default: "nvision-artifacts-shoha"
-        type: string
 
 env:
   PROJECT_ID: nvision-lab
@@ -114,8 +109,6 @@ jobs:
           TASKS="${{ steps.shard_count.outputs.count }}"
 
           ENV_VARS="RUN_GROUP=${{ github.event.inputs.run_group }}"
-          ENV_VARS="$ENV_VARS,NVISION_GCP=False" # per-shard upload would race on the shared manifest; a single aggregation step uploads once at the end
-          ENV_VARS="$ENV_VARS,NVISION_GCP_BUCKET=${{ github.event.inputs.gcp_bucket }}"
           ENV_VARS="$ENV_VARS,NVISION_CACHE_BACKEND=mysql"
           ENV_VARS="$ENV_VARS,NVISION_MYSQL_HOST=${{ steps.mysql_host.outputs.host }}"
           ENV_VARS="$ENV_VARS,NVISION_MYSQL_PORT=$MYSQL_PORT"
@@ -176,23 +169,5 @@ jobs:
             --tasks "$TASKS" \
             --args="--repeats=${{ github.event.inputs.repeats }},--shard-count=$TASKS"
 
-      # Aggregation: with sharded workers, each pod owns its own MySQL table
-      # (see nvision/cache/mysql.py) and never uploads to GCS itself. This single
-      # step reads the shared cache in its default read-aggregate mode (fans out
-      # across every shard's table) and does the one, race-free upload.
-      - name: Aggregate results and upload to GCS
-        run: |
-          IMAGE="us-docker.pkg.dev/${{ env.PROJECT_ID }}/nvision/worker:${{ github.sha }}"
-          # `nv render` (no filters) picks up everything currently in the cache --
-          # in aggregate read mode (no shard_suffix) that's the union of every
-          # shard's table, so this one call covers the whole sharded run.
-          docker run --rm --entrypoint nv \
-            -e NVISION_CACHE_BACKEND=mysql \
-            -e NVISION_MYSQL_HOST="${{ steps.mysql_host.outputs.host }}" \
-            -e NVISION_MYSQL_PORT="$MYSQL_PORT" \
-            -e NVISION_MYSQL_USER="$MYSQL_USER" \
-            -e NVISION_MYSQL_PASSWORD="${{ secrets.MYSQL_PASSWORD }}" \
-            -e NVISION_MYSQL_DATABASE="$MYSQL_DB" \
-            -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json \
-            -v "${{ steps.auth.outputs.credentials_file_path }}:/tmp/gcp-key.json:ro" \
-            "$IMAGE" render --gcp --gcp-bucket "${{ github.event.inputs.gcp_bucket }}"
+      # Results are viewable immediately via `nv serve` against the shared
+      # MySQL cache (see docker/serve/Dockerfile) -- no export/upload step needed.

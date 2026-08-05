@@ -272,7 +272,7 @@ def _grid_rows():
                             "grid_saturation": s,
                             "grid_sigma_inhom": si,
                             "noise_sigma": ns,
-                            "freq_converged_step": (40 + rep * 10) if converged else None,
+                            "splitting_converged_step": (40 + rep * 10) if converged else None,
                             "failure_reason": None
                             if converged
                             else ("infeasible_crlb" if infeasible_cell else "max_steps"),
@@ -341,7 +341,7 @@ def test_grid_study_noop_without_grid_columns(tmp_path: Path):
             "generator": ["NVCenter-lorentzian"],
             "noise": ["Gauss(0.01)"],
             "strategy": ["SimpleSweep"],
-            "freq_converged_step": [10],
+            "splitting_converged_step": [10],
         }
     )
     assert Viz(tmp_path).plot_grid_study(df) == []

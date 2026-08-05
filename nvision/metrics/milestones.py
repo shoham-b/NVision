@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from typing import Any
 
 from nvision.models.observer import RunResult
@@ -57,6 +58,25 @@ def default_fc_param(run_result: RunResult) -> str:
     except Exception:
         return "split"
     return "zeeman_split" if "zeeman_split" in params else "split"
+
+
+_PRIMARY_PARAM_PREFERENCE = ("zeeman_split", "split", "frequency")
+
+
+def resolve_primary_param(available_params: Iterable[str]) -> str | None:
+    """The parameter whose convergence defines the locator's primary milestone.
+
+    Prefers the model's splitting parameter (the actual free/scientific-interest
+    quantity once frequency is fixed by default -- see ``with_fixed_frequency`` in
+    nvision/spectra/nv_center.py), falling back to ``"frequency"`` itself for legacy
+    free-frequency configurations. ``None`` if the model has neither (milestone
+    tracking stays permanently unset, matching historical behavior for such models).
+    """
+    available = set(available_params)
+    for candidate in _PRIMARY_PARAM_PREFERENCE:
+        if candidate in available:
+            return candidate
+    return None
 
 
 def extract_milestone_metrics(

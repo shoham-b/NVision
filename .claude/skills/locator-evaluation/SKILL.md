@@ -9,14 +9,18 @@ These rules came out of repeated debugging of "why does locator X look better th
 several looked-plausible comparisons turned out to be artifacts of measurement, not real
 performance differences. Read this before building or interpreting any comparison.
 
-## The one metric that matters: frequency convergence
+## The one metric that matters: splitting convergence
 
-The deliverable of every experiment is a precise **frequency** estimate. `freq_converged_step`
-is the primary axis everywhere. "Full convergence" (`all_converged_step`, all parameters) and
-"full run" are **not co-equal goals** — they exist only to verify the frequency milestone can be
-trusted (that stopping early didn't sacrifice the answer, and the frequency estimate doesn't
-drift once everything else converges). When in doubt about which metric to default to or plot,
-prefer `freq_converged` over `full`.
+The deliverable of every experiment is a precise **Zeeman splitting** estimate — frequency
+itself is fixed by default (`with_fixed_frequency=True`, see `nvision/spectra/nv_center.py`),
+so it's a known instrument constant, not something being measured. `splitting_converged_step`
+is the primary axis everywhere (renamed 2026-07-31 from `freq_converged_step`, which checked
+the now-fixed `frequency` parameter and was therefore permanently null for every real generator
+in this project — see the historical-traps entry below). "Full convergence" (`all_converged_step`,
+all parameters) and "full run" are **not co-equal goals** — they exist only to verify the
+splitting milestone can be trusted (that stopping early didn't sacrifice the answer, and the
+splitting estimate doesn't drift once everything else converges). When in doubt about which
+metric to default to or plot, prefer `splitting_converged` over `full`.
 
 ## Fair-comparison rules
 
@@ -25,13 +29,13 @@ a question nobody asked:
 
 1. **Quality at matched budget** — full run vs full run. Use anytime error-vs-steps curves
    (median + IQR) so the specific step budget chosen doesn't bias the result.
-2. **Cost at matched promise** — `freq_converged` vs `freq_converged` at the *same* threshold.
-   Use survival curves, not mean steps-to-converge — averaging only over converged repeats has
-   survivorship bias (repeats that never converge are silently dropped from the mean).
+2. **Cost at matched promise** — `splitting_converged` vs `splitting_converged` at the *same*
+   threshold. Use survival curves, not mean steps-to-converge — averaging only over converged
+   repeats has survivorship bias (repeats that never converge are silently dropped from the mean).
 
 **Never mix criteria**: comparing strategy X's full-run quality against strategy Y's
-freq-converged cost answers neither question. If a UI selector or analysis lets you pick these
-independently, that's a bug, not a feature.
+splitting-converged cost answers neither question. If a UI selector or analysis lets you pick
+these independently, that's a bug, not a feature.
 
 **SimpleSweep is a valid baseline only for quality, never for its own steps-to-converge.** Its
 "convergence step" reflects where the dip happens to sit in a fixed scan order, not search
@@ -123,3 +127,16 @@ these symptoms, don't trust it without regenerating from a run made after the fi
   subsampling), though acquisition *decisions* rank identically. If you need to rule this out as
   a source of a comparison discrepancy, set `NVISION_SMC_EIG_CACHE=0` to A/B against the fused
   path.
+- **`freq_converged_step` was permanently null for every real generator (fixed 2026-07-31)**: it
+  checked `"frequency"`'s belief uncertainty, but frequency is fixed by default
+  (`with_fixed_frequency=True`) and therefore never appears in `belief.uncertainty()` — so the
+  milestone could never fire. `zeeman_split` (the actual free/scientific-interest parameter) was
+  never checked. Renamed to `splitting_converged_step` and repointed to the model's real primary
+  parameter via `resolve_primary_param()` (`nvision/metrics/milestones.py`), applied to both the
+  locator's own milestone tracking (`sequential_bayesian_locator.py`, `sbed_locator.py`'s CRLB
+  early-stop) and the post-hoc `steps_to_fb`/`err_fb_at_milestone` metrics
+  (`calculate_zeeman_metrics`). Every "Freq. converged" plot, comparison, or artifact generated
+  before this fix used a permanently-empty milestone (`abs_err_x` was similarly always null for
+  the same underlying reason — the frontend now falls back to `final_err_fc`/`pair_rmse`, but
+  historical cache data predating this fix has neither field populated). Regenerate from a run
+  made after the fix date before trusting any splitting-convergence-based comparison.

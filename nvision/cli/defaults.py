@@ -51,10 +51,6 @@ DEFAULT_OUT: str | None = os.getenv("NVISION_DEFAULT_OUT", None)
 DEFAULT_LOGS_ROOT: str | None = os.getenv("NVISION_DEFAULT_LOGS_ROOT", None)
 DEFAULT_LOG_LEVEL: str = os.getenv("NVISION_DEFAULT_LOG_LEVEL", "INFO")
 
-# GCP Integration
-DEFAULT_GCP: bool = os.getenv("NVISION_GCP", "False").lower() in ("true", "1", "yes")
-DEFAULT_GCP_BUCKET: str | None = os.getenv("NVISION_GCP_BUCKET", None)
-
 # Demo & Beta Specific
 DEMO_REPEATS: int = int(os.getenv("NVISION_DEMO_REPEATS", "3"))
 DEMO_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEMO_LOC_MAX_STEPS", "60"))

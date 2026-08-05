@@ -33,8 +33,6 @@ def run_single(
     runners: cli_options.RunnersOption = 1,
     no_progress: cli_options.NoProgressOption = False,
     open_browser: cli_options.OpenBrowserOption = False,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> int:
     """Run a single (generator, noise, strategy) combination.
 
@@ -60,8 +58,6 @@ def run_single(
         runners=runners,
         no_progress=no_progress,
         open_browser=open_browser,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
     )
 
 
@@ -77,8 +73,6 @@ def _run_named_group(
     open_browser: bool = False,
     loc_timeout_s: int = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: bool = False,
-    gcp: bool = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: str | None = cli_defaults.DEFAULT_GCP_BUCKET,
     retry_failed: bool = False,
     shard_index: int | None = None,
     shard_count: int | None = None,
@@ -98,8 +92,6 @@ def _run_named_group(
         all_experiments=all_experiments,
         runners=runners,
         open_browser=open_browser,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
         shard_index=shard_index,
         shard_count=shard_count,
@@ -180,8 +172,6 @@ def run_preset(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -200,8 +190,6 @@ def run_preset(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
         shard_index=shard_index,
         shard_count=shard_count,
@@ -220,8 +208,6 @@ def run_all(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
 ) -> int:
@@ -236,8 +222,6 @@ def run_all(
         dry_run=dry_run,
         runners=runners,
         open_browser=open_browser,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         no_progress=no_progress,
         retry_failed=retry_failed,
     )
@@ -254,8 +238,6 @@ def lorentzian_sbed(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -271,8 +253,6 @@ def lorentzian_sbed(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -285,8 +265,6 @@ def lorentzian_sweep_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -302,8 +280,6 @@ def lorentzian_sweep_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -316,8 +292,6 @@ def lorentzian_sbed_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -333,8 +307,6 @@ def lorentzian_sbed_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -347,8 +319,6 @@ def voigt_sbed(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -364,8 +334,6 @@ def voigt_sbed(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -378,8 +346,6 @@ def voigt_sweep_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -395,8 +361,6 @@ def voigt_sweep_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -409,8 +373,6 @@ def voigt_sbed_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -426,8 +388,6 @@ def voigt_sbed_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -440,8 +400,6 @@ def lorentzian_plain_sbed(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -457,8 +415,6 @@ def lorentzian_plain_sbed(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -471,8 +427,6 @@ def lorentzian_plain_sweep_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -488,8 +442,6 @@ def lorentzian_plain_sweep_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -502,8 +454,6 @@ def lorentzian_plain_sbed_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -519,8 +469,6 @@ def lorentzian_plain_sbed_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -533,8 +481,6 @@ def both_sbed(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -553,8 +499,6 @@ def both_sbed(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -567,8 +511,6 @@ def both_sweep_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -587,8 +529,6 @@ def both_sweep_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )
 
@@ -601,8 +541,6 @@ def both_sbed_only(
     dry_run: cli_options.DryRunOption = False,
     runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
@@ -621,7 +559,5 @@ def both_sbed_only(
         open_browser=open_browser,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
         retry_failed=retry_failed,
     )

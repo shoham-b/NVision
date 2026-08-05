@@ -1,7 +1,7 @@
 """Cache-wide reconstruction of the flat locator-results table for aggregate views.
 
 Rebuilds the same row shape ``nv render`` writes to ``locator_results.csv`` — one row
-per repeat, flat scalar columns (``abs_err_x``, ``freq_converged_step``, ...) — directly
+per repeat, flat scalar columns (``abs_err_x``, ``splitting_converged_step``, ...) — directly
 from the cache's cheap ``:meta`` sidecars (``RepeatsRepository.load_repeats_meta``), so
 aggregate views (comparisons, grid-study, experiment summaries) can be served live
 without touching disk or loading any ``content_bin`` graph bytes.

@@ -219,6 +219,30 @@ class MySqlCache:
         except Exception:
             pass
 
+    def delete_many(self, keys: list[str]) -> None:
+        """Delete many keys in one transaction instead of one commit per key.
+
+        Mirrors ``ShardedSqliteCache.delete_many`` -- see there for why callers that
+        speculatively probe hundreds of possibly-nonexistent keys per matched entry
+        need this instead of looping ``delete()``.
+        """
+        if not keys:
+            return
+        try:
+            conn = self._get_conn()
+
+            def _write():
+                with conn.cursor() as cur:
+                    for i in range(0, len(keys), 500):
+                        chunk = keys[i : i + 500]
+                        placeholders = ",".join(["%s"] * len(chunk))
+                        cur.execute(f"DELETE FROM `{self._cache_table}` WHERE `key` IN ({placeholders})", chunk)
+                conn.commit()
+
+            _retry_on_mysql_transient(_write)
+        except Exception:
+            pass
+
     def __contains__(self, key: str) -> bool:
         conn = self._get_conn()
         for table in self._read_cache_tables():

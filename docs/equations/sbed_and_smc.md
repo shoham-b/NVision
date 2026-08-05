@@ -414,7 +414,9 @@ Convergence is then declared per parameter against the safety-factored CRLB:
 $$\sigma_j < K_{\rm safety}\cdot \text{CRLB}^{\rm scaled}_j$$
 
 - All target parameters pass the CRLB gate → sets `_is_converged = True`.
-- Frequency passes (CRLB **or** absolute threshold) → records `freq_converged_step`.
+- The primary parameter (`zeeman_split`/`split` when present, else `frequency` -- see
+  `resolve_primary_param` in `nvision/metrics/milestones.py`) passes (CRLB **or** absolute
+  threshold) → records `splitting_converged_step`.
 - All parameters pass (CRLB **or** absolute threshold each) → records `all_converged_step`.
 
 **The multi-parameter FIM gate (`crlbs_stored`) is off by default** (`NVISION_SBED_FIM_CRLB_STOP=0`).

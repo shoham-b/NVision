@@ -94,21 +94,6 @@ OpenBrowserOption = Annotated[
     ),
 ]
 
-GcpOption = Annotated[
-    bool,
-    typer.Option(
-        "--gcp/--no-gcp",
-        help="Upload results to GCP after run",
-    ),
-]
-
-GcpBucketOption = Annotated[
-    str | None,
-    typer.Option(
-        "--gcp-bucket",
-        help="GCP bucket to upload results to",
-    ),
-]
 
 NoProgressOption = Annotated[
     bool,

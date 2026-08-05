@@ -46,8 +46,8 @@ class ExperimentsMixin:
             if "measurements" in sub.columns:
                 metrics_to_plot.append(("measurements", "Average Steps to Converge"))
 
-            if "freq_converged_step" in sub.columns and sub["freq_converged_step"].drop_nulls().len() > 0:
-                metrics_to_plot.append(("freq_converged_step", "Freq. Converged @ Step"))
+            if "splitting_converged_step" in sub.columns and sub["splitting_converged_step"].drop_nulls().len() > 0:
+                metrics_to_plot.append(("splitting_converged_step", "Splitting Converged @ Step"))
 
             if "all_converged_step" in sub.columns and sub["all_converged_step"].drop_nulls().len() > 0:
                 metrics_to_plot.append(("all_converged_step", "All Converged @ Step"))
@@ -127,7 +127,7 @@ class ExperimentsMixin:
 
             # Savings for convergence-step metrics vs sweep measurements
             for conv_metric, sav_suffix, sav_label in [
-                ("freq_converged_step", "savings_freq_converged", "Steps Saved to Freq. Convergence"),
+                ("splitting_converged_step", "savings_freq_converged", "Steps Saved to Splitting Convergence"),
                 ("all_converged_step", "savings_all_converged", "Steps Saved to Full Convergence"),
             ]:
                 if conv_metric not in sub.columns or "measurements" not in sub.columns:

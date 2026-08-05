@@ -232,7 +232,7 @@ def test_js_and_graph_defs_served_from_repo(tmp_path):
 _BULK_FIELDS_EXTRA = {
     "series": {"s": [1, 2, 3], "e": [10.0, 5.0, 1.0], "u": [20.0, 8.0, 2.0], "tau": 1.0},
     "true_params": {"label": "True Signal Parameters", "params": {"frequency": 2.87e9}},
-    "metrics": {"abs_err_x": 123.0, "freq_converged_step": 2},
+    "metrics": {"abs_err_x": 123.0, "splitting_converged_step": 2},
 }
 
 

@@ -92,16 +92,16 @@ class ComparisonsMixin:
                     manifest_entries=manifest_entries,
                 )
 
-            # Metric 5: Frequency convergence step
-            if "freq_converged_step" in sub_df.columns:
-                conv_df = sub_df.filter(pl.col("freq_converged_step").is_not_null())
+            # Metric 5: Splitting convergence step
+            if "splitting_converged_step" in sub_df.columns:
+                conv_df = sub_df.filter(pl.col("splitting_converged_step").is_not_null())
                 if not conv_df.is_empty():
                     self._create_comparison_plot(
                         conv_df,
                         gen,
                         noise,
-                        metric="freq_converged_step",
-                        title_metric="Frequency Convergence Step",
+                        metric="splitting_converged_step",
+                        title_metric="Splitting Convergence Step",
                         y_axis_title="Step #",
                         manifest_entries=manifest_entries,
                     )

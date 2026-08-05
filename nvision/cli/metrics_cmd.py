@@ -72,7 +72,7 @@ _METRIC_KEYS: tuple[str, ...] = (
     "final_err_fc",
     "err_fb_diff",
     "err_fc_diff",
-    "freq_converged_step",
+    "splitting_converged_step",
     "all_converged_step",
     "dips_detected",
     "total_dip_width",
@@ -93,7 +93,13 @@ def _crlb_min_obs(noise_std: float, linewidth: float, c_total: float, threshold_
 
 
 def _apply_crlb_convergence_steps(row: dict[str, Any], noise_std: float, threshold_hz: float) -> dict[str, Any]:
-    """Push freq_converged_step / all_converged_step forward to honour the CRLB check.
+    """Push splitting_converged_step / all_converged_step forward to honour the CRLB check.
+
+    NOTE: this closed-form CRLB formula (``_crlb_min_obs``) is derived specifically
+    for frequency/linewidth/contrast physics and is not re-derived for zeeman_split.
+    It already no-ops for non-Lorentzian rows (see the linewidth/c_total guard
+    below), which happens to also make it a safe no-op for splitting-based
+    convergence today -- left as a known follow-up rather than guessed physics.
 
     The locator originally set these steps when raw uncertainty() first dropped
     below threshold_hz, without a CRLB check.  After the CRLB-aware change the
@@ -118,7 +124,7 @@ def _apply_crlb_convergence_steps(row: dict[str, Any], noise_std: float, thresho
     updated = dict(row)
     changed = False
 
-    for field in ("freq_converged_step", "all_converged_step"):
+    for field in ("splitting_converged_step", "all_converged_step"):
         old = row.get(field)
         if old is None:
             continue  # run never converged empirically — leave as None

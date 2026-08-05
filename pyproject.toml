@@ -15,7 +15,6 @@ dependencies = [
     "numba>=0.65.1",
     "tzdata>=2026.2",
     "python-dotenv>=1.0.0",
-    "google-cloud-storage>=3.10.1",
     "numdifftools>=0.9.41",
     "fastapi>=0.139.2",
     "uvicorn[standard]>=0.51.0",

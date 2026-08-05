@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
@@ -152,7 +153,13 @@ class SequentialBayesianLocator(Locator):
         )
         self._convergence_patience_steps = max(1, int(convergence_patience_steps))
         self._convergence_streak = 0
-        self.freq_converged_step: int | None = None
+        # The parameter whose convergence defines the "primary milestone"
+        # (splitting_converged_step) -- zeeman_split/split when the model has
+        # one (the actual free/scientific-interest quantity once frequency is
+        # fixed by default), else frequency itself for legacy free-frequency
+        # configs. See resolve_primary_param.
+        self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
+        self.splitting_converged_step: int | None = None
         self.all_converged_step: int | None = None
         self._is_converged: bool = False
 
@@ -277,7 +284,7 @@ class SequentialBayesianLocator(Locator):
         raise NotImplementedError("Subclasses must implement _acquire()")
 
     def _check_convergence_milestones(self, physical_uncertainties=None) -> None:
-        """Record the first step at which frequency and all params converge.
+        """Record the first step at which the primary parameter and all params converge.
 
         ``physical_uncertainties`` may be passed in to avoid recomputing the
         full O(particles x params) uncertainty pass when the caller already
@@ -285,10 +292,14 @@ class SequentialBayesianLocator(Locator):
         """
         if physical_uncertainties is None:
             physical_uncertainties = self.belief.uncertainty()
-        if self.freq_converged_step is None and "frequency" in physical_uncertainties:
-            freq_threshold = self._effective_freq_threshold()
-            if float(physical_uncertainties["frequency"]) < freq_threshold:
-                self.freq_converged_step = self.step_count
+        if (
+            self.splitting_converged_step is None
+            and self._primary_param is not None
+            and self._primary_param in physical_uncertainties
+        ):
+            primary_threshold = self._effective_primary_threshold()
+            if float(physical_uncertainties[self._primary_param]) < primary_threshold:
+                self.splitting_converged_step = self.step_count
 
         if self.all_converged_step is None and self._target_params_converged(physical_uncertainties):
             self.all_converged_step = self.step_count
@@ -355,6 +366,21 @@ class SequentialBayesianLocator(Locator):
         from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
 
         return NVISION_FREQ_CONVERGENCE_THRESHOLD
+
+    def _effective_primary_threshold(self) -> float:
+        """Absolute uncertainty ceiling for ``self._primary_param`` (physical units).
+
+        Resolves via PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS, which naturally lands on
+        NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD when the primary param is
+        zeeman_split (already tuned to actually bind, unlike the generic bound-width
+        fallback -- see nvision/sim/defaults.py), or the frequency threshold
+        unchanged for legacy free-frequency configs.
+        """
+        from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+
+        if self._primary_param is None:
+            return NVISION_FREQ_CONVERGENCE_THRESHOLD
+        return PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(self._primary_param, NVISION_FREQ_CONVERGENCE_THRESHOLD)
 
     def _target_params_converged(self, physical_uncertainties=None) -> bool:
         """Check convergence on configured target parameters.

@@ -23,7 +23,7 @@ _GRID_AXIS_CANDIDATES: tuple[tuple[str, str, str, str], ...] = (
     ("grid_linewidth", "grid_c_total", "Linewidth (Hz)", "Contrast c_total"),
 )
 
-_METRIC = "freq_converged_step"
+_METRIC = "splitting_converged_step"
 
 
 def _detect_grid_axes(df: pl.DataFrame) -> tuple[str, str, str, str] | None:

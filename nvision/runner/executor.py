@@ -992,6 +992,12 @@ class _TaskRunner:
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         )
+        # The parameter these "sobol_freq_*" stats are actually about -- zeeman_split
+        # (or split) once frequency is fixed by default, else frequency itself for
+        # legacy free-frequency configs. Field names keep their historical "freq"
+        # spelling (secondary/repointed-only fields, not renamed -- see the
+        # "Repoint Freq. converged milestone" plan), only the tracked parameter changes.
+        primary_param = locator._primary_param or "frequency"
 
         step = 0
         sobol_xs = []
@@ -999,7 +1005,7 @@ class _TaskRunner:
         sobol_freq_steps = None
         sobol_freq_uncert_at_conv = None
         sobol_freq_err_at_conv = None
-        true_freq = experiment.true_signal.get_param_value("frequency")
+        true_freq = experiment.true_signal.get_param_value(primary_param)
 
         while not locator.done():
             _check_memory_limit()
@@ -1010,20 +1016,20 @@ class _TaskRunner:
             sobol_xs.append(float(obs.x))
             sobol_ys.append(float(obs.signal_value))
 
-            # Record metrics at the exact moment of frequency convergence
-            if sobol_freq_steps is None and locator.freq_converged_step is not None:
-                sobol_freq_steps = locator.freq_converged_step
-                sobol_freq_uncert_at_conv = float(locator.belief.reported_uncertainty().get("frequency", math.nan))
-                est_f = float(locator.belief.estimates().get("frequency", math.nan))
+            # Record metrics at the exact moment of primary-parameter convergence
+            if sobol_freq_steps is None and locator.splitting_converged_step is not None:
+                sobol_freq_steps = locator.splitting_converged_step
+                sobol_freq_uncert_at_conv = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
+                est_f = float(locator.belief.estimates().get(primary_param, math.nan))
                 sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
 
         sobol_mode_estimates = belief_mode_estimates(locator.belief)
 
         # Capture FINAL belief state after the sweep terminates (separate from the
-        # "at frequency convergence" snapshot above). Without these the UI has no
+        # "at convergence" snapshot above). Without these the UI has no
         # way to compare Sobol's final uncertainty/error against another locator's.
-        sobol_final_uncert = float(locator.belief.reported_uncertainty().get("frequency", math.nan))
-        est_f_final = float(locator.belief.estimates().get("frequency", math.nan))
+        sobol_final_uncert = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
+        est_f_final = float(locator.belief.estimates().get(primary_param, math.nan))
         sobol_final_err = abs(est_f_final - true_freq) if not math.isnan(est_f_final) else math.nan
 
         return {
@@ -1521,12 +1527,12 @@ class _TaskRunner:
                 eff_sweep_steps = step_count
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
-            finalize_record["freq_converged_step"] = getattr(last_loc, "freq_converged_step", None)
+            finalize_record["splitting_converged_step"] = getattr(last_loc, "splitting_converged_step", None)
             finalize_record["all_converged_step"] = getattr(last_loc, "all_converged_step", None)
         else:
             finalize_record["sweep_steps"] = None
             finalize_record["locator_steps"] = None
-            finalize_record["freq_converged_step"] = None
+            finalize_record["splitting_converged_step"] = None
             finalize_record["all_converged_step"] = None
         finalize_record["infeasible_crlb_params"] = infeasible_crlb_params if infeasible_crlb_params else None
 

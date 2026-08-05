@@ -47,7 +47,7 @@
                 <span class="control-label">View at:</span>
                 <div aria-label="Stopping criteria" class="segmented-control" id="scan-stopping-criteria" role="radiogroup">
                     <button type="button" role="radio" aria-checked="false" data-value="full" tabindex="-1">Full</button>
-                    <button type="button" role="radio" aria-checked="true" data-value="freq_converged" class="is-active" tabindex="0">Freq. converged</button>
+                    <button type="button" role="radio" aria-checked="true" data-value="splitting_converged" class="is-active" tabindex="0">Splitting converged</button>
                     <button type="button" role="radio" aria-checked="false" data-value="all_converged" tabindex="-1">Converged</button>
                 </div>
             </div>
@@ -194,11 +194,11 @@
         <div id="hl-warning"></div>
         <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Error vs measurements <span tabindex="0" class="help-icon-visible" title="Anytime performance: median absolute frequency error across repeats if the run were stopped at each measurement count, with interquartile band.">?</span></h3>
+                <h3 style="margin-left:10px;">Error vs measurements <span tabindex="0" class="help-icon-visible" title="Anytime performance: median absolute splitting error across repeats if the run were stopped at each measurement count, with interquartile band.">?</span></h3>
                 <div id="hl-error-curves" style="height:420px; width:100%;"></div>
             </div>
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Convergence vs measurements <span tabindex="0" class="help-icon-visible" title="Survival view: fraction of repeats whose claimed frequency uncertainty crossed the threshold by each measurement count.">?</span></h3>
+                <h3 style="margin-left:10px;">Convergence vs measurements <span tabindex="0" class="help-icon-visible" title="Survival view: fraction of repeats whose claimed splitting uncertainty crossed the threshold by each measurement count.">?</span></h3>
                 <div id="hl-survival" style="height:380px; width:100%;"></div>
             </div>
         </div>
@@ -241,7 +241,7 @@
         <h3 style="margin:1.4em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">vs Signal Span</h3>
         <div id="acc-span-content" style="margin-bottom:1em;"></div>
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h4 style="margin:0 0 0.2em 10px; font-size:0.85em; color:#475569;">Uncertainty at convergence vs signal span — by noise <span tabindex="0" class="help-icon-visible" title="The claimed frequency σ at convergence against fractional signal span, faceted by noise level. Log-binned median lines with IQR band.">?</span></h4>
+            <h4 style="margin:0 0 0.2em 10px; font-size:0.85em; color:#475569;">Uncertainty at convergence vs signal span — by noise <span tabindex="0" class="help-icon-visible" title="The claimed splitting σ at convergence against fractional signal span, faceted by noise level. Log-binned median lines with IQR band.">?</span></h4>
             <div id="hl-uncert-span" style="width:100%;"></div>
         </div>
 

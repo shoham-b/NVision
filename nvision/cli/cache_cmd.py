@@ -818,7 +818,8 @@ def cache_clean(
     """Delete cached simulation artifacts matching optional filters."""
     cache_root = out / "cache"
 
-    keys_to_delete: list[tuple[str, Any, str]] = []  # (CategoryName, CacheInstance, Key)
+    # (CategoryName, CacheInstance, Key, Payload)
+    keys_to_delete: list[tuple[str, Any, str, dict[str, Any] | None]] = []
 
     for cat_name, cat_cache in _get_caches(cache_root):
         if category and category.lower() not in cat_name.lower():
@@ -835,7 +836,7 @@ def cache_clean(
                     if kind == "locator_combination_pointer" and "data" in payload and len(payload["data"]) > 0:
                         cfg_copy["repeats"] = payload["data"][0].get("achieved_repeats")
                     if _matches_filter(cfg_copy, None, strategy, generator, noise, max_steps, repeats):
-                        keys_to_delete.append((cat_name, cat_cache, key))
+                        keys_to_delete.append((cat_name, cat_cache, key, payload))
 
     if not keys_to_delete:
         console.print("[yellow]No matching cache entries found.[/yellow]")
@@ -849,47 +850,58 @@ def cache_clean(
     if dry_run:
         console.print("[dim]Dry run: no files deleted.[/dim]")
     else:
-        deleted_count = 0
-        from nvision.cache.locator_repository import LocatorResultsRepository
+        # Delete matched keys (and their streaming repeat rows) directly using the keys
+        # already found above, instead of re-scanning the *entire* cache backend once per
+        # matched key (what LocatorResultsRepository.purge_cached_combination does) --
+        # that O(len(keys_to_delete) x cache size) rescan is what makes `cache clean` take
+        # hours against a large cache. See the nvision-run-monitoring skill's
+        # purge/cleanup-at-scale note and nvision.tools.artifacts.
+        # purge_cache_and_artifacts_for_combinations for the same fix applied elsewhere.
+        #
+        # Also batch the actual deletes via delete_many() (one handful of transactions
+        # per backend) instead of calling delete() once per speculative repeat key (up to
+        # 1000 x 2 per matched entry) -- each delete() commits (fsyncs) individually, which
+        # is what makes a filtered clean (e.g. --strategy SimpleSweep) take "forever".
+        from nvision.cache.repeats_repository import RepeatsRepository
 
-        for _, cat_cache, key in keys_to_delete:
-            payload = cat_cache.backend.get(key)
+        artifact_combos: list[tuple[str, str, str, int | None, int | None]] = []
+        keys_by_backend: dict[int, tuple[Any, list[str]]] = {}
+
+        for _, cat_cache, key, payload in keys_to_delete:
+            backend = cat_cache.backend
+            _, backend_keys = keys_by_backend.setdefault(id(backend), (backend, []))
+            backend_keys.append(key)
             if isinstance(payload, dict) and "config" in payload:
                 cfg = payload["config"]
-                # Resolve repeats if pointer config
-                resolved_repeats = cfg.get("repeats")
-                if cfg.get("kind") == "locator_combination_pointer" and "data" in payload and len(payload["data"]) > 0:
-                    resolved_repeats = payload["data"][0].get("achieved_repeats")
-                if resolved_repeats is None:
-                    resolved_repeats = 0
-                repo = LocatorResultsRepository(cat_cache)
-                repo.purge_cached_combination(
-                    generator=cfg.get("generator"),
-                    noise=cfg.get("noise"),
-                    strategy=cfg.get("strategy"),
-                    repeats=resolved_repeats,
-                    seed=cfg.get("seed", NVISION_RNG_SEED),
-                    max_steps=cfg.get("max_steps"),
-                    timeout_s=cfg.get("timeout_s"),
+                for i in range(1000):
+                    rep_key = RepeatsRepository.make_repeat_key(key, i)
+                    backend_keys.append(rep_key)
+                    backend_keys.append(rep_key + ":meta")
+
+                artifact_combos.append(
+                    (
+                        cfg.get("generator"),
+                        cfg.get("noise"),
+                        cfg.get("strategy"),
+                        cfg.get("max_steps"),
+                        cfg.get("seed", NVISION_RNG_SEED),
+                    )
                 )
 
-                # Also clean up artifact graphs and plots_manifest.json entries
-                import logging
+        for backend, backend_keys in keys_by_backend.values():
+            backend.delete_many(backend_keys)
+        deleted_count = len(keys_to_delete)
 
-                from nvision.tools.artifacts import purge_artifacts_for_combination
+        if artifact_combos:
+            import logging
 
-                purge_artifacts_for_combination(
-                    out_dir=out,
-                    generator=cfg.get("generator"),
-                    noise=cfg.get("noise"),
-                    strategy=cfg.get("strategy"),
-                    max_steps=cfg.get("max_steps"),
-                    seed=cfg.get("seed", NVISION_RNG_SEED),
-                    log=logging.getLogger("nvision.cache.clean"),
-                )
-            else:
-                cat_cache.backend.delete(key)
-            deleted_count += 1
+            from nvision.tools.artifacts import purge_artifacts_for_combinations
+
+            purge_artifacts_for_combinations(
+                out_dir=out,
+                combos=artifact_combos,
+                log=logging.getLogger("nvision.cache.clean"),
+            )
 
         console.print(f"[green]Deleted {deleted_count} entries.[/green]")
 

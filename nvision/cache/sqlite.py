@@ -8,6 +8,15 @@ import time
 from contextlib import suppress
 from pathlib import Path
 
+# Batch size for chunking large IN (...) clauses -- keeps well under SQLite's
+# parameter-count limit (as low as 999 on older builds) regardless of how many
+# keys a caller passes to a batch method.
+_CHUNK = 500
+
+
+def _chunks(seq: list[str], size: int) -> list[list[str]]:
+    return [seq[i : i + size] for i in range(0, len(seq), size)]
+
 
 def _retry_on_locked(fn, *, max_attempts: int = 10, base_delay: float = 0.2, max_delay: float = 5.0):
     """Retry ``fn`` on transient 'database is locked' SQLite errors with backoff.
@@ -114,6 +123,29 @@ class SqliteCache:
         try:
             conn = self._get_conn()
             _retry_on_locked(lambda: (conn.execute("DELETE FROM cache WHERE key = ?", (key,)), conn.commit()))
+        except Exception:
+            pass
+
+    def delete_many(self, keys: list[str]) -> None:
+        """Delete many keys in one transaction instead of one commit per key.
+
+        ``delete()`` called in a loop commits (fsyncs) once per key -- callers that
+        speculatively probe hundreds of possibly-nonexistent keys per matched entry
+        (e.g. ``nv cache clean`` probing repeat indices) turn that into thousands of
+        wasted commits. This does it in O(1) transactions regardless of ``len(keys)``.
+        """
+        if not keys:
+            return
+        try:
+            conn = self._get_conn()
+
+            def _write():
+                for chunk in _chunks(keys, _CHUNK):
+                    placeholders = ",".join("?" * len(chunk))
+                    conn.execute(f"DELETE FROM cache WHERE key IN ({placeholders})", chunk)
+                conn.commit()
+
+            _retry_on_locked(_write)
         except Exception:
             pass
 
@@ -653,6 +685,88 @@ class ShardedSqliteCache:
                 _retry_on_locked(lambda: (conn.execute("DELETE FROM cache WHERE key = ?", (key,)), conn.commit()))
         except Exception:
             pass
+
+    def delete_many(self, keys: list[str]) -> None:
+        """Delete many keys in a handful of transactions instead of one commit per key.
+
+        ``delete()`` does an index SELECT plus 1-2 fsync'd commits per call -- including a
+        commit against the *legacy* DB even when the key doesn't exist anywhere. Callers
+        that speculatively probe up to 1000 possibly-nonexistent repeat keys per matched
+        entry (``nv cache clean``, ``purge_cache_and_artifacts_for_combinations``) turned
+        that into tens of thousands of wasted commits, which is what made cache cleaning
+        with a filter (e.g. ``--strategy SimpleSweep``) take "forever". This batches the
+        index lookup, the per-shard deletes, the index deletes, and the legacy-DB delete
+        into O(1) transactions each, regardless of how many keys are passed in.
+        """
+        if not keys:
+            return
+        shard_cache = self._get_shard_cache()
+        for key in keys:
+            shard_cache.pop(key, None)
+
+        # 1. Batch index lookup: which keys are known, and in which shard.
+        key_to_shard: dict[str, int] = {}
+        try:
+            conn = self._get_index_conn()
+            for chunk in _chunks(keys, _CHUNK):
+                placeholders = ",".join("?" * len(chunk))
+                cur = conn.execute(f"SELECT key, shard_id FROM cache_index WHERE key IN ({placeholders})", chunk)
+                for k, sid in cur.fetchall():
+                    key_to_shard[k] = int(sid)
+        except Exception:
+            pass
+
+        # 2. One transaction per shard db actually touched.
+        by_shard: dict[int, list[str]] = {}
+        for k, sid in key_to_shard.items():
+            by_shard.setdefault(sid, []).append(k)
+
+        for shard_id, shard_keys in by_shard.items():
+            db_path = self._path_for_shard_id(shard_id)
+            conn = self._get_conn_for_path(db_path)
+            self._ensure_cache_table(conn)
+
+            def _write(conn=conn, shard_keys=shard_keys):
+                for chunk in _chunks(shard_keys, _CHUNK):
+                    placeholders = ",".join("?" * len(chunk))
+                    conn.execute(f"DELETE FROM cache WHERE key IN ({placeholders})", chunk)
+                conn.commit()
+
+            _retry_on_locked(_write)
+
+        # 3. One transaction for the index.
+        if key_to_shard:
+            try:
+                conn = self._get_index_conn()
+                indexed_keys = list(key_to_shard)
+
+                def _write_index(conn=conn, indexed_keys=indexed_keys):
+                    for chunk in _chunks(indexed_keys, _CHUNK):
+                        placeholders = ",".join("?" * len(chunk))
+                        conn.execute(f"DELETE FROM cache_index WHERE key IN ({placeholders})", chunk)
+                    conn.commit()
+
+                _retry_on_locked(_write_index)
+            except Exception:
+                pass
+
+        # 4. One transaction against the legacy DB for keys not found in the index --
+        # regardless of whether any of them actually exist there.
+        missing = [k for k in keys if k not in key_to_shard]
+        if missing and self._legacy_path is not None:
+            try:
+                conn = self._get_conn_for_path(self._legacy_path)
+                self._ensure_cache_table(conn)
+
+                def _write_legacy(conn=conn, missing=missing):
+                    for chunk in _chunks(missing, _CHUNK):
+                        placeholders = ",".join("?" * len(chunk))
+                        conn.execute(f"DELETE FROM cache WHERE key IN ({placeholders})", chunk)
+                    conn.commit()
+
+                _retry_on_locked(_write_legacy)
+            except Exception:
+                pass
 
     def __contains__(self, key: str) -> bool:
         try:

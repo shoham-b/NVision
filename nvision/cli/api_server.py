@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from nvision.cache import CacheBridge
@@ -28,6 +28,7 @@ from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import CombinationGrid
 from nvision.tools.artifacts import _slim_manifest_entry
+from nvision.tools.json_sanitize import sanitize_non_finite
 from nvision.viz import Viz
 
 # JS/CSS assets served straight from the repo's static/ directory — no per-run
@@ -69,6 +70,27 @@ def _graph_bytes_for_entry(entry: dict) -> bytes | None:
 _BULK_STRIP_FIELDS = frozenset({"series", "true_params", "metrics"})
 
 
+def _dedupe_latest_combos(combos: list[dict]) -> list[dict]:
+    """Keep only the most-recently-updated generation per (generator, noise, strategy).
+
+    A long-lived cache accumulates multiple max_steps/timeout_s generations of
+    what's effectively "the same" combo from iterative tuning -- each one fully
+    counted in /api/manifest's response, even though the UI only ever displays
+    one at a time. Dropping superseded generations from the response (nothing is
+    deleted from the cache itself) is what keeps that response from growing
+    without bound as the cache accumulates history. Ties broken arbitrarily
+    (equal updated_at is not expected in practice). Takes
+    CacheBridge.list_combinations_with_updated_at()'s output.
+    """
+    latest: dict[tuple[str, str, str], dict] = {}
+    for combo in combos:
+        key = (combo["generator"], combo["noise"], combo["strategy"])
+        current = latest.get(key)
+        if current is None or combo.get("updated_at", "") >= current.get("updated_at", ""):
+            latest[key] = combo
+    return list(latest.values())
+
+
 class _NoCacheStaticFiles(StaticFiles):
     """StaticFiles that always disables caching — artifacts change on every run."""
 
@@ -76,6 +98,18 @@ class _NoCacheStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
         response.headers["Cache-Control"] = "no-store"
         return response
+
+
+class _NaNSafeJSONResponse(JSONResponse):
+    """Default response class for all dict/list-returning routes below.
+
+    Unconverged fits legitimately produce math.nan/math.inf (see
+    nvision/runner/metrics.py's default estimate); sanitize_non_finite keeps
+    those out of the wire format (see nvision/tools/json_sanitize.py for why).
+    """
+
+    def render(self, content: Any) -> bytes:
+        return super().render(sanitize_non_finite(content))
 
 
 class ReloadState:
@@ -92,7 +126,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     and graph-def templates are generated/served straight from the repo's
     ``static/`` directory, never copied into *run_dir*.
     """
-    app = FastAPI()
+    app = FastAPI(default_response_class=_NaNSafeJSONResponse)
     app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     reload_state = ReloadState()
@@ -149,7 +183,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
 
         bridge = _bridge()
         try:
-            combos = bridge.list_combinations()
+            combos = _dedupe_latest_combos(bridge.list_combinations_with_updated_at())
             cache["combos"] = combos
             entries: list[dict] = []
             result_rows: list[dict] = []
@@ -271,7 +305,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         bridge = _bridge()
         try:
             if combos is None:
-                combos = bridge.list_combinations()
+                combos = _dedupe_latest_combos(bridge.list_combinations_with_updated_at())
                 with lock:
                     cache["combos"] = combos
             matching = [c for c in combos if c["generator"] in wanted_generators and c["noise"] in wanted_noises]
@@ -298,7 +332,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                             "repeat": main_row.get("attempt"),
                             "failure_reason": main_row.get("failure_reason"),
                             "measurements": main_row.get("measurements"),
-                            "freq_converged_step": main_row.get("freq_converged_step"),
+                            "splitting_converged_step": main_row.get("splitting_converged_step"),
                             "series": scan_entry.get("series"),
                             "true_params": scan_entry.get("true_params"),
                         }
@@ -359,13 +393,21 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
 
     @app.get("/")
     def index() -> HTMLResponse:
-        return HTMLResponse(render_index_html(run_dir), headers={"Cache-Control": "no-store"})
+        return HTMLResponse(render_index_html(run_dir, live=True), headers={"Cache-Control": "no-store"})
 
     @app.get("/{asset_name}")
     def static_asset(asset_name: str) -> FileResponse:
-        if asset_name not in _STATIC_ASSET_NAMES:
-            raise HTTPException(status_code=404, detail="No such asset")
-        return FileResponse(_STATIC_DIR / asset_name, headers={"Cache-Control": "no-store"})
+        if asset_name in _STATIC_ASSET_NAMES:
+            return FileResponse(_STATIC_DIR / asset_name, headers={"Cache-Control": "no-store"})
+        # Not one of the repo-wide JS/CSS assets — fall through to run-specific files
+        # (locator_results.csv, run_status.json, a stale plots_manifest.json.gz from an
+        # older static export, ...). This route is registered before app.mount("/", ...)
+        # below, so without this fallback it shadows the mount for every single-segment
+        # path and any such file 404s even though it's sitting right there in run_dir.
+        run_path = (run_dir / asset_name).resolve()
+        if run_path.is_file() and run_path.is_relative_to(run_dir.resolve()):
+            return FileResponse(run_path, headers={"Cache-Control": "no-store"})
+        raise HTTPException(status_code=404, detail="No such asset")
 
     @app.get("/graphs/{def_name}")
     def graph_def(def_name: str) -> FileResponse:

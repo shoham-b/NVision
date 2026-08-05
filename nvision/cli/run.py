@@ -27,7 +27,6 @@ from nvision.cli import defaults as cli_defaults
 from nvision.cli import options as cli_options
 from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
-from nvision.gui.report import prepare_static_ui_data
 from nvision.models.task import LocatorTask
 from nvision.runner import TaskListBuildConfig, build_task_list, run_task
 from nvision.sim import run_groups as sim_run_groups
@@ -728,8 +727,6 @@ def run(  # noqa: C901
         Path | None,
         typer.Option("--logs-root", help="Custom logs directory (default: logs/ under out)"),
     ] = Path(cli_defaults.DEFAULT_LOGS_ROOT) if cli_defaults.DEFAULT_LOGS_ROOT else None,
-    gcp: cli_options.GcpOption = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: cli_options.GcpBucketOption = cli_defaults.DEFAULT_GCP_BUCKET,
     single_run: Annotated[
         bool,
         typer.Option(
@@ -1301,31 +1298,8 @@ def run(  # noqa: C901
     # API computes both live from the cache on request (nvision/cli/api_server.py).
     # `nv render` remains the explicit tool for producing a static file export.
 
-    try:
-        ui_entrypoint = prepare_static_ui_data(out_dir)
-        log.info(f"Prepared static UI data. Open: {ui_entrypoint.absolute().as_uri()}")
-        if interrupted:
-            console.print(f"[green]Partial UI generated at: {ui_entrypoint.absolute().as_uri()}[/green]")
-    except Exception as exc:
-        log.warning(f"Failed to build HTML index: {exc}")
-
-    effective_bucket = gcp_bucket or os.getenv("NVISION_GCP_BUCKET")
-    if gcp and not effective_bucket:
-        console.print("[bold red]Error:[/bold red] --gcp requires --gcp-bucket or NVISION_GCP_BUCKET env var")
-        raise typer.Exit(1)
-
     log.info(f"Wrote locator results to: {out_dir}")
     log.info(f"View results: uv run python -m nvision serve --dir {out_dir}")
-
-    if gcp and effective_bucket:
-        from nvision.tools.gcp import get_public_url, upload_artifacts
-
-        try:
-            upload_artifacts(out_dir, effective_bucket)
-            public_url = get_public_url(effective_bucket, out_dir.name)
-            console.print(f"\n[bold green]Uploaded to GCP:[/bold green] {public_url}")
-        except Exception as exc:
-            log.warning(f"Failed to upload to GCP: {exc}")
 
     # On Windows, ProcessPoolExecutor and multiprocessing.Manager may leave
     # threads alive that prevent clean process exit even after all work is done.

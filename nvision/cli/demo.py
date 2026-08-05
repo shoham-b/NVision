@@ -77,14 +77,6 @@ def demo(
         Path | None,
         typer.Option("--out", help="Output directory for demo artifacts (default: demo_artifacts)"),
     ] = Path(cli_defaults.DEMO_OUT) if cli_defaults.DEMO_OUT else None,
-    gcp: Annotated[
-        bool,
-        typer.Option("--gcp", help="Upload results to GCP"),
-    ] = cli_defaults.DEFAULT_GCP,
-    gcp_bucket: Annotated[
-        str | None,
-        typer.Option("--gcp-bucket", help="GCP bucket to upload results to"),
-    ] = cli_defaults.DEFAULT_GCP_BUCKET,
 ) -> int:
     """Quick demo to validate improvements - fast, focused, visual.
 
@@ -116,8 +108,6 @@ def demo(
         runners=runners,
         logs_root=demo_logs_root,
         open_browser=False,
-        gcp=gcp,
-        gcp_bucket=gcp_bucket,
     )
     if result != 0:
         console.print("[bold red]Demo failed![/bold red]")
