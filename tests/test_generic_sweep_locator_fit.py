@@ -371,11 +371,17 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
     assert abs(fit["split"] - 0.004) < 0.001, f"split: {fit['split']}"
 
 
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(400)
 def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     """Highly asymmetric hyperfine triplet (k_np=4.5, split at max bound): all
     three lines fitted even when the shallow freq-split line hides below the
     peak-detection floor.
+
+    Timeout is generous (400s, vs. ~90s bare / ~200s under coverage
+    instrumentation): this is a heavy 500-step optimization and coverage.py's
+    line tracing roughly doubles its wall time, which previously blew past a
+    180s marker and flaked the full suite run (which always runs with
+    `--cov`, per pyproject.toml's addopts).
 
     Regression guard for two coupled seeding bugs (found from a production
     sweep where the fit tracked only the deepest dips): with only 2 of 3

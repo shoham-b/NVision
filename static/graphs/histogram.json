@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75
+  },
+  "layout": {
+    "barmode": "overlay",
+    "bargap": 0.05,
+    "showlegend": true,
+    "margin": { "t": 40, "r": 20, "b": 40, "l": 60 }
+  }
+}
