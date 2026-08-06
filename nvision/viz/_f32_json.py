@@ -99,7 +99,11 @@ def _pick_f16_or_f32(out: np.ndarray) -> dict[str, Any]:
     """
     finite = out[np.isfinite(out)]
     if finite.size < 2:
-        return {"__f16__": _b64(out.astype(np.float16))}
+        with np.errstate(over="ignore"):
+            raw16 = out.astype(np.float16)
+        if np.isinf(raw16).any() and not np.isinf(out).any():
+            return {"__f32__": _b64(out)}
+        return {"__f16__": _b64(raw16)}
 
     lo, hi = float(finite.min()), float(finite.max())
 
