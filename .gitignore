@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...but not the repo's own graph-definition templates served by nv serve /
+# prepare_static_ui_data (see nvision/gui/report.py, nvision/cli/api_server.py).
+!/static/graphs/
+!/static/graphs/**
+
 /.hypothesis/
 
 .gemini/

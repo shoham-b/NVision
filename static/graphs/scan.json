@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "traces": {
+    "true_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "True signal",
+      "line": { "color": "#0056b3", "width": 2 }
+    },
+    "noisy_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Noisy signal",
+      "line": { "color": "#6db3f5", "width": 1, "dash": "dot" }
+    },
+    "noisy_band_lo": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±1σ range",
+      "line": { "width": 0 },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "noisy_band_hi": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±1σ range",
+      "line": { "width": 0 },
+      "fill": "tonexty",
+      "fillcolor": "rgba(109,179,245,0.25)",
+      "hoverinfo": "skip"
+    },
+    "noisy_band_lo2": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±2σ range",
+      "line": { "width": 0 },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "noisy_band_hi2": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±2σ range",
+      "line": { "width": 0 },
+      "fill": "tonexty",
+      "fillcolor": "rgba(109,179,245,0.12)",
+      "hoverinfo": "skip"
+    },
+    "mode_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "MAP estimate",
+      "line": { "color": "#d97706", "width": 2, "dash": "dash" }
+    },
+    "meas_dist_baseline": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "baseline",
+      "line": { "color": "#999999", "width": 1 },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "meas_dist": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Measurement density",
+      "line": { "color": "#999999", "width": 1 },
+      "fill": "tonexty",
+      "fillcolor": "rgba(153,153,153,0.2)"
+    },
+    "coarse": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Coarse sweep",
+      "marker": { "color": "#94a3b8", "size": 6, "symbol": "circle" }
+    },
+    "secondary": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Secondary sweep",
+      "marker": { "color": "#64748b", "size": 6, "symbol": "diamond" }
+    },
+    "tertiary": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Tertiary sweep",
+      "marker": { "color": "#475569", "size": 6, "symbol": "square" }
+    },
+    "inference": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Inference measurements",
+      "marker": { "size": 7, "symbol": "circle", "colorscale": "Viridis", "showscale": true }
+    },
+    "steps_noisy": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Measurements",
+      "marker": { "size": 7, "symbol": "circle", "colorscale": "Viridis", "showscale": true }
+    },
+    "sobol_meas": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Sobol measurements",
+      "marker": { "color": "#16a34a", "size": 6, "symbol": "cross" }
+    },
+    "sobol_mode": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Sobol estimate",
+      "line": { "color": "#16a34a", "width": 2, "dash": "dot" }
+    },
+    "sweep_meas": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Sweep measurements",
+      "marker": { "color": "#9333ea", "size": 6, "symbol": "triangle-up" }
+    },
+    "sweep_mode": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Sweep estimate",
+      "line": { "color": "#9333ea", "width": 2, "dash": "dot" }
+    },
+    "entropy": {
+      "type": "scatter",
+      "mode": "lines+markers",
+      "name": "Entropy",
+      "line": { "color": "#0056b3", "width": 1.5 },
+      "marker": { "size": 4 }
+    },
+    "uncertainty": {
+      "type": "scatter",
+      "mode": "lines+markers",
+      "name": "Uncertainty",
+      "line": { "color": "#d97706", "width": 1.5 },
+      "marker": { "size": 4 }
+    }
+  },
+  "layout": {
+    "no_metrics": {
+      "xaxis": { "title": { "text": "Frequency (Hz)" } },
+      "yaxis": { "title": { "text": "Signal" } },
+      "legend": { "orientation": "h" },
+      "margin": { "t": 40, "r": 20, "b": 40, "l": 60 },
+      "hovermode": "closest"
+    },
+    "with_metrics": {
+      "grid": { "rows": 2, "columns": 1, "pattern": "independent" },
+      "xaxis": { "domain": [0, 1], "anchor": "y", "title": { "text": "Frequency (Hz)" } },
+      "yaxis": { "domain": [0.45, 1], "anchor": "x", "title": { "text": "Signal" } },
+      "xaxis2": { "domain": [0, 1], "anchor": "y2", "title": { "text": "Step" } },
+      "yaxis2": { "domain": [0.22, 0.4], "anchor": "x2", "title": { "text": "Entropy" } },
+      "yaxis3": { "domain": [0, 0.18], "anchor": "x2", "title": { "text": "Uncertainty" } },
+      "legend": { "orientation": "h" },
+      "margin": { "t": 40, "r": 20, "b": 40, "l": 60 },
+      "hovermode": "closest"
+    }
+  },
+  "focus_window_style": {
+    "fillcolor": "rgba(0,86,179,0.08)",
+    "line_color": "#0056b3",
+    "annotation": "focus window"
+  },
+  "per_dip_colors": [
+    { "fill": "rgba(217,119,6,0.10)", "line": "#d97706" },
+    { "fill": "rgba(22,163,74,0.10)", "line": "#16a34a" },
+    { "fill": "rgba(147,51,234,0.10)", "line": "#9333ea" },
+    { "fill": "rgba(219,39,119,0.10)", "line": "#db2777" }
+  ],
+  "center_freq_style": {
+    "line_color": "#dc2626",
+    "annotation": "f₀"
+  }
+}

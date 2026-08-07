@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75,
+    "marker": { "color": "#0056b3", "line": { "color": "#003d82", "width": 1 } }
+  },
+  "layout": {
+    "barmode": "overlay",
+    "margin": { "t": 40, "r": 20, "b": 50, "l": 60 },
+    "showlegend": true,
+    "hovermode": "closest"
+  }
+}

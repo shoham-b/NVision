@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box": { "visible": true },
+    "meanline": { "visible": true },
+    "points": "outliers",
+    "line": { "color": "#0056b3" },
+    "fillcolor": "rgba(0,86,179,0.3)"
+  },
+  "layout": {
+    "margin": { "t": 40, "r": 20, "b": 50, "l": 60 },
+    "showlegend": true,
+    "hovermode": "closest"
+  }
+}
