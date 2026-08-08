@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the repo's own graph-definition templates (styling/layout config
+# for the live UI, served by nv serve / the FastAPI app) — not run output.
+!static/graphs/
+!static/graphs/**
+
 /.hypothesis/
 
 .gemini/
