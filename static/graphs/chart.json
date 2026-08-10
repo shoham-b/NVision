@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "layout": {
+    "template": "plotly_white",
+    "hovermode": "closest"
+  }
+}
