@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box": { "visible": true },
+    "meanline": { "visible": true },
+    "points": "outliers"
+  },
+  "layout": {
+    "template": "plotly_white"
+  }
+}

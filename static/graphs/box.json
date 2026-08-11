@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box"
+  },
+  "layout": {
+    "template": "plotly_white"
+  }
+}
