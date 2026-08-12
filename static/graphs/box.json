@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box",
+    "boxpoints": "outliers"
+  },
+  "layout": {
+    "margin": { "t": 60 },
+    "showlegend": false
+  }
+}

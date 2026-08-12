@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75
+  },
+  "layout": {
+    "margin": { "t": 60 },
+    "bargap": 0.05,
+    "legend": { "orientation": "h" }
+  }
+}

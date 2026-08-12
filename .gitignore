@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the checked-in graph-definition templates that `nv serve`/`nv render`
+# read from static/graphs/*.json (scan.json, box.json, histogram.json, violin.json,
+# chart.json) — the bare "graphs/" rule above would otherwise silently exclude them.
+!/static/graphs/
+!/static/graphs/**
 /.hypothesis/
 
 .gemini/
