@@ -118,6 +118,10 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...but static/graphs/*.json are checked-in graph-definition templates consumed
+# by static/plotly-utils.js at runtime, not generated run output — keep them tracked.
+!/static/graphs/
+!/static/graphs/**
 /.hypothesis/
 
 .gemini/
