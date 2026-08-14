@@ -118,6 +118,9 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...but not the checked-in graph-definition templates the UI serves from.
+!static/graphs/
+!static/graphs/**
 /.hypothesis/
 
 .gemini/
