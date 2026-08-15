@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# static/graphs/ holds hand-authored Plotly graph-definition templates (scan.json,
+# box.json, ...) served straight from the repo by nv serve — these must be tracked,
+# unlike the generic `graphs/` output dirs the pattern above is meant to ignore.
+!static/graphs/
+!static/graphs/*.json
 /.hypothesis/
 
 .gemini/

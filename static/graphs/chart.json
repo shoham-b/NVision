@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "layout": {
+    "template": "plotly_white",
+    "hovermode": "closest",
+    "margin": { "t": 40, "r": 20, "b": 50, "l": 60 },
+    "legend": { "orientation": "h", "y": -0.15 }
+  }
+}

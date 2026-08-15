@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75,
+    "marker": { "color": "#0056b3" }
+  },
+  "layout": {
+    "template": "plotly_white",
+    "hovermode": "closest",
+    "barmode": "overlay",
+    "margin": { "t": 40, "r": 20, "b": 50, "l": 60 },
+    "legend": { "orientation": "h", "y": -0.15 }
+  }
+}
