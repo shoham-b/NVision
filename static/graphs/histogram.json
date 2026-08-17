@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "trace": {
+        "type": "histogram",
+        "opacity": 0.75
+    },
+    "layout": {
+        "autosize": true,
+        "margin": { "l": 60, "r": 30, "t": 50, "b": 50 },
+        "barmode": "overlay",
+        "legend": { "orientation": "h", "y": -0.2 }
+    }
+}
