@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "layout": {
+    "template": "plotly_white",
+    "paper_bgcolor": "#fff",
+    "plot_bgcolor": "#fff",
+    "font": { "family": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", "size": 12, "color": "#333" },
+    "margin": { "t": 60, "r": 30, "b": 60, "l": 60 },
+    "hovermode": "closest",
+    "legend": { "orientation": "h", "x": 0, "y": 1.1 },
+    "xaxis": { "gridcolor": "#eee" },
+    "yaxis": { "gridcolor": "#eee" }
+  }
+}

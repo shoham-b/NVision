@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box": { "visible": true },
+    "meanline": { "visible": true },
+    "points": "outliers",
+    "line": { "color": "#0056b3" },
+    "fillcolor": "rgba(0,86,179,0.3)"
+  },
+  "layout": {
+    "template": "plotly_white",
+    "paper_bgcolor": "#fff",
+    "plot_bgcolor": "#fff",
+    "font": { "family": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", "size": 12, "color": "#333" },
+    "margin": { "t": 60, "r": 30, "b": 60, "l": 60 },
+    "showlegend": false,
+    "xaxis": { "gridcolor": "#eee" },
+    "yaxis": { "gridcolor": "#eee" }
+  }
+}

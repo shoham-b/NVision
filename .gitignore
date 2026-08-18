@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the repo-tracked graph-definition templates the UI serves from
+# static/graphs/*.json (nvision/cli/api_server.py's /graphs/{def_name} route) --
+# these are source assets, not run output, and must not be gitignored away.
+!/static/graphs/
+!/static/graphs/*.json
 /.hypothesis/
 
 .gemini/
