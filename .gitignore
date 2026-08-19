@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the UI's graph-definition templates, which must ship in the repo
+# (served straight from static/ by `nv serve` — see nvision/gui/report.py).
+!static/graphs/
+!static/graphs/**
+
 /.hypothesis/
 
 .gemini/

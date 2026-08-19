@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box",
+    "boxpoints": "outliers",
+    "marker": { "color": "steelblue" }
+  },
+  "layout": {
+    "template": "plotly_white"
+  }
+}
