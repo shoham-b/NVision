@@ -371,7 +371,7 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
     assert abs(fit["split"] - 0.004) < 0.001, f"split: {fit['split']}"
 
 
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(420)  # ~70s bare, ~190s under coverage tracing (default addopts run) — leave headroom
 def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     """Highly asymmetric hyperfine triplet (k_np=4.5, split at max bound): all
     three lines fitted even when the shallow freq-split line hides below the
