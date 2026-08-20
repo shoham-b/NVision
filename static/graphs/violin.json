@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box_visible": true,
+    "meanline_visible": true,
+    "fillcolor": "lightseagreen",
+    "line_color": "darkslategray",
+    "opacity": 0.6
+  },
+  "layout": {
+    "template": "plotly_white",
+    "hovermode": "closest",
+    "margin": {
+      "t": 80,
+      "b": 60,
+      "l": 60,
+      "r": 40
+    },
+    "showlegend": true
+  }
+}
