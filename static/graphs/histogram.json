@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "trace": {
+        "type": "histogram",
+        "opacity": 0.75,
+        "nbinsx": 15
+    },
+    "layout": {
+        "template": "plotly_white",
+        "bargap": 0.05
+    }
+}
