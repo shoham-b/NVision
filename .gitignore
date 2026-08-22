@@ -118,6 +118,10 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# static/graphs/ holds tracked graph-definition templates (JS fetches them at
+# runtime via /graphs/<name>.json) — not per-run output, must not be ignored.
+!/static/graphs/
+!/static/graphs/**
 /.hypothesis/
 
 .gemini/

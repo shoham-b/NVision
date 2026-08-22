@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box",
+    "boxpoints": "outliers"
+  },
+  "layout": {
+    "template": "plotly_white"
+  }
+}
