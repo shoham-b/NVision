@@ -118,6 +118,10 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# static/graphs/ holds committed graph-definition templates (styling/layout
+# for the results UI), not per-run output — keep it out of the blanket ignore.
+!static/graphs/
+!static/graphs/*.json
 /.hypothesis/
 
 .gemini/
