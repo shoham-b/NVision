@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75
+  },
+  "layout": {
+    "hovermode": "closest",
+    "barmode": "overlay",
+    "legend": { "orientation": "h" },
+    "margin": { "t": 60 }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "traces": {
+    "true_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "True signal",
+      "line": { "color": "#1f77b4", "width": 2 }
+    },
+    "noisy_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Noisy signal",
+      "line": { "color": "#7f7f7f", "width": 1 },
+      "opacity": 0.6
+    },
+    "noisy_band_lo": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±1σ range",
+      "line": { "width": 0, "color": "#1f77b4" },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "noisy_band_hi": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±1σ range",
+      "line": { "width": 0, "color": "#1f77b4" },
+      "fill": "tonexty",
+      "fillcolor": "rgba(31,119,180,0.25)",
+      "hoverinfo": "skip"
+    },
+    "noisy_band_lo2": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±2σ range",
+      "line": { "width": 0, "color": "#1f77b4" },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "noisy_band_hi2": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "±2σ range",
+      "line": { "width": 0, "color": "#1f77b4" },
+      "fill": "tonexty",
+      "fillcolor": "rgba(31,119,180,0.12)",
+      "hoverinfo": "skip"
+    },
+    "mode_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Posterior mode",
+      "line": { "color": "#d62728", "width": 2, "dash": "dot" }
+    },
+    "meas_dist_baseline": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "baseline",
+      "line": { "width": 1, "color": "#999999", "dash": "dot" },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "meas_dist": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Measurement distribution",
+      "line": { "width": 1, "color": "#9467bd" },
+      "fill": "tonexty",
+      "fillcolor": "rgba(148,103,189,0.2)",
+      "hovertemplate": "%{customdata}<extra></extra>"
+    },
+    "coarse": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Coarse",
+      "marker": { "color": "#ff7f0e", "size": 8, "symbol": "circle" },
+      "hovertemplate": "x=%{x}<br>y=%{y}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "secondary": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Secondary",
+      "marker": { "color": "#2ca02c", "size": 7, "symbol": "diamond" },
+      "hovertemplate": "x=%{x}<br>y=%{y}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "tertiary": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Tertiary",
+      "marker": { "color": "#e377c2", "size": 6, "symbol": "square" },
+      "hovertemplate": "x=%{x}<br>y=%{y}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "inference": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Inference",
+      "marker": {
+        "size": 6,
+        "colorscale": "Viridis",
+        "showscale": true,
+        "line": { "width": 0.5, "color": "#333333" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "steps_noisy": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Measurements",
+      "marker": {
+        "size": 6,
+        "colorscale": "Viridis",
+        "showscale": true,
+        "line": { "width": 0.5, "color": "#333333" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "sobol_meas": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Sobol measurements",
+      "marker": { "color": "#8c564b", "size": 6, "symbol": "cross" },
+      "hovertemplate": "x=%{x}<br>y=%{y}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "sobol_mode": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Sobol mode",
+      "line": { "color": "#8c564b", "width": 1.5, "dash": "dash" }
+    },
+    "sweep_meas": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "Sweep measurements",
+      "marker": { "color": "#17becf", "size": 6, "symbol": "x" },
+      "hovertemplate": "x=%{x}<br>y=%{y}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "sweep_mode": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Sweep mode",
+      "line": { "color": "#17becf", "width": 1.5, "dash": "dash" }
+    },
+    "entropy": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Entropy",
+      "line": { "color": "#bcbd22", "width": 1.5 }
+    },
+    "uncertainty": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "Uncertainty",
+      "line": { "color": "#e377c2", "width": 1.5 }
+    }
+  },
+  "layout": {
+    "no_metrics": {
+      "xaxis": { "title": { "text": "Frequency (Hz)" } },
+      "yaxis": { "title": { "text": "Signal" } },
+      "hovermode": "closest",
+      "legend": { "orientation": "h" },
+      "margin": { "t": 40 }
+    },
+    "with_metrics": {
+      "grid": { "rows": 2, "columns": 1, "subplots": [["xy"], ["xy2"]], "roworder": "top to bottom" },
+      "xaxis": { "title": { "text": "Frequency (Hz)" }, "domain": [0, 1], "anchor": "y" },
+      "yaxis": { "title": { "text": "Signal" }, "domain": [0.45, 1] },
+      "xaxis2": { "title": { "text": "Step" }, "anchor": "y2" },
+      "yaxis2": { "title": { "text": "Entropy" }, "domain": [0, 0.35] },
+      "yaxis3": { "title": { "text": "Uncertainty" }, "overlaying": "y2", "side": "right" },
+      "hovermode": "closest",
+      "legend": { "orientation": "h" },
+      "margin": { "t": 40 }
+    }
+  },
+  "focus_window_style": {
+    "fillcolor": "rgba(255,193,7,0.15)",
+    "line_color": "rgba(255,152,0,0.8)",
+    "annotation": "focus window"
+  },
+  "per_dip_colors": [
+    { "fill": "rgba(31,119,180,0.12)", "line": "rgba(31,119,180,0.6)" },
+    { "fill": "rgba(255,127,14,0.12)", "line": "rgba(255,127,14,0.6)" },
+    { "fill": "rgba(44,160,44,0.12)", "line": "rgba(44,160,44,0.6)" },
+    { "fill": "rgba(214,39,40,0.12)", "line": "rgba(214,39,40,0.6)" }
+  ],
+  "center_freq_style": {
+    "line_color": "#d62728",
+    "annotation": "true center"
+  }
+}

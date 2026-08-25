@@ -371,7 +371,7 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
     assert abs(fit["split"] - 0.004) < 0.001, f"split: {fit['split']}"
 
 
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(300)
 def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     """Highly asymmetric hyperfine triplet (k_np=4.5, split at max bound): all
     three lines fitted even when the shallow freq-split line hides below the
@@ -386,6 +386,11 @@ def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     whole triplet into one blob on dense sweeps, so even 1500 points converged
     to that wrong minimum with frequency ~4 MHz (split/2) off.  Real physical
     scales (Hz) on purpose — the toy-GHz tests never hit this regime.
+
+    Timeout is 300s (not the usual 180s override): this test's hot path is
+    the scalar float64 curve_fn loop (500 points x many candidates), and
+    coverage.py's line tracing (on by default via pyproject's addopts) adds
+    roughly 3.5x on top of the ~55s this takes uninstrumented.
     """
     domain_lo, domain_hi = 2.8e9, 3.3e9
     true_freq, true_split, true_k_np = 3.057e9, 8.5e6, 4.5

@@ -118,6 +118,9 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the repo's own graph-definition templates served at runtime.
+!static/graphs/
+!static/graphs/*.json
 /.hypothesis/
 
 .gemini/
