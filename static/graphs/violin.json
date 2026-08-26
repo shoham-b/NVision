@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box": { "visible": true },
+    "meanline": { "visible": true },
+    "fillcolor": "lightseagreen",
+    "line": { "color": "darkslategray" },
+    "opacity": 0.6
+  },
+  "layout": {}
+}

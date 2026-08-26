@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box",
+    "boxpoints": "all",
+    "jitter": 0.3,
+    "pointpos": -1.8
+  },
+  "layout": {
+    "xaxis": { "tickangle": -25, "automargin": true },
+    "showlegend": false,
+    "margin": { "t": 80, "b": 120, "l": 50, "r": 50 }
+  }
+}

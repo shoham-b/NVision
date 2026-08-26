@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75
+  },
+  "layout": {
+    "bargap": 0.05
+  }
+}
