@@ -118,6 +118,13 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except static/graphs/, which holds the repo's own graph-definition
+# templates (scan.json, box.json, ...) served straight from disk by `nv
+# serve` and copied into static exports — these must be tracked, not
+# treated as generated run output.
+!/static/graphs/
+!/static/graphs/**
+
 /.hypothesis/
 
 .gemini/

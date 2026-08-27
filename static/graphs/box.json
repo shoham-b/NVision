@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box",
+    "boxpoints": "all",
+    "jitter": 0.3,
+    "pointpos": -1.8
+  },
+  "layout": {
+    "template": "plotly_white",
+    "showlegend": false,
+    "xaxis": {
+      "tickangle": -25,
+      "automargin": true
+    },
+    "margin": {
+      "t": 80,
+      "b": 120,
+      "l": 50,
+      "r": 50
+    }
+  }
+}
