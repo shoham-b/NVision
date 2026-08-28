@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "trace": {},
+  "layout": {
+    "template": "plotly_white",
+    "legend": { "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1 }
+  }
+}

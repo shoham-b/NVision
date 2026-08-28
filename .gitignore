@@ -118,6 +118,8 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...but not the committed graph-definition templates fetched by nv serve/render.
+!/static/graphs/
 /.hypothesis/
 
 .gemini/
