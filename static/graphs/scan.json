@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "traces": {
+    "true_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "true signal",
+      "line": { "color": "#2563eb", "width": 2 }
+    },
+    "noisy_band_lo2": {
+      "type": "scatter",
+      "mode": "lines",
+      "line": { "width": 0, "color": "rgba(100,100,100,0)" },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "noisy_band_hi2": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "possible measurement range (±2σ)",
+      "line": { "width": 0, "color": "rgba(100,100,100,0)" },
+      "fill": "tonexty",
+      "fillcolor": "rgba(100,100,100,0.15)"
+    },
+    "noisy_band_lo": {
+      "type": "scatter",
+      "mode": "lines",
+      "line": { "width": 0, "color": "rgba(100,100,100,0)" },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "noisy_band_hi": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "possible measurement range (±1σ)",
+      "line": { "width": 0, "color": "rgba(100,100,100,0)" },
+      "fill": "tonexty",
+      "fillcolor": "rgba(100,100,100,0.30)"
+    },
+    "noisy_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "simulated noisy signal (over-frequency)",
+      "line": { "color": "#fb923c", "dash": "dot", "width": 1.5 }
+    },
+    "meas_dist_baseline": {
+      "type": "scatter",
+      "mode": "lines",
+      "line": { "color": "rgba(100,100,100,0.4)", "width": 1, "dash": "dot" },
+      "showlegend": false,
+      "hoverinfo": "skip"
+    },
+    "meas_dist": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "measurement density",
+      "line": { "width": 0, "color": "rgba(56,189,248,0)" },
+      "fill": "tonexty",
+      "fillcolor": "rgba(56,189,248,0.25)",
+      "hovertemplate": "x=%{x}<br>density=%{customdata:.3f}<extra></extra>"
+    },
+    "coarse": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "coarse",
+      "marker": {
+        "size": 7,
+        "color": "rgba(176,176,176,0.9)",
+        "symbol": "circle",
+        "line": { "width": 0.6, "color": "#4a4a4a" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y:.4f}<br>phase=initial sweep<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "secondary": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "secondary",
+      "marker": {
+        "size": 7,
+        "color": "rgba(255,127,14,0.9)",
+        "symbol": "circle",
+        "line": { "width": 0.6, "color": "#8B4513" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y:.4f}<br>phase=secondary sweep<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "tertiary": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "tertiary",
+      "marker": {
+        "size": 7,
+        "color": "rgba(148,0,211,0.9)",
+        "symbol": "circle",
+        "line": { "width": 0.6, "color": "#4B0082" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y:.4f}<br>phase=tertiary sweep<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "inference": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "inference (fine)",
+      "marker": {
+        "size": 8,
+        "colorscale": "Viridis",
+        "showscale": true,
+        "symbol": "circle",
+        "line": { "width": 0.5, "color": "#222" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y:.4f}<br>inference step=%{marker.color}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "steps_noisy": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "measurements",
+      "marker": {
+        "size": 8,
+        "colorscale": "Viridis",
+        "showscale": true,
+        "symbol": "circle",
+        "line": { "width": 0.5, "color": "#222" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y:.4f}<br>step=%{marker.color}<br>depth=%{customdata:.1f}%<extra></extra>"
+    },
+    "mode_signal": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "most likely",
+      "line": { "color": "#dc2626", "dash": "dash", "width": 2 }
+    },
+    "sobol_meas": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "sobol measurements",
+      "marker": {
+        "size": 7,
+        "color": "rgba(234,179,8,0.85)",
+        "symbol": "square",
+        "line": { "width": 0.5, "color": "#78350f" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y:.4f}<br>depth=%{customdata:.1f}%<extra>sobol</extra>"
+    },
+    "sobol_mode": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "sobol most likely",
+      "line": { "color": "#eab308", "dash": "dashdot", "width": 1.5 }
+    },
+    "sweep_meas": {
+      "type": "scatter",
+      "mode": "markers",
+      "name": "sweep measurements",
+      "marker": {
+        "size": 7,
+        "color": "rgba(20,184,166,0.85)",
+        "symbol": "triangle-up",
+        "line": { "width": 0.5, "color": "#134e4a" }
+      },
+      "hovertemplate": "x=%{x}<br>y=%{y:.4f}<br>depth=%{customdata:.1f}%<extra>sweep</extra>"
+    },
+    "sweep_mode": {
+      "type": "scatter",
+      "mode": "lines",
+      "name": "sweep most likely",
+      "line": { "color": "#14b8a6", "dash": "dashdot", "width": 1.5 }
+    },
+    "entropy": {
+      "type": "scatter",
+      "mode": "lines+markers",
+      "name": "entropy",
+      "line": { "color": "#6366f1", "width": 1.5 },
+      "marker": { "size": 4 }
+    },
+    "uncertainty": {
+      "type": "scatter",
+      "mode": "lines+markers",
+      "name": "uncertainty",
+      "line": { "color": "#f97316", "width": 1.5 },
+      "marker": { "size": 4 }
+    }
+  },
+  "layout": {
+    "no_metrics": {
+      "xaxis": { "title": { "text": "frequency (Hz)" } },
+      "yaxis": { "title": { "text": "signal" } },
+      "hovermode": "closest",
+      "legend": { "orientation": "h", "y": -0.2 },
+      "margin": { "t": 40, "r": 30, "b": 60, "l": 60 }
+    },
+    "with_metrics": {
+      "grid": { "rows": 2, "columns": 1, "pattern": "independent" },
+      "xaxis": { "title": { "text": "frequency (Hz)" }, "domain": [0, 1], "anchor": "y" },
+      "yaxis": { "title": { "text": "signal" }, "domain": [0.42, 1], "anchor": "x" },
+      "xaxis2": { "title": { "text": "step" }, "domain": [0, 1], "anchor": "y3" },
+      "yaxis2": { "title": { "text": "entropy" }, "domain": [0.2, 0.34], "anchor": "x2" },
+      "yaxis3": { "title": { "text": "uncertainty" }, "domain": [0.0, 0.14], "anchor": "x2" },
+      "hovermode": "closest",
+      "legend": { "orientation": "h", "y": -0.12 },
+      "margin": { "t": 40, "r": 30, "b": 60, "l": 60 },
+      "height": 750
+    }
+  },
+  "focus_window_style": {
+    "fillcolor": "rgba(59,130,246,0.10)",
+    "line_color": "rgba(59,130,246,0.45)",
+    "annotation": "focus window"
+  },
+  "per_dip_colors": [
+    { "fill": "rgba(46,204,113,0.12)", "line": "rgba(46,204,113,0.45)" },
+    { "fill": "rgba(244,63,94,0.12)", "line": "rgba(244,63,94,0.45)" },
+    { "fill": "rgba(168,85,247,0.12)", "line": "rgba(168,85,247,0.45)" },
+    { "fill": "rgba(234,179,8,0.12)", "line": "rgba(234,179,8,0.45)" }
+  ],
+  "center_freq_style": {
+    "line_color": "#0f172a",
+    "annotation": "true center"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "layout": {
+    "hovermode": "closest",
+    "legend": { "orientation": "h", "y": -0.2 },
+    "margin": { "t": 40, "r": 30, "b": 50, "l": 60 }
+  }
+}

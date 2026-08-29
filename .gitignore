@@ -118,6 +118,10 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except static/graphs/ — checked-in graph-definition templates (not
+# per-run output), served straight from the repo by nv serve/api_server.py.
+!static/graphs/
+!static/graphs/*.json
 /.hypothesis/
 
 .gemini/
