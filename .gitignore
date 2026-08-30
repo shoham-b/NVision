@@ -118,6 +118,8 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the checked-in graph-definition templates the results UI serves from static/.
+!/static/graphs/
 /.hypothesis/
 
 .gemini/
