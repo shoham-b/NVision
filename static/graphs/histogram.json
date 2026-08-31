@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75
+  },
+  "layout": {
+    "plot_bgcolor": "white",
+    "paper_bgcolor": "white",
+    "barmode": "overlay"
+  }
+}

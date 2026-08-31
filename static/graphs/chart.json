@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "layout": {
+    "plot_bgcolor": "white",
+    "paper_bgcolor": "white",
+    "legend": {
+      "orientation": "h",
+      "yanchor": "bottom",
+      "y": 1.02,
+      "xanchor": "right",
+      "x": 1
+    }
+  }
+}

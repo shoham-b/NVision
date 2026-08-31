@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the committed graph-definition templates `nv serve` reads from
+# static/graphs/ (see nvision/cli/api_server.py's /graphs/{def_name} route) —
+# those aren't per-run output and must stay tracked.
+!/static/graphs/
+!/static/graphs/**
 /.hypothesis/
 
 .gemini/

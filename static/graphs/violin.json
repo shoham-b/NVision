@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box": {
+      "visible": true
+    },
+    "meanline": {
+      "visible": true
+    },
+    "points": "outliers"
+  },
+  "layout": {
+    "plot_bgcolor": "white",
+    "paper_bgcolor": "white"
+  }
+}
