@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box": { "visible": true },
+    "meanline": { "visible": true },
+    "points": "all"
+  },
+  "layout": {
+    "paper_bgcolor": "#ffffff",
+    "plot_bgcolor": "#ffffff",
+    "xaxis": { "gridcolor": "#eee", "zerolinecolor": "#ccc", "linecolor": "#ccc" },
+    "yaxis": { "gridcolor": "#eee", "zerolinecolor": "#ccc", "linecolor": "#ccc" }
+  }
+}

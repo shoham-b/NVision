@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "trace": { "type": "histogram", "opacity": 0.75 },
+  "layout": {
+    "paper_bgcolor": "#ffffff",
+    "plot_bgcolor": "#ffffff",
+    "barmode": "overlay",
+    "xaxis": { "gridcolor": "#eee", "zerolinecolor": "#ccc", "linecolor": "#ccc" },
+    "yaxis": { "gridcolor": "#eee", "zerolinecolor": "#ccc", "linecolor": "#ccc" }
+  }
+}
