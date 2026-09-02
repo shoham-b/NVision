@@ -118,6 +118,10 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# Static graph-definition templates (static/graphs/*.json) are checked-in UI
+# assets, not run output — the blanket "graphs/" rule above must not swallow them.
+!/static/graphs/
+!/static/graphs/**
 /.hypothesis/
 
 .gemini/
