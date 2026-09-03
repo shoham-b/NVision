@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.85
+  },
+  "layout": {
+    "template": "plotly_white",
+    "bargap": 0.05
+  }
+}
