@@ -118,6 +118,12 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...but static/graphs/*.json are committed graph-definition templates consumed
+# by static/plotly-utils.js (fetchGraphDef) and nvision/gui/report.py, not a
+# run's generated output — the bare "graphs/" pattern above would otherwise
+# silently swallow them too.
+!/static/graphs/
+!/static/graphs/**
 /.hypothesis/
 
 .gemini/
