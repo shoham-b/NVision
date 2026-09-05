@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "violin",
+    "box_visible": true,
+    "meanline_visible": true,
+    "fillcolor": "lightseagreen",
+    "line_color": "darkslategray",
+    "opacity": 0.6
+  },
+  "layout": {
+    "template": "plotly_white"
+  }
+}

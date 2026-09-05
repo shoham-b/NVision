@@ -118,6 +118,10 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# Graph-definition templates the API/static export serve from the repo — not
+# a generated run output, so it must stay tracked despite the blanket rule above.
+!static/graphs/
+!static/graphs/**
 /.hypothesis/
 
 .gemini/
