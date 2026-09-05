@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "layout": {
+    "template": "plotly_white",
+    "hovermode": "closest",
+    "legend": { "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1 }
+  }
+}
