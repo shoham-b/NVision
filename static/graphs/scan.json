@@ -1,0 +1,172 @@
+{
+    "version": 1,
+    "traces": {
+        "true_signal": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "True Signal",
+            "line": { "color": "#333333", "width": 2 }
+        },
+        "noisy_signal": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "Noisy Signal",
+            "line": { "color": "#888888", "width": 1, "dash": "dot" }
+        },
+        "noisy_band_lo": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "±1σ range",
+            "showlegend": false,
+            "hoverinfo": "skip",
+            "line": { "width": 0, "color": "#0056b3" }
+        },
+        "noisy_band_hi": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "±1σ range",
+            "fill": "tonexty",
+            "fillcolor": "rgba(0,86,179,0.25)",
+            "line": { "width": 0, "color": "#0056b3" }
+        },
+        "noisy_band_lo2": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "±2σ range",
+            "showlegend": false,
+            "hoverinfo": "skip",
+            "line": { "width": 0, "color": "#0056b3" }
+        },
+        "noisy_band_hi2": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "±2σ range",
+            "fill": "tonexty",
+            "fillcolor": "rgba(0,86,179,0.12)",
+            "line": { "width": 0, "color": "#0056b3" }
+        },
+        "meas_dist_baseline": {
+            "type": "scatter",
+            "mode": "lines",
+            "showlegend": false,
+            "hoverinfo": "skip",
+            "line": { "width": 0 }
+        },
+        "meas_dist": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "Measurement density",
+            "fill": "tonexty",
+            "fillcolor": "rgba(25,135,84,0.25)",
+            "line": { "color": "#198754", "width": 1 }
+        },
+        "coarse": {
+            "type": "scatter",
+            "mode": "markers",
+            "name": "Coarse",
+            "marker": { "color": "#0d6efd", "size": 7, "symbol": "circle" }
+        },
+        "secondary": {
+            "type": "scatter",
+            "mode": "markers",
+            "name": "Secondary",
+            "marker": { "color": "#6610f2", "size": 7, "symbol": "square" }
+        },
+        "tertiary": {
+            "type": "scatter",
+            "mode": "markers",
+            "name": "Tertiary",
+            "marker": { "color": "#d63384", "size": 7, "symbol": "diamond" }
+        },
+        "inference": {
+            "type": "scatter",
+            "mode": "markers",
+            "name": "Inference",
+            "marker": { "size": 7, "symbol": "circle", "colorscale": "Viridis", "showscale": true }
+        },
+        "steps_noisy": {
+            "type": "scatter",
+            "mode": "markers",
+            "name": "Measurements",
+            "marker": { "size": 7, "symbol": "circle", "colorscale": "Viridis", "showscale": true }
+        },
+        "mode_signal": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "MAP Estimate",
+            "line": { "color": "#dc3545", "width": 2, "dash": "dash" }
+        },
+        "sobol_meas": {
+            "type": "scatter",
+            "mode": "markers",
+            "name": "Sobol Measurements",
+            "marker": { "color": "#fd7e14", "size": 6, "symbol": "x" }
+        },
+        "sobol_mode": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "Sobol Estimate",
+            "line": { "color": "#fd7e14", "width": 1.5, "dash": "dot" }
+        },
+        "sweep_meas": {
+            "type": "scatter",
+            "mode": "markers",
+            "name": "Sweep Measurements",
+            "marker": { "color": "#20c997", "size": 6, "symbol": "triangle-up" }
+        },
+        "sweep_mode": {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "Sweep Estimate",
+            "line": { "color": "#20c997", "width": 1.5, "dash": "dot" }
+        },
+        "entropy": {
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Entropy",
+            "line": { "color": "#6f42c1", "width": 1.5 },
+            "marker": { "size": 4 }
+        },
+        "uncertainty": {
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Uncertainty",
+            "line": { "color": "#e83e8c", "width": 1.5 },
+            "marker": { "size": 4 }
+        }
+    },
+    "layout": {
+        "no_metrics": {
+            "xaxis": { "title": { "text": "Frequency" } },
+            "yaxis": { "title": { "text": "Signal" } },
+            "hovermode": "closest",
+            "margin": { "t": 40, "r": 20, "b": 40, "l": 60 },
+            "legend": { "orientation": "h" }
+        },
+        "with_metrics": {
+            "xaxis": { "title": { "text": "Frequency" }, "domain": [0, 1], "anchor": "y" },
+            "yaxis": { "title": { "text": "Signal" }, "domain": [0.45, 1] },
+            "xaxis2": { "title": { "text": "Step" }, "domain": [0, 1], "anchor": "y2" },
+            "yaxis2": { "title": { "text": "Entropy" }, "domain": [0, 0.35] },
+            "yaxis3": { "title": { "text": "Uncertainty" }, "overlaying": "y2", "side": "right" },
+            "hovermode": "closest",
+            "margin": { "t": 40, "r": 20, "b": 40, "l": 60 },
+            "legend": { "orientation": "h" }
+        }
+    },
+    "focus_window_style": {
+        "fillcolor": "rgba(255,193,7,0.15)",
+        "line_color": "#ffc107",
+        "annotation": "Focus window"
+    },
+    "per_dip_colors": [
+        { "fill": "rgba(13,110,253,0.10)", "line": "#0d6efd" },
+        { "fill": "rgba(220,53,69,0.10)", "line": "#dc3545" },
+        { "fill": "rgba(25,135,84,0.10)", "line": "#198754" },
+        { "fill": "rgba(253,126,20,0.10)", "line": "#fd7e14" }
+    ],
+    "center_freq_style": {
+        "line_color": "#333333",
+        "annotation": "True center"
+    }
+}
