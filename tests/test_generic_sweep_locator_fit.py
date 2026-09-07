@@ -371,7 +371,11 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
     assert abs(fit["split"] - 0.004) < 0.001, f"split: {fit['split']}"
 
 
-@pytest.mark.timeout(180)
+# 400s, not 180s: this scan's required float64 scalar curve_fn (see
+# NVISION_SWEEP_FIT_FLOAT32's docstring) takes ~50s bare but ~180s under the
+# suite's default --cov tracing, which instruments every line of the
+# per-point Python loop — leaving near-zero margin on slower CI machines.
+@pytest.mark.timeout(400)
 def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     """Highly asymmetric hyperfine triplet (k_np=4.5, split at max bound): all
     three lines fitted even when the shallow freq-split line hides below the
