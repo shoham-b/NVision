@@ -118,6 +118,7 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+!/static/graphs/
 /.hypothesis/
 
 .gemini/

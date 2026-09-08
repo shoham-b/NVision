@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "trace": {
+        "type": "box",
+        "boxpoints": "outliers",
+        "marker": { "color": "#0056b3" }
+    },
+    "layout": {
+        "margin": { "t": 50, "r": 30, "b": 50, "l": 60 },
+        "legend": { "orientation": "h" },
+        "hovermode": "closest"
+    }
+}
