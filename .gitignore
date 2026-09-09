@@ -118,6 +118,10 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# static/graphs/ holds committed graph-definition templates (source, not
+# run output) — nv serve/render read them straight from the repo.
+!static/graphs/
+!static/graphs/**
 /.hypothesis/
 
 .gemini/
