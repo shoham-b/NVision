@@ -117,7 +117,10 @@ data/matlab/*.mat
 # Project specific
 .fuzz_cache/
 
+# Per-run graph output dirs (e.g. <out>/graphs/scans/...) — NOT static/graphs/,
+# which holds the committed graph-definition templates served by `nv serve`.
 graphs/
+!/static/graphs/
 /.hypothesis/
 
 .gemini/
