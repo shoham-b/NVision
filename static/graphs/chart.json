@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "trace": {},
+  "layout": {
+    "margin": { "t": 40, "r": 20, "b": 50, "l": 60 },
+    "hovermode": "closest",
+    "legend": { "orientation": "h", "y": -0.2 }
+  }
+}
