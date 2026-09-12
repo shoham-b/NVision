@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...but static/graphs/ holds committed graph-definition templates served by
+# nv serve / the static export — not a run-output directory. Un-ignore it.
+!static/graphs/
+!static/graphs/**
+
 /.hypothesis/
 
 .gemini/
