@@ -118,6 +118,11 @@ data/matlab/*.mat
 .fuzz_cache/
 
 graphs/
+# ...except the graph *definition* templates checked into the repo, which the
+# `graphs/` rule above would otherwise blanket-ignore (they live at
+# static/graphs/*.json and are served by `nv serve` / copied by `nv render`).
+!/static/graphs/
+!/static/graphs/**
 /.hypothesis/
 
 .gemini/
