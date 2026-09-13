@@ -43,9 +43,7 @@ class CacheBridge:
         stores = [self.nv_center, self.complementary]
         for store in stores:
             backend = store.backend
-            candidate_keys = [
-                k for k in backend if not k.startswith("repeat:") and not k.startswith("blob:")
-            ]
+            candidate_keys = [k for k in backend if not k.startswith("repeat:") and not k.startswith("blob:")]
             payloads = backend.batch_get(candidate_keys)
             for payload in payloads.values():
                 try:
