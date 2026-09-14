@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "box",
+    "boxpoints": "outliers",
+    "marker": { "color": "#1f77b4" }
+  },
+  "layout": {
+    "autosize": true,
+    "height": 420,
+    "margin": { "t": 40, "r": 20, "b": 40, "l": 60 },
+    "hovermode": "closest"
+  }
+}

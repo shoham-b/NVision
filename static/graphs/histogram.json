@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75
+  },
+  "layout": {
+    "autosize": true,
+    "height": 420,
+    "margin": { "t": 40, "r": 20, "b": 40, "l": 60 },
+    "barmode": "overlay",
+    "hovermode": "closest"
+  }
+}

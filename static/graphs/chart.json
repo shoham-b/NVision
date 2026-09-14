@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "layout": {
+    "autosize": true,
+    "height": 420,
+    "margin": { "t": 40, "r": 20, "b": 40, "l": 60 },
+    "legend": { "orientation": "h" },
+    "hovermode": "closest"
+  }
+}
