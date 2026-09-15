@@ -372,10 +372,16 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
 
 
 @pytest.mark.timeout(180)
+@pytest.mark.no_cover
 def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     """Highly asymmetric hyperfine triplet (k_np=4.5, split at max bound): all
     three lines fitted even when the shallow freq-split line hides below the
     peak-detection floor.
+
+    Runs with coverage tracing disabled (``no_cover``): the float64 scalar
+    curve_fit path below is a tight per-point Python/Numba call loop, and
+    coverage.py's line tracer makes it slow enough to blow past even this
+    test's already-bumped 180s timeout.
 
     Regression guard for two coupled seeding bugs (found from a production
     sweep where the fit tracked only the deepest dips): with only 2 of 3
