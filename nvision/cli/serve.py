@@ -37,18 +37,28 @@ console = Console()
 PORT_MAIN = 18080
 PORT_DEMO = 18081
 PORT_BETA = 18082
+PORT_MATLAB = 18083
 
 # Global server instance for shutdown control
 _server_instance: uvicorn.Server | None = None
 
 
 def _default_port_for_dir(directory: Path) -> int:
-    """Return the well-known port for a directory, or PORT_MAIN as fallback."""
+    """Return the well-known port for a directory, or PORT_MAIN as fallback.
+
+    Every directory that isn't given its own port here falls back to PORT_MAIN, and
+    ``serve`` treats "something is already listening there" as "that's my server" and just
+    opens a browser at it. So a directory without an entry silently shows the *main*
+    artifacts instead of its own — which is what happened to the MATLAB results before
+    they got one.
+    """
     name = directory.resolve().name.lower()
     if "demo" in name:
         return PORT_DEMO
     if "beta" in name:
         return PORT_BETA
+    if "matlab" in name:
+        return PORT_MATLAB
     return PORT_MAIN
 
 

@@ -37,11 +37,15 @@ def _make_mat(freq_mhz, signal_3d, curr_iter=None):
 
 
 def _flat_signal(n_freqs, n_shots, value=1.0, dip_idx=None, dip_value=0.95):
-    """Return a (2, n_freqs, n_shots) signal array with flat baseline and optional dip."""
+    """Return a (2, n_freqs, n_shots) signal array with flat baseline and optional dip.
+
+    The loader's ratio is baseline / with_freq, so producing a *ratio* of `value` (and
+    `dip_value` at `dip_idx`) means scaling with_freq *up* by the reciprocal, not down.
+    """
     baseline = np.full((n_freqs, n_shots), 130.0)
-    with_freq = np.full((n_freqs, n_shots), 130.0 * value)
+    with_freq = np.full((n_freqs, n_shots), 130.0 / value)
     if dip_idx is not None:
-        with_freq[dip_idx, :] = 130.0 * dip_value
+        with_freq[dip_idx, :] = 130.0 / dip_value
     return np.stack([baseline, with_freq], axis=0)
 
 
@@ -188,7 +192,8 @@ def test_load_signal_clipped_to_range(tmp_path):
     """Signal values outside [1e-6, 2.0] should be clipped."""
     freq_mhz = np.array([2800.0, 2850.0, 2900.0])
     baseline = np.full((3, 5), 100.0)
-    with_freq = np.array([[50.0] * 5, [100.0] * 5, [250.0] * 5])  # 0.5, 1.0, 2.5
+    # Ratio is baseline / with_freq: 100/200, 100/100, 100/40 -> 0.5, 1.0, 2.5
+    with_freq = np.array([[200.0] * 5, [100.0] * 5, [40.0] * 5])
     signal_3d = np.stack([baseline, with_freq], axis=0)
     mat = _make_mat(freq_mhz, signal_3d, curr_iter=5)
     mat_file = tmp_path / "esr.mat"
@@ -324,11 +329,16 @@ def test_measure_returns_observation(simple_data):
     assert isinstance(obs, Observation)
 
 
-def test_measure_x_unit_preserved(simple_data):
+def test_measure_x_reports_the_bin_actually_measured(simple_data):
+    """obs.x is the grid point the value came from, not the requested x_unit.
+
+    x_unit=0.3 is 2830 MHz, which snaps to the 2820 MHz bin (x_unit 0.25). Reporting the
+    requested 0.3 would tell the locator the returned signal was measured 10 MHz away
+    from where it really was.
+    """
     freq_lo, freq_hi = 2770e6, 2970e6
-    x_unit = 0.3
-    obs = simple_data.measure(x_unit, freq_lo, freq_hi)
-    assert obs.x == pytest.approx(x_unit)
+    obs = simple_data.measure(0.3, freq_lo, freq_hi)
+    assert obs.x == pytest.approx(0.25)
 
 
 def test_measure_snaps_to_nearest_grid_point(simple_data):
@@ -355,6 +365,57 @@ def test_measure_boundary_high(simple_data):
     freq_lo, freq_hi = 2770e6, 2970e6
     obs = simple_data.measure(1.0, freq_lo, freq_hi)
     assert obs.signal_value == pytest.approx(1.0)
+
+
+@pytest.fixture
+def shot_data():
+    """3 frequencies x 4 recorded shots, each shot's value encoding its (bin, column)."""
+    freq_hz = np.array([2770e6, 2870e6, 2970e6])
+    shot_ratios = np.array([[0.10, 0.11, 0.12, 0.13], [0.20, 0.21, 0.22, 0.23], [0.30, 0.31, 0.32, 0.33]])
+    return MatlabDataFile(
+        freq_hz=freq_hz,
+        signal=shot_ratios.mean(axis=1),
+        noise_std=0.01,
+        n_valid_shots=4,
+        shot_ratios=shot_ratios,
+        rng=np.random.default_rng(0),
+    )
+
+
+def test_measure_keeps_the_chosen_frequency_past_its_shot_count(shot_data):
+    """Revisiting a bin more times than it has shots still measures that bin.
+
+    The run isn't obliged to consume the file: it draws from the chosen frequency's shots
+    again rather than being diverted to a neighbouring frequency.
+    """
+    for _ in range(50):
+        obs = shot_data.measure(0.5, 2770e6, 2970e6)
+        assert obs.x == pytest.approx(0.5)
+        assert 0.20 <= obs.signal_value <= 0.23
+
+
+def test_measure_draws_any_shot_of_the_chosen_frequency(shot_data):
+    """Each measurement is one recorded shot at that frequency, labelled with its sweep column."""
+    seen = set()
+    for _ in range(100):
+        obs = shot_data.measure(1.0, 2770e6, 2970e6)
+        assert obs.sweep_index is not None
+        assert obs.signal_value == pytest.approx(shot_data.shot_ratios[2, obs.sweep_index])
+        seen.add(obs.sweep_index)
+    assert seen == {0, 1, 2, 3}
+
+
+def test_measure_skips_masked_shots(shot_data):
+    shot_data.shot_ratios[0, [0, 2]] = np.nan
+    cols = {shot_data.measure(0.0, 2770e6, 2970e6).sweep_index for _ in range(50)}
+    assert cols == {1, 3}
+
+
+def test_visited_mask_tracks_measured_bins(shot_data):
+    assert not shot_data.visited_mask.any()
+    shot_data.measure(0.0, 2770e6, 2970e6)
+    shot_data.measure(0.0, 2770e6, 2970e6)
+    np.testing.assert_array_equal(shot_data.visited_mask, [True, False, False])
 
 
 def test_measure_round_trip_unit_conversion(simple_data):

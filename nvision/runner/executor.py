@@ -22,6 +22,7 @@ from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
 from nvision.models.observer import Observer, RunResult
 from nvision.models.task import LocatorTask
+from nvision.noises.drift import attach_drift_for_repeat
 from nvision.runner.cache import embed_graph_content, strip_heavy_fields
 from nvision.runner.convert import run_result_to_finalize_record, run_result_to_history_df
 from nvision.runner.metrics import generate_attempt_metrics
@@ -106,6 +107,11 @@ def run_loop(
     sufficient-statistic ``Observation`` (batch mean + empirical variance) via
     ``CoreExperiment.measure``. Defaults to 1 (single-shot, unchanged behavior).
     """
+    if experiment.drift is not None:
+        # Cached sweep observations were measured by another run at other times (and, for
+        # the dyadic table, in another order); replaying them would feed this run a truth
+        # from the wrong moment.
+        sweep_cache = None
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
@@ -151,6 +157,7 @@ def run_loop(
     collected_sweep_observations: list[Observation] | None = [] if is_sweep_locator else None
 
     step = 0
+    shot_index = 0
     while not locator.done():
         _check_memory_limit()
         step += 1
@@ -179,7 +186,8 @@ def run_loop(
                 )
 
         if obs is None:
-            obs = experiment.measure(x_current, rng, n_shots=n_shots)
+            obs = experiment.measure(x_current, rng, n_shots=n_shots, shot_index=shot_index)
+        shot_index += n_shots
 
         if collected_sweep_observations is not None:
             collected_sweep_observations.append(obs)
@@ -668,10 +676,17 @@ class _TaskRunner:
             rid = offset + start_idx + i
             measurement_rng = self._rng_for_measurement(rid)
             repeat_rngs.append(measurement_rng)
-            experiments.append(get_shared_core_experiment(self.task, rid, self._build_experiment))
+            experiments.append(
+                attach_drift_for_repeat(
+                    get_shared_core_experiment(self.task, rid, self._build_experiment),
+                    self.task.seed,
+                    self.generator_name,
+                    rid,
+                )
+            )
 
-        # Pre-generate sweep for Bayesian locators
-        if experiments:
+        # Pre-generate sweep for Bayesian locators (pointless under drift: run_loop won't reuse it)
+        if experiments and experiments[0].drift is None:
             self._precompute_sweep_for_task(locator_class, locator_config, experiments[0], repeat_rngs[0])
 
         history_dfs: list[pl.DataFrame] = []
@@ -1011,7 +1026,7 @@ class _TaskRunner:
             _check_memory_limit()
             step += 1
             x_current = locator.next()
-            obs = experiment.measure(x_current, sobol_rng)
+            obs = experiment.measure(x_current, sobol_rng, shot_index=step - 1)
             locator.observe(obs)
             sobol_xs.append(float(obs.x))
             sobol_ys.append(float(obs.signal_value))
@@ -1090,7 +1105,7 @@ class _TaskRunner:
         while not locator.done():
             _check_memory_limit()
             x_current = locator.next()
-            obs = experiment.measure(x_current, sweep_rng)
+            obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_xs))
             locator.observe(obs)
             sweep_xs.append(float(obs.x))
             sweep_ys.append(float(obs.signal_value))
@@ -1446,7 +1461,7 @@ class _TaskRunner:
                 reset_combination_log_initials(token)
 
         # Populate sweep cache from this repeat's observations (for sharing with subsequent repeats)
-        if observer.last_locator is not None:
+        if observer.last_locator is not None and experiment.drift is None:
             last_loc = observer.last_locator
             if isinstance(last_loc, SequentialBayesianLocator):
                 # Use initial_sweep_steps (calculated) for cache key consistency with lookup
@@ -1513,6 +1528,20 @@ class _TaskRunner:
         )
         # Used by the progress ETA estimator via cached `locator_results.csv` metadata.
         finalize_record["duration_ms"] = (time.perf_counter() - repeat_start_time) * 1000
+        if experiment.drift is not None:
+            # Under drift the static true_signal is only the truth at the first shot. Record
+            # where the truth ended up and its run average, plus the estimate's error against
+            # each (the locator's estimate lands near the average, not the end).
+            drift_truth = experiment.drift.truth_summary(
+                experiment.true_signal.typed_parameters, len(result.snapshots) * n_shots
+            )
+            for param in ("frequency", "zeeman_split"):
+                estimate = finalize_record.get(param)
+                for which in ("end", "mean"):
+                    truth = drift_truth.get(f"drift_true_{param}_{which}")
+                    if truth is not None and isinstance(estimate, int | float):
+                        drift_truth[f"drift_err_{param}_{which}"] = float(estimate) - truth
+            finalize_record.update(drift_truth)
         last_loc = observer.last_locator
         if last_loc is not None:
             # Use effective_initial_sweep_steps() to get actual steps taken (accounts for early stopping)

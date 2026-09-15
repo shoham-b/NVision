@@ -689,10 +689,13 @@ def get_or_run_sobol_baseline(
     import math
     import random
 
+    from nvision.noises.drift import attach_drift_for_repeat
     from nvision.runner.convert import belief_mode_estimates
     from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
     from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+
+    experiment = attach_drift_for_repeat(experiment, seed, generator_name, repeat_idx)
 
     # 1. Setup locator noise/bounds
     noise_std = 0.05
@@ -754,7 +757,7 @@ def get_or_run_sobol_baseline(
 
     while not locator.done():
         x_current = locator.next()
-        obs = experiment.measure(x_current, sobol_rng)
+        obs = experiment.measure(x_current, sobol_rng, shot_index=len(sobol_xs))
         locator.observe(obs)
         sobol_xs.append(float(obs.x))
         sobol_ys.append(float(obs.signal_value))
@@ -813,10 +816,13 @@ def get_or_run_simplesweep_baseline(
     import math
     import random
 
+    from nvision.noises.drift import attach_drift_for_repeat
     from nvision.runner.convert import belief_mode_estimates
     from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
     from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+
+    experiment = attach_drift_for_repeat(experiment, seed, generator_name, repeat_idx)
 
     noise_std = 0.05
     noise_max_dev = None
@@ -878,7 +884,7 @@ def get_or_run_simplesweep_baseline(
 
     while not locator.done():
         x_current = locator.next()
-        obs = experiment.measure(x_current, sweep_rng)
+        obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_xs))
         locator.observe(obs)
         sweep_xs.append(float(obs.x))
         sweep_ys.append(float(obs.signal_value))
@@ -1086,6 +1092,13 @@ def generate_attempt_plots(
         sweep_ys=sweep_ys,
         sweep_mode_estimates=sweep_mode_estimates,
         true_params=_true_params_dict,
+        # Same preference as the final_est_* metrics (run_result_to_finalize_record): a
+        # sweep's least-squares fit over its possibly-collapsed belief.
+        found_params=(
+            {**run_result.final_estimates(), **(run_result.fit_mode_estimates or {})}
+            if run_result is not None
+            else None
+        ),
     )
     # plot_data is loaded on-demand by UI from scan JSON to keep manifest small
 

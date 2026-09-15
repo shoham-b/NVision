@@ -14,6 +14,7 @@ from nvision.models.noise import (
 from nvision.noises import (
     OverFrequencyGaussianNoise,
 )
+from nvision.noises.drift import DriftProcess, DriftSpec
 from nvision.sim.defaults import (
     NVISION_DEFAULT_LOC_MAX_STEPS,
 )
@@ -394,3 +395,126 @@ def sbed_study_noises() -> list[tuple[str, CompositeNoise | None]]:
         )
 
     return noises
+
+
+# Drift scenarios
+#
+# Assumed duration of one simulated shot. It turns the physical timescales below into
+# shots, so a strategy that takes more shots is exposed to proportionally more drift
+# (SBED at 200 shots spans ~100 s; SimpleSobol at up to 10000 shots, ~80 min). Not part
+# of the noise name, so changing it would silently reuse cached results: add a scenario
+# instead.
+DRIFT_SHOT_DURATION_S = 0.5
+
+# NdFeB remanence temperature coefficient (about -0.12 %/K): a permanent magnet's field,
+# and so the Zeeman splitting, tracks the same temperature that moves the center.
+_NDFEB_TEMPCO_PER_K = -0.0012
+
+
+def drift_scenarios() -> list[DriftSpec]:
+    """Named drift scenarios, from negligible to deliberately beyond realistic.
+
+    Center shift is -74 kHz/K; splitting shift is 2.8 kHz/mG, plus -0.12 %/K of the
+    splitting for a permanent magnet. The simulated splitting is drawn from 0-60 MHz
+    (B up to ~21 G), so at a mid-range 30 MHz, 1 K moves a permanent magnet's splitting
+    ~36 kHz — about half the center's shift.
+    """
+    dt = DRIFT_SHOT_DURATION_S
+    return [
+        # Temperature-controlled mount, laser long warmed up, permanent magnet.
+        # Center wander ~1.5 kHz, splitting ~1.5-2 kHz: a near-zero control.
+        DriftSpec(
+            label="stable",
+            shot_duration_s=dt,
+            temperature_k=DriftProcess(ou_sigma=0.02, ou_tau_s=1800.0),
+            field_mg=DriftProcess(ou_sigma=0.5, ou_tau_s=600.0),
+            magnet_tempco_per_k=_NDFEB_TEMPCO_PER_K,
+        ),
+        # Uncontrolled room: slow wander plus a 20-minute air-conditioning cycle, occasional
+        # small field jumps from nearby equipment. Center ~20-40 kHz, splitting ~10-20 kHz.
+        DriftSpec(
+            label="lab",
+            shot_duration_s=dt,
+            temperature_k=DriftProcess(ou_sigma=0.3, ou_tau_s=1200.0, periodic_amplitude=0.2, periodic_period_s=1200.0),
+            field_mg=DriftProcess(ou_sigma=2.0, ou_tau_s=600.0, step_rate_per_s=1 / 1800, step_sigma=3.0),
+            magnet_tempco_per_k=_NDFEB_TEMPCO_PER_K,
+        ),
+        # Measuring before thermal equilibrium (laser/microwave just switched on): the
+        # sample warms 4 K with a 5-minute time constant. Center -300 kHz at full warm-up
+        # (~-85 kHz within an SBED-length run); a 30 MHz permanent-magnet splitting -145 kHz.
+        DriftSpec(
+            label="warmup",
+            shot_duration_s=dt,
+            temperature_k=DriftProcess(warmup_amplitude=4.0, warmup_tau_s=300.0, ou_sigma=0.1, ou_tau_s=1200.0),
+            field_mg=DriftProcess(ou_sigma=0.5, ou_tau_s=600.0),
+            magnet_tempco_per_k=_NDFEB_TEMPCO_PER_K,
+        ),
+        # Electromagnet: coils heat and the field sags 40 mG (0.4% of 10 G) over 15 minutes,
+        # with supply wander and switching jumps. Splitting -110 kHz at full sag; center ~7 kHz.
+        DriftSpec(
+            label="electromagnet",
+            shot_duration_s=dt,
+            temperature_k=DriftProcess(ou_sigma=0.1, ou_tau_s=1200.0),
+            field_mg=DriftProcess(
+                warmup_amplitude=-40.0,
+                warmup_tau_s=900.0,
+                ou_sigma=4.0,
+                ou_tau_s=300.0,
+                step_rate_per_s=1 / 900,
+                step_sigma=5.0,
+            ),
+            magnet_tempco_per_k=0.0,
+        ),
+        # Beyond realistic, to find where each strategy breaks: 15 K warm-up (center
+        # -1.1 MHz), 200 mG field sag (splitting -560 kHz), frequent field jumps.
+        DriftSpec(
+            label="stress",
+            shot_duration_s=dt,
+            temperature_k=DriftProcess(
+                warmup_amplitude=15.0,
+                warmup_tau_s=300.0,
+                ou_sigma=1.0,
+                ou_tau_s=600.0,
+                periodic_amplitude=1.0,
+                periodic_period_s=600.0,
+            ),
+            field_mg=DriftProcess(
+                warmup_amplitude=-200.0,
+                warmup_tau_s=300.0,
+                ou_sigma=20.0,
+                ou_tau_s=300.0,
+                step_rate_per_s=1 / 300,
+                step_sigma=30.0,
+            ),
+            magnet_tempco_per_k=_NDFEB_TEMPCO_PER_K,
+        ),
+    ]
+
+
+def drift_scenario(label: str) -> DriftSpec | None:
+    for spec in drift_scenarios():
+        if spec.label == label:
+            return spec
+    return None
+
+
+def drift_noise_name(sigma: float, label: str) -> str:
+    return f"Gauss({sigma})+Drift({label})"
+
+
+def drift_study_noises() -> list[tuple[str, CompositeNoise | None]]:
+    """A no-drift control plus every drift scenario, all at NVISION_DRIFT_GAUSS_SIGMA."""
+    from nvision.sim.defaults import NVISION_DRIFT_GAUSS_SIGMA
+
+    sigma = float(round(NVISION_DRIFT_GAUSS_SIGMA, 4))
+    noises: list[tuple[str, CompositeNoise | None]] = [(f"Gauss({sigma})", gauss_with_drift(sigma, None))]
+    for spec in drift_scenarios():
+        noises.append((drift_noise_name(sigma, spec.label), gauss_with_drift(sigma, spec)))
+    return noises
+
+
+def gauss_with_drift(sigma: float, drift: DriftSpec | None) -> CompositeNoise:
+    return CompositeNoise(
+        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)]),
+        drift=drift,
+    )

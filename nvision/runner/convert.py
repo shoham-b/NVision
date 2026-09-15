@@ -42,6 +42,7 @@ def run_result_to_history_df(
                 "step": step,
                 "x": x_phys,
                 "signal_values": snapshot.obs.signal_value,
+                "sweep_index": snapshot.obs.sweep_index,
             }
         )
 
@@ -52,6 +53,7 @@ def run_result_to_history_df(
                 "step": pl.Series("step", [], dtype=pl.Int64),
                 "x": pl.Series("x", [], dtype=pl.Float64),
                 "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
+                "sweep_index": pl.Series("sweep_index", [], dtype=pl.Int64),
             }
         )
 

@@ -30,6 +30,18 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18085", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\3be03e73-8b7c-4ece-b60c-fae0709f7bb0\\scratchpad\\repro_artifacts"],
       "port": 18085
+    },
+    {
+      "name": "nvision-serve-matlab",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18086", "--dir", "artifacts/matlab"],
+      "port": 18086
+    },
+    {
+      "name": "nvision-serve-matlab-flip",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18087", "--dir", "artifacts/matlab"],
+      "port": 18087
     }
   ]
 }

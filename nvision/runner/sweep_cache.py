@@ -413,7 +413,7 @@ def precompute_sweep(
         # If memory becomes an issue in the pre-computation, we'll need to move it or pass the check.
         step += 1
         x_current = locator.next()
-        obs = experiment.measure(x_current, rng)
+        obs = experiment.measure(x_current, rng, shot_index=step - 1)
         locator.observe(obs)
         observations.append(obs)
 

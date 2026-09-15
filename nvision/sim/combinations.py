@@ -45,11 +45,11 @@ _NV_SMC: dict[str, object] = {
     "a_param": NVISION_SMC_A_PARAM,
 }
 
-_GAUSS_RE = re.compile(r"^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)$")
+_GAUSS_RE = re.compile(r"^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)(?:\+Drift\(([A-Za-z0-9_-]+)\))?$")
 
 
 def parse_gauss_sigma(name: str) -> float | None:
-    """Extract the numeric sigma from a ``Gauss(sigma)`` noise name, else ``None``.
+    """Extract the numeric sigma from a ``Gauss(sigma)`` (optionally ``+Drift(label)``) noise name.
 
     Gives metrics/plots a numeric noise axis instead of the opaque preset string.
     """
@@ -57,24 +57,38 @@ def parse_gauss_sigma(name: str) -> float | None:
     return float(m.group(1)) if m is not None else None
 
 
+def parse_drift_label(name: str) -> str | None:
+    """The drift scenario label from a ``Gauss(sigma)+Drift(label)`` noise name, else ``None``."""
+    m = _GAUSS_RE.match(name)
+    return m.group(2) if m is not None else None
+
+
 def _parse_noise(name: str) -> CompositeNoise | None:
-    """Dynamically parse a ``Gauss(sigma)`` noise descriptor into a :class:`CompositeNoise`.
+    """Dynamically parse a ``Gauss(sigma)`` or ``Gauss(sigma)+Drift(label)`` noise descriptor.
 
     Makes ``run-single`` work for any sigma value even when
     :envvar:`NVISION_NOISE_MAX_GAUSS` caps the preset grid below the requested level.
 
     Args:
-        name: A string like ``'Gauss(0.05)'``.
+        name: A string like ``'Gauss(0.05)'`` or ``'Gauss(0.006)+Drift(warmup)'``.
 
     Returns:
-        A :class:`CompositeNoise` for the parsed descriptor, or ``None`` if
-        *name* does not match the expected pattern.
+        A :class:`CompositeNoise` for the parsed descriptor, or ``None`` if *name* does
+        not match the expected pattern or names an unknown drift scenario.
     """
     m = _GAUSS_RE.match(name)
-    if m is not None:
-        sigma = float(m.group(1))
-        return CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)]))
-    return None
+    if m is None:
+        return None
+    sigma = float(m.group(1))
+    drift = None
+    if m.group(2) is not None:
+        drift = sim_presets.drift_scenario(m.group(2))
+        if drift is None:
+            return None
+    return CompositeNoise(
+        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)]),
+        drift=drift,
+    )
 
 
 def _strategy_matches(pattern: str, strat_name: str) -> bool:

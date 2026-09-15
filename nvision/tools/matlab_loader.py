@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -70,7 +70,7 @@ class MatlabDataFile:
     freq_hz : np.ndarray
         Frequency grid in Hz, shape (N_freqs,).
     signal : np.ndarray
-        Normalised signal ratio (with_freq / baseline), shape (N_freqs,).
+        Normalised signal ratio (baseline / with_freq), shape (N_freqs,).
         Values ≈ 1.0 in background, dipping below at resonance.
     noise_std : float
         Initial noise estimate passed to the SBED locator. The locator refines
@@ -83,6 +83,23 @@ class MatlabDataFile:
     signal: np.ndarray
     noise_std: float
     n_valid_shots: int
+    shot_ratios: np.ndarray | None = None
+    rng: np.random.Generator = field(default_factory=np.random.default_rng, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        self._visit_counts = np.zeros(len(np.atleast_1d(self.freq_hz)), dtype=np.int64)
+
+    @property
+    def visited_mask(self) -> np.ndarray:
+        """Boolean mask over frequency bins: True where ``measure()`` has drawn a shot.
+
+        Distinct from ``shot_ratios`` having real data — a bin can hold plenty of
+        recorded shots in the file yet never be sampled by a given locator run (it
+        converged early, or stopped short of visiting every bin). Callers that want
+        to represent only what *this run* actually measured use this, not the
+        presence of raw data.
+        """
+        return self._visit_counts > 0
 
     @classmethod
     def load(
@@ -144,17 +161,32 @@ class MatlabDataFile:
         baseline = raw[0, :, :n_valid].copy()  # (N_freqs, N_valid)
         with_freq = raw[1, :, :n_valid].copy()  # (N_freqs, N_valid)
 
-        # Mask zero/NaN slots per frequency
-        good = (baseline > 0) & np.isfinite(baseline) & np.isfinite(with_freq)
+        # Mask zero/NaN slots per frequency. with_freq is now the ratio's denominator (see
+        # shot_ratios below), so it needs the same positivity guard baseline always had.
+        good = (baseline > 0) & (with_freq > 0) & np.isfinite(baseline) & np.isfinite(with_freq)
         baseline = np.where(good, baseline, np.nan)
         with_freq = np.where(good, with_freq, np.nan)
+
+        # Per-shot ratios, kept so measure() can hand the locator one shot at a time.
+        # Feeding it the bin mean instead makes every revisit of a bin return the identical
+        # number, which the locator has no way to recognise as a repeat -- it folds the same
+        # evidence in again on each visit and the posterior collapses, confidently, onto
+        # whichever mode it happened to reach first.
+        #
+        # Computed as baseline / with_freq, not with_freq / baseline: every recorded file
+        # shows the driven-shot channel rising above baseline at resonance, the reverse of
+        # the textbook NV dip. Inverting here, once and the same way for every file, turns
+        # every resonance back into a dip so the regular positive-only c_total fit
+        # (nv_center_lorentzian_bounds_for_domain's default (0.1, 0.4)) applies uniformly —
+        # see matlab_cmd.py's locator_bounds, which no longer needs to special-case this.
+        shot_ratios = np.where(good, baseline / np.where(with_freq > 0, with_freq, np.nan), np.nan)
 
         b_mean = np.nanmean(baseline, axis=1)  # (N_freqs,)
         w_mean = np.nanmean(with_freq, axis=1)
 
         # Guard divide-near-zero
-        safe_b = np.where(b_mean > 0, b_mean, np.nan)
-        signal = np.clip(w_mean / safe_b, 1e-6, 2.0)
+        safe_w = np.where(w_mean > 0, w_mean, np.nan)
+        signal = np.clip(b_mean / safe_w, 1e-6, 2.0)
 
         if np.any(np.isnan(signal)):
             n_nan = int(np.sum(np.isnan(signal)))
@@ -170,8 +202,11 @@ class MatlabDataFile:
             noise_std = float(noise_std_override)
             log.info("Using user-supplied noise_std=%.4g", noise_std)
         else:
-            shot_ratios = np.where(good, with_freq / np.where(baseline > 0, baseline, np.nan), np.nan)
             per_freq_std = np.nanstd(shot_ratios, axis=1)
+            # Per-*shot* spread, matching what measure() hands back (one shot at a time).
+            # It must stay consistent with that: quoting the standard error of the bin mean
+            # here instead would tell the locator each observation is sqrt(n) more precise
+            # than it is, and the particle filter collapses onto the first mode it finds.
             noise_std = float(np.nanmedian(per_freq_std))
             if not (1e-6 < noise_std < 1.0):
                 log.warning(
@@ -188,6 +223,7 @@ class MatlabDataFile:
             signal=signal,
             noise_std=noise_std,
             n_valid_shots=n_valid,
+            shot_ratios=np.clip(shot_ratios, 1e-6, 2.0),
         )
 
     def measure(self, x_unit: float, freq_lo: float, freq_hi: float) -> Observation:
@@ -201,13 +237,47 @@ class MatlabDataFile:
             Physical Hz bounds used by the locator's belief — must match
             ``self.freq_hz.min()`` / ``self.freq_hz.max()``.
         """
-        phys_hz = freq_lo + x_unit * (freq_hi - freq_lo)
+        span = freq_hi - freq_lo
+        phys_hz = freq_lo + x_unit * span
         idx = int(np.argmin(np.abs(self.freq_hz - phys_hz)))
+        # Report the bin the value actually came from, not the frequency that was asked
+        # for. The two differ by up to half a grid step from snapping — and an observation
+        # labelled with the wrong frequency is worse than no observation at all: it tells
+        # the likelihood the signal has a given value at a point where it does not.
+        x_used = (float(self.freq_hz[idx]) - freq_lo) / span if span > 0 else x_unit
+        value, sweep_index = self._draw_shot(idx)
+        self._visit_counts[idx] += 1
         return Observation(
-            x=x_unit,
-            signal_value=float(self.signal[idx]),
+            x=float(np.clip(x_used, 0.0, 1.0)),
+            signal_value=value,
             noise_std=self.noise_std,
+            sweep_index=sweep_index,
         )
+
+    def _draw_shot(self, idx: int) -> tuple[float, int | None]:
+        """A random recorded shot for bin ``idx``, and the raw shot/sweep column it came from.
+
+        Every step is free to pick any frequency and any shot recorded at it, so the run
+        is not forced to consume the file's data: a bin the locator keeps coming back to
+        just draws from its shots again (with replacement), rather than being diverted to
+        a neighbouring frequency once some quota runs out. The draw is random rather than
+        in recorded order, so a heavily-revisited bin doesn't systematically get the late
+        sweeps (and whatever drift the instrument had by then).
+
+        Falls back to the bin mean (and no sweep index) when no per-shot data is available
+        (a bin whose slots were all masked, or an instance built without ``shot_ratios``).
+
+        The instrument scans every frequency once per sweep, then scans them all again,
+        so shot column *j* is the same sweep *j* for every bin.
+        """
+        if self.shot_ratios is None:
+            return float(self.signal[idx]), None
+        row = self.shot_ratios[idx]
+        valid_cols = np.flatnonzero(np.isfinite(row))
+        if valid_cols.size == 0:
+            return float(self.signal[idx]), None
+        col = int(self.rng.choice(valid_cols))
+        return float(row[col]), col
 
 
 def _fill_nan_nearest(arr: np.ndarray) -> np.ndarray:

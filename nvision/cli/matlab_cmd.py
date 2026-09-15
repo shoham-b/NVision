@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
+import numpy as np
 import polars as pl
 import typer
 
@@ -18,6 +20,11 @@ from nvision.cli.app_instance import app
 from nvision.models.locator import Locator
 
 log = logging.getLogger(__name__)
+
+# Artifacts subdirectory holding the MATLAB-only results cache, served with
+# `nv serve --dir artifacts/matlab`. Kept apart from the shared simulation cache; see
+# _write_artifacts for why. Distinct from the per-file bundles in artifacts/matlab_<stem>/.
+MATLAB_UI_DIRNAME = "matlab"
 
 
 # ---------------------------------------------------------------------------
@@ -27,16 +34,38 @@ log = logging.getLogger(__name__)
 
 
 class _MatlabSignalProxy:
-    """Minimal TrueSignal duck-type for real measurements (no ground truth)."""
+    """Minimal TrueSignal duck-type for real measurements (no *parametric* ground truth).
+
+    There's no fitted model to compare against, so ``parameter_values``/``get_param_value``
+    stay NaN (unchanged — those feed error metrics that genuinely have nothing to measure
+    against). But when ``data`` is given, ``__call__`` interpolates the recorded per-bin
+    signal so the scan plot's dense curve can show the real measured spectrum instead of
+    drawing nothing.
+    """
 
     model = None  # needed by some code paths that check hasattr(true_signal, 'model')
 
-    def __init__(self, freq_lo: float, freq_hi: float) -> None:
+    def __init__(self, freq_lo: float, freq_hi: float, data: Any = None) -> None:
         self._freq_lo = freq_lo
         self._freq_hi = freq_hi
+        self._interp_freq: np.ndarray | None = None
+        self._interp_signal: np.ndarray | None = None
+        if data is not None:
+            order = np.argsort(data.freq_hz)
+            self._interp_freq = np.asarray(data.freq_hz, dtype=float)[order]
+            signal = np.asarray(data.signal, dtype=float)[order]
+            # NaN out any bin this run never actually measured. The file can hold a real
+            # recorded mean for every bin, but a given run may have converged early or
+            # stopped short of visiting all of them — np.interp propagates a NaN endpoint
+            # across the whole segment touching it, so this breaks the curve over any
+            # unvisited stretch instead of bridging it with an unmeasured value.
+            visited = np.asarray(data.visited_mask, dtype=bool)[order]
+            self._interp_signal = np.where(visited, signal, np.nan)
 
     def __call__(self, x: float) -> float:
-        return float("nan")
+        if self._interp_freq is None or self._interp_signal is None:
+            return float("nan")
+        return float(np.interp(x, self._interp_freq, self._interp_signal))
 
     def parameter_values(self) -> dict[str, float]:
         return {"frequency": float("nan")}
@@ -81,7 +110,12 @@ def _matlab_loop(
     freq_hi: float,
     no_progress: bool,
 ) -> Generator[Locator]:
-    """Adaptive measurement loop — yields locator state after each observation."""
+    """Adaptive measurement loop — yields locator state after each observation.
+
+    Each step measures whichever frequency the locator picks, drawing one of that
+    frequency's recorded shots (see ``MatlabDataFile.measure``), and stops when the
+    locator does — the run is not obliged to consume every point in the file.
+    """
     while not locator.done():
         x_unit = locator.next()
         obs = data.measure(x_unit, freq_lo, freq_hi)
@@ -110,9 +144,25 @@ def _matlab_loop(
 @app.command("matlab-run")
 def matlab_run(
     matlab_file: Annotated[
-        Path,
-        typer.Argument(help="Path to the ESR .mat file (or bare filename resolved via data/matlab/)."),
-    ],
+        Path | None,
+        typer.Argument(
+            help="Path to the ESR .mat file (or bare filename resolved via data/matlab/). Omit when using --all."
+        ),
+    ] = None,
+    all_files: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Run every .mat file in data/matlab/ (or --dir) instead of a single file. Ignores matlab_file.",
+        ),
+    ] = False,
+    matlab_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--dir",
+            help="Directory to scan for .mat files with --all (default: data/matlab/).",
+        ),
+    ] = None,
     noise_std: Annotated[
         float | None,
         typer.Option("--noise-std", help="Override the auto-estimated measurement noise std."),
@@ -120,7 +170,7 @@ def matlab_run(
     max_steps: Annotated[
         int,
         typer.Option("--max-steps", help="Maximum SBED measurement steps."),
-    ] = 150,
+    ] = 300,
     valid_shots: Annotated[
         int | None,
         typer.Option("--valid-shots", help="Number of shot columns to use (default: esr.currIter)."),
@@ -137,13 +187,147 @@ def matlab_run(
         bool,
         typer.Option("--no-ui", help="Skip artifact writing (no web UI integration)."),
     ] = False,
+    particles: Annotated[
+        int,
+        typer.Option("--particles", help="SMC particle count (default 10x the simulation default)."),
+    ] = 10000,
+    infer_frequency: Annotated[
+        bool,
+        typer.Option(
+            "--infer-frequency/--no-infer-frequency",
+            help=(
+                "Fit the NV zero-field-splitting center instead of fixing it to the "
+                "textbook 2.87 GHz. Real samples run 1-2 MHz off that value from strain/"
+                "temperature, which is comparable to the Zeeman splitting itself — a fixed "
+                "wrong center visibly distorts the fit. The simulated grid always uses the "
+                "exact value it was generated with, so it doesn't need this."
+            ),
+        ),
+    ] = True,
 ) -> None:
     """Run the SBED locator on real ESR measurements from a MATLAB file.
 
     Loads a .mat file recorded by the NVision lab instrument, then adaptively
     selects measurement frequencies using the Bayesian SBED strategy. Results
     are written to the artifact store so they appear in the ``nvision serve`` UI.
+
+    With ``--all``, runs this same procedure over every ``.mat`` file in
+    ``data/matlab/`` (or ``--dir``) in turn, continuing past any single file's
+    failure so one bad recording doesn't abort the rest of the batch.
     """
+    if all_files:
+        from nvision.tools.matlab_loader import _MATLAB_DATA_DIR
+
+        scan_dir = matlab_dir if matlab_dir is not None else _MATLAB_DATA_DIR
+        mat_files = sorted(scan_dir.glob("*.mat"))
+        if not mat_files:
+            typer.echo(f"No .mat files found in {scan_dir}")
+            raise typer.Exit(code=1)
+
+        typer.echo(f"Found {len(mat_files)} .mat file(s) in {scan_dir}\n")
+        failures: list[str] = []
+        for i, f in enumerate(mat_files, 1):
+            typer.echo(f"=== [{i}/{len(mat_files)}] {f.name} ===")
+            file_out = (out / f"{f.stem}.json") if out is not None else None
+            try:
+                _matlab_run_one(
+                    matlab_file=f,
+                    noise_std=noise_std,
+                    max_steps=max_steps,
+                    valid_shots=valid_shots,
+                    out=file_out,
+                    no_progress=no_progress,
+                    no_ui=no_ui,
+                    particles=particles,
+                    infer_frequency=infer_frequency,
+                )
+            except Exception as exc:
+                log.exception("matlab-run failed for %s", f)
+                typer.echo(f"FAILED: {f.name}: {exc}")
+                failures.append(f.name)
+            typer.echo("")
+
+        n_ok = len(mat_files) - len(failures)
+        typer.echo(f"Done: {n_ok}/{len(mat_files)} succeeded.")
+        if failures:
+            typer.echo(f"Failed: {', '.join(failures)}")
+            raise typer.Exit(code=1)
+        return
+
+    if matlab_file is None:
+        typer.echo("Error: provide a .mat file, or pass --all to run every file in data/matlab/.")
+        raise typer.Exit(code=1)
+
+    _matlab_run_one(
+        matlab_file=matlab_file,
+        noise_std=noise_std,
+        max_steps=max_steps,
+        valid_shots=valid_shots,
+        out=out,
+        no_progress=no_progress,
+        no_ui=no_ui,
+        particles=particles,
+        infer_frequency=infer_frequency,
+    )
+
+
+# c_total prior for real data. The positive-only sign is the simulated grid's (the ratio
+# inversion in MatlabDataFile.load makes every resonance dip), but not its (0.1, 0.4)
+# magnitude cap: the raw ratio isn't a calibrated population fraction, and both files in
+# data/matlab/ sat pinned against 0.4. The capped fit made up the missing depth with a
+# wider line — ESR_20251112_134403 fit linewidth 3.1 MHz and R^2 0.946, against 2.2 MHz
+# and 0.976 (the unconstrained scipy ceiling) with the cap lifted, where c_total settles
+# at ~0.54.
+# 1.0 is the physical ceiling: a dip can't go below zero signal.
+_REAL_DATA_C_TOTAL_BOUNDS: tuple[float, float] = (0.1, 1.0)
+
+
+@contextlib.contextmanager
+def _real_data_c_total_threshold() -> Generator[None]:
+    """Scale c_total's absolute convergence threshold to ``_REAL_DATA_C_TOTAL_BOUNDS``.
+
+    NVISION_C_TOTAL_CONVERGENCE_THRESHOLD (0.01) is absolute and was calibrated against
+    the simulated grid's (0.1, 0.4) range. Left as-is under the wider real-data range it
+    demands a precision the recorded shots can't give (the 205-shot file never reported
+    all-parameter convergence), so keep it the same *fraction of the prior range* for the
+    duration of the run, and restore it afterwards so nothing else in the process sees it.
+    """
+    from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+    from nvision.spectra.nv_center import (
+        DEFAULT_NV_CENTER_FREQ_X_MAX,
+        DEFAULT_NV_CENTER_FREQ_X_MIN,
+        nv_center_lorentzian_bounds_for_domain,
+    )
+
+    sim_lo, sim_hi = nv_center_lorentzian_bounds_for_domain(
+        DEFAULT_NV_CENTER_FREQ_X_MIN,
+        DEFAULT_NV_CENTER_FREQ_X_MAX,
+        with_hyperfine_splitting=False,
+        with_zeeman_splitting=True,
+    )["c_total"]
+    real_lo, real_hi = _REAL_DATA_C_TOTAL_BOUNDS
+    original = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["c_total"]
+    PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["c_total"] = original * (real_hi - real_lo) / (sim_hi - sim_lo)
+    try:
+        yield
+    finally:
+        PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["c_total"] = original
+
+
+@_real_data_c_total_threshold()
+def _matlab_run_one(
+    *,
+    matlab_file: Path,
+    noise_std: float | None,
+    max_steps: int,
+    valid_shots: int | None,
+    out: Path | None,
+    no_progress: bool,
+    no_ui: bool,
+    particles: int,
+    infer_frequency: bool,
+) -> None:
+    """Run the SBED locator on a single ESR .mat file (the body of ``matlab-run``)."""
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
     from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
     from nvision.tools.matlab_loader import MatlabDataFile
@@ -162,11 +346,48 @@ def matlab_run(
     )
 
     # --- Build locator ---
+    # c_total: real .mat signal ratios used to come out peaking above 1.0 instead of
+    # dipping below it (whichever shot channel the instrument calls "baseline" can land on
+    # either side of the driven channel). That inversion is corrected once, uniformly, in
+    # MatlabDataFile.load (baseline / with_freq instead of with_freq / baseline), so the
+    # positive-only sign applies directly — but the magnitude cap doesn't; see
+    # _REAL_DATA_C_TOTAL_BOUNDS.
+    #
+    # frequency is inferred (--infer-frequency), not pinned to the simulated grid's 2870 MHz:
+    # both files' sweeps are centered on 2870 MHz, but their doublets sit at 2871.62 and
+    # 2871.13 MHz, and pinning drops R^2 from 0.976 to 0.824 on the narrower file.
+    #
+    # zeeman_split's default ceiling is MAX_ZEEMAN_SPLIT (60 MHz), sized for the simulated
+    # domain and wider than some real sweeps (one file here spans only 80 MHz in total).
+    # Left alone it lets the fit park one of the two peaks outside the measured window and
+    # "explain" only the half it can see — which is what the narrower file did: center
+    # 2840 MHz, split 51.7 MHz, lower peak at 2789 MHz against data starting at 2830 MHz.
+    # A quarter of the span keeps the doublet inside a sweep that was deliberately
+    # recorded around it. Note this cannot be done by narrowing the "frequency" bound
+    # instead: nv_center_smc_belief reuses that same entry as the probe x-domain, so
+    # tightening it would stop the locator from ever measuring the wings.
+    span = freq_hi - freq_lo
+    locator_bounds = {
+        "frequency": (freq_lo, freq_hi),
+        "zeeman_split": (0.0, span / 4.0),
+        "c_total": _REAL_DATA_C_TOTAL_BOUNDS,
+    }
+
+    # The SMC default (1000 particles, 1% exploration) is tuned for a live instrument,
+    # where each measurement is expensive and the run must stay cheap. On these
+    # 4-parameter real-data posteriors it is too thin to resolve the modes reliably:
+    # repeated runs over both files in data/matlab/ landed on a badly wrong mode 1 run in
+    # 5 and 3 in 5 respectively. 10k particles at 5% exploration hit the best achievable
+    # fit on 5/5 runs of both files with run-to-run spread in the 4th decimal, for ~2s a
+    # run; 40k was no better. Re-running a recorded file is cheap, so buy the robustness.
     locator = SequentialBayesianExperimentDesignLocator.create(
         builder=nv_center_smc_belief,
-        parameter_bounds={"frequency": (freq_lo, freq_hi)},
+        parameter_bounds=locator_bounds,
         noise_std=data.noise_std,
         max_steps=max_steps,
+        with_fixed_frequency=not infer_frequency,
+        num_particles=particles,
+        min_exploration_frac=0.05,
     )
 
     typer.echo(f"SBED locator ready (max_steps={max_steps}). Starting adaptive scan...\n")
@@ -221,7 +442,12 @@ def matlab_run(
             ts_str=ts_str,
         )
         typer.echo(f"\nArtifacts written to: {out_dir}")
-        typer.echo("Open 'nvision serve' and refresh to see results in the UI.")
+        typer.echo(
+            f"View in the results UI:  uv run nv serve --dir artifacts/{MATLAB_UI_DIRNAME}\n"
+            "  -> http://localhost:18083 (its own port; 18080 is the main artifacts UI)\n"
+            f"  -> Study: 'Default (ungrouped)', generator 'MATLAB:{Path(matlab_file).name}'\n"
+            "  -> Press 'r' there to pick up later runs."
+        )
 
     # --- Optional JSON output ---
     if out is not None:
@@ -273,10 +499,13 @@ def _write_artifacts(
     ts_str: str,
 ) -> Path:
     """Write locator_results.csv, plots_manifest.json, and Bayesian plots."""
+    from nvision.cache import CacheBridge
     from nvision.gui.report import prepare_static_ui_data
+    from nvision.runner.cache import embed_graph_content
     from nvision.runner.convert import run_result_to_finalize_record, run_result_to_history_df
     from nvision.runner.metrics import generate_attempt_metrics
     from nvision.runner.plots import generate_attempt_plots
+    from nvision.sim.combinations import CombinationGrid
     from nvision.tools.artifacts import (
         merge_locator_results_with_existing,
         prepare_artifact_tree,
@@ -286,6 +515,9 @@ def _write_artifacts(
     )
     from nvision.tools.paths import ARTIFACTS_ROOT
     from nvision.viz import Viz
+
+    matlab_ui_root = ARTIFACTS_ROOT / MATLAB_UI_DIRNAME
+    (matlab_ui_root / "cache").mkdir(parents=True, exist_ok=True)
 
     mat_stem = Path(matlab_file).stem
     slug = f"matlab_{mat_stem}"
@@ -299,7 +531,7 @@ def _write_artifacts(
     strat_name = "Bayesian-SBED"
     repeat_id = 0
 
-    proxy = _MatlabSignalProxy(freq_lo, freq_hi)
+    proxy = _MatlabSignalProxy(freq_lo, freq_hi, data=data)
     experiment = _MatlabExperiment(data, proxy, freq_lo, freq_hi)
 
     # Build DataFrames from the RunResult
@@ -354,6 +586,43 @@ def _write_artifacts(
     loc_df = pl.DataFrame([main_result_row])
     loc_df = merge_locator_results_with_existing(loc_df, out_dir, log)
     write_locator_results_csv(loc_df, out_dir)
+
+    # Persist into a SQLite cache of MATLAB runs only, so `nv serve --dir` can render them
+    # in the normal results UI (it builds its manifest from a cache, never by scanning
+    # artifact trees). Deliberately NOT the shared artifacts/cache/: that one also holds
+    # the simulated grid, which reached ~940k index entries over 36 GB here, and a manifest
+    # rebuild across it takes ~20 minutes and several GB of RAM — for 13 MATLAB combos
+    # that list in 0.07s on their own. Keeping them separate also means a reload of this UI
+    # never touches, or waits on, the simulation cache. Best-effort: a cache-write failure
+    # must not cost us the standalone bundle written above.
+    try:
+        bridge = CacheBridge(matlab_ui_root / "cache")
+        try:
+            repo = bridge.get_cache_for_category(CombinationGrid.generator_category(gen_name))
+            embedded = embed_graph_content(plot_manifest, out_dir)
+            combo_key = dict(
+                generator=gen_name,
+                noise=noise_name,
+                strategy=strat_name,
+                repeats=1,
+                seed=0,
+                max_steps=max_steps,
+                timeout_s=0,
+                repeat_offset=0,
+            )
+            # Every matlab-run replaces the previous result rather than resuming it. Saving
+            # over an existing combination rewrites repeat 0 but leaves its pointer's
+            # updated_at untouched (it only advances when the repeat count grows), and the
+            # manifest shows the most recently *updated* generation per file — so a rerun
+            # would stay hidden behind any other --max-steps generation saved since. Purging
+            # first makes the save write a fresh pointer stamped now.
+            repo.purge_cached_combination(**combo_key)
+            repo.save_cached_combination(**combo_key, results=[(embedded, main_result_row)], start_idx=0)
+        finally:
+            bridge.close()
+        log.info("Persisted MATLAB run to %s", matlab_ui_root / "cache")
+    except Exception as exc:
+        log.warning("Failed to persist MATLAB run to its cache (standalone bundle unaffected): %s", exc)
 
     # Flush each entry's in-memory plot bytes to its .json.gz path. The normal
     # `nv run` pipeline does this via the SQLite cache + restore_graphs when

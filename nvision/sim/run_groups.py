@@ -233,6 +233,42 @@ def _group_lorentzian_plain_sweep_only() -> RunGroup:
     )
 
 
+def _drift_noise_names() -> list[str]:
+    """No-drift control plus every drift scenario (see sim.presets.drift_study_noises)."""
+    return [name for name, _ in sim_presets.drift_study_noises()]
+
+
+def _group_lorentzian_plain_drift() -> RunGroup:
+    extra_generators = _lorentzian_plain_param_grid()
+    return RunGroup(
+        name="lorentzian-plain-drift",
+        description=(
+            "Width x contrast grid (plain Lorentzian) x drift scenarios (center and Zeeman "
+            "splitting moving during the run, plus a no-drift control) for "
+            "Bayesian-SBED/SimpleSobol/SimpleSweep."
+        ),
+        generator_names=list(extra_generators.keys()),
+        noise_names=_drift_noise_names(),
+        strategy_names=["Bayesian-SBED", "SimpleSobol", "SimpleSweep"],
+        extra_generators=extra_generators,
+    )
+
+
+def _group_lorentzian_plain_drift_sbed_only() -> RunGroup:
+    extra_generators = _lorentzian_plain_param_grid()
+    return RunGroup(
+        name="lorentzian-plain-drift-sbed-only",
+        description=(
+            "Width x contrast grid (plain Lorentzian) x drift scenarios (plus a no-drift "
+            "control) for Bayesian-SBED only (no sweep/sobol baselines)."
+        ),
+        generator_names=list(extra_generators.keys()),
+        noise_names=_drift_noise_names(),
+        strategy_names=["Bayesian-SBED"],
+        extra_generators=extra_generators,
+    )
+
+
 def _group_both_sbed() -> RunGroup:
     # sigma_inhom=0 makes NVCenterVoigtModel's reparam draw lorentz_frac=1.0 -- a
     # pure-Lorentzian-shaped pseudo-Voigt profile (verified: the Thompson-Cox-Hastings
@@ -301,6 +337,8 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_lorentzian_plain_sbed(),
         _group_lorentzian_plain_sbed_only(),
         _group_lorentzian_plain_sweep_only(),
+        _group_lorentzian_plain_drift(),
+        _group_lorentzian_plain_drift_sbed_only(),
         _group_both_sbed(),
         _group_both_sbed_only(),
         _group_both_sweep_only(),

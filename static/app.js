@@ -1,12 +1,36 @@
 // Bootstrap, run-status, format utils, and plotly utils are in separate files.
 // See: bootstrap.js, run-status.js, format-utils.js, plotly-utils.js, reload.js
 
+// URL hash routing: lets a link jump straight to a specific generator/noise/
+// strategy/repeat + scan-view-mode + Bayesian sub-tab, e.g.
+// #generator=NVCenter-lorentzian&noise=Gauss(0.0067)&strategy=Bayesian-SMC&repeat=0&view=speed&bayesTab=bayes-convergence-section
+// Read on load and on hashchange (manual edits, shared links); written via
+// replaceState (not pushState) as the user navigates, so the address bar
+// always reflects the current view without spamming browser history.
+function getHashParams() {
+    try { return new URLSearchParams((location.hash || '').replace(/^#/, '')); }
+    catch (e) { return new URLSearchParams(); }
+}
+
+function writeHashState(state) {
+    const params = new URLSearchParams();
+    ['generator', 'noise', 'strategy', 'repeat', 'view', 'bayesTab'].forEach((key) => {
+        if (state[key]) params.set(key, state[key]);
+    });
+    const next = params.toString();
+    const url = location.pathname + location.search + (next ? '#' + next : '');
+    history.replaceState(null, '', url);
+}
+
 function main() {
     initRunStatusBanner();
     initHelpToggles();
 
     let plots = [];
     let currentPlot = null;
+    // Set from the URL hash's bayesTab param; consumed once by updateBayesTabs()
+    // the first time the Bayesian tab bar is built (see there for why).
+    let pendingHashBayesTab = null;
     // Splitting (zeeman_split) convergence is the primary milestone; 'full'/'all_converged'
     // are verification only. Default to splitting_converged (falls back to 'full' when a
     // loaded run has no splitting milestone — see updateStoppingCriteriaVisibility).
@@ -562,6 +586,12 @@ function main() {
 
         const currentActive = tabBar.querySelector('.bayes-tab-button.is-active');
         let activeId = currentActive ? currentActive.dataset.tab : null;
+        // First build of this tab bar (no active button yet): honor a bayesTab
+        // requested via the URL hash before falling back to the first section.
+        if (!activeId && pendingHashBayesTab && available.some((s) => s.id === pendingHashBayesTab)) {
+            activeId = pendingHashBayesTab;
+        }
+        pendingHashBayesTab = null;
         if (!available.some((s) => s.id === activeId)) {
             activeId = available[0] ? available[0].id : null;
         }
@@ -604,6 +634,7 @@ function main() {
                 if (!isNaN(currentIdx)) {
                     syncFrames(currentIdx);
                 }
+                syncHashFromState();
             });
             btn.addEventListener('keydown', (e) => {
                 const buttons = Array.from(tabBar.querySelectorAll('.bayes-tab-button'));
@@ -1145,13 +1176,23 @@ function main() {
         return { data: topData.concat(bottomData), layout: newLayout };
     }
 
-    // Dispatcher for the "Flip view" toggle: splits by Zeeman group when the true
-    // signal has Zeeman splitting, otherwise falls back to the single center-fold.
+    // Dispatcher for the "Flip view" toggle: splits by Zeeman group when the signal has
+    // Zeeman splitting, otherwise falls back to the single center-fold.
+    //
+    // Folds about the *found* center and split (the locator's reported final estimates),
+    // falling back per parameter to the true value only when the locator didn't estimate
+    // it -- e.g. the center under the simulated grid's fixed-frequency default, where the
+    // true value is exactly what the model assumed. Real measurements have no true value
+    // at all, and their center sits ~1-2 MHz off the window midpoint the fold used to
+    // default to.
     function _foldScanFigureForFlipView(figData, figLayout) {
         if (!Array.isArray(figData) || !figData.length) return { data: figData, layout: figLayout };
-        const tp = figLayout && figLayout.meta && figLayout.meta.true_params && figLayout.meta.true_params.params;
-        const center = tp && Number.isFinite(tp.frequency) ? tp.frequency : null;
-        const zeemanSplit = tp && Number.isFinite(tp.zeeman_split) ? tp.zeeman_split : null;
+        const meta = (figLayout && figLayout.meta) || {};
+        const fp = meta.found_params || {};
+        const tp = (meta.true_params && meta.true_params.params) || {};
+        const pick = (name) => Number.isFinite(fp[name]) ? fp[name] : (Number.isFinite(tp[name]) ? tp[name] : null);
+        const center = pick('frequency');
+        const zeemanSplit = pick('zeeman_split');
         if (center !== null && zeemanSplit !== null && Math.abs(zeemanSplit) > 1e-9) {
             return _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanSplit);
         }
@@ -1550,6 +1591,24 @@ function main() {
                 }),
             );
         }
+    }
+
+    // Reflects the current generator/noise/strategy/repeat selection plus the
+    // active scan-view-mode and Bayesian sub-tab into the URL hash. Called from
+    // the few places that are the actual source of truth for each piece of
+    // state (findAndDisplayPlot, showScanViewPanels, the bayes-tab click
+    // handler) rather than from every individual control listener.
+    function syncHashFromState() {
+        const viewBtn = document.querySelector('#scan-view-mode button.is-active');
+        const bayesBtn = document.querySelector('#bayes-tab-bar .bayes-tab-button.is-active');
+        writeHashState({
+            generator: controlValue(scanGenerator) || null,
+            noise: getEffectiveScanNoise() || null,
+            strategy: controlValue(scanStrategy) || null,
+            repeat: controlValue(scanRepeat) || null,
+            view: viewBtn ? viewBtn.dataset.value : null,
+            bayesTab: bayesBtn ? bayesBtn.dataset.tab : null,
+        });
     }
 
     function renderSegmentedControl(control, items, previousValue, options = {}) {
@@ -2541,6 +2600,7 @@ function main() {
     }
 
     function findAndDisplayPlot() {
+        syncHashFromState();
         const scanGeneratorValue = controlValue(scanGenerator);
         const scanNoiseValue = getEffectiveScanNoise();
         const scanStrategyValue = controlValue(scanStrategy);
@@ -7676,6 +7736,7 @@ function main() {
                 renderGridStatsTab(gen, controlValue(scanStrategy));
             }
         }
+        syncHashFromState();
     }
 
     const scanViewMode = document.getElementById('scan-view-mode');
@@ -8044,10 +8105,45 @@ function main() {
                 : String(scanDefault.repeat);
     }
 
-    try {
-        setupTabs();
+    // Overrides the defaults above with whatever the URL hash requests. Invalid
+    // or unavailable values (e.g. a generator that isn't in this manifest) are
+    // harmless: updateAllScanControls()'s renderSegmentedControl/renderSelectControl
+    // calls already fall back to a valid selection when the "previous value" they're
+    // handed doesn't match any current item, so there's no need to validate here.
+    function applyHashToDom() {
+        const params = getHashParams();
+        const hGenerator = params.get('generator');
+        const hNoise = params.get('noise');
+        const hStrategy = params.get('strategy');
+        const hRepeat = params.get('repeat');
+        const hView = params.get('view');
+        const hBayesTab = params.get('bayesTab');
+
+        if (hGenerator) scanGenerator.dataset.value = hGenerator;
+        if (hNoise) scanNoise.dataset.selectedValues = JSON.stringify([hNoise]);
+        if (hStrategy) scanStrategy.dataset.value = hStrategy;
+        if (hRepeat) scanRepeat.dataset.value = hRepeat;
+        if (hBayesTab) pendingHashBayesTab = hBayesTab;
+
         updateAllScanControls();
         findAndDisplayPlot();
+
+        if (hView) {
+            const targetBtn = Array.from(document.querySelectorAll('#scan-view-mode button'))
+                .find((b) => b.dataset.value === hView);
+            if (targetBtn && targetBtn.style.display !== 'none' && !targetBtn.disabled) {
+                targetBtn.click();
+            }
+        }
+    }
+
+    try {
+        setupTabs();
+        applyHashToDom();
+        if (!window.__nvisionHashRoutingBound) {
+            window.__nvisionHashRoutingBound = true;
+            window.addEventListener('hashchange', () => applyHashToDom());
+        }
     } catch (error) {
         console.error('Error initializing UI controls:', error);
         // Show an error message to the user

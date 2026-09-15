@@ -127,3 +127,5 @@ junit-result.xml
 check_*.py
 scratch/
 /test_*
+
+openevolve_output/

@@ -206,6 +206,11 @@ NVISION_SBED_NOISE_MAX: float = float(os.getenv("NVISION_SBED_NOISE_MAX", "0.01"
 # as noise grows across the feasible range rather than just a few points.
 NVISION_SBED_NOISE_STEPS: int = int(os.getenv("NVISION_SBED_NOISE_STEPS", "6"))
 
+# Gaussian noise level every drift scenario in the drift run-groups is paired with
+# (sim.presets.drift_study_noises). One of the NVISION_SBED_NOISE_* grid points by
+# default, so the no-drift control row matches an existing SBED-study noise level.
+NVISION_DRIFT_GAUSS_SIGMA: float = float(os.getenv("NVISION_DRIFT_GAUSS_SIGMA", "0.006"))
+
 
 # Convergence targets for the NV shape parameters, in the units of each parameter.
 #

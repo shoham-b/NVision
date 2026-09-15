@@ -1,0 +1,75 @@
+# OpenEvolve config for evolving the SBED locator's acquisition-point-selection
+# logic (openevolve/sbed_acquisition/initial_program.py, scored by evaluator.py).
+# See openevolve/sbed_acquisition/README.md for how to run this and read results.
+
+max_iterations: 30
+checkpoint_interval: 5
+log_level: INFO
+random_seed: 42
+# initial_program.py itself is ~12.2KB (the original acquisition logic is
+# verbose) -- default max_code_length (10000) is smaller than the unmodified
+# starting file, so every iteration failed this check regardless of what the
+# LLM proposed. Give real headroom to grow, not just clear the current size.
+max_code_length: 25000
+
+llm:
+  # Drives evolution through the local `claude` CLI (must be logged in via
+  # `claude login`) instead of a hosted API -- no API key needed. See
+  # .venv/Lib/site-packages/openevolve/llm/claude_code.py for the backend.
+  provider: claude_code
+  models:
+    - name: sonnet
+      weight: 1.0
+      max_tokens: 16000
+      timeout: 300
+      max_budget_usd: 1.0
+  temperature: 0.7
+
+prompt:
+  num_top_programs: 3
+  num_diverse_programs: 2
+  system_message: |
+    You are improving the acquisition-point-selection logic of a Bayesian
+    Sequential Experiment Design (SBED) locator for NV-center magnetometry.
+    The locator repeatedly picks the next measurement frequency (physical
+    Hz) to localize a Zeeman-split dip pair as precisely as possible in as
+    few measurements as possible.
+
+    You may only edit the code between EVOLVE-BLOCK-START and
+    EVOLVE-BLOCK-END. The three functions (_acquire, _eig_acquire,
+    _dual_window_acquire) are called as unbound methods with `self` bound to
+    the live locator instance -- keep their names and signatures unchanged.
+
+    Hard constraints (violating these scores 0, not partial credit):
+      - Every returned frequency must be a physical Hz float strictly within
+        the locator's domain bounds (see self._acquisition_bounds() and
+        self.belief._original_physical_x_bounds).
+      - Never silently clamp or fall back on invalid/degenerate state --
+        raise instead (this codebase's own convention: fail fast, no silent
+        algorithmic fallbacks).
+      - Do not change what triggers convergence/stopping -- that is decided
+        elsewhere and deliberately out of scope here; only change which
+        points get measured.
+
+    You are scored on splitting_converged_step (fewer measurements to reach
+    a converged Zeeman-splitting estimate is better), but only among
+    candidates that clear a convergence-rate floor and a catastrophic-error
+    ceiling -- see evaluator.py's docstring for why a pure speed metric is
+    unsafe here (this codebase's own history includes several early-stop
+    "improvements" that were actually gaming a truth-centred prior).
+
+database:
+  population_size: 30
+  archive_size: 10
+  num_islands: 1
+  elite_selection_ratio: 0.2
+  exploration_ratio: 0.3
+  exploitation_ratio: 0.5
+
+evaluator:
+  timeout: 300
+  cascade_evaluation: false # see evaluator.py's evaluate_stage1/2 to enable
+  parallel_evaluations: 1
+
+diff_based_evolution: true
+early_stopping_metric: combined_score

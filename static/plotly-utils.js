@@ -185,15 +185,53 @@ function _depthPct(y, baseline) {
     return y == null ? 0 : Math.max(0, (baseline - y) / baseline * 100);
 }
 
+// A locator that revisits the same discrete frequency bin (e.g. matlab-run cycling
+// through a real .mat file's per-shot data one shot at a time) plots several dots at
+// the *exact* same x. Left alone they just stack invisibly on top of each other with
+// no visual cue they're the same bin. Group them into one vertical stem per unique x
+// (min-to-max span of repeated shots there) drawn under the dots, so repeats read as
+// one column instead of a hidden pile.
+function _buildStemTrace(xs, ys, template) {
+    if (!xs || !xs.length) return null;
+    const groups = new Map();
+    for (let i = 0; i < xs.length; i++) {
+        const x = xs[i];
+        const y = ys[i];
+        if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+        const g = groups.get(x);
+        if (!g) groups.set(x, { min: y, max: y });
+        else {
+            if (y < g.min) g.min = y;
+            if (y > g.max) g.max = y;
+        }
+    }
+    const stemX = [];
+    const stemY = [];
+    let any = false;
+    for (const [x, g] of groups) {
+        if (g.max === g.min) continue;
+        any = true;
+        stemX.push(x, x, null);
+        stemY.push(g.min, g.max, null);
+    }
+    if (!any) return null;
+    return Object.assign({}, template, { x: stemX, y: stemY });
+}
+
 function _buildScanFigure(def, data) {
     const traces = [];
     const hasMetrics = !!data.has_metrics;
     const sa = hasMetrics ? { xaxis: 'x', yaxis: 'y' } : {};
     const T = def.traces;
 
-    // True signal (omitted when there's no known ground truth, e.g. real data)
+    // Dense reference curve (omitted when there's nothing to draw, e.g. real data with
+    // no measurements yet). Its label depends on what it actually is: a known parametric
+    // ground truth for simulated runs ("true signal"), vs. just the per-bin mean over every
+    // recorded shot for real MATLAB runs ("recorded mean signal" — not an independent
+    // reference, so it must not be called "true" or "real").
     if (_hasFiniteValues(data.y_dense)) {
-        traces.push(Object.assign({}, T.true_signal, { x: data.x_dense, y: data.y_dense }, sa));
+        const label = data.true_signal_label || T.true_signal.name;
+        traces.push(Object.assign({}, T.true_signal, { x: data.x_dense, y: data.y_dense, name: label }, sa));
     }
 
     // Possible-measurement-range bands (Monte-Carlo envelope): outer ±2σ drawn
@@ -222,6 +260,18 @@ function _buildScanFigure(def, data) {
     const m = data.measurements;
     const baseline = _scanBaseline(data.y_dense);
     if (m) {
+        // Vertical stems grouping repeated same-frequency shots, drawn first so the
+        // per-measurement dots layer on top of them.
+        if (m.mode === 'phases') {
+            const allX = [].concat(m.coarse_x || [], m.secondary_x || [], m.tertiary_x || [], m.fine_x || []);
+            const allY = [].concat(m.coarse_y || [], m.secondary_y || [], m.tertiary_y || [], m.fine_y || []);
+            const stem = _buildStemTrace(allX, allY, T.freq_stem);
+            if (stem) traces.push(Object.assign({}, stem, sa));
+        } else if (m.mode === 'steps') {
+            const stem = _buildStemTrace(m.x, m.y, T.freq_stem);
+            if (stem) traces.push(Object.assign({}, stem, sa));
+        }
+
         if (m.mode === 'phases') {
             if (m.coarse_x && m.coarse_x.length) {
                 traces.push(Object.assign({}, T.coarse, {
@@ -254,15 +304,23 @@ function _buildScanFigure(def, data) {
                 }, sa));
             }
         } else if (m.mode === 'steps') {
-            const stepIdx = (m.step && m.step.length === m.x.length)
-                ? Array.from(m.step) : m.x.map((_, i) => i);
+            // A real acquisition (e.g. MATLAB replay) scans every frequency once per
+            // sweep, then scans them all again — sweep_index is that real time axis, and
+            // is a truer color than the locator's own adaptive visit order (`step`), which
+            // can revisit one bin many sweeps apart from the next. Use it when present.
+            const hasSweep = m.sweep_index && m.sweep_index.length === m.x.length;
+            const colorIdx = hasSweep
+                ? Array.from(m.sweep_index)
+                : (m.step && m.step.length === m.x.length) ? Array.from(m.step) : m.x.map((_, i) => i);
+            const colorLabel = hasSweep ? 'sweep' : 'step';
             const colorbar = hasMetrics
-                ? { title: { text: 'step' }, len: 0.6, y: 0.8 }
-                : { title: { text: 'step' } };
+                ? { title: { text: colorLabel }, len: 0.6, y: 0.8 }
+                : { title: { text: colorLabel } };
             traces.push(Object.assign({}, T.steps_noisy, {
                 x: m.x, y: m.y,
-                marker: Object.assign({}, T.steps_noisy.marker, { color: stepIdx, colorbar }),
+                marker: Object.assign({}, T.steps_noisy.marker, { color: colorIdx, colorbar }),
                 customdata: Array.from(m.y).map(y => _depthPct(y, baseline)),
+                hovertemplate: `x=%{x}<br>y=%{y:.4f}<br>down=%{customdata:.1f}%<br>${colorLabel}=%{marker.color}<extra></extra>`,
             }, sa));
         }
     }
@@ -384,6 +442,7 @@ function _buildScanFigure(def, data) {
     if (data.narrowed_param_bounds) meta.narrowed_param_bounds = data.narrowed_param_bounds;
     if (data.per_dip_windows) meta.per_dip_windows = data.per_dip_windows;
     if (data.true_params) meta.true_params = data.true_params;
+    if (data.found_params) meta.found_params = data.found_params;
     if (Object.keys(meta).length) baseLayout.meta = meta;
 
     return { data: traces, layout: baseLayout };

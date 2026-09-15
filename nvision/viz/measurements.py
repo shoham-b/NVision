@@ -141,6 +141,20 @@ def _dense_model_curve(model: Any, xs: np.ndarray, values_in_order: Sequence[flo
     return None
 
 
+def _true_signal_label(scan: Any) -> str:
+    """Legend/hover label for the dense ``y_dense`` curve.
+
+    Simulated experiments generate it from a known parametric model
+    (``scan.true_signal.model``) — "true signal" is accurate there. Real MATLAB
+    runs have no such model (``_MatlabSignalProxy.model`` is always ``None``): the
+    curve is just the per-bin mean over every recorded shot, not an independent
+    reference the run is being checked against, so calling it "true" or "real"
+    overclaims what it is.
+    """
+    model = getattr(getattr(scan, "true_signal", None), "model", None)
+    return "true signal" if model is not None else "recorded mean signal"
+
+
 def _true_signal_dense_y(scan: Any, xs: np.ndarray) -> np.ndarray:
     """Dense true-signal curve, vectorized when the model supports it."""
     true_signal = scan.true_signal
@@ -831,12 +845,23 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
     xs_s = history.get_column("x").to_list() if "x" in history.columns else []
     ys_s = history.get_column("signal_values").to_list() if "signal_values" in history.columns else []
     steps = list(range(history.height))
-    return {
+    result: dict[str, Any] = {
         "mode": "steps",
         "x": [float(x) for x in xs_s],
         "y": [_json_safe_float(y) for y in ys_s],
         "step": steps,
     }
+    # Real acquisitions (e.g. MATLAB replay) scan every frequency once per sweep, then
+    # scan them all again — so which *sweep* a shot came from is the real time axis, and a
+    # better color choice than the locator's own adaptive visit order (`step` above), which
+    # can revisit a bin many sweeps apart. Only include it when every point has one: a
+    # locator can mix real and synthetic observations within one run (e.g. a warm start),
+    # and a partial column would silently mis-color those without a real sweep index.
+    if "sweep_index" in history.columns:
+        sweep_idx_s = history.get_column("sweep_index").to_list()
+        if sweep_idx_s and all(v is not None for v in sweep_idx_s):
+            result["sweep_index"] = [int(v) for v in sweep_idx_s]
+    return result
 
 
 def compute_scan_plot_data(
@@ -859,6 +884,7 @@ def compute_scan_plot_data(
     out: dict[str, Any] = {
         "x_dense": xs.tolist(),
         "y_dense": ys.tolist(),
+        "true_signal_label": _true_signal_label(scan),
     }
     if mode_estimates:
         y_mode = _mode_belief_dense_y(scan, xs, mode_estimates, belief_unit_cube=belief_unit_cube)
@@ -1200,6 +1226,7 @@ def _compute_scan_data_dict(
     sweep_ys: list[float] | None = None,
     sweep_mode_estimates: Mapping[str, float] | None = None,
     true_params: dict | None = None,
+    found_params: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Build the lean scan data dict written to disk (replaces the full Plotly figure)."""
     history_xs_raw, _history_ys_raw = _extract_history_xy(history)
@@ -1210,12 +1237,22 @@ def _compute_scan_data_dict(
         "_graph_type": "scan",
         "x_dense": xs,
         "y_dense": ys,
+        "true_signal_label": _true_signal_label(scan),
     }
 
     if mode_estimates:
         y_mode = _mode_belief_dense_y(scan, xs, mode_estimates, belief_unit_cube=belief_unit_cube)
         if y_mode is not None and len(y_mode) == len(xs):
             out["y_dense_mode"] = y_mode
+
+    # The locator's reported estimates (the same values as the final_est_* metrics), so the
+    # UI's flip view can fold about the *found* center and Zeeman split. Real measurements
+    # have no ground truth to fold about, and their center sits off the simulated grid's
+    # fixed 2870 MHz anyway.
+    if found_params:
+        safe_found = {name: f for name, v in found_params.items() if (f := _json_safe_float(v)) is not None}
+        if safe_found:
+            out["found_params"] = safe_found
 
     if over_frequency_noise is not None:
         noise_scale = _noise_scale_for_scan(scan, over_frequency_noise)
@@ -1328,6 +1365,7 @@ class MeasurementsMixin:
         sweep_ys: list[float] | None = None,
         sweep_mode_estimates: Mapping[str, float] | None = None,
         true_params: dict | None = None,
+        found_params: Mapping[str, float] | None = None,
     ) -> bytes:
         """Serialize scan data as a lean JSON.gz (definition lives in static/graphs/scan.json)."""
         if out_path is not None:
@@ -1349,6 +1387,7 @@ class MeasurementsMixin:
             sweep_ys=sweep_ys,
             sweep_mode_estimates=sweep_mode_estimates,
             true_params=true_params,
+            found_params=found_params,
         )
 
         from nvision.viz._f32_json import dump_gz

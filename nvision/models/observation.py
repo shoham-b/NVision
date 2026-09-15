@@ -49,6 +49,13 @@ class Observation:
         when fewer than two shots exist (no variance is estimable). Beliefs with
         an explicit noise posterior use this as direct, model-free evidence
         about σ, orthogonal to the fit residuals.
+    sweep_index : int | None
+        Which repeated pass over the full measurement domain this shot came
+        from, when the source data has that structure (e.g. a MATLAB file
+        where every frequency is scanned once, then all scanned again, etc.
+        — shot column *j* is sweep *j* for every frequency). ``None`` when the
+        source has no such notion (e.g. the simulated generators, which draw
+        a fresh sample on demand with no fixed sweep order).
     """
 
     x: float
@@ -57,6 +64,7 @@ class Observation:
     frequency_noise_model: tuple[dict[str, Any], ...] | None = field(default=None)
     n_shots: int = field(default=1)
     sample_var: float | None = field(default=None)
+    sweep_index: int | None = field(default=None)
 
 
 def aggregate_shots(

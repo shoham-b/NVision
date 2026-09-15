@@ -6,10 +6,13 @@ import math
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nvision.sim.batch import DataBatch, OverFrequencyNoise
 from nvision.spectra.noise_model import NoiseSignalModel
+
+if TYPE_CHECKING:
+    from nvision.noises.drift import DriftSpec
 
 
 class CompositeOverFrequencyNoise(OverFrequencyNoise):
@@ -78,9 +81,14 @@ class CompositeOverFrequencyNoise(OverFrequencyNoise):
 
 @dataclass(frozen=True, slots=True)
 class CompositeNoise:
-    """Container for over-frequency noise."""
+    """Container for over-frequency noise and optional time drift of the true signal.
+
+    ``drift`` is deliberately not part of :meth:`to_noise_signal_model`: the locator's
+    belief keeps assuming a static signal, which is exactly what drift runs test.
+    """
 
     over_frequency_noise: CompositeOverFrequencyNoise | None = None
+    drift: DriftSpec | None = None
 
     def apply(self, data: DataBatch, rng: random.Random) -> DataBatch:
         if self.over_frequency_noise is not None:
