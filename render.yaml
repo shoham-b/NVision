@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: nvision-serve
+    runtime: docker
+    dockerfilePath: ./docker/serve/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /
+    autoDeploy: true
