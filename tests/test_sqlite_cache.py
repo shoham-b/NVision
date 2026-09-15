@@ -106,3 +106,50 @@ def test_sharded_sqlite_cache_iter_yields_legacy_if_index_fails(tmp_path, monkey
 
     keys = list(cache)
     assert keys == ["legacy_key_1"]
+
+
+def test_list_keys_excluding_prefixes_filters_in_sql(tmp_path):
+    """Same result set as filtering `list(cache)` in Python, but computed via the
+    index DB's own WHERE clause -- this is what keeps /api/manifest from having to
+    stream every repeat:/blob: key in a large cache into Python just to discard it."""
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    cache = ShardedSqliteCache(tmp_path / "base.db")
+    cache.set("combo:aaa", {"config": {"kind": "locator_combination_pointer"}})
+    cache.set("combo:bbb", {"config": {"kind": "locator_combination_pointer"}})
+    cache.set("repeat:aaa:0", {"entries": []})
+    cache.set("repeat:aaa:0:meta", {"entries": []})
+    cache.blob_set("blob:aaa:0:scan", b"raw-bytes")
+
+    kept = cache.list_keys_excluding_prefixes(["repeat:", "blob:"])
+
+    assert sorted(kept) == ["combo:aaa", "combo:bbb"]
+
+
+def test_list_keys_excluding_prefixes_includes_legacy_keys(tmp_path):
+    import sqlite3
+
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    base_db = tmp_path / "legacy_working.db"
+    base_db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(base_db) as conn:
+        conn.execute("CREATE TABLE cache (key TEXT PRIMARY KEY)")
+        conn.execute("INSERT INTO cache (key) VALUES ('combo:legacy')")
+        conn.execute("INSERT INTO cache (key) VALUES ('repeat:legacy:0')")
+
+    cache = ShardedSqliteCache(base_db)
+
+    kept = cache.list_keys_excluding_prefixes(["repeat:", "blob:"])
+
+    assert kept == ["combo:legacy"]
+
+
+def test_list_keys_excluding_prefixes_empty_prefixes_returns_all(tmp_path):
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    cache = ShardedSqliteCache(tmp_path / "base.db")
+    cache.set("a", {})
+    cache.set("b", {})
+
+    assert sorted(cache.list_keys_excluding_prefixes([])) == ["a", "b"]

@@ -269,6 +269,31 @@ class MySqlCache:
             except Exception:
                 continue
 
+    def list_keys_excluding_prefixes(self, prefixes: list[str]) -> list[str]:
+        """SQL-side counterpart to ``ShardedSqliteCache.list_keys_excluding_prefixes``
+        -- see there for why filtering in the query (instead of streaming every
+        ``repeat:``/``blob:`` row via ``__iter__`` and discarding most of them in
+        Python) is what keeps /api/manifest fast on a large shared cache.
+        """
+        if not prefixes:
+            return list(self)
+        conn = self._get_conn()
+        where = " AND ".join("`key` NOT LIKE %s" for _ in prefixes)
+        params = tuple(f"{p}%" for p in prefixes)
+        yielded: set[str] = set()
+        keys: list[str] = []
+        for table in self._read_cache_tables():
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(f"SELECT `key` FROM `{table}` WHERE {where}", params)
+                    for (k,) in cur.fetchall():
+                        if k not in yielded:
+                            yielded.add(k)
+                            keys.append(k)
+            except Exception:
+                continue
+        return keys
+
     def keys_exist_batch(self, keys: list[str]) -> set[str]:
         if not keys:
             return set()

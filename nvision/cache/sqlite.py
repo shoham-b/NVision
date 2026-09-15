@@ -806,3 +806,45 @@ class ShardedSqliteCache:
                         yield k
             except Exception:
                 pass
+
+    def list_keys_excluding_prefixes(self, prefixes: list[str]) -> list[str]:
+        """Like ``[k for k in self if not any(k.startswith(p) for p in prefixes)]``,
+        but filtered in SQL instead of streaming every key in the cache (every
+        ``repeat:``/``blob:`` row included) into Python first.
+
+        On a large cache, ``cache_index`` holds a row per repeat and per graph
+        blob, not just per combination pointer -- plain iteration pulls millions
+        of key strings across just to discard nearly all of them, which is the
+        dominant cost of building /api/manifest (see bridge.py's
+        ``_iter_combination_payloads``). Pushing ``NOT LIKE`` into the query lets
+        SQLite do that filtering without materializing the discarded keys at all.
+        """
+        if not prefixes:
+            return list(self)
+        where = " AND ".join("key NOT LIKE ?" for _ in prefixes)
+        params = [f"{p}%" for p in prefixes]
+
+        yielded: set[str] = set()
+        keys: list[str] = []
+        try:
+            conn = self._get_index_conn()
+            cur = conn.execute(f"SELECT key FROM cache_index WHERE {where}", params)
+            for (k,) in cur.fetchall():
+                if isinstance(k, str) and k not in yielded:
+                    yielded.add(k)
+                    keys.append(k)
+        except Exception:
+            pass
+
+        if self._legacy_path is not None:
+            try:
+                conn = self._get_conn_for_path(self._legacy_path)
+                self._ensure_cache_table(conn)
+                cur = conn.execute(f"SELECT key FROM cache WHERE {where}", params)
+                for (k,) in cur.fetchall():
+                    if isinstance(k, str) and k not in yielded:
+                        yielded.add(k)
+                        keys.append(k)
+            except Exception:
+                pass
+        return keys

@@ -8,6 +8,7 @@ import logging
 import os
 import time
 from collections.abc import Generator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -21,10 +22,43 @@ from nvision.models.locator import Locator
 
 log = logging.getLogger(__name__)
 
-# Artifacts subdirectory holding the MATLAB-only results cache, served with
-# `nv serve --dir artifacts/matlab`. Kept apart from the shared simulation cache; see
-# _write_artifacts for why. Distinct from the per-file bundles in artifacts/matlab_<stem>/.
+# Artifacts subdirectory holding a MATLAB-only *copy* of the results cache, served with
+# `nv serve --dir artifacts/matlab` for a fast, dedicated view. Every run is also written
+# into the shared artifacts/cache/ (see _write_artifacts) so it shows up in the main
+# `nv serve` (no --dir) too. Distinct from the per-file bundles in artifacts/matlab_<stem>/.
 MATLAB_UI_DIRNAME = "matlab"
+
+
+@dataclass(frozen=True)
+class _MatlabRunSummary:
+    """Per-file convergence outcome, used by ``--all`` to report a per-criterion breakdown."""
+
+    file_name: str
+    splitting_converged_step: int | None
+    all_converged_step: int | None
+    total_steps: int
+
+
+def _echo_convergence_breakdown(summaries: list[_MatlabRunSummary]) -> None:
+    """Print how many files converged under each criterion, and at what step.
+
+    "Split converged" (``splitting_converged_step``) is the primary milestone -- the
+    locator has resolved the Zeeman doublet -- while "All converged" (``all_converged_step``)
+    additionally requires every other parameter (frequency, linewidth, c_total) to have
+    narrowed too, so it's strictly harder to hit and frequently stays None even on files
+    that split-converged fine. Reporting both separately (rather than only "did it finish")
+    mirrors the results UI's stopping-criteria toggle so a batch run's summary means the
+    same thing as what you'd see there.
+    """
+    n = len(summaries)
+    typer.echo("\nConvergence breakdown:")
+    for label, field in (("Split converged", "splitting_converged_step"), ("All converged", "all_converged_step")):
+        steps = [getattr(s, field) for s in summaries]
+        n_converged = sum(1 for step in steps if step is not None)
+        typer.echo(f"  {label}: {n_converged}/{n}")
+        for s, step in zip(summaries, steps, strict=True):
+            status = f"step {step}" if step is not None else "not converged"
+            typer.echo(f"    {s.file_name:40s} {status}")
 
 
 # ---------------------------------------------------------------------------
@@ -226,20 +260,23 @@ def matlab_run(
 
         typer.echo(f"Found {len(mat_files)} .mat file(s) in {scan_dir}\n")
         failures: list[str] = []
+        summaries: list[_MatlabRunSummary] = []
         for i, f in enumerate(mat_files, 1):
             typer.echo(f"=== [{i}/{len(mat_files)}] {f.name} ===")
             file_out = (out / f"{f.stem}.json") if out is not None else None
             try:
-                _matlab_run_one(
-                    matlab_file=f,
-                    noise_std=noise_std,
-                    max_steps=max_steps,
-                    valid_shots=valid_shots,
-                    out=file_out,
-                    no_progress=no_progress,
-                    no_ui=no_ui,
-                    particles=particles,
-                    infer_frequency=infer_frequency,
+                summaries.append(
+                    _matlab_run_one(
+                        matlab_file=f,
+                        noise_std=noise_std,
+                        max_steps=max_steps,
+                        valid_shots=valid_shots,
+                        out=file_out,
+                        no_progress=no_progress,
+                        no_ui=no_ui,
+                        particles=particles,
+                        infer_frequency=infer_frequency,
+                    )
                 )
             except Exception as exc:
                 log.exception("matlab-run failed for %s", f)
@@ -251,6 +288,11 @@ def matlab_run(
         typer.echo(f"Done: {n_ok}/{len(mat_files)} succeeded.")
         if failures:
             typer.echo(f"Failed: {', '.join(failures)}")
+
+        if summaries:
+            _echo_convergence_breakdown(summaries)
+
+        if failures:
             raise typer.Exit(code=1)
         return
 
@@ -326,7 +368,7 @@ def _matlab_run_one(
     no_ui: bool,
     particles: int,
     infer_frequency: bool,
-) -> None:
+) -> _MatlabRunSummary:
     """Run the SBED locator on a single ESR .mat file (the body of ``matlab-run``)."""
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
     from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
@@ -443,10 +485,12 @@ def _matlab_run_one(
         )
         typer.echo(f"\nArtifacts written to: {out_dir}")
         typer.echo(
-            f"View in the results UI:  uv run nv serve --dir artifacts/{MATLAB_UI_DIRNAME}\n"
-            "  -> http://localhost:18083 (its own port; 18080 is the main artifacts UI)\n"
+            f"View it quickly:  uv run nv serve --dir artifacts/{MATLAB_UI_DIRNAME}\n"
+            "  -> http://localhost:18083 (its own small cache -- fast, no matter how big the main one gets)\n"
             f"  -> Study: 'Default (ungrouped)', generator 'MATLAB:{Path(matlab_file).name}'\n"
-            "  -> Press 'r' there to pick up later runs."
+            "  -> Press 'r' there to pick up later runs.\n"
+            "It's also in the main artifacts UI (localhost:18080) alongside everything else --\n"
+            "that manifest is large and slow to rebuild, so a reload there can take a while."
         )
 
     # --- Optional JSON output ---
@@ -469,6 +513,13 @@ def _matlab_run_one(
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(result, indent=2))
         typer.echo(f"\nResults written to: {out}")
+
+    return _MatlabRunSummary(
+        file_name=Path(matlab_file).name,
+        splitting_converged_step=locator.splitting_converged_step,
+        all_converged_step=locator.all_converged_step,
+        total_steps=locator.step_count,
+    )
 
 
 def _run_with_observer(
@@ -587,42 +638,49 @@ def _write_artifacts(
     loc_df = merge_locator_results_with_existing(loc_df, out_dir, log)
     write_locator_results_csv(loc_df, out_dir)
 
-    # Persist into a SQLite cache of MATLAB runs only, so `nv serve --dir` can render them
-    # in the normal results UI (it builds its manifest from a cache, never by scanning
-    # artifact trees). Deliberately NOT the shared artifacts/cache/: that one also holds
-    # the simulated grid, which reached ~940k index entries over 36 GB here, and a manifest
-    # rebuild across it takes ~20 minutes and several GB of RAM — for 13 MATLAB combos
-    # that list in 0.07s on their own. Keeping them separate also means a reload of this UI
-    # never touches, or waits on, the simulation cache. Best-effort: a cache-write failure
-    # must not cost us the standalone bundle written above.
-    try:
-        bridge = CacheBridge(matlab_ui_root / "cache")
+    # Persist into a SQLite cache so `nv serve --dir` can render this run in the normal
+    # results UI (it builds its manifest from a cache, never by scanning artifact trees).
+    # Written to *two* places:
+    #  - artifacts/matlab/cache/ — MATLAB-only, so `nv serve --dir artifacts/matlab` stays
+    #    fast (13 combos list in 0.07s) regardless of how large the simulation cache gets.
+    #  - artifacts/cache/ — the shared cache the main `nv serve` (no --dir) reads, so MATLAB
+    #    generators show up there too, alongside the simulated grid.
+    # The shared write means the *next* full manifest rebuild over there (currently ~940k
+    # entries / 36 GB) picks up this run — that rebuild is already slow regardless of
+    # whether MATLAB combos are in it, and 13 small entries don't meaningfully add to it.
+    # Best-effort per destination: a cache-write failure must not cost us the standalone
+    # bundle written above, and a failure in one destination must not skip the other.
+    embedded = embed_graph_content(plot_manifest, out_dir)
+    combo_key = dict(
+        generator=gen_name,
+        noise=noise_name,
+        strategy=strat_name,
+        repeats=1,
+        seed=0,
+        max_steps=max_steps,
+        timeout_s=0,
+        repeat_offset=0,
+    )
+    for cache_dir in (matlab_ui_root / "cache", ARTIFACTS_ROOT / "cache"):
         try:
-            repo = bridge.get_cache_for_category(CombinationGrid.generator_category(gen_name))
-            embedded = embed_graph_content(plot_manifest, out_dir)
-            combo_key = dict(
-                generator=gen_name,
-                noise=noise_name,
-                strategy=strat_name,
-                repeats=1,
-                seed=0,
-                max_steps=max_steps,
-                timeout_s=0,
-                repeat_offset=0,
-            )
-            # Every matlab-run replaces the previous result rather than resuming it. Saving
-            # over an existing combination rewrites repeat 0 but leaves its pointer's
-            # updated_at untouched (it only advances when the repeat count grows), and the
-            # manifest shows the most recently *updated* generation per file — so a rerun
-            # would stay hidden behind any other --max-steps generation saved since. Purging
-            # first makes the save write a fresh pointer stamped now.
-            repo.purge_cached_combination(**combo_key)
-            repo.save_cached_combination(**combo_key, results=[(embedded, main_result_row)], start_idx=0)
-        finally:
-            bridge.close()
-        log.info("Persisted MATLAB run to %s", matlab_ui_root / "cache")
-    except Exception as exc:
-        log.warning("Failed to persist MATLAB run to its cache (standalone bundle unaffected): %s", exc)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            bridge = CacheBridge(cache_dir)
+            try:
+                repo = bridge.get_cache_for_category(CombinationGrid.generator_category(gen_name))
+                # Every matlab-run replaces the previous result rather than resuming it.
+                # Saving over an existing combination rewrites repeat 0 but leaves its
+                # pointer's updated_at untouched (it only advances when the repeat count
+                # grows), and the manifest shows the most recently *updated* generation per
+                # file — so a rerun would stay hidden behind any other --max-steps
+                # generation saved since. Purging first makes the save write a fresh
+                # pointer stamped now.
+                repo.purge_cached_combination(**combo_key)
+                repo.save_cached_combination(**combo_key, results=[(embedded, main_result_row)], start_idx=0)
+            finally:
+                bridge.close()
+            log.info("Persisted MATLAB run to %s", cache_dir)
+        except Exception as exc:
+            log.warning("Failed to persist MATLAB run to %s (other destinations unaffected): %s", cache_dir, exc)
 
     # Flush each entry's in-memory plot bytes to its .json.gz path. The normal
     # `nv run` pipeline does this via the SQLite cache + restore_graphs when

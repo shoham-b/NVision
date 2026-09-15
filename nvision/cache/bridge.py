@@ -38,14 +38,13 @@ class CacheBridge:
         get_cached_combination) and list_combinations_with_updated_at (adds
         the payload's updated_at for freshness-based filtering). See
         list_combinations's docstring for why the repeat:/blob: prefixes are
-        filtered client-side before fetching.
+        filtered in SQL (via list_keys_excluding_prefixes) before fetching,
+        rather than by streaming every key in the cache into Python first.
         """
         stores = [self.nv_center, self.complementary]
         for store in stores:
             backend = store.backend
-            candidate_keys = [
-                k for k in backend if not k.startswith("repeat:") and not k.startswith("blob:")
-            ]
+            candidate_keys = backend.list_keys_excluding_prefixes(["repeat:", "blob:"])
             payloads = backend.batch_get(candidate_keys)
             for payload in payloads.values():
                 try:
@@ -84,16 +83,18 @@ class CacheBridge:
         Pointer rows are bare hashes; every repeat payload and its ``:meta``
         sidecar are always keyed ``repeat:...`` (see
         ``RepeatsRepository.make_repeat_key``), and every per-repeat graph blob
-        is keyed ``blob:...`` (see ``make_blob_key``). Filtering those out
-        client-side before fetching means one key-listing query plus one
-        batched IN(...) fetch per store, instead of one network round-trip per
-        row in the entire cache table (under MySQL, that's every repeat across
-        every shard -- the dominant cost of building /api/manifest). Leaving
-        either prefix in also risks a single IN(...) query with one SQL
-        variable per candidate key blowing past SQLite's variable limit once
-        the cache has enough blob entries, which fails silently (each shard
-        query is wrapped in a bare except) and makes the manifest come back
-        empty.
+        is keyed ``blob:...`` (see ``make_blob_key``). Filtering those out in
+        SQL (``list_keys_excluding_prefixes``) before fetching means one
+        filtered key-listing query plus one batched IN(...) fetch per store,
+        instead of streaming every key in the cache table into Python just to
+        discard almost all of it (under MySQL, that's every repeat across
+        every shard; under SQLite it's every row in ``cache_index`` -- either
+        way, the dominant cost of building /api/manifest on a large cache).
+        Leaving either prefix in also risks a single IN(...) query with one
+        SQL variable per candidate key blowing past SQLite's variable limit
+        once the cache has enough blob entries, which fails silently (each
+        shard query is wrapped in a bare except) and makes the manifest come
+        back empty.
         """
         return [combo for combo, _payload in self._iter_combination_payloads()]
 
