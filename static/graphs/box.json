@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "trace": {
+        "type": "box",
+        "boxmean": true,
+        "marker": { "color": "steelblue" }
+    },
+    "layout": {
+        "template": "plotly_white",
+        "showlegend": false
+    }
+}
