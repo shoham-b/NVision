@@ -108,14 +108,19 @@ def _acquire(self) -> float:
                     obs_list = self.belief._observations
                     obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
                     obs_ys = np.array([o.signal_value for o in obs_list])
-                if hasattr(self.belief, "estimated_noise_std") and getattr(self.belief, "noise_model", None) is not None:
+                if (
+                    hasattr(self.belief, "estimated_noise_std")
+                    and getattr(self.belief, "noise_model", None) is not None
+                ):
                     noise_std = self.belief.estimated_noise_std()
                     noise_std_unc = self.belief.noise_std_uncertainty(noise_std)
                 else:
                     noise_std = self._noise_std
                     noise_std_unc = 0.0
 
-                phys_bounds = getattr(self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {}))
+                phys_bounds = getattr(
+                    self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {})
+                )
                 max_linewidth_hz = _effective_max_linewidth_hz(phys_bounds)
                 max_split_hz = _max_dip_cluster_span_hz(phys_bounds, self.belief.estimates())
 
@@ -128,7 +133,10 @@ def _acquire(self) -> float:
                     elif hasattr(self.belief, "_param_names") and "noise_sigma" in self.belief._param_names:
                         idx = self.belief._param_names.index("noise_sigma")
                         raw_sigmas = self.belief._particles[:, idx]
-                        if hasattr(self.belief, "physical_param_bounds") and "noise_sigma" in self.belief.physical_param_bounds:
+                        if (
+                            hasattr(self.belief, "physical_param_bounds")
+                            and "noise_sigma" in self.belief.physical_param_bounds
+                        ):
                             lo_ns, hi_ns = self.belief.physical_param_bounds["noise_sigma"]
                             per_particle_sigmas = lo_ns + raw_sigmas * (hi_ns - lo_ns)
                         else:

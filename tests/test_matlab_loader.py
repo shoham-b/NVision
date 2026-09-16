@@ -502,15 +502,9 @@ def test_convergence_breakdown_counts_and_labels(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=12, all_converged_step=20, total_steps=20
-        ),
-        _MatlabRunSummary(
-            file_name="b.mat", splitting_converged_step=30, all_converged_step=None, total_steps=300
-        ),
-        _MatlabRunSummary(
-            file_name="c.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300
-        ),
+        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=12, all_converged_step=20, total_steps=20),
+        _MatlabRunSummary(file_name="b.mat", splitting_converged_step=30, all_converged_step=None, total_steps=300),
+        _MatlabRunSummary(file_name="c.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -518,8 +512,10 @@ def test_convergence_breakdown_counts_and_labels(capsys):
 
     assert "Split converged: 2/3" in out
     assert "All converged: 1/3" in out
-    assert "a.mat" in out and "step 12" in out
-    assert "b.mat" in out and "step 30" in out
+    assert "a.mat" in out
+    assert "step 12" in out
+    assert "b.mat" in out
+    assert "step 30" in out
     assert "not converged" in out
 
 
@@ -527,12 +523,8 @@ def test_convergence_breakdown_all_converged(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=5, all_converged_step=9, total_steps=9
-        ),
-        _MatlabRunSummary(
-            file_name="b.mat", splitting_converged_step=7, all_converged_step=11, total_steps=11
-        ),
+        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=5, all_converged_step=9, total_steps=9),
+        _MatlabRunSummary(file_name="b.mat", splitting_converged_step=7, all_converged_step=11, total_steps=11),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -547,9 +539,7 @@ def test_convergence_breakdown_none_converged(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300
-        ),
+        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300),
     ]
 
     _echo_convergence_breakdown(summaries)
