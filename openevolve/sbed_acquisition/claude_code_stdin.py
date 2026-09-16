@@ -69,7 +69,7 @@ class ClaudeCodeStdinLLM(ClaudeCodeLLM):
                     timeout=timeout + 30,
                 )
                 return result
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if attempt < retries:
                     logger.warning(f"Claude Code CLI timeout on attempt {attempt + 1}/{retries + 1}. Retrying...")
                     await asyncio.sleep(retry_delay)
@@ -108,13 +108,14 @@ class ClaudeCodeStdinLLM(ClaudeCodeLLM):
                 # retried (retries/retry_delay from config) and, if it still
                 # fails after that, surfaces the real CLI error message.
                 raise RuntimeError(
-                    f"Claude CLI exited {result.returncode}. stdout: {output[:500]!r} stderr: {result.stderr.strip()[:500]!r}"
+                    f"Claude CLI exited {result.returncode}. "
+                    f"stdout: {output[:500]!r} stderr: {result.stderr.strip()[:500]!r}"
                 )
             if not output:
                 raise RuntimeError(f"Empty response from Claude CLI. stderr: {result.stderr[:500]!r}")
             return output
-        except subprocess.TimeoutExpired:
-            raise asyncio.TimeoutError("Claude CLI subprocess timed out")
+        except subprocess.TimeoutExpired as e:
+            raise TimeoutError("Claude CLI subprocess timed out") from e
 
 
 def init_claude_code_stdin_client(model_cfg):
