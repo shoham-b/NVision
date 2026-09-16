@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -584,7 +585,7 @@ def test_matlab_run_all_prints_convergence_breakdown(tmp_path, monkeypatch):
     assert "All converged: 1/2" in result.output
 
 
-def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, monkeypatch):
+def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, monkeypatch, caplog):
     """A failing file shouldn't suppress the breakdown for the files that did succeed."""
     from typer.testing import CliRunner
 
@@ -602,6 +603,18 @@ def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, 
         )
 
     monkeypatch.setattr(matlab_cmd, "_matlab_run_one", fake_run_one)
+
+    # matlab_cmd's per-file failure path calls log.exception(), which is fine on
+    # its own -- but under pytest's --log-cli-level (as CI runs with), emitting a
+    # log record from *inside* a CliRunner.invoke() call races pytest's live-log
+    # capture-suspend/resume against Click's own stdout/stderr substitution, and
+    # one clobbers the other's stream. Click then raises "ValueError: I/O
+    # operation on closed file" reading back result.output -- a known, unresolved
+    # Click/pytest interaction (see pallets/click#2156), not a bug in matlab_cmd
+    # or in the CLI's actual (correct, desired) error logging. Silencing this one
+    # logger for the duration of the test keeps the record from ever reaching a
+    # handler, without touching the real logging behavior outside tests.
+    caplog.set_level(logging.CRITICAL, logger="nvision.cli.matlab_cmd")
 
     runner = CliRunner()
     result = runner.invoke(app, ["matlab-run", "--all", "--dir", str(tmp_path)])
