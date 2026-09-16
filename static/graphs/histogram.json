@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "trace": {
+    "type": "histogram",
+    "opacity": 0.75
+  },
+  "layout": {
+    "paper_bgcolor": "white",
+    "plot_bgcolor": "white",
+    "barmode": "overlay",
+    "margin": { "t": 60 },
+    "legend": { "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0.0 },
+    "xaxis": { "gridcolor": "#eee" },
+    "yaxis": { "gridcolor": "#eee" }
+  }
+}
