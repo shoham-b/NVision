@@ -15,6 +15,7 @@ from nvision.spectra.numba_kernels import (
     nv_center_zeeman_pseudo_voigt_vectorized_many_fast,
     nv_center_zeeman_pseudo_voigt_vectorized_one_serial,
 )
+from nvision.spectra.nv_center import hyperfine_geometry
 from nvision.spectra.signal import SignalModel
 from nvision.spectra.spec import GenericParamSpec
 
@@ -78,8 +79,13 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     residual approximation error.
 
     Models an NV center as two Zeeman-split groups (ms=+1/-1), each group a hyperfine
-    triplet of Voigt profile dips. Each Lorentzian dip is convolved with a Gaussian, which
+    multiplet of Voigt profile dips. Each Lorentzian dip is convolved with a Gaussian, which
     accounts for both homogeneous (Lorentzian) and inhomogeneous (Gaussian) broadening.
+
+    Unlike the models in :mod:`nvision.spectra.nv_center`, ``split`` is always a
+    free parameter here, so this model always *has* hyperfine structure -- the
+    ``hyperfine`` constructor argument only chooses its shape (``"n14"``, the
+    default, for the triplet; ``"n15"`` for the doublet with no central line).
 
     Parameters
     ----------
@@ -97,10 +103,16 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         Non-polarization factor (amplitude ratio between hyperfine peaks)
     c_total : float
         Population-normalized total contrast, split across both Zeeman groups
-        and the hyperfine triplet within each via ``k_np``.
+        and the hyperfine lines within each via ``k_np``.
     background : float
         Background level
     """
+
+    def __init__(self, hyperfine: str = "n14") -> None:
+        if hyperfine == "unresolved":
+            raise ValueError("VoigtZeemanModel always has hyperfine structure; use 'n14' or 'n15'")
+        _, self._w_center, self._hf_lines = hyperfine_geometry(hyperfine)
+        self._hyperfine = hyperfine
 
     def compute_voigt_zeeman_model(
         self,
@@ -123,6 +135,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             float(zeeman_split),
             float(split),
             float(k_np),
+            float(self._w_center),
             float(c_total),
             float(background),
         )
@@ -137,8 +150,8 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         return name in ("fwhm_total", "c_total")
 
     def expected_dip_count(self) -> int:
-        """Zeeman splitting produces 2 resolvable groups (each an unresolved hyperfine triplet)."""
-        return 2
+        """Hyperfine lines per group x the 2 Zeeman groups."""
+        return 2 * self._hf_lines
 
     def compute(self, x: float, params: VoigtZeemanSpectrum) -> float:
         return self.compute_voigt_zeeman_model(
@@ -165,6 +178,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            self._w_center,
             np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.background, dtype=FLOAT_DTYPE),
             out,
@@ -189,6 +203,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            self._w_center,
             np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.background, dtype=FLOAT_DTYPE),
             out,
@@ -211,6 +226,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
             np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
+            self._w_center,
             np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.background, dtype=FLOAT_DTYPE),
             out,

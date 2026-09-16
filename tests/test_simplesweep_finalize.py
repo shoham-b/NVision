@@ -29,7 +29,8 @@ def _make_experiment(rng: random.Random) -> CoreExperiment:
     # otherwise-identical model with frequency free -- typed_parameters/bounds
     # (and hence the randomized draw) are unaffected.
     true_signal.model = NVCenterLorentzianModel(
-        with_hyperfine_splitting=gen.with_hyperfine_splitting,
+        hyperfine=gen.hyperfine,
+        infer_hyperfine=gen.infer_hyperfine,
         with_zeeman_splitting=gen.with_zeeman_splitting,
         with_fixed_frequency=False,
     )

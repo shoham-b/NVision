@@ -91,6 +91,32 @@ def _dedupe_latest_combos(combos: list[dict]) -> list[dict]:
     return list(latest.values())
 
 
+def _build_aggregate_entries(result_rows: list[dict]) -> tuple[list[dict], dict[str, bytes]]:
+    """Comparisons/grid-study/experiment summary views computed from every combo's flat
+    result row -- (entries with /api/aggregate/... paths, their collected gzip bytes).
+
+    Module-level (not a build_app closure) because it needs none of build_app's shared
+    server state, only result_rows -- keeping it out of build_app's own body is what
+    keeps that function's branch count (mccabe complexity) down as endpoints are added.
+    Best-effort: a column-shape surprise in one aggregate view (e.g. a locator that
+    never recorded acquisition_hi) must not take down the per-repeat graph entries this
+    feeds into, same as render.py's _run_summary guard.
+    """
+    import polars as pl
+
+    viz = Viz(Path("."))
+    try:
+        df = pl.from_dicts(result_rows, infer_schema_length=None) if result_rows else pl.DataFrame()
+        aggregate_entries = viz.plot_locator_summary(df) if not df.is_empty() else []
+    except Exception:
+        log.exception("Failed to build aggregate views; serving per-repeat graphs only.")
+        aggregate_entries = []
+    for entry in aggregate_entries:
+        original_path = entry["path"]
+        entry["path"] = "/api/aggregate/" + urllib.parse.quote(original_path, safe="")
+    return aggregate_entries, dict(viz.collected_bytes)
+
+
 class _NoCacheStaticFiles(StaticFiles):
     """StaticFiles that always disables caching — artifacts change on every run."""
 
@@ -118,6 +144,49 @@ class ReloadState:
         self.last_output = ""
 
 
+def _combo_key(combo: dict) -> str:
+    ptr_config = combination_base_cache_config(
+        generator=combo["generator"],
+        noise=combo["noise"],
+        strategy=combo["strategy"],
+        seed=combo["seed"],
+        max_steps=combo["max_steps"],
+        timeout_s=combo["timeout_s"],
+    )
+    return stable_config_hash(ptr_config)
+
+
+def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict]]:
+    """One combo's (graph manifest entries, flat locator-result rows) — a single
+    cache read per combo feeds both, instead of scanning the whole cache twice.
+
+    Module-level (not a build_app closure), like _build_aggregate_entries: it only
+    needs its own arguments, and keeping it out of build_app's body is what keeps
+    that function's mccabe complexity down as more endpoints are added there.
+    """
+    category = CombinationGrid.generator_category(str(combo["generator"]))
+    repo = bridge.get_cache_for_category(category)
+    combo_key = _combo_key(combo)
+    achieved = int(combo.get("repeats", 0))
+    if achieved <= 0:
+        return [], []
+    meta = repo._repeats.load_repeats_meta(combo_key, achieved)
+    if meta is None:
+        meta = repo._repeats.load_repeats(combo_key, achieved)
+    graph_entries: list[dict] = []
+    result_rows: list[dict] = []
+    for repeat_idx, (repeat_entries, main_row) in enumerate(meta):
+        result_rows.append(main_row)
+        for entry in repeat_entries:
+            gtype = entry.get("type", "unknown")
+            slim = _slim_manifest_entry(entry)
+            for field in _BULK_STRIP_FIELDS:
+                slim.pop(field, None)
+            slim["path"] = f"/api/graph/{combo_key}/{repeat_idx}/{gtype}.json.gz"
+            graph_entries.append(slim)
+    return graph_entries, result_rows
+
+
 def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     """Build the FastAPI app serving the repo's frontend against *cache_dir*.
 
@@ -134,57 +203,49 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     # walking every cached combination's :meta sidecars — cheap per call, but not
     # cheap enough to redo on every page load, so we cache it until told otherwise.
     cache: dict[str, Any] = {"manifest": None, "aggregate_bytes": {}, "combos": None}
-    lock = threading.Lock()
+    # RLock, not Lock: _get_manifest/aggregate hold `lock` while calling
+    # _build_manifest, which calls _get_combos -- itself a `with lock:` block.
+    # A plain Lock would deadlock on that same-thread re-acquisition.
+    lock = threading.RLock()
 
     def _bridge() -> CacheBridge:
         return CacheBridge(cache_dir)
 
-    def _combo_key(combo: dict) -> str:
-        ptr_config = combination_base_cache_config(
-            generator=combo["generator"],
-            noise=combo["noise"],
-            strategy=combo["strategy"],
-            seed=combo["seed"],
-            max_steps=combo["max_steps"],
-            timeout_s=combo["timeout_s"],
-        )
-        return stable_config_hash(ptr_config)
+    def _get_combos() -> list[dict]:
+        """Cheap combo index (generator/noise/strategy/repeat count/updated_at) --
+        no per-repeat scan. Cached alongside the manifest, but computable (and
+        cached) independently of it: this is all the picker/generator-switcher UI
+        needs, and all `/api/scan-fields` needs to resolve its own combo scope.
+        """
+        with lock:
+            if cache["combos"] is None:
+                bridge = _bridge()
+                try:
+                    cache["combos"] = _dedupe_latest_combos(bridge.list_combinations_with_updated_at())
+                finally:
+                    bridge.close()
+            return cache["combos"]
 
-    def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict]]:
-        """One combo's (graph manifest entries, flat locator-result rows) — a single
-        cache read per combo feeds both, instead of scanning the whole cache twice."""
-        category = CombinationGrid.generator_category(str(combo["generator"]))
-        repo = bridge.get_cache_for_category(category)
-        combo_key = _combo_key(combo)
-        achieved = int(combo.get("repeats", 0))
-        if achieved <= 0:
-            return [], []
-        meta = repo._repeats.load_repeats_meta(combo_key, achieved)
-        if meta is None:
-            meta = repo._repeats.load_repeats(combo_key, achieved)
-        graph_entries: list[dict] = []
-        result_rows: list[dict] = []
-        for repeat_idx, (repeat_entries, main_row) in enumerate(meta):
-            result_rows.append(main_row)
-            for entry in repeat_entries:
-                gtype = entry.get("type", "unknown")
-                slim = _slim_manifest_entry(entry)
-                for field in _BULK_STRIP_FIELDS:
-                    slim.pop(field, None)
-                slim["path"] = f"/api/graph/{combo_key}/{repeat_idx}/{gtype}.json.gz"
-                graph_entries.append(slim)
-        return graph_entries, result_rows
+    def _build_manifest(generators: frozenset[str] | None = None) -> list[dict]:
+        """Build graph-manifest entries for the given *generators*, or every combo
+        in the cache when *generators* is None.
 
-    def _build_manifest() -> list[dict]:
+        Scoping to a subset of generators is what keeps a page load on a large
+        shared cache from having to scan every repeat of every combo up front
+        (see nvision-ui's generator picker, which only loads the currently
+        selected generator's data this way). Aggregate views (comparisons/
+        grid-study/experiment summaries) need every combo's result rows to be
+        meaningful, so they're only computed for the unscoped (full) build --
+        callers that need them (the Dashboard tab) must request the full manifest.
+        """
         import concurrent.futures
         import os
 
-        import polars as pl
-
         bridge = _bridge()
         try:
-            combos = _dedupe_latest_combos(bridge.list_combinations_with_updated_at())
-            cache["combos"] = combos
+            combos = _get_combos()
+            if generators is not None:
+                combos = [c for c in combos if c["generator"] in generators]
             entries: list[dict] = []
             result_rows: list[dict] = []
             n_workers = min(os.cpu_count() or 4, max(len(combos), 1), 12)
@@ -193,23 +254,12 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                     entries.extend(combo_entries)
                     result_rows.extend(combo_rows)
 
-            # Aggregate views (comparisons/grid-study/experiment summaries) — computed
-            # once from the same cache, bytes collected in-memory rather than written.
-            # Best-effort: a column-shape surprise in one aggregate view (e.g. a
-            # locator that never recorded acquisition_hi) must not take down the
-            # per-repeat graph entries above, same as render.py's _run_summary guard.
-            viz = Viz(Path("."))
-            try:
-                df = pl.from_dicts(result_rows, infer_schema_length=None) if result_rows else pl.DataFrame()
-                aggregate_entries = viz.plot_locator_summary(df) if not df.is_empty() else []
-            except Exception:
-                log.exception("Failed to build aggregate views; serving per-repeat graphs only.")
-                aggregate_entries = []
-            for entry in aggregate_entries:
-                original_path = entry["path"]
-                entry["path"] = "/api/aggregate/" + urllib.parse.quote(original_path, safe="")
+            if generators is not None:
+                return entries
+
+            aggregate_entries, aggregate_bytes = _build_aggregate_entries(result_rows)
             # Caller (_get_manifest / reload) already holds `lock` while this runs.
-            cache["aggregate_bytes"] = dict(viz.collected_bytes)
+            cache["aggregate_bytes"] = aggregate_bytes
             entries.extend(aggregate_entries)
             return entries
         finally:
@@ -225,9 +275,26 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     def status() -> dict:
         return {"reload_running": reload_state.running, "last_output": reload_state.last_output}
 
+    @app.get("/api/combos")
+    def combos() -> list[dict]:
+        """Cheap picker/generator-switcher data: one row per (generator, noise,
+        strategy) combo with its repeat count -- no per-repeat scan. See
+        nvision-ui's generator picker, which fetches this before ever asking
+        for a scoped /api/manifest.
+        """
+        return _get_combos()
+
     @app.get("/api/manifest")
-    def manifest() -> list[dict]:
-        return _get_manifest()
+    def manifest(generators: str | None = None) -> list[dict]:
+        """Full manifest by default; pass ``?generators=a,b`` to scope the build
+        to only those generators (skips the aggregate views -- see _build_manifest).
+        Scoped requests aren't cached: each one only touches a handful of combos,
+        so recomputing per request is cheap and avoids per-scope cache invalidation.
+        """
+        if generators is None:
+            return _get_manifest()
+        wanted = frozenset(g for g in generators.split(",") if g)
+        return _build_manifest(wanted)
 
     @app.get("/api/graph/{combo_key}/{repeat_idx}/{gtype_with_ext}")
     def graph(combo_key: str, repeat_idx: int, gtype_with_ext: str) -> Response:
@@ -300,14 +367,9 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         wanted_generators = set(generator.split(","))
         wanted_noises = set(noise.split(","))
 
-        with lock:
-            combos = cache["combos"]
+        combos = _get_combos()
         bridge = _bridge()
         try:
-            if combos is None:
-                combos = _dedupe_latest_combos(bridge.list_combinations_with_updated_at())
-                with lock:
-                    cache["combos"] = combos
             matching = [c for c in combos if c["generator"] in wanted_generators and c["noise"] in wanted_noises]
             out: list[dict] = []
             for combo in matching:

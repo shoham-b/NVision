@@ -562,15 +562,29 @@ When the hyperfine triplet is unresolved (`fwhm_total` comparable to or larger t
 | 0.030 | 0.277 | 300 |
 | 0.090 | 0.372 | 193 |
 
-The weak singular vector is ≈ pure `k_np`; `split` and `fwhm_total` stay comparatively well-conditioned against each other throughout. This is a real, not merely practical, degeneracy: once the hyperfine structure is unresolved there is no information left about *how* population is split among the three sublevels — only its aggregate effect on width/depth survives.
+The weak singular vector is ≈ pure `k_np`; `split` and `fwhm_total` stay comparatively well-conditioned against each other throughout. This is a real, not merely practical, degeneracy: once the hyperfine structure is unresolved there is no information left about *how* population is split among the sublevels — only its aggregate effect on width/depth survives.
 
 ### 7.4 Reduced Model (Zeeman-Only, Hyperfine Unresolved)
 
-Per §7.3, `split`/`k_np` should be dropped as free parameters — not inferred, and not zeroed out either, since the hyperfine structure is still physically present, just unidentifiable — whenever the triplet isn't resolved. This reduced parameterization already exists in production:
+Per §7.3, `split`/`k_np` should be dropped as free parameters whenever the multiplet isn't resolved. Two separate choices follow from that, and the model configuration keeps them separate:
 
-- **Signal models**: `NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=False)` → `NVCenterLorentzianZeemanSpectrum(frequency, linewidth, zeeman_split, c_total)`; `NVCenterSaturationVoigtModel(with_zeeman_splitting=True, with_hyperfine_splitting=False)` → `NVCenterSaturationVoigtZeemanSpectrum(frequency, saturation, sigma_inhom, zeeman_split)` (contrast fixed to `NV_SATURATION_C_MAX`, not a free parameter for this model); `NVCenterVoigtModel(with_zeeman_splitting=True, with_hyperfine_splitting=False)` → `NVCenterVoigtZeemanSpectrum(frequency, homogeneous_linewidth, sigma_inhom, zeeman_split, c_total)` (c_total free, unlike Saturation-Voigt).
-- **Belief builder**: `with_zeeman_splitting=True, with_hyperfine_splitting=False` are the *defaults* of `nv_center_smc_belief()` (`belief_builders.py:262-263`).
-- **Generator**: `NVCenterCoreGenerator` defaults the same two flags the same way (`nv_center_generator.py:55-56`).
-- **Task wiring**: `combinations.py` switches `lineshape="saturation_voigt"` automatically when the generator name starts with `NVCenter-saturation_voigt` (`combinations.py:136-137`); the Lorentzian reduced path needs no override since it is already the belief builder's default.
+| | `split`/`k_np` free? | forward model's line structure |
+|---|---|---|
+| `hyperfine="unresolved"` (**default**) | no | one line per Zeeman group |
+| `hyperfine="n14"`, `infer_hyperfine=False` | no | ¹⁴N triplet at the fixed physical `A_∥` |
+| `hyperfine="n15"`, `infer_hyperfine=False` | no | ¹⁵N doublet at the fixed physical `A_∥` |
+| `hyperfine="n14"/"n15"`, `infer_hyperfine=True` | yes | triplet/doublet, coupling searched |
 
-So "only `zeeman_split` and the linewidth are visible" is the out-of-the-box configuration, not an opt-in — the opt-in is `with_hyperfine_splitting=True`, which should only be reached when §7.3's resolvability condition actually holds (e.g. gated on the current linewidth posterior, per the discussion this section is drawn from).
+Rows 2-3 are the "physically present but unidentifiable" reading this section originally argued for, and they remain available unchanged. The **default** is now row 1 instead, for two reasons the original argument didn't account for:
+
+1. **It isn't always a triplet.** The nitrogen is ¹⁴N (I=1, three lines) or ¹⁵N (I=1/2, *two* lines, no central line). A model that always draws three lines is committing to an isotope, so "keep the structure at its physical value" needs to know which physical value — and if the structure is unresolved, the data cannot tell you.
+2. **A fixed structure the data can't see only adds rigidity.** With `A_∥` a couple of MHz against a linewidth up to `MAX_LINEWIDTH = 5 MHz` (HWHM), the merged envelope is fit equally well by a single line, because `linewidth` is free and absorbs the extra broadening. Committing to a wrong fixed `A_∥` biases the width instead of being absorbed.
+
+Concretely, the previous `with_hyperfine_splitting=False` was row 2 while *reporting* row 1 — `expected_dip_count()` said 2 dips while the kernels drew 6 — so consumers that trusted the dip count (e.g. `GenericSweepLocator`'s peak-detection cap) had to hard-code corrections. `expected_dip_count()` is now truthful for every row.
+
+- **Signal models**: `NVCenterLorentzianModel(with_zeeman_splitting=True)` → `NVCenterLorentzianZeemanSpectrum(frequency, linewidth, zeeman_split, c_total)`; `NVCenterSaturationVoigtModel(with_zeeman_splitting=True)` → `NVCenterSaturationVoigtZeemanSpectrum(frequency, saturation, sigma_inhom, zeeman_split)` (contrast fixed to `NV_SATURATION_C_MAX`, not a free parameter for this model); `NVCenterVoigtModel(with_zeeman_splitting=True)` → `NVCenterVoigtZeemanSpectrum(frequency, homogeneous_linewidth, sigma_inhom, zeeman_split, c_total)` (c_total free, unlike Saturation-Voigt). The parameter tuples are the same for any `hyperfine=` in rows 1-3 — only the predicted lineshape differs.
+- **Belief builder**: `with_zeeman_splitting=True, hyperfine="unresolved", infer_hyperfine=False` are the *defaults* of `nv_center_smc_belief()`.
+- **Generator**: `NVCenterCoreGenerator` defaults the same way. The belief's `hyperfine` must match the generator's, or the locator models a different number of lines than the signal has.
+- **Task wiring**: `combinations.py` switches `lineshape="saturation_voigt"` automatically when the generator name starts with `NVCenter-saturation_voigt`; it also sets `hyperfine="n14"`/`infer_hyperfine=True` for the `NVCenter-voigt-w…` grid, whose generators explicitly draw a resolved triplet.
+
+So "only `zeeman_split` and the linewidth are visible" is the out-of-the-box configuration, not an opt-in — the opt-in is `infer_hyperfine=True`, which should only be reached when §7.3's resolvability condition actually holds (e.g. gated on the current linewidth posterior, per the discussion this section is drawn from).

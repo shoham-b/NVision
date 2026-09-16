@@ -2,20 +2,23 @@
 
 ## Overview
 
-Instead of separate `LocatorFactory` classes, locators now use a `create()` classmethod for instantiation. This is simpler, more Pythonic, and eliminates the factory layer.
+Locators use a `create()` classmethod for instantiation rather than a separate
+`LocatorFactory` class. This is simpler, more Pythonic, and eliminates the factory
+layer. This is still exactly how it works today — see `create()` on
+`SbedLocator`, `SequentialBayesianLocator`, `SobolBayesianLocator`,
+`GenericSweepLocator`, and `StagedSobolSweepLocator`.
 
 ---
 
-## Before (Factory Pattern)
+## Before (Factory Pattern, historical)
 
 ```python
 class SimpleSweepFactory(LocatorFactory):
     def __init__(self, max_steps: int = 50):
         self.max_steps = max_steps
-    
+
     def create(self) -> Locator:
-        model = BlackBoxSignalModel()
-        belief = BeliefSignal(model=model, parameters=[...])
+        belief = build_belief(...)
         return SimpleSweepLocator(belief, self.max_steps)
 
 # Usage
@@ -37,8 +40,7 @@ class SimpleSweepLocator(Locator):
     @classmethod
     def create(cls, max_steps: int = 50, **kwargs) -> SimpleSweepLocator:
         """Create fresh locator with uniform prior."""
-        model = BlackBoxSignalModel()
-        belief = BeliefSignal(model=model, parameters=[...])
+        belief = build_belief(...)
         return cls(belief, max_steps)
 
 # Usage
@@ -46,236 +48,142 @@ locator = SimpleSweepLocator.create(max_steps=30)
 ```
 
 **Benefits:**
-- ✅ Simpler - no separate factory class
-- ✅ More Pythonic - classmethods are standard factory pattern
-- ✅ Configuration goes directly to create()
-- ✅ Still creates fresh instances per repeat
+- Simpler - no separate factory class
+- More Pythonic - classmethods are standard factory pattern
+- Configuration goes directly to create()
+- Still creates fresh instances per repeat
 
 ---
 
 ## Abstract Base
 
+The real interface (`nvision/models/locator.py`):
+
 ```python
 class Locator(ABC):
-    """Abstract locator with classmethod factory."""
-    
+    """Stateful locator for one repeat run. Created fresh per repeat via
+    classmethod create(). Owns a belief updated incrementally each observation."""
+
+    def __init__(self, belief: AbstractMarginalDistribution):
+        self.belief = belief
+
     @classmethod
     @abstractmethod
-    def create(cls, **config):
-        """Create fresh locator with fresh BeliefSignal.
-        
-        Subclasses implement this to create locators with
-        properly initialized beliefs (uniform priors, etc).
-        """
-        pass
-    
+    def create(cls, **config) -> Locator:
+        """Create a fresh locator instance with a fresh belief. Called once per repeat."""
+
     @abstractmethod
-    def next(self) -> float: ...
-    
+    def next(self) -> float:
+        """Propose next measurement position, using the current belief."""
+
     @abstractmethod
-    def done(self) -> bool: ...
-    
+    def done(self) -> bool:
+        """Check if localization is complete (belief.converged(), max steps, ...)."""
+
     @abstractmethod
-    def result(self) -> dict[str, float]: ...
+    def result(self) -> dict[str, float]:
+        """Extract final parameter estimates from the belief."""
+
+    def observe(self, obs: Observation) -> None:
+        """Update belief with a new observation (incremental Bayesian update)."""
+        self.belief.update(obs)
 ```
+
+Some concrete sweep locators (`GenericSweepLocator`, `StagedSobolSweepLocator`) add a
+`finalize()` hook — called once after the last observation, before `result()` — to
+flush deferred belief updates and run a batch model fit instead of paying a full
+Bayesian update on every step. It's an addition on top of this ABC, not a
+replacement for `done()`/`result()`; the runner calls it via `getattr(locator,
+"finalize", None)` since most locators don't define it (see
+`nvision/runner/executor.py`).
 
 ---
 
 ## Runner Usage
 
-### Before (with Factory)
 ```python
-factory = SimpleSweepFactory(max_steps=50)
-for locator in runner.run(factory, experiment, rng):
+for locator in run_loop(GenericSweepLocator, experiment, rng, max_steps=50):
     ...
 ```
 
-### After (with Classmethod)
-```python
-for locator in run_loop(SimpleSweepLocator, experiment, rng, max_steps=50):
-    ...
-```
+`run_loop` (`nvision/runner/executor.py`) drives one repeat's measurement loop:
 
-`run_loop` signature:
 ```python
 def run_loop(
-    locator_class: Type[Locator],  # Pass class, not instance
+    locator_class: type[Locator],
     experiment: CoreExperiment,
     rng: random.Random,
-    **locator_config,  # Config passed to create()
+    sweep_cache: SweepCache | None = None,
+    n_shots: int = 1,
+    **locator_config: Any,
 ) -> Iterator[Locator]:
+    ...
     locator = locator_class.create(**locator_config)
-    # ...
+    ...
 ```
+
+## Strategy Specification
+
+A `Combination`'s `strategy` field (and therefore `LocatorTask.strategy_spec`,
+`nvision/models/task.py`) accepts either a bare `Locator` subclass, or a
+`{"class": SomeLocator, "config": {...}}` dict when per-combination config needs to
+travel with the class. `StrategySpec.from_raw` normalizes both into
+`(locator_class, locator_config)` for the executor — this is how e.g.
+`run_groups.py` and the CLI's combination grid attach `max_steps`,
+`convergence_threshold`, etc. to a strategy without instantiating it upfront.
 
 ---
 
-## CLI Integration
-
-### Task Configuration
-
-**Option 1: Pass Locator class directly**
-```python
-task = LocatorTask(
-    strategy_name="SimpleSweep",
-    strategy=SimpleSweepLocator,  # Class itself
-    # ...
-)
-```
-
-**Option 2: Pass dict with class and config**
-```python
-task = LocatorTask(
-    strategy_name="SimpleSweep",
-    strategy={
-        "class": SimpleSweepLocator,
-        "config": {"max_steps": 50, "convergence_threshold": 0.01}
-    },
-    # ...
-)
-```
-
-### CLI Detection
+## Example: a real `create()` (trimmed from `GenericSweepLocator`)
 
 ```python
-# The v2 codepath was removed; use the runner batch entry point:
-from nvision.runner.batch import run_simulation_batch
+@classmethod
+def create(
+    cls,
+    belief: AbstractMarginalDistribution,
+    signal_model: SignalModel,
+    max_steps: int,
+    *,
+    noise_std: float = 0.01,
+    scan_param: str | None = None,
+    parameter_bounds: dict[str, tuple[float, float]] | None = None,
+    **kwargs: Any,
+) -> GenericSweepLocator:
+    # Resolve the sweep domain from parameter_bounds when domain_lo/hi weren't
+    # passed explicitly (see nvision/sim/locs/coarse/generic_sweep_locator.py
+    # for the full frequency/scan_param resolution logic this elides).
+    domain_lo = kwargs.get("domain_lo", 0.0)
+    domain_hi = kwargs.get("domain_hi", 1.0)
+
+    inst = cls(
+        belief=belief,
+        signal_model=signal_model,
+        max_steps=max_steps,
+        noise_std=noise_std,
+        scan_param=scan_param,
+        domain_lo=domain_lo,
+        domain_hi=domain_hi,
+    )
+    if parameter_bounds is not None:
+        inst._parameter_bounds = dict(parameter_bounds)
+    return inst
 ```
 
----
-
-## Example: NV Center Locator
-
-```python
-class NVCenterBayesianLocator(Locator):
-    """Bayesian locator for NV center ODMR signals."""
-    
-    def __init__(
-        self,
-        belief: BeliefSignal,
-        max_steps: int = 150,
-        acquisition: str = "eig",
-    ):
-        super().__init__(belief)
-        self.max_steps = max_steps
-        self.acquisition = acquisition
-        self.step_count = 0
-    
-    @classmethod
-    def create(
-        cls,
-        max_steps: int = 150,
-        acquisition: str = "eig",
-        n_grid_freq: int = 100,
-        n_grid_linewidth: int = 50,
-        n_grid_split: int = 50,
-        **kwargs
-    ) -> NVCenterBayesianLocator:
-        """Create NV center locator with proper priors.
-        
-        Parameters
-        ----------
-        max_steps : int
-            Maximum measurement steps
-        acquisition : str
-            Acquisition strategy: "eig", "ucb", "random"
-        n_grid_* : int
-            Grid resolution for each parameter
-        **kwargs
-            Additional config (ignored)
-            
-        Returns
-        -------
-        NVCenterBayesianLocator
-            Fresh locator with uniform priors
-        """
-        from nvision.models.nv_center import NVCenterLorentzianModel
-        
-        model = NVCenterLorentzianModel()
-        
-        # Create uniform priors over physical parameter ranges
-        belief = BeliefSignal(
-            model=model,
-            parameters=[
-                ParameterWithPosterior(
-                    name="frequency",
-                    bounds=(2.6e9, 3.1e9),
-                    grid=np.linspace(2.6e9, 3.1e9, n_grid_freq),
-                    posterior=np.ones(n_grid_freq) / n_grid_freq,
-                ),
-                ParameterWithPosterior(
-                    name="linewidth",
-                    bounds=(1e6, 50e6),
-                    grid=np.linspace(1e6, 50e6, n_grid_linewidth),
-                    posterior=np.ones(n_grid_linewidth) / n_grid_linewidth,
-                ),
-                ParameterWithPosterior(
-                    name="split",
-                    bounds=(1e6, 200e6),
-                    grid=np.linspace(1e6, 200e6, n_grid_split),
-                    posterior=np.ones(n_grid_split) / n_grid_split,
-                ),
-                # ... other parameters
-            ],
-        )
-        
-        return cls(belief, max_steps, acquisition)
-    
-    def next(self) -> float:
-        """Use acquisition function to propose next measurement."""
-        if self.acquisition == "eig":
-            return self._expected_information_gain()
-        elif self.acquisition == "ucb":
-            return self._upper_confidence_bound()
-        else:
-            return random.random()
-    
-    def done(self) -> bool:
-        """Check convergence or max steps."""
-        return (
-            self.step_count >= self.max_steps or
-            self.belief.converged(threshold=0.01)
-        )
-    
-    def result(self) -> dict[str, float]:
-        """Return final parameter estimates."""
-        return self.belief.estimates()
-```
+Read the real thing (`nvision/sim/locs/coarse/generic_sweep_locator.py`) for the
+actual domain-resolution logic — this excerpt is trimmed for the pattern, not a
+substitute for it, and will drift as that method evolves.
 
 ### Usage
 
 ```python
-# Direct instantiation
-locator = NVCenterBayesianLocator.create(
-    max_steps=200,
-    acquisition="eig",
-    n_grid_freq=150,
-)
+locator = GenericSweepLocator.create(belief=belief, signal_model=model, max_steps=200)
 
 # Via runner
-result = observer.watch(
-    run_loop(
-        NVCenterBayesianLocator,
-        experiment,
-        rng,
-        max_steps=200,
-        acquisition="eig",
-    )
-)
+for locator in run_loop(GenericSweepLocator, experiment, rng, max_steps=200):
+    ...
 
-# Via CLI task
-task = LocatorTask(
-    strategy_name="NVCenter-Bayesian-EIG",
-    strategy={
-        "class": NVCenterBayesianLocator,
-        "config": {
-            "max_steps": 200,
-            "acquisition": "eig",
-            "n_grid_freq": 150,
-        }
-    },
-    # ...
-)
+# Via a combination's strategy dict
+strategy = {"class": GenericSweepLocator, "config": {"max_steps": 200}}
 ```
 
 ---
@@ -284,9 +192,9 @@ task = LocatorTask(
 
 ### For Existing Locators
 
-**Step 1:** Remove LocatorFactory class
+**Step 1:** Remove any separate factory class
 
-**Step 2:** Add `@classmethod create()` to Locator
+**Step 2:** Add `@classmethod create()` to the Locator subclass
 
 ```python
 # Before
@@ -294,7 +202,7 @@ class MyLocatorFactory(LocatorFactory):
     def __init__(self, param1, param2):
         self.param1 = param1
         self.param2 = param2
-    
+
     def create(self) -> Locator:
         belief = ...
         return MyLocator(belief, self.param1, self.param2)
@@ -309,7 +217,7 @@ class MyLocator(Locator):
     def create(cls, param1, param2, **kwargs):
         belief = ...
         return cls(belief, param1, param2)
-    
+
     def __init__(self, belief, param1, param2):
         ...
 ```

@@ -121,7 +121,7 @@ def generators_basic() -> list[tuple[str, object]]:
         # Selectable inhomogeneous-broadening levels on the Voigt model. inhom-0 is
         # pure Lorentzian (lorentz_frac=1.0 -> zero Gaussian/inhomogeneous width);
         # inhom-low/high add increasing inhomogeneous broadening, which tends to wash
-        # the hyperfine triplet fine structure into a single unresolved dip.
+        # any hyperfine fine structure into a single unresolved dip.
         (
             "NVCenter-inhom-0",
             NVCenterCoreGenerator(
@@ -189,12 +189,15 @@ def param_grid_generators(variant: str = "lorentzian") -> list[tuple[str, object
                         variant=variant,
                         linewidth=width,
                         c_total=contrast,
-                        # Preserve this grid's historical 6-dip Voigt behavior (hyperfine
-                        # triplet resolved per Zeeman group) now that NVCenterVoigtModel's
-                        # own with_hyperfine_splitting default is False, matching
-                        # Lorentzian's pattern -- combinations.py's strategies_for() sets
-                        # the matching belief-side override for this grid's name pattern.
-                        with_hyperfine_splitting=(variant == "voigt"),
+                        # Preserve this grid's historical 6-dip Voigt behavior: a ¹⁴N
+                        # hyperfine triplet resolved per Zeeman group, with split/k_np
+                        # drawn per repeat and inferred. Every other generator now
+                        # defaults to hyperfine="unresolved" (the lines merge into one
+                        # dip), so this grid has to ask for the triplet explicitly --
+                        # combinations.py's strategies_for() sets the matching
+                        # belief-side override for this grid's name pattern.
+                        hyperfine="n14" if variant == "voigt" else "unresolved",
+                        infer_hyperfine=(variant == "voigt"),
                     ),
                 )
             )

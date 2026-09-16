@@ -344,7 +344,7 @@ def _real_data_c_total_threshold() -> Generator[None]:
     sim_lo, sim_hi = nv_center_lorentzian_bounds_for_domain(
         DEFAULT_NV_CENTER_FREQ_X_MIN,
         DEFAULT_NV_CENTER_FREQ_X_MAX,
-        with_hyperfine_splitting=False,
+        hyperfine="unresolved",
         with_zeeman_splitting=True,
     )["c_total"]
     real_lo, real_hi = _REAL_DATA_C_TOTAL_BOUNDS
@@ -487,7 +487,7 @@ def _matlab_run_one(
         typer.echo(
             f"View it quickly:  uv run nv serve --dir artifacts/{MATLAB_UI_DIRNAME}\n"
             "  -> http://localhost:18083 (its own small cache -- fast, no matter how big the main one gets)\n"
-            f"  -> Study: 'Default (ungrouped)', generator 'MATLAB:{Path(matlab_file).name}'\n"
+            f"  -> Study: 'MATLAB (real data)', generator 'MATLAB:{Path(matlab_file).name}'\n"
             "  -> Press 'r' there to pick up later runs.\n"
             "It's also in the main artifacts UI (localhost:18080) alongside everything else --\n"
             "that manifest is large and slow to rebuild, so a reload there can take a while."
@@ -632,6 +632,23 @@ def _write_artifacts(
         bayes_dir=tree.bayes_dir,
         run_result=run_result,
     )
+
+    # Alternative "actual averages per frequency" view — the per-bin mean/std/min/max
+    # of every shot recorded in the .mat file, independent of which bins the locator
+    # actually visited (contrast with the sampled-measurements scan plot above).
+    if data.signal_mean is not None and data.signal_std is not None:
+        from nvision.runner.plots_data import write_matlab_freq_stats_data
+
+        stats_path = tree.scans_dir / f"{slug}_freq_stats.json.gz"
+        stats_bytes = write_matlab_freq_stats_data(
+            data.freq_hz, data.signal_mean, data.signal_std, data.signal_min, data.signal_max
+        )
+        if stats_bytes is not None:
+            stats_entry = entry_base.copy()
+            stats_entry["type"] = "matlab_freq_stats"
+            stats_entry["path"] = str(stats_path.relative_to(out_dir))
+            stats_entry["_bytes"] = stats_bytes
+            plot_manifest.append(stats_entry)
 
     # Write locator_results.csv (merge with existing)
     loc_df = pl.DataFrame([main_result_row])

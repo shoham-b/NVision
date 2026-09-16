@@ -64,7 +64,8 @@ def nv_center_smc_belief(
     noise_model: NoiseSignalModel | None = None,
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC,
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR,
-    with_hyperfine_splitting: bool = False,
+    hyperfine: str = "unresolved",
+    infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = True,
     with_fixed_frequency: bool = True,
     lineshape: str = "lorentzian",
@@ -72,8 +73,14 @@ def nv_center_smc_belief(
 ) -> UnitCubeSMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
-    By default uses Zeeman splitting (two dips). Set ``with_zeeman_splitting=False``
-    for a single-dip model. Set ``with_hyperfine_splitting=True`` to also infer split and k_np.
+    By default uses Zeeman splitting (two dips) with the hyperfine structure
+    *unresolved* -- one merged dip per group, which is what a typical NV
+    linewidth gives. The belief's ``hyperfine``/``infer_hyperfine`` must match
+    how the true signal was generated: modelling a resolved ¹⁴N triplet against
+    a signal whose lines are merged (or vice versa) makes the locator hunt for
+    peaks the data never showed. Set ``hyperfine="n14"``/``"n15"`` when the lines
+    really are resolved, and ``infer_hyperfine=True`` to additionally infer
+    ``split`` and ``k_np`` rather than fixing them to the isotope's coupling.
     ``with_fixed_frequency`` (default ``True``, matching every ``NVCenter*Model``'s own
     default) treats the zero-field center frequency as a known instrument constant
     rather than a free particle dimension -- pass ``False`` to infer it instead (e.g.
@@ -85,13 +92,13 @@ def nv_center_smc_belief(
     * ``"voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterVoigtModel`, inferring
       physically-decomposed ``homogeneous_linewidth``/``sigma_inhom`` (reparameterized to
       the kernel-native ``fwhm_total``/``lorentz_frac`` internally) and population-normalized
-      ``c_total``. Respects ``with_hyperfine_splitting``/``with_zeeman_splitting``.
+      ``c_total``. Respects ``hyperfine``/``infer_hyperfine``/``with_zeeman_splitting``.
     * ``"saturation_voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterSaturationVoigtModel`,
       which replaces the lumped linewidth with two physically distinct, separately
       inferred broadening parameters: ``saturation`` (drive power, sets the
       homogeneous/power-broadened width *and* the realized contrast together via
       the saturation law) and ``sigma_inhom`` (independent inhomogeneous/Gaussian
-      width). Respects ``with_hyperfine_splitting``/``with_zeeman_splitting``.
+      width). Respects ``hyperfine``/``infer_hyperfine``/``with_zeeman_splitting``.
     """
     from nvision.spectra.nv_center import (
         NVCenterLorentzianModel,
@@ -104,38 +111,44 @@ def nv_center_smc_belief(
 
     if lineshape == "saturation_voigt":
         model = NVCenterSaturationVoigtModel(
-            with_hyperfine_splitting=with_hyperfine_splitting,
+            hyperfine=hyperfine,
+            infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
             with_fixed_frequency=with_fixed_frequency,
         )
         merged_bounds = nv_center_saturation_voigt_bounds_for_domain(
             DEFAULT_NV_CENTER_FREQ_X_MIN,
             DEFAULT_NV_CENTER_FREQ_X_MAX,
-            with_hyperfine_splitting=with_hyperfine_splitting,
+            hyperfine=hyperfine,
+            infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
         )
     elif lineshape == "voigt":
         model = NVCenterVoigtModel(
-            with_hyperfine_splitting=with_hyperfine_splitting,
+            hyperfine=hyperfine,
+            infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
             with_fixed_frequency=with_fixed_frequency,
         )
         merged_bounds = nv_center_voigt_bounds_for_domain(
             DEFAULT_NV_CENTER_FREQ_X_MIN,
             DEFAULT_NV_CENTER_FREQ_X_MAX,
-            with_hyperfine_splitting=with_hyperfine_splitting,
+            hyperfine=hyperfine,
+            infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
         )
     else:
         model = NVCenterLorentzianModel(
-            with_hyperfine_splitting=with_hyperfine_splitting,
+            hyperfine=hyperfine,
+            infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
             with_fixed_frequency=with_fixed_frequency,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
             DEFAULT_NV_CENTER_FREQ_X_MIN,
             DEFAULT_NV_CENTER_FREQ_X_MAX,
-            with_hyperfine_splitting=with_hyperfine_splitting,
+            hyperfine=hyperfine,
+            infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
         )
 

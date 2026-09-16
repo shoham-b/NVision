@@ -39,13 +39,13 @@ def test_generator_adds_gaussian_and_sin2_priors():
     assert "k_np" not in priors_lor
 
     # With hyperfine splitting enabled, split and k_np are present
-    gen_lor_split = NVCenterCoreGenerator(variant="lorentzian", with_hyperfine_splitting=True)
+    gen_lor_split = NVCenterCoreGenerator(variant="lorentzian", hyperfine="n14", infer_hyperfine=True)
     signal_lor_split = gen_lor_split.generate(rng)
     priors_split = signal_lor_split.bounds["_priors"]
     for name in ("split", "linewidth", "k_np", "c_total"):
         assert name in priors_split
 
-    # 2. Voigt variant (default: with_hyperfine_splitting=False, same as Lorentzian --
+    # 2. Voigt variant (default: hyperfine="unresolved", same as Lorentzian --
     # split/k_np are fixed to the real N-14 constant / 1.0, not free/inferred priors)
     gen_voigt = NVCenterCoreGenerator(variant="voigt")
     signal_voigt = gen_voigt.generate(rng)
@@ -68,7 +68,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
     assert "k_np" not in priors_voigt
 
     # With hyperfine splitting enabled, split and k_np are present
-    gen_voigt_hf = NVCenterCoreGenerator(variant="voigt", with_hyperfine_splitting=True)
+    gen_voigt_hf = NVCenterCoreGenerator(variant="voigt", hyperfine="n14", infer_hyperfine=True)
     signal_voigt_hf = gen_voigt_hf.generate(rng)
     priors_voigt_hf = signal_voigt_hf.bounds["_priors"]
     for name in ("split", "k_np", "homogeneous_linewidth", "sigma_inhom", "c_total"):

@@ -172,7 +172,11 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
     monkeypatch.setattr(SMCMarginalDistribution, "_resample", lambda self: None)
 
     b = nv_center_smc_belief(
-        num_particles=100, with_hyperfine_splitting=True, with_zeeman_splitting=False, with_fixed_frequency=False
+        num_particles=100,
+        hyperfine="n14",
+        infer_hyperfine=True,
+        with_zeeman_splitting=False,
+        with_fixed_frequency=False,
     )
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
     b._step_count = 10  # > 5, narrowing runs
@@ -222,7 +226,10 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
 def _make_unit_cube_nv_model():
     from nvision.spectra.nv_center import NVCenterLorentzianModel
 
-    model = NVCenterLorentzianModel(with_fixed_frequency=False)
+    # phys_bounds below carries split/k_np, so the model must actually have them
+    # as free parameters -- i.e. a resolved N-14 triplet, which used to be this
+    # model's default before hyperfine="unresolved" became it.
+    model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_frequency=False)
     phys_bounds = {
         "frequency": (2.86e9, 2.88e9),
         "linewidth": (5e6, 15e6),

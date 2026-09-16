@@ -114,10 +114,22 @@ logs/
 # MATLAB data files (large binaries — store in data/matlab/ but don't commit)
 data/matlab/*.mat
 
+# LaTeX build artifacts (articles/*.tex sources + committed .pdf/.bib stay tracked)
+articles/*.aux
+articles/*.bbl
+articles/*.blg
+articles/*.fdb_latexmk
+articles/*.fls
+articles/*.out
+articles/*.synctex.gz
+articles/*Notes.bib
+
 # Project specific
 .fuzz_cache/
 
 graphs/
+!static/graphs/
+!static/graphs/**
 /.hypothesis/
 
 .gemini/

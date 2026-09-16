@@ -741,6 +741,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._weights = self._weights.copy()
         dist._step_count = self._step_count
         dist.resampled = self.resampled
+        dist.last_ess = self.last_ess
         dist._original_physical_x_bounds = self._original_physical_x_bounds
         dist._obs_x_arr = self._obs_x_arr.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()

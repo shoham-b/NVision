@@ -51,6 +51,37 @@ def _seed_one_repeat(cache_dir, *, entry_extra: dict | None = None):
     return payload
 
 
+def _seed_second_generator(cache_dir):
+    """A second (generator, noise, strategy) combo, distinct from _seed_one_repeat's,
+    for scoping tests -- /api/manifest?generators=... and the /api/combos index."""
+    bridge = CacheBridge(cache_dir)
+    repo = bridge.get_cache_for_category("NVCenter")
+    payload = gzip.compress(b'{"other": "generator"}')
+    entry = {
+        "path": "graphs/scans/y_r1.json.gz",
+        "type": "scan",
+        "content_bin": base64.b85encode(payload).decode("ascii"),
+        "generator": "NVCenter-voigt",
+        "noise": "Gauss(0.02)",
+        "strategy": "SimpleSweep",
+    }
+    row = dict(_MAIN_RESULT_ROW)
+    row.update({"generator": "NVCenter-voigt", "noise": "Gauss(0.02)"})
+    repo.save_cached_combination(
+        generator="NVCenter-voigt",
+        noise="Gauss(0.02)",
+        strategy="SimpleSweep",
+        repeats=1,
+        seed=1,
+        max_steps=NVISION_SIMPLESWEEP_MAX_STEPS,
+        timeout_s=10,
+        repeat_offset=0,
+        results=[([entry], row)],
+    )
+    bridge.close()
+    return payload
+
+
 def _build_client(tmp_path):
     """(cache_dir, run_dir) — index.html/app.js/graph-defs are no longer per-run
     files; build_app serves them straight from the repo's static/ directory."""
@@ -295,3 +326,59 @@ def test_scan_fields_endpoint_scoped_by_selection(tmp_path):
     r2 = client.get("/api/scan-fields", params={"generator": "NVCenter-voigt", "noise": "Gauss(0.02)"})
     assert r2.status_code == 200
     assert r2.json() == []
+
+
+def test_combos_endpoint_is_cheap_index_not_full_manifest(tmp_path):
+    """/api/combos is the picker/generator-switcher's data source: one row per
+    combo with a repeat count, no per-repeat graph entries or heavy fields --
+    what lets the picker know every generator exists without paying for a full
+    per-repeat scan of the cache (see nvision/cache/bridge.py's list_keys_
+    excluding_prefixes fix for the scan itself)."""
+    cache_dir, static_dir = _build_client(tmp_path)
+    _seed_one_repeat(cache_dir)
+    _seed_second_generator(cache_dir)
+    client = TestClient(build_app(cache_dir, static_dir))
+
+    r = client.get("/api/combos")
+    assert r.status_code == 200
+    combos = r.json()
+    assert {c["generator"] for c in combos} == {"NVCenter-lorentzian", "NVCenter-voigt"}
+    for c in combos:
+        assert "path" not in c  # no graph entries, just the combo index
+        assert c["repeats"] == 1
+
+
+def test_manifest_scoped_by_generators_excludes_other_generators(tmp_path):
+    cache_dir, static_dir = _build_client(tmp_path)
+    _seed_one_repeat(cache_dir)
+    _seed_second_generator(cache_dir)
+    client = TestClient(build_app(cache_dir, static_dir))
+
+    r = client.get("/api/manifest", params={"generators": "NVCenter-lorentzian"})
+    assert r.status_code == 200
+    scoped = r.json()
+    assert {e["generator"] for e in scoped if e.get("type") == "scan"} == {"NVCenter-lorentzian"}
+
+    # Scoped requests skip the cross-combo aggregate views entirely (they need
+    # every combo's result rows to be meaningful) -- unlike the full manifest,
+    # which does include one (see test_manifest_includes_aggregate_view_with_working_path).
+    assert all(e.get("type") == "scan" for e in scoped)
+
+    # The unscoped manifest still returns both generators plus the aggregate view.
+    full = client.get("/api/manifest").json()
+    assert {e["generator"] for e in full if e.get("type") == "scan"} == {
+        "NVCenter-lorentzian",
+        "NVCenter-voigt",
+    }
+
+
+def test_manifest_scoped_request_does_not_deadlock_with_unscoped_cache_fill(tmp_path):
+    """_get_manifest holds `lock` while calling _build_manifest, which calls
+    _get_combos -- itself a `with lock:` block. Regression guard for that
+    same-thread re-entrant acquisition (requires lock to be an RLock)."""
+    cache_dir, static_dir = _build_client(tmp_path)
+    _seed_one_repeat(cache_dir)
+    client = TestClient(build_app(cache_dir, static_dir))
+
+    r = client.get("/api/manifest")
+    assert r.status_code == 200

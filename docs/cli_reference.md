@@ -13,6 +13,7 @@ The NVision CLI (`uv run nv`) is a Typer-driven command-line interface for runni
 | `render` | Render reports and graphs from cache without running simulations. |
 | `serve` | Start a local HTTP server for viewing NVision results. |
 | `cache` | Manage simulation cache (list, clean, recalc). |
+| `matlab-run` | Run the SBED locator on real ESR measurements from a MATLAB `.mat` file. |
 
 ## Usage and Examples
 
@@ -91,6 +92,36 @@ Start the local HTTP server to interactively view simulation results.
 ```bash
 # Start the UI server (default http://localhost:18080)
 uv run nv serve
+```
+
+### `nv matlab-run`
+Run the Bayesian SBED locator against real ESR measurements recorded in a MATLAB
+`.mat` file, instead of a simulated generator. Results land in the artifact store
+next to simulated runs, so they show up in `nv serve` — see
+[`ui_architecture.md`](ui_architecture.md) for how the UI groups these under the
+"MATLAB (real data)" study bucket.
+
+**Common Options:**
+- `matlab_file`: path to the `.mat` file (or a bare filename resolved via `data/matlab/`). Omit when using `--all`.
+- `--all`: run every `.mat` file in `data/matlab/` (or `--dir`) in turn, continuing past any single file's failure so one bad recording doesn't abort the rest.
+- `--dir`: directory to scan for `.mat` files with `--all` (default: `data/matlab/`).
+- `--noise-std`: override the auto-estimated measurement noise std instead of deriving it from the file's own shot spread.
+- `--max-steps`: maximum SBED measurement steps (default: 300).
+- `--infer-frequency` / `--no-infer-frequency`: fit the NV zero-field-splitting center instead of fixing it to 2.87 GHz (default: infer — real samples run 1-2 MHz off the textbook value from strain/temperature).
+- `--particles`: SMC particle count (default: 10000, 10x the simulation default).
+- `--out`: write a JSON result summary to this path.
+- `--no-ui`: skip artifact writing (no `nv serve` integration) — useful for a quick numeric check.
+
+**Example Use Cases:**
+```bash
+# Run one recording
+uv run nv matlab-run data/matlab/sample.mat
+
+# Run every recording in a directory, writing per-file JSON summaries
+uv run nv matlab-run --all --dir data/matlab --out artifacts/matlab_summaries
+
+# View results in their own small, fast-to-reload cache
+uv run nv serve --dir artifacts/matlab
 ```
 
 ### `nv cache`

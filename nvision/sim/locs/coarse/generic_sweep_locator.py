@@ -673,8 +673,8 @@ class GenericSweepLocator(SweepingLocator):
 
         The model can present 1, 2, 3, or 6 resolvable dips (see
         SignalModel.expected_dip_count): none, Zeeman-only, hyperfine-only, or
-        both combined (2 Zeeman groups x 3 hyperfine lines, each line resolved
-        individually — see NVCenterLorentzianModel).  We detect all peaks, keep
+        both combined (2 Zeeman groups x 2 or 3 resolved hyperfine lines — see
+        NVCenterLorentzianModel; an unresolved multiplet counts as 1 line).  We detect all peaks, keep
         the most prominent ones (bounded by how many the model expects, so
         stray noise peaks don't corrupt the grouping), then split them into
         Zeeman groups at the largest position gap — physically valid because
@@ -710,23 +710,16 @@ class GenericSweepLocator(SweepingLocator):
         peaks, props = find_peaks(-smoothed, prominence=prom_floor)
         n_expected_dips = self._expected_dip_count_from_model()
         if zs_idx is not None:
-            # Some models' expected_dip_count() assumes the nitrogen hyperfine
-            # triplet is always merged into one dip per Zeeman group — but the
-            # hyperfine splitting is a real physical constant
-            # (NV_N14_HYPERFINE_SPLIT_HZ) baked into the model's evaluation
-            # *even when with_hyperfine_splitting=False* (split/k_np just
-            # become fixed instead of free parameters; see
-            # NVCenterLorentzianModel.compute). Whether the 3 lines actually
-            # resolve depends on the fitted linewidth vs. that fixed split,
-            # not on whether hyperfine is a free parameter — a narrow-linewidth
-            # draw (e.g. 500 kHz vs. ~2.16 MHz hyperfine spacing) resolves each
-            # Zeeman group into 3 separate dips regardless. A cap of 2 here
-            # then keeps two sub-lines from the *same* Zeeman group instead of
-            # one from each, seeding zeeman_split tens of MHz off from the
-            # true value with no way for curve_fit to recover. Never cap below
-            # the full 6-line pattern whenever Zeeman splitting is a free
-            # parameter, whether or not hyperfine is too.
-            n_expected_dips = max(n_expected_dips, 6)
+            # Never cap below the two Zeeman groups themselves. expected_dip_count()
+            # now reports the model's real line structure (hyperfine lines x Zeeman
+            # groups), so it can be trusted directly -- it used to be forced up to 6
+            # here because every NV model secretly evaluated a fixed ¹⁴N triplet even
+            # when configured without one, making the reported count an undercount.
+            # An undercount is the dangerous direction: capping at 2 when the spectrum
+            # really shows 6 keeps two sub-lines from the *same* Zeeman group instead
+            # of one from each, seeding zeeman_split tens of MHz off with no way for
+            # curve_fit to recover.
+            n_expected_dips = max(n_expected_dips, 2)
 
         if len(peaks) < 2:
             seeds: list[tuple[float, float | None, float | None]] = [(argmin_freq, None, None)]

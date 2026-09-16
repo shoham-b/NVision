@@ -157,6 +157,69 @@ class TestWritePosteriorData:
         data = _load(out)
         assert data["resampled_steps"] == [1, 3]
 
+    def test_ess_history_and_num_particles_preserved(self, tmp_path):
+        """The belief-recorded ESS must survive verbatim.
+
+        It cannot be recomputed from the stored weights: those are a subsample of
+        the cloud, and uniform on any step that resampled, so a derived ESS can
+        never dip below ess_threshold * num_particles.
+        """
+        rng = np.random.default_rng(70)
+        anim_all = {"frequency": _particle_history(rng, 4, 50, lo=2.86e9, hi=2.88e9)}
+        out = tmp_path / "posterior.json"
+        write_posterior_data(
+            anim_all,
+            out,
+            ess_history=[812.5, 190.0, None, 640.0],
+            num_particles=1000,
+            ess_threshold=0.2,
+        )
+        data = _load(out)
+        assert data["num_particles"] == 1000
+        got = list(data["ess_history"])
+        assert got[0] == pytest.approx(812.5)
+        # Below 0.2 * 1000 -- the crossing the resample was made on, which the
+        # stored weights cannot express.
+        assert got[1] == pytest.approx(190.0)
+        assert got[1] < data["ess_threshold"] * data["num_particles"]
+        # Missing entries survive as NaN (the compact float encoder has no null);
+        # the UI treats non-finite as a gap.
+        assert math.isnan(got[2])
+        assert got[3] == pytest.approx(640.0)
+
+    def test_robust_uncertainty_ignores_rejuvenation_particles(self, tmp_path):
+        """uncertainty_robust must not move when a few particles are redrawn far away.
+
+        This is what a resample does (smc_marginal._resample steps 8.5/8.6), and it
+        is why the reported sigma spikes for exactly one step.
+        """
+        rng = np.random.default_rng(71)
+        n = 2000
+        bulk = rng.normal(2.87e9, 1e5, n).astype(np.float32)
+        weights = np.full(n, 1.0 / n, dtype=np.float32)
+        clean = np.column_stack([bulk, weights])
+
+        spiked_vals = bulk.copy()
+        spiked_vals[:6] = 2.95e9  # 0.3% of the cloud, ~800 sigma out
+        spiked = np.column_stack([spiked_vals, weights])
+
+        stub_grid = np.linspace(0.0, 1.0, 2)
+        out = tmp_path / "posterior.json"
+        write_posterior_data({"frequency": ([clean, spiked], stub_grid)}, out)
+        data = _load(out)
+
+        r0 = data["steps"][0]["frequency"]["uncertainty_robust"]
+        r1 = data["steps"][1]["frequency"]["uncertainty_robust"]
+        assert r0 == pytest.approx(r1, rel=0.1), "robust spread must ignore the outliers"
+
+        # The plain weighted std, by contrast, blows up -- the behaviour the robust
+        # trace exists to sit next to.
+        def _std(vals):
+            m = float(np.mean(vals))
+            return float(np.sqrt(np.mean((vals - m) ** 2)))
+
+        assert _std(spiked_vals) > 5 * _std(bulk)
+
     def test_physical_bounds_scaled(self, tmp_path):
         rng = np.random.default_rng(8)
         anim_all = {"frequency": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}

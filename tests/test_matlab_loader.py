@@ -502,15 +502,9 @@ def test_convergence_breakdown_counts_and_labels(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=12, all_converged_step=20, total_steps=20
-        ),
-        _MatlabRunSummary(
-            file_name="b.mat", splitting_converged_step=30, all_converged_step=None, total_steps=300
-        ),
-        _MatlabRunSummary(
-            file_name="c.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300
-        ),
+        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=12, all_converged_step=20, total_steps=20),
+        _MatlabRunSummary(file_name="b.mat", splitting_converged_step=30, all_converged_step=None, total_steps=300),
+        _MatlabRunSummary(file_name="c.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -518,8 +512,10 @@ def test_convergence_breakdown_counts_and_labels(capsys):
 
     assert "Split converged: 2/3" in out
     assert "All converged: 1/3" in out
-    assert "a.mat" in out and "step 12" in out
-    assert "b.mat" in out and "step 30" in out
+    assert "a.mat" in out
+    assert "step 12" in out
+    assert "b.mat" in out
+    assert "step 30" in out
     assert "not converged" in out
 
 
@@ -527,12 +523,8 @@ def test_convergence_breakdown_all_converged(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=5, all_converged_step=9, total_steps=9
-        ),
-        _MatlabRunSummary(
-            file_name="b.mat", splitting_converged_step=7, all_converged_step=11, total_steps=11
-        ),
+        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=5, all_converged_step=9, total_steps=9),
+        _MatlabRunSummary(file_name="b.mat", splitting_converged_step=7, all_converged_step=11, total_steps=11),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -547,9 +539,7 @@ def test_convergence_breakdown_none_converged(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300
-        ),
+        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -558,3 +548,65 @@ def test_convergence_breakdown_none_converged(capsys):
     assert "Split converged: 0/1" in out
     assert "All converged: 0/1" in out
     assert out.count("not converged") == 2
+
+
+def test_matlab_run_all_prints_convergence_breakdown(tmp_path, monkeypatch):
+    """``nv matlab-run --all`` should summarize convergence across every file, not just
+    report a pass/fail count."""
+    from typer.testing import CliRunner
+
+    import nvision.cli.matlab_cmd as matlab_cmd
+    from nvision.cli.app_instance import app
+
+    for name in ("a", "b"):
+        (tmp_path / f"{name}.mat").write_bytes(b"")
+
+    summaries = {
+        "a.mat": matlab_cmd._MatlabRunSummary(
+            file_name="a.mat", splitting_converged_step=10, all_converged_step=20, total_steps=20
+        ),
+        "b.mat": matlab_cmd._MatlabRunSummary(
+            file_name="b.mat", splitting_converged_step=15, all_converged_step=None, total_steps=300
+        ),
+    }
+
+    def fake_run_one(*, matlab_file, **kwargs):
+        return summaries[Path(matlab_file).name]
+
+    monkeypatch.setattr(matlab_cmd, "_matlab_run_one", fake_run_one)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["matlab-run", "--all", "--dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "Done: 2/2 succeeded." in result.output
+    assert "Split converged: 2/2" in result.output
+    assert "All converged: 1/2" in result.output
+
+
+def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, monkeypatch):
+    """A failing file shouldn't suppress the breakdown for the files that did succeed."""
+    from typer.testing import CliRunner
+
+    import nvision.cli.matlab_cmd as matlab_cmd
+    from nvision.cli.app_instance import app
+
+    for name in ("a", "b"):
+        (tmp_path / f"{name}.mat").write_bytes(b"")
+
+    def fake_run_one(*, matlab_file, **kwargs):
+        if Path(matlab_file).name == "b.mat":
+            raise RuntimeError("boom")
+        return matlab_cmd._MatlabRunSummary(
+            file_name="a.mat", splitting_converged_step=10, all_converged_step=None, total_steps=300
+        )
+
+    monkeypatch.setattr(matlab_cmd, "_matlab_run_one", fake_run_one)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["matlab-run", "--all", "--dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "FAILED: b.mat" in result.output
+    assert "Split converged: 1/1" in result.output
+    assert "All converged: 0/1" in result.output

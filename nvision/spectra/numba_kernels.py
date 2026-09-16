@@ -65,6 +65,36 @@ def get_cached_constant_array(value: float, n: int) -> np.ndarray:
     return arr[:n]
 
 
+@njit(cache=True, inline="always")
+def nv_population_weights(k_np: float, c_total: float, w_center: float):
+    """Hyperfine line weights ``(p_l, p_0, p_r)``, summing to ``c_total``.
+
+    The three slots sit at ``center - split``, ``center`` and ``center + split``.
+    ``w_center`` is the *structural* weight of the central line and encodes which
+    nitrogen isotope (if any) is being modelled -- it is a model configuration,
+    not an inferred parameter:
+
+    * ``w_center = 1.0`` -- three equally-spaced lines (the N-14, I=1 triplet).
+      With ``split = 0`` all three land on top of each other and the sum
+      collapses *exactly* to a single line of depth ``c_total``, which is how the
+      "no hyperfine structure at all" case is expressed.
+    * ``w_center = 0.0`` -- the central line vanishes and only the outer pair
+      remains (the N-15, I=1/2 doublet at ``center +/- split``).
+
+    ``k_np`` distributes weight between the outer lines as ``1/k : w_center : k``;
+    the normalization ``1/k + w_center + k`` keeps the total depth equal to
+    ``c_total`` for every isotope, so contrast never depends on line count.
+    """
+    k = k_np if k_np > 1e-10 else 1e-10
+    inv_k = 1.0 / k
+    inv_p_sum = 1.0 / (inv_k + w_center + k)
+    return (
+        c_total * inv_k * inv_p_sum,
+        c_total * w_center * inv_p_sum,
+        c_total * k * inv_p_sum,
+    )
+
+
 @njit(cache=True)
 def lorentzian_dip_term(x: float, center: float, linewidth: float, dip_depth: float) -> float:
     """``dip_depth * linewidth² / ((x - center)² + linewidth²)`` — one Lorentzian dip contribution."""
@@ -91,6 +121,7 @@ def nv_center_lorentzian_eval(
     linewidth: float,
     split: float,
     k_np: float,
+    w_center: float,
     c_total: float,
     background: float,
 ) -> float:
@@ -99,12 +130,7 @@ def nv_center_lorentzian_eval(
     x_dim = (x - freq) / omega
     alpha = split / omega
 
-    k = k_np if k_np > 1e-10 else 1e-10
-    p_sum = (1.0 / k) + 1.0 + k
-
-    p_0 = c_total / p_sum
-    p_l = c_total * ((1.0 / k) / p_sum)
-    p_r = c_total * (k / p_sum)
+    p_l, p_0, p_r = nv_population_weights(k_np, c_total, w_center)
 
     return background - (
         p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0)
@@ -130,6 +156,7 @@ def nv_center_lorentzian_vectorized_many(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -159,14 +186,7 @@ def nv_center_lorentzian_vectorized_many(
         inv_omega[j] = io
         alpha_arr[j] = split[j] * io
 
-        k = k_np[j]
-        k_safe = k if k > 1e-10 else 1e-10
-        inv_k = 1.0 / k_safe
-        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
-        c = c_total[j]
-        p_0_arr[j] = c * inv_p_sum
-        p_l_arr[j] = c * (inv_k * inv_p_sum)
-        p_r_arr[j] = c * (k_safe * inv_p_sum)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], c_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
@@ -188,6 +208,7 @@ def nv_center_lorentzian_vectorized_one(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -213,12 +234,7 @@ def nv_center_lorentzian_vectorized_one(
         x_dim = (x - f) / omega
         alpha = s / omega
 
-        k_safe = k if k > 1e-10 else 1e-10
-        p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-        p_0 = c / p_sum
-        p_l = c * ((1.0 / k_safe) / p_sum)
-        p_r = c * (k_safe / p_sum)
+        p_l, p_0, p_r = nv_population_weights(k, c, w_center)
 
         out[j] = bg - (p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0))
 
@@ -230,6 +246,7 @@ def nv_center_lorentzian_vectorized_one_serial(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -258,12 +275,7 @@ def nv_center_lorentzian_vectorized_one_serial(
         x_dim = (x - f) * inv_omega
         alpha = s * inv_omega
 
-        k_safe = k if k > 1e-10 else 1e-10
-        p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-        p_0 = c / p_sum
-        p_l = c * ((1.0 / k_safe) / p_sum)
-        p_r = c * (k_safe / p_sum)
+        p_l, p_0, p_r = nv_population_weights(k, c, w_center)
 
         out[j] = bg - (p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0))
 
@@ -287,6 +299,7 @@ def nv_center_zeeman_lorentzian_eval(
     zeeman_split: float,
     hf_split: float,
     k_np: float,
+    w_center: float,
     c_total: float,
     background: float,
 ) -> float:
@@ -304,12 +317,7 @@ def nv_center_zeeman_lorentzian_eval(
     alpha = hf_split * inv_omega
     beta = zeeman_split * inv_omega
 
-    k = k_np if k_np > 1e-10 else 1e-10
-    p_sum = (1.0 / k) + 1.0 + k
-
-    p_0 = 0.5 * c_total / p_sum
-    p_l = 0.5 * c_total * (1.0 / k) / p_sum
-    p_r = 0.5 * c_total * k / p_sum
+    p_l, p_0, p_r = nv_population_weights(k_np, 0.5 * c_total, w_center)
 
     x_m = x_dim + beta  # (x − (freq − zeeman_split)) / omega
     left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
@@ -330,6 +338,7 @@ def nv_center_zeeman_lorentzian_vectorized_one_serial(
     zeeman_split: np.ndarray,
     hf_split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -351,12 +360,7 @@ def nv_center_zeeman_lorentzian_vectorized_one_serial(
         alpha = hf * inv_omega
         beta = z * inv_omega
 
-        k_safe = k if k > 1e-10 else 1e-10
-        p_sum = (1.0 / k_safe) + 1.0 + k_safe
-
-        p_0 = 0.5 * c / p_sum
-        p_l = 0.5 * c * (1.0 / k_safe) / p_sum
-        p_r = 0.5 * c * k_safe / p_sum
+        p_l, p_0, p_r = nv_population_weights(k, 0.5 * c, w_center)
 
         x_m = x_dim + beta
         left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
@@ -377,6 +381,7 @@ def nv_center_zeeman_lorentzian_vectorized_many(
     zeeman_split: np.ndarray,
     hf_split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -401,14 +406,7 @@ def nv_center_zeeman_lorentzian_vectorized_many(
         alpha_arr[j] = hf_split[j] * io
         beta_arr[j] = zeeman_split[j] * io
 
-        k = k_np[j]
-        k_safe = k if k > 1e-10 else 1e-10
-        inv_k = 1.0 / k_safe
-        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
-        c = c_total[j]
-        p_0_arr[j] = 0.5 * c * inv_p_sum
-        p_l_arr[j] = 0.5 * c * (inv_k * inv_p_sum)
-        p_r_arr[j] = 0.5 * c * (k_safe * inv_p_sum)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], 0.5 * c_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
@@ -439,6 +437,7 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
     zeeman_split: np.ndarray,
     hf_split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -463,14 +462,7 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
         alpha_arr[j] = hf_split[j] * io
         beta_arr[j] = zeeman_split[j] * io
 
-        k = k_np[j]
-        k_safe = k if k > 1e-10 else 1e-10
-        inv_k = 1.0 / k_safe
-        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
-        c = c_total[j]
-        p_0_arr[j] = 0.5 * c * inv_p_sum
-        p_l_arr[j] = 0.5 * c * (inv_k * inv_p_sum)
-        p_r_arr[j] = 0.5 * c * (k_safe * inv_p_sum)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], 0.5 * c_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
@@ -944,6 +936,7 @@ def nv_center_lorentzian_vectorized_many_fast(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -973,14 +966,7 @@ def nv_center_lorentzian_vectorized_many_fast(
         inv_omega[j] = io
         alpha_arr[j] = split[j] * io
 
-        k = k_np[j]
-        k_safe = k if k > 1e-10 else 1e-10
-        inv_k = 1.0 / k_safe
-        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
-        c = c_total[j]
-        p_0_arr[j] = c * inv_p_sum
-        p_l_arr[j] = c * (inv_k * inv_p_sum)
-        p_r_arr[j] = c * (k_safe * inv_p_sum)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], c_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
@@ -1002,6 +988,7 @@ def nv_center_lorentzian_vectorized_many_fast_serial(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -1030,14 +1017,7 @@ def nv_center_lorentzian_vectorized_many_fast_serial(
         inv_omega[j] = io
         alpha_arr[j] = split[j] * io
 
-        k = k_np[j]
-        k_safe = k if k > 1e-10 else 1e-10
-        inv_k = 1.0 / k_safe
-        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
-        c = c_total[j]
-        p_0_arr[j] = c * inv_p_sum
-        p_l_arr[j] = c * (inv_k * inv_p_sum)
-        p_r_arr[j] = c * (k_safe * inv_p_sum)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], c_total[j], w_center)
 
     for i in range(m):
         x = xs[i]
@@ -1179,6 +1159,7 @@ def nv_center_lorentzian_eig_variance(
     linewidth: np.ndarray,
     split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     weights: np.ndarray,
     out: np.ndarray,
@@ -1210,14 +1191,7 @@ def nv_center_lorentzian_eig_variance(
         inv_omega[j] = io
         alpha[j] = split[j] * io
 
-        k = k_np[j]
-        k_safe = k if k > 1e-10 else 1e-10
-        inv_k = 1.0 / k_safe
-        inv_p_sum = 1.0 / (inv_k + 1.0 + k_safe)
-        c = c_total[j]
-        p_0[j] = c * inv_p_sum
-        p_l[j] = c * (inv_k * inv_p_sum)
-        p_r[j] = c * (k_safe * inv_p_sum)
+        p_l[j], p_0[j], p_r[j] = nv_population_weights(k_np[j], c_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
@@ -1421,15 +1395,12 @@ def _pv_norm(dx: float, elf: float, egf: float, nhs: float, gamma2: float, has_g
 
 
 @njit(cache=True, inline="always")
-def _zeeman_pv_populations(k_np: float, c_total: float):
-    """Per-group population weights ``(p_l, p_0, p_r)`` summing to ``0.5·c_total``."""
-    k = k_np if k_np > 1e-10 else 1e-10
-    inv_p_sum = 1.0 / ((1.0 / k) + 1.0 + k)
-    half_c = 0.5 * c_total
-    p_0 = half_c * inv_p_sum
-    p_l = half_c * (1.0 / k) * inv_p_sum
-    p_r = half_c * k * inv_p_sum
-    return p_l, p_0, p_r
+def _zeeman_pv_populations(k_np: float, c_total: float, w_center: float):
+    """Per-group population weights ``(p_l, p_0, p_r)`` summing to ``0.5·c_total``.
+
+    See :func:`nv_population_weights` for what ``w_center`` means.
+    """
+    return nv_population_weights(k_np, 0.5 * c_total, w_center)
 
 
 @njit(cache=True, inline="always")
@@ -1486,12 +1457,13 @@ def nv_center_zeeman_pseudo_voigt_eval(
     zeeman_split: float,
     hf_split: float,
     k_np: float,
+    w_center: float,
     c_total: float,
     background: float,
 ) -> float:
     """Zeeman + hyperfine NV pseudo-Voigt scalar kernel (population-normalized)."""
     elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
-    p_l, p_0, p_r = _zeeman_pv_populations(k_np, c_total)
+    p_l, p_0, p_r = _zeeman_pv_populations(k_np, c_total, w_center)
     return background - _zeeman_pv_pred(
         x, freq, zeeman_split, hf_split, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
     )
@@ -1506,6 +1478,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
     zeeman_split: np.ndarray,
     hf_split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -1514,7 +1487,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
     n = freq.shape[0]
     for j in range(n):
         elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
         out[j] = background[j] - _zeeman_pv_pred(
             x, freq[j], zeeman_split[j], hf_split[j], p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
         )
@@ -1529,6 +1502,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many(
     zeeman_split: np.ndarray,
     hf_split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -1556,7 +1530,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many(
         gamma2_arr[j] = gamma2
         has_gamma_arr[j] = has_gamma
         has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
         p_l_arr[j] = p_l
         p_0_arr[j] = p_0
         p_r_arr[j] = p_r
@@ -1590,6 +1564,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
     zeeman_split: np.ndarray,
     hf_split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
@@ -1616,7 +1591,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
         gamma2_arr[j] = gamma2
         has_gamma_arr[j] = has_gamma
         has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
         p_l_arr[j] = p_l
         p_0_arr[j] = p_0
         p_r_arr[j] = p_r
@@ -1650,6 +1625,7 @@ def nv_center_zeeman_pseudo_voigt_eig_variance(
     zeeman_split: np.ndarray,
     hf_split: np.ndarray,
     k_np: np.ndarray,
+    w_center: float,
     c_total: np.ndarray,
     weights: np.ndarray,
     out: np.ndarray,
@@ -1682,7 +1658,7 @@ def nv_center_zeeman_pseudo_voigt_eig_variance(
         gamma2_arr[j] = gamma2
         has_gamma_arr[j] = has_gamma
         has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j])
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
         p_l_arr[j] = p_l
         p_0_arr[j] = p_0
         p_r_arr[j] = p_r

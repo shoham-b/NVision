@@ -305,6 +305,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
 
+    # ESS as measured *before* any resample at the current step -- i.e. the value
+    # the resample decision was actually made on. This cannot be recovered later
+    # from the snapshot weights: _resample() resets them to uniform, so a step
+    # that resampled always reads back ESS == num_particles. Diagnostics that
+    # want to see the threshold crossing must read this.
+    last_ess: float = field(init=False, default=float("nan"), repr=False)
+
     # Belief-state version: bumped on every mutation of _particles/_weights
     # (update, batch_update, _resample, narrow_scan_parameter_physical_bounds).
     # estimates()/uncertainty() are pure functions of that state and get called
@@ -461,6 +468,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # candidates from unit to physical space instead of falling back to the
         # generic path that materializes the (n_candidates x n_eig) matrix.
         self._eig_needs_phys = False
+        self._eig_hf_offset = 0.0
+        self._eig_w_center = 1.0
         try:
             from nvision.spectra.nv_center import (
                 NVCenterLorentzianModel,
@@ -473,6 +482,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             is_unit_cube = isinstance(kernel_model, UnitCubeSignalModel)
             if is_unit_cube:
                 kernel_model = kernel_model.inner
+
+            # Hyperfine geometry the fused kernels need: the fixed line offset to
+            # substitute when `split` isn't a particle column, and the center-line
+            # weight that selects triplet vs. doublet vs. merged-single.
+            self._eig_hf_offset = float(getattr(kernel_model, "_hf_offset", 0.0))
+            self._eig_w_center = float(getattr(kernel_model, "_w_center", 1.0))
 
             if isinstance(kernel_model, NVCenterSaturationVoigtModel):
                 self._eig_kernel_type = "saturation_voigt"
@@ -487,9 +502,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 # kernel exists (nv_center_zeeman_lorentzian_eig_variance is
                 # referenced only in a docstring elsewhere, never implemented) --
                 # route to the generic path, which is correct by construction.
-                has_zeeman = "zeeman_split" in kernel_model.parameter_names()
-                self._eig_kernel_type = "generic" if has_zeeman else "lorentzian"
-                self._eig_needs_phys = is_unit_cube and not has_zeeman
+                # It also hardcodes `split`/`k_np` as columns 2/3, which only exist
+                # when infer_hyperfine=True -- with the structure unresolved (the
+                # default) the model has no such columns and c_total would be read
+                # as `split`. Require the exact layout, else use the generic path.
+                names = kernel_model.parameter_names()
+                has_zeeman = "zeeman_split" in names
+                layout_ok = not has_zeeman and "split" in names and "k_np" in names
+                self._eig_kernel_type = "lorentzian" if layout_ok else "generic"
+                self._eig_needs_phys = is_unit_cube and layout_ok
             elif isinstance(kernel_model, NVCenterVoigtModel):
                 # nv_center_pseudo_voigt_eig_variance (the fused kernel below) is a
                 # single-dip kernel with a hardcoded 6-column layout [freq,
@@ -506,9 +527,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 # That path is correct-by-construction: it calls
                 # model.compute_vectorized_many_fast(), which already dispatches on
                 # with_zeeman_splitting.
-                has_zeeman = "zeeman_split" in kernel_model.parameter_names()
-                self._eig_kernel_type = "generic" if has_zeeman else "voigt"
-                self._eig_needs_phys = is_unit_cube and not has_zeeman
+                # Same `split`/`k_np` column requirement as the Lorentzian branch
+                # above: those columns only exist when infer_hyperfine=True.
+                # nv_center_pseudo_voigt_eig_variance also predates the isotope
+                # split and always evaluates a centre line, so it cannot stand in
+                # for a ¹⁵N doublet (w_center = 0).
+                names = kernel_model.parameter_names()
+                has_zeeman = "zeeman_split" in names
+                layout_ok = not has_zeeman and "split" in names and "k_np" in names and self._eig_w_center == 1.0
+                self._eig_kernel_type = "voigt" if layout_ok else "generic"
+                self._eig_needs_phys = is_unit_cube and layout_ok
             else:
                 self._eig_kernel_type = "generic"
         except ImportError:
@@ -608,6 +636,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 4. Resample if Effective Sample Size (ESS) is too low [cite: 198, 199]
         ess = _inverse_sum_squares(self._weights)
+        self.last_ess = float(ess)
         if (
             self.auto_resample
             and ess < self.ess_threshold * self.num_particles
@@ -718,6 +747,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Evaluate Effective Sample Size (ESS) for resampling
         ess = _inverse_sum_squares(self._weights)
+        self.last_ess = float(ess)
         if (
             self.auto_resample
             and ess < self.ess_threshold * self.num_particles
@@ -1115,6 +1145,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         to preserve the distribution variance.
         """
         self.resampled = True
+        # Capture the triggering ESS before step 3 resets the weights to uniform.
+        self.last_ess = float(_inverse_sum_squares(self._weights))
         d_dim = len(self._param_names)
 
         # 1. Systematic Resampling
@@ -1469,6 +1501,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._weights = self._weights.copy()
         dist._step_count = self._step_count
         dist.resampled = self.resampled
+        dist.last_ess = self.last_ess
         dist._obs_x_arr = self._obs_x_arr.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()
         dist._obs_count = self._obs_count
@@ -1705,6 +1738,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 np.ascontiguousarray(part_t[1], dtype=np.float32),  # linewidth
                 np.ascontiguousarray(part_t[2], dtype=np.float32),  # split
                 np.ascontiguousarray(part_t[3], dtype=np.float32),  # k_np
+                self._eig_w_center,
                 np.ascontiguousarray(part_t[4], dtype=np.float32),  # c_total
                 w,
                 out,
@@ -1727,7 +1761,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         if kernel == "saturation_voigt":
             from nvision.spectra.nv_center import (
-                NV_N14_HYPERFINE_SPLIT_HZ,
                 NV_SATURATION_C_MAX,
                 _saturation_voigt_reparam,
             )
@@ -1750,7 +1783,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 hf_split = np.ascontiguousarray(part_t[next_idx], dtype=np.float32)
                 k_np = np.ascontiguousarray(part_t[next_idx + 1], dtype=np.float32)
             else:
-                hf_split = np.full(n_p, np.float32(NV_N14_HYPERFINE_SPLIT_HZ), dtype=np.float32)
+                # Not an inferred column: use the model's own fixed line offset
+                # (0 when the structure is unresolved -- one merged dip).
+                hf_split = np.full(n_p, np.float32(self._eig_hf_offset), dtype=np.float32)
                 k_np = np.ones(n_p, dtype=np.float32)
             c_max = np.full(n_p, np.float32(NV_SATURATION_C_MAX), dtype=np.float32)
 
@@ -1763,6 +1798,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 zeeman_split,
                 hf_split,
                 k_np,
+                self._eig_w_center,
                 np.ascontiguousarray(c_total, dtype=np.float32),
                 w,
                 out,

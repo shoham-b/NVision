@@ -218,6 +218,117 @@ def test_marginal_crlbs_empty_for_no_gradient() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _compute_fisher_history (nvision.runner.plots) -- the per-step Fisher history
+# feeding the UI's CRLB overlay, as opposed to marginal_crlbs_at_budget's
+# upfront feasibility estimate above.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_fisher_history_bounds_are_dicts_not_ndarrays() -> None:
+    """Regression test.
+
+    write_fisher_data's fisher_bounds_hist parameter is documented as
+    list[dict[str, float]] and calls .items() on each element -- but
+    single_shot_marginal_stds_from_fim returns a raw np.ndarray, and the
+    plots.py call site used to append that ndarray directly. write_fisher_data
+    then crashed with AttributeError: 'numpy.ndarray' object has no attribute
+    'items', silently caught by _bayesian_auxiliary_entries's caller and wiping
+    out every Bayesian auxiliary entry for that repeat (posterior, convergence,
+    covariance ellipses, jitter -- not just Fisher, since they all share one
+    try/except). This asserts the fixed shape and that write_fisher_data
+    actually succeeds end to end.
+    """
+    from types import SimpleNamespace
+
+    from nvision.models.observation import Observation
+    from nvision.runner.plots import _compute_fisher_history
+    from nvision.runner.plots_data import write_fisher_data
+
+    model = _SimpleGaussModel()
+    param_names = model.parameter_names()
+    xs = np.linspace(0.2, 0.8, 10)
+    true_params = _GaussParams(amplitude=0.5, center=0.5)
+    snapshots = [
+        SimpleNamespace(
+            obs=Observation(x=float(x), signal_value=model.compute_from_params(float(x), true_params), noise_std=0.01),
+            belief=SimpleNamespace(model=model),
+        )
+        for x in xs
+    ]
+    estimates_hist = [true_params for _ in xs]
+    physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
+
+    fisher_hist, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
+        snapshots, estimates_hist, param_names, physical_bounds
+    )
+
+    assert not fim_is_degenerate
+    assert len(fisher_bounds_hist) == len(fisher_hist) == len(xs)
+    for bounds in fisher_bounds_hist:
+        assert isinstance(bounds, dict), f"expected dict, got {type(bounds)}"
+        assert set(bounds) == set(param_names)
+        assert all(math.isfinite(v) and v > 0 for v in bounds.values())
+
+    actual_uncertainty_hist = [dict.fromkeys(param_names, 0.05) for _ in xs]
+    data = write_fisher_data(fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, param_names)
+    assert data is not None
+
+
+def test_compute_fisher_history_normalizes_across_wildly_different_scales() -> None:
+    """Without per-parameter range normalization, single_shot_marginal_stds_from_fim's
+    ridge dominates any Hz-scale direction and its CRLB saturates at a constant
+    sqrt(1/ridge) regardless of the data (see that function's docstring). Uses
+    NVCenterLorentzianModel, whose params span ~1e9 Hz (frequency) to ~0.1-1
+    (c_total) -- if normalization regresses, the frequency CRLB collapses to the
+    same fixed constant independent of how much data/noise is fed in.
+    """
+    from types import SimpleNamespace
+
+    from nvision.models.observation import Observation
+    from nvision.runner.plots import _compute_fisher_history
+
+    model = NVCenterLorentzianModel()
+    param_names = model.parameter_names()
+    from nvision.spectra.nv_center import NVCenterLorentzianSpectrum
+
+    true_params = NVCenterLorentzianSpectrum(frequency=2.87e9, linewidth=2e6, split=4e6, k_np=1.0, c_total=0.2)
+    physical_bounds = {
+        "frequency": (2.6e9, 3.1e9),
+        "linewidth": (0.5e6, 5e6),
+        "split": (0.0, 2e7),
+        "k_np": (0.1, 10.0),
+        "c_total": (0.0, 1.0),
+    }
+    xs = np.linspace(2.8e9, 2.94e9, 40)
+
+    def _fisher_bounds_for_noise(noise_std: float) -> dict[str, float]:
+        snapshots = [
+            SimpleNamespace(
+                obs=Observation(x=float(x), signal_value=model.compute(float(x), true_params), noise_std=noise_std),
+                belief=SimpleNamespace(model=model),
+            )
+            for x in xs
+        ]
+        estimates_hist = [true_params for _ in xs]
+        _, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
+            snapshots, estimates_hist, param_names, physical_bounds
+        )
+        assert not fim_is_degenerate
+        return fisher_bounds_hist[-1]
+
+    low_noise = _fisher_bounds_for_noise(0.001)
+    high_noise = _fisher_bounds_for_noise(0.1)
+
+    # A saturated (unnormalized) CRLB would be identical regardless of noise level.
+    assert low_noise["linewidth"] != high_noise["linewidth"]
+    assert low_noise["linewidth"] < high_noise["linewidth"]
+    assert math.isfinite(low_noise["linewidth"])
+    # Physically meaningful: well below the frequency search span, not ~1000 Hz-in-
+    # wrong-units or ~1e9 (a fully degenerate/uninformative bound).
+    assert 0 < low_noise["linewidth"] < 5e7
+
+
+# ---------------------------------------------------------------------------
 # SBED forced calibration mode
 # ---------------------------------------------------------------------------
 

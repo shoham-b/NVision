@@ -38,7 +38,8 @@ def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
         x_min=2.6e9,
         x_max=3.1e9,
         variant="lorentzian",
-        with_hyperfine_splitting=True,
+        hyperfine="n14",
+        infer_hyperfine=True,
         with_zeeman_splitting=False,
     )
     sig = gen.generate(rng)
@@ -55,7 +56,8 @@ def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
         x_min=2.6e9,
         x_max=3.1e9,
         variant="lorentzian",
-        with_hyperfine_splitting=True,
+        hyperfine="n14",
+        infer_hyperfine=True,
         with_zeeman_splitting=True,
     )
     sig = gen.generate(rng)
@@ -138,7 +140,7 @@ def test_dip_cluster_stays_within_domain_for_all_variants():
     configs = [
         ("lorentzian", {}),
         ("lorentzian", {"with_zeeman_splitting": False}),
-        ("lorentzian", {"with_hyperfine_splitting": True, "with_zeeman_splitting": True}),
+        ("lorentzian", {"hyperfine": "n14", "infer_hyperfine": True, "with_zeeman_splitting": True}),
         ("voigt", {}),
         ("saturation_voigt", {}),
     ]

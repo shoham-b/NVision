@@ -84,6 +84,14 @@ class MatlabDataFile:
     noise_std: float
     n_valid_shots: int
     shot_ratios: np.ndarray | None = None
+    # Per-frequency mean/std/min/max of shot_ratios (i.e. mean-of-ratios, not
+    # `signal`'s ratio-of-means) — the actual empirical average, spread, and
+    # extremes of the shots recorded at each bin, kept for the "actual averages
+    # per frequency" plot.
+    signal_mean: np.ndarray | None = None
+    signal_std: np.ndarray | None = None
+    signal_min: np.ndarray | None = None
+    signal_max: np.ndarray | None = None
     rng: np.random.Generator = field(default_factory=np.random.default_rng, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -181,6 +189,14 @@ class MatlabDataFile:
         # see matlab_cmd.py's locator_bounds, which no longer needs to special-case this.
         shot_ratios = np.where(good, baseline / np.where(with_freq > 0, with_freq, np.nan), np.nan)
 
+        # Per-frequency mean/std of the actual recorded shots (mean-of-ratios), computed
+        # unconditionally (unlike noise_std below) since it's needed for the per-frequency
+        # averages+spread view regardless of whether noise_std was overridden.
+        per_freq_mean = np.nanmean(shot_ratios, axis=1)
+        per_freq_std = np.nanstd(shot_ratios, axis=1)
+        per_freq_min = np.nanmin(shot_ratios, axis=1)
+        per_freq_max = np.nanmax(shot_ratios, axis=1)
+
         b_mean = np.nanmean(baseline, axis=1)  # (N_freqs,)
         w_mean = np.nanmean(with_freq, axis=1)
 
@@ -202,7 +218,6 @@ class MatlabDataFile:
             noise_std = float(noise_std_override)
             log.info("Using user-supplied noise_std=%.4g", noise_std)
         else:
-            per_freq_std = np.nanstd(shot_ratios, axis=1)
             # Per-*shot* spread, matching what measure() hands back (one shot at a time).
             # It must stay consistent with that: quoting the standard error of the bin mean
             # here instead would tell the locator each observation is sqrt(n) more precise
@@ -224,6 +239,10 @@ class MatlabDataFile:
             noise_std=noise_std,
             n_valid_shots=n_valid,
             shot_ratios=np.clip(shot_ratios, 1e-6, 2.0),
+            signal_mean=per_freq_mean,
+            signal_std=per_freq_std,
+            signal_min=per_freq_min,
+            signal_max=per_freq_max,
         )
 
     def measure(self, x_unit: float, freq_lo: float, freq_hi: float) -> Observation:

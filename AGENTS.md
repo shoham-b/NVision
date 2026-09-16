@@ -49,7 +49,7 @@ To understand the core design of the inference engine, you **MUST** read the doc
 - **Scope & Focus**: Do NOT get rabbit-holed or obsessed with micro-optimizations, algorithmic minutiae (like the Welford algorithm), or complex `polars` filtering pipelines unless explicitly requested by the user. If you find yourself spending too much time debugging a tiny isolated detail, step back and address the broader macro-objective.
 - **Reproducibility**: All experiments use a fixed RNG seed (`nvision.tools.utils.NVISION_RNG_SEED`) and a scenario grid for deterministic results.
 - **Caching**: Results and intermediate data are cached in `artifacts/cache/` for efficient repeat runs. Caching is enabled by default. See [caching.md](file:///c:/Users/shoha/git/NVision/docs/caching.md) for details on `--no-cache` and `--dry-run` flag behaviors.
-- **Locator Protocol**: New locator strategies must implement the `Locator` interface (`propose_next`, `should_stop`, `finalize`).
+- **Locator Protocol**: New locator strategies must implement the `Locator` ABC (`nvision/models/locator.py`): the classmethod `create()`, `next()`, `done()`, `result()`, and `observe()`. Some concrete sweep locators additionally implement a `finalize()` hook (called once after the last observation, before `result()`) — it is an addition on top of the ABC, not a substitute for `done()`/`result()`.
 - **DataFrames**: Polars is used for all tabular data (not pandas).
 - **Plotting**: All visualizations are generated as HTML/PNG in `artifacts/` using Plotly and custom mixins.
 - **Configuration**: Main config is in `pyproject.toml` (Ruff, Pytest, setuptools). Pre-commit hooks and CI/CD are configured for code quality.
@@ -74,7 +74,7 @@ To understand the core design of the inference engine, you **MUST** read the doc
 
 ### 5. Documentation (`docs/`)
 The `docs/` directory contains permanent project documentation generated via Sphinx (using Markdown/MyST).
-- **When to use**: Write or update files in `docs/` for permanent architectural overviews, complex mathematical/physics derivations (e.g., `dip_depth_reparametrization.md`), core subsystem explanations (e.g., `caching.md`, `cli_integration.md`, `cli_reference.md`), and broad design patterns.
+- **When to use**: Write or update files in `docs/` for permanent architectural overviews, complex mathematical/physics derivations (e.g., `dip_depth_reparametrization.md`), core subsystem explanations (e.g., `caching.md`, `cli_reference.md`), and broad design patterns.
 - **When NOT to use**: Do NOT put quick scratch notes, temporary debug scripts, or task plans here. Do NOT place agent behavior rules here (those go in `AGENTS.md` or `.github/copilot-instructions.md`). 
 - **Format**: Prefer **Markdown (`.md`)** for general explanations and system architecture. Use **LaTeX** inside markdown only for complex math or physics equations.
 - **Index**: When creating a new documentation file, always update `docs/index.md` (or the relevant toctree) to include a link to it.

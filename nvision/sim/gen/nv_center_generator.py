@@ -33,6 +33,7 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtSingleDipSpectrum,
     NVCenterVoigtSpectrum,
     NVCenterVoigtZeemanSpectrum,
+    hyperfine_geometry,
     nv_center_lorentzian_bounds_for_domain,
     nv_center_saturation_voigt_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
@@ -50,8 +51,14 @@ class NVCenterCoreGenerator:
     """Generates NV center ODMR signals using core architecture.
 
     Produces TrueSignal with physically accurate NV center signal.
-    By default generates a single-dip signal (no hyperfine splitting).
-    Set ``with_hyperfine_splitting=True`` to generate a triple-dip signal.
+
+    ``hyperfine`` picks how much nitrogen hyperfine structure the simulated
+    measurement resolves -- ``"unresolved"`` (the default: the lines merge into a
+    single dip per Zeeman group, which is what a typical NV linewidth actually
+    gives you), ``"n14"`` (¹⁴N, I=1, a resolved triplet) or ``"n15"`` (¹⁵N,
+    I=1/2, a resolved doublet). ``infer_hyperfine=True`` additionally randomizes
+    ``split``/``k_np`` per repeat and exposes them as free parameters instead of
+    pinning them to the isotope's physical coupling.
 
     ``frequency`` (the zero-field center) is fixed at the midpoint of the safe
     range for every draw -- like a known, calibrated instrument constant -- so
@@ -61,7 +68,8 @@ class NVCenterCoreGenerator:
     x_min: float = DEFAULT_NV_CENTER_FREQ_X_MIN  # 2.6 GHz
     x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian", "voigt", or "saturation_voigt"
-    with_hyperfine_splitting: bool = False  # default: single-dip (no split/k_np)
+    hyperfine: str = "unresolved"  # resolved hyperfine structure: "unresolved" (default) / "n14" / "n15"
+    infer_hyperfine: bool = False  # randomize + infer split/k_np instead of using the isotope constant
     with_zeeman_splitting: bool = True  # default: Zeeman-split two-dip model
     linewidth: float | None = None  # if set, fix linewidth (HWHM, Hz) instead of randomizing (lorentzian, voigt)
     c_total: float | None = None  # if set, fix contrast instead of randomizing (lorentzian, voigt)
@@ -95,10 +103,13 @@ class NVCenterCoreGenerator:
         linewidth = self.linewidth if self.linewidth is not None else rng.uniform(MIN_LINEWIDTH, MAX_LINEWIDTH)
 
         zeeman_split = 0.0
-        split = 0.0
+        # Hyperfine line offset: drawn per repeat only when it's a free parameter,
+        # otherwise the isotope's own physical coupling -- exactly 0 when the
+        # structure is unresolved, which collapses the multiplet to one dip.
+        split = hyperfine_geometry(self.hyperfine)[0]
         if self.with_zeeman_splitting:
             zeeman_split = rng.uniform(MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
-        if self.with_hyperfine_splitting:
+        if self.infer_hyperfine:
             split = rng.uniform(MIN_SPLIT, MAX_SPLIT)
 
         # Margin needed to keep the full spectrum -- not just its center -- inside
@@ -108,17 +119,20 @@ class NVCenterCoreGenerator:
         # values, so center_freq is safely bounded regardless of what gets drawn below.
         if self.variant == "saturation_voigt":
             _margin_model = NVCenterSaturationVoigtModel(
-                with_hyperfine_splitting=self.with_hyperfine_splitting,
+                hyperfine=self.hyperfine,
+                infer_hyperfine=self.infer_hyperfine,
                 with_zeeman_splitting=self.with_zeeman_splitting,
             )
         elif self.variant == "voigt":
             _margin_model = NVCenterVoigtModel(
-                with_hyperfine_splitting=self.with_hyperfine_splitting,
+                hyperfine=self.hyperfine,
+                infer_hyperfine=self.infer_hyperfine,
                 with_zeeman_splitting=self.with_zeeman_splitting,
             )
         else:
             _margin_model = NVCenterLorentzianModel(
-                with_hyperfine_splitting=self.with_hyperfine_splitting,
+                hyperfine=self.hyperfine,
+                infer_hyperfine=self.infer_hyperfine,
                 with_zeeman_splitting=self.with_zeeman_splitting,
             )
         max_span = _margin_model.signal_max_span(width)
@@ -141,9 +155,11 @@ class NVCenterCoreGenerator:
             linewidth_std = (MAX_LINEWIDTH - MIN_LINEWIDTH) * PRIOR_STD_FRACTION
             c_total_std = 0.3 * PRIOR_STD_FRACTION  # c_total range is roughly [0.1, 0.4]
 
-            if self.with_zeeman_splitting and self.with_hyperfine_splitting:
+            if self.with_zeeman_splitting and self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
-                model = NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=True)
+                model = NVCenterLorentzianModel(
+                    with_zeeman_splitting=True, hyperfine=self.hyperfine, infer_hyperfine=True
+                )
                 from nvision.spectra.nv_center import NVCenterLorentzianZeemanHyperfineSpectrum
 
                 typed_params = NVCenterLorentzianZeemanHyperfineSpectrum(
@@ -155,7 +171,7 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_lorentzian_bounds_for_domain(
-                    self.x_min, self.x_max, with_hyperfine_splitting=True, with_zeeman_splitting=True
+                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True, with_zeeman_splitting=True
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
@@ -169,7 +185,7 @@ class NVCenterCoreGenerator:
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.with_zeeman_splitting:
-                model = NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=False)
+                model = NVCenterLorentzianModel(with_zeeman_splitting=True, hyperfine=self.hyperfine)
                 typed_params = NVCenterLorentzianZeemanSpectrum(
                     frequency=center_freq,
                     linewidth=linewidth,
@@ -177,7 +193,7 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_lorentzian_bounds_for_domain(
-                    self.x_min, self.x_max, with_hyperfine_splitting=False, with_zeeman_splitting=True
+                    self.x_min, self.x_max, hyperfine=self.hyperfine, with_zeeman_splitting=True
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
@@ -186,9 +202,9 @@ class NVCenterCoreGenerator:
                     "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
-            elif self.with_hyperfine_splitting:
+            elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
-                model = NVCenterLorentzianModel(with_hyperfine_splitting=True)
+                model = NVCenterLorentzianModel(hyperfine=self.hyperfine, infer_hyperfine=True)
                 typed_params = NVCenterLorentzianSpectrum(
                     frequency=center_freq,
                     linewidth=linewidth,
@@ -196,7 +212,9 @@ class NVCenterCoreGenerator:
                     k_np=k_np,
                     c_total=c_total,
                 )
-                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=True)
+                bounds = nv_center_lorentzian_bounds_for_domain(
+                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True
+                )
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
@@ -207,13 +225,13 @@ class NVCenterCoreGenerator:
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             else:
-                model = NVCenterLorentzianModel(with_hyperfine_splitting=False)
+                model = NVCenterLorentzianModel(hyperfine=self.hyperfine)
                 typed_params = NVCenterLorentzianSingleDipSpectrum(
                     frequency=center_freq,
                     linewidth=linewidth,
                     c_total=c_total,
                 )
-                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=False)
+                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, hyperfine=self.hyperfine)
                 bounds["_priors"] = {
                     "linewidth": (rng.gauss(linewidth, linewidth_std), linewidth_std),
                     "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
@@ -223,7 +241,8 @@ class NVCenterCoreGenerator:
             sv_bounds = nv_center_saturation_voigt_bounds_for_domain(
                 self.x_min,
                 self.x_max,
-                with_hyperfine_splitting=self.with_hyperfine_splitting,
+                hyperfine=self.hyperfine,
+                infer_hyperfine=self.infer_hyperfine,
                 with_zeeman_splitting=self.with_zeeman_splitting,
             )
             saturation_bounds = sv_bounds["saturation"]
@@ -236,7 +255,8 @@ class NVCenterCoreGenerator:
             sigma_inhom_std = (sigma_inhom_bounds[1] - sigma_inhom_bounds[0]) * PRIOR_STD_FRACTION
 
             model = NVCenterSaturationVoigtModel(
-                with_hyperfine_splitting=self.with_hyperfine_splitting,
+                hyperfine=self.hyperfine,
+                infer_hyperfine=self.infer_hyperfine,
                 with_zeeman_splitting=self.with_zeeman_splitting,
             )
             priors = {
@@ -245,7 +265,7 @@ class NVCenterCoreGenerator:
                 "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
 
-            if self.with_zeeman_splitting and self.with_hyperfine_splitting:
+            if self.with_zeeman_splitting and self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 typed_params = NVCenterSaturationVoigtZeemanHyperfineSpectrum(
                     frequency=center_freq,
@@ -270,7 +290,7 @@ class NVCenterCoreGenerator:
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 priors["zeeman_split"] = (rng.gauss(zeeman_split, zeeman_std), zeeman_std)
-            elif self.with_hyperfine_splitting:
+            elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 typed_params = NVCenterSaturationVoigtSpectrum(
                     frequency=center_freq,
@@ -315,9 +335,9 @@ class NVCenterCoreGenerator:
             sigma_inhom_std = voigt_sigma_inhom_hi * PRIOR_STD_FRACTION
             c_total_std = 0.3 * PRIOR_STD_FRACTION  # c_total range is roughly [0.1, 0.4]
 
-            if self.with_zeeman_splitting and self.with_hyperfine_splitting:
+            if self.with_zeeman_splitting and self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
-                model = NVCenterVoigtModel(with_zeeman_splitting=True, with_hyperfine_splitting=True)
+                model = NVCenterVoigtModel(with_zeeman_splitting=True, hyperfine=self.hyperfine, infer_hyperfine=True)
                 from nvision.spectra.nv_center import NVCenterVoigtZeemanHyperfineSpectrum
 
                 typed_params = NVCenterVoigtZeemanHyperfineSpectrum(
@@ -330,7 +350,7 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_voigt_bounds_for_domain(
-                    self.x_min, self.x_max, with_hyperfine_splitting=True, with_zeeman_splitting=True
+                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True, with_zeeman_splitting=True
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
@@ -345,7 +365,7 @@ class NVCenterCoreGenerator:
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.with_zeeman_splitting:
-                model = NVCenterVoigtModel(with_zeeman_splitting=True, with_hyperfine_splitting=False)
+                model = NVCenterVoigtModel(with_zeeman_splitting=True, hyperfine=self.hyperfine)
                 typed_params = NVCenterVoigtZeemanSpectrum(
                     frequency=center_freq,
                     homogeneous_linewidth=homogeneous_linewidth,
@@ -354,7 +374,7 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_voigt_bounds_for_domain(
-                    self.x_min, self.x_max, with_hyperfine_splitting=False, with_zeeman_splitting=True
+                    self.x_min, self.x_max, hyperfine=self.hyperfine, with_zeeman_splitting=True
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
@@ -364,9 +384,9 @@ class NVCenterCoreGenerator:
                     "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
-            elif self.with_hyperfine_splitting:
+            elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
-                model = NVCenterVoigtModel(with_hyperfine_splitting=True)
+                model = NVCenterVoigtModel(hyperfine=self.hyperfine, infer_hyperfine=True)
                 typed_params = NVCenterVoigtSpectrum(
                     frequency=center_freq,
                     homogeneous_linewidth=homogeneous_linewidth,
@@ -375,7 +395,9 @@ class NVCenterCoreGenerator:
                     k_np=k_np,
                     c_total=c_total,
                 )
-                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=True)
+                bounds = nv_center_voigt_bounds_for_domain(
+                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True
+                )
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
@@ -387,14 +409,14 @@ class NVCenterCoreGenerator:
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             else:
-                model = NVCenterVoigtModel(with_hyperfine_splitting=False)
+                model = NVCenterVoigtModel(hyperfine=self.hyperfine)
                 typed_params = NVCenterVoigtSingleDipSpectrum(
                     frequency=center_freq,
                     homogeneous_linewidth=homogeneous_linewidth,
                     sigma_inhom=sigma_inhom,
                     c_total=c_total,
                 )
-                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, with_hyperfine_splitting=False)
+                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, hyperfine=self.hyperfine)
                 bounds["_priors"] = {
                     "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
                     "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),

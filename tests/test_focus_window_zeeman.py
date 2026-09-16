@@ -50,7 +50,7 @@ def _concentrate_and_resample(smc, f0: float, delta0: float | None, *, seed: int
 class TestZeemanEnvelopeContainment:
     def test_lorentzian_envelope_contains_both_dips(self):
         smc = nv_center_smc_belief(
-            num_particles=1000, with_zeeman_splitting=True, with_hyperfine_splitting=False, with_fixed_frequency=False
+            num_particles=1000, with_zeeman_splitting=True, hyperfine="unresolved", with_fixed_frequency=False
         )
         f_lo, f_hi = smc.physical_param_bounds["frequency"]
         f0 = 0.5 * (f_lo + f_hi)
@@ -72,7 +72,7 @@ class TestZeemanEnvelopeContainment:
         smc = nv_center_smc_belief(
             num_particles=1000,
             with_zeeman_splitting=True,
-            with_hyperfine_splitting=False,
+            hyperfine="unresolved",
             with_fixed_frequency=False,
             lineshape="saturation_voigt",
         )
@@ -93,7 +93,7 @@ class TestNoZeemanRegression:
     def test_single_dip_narrowing_unaffected(self):
         """Without zeeman_split in the model, narrowing behaves as before (hull around one dip)."""
         smc = nv_center_smc_belief(
-            num_particles=1000, with_zeeman_splitting=False, with_hyperfine_splitting=False, with_fixed_frequency=False
+            num_particles=1000, with_zeeman_splitting=False, hyperfine="unresolved", with_fixed_frequency=False
         )
         assert "zeeman_split" not in smc._param_names
         f_lo, f_hi = smc.physical_param_bounds["frequency"]
@@ -110,7 +110,7 @@ class TestNoZeemanRegression:
 class TestGapAwareAcquisition:
     def test_high_eig_candidates_avoid_gap_and_cover_both_dips(self):
         smc = nv_center_smc_belief(
-            num_particles=2000, with_zeeman_splitting=True, with_hyperfine_splitting=False, with_fixed_frequency=False
+            num_particles=2000, with_zeeman_splitting=True, hyperfine="unresolved", with_fixed_frequency=False
         )
         f_lo, f_hi = smc.physical_param_bounds["frequency"]
         f0 = 0.5 * (f_lo + f_hi)

@@ -185,6 +185,45 @@ function _depthPct(y, baseline) {
     return y == null ? 0 : Math.max(0, (baseline - y) / baseline * 100);
 }
 
+// Where a dense curve crosses `halfY`, walking outward from `iMin` (the dip's own index) in
+// direction `dir` (-1 left, +1 right). Linearly interpolated between the two straddling
+// samples; falls back to the last finite sample if the curve never rises back to halfY.
+function _halfDepthCrossing(xs, ys, iMin, halfY, dir) {
+    let i = iMin;
+    let j = i + dir;
+    while (j >= 0 && j < xs.length && ys[j] != null && Number.isFinite(ys[j]) && ys[j] <= halfY) {
+        i = j;
+        j += dir;
+    }
+    if (j < 0 || j >= xs.length || ys[j] == null || !Number.isFinite(ys[j])) return xs[i];
+    const y0 = ys[i], y1 = ys[j];
+    const t = y1 === y0 ? 0 : (halfY - y0) / (y1 - y0);
+    return xs[i] + t * (xs[j] - xs[i]);
+}
+
+// Locates the deepest dip in a dense curve and measures it geometrically — full width at
+// half depth, and fractional depth below baseline — so the plot can label what "width" and
+// "contrast" mean using only the rendered curve itself. This deliberately reads no model
+// parameters (c_total, linewidth, ...): those differ by lineshape (Lorentzian vs. Voigt vs.
+// Saturation-Voigt, hyperfine or not), while "how wide/deep is the dip you're looking at"
+// is the same measurement for all of them.
+function _findDeepestDip(xs, ys, baseline) {
+    let iMin = -1;
+    let yMin = Infinity;
+    for (let i = 0; i < ys.length; i++) {
+        const y = ys[i];
+        if (y != null && Number.isFinite(y) && y < yMin) { yMin = y; iMin = i; }
+    }
+    if (iMin < 0) return null;
+    const depth = baseline - yMin;
+    if (depth <= 0 || depth / baseline < 0.05) return null; // too shallow to bother annotating
+    const halfY = baseline - depth / 2;
+    const xLeft = _halfDepthCrossing(xs, ys, iMin, halfY, -1);
+    const xRight = _halfDepthCrossing(xs, ys, iMin, halfY, 1);
+    if (!(xRight > xLeft)) return null;
+    return { xMin: xs[iMin], yMin, xLeft, xRight, fwhm: xRight - xLeft, depthPct: (depth / baseline) * 100 };
+}
+
 // A locator that revisits the same discrete frequency bin (e.g. matlab-run cycling
 // through a real .mat file's per-shot data one shot at a time) plots several dots at
 // the *exact* same x. Left alone they just stack invisibly on top of each other with
@@ -216,6 +255,42 @@ function _buildStemTrace(xs, ys, template) {
     }
     if (!any) return null;
     return Object.assign({}, template, { x: stemX, y: stemY });
+}
+
+// Filters a scan figure's `measurements` object down to points recorded at or
+// before `stepCap` (an inference-step number). Used for the "View at" convergence
+// cap and the global play/scrub timeline on the scan measurements plot. Bins with
+// no per-point step field (the initial coarse/secondary/tertiary sweep phases,
+// which precede adaptive stepping) have no step concept and are always kept in full.
+function _filterScanMeasurementsByStep(measurements, stepCap) {
+    if (!measurements || stepCap == null) return measurements;
+    const out = Object.assign({}, measurements);
+    function keepIndices(steps, n) {
+        const idx = [];
+        for (let i = 0; i < n; i++) {
+            const s = steps[i];
+            if (s == null || s <= stepCap) idx.push(i);
+        }
+        return idx;
+    }
+    function pick(arr, idx) { return idx.map((i) => arr[i]); }
+    if (measurements.mode === 'steps' && measurements.step && measurements.x &&
+        measurements.step.length === measurements.x.length) {
+        const idx = keepIndices(measurements.step, measurements.x.length);
+        out.x = pick(measurements.x, idx);
+        out.y = pick(measurements.y, idx);
+        out.step = pick(measurements.step, idx);
+        if (measurements.sweep_index && measurements.sweep_index.length === measurements.x.length) {
+            out.sweep_index = pick(measurements.sweep_index, idx);
+        }
+    } else if (measurements.mode === 'phases' && measurements.fine_step && measurements.fine_x &&
+               measurements.fine_step.length === measurements.fine_x.length) {
+        const idx = keepIndices(measurements.fine_step, measurements.fine_x.length);
+        out.fine_x = pick(measurements.fine_x, idx);
+        out.fine_y = pick(measurements.fine_y, idx);
+        out.fine_step = pick(measurements.fine_step, idx);
+    }
+    return out;
 }
 
 function _buildScanFigure(def, data) {
@@ -429,6 +504,45 @@ function _buildScanFigure(def, data) {
             y: 1, yref, yanchor: 'bottom', xanchor: 'center',
             showarrow: false, font: { size: 11, color: cfs.line_color },
         });
+    }
+
+    // Mark what "width" and "contrast" mean on the actual curve: half-depth crossings and
+    // baseline-to-trough drop of the most prominent dip, measured from the rendered curve
+    // itself (see _findDeepestDip) rather than any model's internal parameters.
+    if (_hasFiniteValues(data.y_dense) && data.x_dense && data.x_dense.length === data.y_dense.length) {
+        const dip = _findDeepestDip(data.x_dense, data.y_dense, baseline);
+        if (dip) {
+            const ws = def.width_style || {};
+            const csty = def.contrast_style || {};
+            const widthColor = ws.line_color || 'rgba(8, 145, 178, 0.85)';
+            const contrastColor = csty.line_color || 'rgba(220, 38, 38, 0.85)';
+            shapes.push({
+                type: 'line', xref: 'x', yref: 'y',
+                x0: dip.xLeft, x1: dip.xRight, y0: dip.yMin, y1: dip.yMin,
+                line: { width: 1.5, color: widthColor, dash: 'dot' },
+                layer: 'above',
+            });
+            extraAnnotations.push({
+                text: `↔ width ≈ ${formatHzValue('linewidth', dip.fwhm)}`,
+                x: (dip.xLeft + dip.xRight) / 2, xref: 'x',
+                y: dip.yMin, yref: 'y', yanchor: 'top', xanchor: 'center', yshift: -4,
+                showarrow: false, font: { size: 11, color: widthColor },
+                bgcolor: 'rgba(255,255,255,0.75)',
+            });
+            shapes.push({
+                type: 'line', xref: 'x', yref: 'y',
+                x0: dip.xMin, x1: dip.xMin, y0: dip.yMin, y1: baseline,
+                line: { width: 1.5, color: contrastColor, dash: 'dot' },
+                layer: 'above',
+            });
+            extraAnnotations.push({
+                text: `↕ contrast ≈ ${dip.depthPct.toFixed(1)}%`,
+                x: dip.xMin, xref: 'x',
+                y: (dip.yMin + baseline) / 2, yref: 'y', yanchor: 'middle', xanchor: 'left', xshift: 8,
+                showarrow: false, font: { size: 11, color: contrastColor },
+                bgcolor: 'rgba(255,255,255,0.75)',
+            });
+        }
     }
 
     if (shapes.length) baseLayout.shapes = shapes;

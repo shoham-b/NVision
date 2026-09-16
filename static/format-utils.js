@@ -77,6 +77,38 @@ function isFrequencyVariable(name) {
     return n.includes('frequency') || n.includes('linewidth') || n.includes('split') || n.includes('span');
 }
 
+// Canonical single-symbol labels for signal-model parameters (see nvision/spectra/
+// numba_kernels.py, nv_center.py, voigt_zeeman.py for the formulas these match).
+// Used in the signal equation panel and wherever else a parameter name is shown in
+// the UI, so the same parameter always reads with the same symbol everywhere.
+const PARAM_LETTERS = {
+    frequency: 'f',
+    linewidth: 'w',
+    dip_depth: 'A',
+    background: 'B',
+    split: 'δ',
+    k_np: 'k',
+    c_total: 'C',
+    fwhm_total: 'Γ',
+    lorentz_frac: 'r',
+    zeeman_split: 'Δ',
+    saturation: 's',
+    sigma_inhom: 'σ',
+    c_max: 'C₀',
+    homogeneous_linewidth: 'γ',
+};
+
+function paramLetter(param) {
+    return PARAM_LETTERS[param] || null;
+}
+
+// e.g. " [f]" — appended after an existing "name (unit)" label; '' when the
+// parameter has no assigned letter (not part of a documented signal equation).
+function paramLetterSuffix(param) {
+    const l = paramLetter(param);
+    return l ? ` [${l}]` : '';
+}
+
 function formatHzValue(name, v) {
     if (typeof v !== 'number' || !Number.isFinite(v)) return '?';
     if (!isFrequencyVariable(name)) {

@@ -45,11 +45,80 @@ MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
 MIN_ZEEMAN_SPLIT: float = 0.0  # dips fully overlap at zero field
 MAX_ZEEMAN_SPLIT: float = 60e6  # 60 MHz → ~2.1 mT
 
-# N-14 parallel hyperfine coupling constant for NV⁻ in diamond.
-# Fixed physical constant used when with_hyperfine_splitting=False:
-# the triplet structure is still modeled but with split locked to this value
-# and k_np locked to 1.0 (symmetric lines), removing both as free parameters.
-NV_N14_HYPERFINE_SPLIT_HZ: float = 2.16e6  # ~2.16 MHz
+# Parallel hyperfine coupling constants A_par for NV⁻ in diamond, per nitrogen
+# isotope. Which one applies is a property of the *sample*, and whether it is
+# visible at all is a property of the *measurement*, so this is model
+# configuration (`hyperfine=`) rather than something a locator infers.
+NV_N14_HYPERFINE_SPLIT_HZ: float = 2.16e6  # ~2.16 MHz -- ¹⁴N, I=1
+NV_N15_HYPERFINE_SPLIT_HZ: float = 3.03e6  # ~3.03 MHz -- ¹⁵N, I=1/2
+
+# How much hyperfine structure the *measurement* actually resolves.
+#
+#   "unresolved" -- DEFAULT. One line per Zeeman group. Every NV is paired with
+#             a nitrogen and so always has *some* hyperfine coupling; this mode
+#             does not claim otherwise. It says the coupling isn't resolved at
+#             the linewidth/step size/SNR being modelled, so the 2-3 lines merge
+#             into a single dip and one line is the right model of what is
+#             measurable. Since A is a couple of MHz and MAX_LINEWIDTH is 5 MHz
+#             (HWHM), that is the *common* case here, not an edge case. The
+#             merged envelope is slightly broader than one bare line, but
+#             `linewidth` is free and absorbs that -- which is exactly why
+#             fitting an unresolved spectrum with an explicit multiplet buys
+#             nothing and costs a locator peaks to chase that the data
+#             never showed.
+#   "n14"  -- ¹⁴N (I = 1): m_I ∈ {-1, 0, +1} → a TRIPLET at -A, 0, +A. Use when
+#             the lines are genuinely resolved (narrow linewidth, fine steps).
+#   "n15"  -- ¹⁵N (I = 1/2): m_I ∈ {-1/2, +1/2} → a DOUBLET at ±A/2, with no
+#             central line. Two peaks, not three -- which is the other half of
+#             why an always-3-peaks assumption was wrong.
+#
+# Historically this was a bool (``with_hyperfine_splitting``) whose False branch
+# still evaluated a fixed ¹⁴N triplet, so *every* NV signal in the codebase had
+# three lines per group whether or not that was wanted -- and ``expected_dip_count``
+# disagreed with what the kernels actually drew. See ``hyperfine_geometry``.
+HYPERFINE_MODES: tuple[str, ...] = ("unresolved", "n14", "n15")
+
+
+def hyperfine_geometry(hyperfine: str) -> tuple[float, float, int]:
+    """``(line_offset_hz, w_center, n_lines)`` for a nuclear-spin structure.
+
+    The kernels always evaluate three weighted slots at ``center - offset``,
+    ``center`` and ``center + offset`` (see
+    :func:`~nvision.spectra.numba_kernels.nv_population_weights`); this function
+    maps an isotope onto that fixed shape:
+
+    * ``"unresolved"`` → ``(0.0, 1.0, 1)``. All three slots collapse onto the
+      center and the sum is *exactly* one line of depth ``c_total`` -- not an
+      approximation, since the weights are normalized to sum to ``c_total``. So
+      an unresolved spectrum costs nothing extra to evaluate and keeps the same
+      total contrast as the resolved multiplet it stands in for.
+    * ``"n14"`` → ``(A₁₄, 1.0, 3)``. The triplet, lines A₁₄ apart.
+    * ``"n15"`` → ``(A₁₅/2, 0.0, 2)``. Zeroing the center weight leaves the
+      outer pair only; the offset is *half* the coupling so the two lines end up
+      A₁₅ apart, matching the ¹⁵N splitting.
+    """
+    if hyperfine == "unresolved":
+        return 0.0, 1.0, 1
+    if hyperfine == "n14":
+        return NV_N14_HYPERFINE_SPLIT_HZ, 1.0, 3
+    if hyperfine == "n15":
+        return NV_N15_HYPERFINE_SPLIT_HZ / 2.0, 0.0, 2
+    raise ValueError(f"unknown hyperfine mode {hyperfine!r}; expected one of {HYPERFINE_MODES}")
+
+
+def _check_hyperfine(hyperfine: str, infer_hyperfine: bool) -> tuple[float, float, int]:
+    """Validate a ``(hyperfine, infer_hyperfine)`` pair and return its geometry.
+
+    ``infer_hyperfine`` promotes ``split``/``k_np`` to free parameters, which is
+    only meaningful when the structure is resolved enough to be measured --
+    inferring the splitting of a spectrum modelled as an unresolved single line
+    is a configuration error, not something to silently reinterpret.
+    """
+    geometry = hyperfine_geometry(hyperfine)
+    if infer_hyperfine and hyperfine == "unresolved":
+        raise ValueError("infer_hyperfine=True requires hyperfine='n14' or 'n15' (got 'unresolved')")
+    return geometry
+
 
 # Physical ranges for linewidth (HWHM) and hyperfine splitting.
 # These constants are shared between the signal generator and the inference
@@ -133,6 +202,12 @@ def physics_config_fingerprint() -> str:
         MIN_ZEEMAN_SPLIT,
         MAX_ZEEMAN_SPLIT,
         NV_N14_HYPERFINE_SPLIT_HZ,
+        NV_N15_HYPERFINE_SPLIT_HZ,
+        # Bumped when hyperfine stopped being an unconditional ¹⁴N triplet and
+        # became a selectable isotope defaulting to "unresolved". The constants above
+        # didn't change value, so without this tag artifacts generated under the
+        # old (always 3 lines) behavior would still fingerprint as current.
+        "hyperfine-structure-v2",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,
@@ -195,7 +270,7 @@ class _NVCenterLorentzianSpec(
 
 # ---------------------------------------------------------------------------
 # Single-dip (no hyperfine splitting) parameter bundle — split and k_np absent.
-# Used when NVCenterLorentzianModel(with_hyperfine_splitting=False).
+# Used when NVCenterLorentzianModel(infer_hyperfine=False) -- any isotope.
 # ---------------------------------------------------------------------------
 
 
@@ -234,7 +309,7 @@ class _NVCenterLorentzianSingleDipSpec(
 
 # ---------------------------------------------------------------------------
 # Zeeman-split parameter bundles (no hyperfine inference) — 4 params.
-# Used when NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=False).
+# Used when NVCenterLorentzianModel(with_zeeman_splitting=True, infer_hyperfine=False).
 # ---------------------------------------------------------------------------
 
 
@@ -276,7 +351,7 @@ class _NVCenterLorentzianZeemanSpec(
 
 # ---------------------------------------------------------------------------
 # Zeeman + hyperfine parameter bundle — 6 params.
-# Used when NVCenterLorentzianModel(with_zeeman_splitting=True, with_hyperfine_splitting=True).
+# Used when NVCenterLorentzianModel(with_zeeman_splitting=True, infer_hyperfine=True).
 # ---------------------------------------------------------------------------
 
 
@@ -322,20 +397,22 @@ class _NVCenterLorentzianZeemanHyperfineSpec(
     uncertainty_cls = NVCenterLorentzianZeemanHyperfineSpectrumUncertainty
 
 
-def _nv_hf_arrays(with_hyperfine_splitting: bool, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
+def _nv_hf_arrays(infer_hyperfine: bool, hf_offset: float, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
     """Return (hf_split_arr, k_np_arr) for n particles.
 
-    When hyperfine splitting is disabled both arrays are fixed constants, so they are
-    served from module-level caches (see :func:`~nvision.spectra.numba_kernels.get_cached_constant_array`)
-    instead of allocating fresh ``n``-length arrays on every belief-update call.
+    When the splitting isn't inferred both arrays are fixed constants -- the
+    isotope's own coupling (``hf_offset``, zero for ``hyperfine="unresolved"``) and
+    symmetric line weights -- so they are served from module-level caches (see
+    :func:`~nvision.spectra.numba_kernels.get_cached_constant_array`) instead of
+    allocating fresh ``n``-length arrays on every belief-update call.
     """
-    if with_hyperfine_splitting and samples is not None:
+    if infer_hyperfine and samples is not None:
         return (
             np.asarray(samples.split, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
         )
     return (
-        get_cached_constant_array(NV_N14_HYPERFINE_SPLIT_HZ, n),
+        get_cached_constant_array(hf_offset, n),
         get_background_ones(n),
     )
 
@@ -436,15 +513,26 @@ class NVCenterLorentzianModel(
         NVCenterLorentzianSpectrumUncertainty,
     ]
 ):
-    """NV center ODMR signal model — single dip by default, triple dips with hyperfine splitting.
+    """NV center ODMR Lorentzian signal model.
 
-    Pass ``with_hyperfine_splitting=True`` to infer split and k_np as free parameters.
-    The default (no splitting) models the ODMR spectrum as a single Lorentzian dip,
-    parameterised by frequency, linewidth, and c_total.
+    ``hyperfine`` selects how much nitrogen hyperfine structure the measurement
+    resolves, and therefore how many Lorentzian dips each Zeeman group has --
+    ``"unresolved"`` (the default, one dip), ``"n14"`` (a triplet at -A, 0, +A)
+    or ``"n15"`` (a doublet at ±A/2). See :data:`HYPERFINE_MODES`; the default
+    deliberately models a single merged dip rather than an always-on ¹⁴N
+    triplet, because at typical NV linewidths the ~2-3 MHz coupling is not
+    resolved.
 
-    With hyperfine splitting enabled the model has three Lorentzian dips:
+    ``infer_hyperfine=True`` additionally promotes ``split`` and ``k_np`` to free
+    parameters (structure known to exist, coupling and line asymmetry unknown);
+    otherwise both are fixed to the isotope's own constants and omitted from
+    ``parameter_names()``.
+
+    For the triplet case:
         S(f) = 1 - L_left - L_center - L_right
-    where the outer peaks are displaced by ±split from the centre frequency.
+    where the outer peaks are displaced by ±split from the centre frequency. The
+    line weights always sum to ``c_total``, so total contrast is the same for
+    every isotope.
     """
 
     _SPEC_FULL = _NVCenterLorentzianSpec()
@@ -460,11 +548,14 @@ class NVCenterLorentzianModel(
 
     def __init__(
         self,
-        with_hyperfine_splitting: bool = True,
+        hyperfine: str = "unresolved",
+        infer_hyperfine: bool = False,
         with_zeeman_splitting: bool = False,
         with_fixed_frequency: bool = True,
     ) -> None:
-        self._with_hyperfine_splitting = with_hyperfine_splitting
+        self._hf_offset, self._w_center, self._hf_lines = _check_hyperfine(hyperfine, infer_hyperfine)
+        self._hyperfine = hyperfine
+        self._infer_hyperfine = infer_hyperfine
         self._with_zeeman_splitting = with_zeeman_splitting
         self._with_fixed_frequency = with_fixed_frequency
 
@@ -476,14 +567,21 @@ class NVCenterLorentzianModel(
         split: float,
         k_np: float,
         c_total: float,
+        w_center: float = 1.0,
     ) -> float:
-        """Triple Lorentzian NV ODMR; parameter order matches :meth:`parameter_names`."""
+        """Weighted three-slot Lorentzian NV ODMR; order matches :meth:`parameter_names`.
+
+        ``w_center`` selects the nuclear-spin structure (see
+        :func:`~nvision.spectra.numba_kernels.nv_population_weights`); the 1.0
+        default together with ``split=0`` is a plain single dip.
+        """
         return nv_center_lorentzian_eval(
             float(x),
             float(frequency),
             float(linewidth),
             float(split),
             float(k_np),
+            float(w_center),
             float(c_total),
             1.0,
         )
@@ -497,7 +595,7 @@ class NVCenterLorentzianModel(
         k_np: np.ndarray,
         c_total: np.ndarray,
     ) -> np.ndarray:
-        """Vectorized triple-Lorentzian NV evaluation for one probe location."""
+        """Vectorized Lorentzian NV evaluation for one probe location."""
         freq = np.asarray(frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
         out = np.empty(n, dtype=FLOAT_DTYPE)
@@ -507,6 +605,7 @@ class NVCenterLorentzianModel(
             np.asarray(linewidth, dtype=FLOAT_DTYPE),
             np.asarray(split, dtype=FLOAT_DTYPE),
             np.asarray(k_np, dtype=FLOAT_DTYPE),
+            self._w_center,
             np.asarray(c_total, dtype=FLOAT_DTYPE),
             get_background_ones(n),
             out,
@@ -516,11 +615,11 @@ class NVCenterLorentzianModel(
     @property
     def spec(self):
         if self._with_zeeman_splitting:
-            base = self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
-            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_ZEEMAN_FIXED_FREQ
+            base = self._SPEC_ZEEMAN_HF if self._infer_hyperfine else self._SPEC_ZEEMAN
+            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_FREQ
         else:
-            base = self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
-            fixed = self._SPEC_FULL_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_SINGLE_FIXED_FREQ
+            base = self._SPEC_FULL if self._infer_hyperfine else self._SPEC_SINGLE
+            fixed = self._SPEC_FULL_FIXED_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_FREQ
         return fixed if self._with_fixed_frequency else base
 
     def is_scale_parameter(self, name: str) -> bool:
@@ -528,11 +627,11 @@ class NVCenterLorentzianModel(
 
     def parameter_weights(self) -> dict[str, float]:
         freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
-        if self._with_zeeman_splitting and self._with_hyperfine_splitting:
+        if self._with_zeeman_splitting and self._infer_hyperfine:
             return {**freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
         if self._with_zeeman_splitting:
             return {**freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "c_total": 1.0}
-        if self._with_hyperfine_splitting:
+        if self._infer_hyperfine:
             return {**freq_w, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
         return {**freq_w, "linewidth": 1.0, "c_total": 1.0}
 
@@ -541,27 +640,32 @@ class NVCenterLorentzianModel(
 
     def signal_max_span(self, domain_width: float) -> float | None:
         linewidth_hi = domain_width * 0.05
+        # Outermost hyperfine line offset: the whole inferred range when split is
+        # free, otherwise the isotope's own coupling -- exactly 0 for
+        # hyperfine="unresolved", which then contributes no span at all.
+        hf_hi = MAX_SPLIT if self._infer_hyperfine else self._hf_offset
         if self._with_zeeman_splitting:
-            hf_hi = MAX_SPLIT if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
             return 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * linewidth_hi
-        if self._with_hyperfine_splitting:
-            return 2.0 * MAX_SPLIT + 4.0 * linewidth_hi
-        return 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * linewidth_hi
+        return 2.0 * hf_hi + 4.0 * linewidth_hi
 
     def expected_dip_count(self) -> int:
-        """Each dip is individually resolved (no broadening merges lines), so
-        hyperfine splitting multiplies the Zeeman-group count by 3."""
-        if self._with_zeeman_splitting:
-            return 6 if self._with_hyperfine_splitting else 2
-        return 3 if self._with_hyperfine_splitting else 1
+        """Resolvable dips: hyperfine lines per group x Zeeman groups.
+
+        The count is what the *structure* can produce, not what a given
+        linewidth actually resolves -- broadening may merge lines, but a
+        consumer that caps peak detection at this number (see
+        GenericSweepLocator) must never cap *below* the true structure or it
+        discards real dips.
+        """
+        return self._hf_lines * (2 if self._with_zeeman_splitting else 1)
 
     def _hf_arrays(self, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
         """Return (hf_split_arr, k_np_arr) for n particles."""
-        return _nv_hf_arrays(self._with_hyperfine_splitting, n, samples)
+        return _nv_hf_arrays(self._infer_hyperfine, self._hf_offset, n, samples)
 
     def compute(self, x: float, params) -> float:
-        hf_split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
-        k_np = params.k_np if self._with_hyperfine_splitting else 1.0
+        hf_split = params.split if self._infer_hyperfine else self._hf_offset
+        k_np = params.k_np if self._infer_hyperfine else 1.0
         if self._with_zeeman_splitting:
             return nv_center_zeeman_lorentzian_eval(
                 float(x),
@@ -570,11 +674,12 @@ class NVCenterLorentzianModel(
                 params.zeeman_split,
                 hf_split,
                 k_np,
+                self._w_center,
                 params.c_total,
                 1.0,
             )
         return self.compute_nvcenter_lorentzian_model(
-            float(x), params.frequency, params.linewidth, hf_split, k_np, params.c_total
+            float(x), params.frequency, params.linewidth, hf_split, k_np, params.c_total, self._w_center
         )
 
     def gradient(self, x: float, params) -> dict[str, float]:
@@ -596,8 +701,8 @@ class NVCenterLorentzianModel(
         freq = float(params.frequency)
         linewidth = float(params.linewidth)
         omega = linewidth if linewidth > 1e-10 else 1e-10
-        hf_split = float(params.split) if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
-        k_np = float(params.k_np) if self._with_hyperfine_splitting else 1.0
+        hf_split = float(params.split) if self._infer_hyperfine else self._hf_offset
+        k_np = float(params.k_np) if self._infer_hyperfine else 1.0
         c_total = float(params.c_total)
 
         p0, p_l, p_r, dp0_dk, dpl_dk, dpr_dk = _nv_population_weights_and_kderiv(k_np, c_total)
@@ -631,7 +736,7 @@ class NVCenterLorentzianModel(
             grads["linewidth"] = -(dga_do + dgb_do)
             # d(freq-zeeman)/dzeeman = -1, d(freq+zeeman)/dzeeman = +1
             grads["zeeman_split"] = dga_dc_ - dgb_dc_
-            if self._with_hyperfine_splitting:
+            if self._infer_hyperfine:
                 grads["split"] = -(dga_ds + dgb_ds)
                 dga_dk = dga_dwp * dplh_dk + dga_dwz * dp0h_dk + dga_dwm * dprh_dk
                 dgb_dk = dgb_dwp * dprh_dk + dgb_dwz * dp0h_dk + dgb_dwm * dplh_dk
@@ -646,7 +751,7 @@ class NVCenterLorentzianModel(
             if not self._with_fixed_frequency:
                 grads["frequency"] = -dg_dcenter
             grads["linewidth"] = -dg_domega
-            if self._with_hyperfine_splitting:
+            if self._infer_hyperfine:
                 grads["split"] = -dg_dsplit
                 dg_dk = dg_dwp * dpl_dk + dg_dwz * dp0_dk + dg_dwm * dpr_dk
                 grads["k_np"] = -dg_dk
@@ -668,6 +773,7 @@ class NVCenterLorentzianModel(
                 np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
+                self._w_center,
                 np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
                 get_background_ones(n),
                 out,
@@ -679,6 +785,7 @@ class NVCenterLorentzianModel(
                 np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
+                self._w_center,
                 np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
                 get_background_ones(n),
                 out,
@@ -707,6 +814,7 @@ class NVCenterLorentzianModel(
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
+                self._w_center,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
                 get_background_ones(n),
                 out,
@@ -718,6 +826,7 @@ class NVCenterLorentzianModel(
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
+                self._w_center,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
                 get_background_ones(n),
                 out,
@@ -744,6 +853,7 @@ class NVCenterLorentzianModel(
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
+                self._w_center,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
                 get_background_ones(n),
                 out,
@@ -755,6 +865,7 @@ class NVCenterLorentzianModel(
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
+                self._w_center,
                 np.asarray(samples_phys.c_total, dtype=FLOAT_DTYPE),
                 get_background_ones(n),
                 out,
@@ -764,7 +875,7 @@ class NVCenterLorentzianModel(
 
 # ---------------------------------------------------------------------------
 # Voigt parameter bundles — physically-decomposed width, mirroring
-# NVCenterLorentzianModel's own (with_zeeman_splitting, with_hyperfine_splitting)
+# NVCenterLorentzianModel's own (with_zeeman_splitting, hyperfine/infer_hyperfine)
 # four-way split exactly:
 #   homogeneous_linewidth (Hz, HWHM) + sigma_inhom (Hz, Gaussian inhomogeneous
 #   width) replace the old kernel-native (fwhm_total, lorentz_frac) pair —
@@ -959,7 +1070,7 @@ class NVCenterVoigtModel(
     pattern :func:`_saturation_voigt_reparam_scalar` uses, but without that model's
     saturation-law amplitude coupling: ``c_total`` here is a directly free parameter, not derived.
 
-    Parameters (``with_zeeman_splitting=True, with_hyperfine_splitting=True``)
+    Parameters (``with_zeeman_splitting=True, infer_hyperfine=True``)
     ----------------------------------------------------------------------
     frequency : float
         Central frequency f_B in Hz.
@@ -973,7 +1084,7 @@ class NVCenterVoigtModel(
         ``with_zeeman_splitting=False``).
     split : float
         Hyperfine splitting in Hz (fixed to the N-14 constant when
-        ``with_hyperfine_splitting=False``).
+        ``infer_hyperfine=False``).
     k_np : float
         Non-polarization factor (fixed to 1.0 when hyperfine is disabled).
     c_total : float
@@ -996,22 +1107,25 @@ class NVCenterVoigtModel(
 
     def __init__(
         self,
-        with_hyperfine_splitting: bool = False,
+        hyperfine: str = "unresolved",
+        infer_hyperfine: bool = False,
         with_zeeman_splitting: bool = False,
         with_fixed_frequency: bool = True,
     ) -> None:
-        self._with_hyperfine_splitting = with_hyperfine_splitting
+        self._hf_offset, self._w_center, self._hf_lines = _check_hyperfine(hyperfine, infer_hyperfine)
+        self._hyperfine = hyperfine
+        self._infer_hyperfine = infer_hyperfine
         self._with_zeeman_splitting = with_zeeman_splitting
         self._with_fixed_frequency = with_fixed_frequency
 
     @property
     def spec(self):
         if self._with_zeeman_splitting:
-            base = self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
-            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_ZEEMAN_FIXED_FREQ
+            base = self._SPEC_ZEEMAN_HF if self._infer_hyperfine else self._SPEC_ZEEMAN
+            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_FREQ
         else:
-            base = self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
-            fixed = self._SPEC_FULL_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_SINGLE_FIXED_FREQ
+            base = self._SPEC_FULL if self._infer_hyperfine else self._SPEC_SINGLE
+            fixed = self._SPEC_FULL_FIXED_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_FREQ
         return fixed if self._with_fixed_frequency else base
 
     def is_scale_parameter(self, name: str) -> bool:
@@ -1019,7 +1133,7 @@ class NVCenterVoigtModel(
 
     def parameter_weights(self) -> dict[str, float]:
         freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
-        if self._with_zeeman_splitting and self._with_hyperfine_splitting:
+        if self._with_zeeman_splitting and self._infer_hyperfine:
             return {
                 **freq_w,
                 "homogeneous_linewidth": 1.0,
@@ -1037,7 +1151,7 @@ class NVCenterVoigtModel(
                 "zeeman_split": 1.5,
                 "c_total": 1.0,
             }
-        if self._with_hyperfine_splitting:
+        if self._infer_hyperfine:
             return {
                 **freq_w,
                 "homogeneous_linewidth": 1.0,
@@ -1053,7 +1167,7 @@ class NVCenterVoigtModel(
         return 2.0 * fwhm_total_lo
 
     def signal_max_span(self, domain_width: float) -> float | None:
-        hf_hi = MAX_SPLIT if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
+        hf_hi = MAX_SPLIT if self._infer_hyperfine else self._hf_offset
         if self._with_zeeman_splitting:
             # Mirror nv_center_voigt_bounds_for_domain exactly or the placement margin
             # stops covering what the prior/fit is allowed to represent.
@@ -1061,20 +1175,27 @@ class NVCenterVoigtModel(
         return 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
     def expected_dip_count(self) -> int:
-        """Zeeman splitting produces two resolvable groups; otherwise one hyperfine triplet."""
-        return 2 if self._with_zeeman_splitting else 1
+        """Resolvable dips: hyperfine lines per group x Zeeman groups.
+
+        The count is what the *structure* can produce, not what a given
+        linewidth actually resolves -- broadening may merge lines, but a
+        consumer that caps peak detection at this number (see
+        GenericSweepLocator) must never cap *below* the true structure or it
+        discards real dips.
+        """
+        return self._hf_lines * (2 if self._with_zeeman_splitting else 1)
 
     def _hf_arrays(self, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
         """Return (hf_split_arr, k_np_arr) for n particles."""
-        return _nv_hf_arrays(self._with_hyperfine_splitting, n, samples)
+        return _nv_hf_arrays(self._infer_hyperfine, self._hf_offset, n, samples)
 
     def _zeeman_array(self, n: int, samples=None) -> np.ndarray:
         """Return the zeeman_split array (zeros when Zeeman splitting is disabled)."""
         return _nv_zeeman_array(self._with_zeeman_splitting, n, samples)
 
     def compute(self, x: float, params) -> float:
-        hf_split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
-        k_np = params.k_np if self._with_hyperfine_splitting else 1.0
+        hf_split = params.split if self._infer_hyperfine else self._hf_offset
+        k_np = params.k_np if self._infer_hyperfine else 1.0
         zeeman_split = params.zeeman_split if self._with_zeeman_splitting else 0.0
         fwhm_total, lorentz_frac = _voigt_reparam_scalar(params.homogeneous_linewidth, params.sigma_inhom)
         return nv_center_zeeman_pseudo_voigt_eval(
@@ -1085,6 +1206,7 @@ class NVCenterVoigtModel(
             zeeman_split,
             hf_split,
             k_np,
+            self._w_center,
             params.c_total,
             1.0,
         )
@@ -1104,6 +1226,7 @@ class NVCenterVoigtModel(
             zeeman_arr,
             hf_arr,
             k_arr,
+            self._w_center,
             np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
             get_background_ones(n),
             out,
@@ -1133,6 +1256,7 @@ class NVCenterVoigtModel(
             zeeman_arr,
             hf_arr,
             k_arr,
+            self._w_center,
             np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
             get_background_ones(n),
             out,
@@ -1161,6 +1285,7 @@ class NVCenterVoigtModel(
             zeeman_arr,
             hf_arr,
             k_arr,
+            self._w_center,
             np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
             get_background_ones(n),
             out,
@@ -1190,7 +1315,7 @@ class NVCenterVoigtModel(
 # Lorentzian is just the sigma_inhom -> 0 limit (lorentz_frac -> 1).
 #
 # Four variants mirror :class:`NVCenterLorentzianModel` exactly:
-#   (with_zeeman_splitting, with_hyperfine_splitting) in
+#   (with_zeeman_splitting, hyperfine/infer_hyperfine) in
 #   {(F,F), (F,T), (T,F), (T,T)}.
 # ---------------------------------------------------------------------------
 
@@ -1479,7 +1604,7 @@ class NVCenterSaturationVoigtModel(
     it like a calibrated instrument constant (the same reasoning as
     ``NV_NATURAL_HWHM_HZ``) keeps the model identifiable.
 
-    Parameters (``with_zeeman_splitting=True, with_hyperfine_splitting=True``)
+    Parameters (``with_zeeman_splitting=True, infer_hyperfine=True``)
     ----------------------------------------------------------------------
     frequency : float
         Central (zero-field) frequency f_B in Hz.
@@ -1492,7 +1617,7 @@ class NVCenterSaturationVoigtModel(
         ``with_zeeman_splitting=False``).
     split : float
         Hyperfine splitting in Hz (fixed to the N-14 constant when
-        ``with_hyperfine_splitting=False``).
+        ``infer_hyperfine=False``).
     k_np : float
         Non-polarization factor (fixed to 1.0 when hyperfine is disabled).
     """
@@ -1512,22 +1637,25 @@ class NVCenterSaturationVoigtModel(
 
     def __init__(
         self,
-        with_hyperfine_splitting: bool = False,
+        hyperfine: str = "unresolved",
+        infer_hyperfine: bool = False,
         with_zeeman_splitting: bool = False,
         with_fixed_frequency: bool = True,
     ) -> None:
-        self._with_hyperfine_splitting = with_hyperfine_splitting
+        self._hf_offset, self._w_center, self._hf_lines = _check_hyperfine(hyperfine, infer_hyperfine)
+        self._hyperfine = hyperfine
+        self._infer_hyperfine = infer_hyperfine
         self._with_zeeman_splitting = with_zeeman_splitting
         self._with_fixed_frequency = with_fixed_frequency
 
     @property
     def spec(self):
         if self._with_zeeman_splitting:
-            base = self._SPEC_ZEEMAN_HF if self._with_hyperfine_splitting else self._SPEC_ZEEMAN
-            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_ZEEMAN_FIXED_FREQ
+            base = self._SPEC_ZEEMAN_HF if self._infer_hyperfine else self._SPEC_ZEEMAN
+            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_FREQ
         else:
-            base = self._SPEC_FULL if self._with_hyperfine_splitting else self._SPEC_SINGLE
-            fixed = self._SPEC_FULL_FIXED_FREQ if self._with_hyperfine_splitting else self._SPEC_SINGLE_FIXED_FREQ
+            base = self._SPEC_FULL if self._infer_hyperfine else self._SPEC_SINGLE
+            fixed = self._SPEC_FULL_FIXED_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_FREQ
         return fixed if self._with_fixed_frequency else base
 
     def is_scale_parameter(self, name: str) -> bool:
@@ -1535,7 +1663,7 @@ class NVCenterSaturationVoigtModel(
 
     def parameter_weights(self) -> dict[str, float]:
         freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
-        if self._with_zeeman_splitting and self._with_hyperfine_splitting:
+        if self._with_zeeman_splitting and self._infer_hyperfine:
             return {
                 **freq_w,
                 "saturation": 1.0,
@@ -1551,7 +1679,7 @@ class NVCenterSaturationVoigtModel(
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
             }
-        if self._with_hyperfine_splitting:
+        if self._infer_hyperfine:
             return {
                 **freq_w,
                 "saturation": 1.0,
@@ -1567,26 +1695,33 @@ class NVCenterSaturationVoigtModel(
 
     def signal_max_span(self, domain_width: float) -> float | None:
         fwhm_total_hi = 2.8e6
-        hf_hi = MAX_SPLIT if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
+        hf_hi = MAX_SPLIT if self._infer_hyperfine else self._hf_offset
         if self._with_zeeman_splitting:
             return 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * fwhm_total_hi
         return 2.0 * hf_hi + 4.0 * fwhm_total_hi
 
     def expected_dip_count(self) -> int:
-        """Zeeman splitting produces two resolvable groups; otherwise one hyperfine triplet."""
-        return 2 if self._with_zeeman_splitting else 1
+        """Resolvable dips: hyperfine lines per group x Zeeman groups.
+
+        The count is what the *structure* can produce, not what a given
+        linewidth actually resolves -- broadening may merge lines, but a
+        consumer that caps peak detection at this number (see
+        GenericSweepLocator) must never cap *below* the true structure or it
+        discards real dips.
+        """
+        return self._hf_lines * (2 if self._with_zeeman_splitting else 1)
 
     def _hf_arrays(self, n: int, samples=None) -> tuple[np.ndarray, np.ndarray]:
         """Return (hf_split_arr, k_np_arr) for n particles."""
-        return _nv_hf_arrays(self._with_hyperfine_splitting, n, samples)
+        return _nv_hf_arrays(self._infer_hyperfine, self._hf_offset, n, samples)
 
     def _zeeman_array(self, n: int, samples=None) -> np.ndarray:
         """Return the zeeman_split array (zeros when Zeeman splitting is disabled)."""
         return _nv_zeeman_array(self._with_zeeman_splitting, n, samples)
 
     def compute(self, x: float, params) -> float:
-        hf_split = params.split if self._with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
-        k_np = params.k_np if self._with_hyperfine_splitting else 1.0
+        hf_split = params.split if self._infer_hyperfine else self._hf_offset
+        k_np = params.k_np if self._infer_hyperfine else 1.0
         zeeman_split = params.zeeman_split if self._with_zeeman_splitting else 0.0
         fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam_scalar(
             params.saturation, params.sigma_inhom, NV_SATURATION_C_MAX
@@ -1599,6 +1734,7 @@ class NVCenterSaturationVoigtModel(
             zeeman_split,
             hf_split,
             k_np,
+            self._w_center,
             c_total,
             1.0,
         )
@@ -1620,6 +1756,7 @@ class NVCenterSaturationVoigtModel(
             zeeman_arr,
             hf_arr,
             k_arr,
+            self._w_center,
             c_total,
             get_background_ones(n),
             out,
@@ -1651,6 +1788,7 @@ class NVCenterSaturationVoigtModel(
             zeeman_arr,
             hf_arr,
             k_arr,
+            self._w_center,
             c_total,
             get_background_ones(n),
             out,
@@ -1680,6 +1818,7 @@ class NVCenterSaturationVoigtModel(
             zeeman_arr,
             hf_arr,
             k_arr,
+            self._w_center,
             c_total,
             get_background_ones(n),
             out,
@@ -1690,7 +1829,8 @@ class NVCenterSaturationVoigtModel(
 def nv_center_saturation_voigt_bounds_for_domain(
     x_min: float,
     x_max: float,
-    with_hyperfine_splitting: bool = False,
+    hyperfine: str = "unresolved",
+    infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = False,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for the saturation-coupled Voigt NV signal.
@@ -1705,6 +1845,11 @@ def nv_center_saturation_voigt_bounds_for_domain(
     if width <= 0:
         raise ValueError("x_max must exceed x_min")
 
+    # Outermost hyperfine line offset: the whole searched range when split is a
+    # free parameter, otherwise the isotope's fixed coupling (0 for "unresolved").
+    hf_offset, _, _ = _check_hyperfine(hyperfine, infer_hyperfine)
+    hf_hi = MAX_SPLIT if infer_hyperfine else hf_offset
+
     saturation_bounds = (0.02, 30.0)
     sigma_inhom_hi = max(1.2e6, width * 0.02)
     sigma_inhom_bounds = (0.0, sigma_inhom_hi)
@@ -1714,13 +1859,12 @@ def nv_center_saturation_voigt_bounds_for_domain(
         f_lo = float(x_min) + zeeman_margin
         f_hi = float(x_max) - zeeman_margin
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
-        hf_hi = MAX_SPLIT if with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
         fwhm_total_hi = 2.0 * NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + saturation_bounds[1]) + 2.0 * (
             2.0 * _SATURATION_VOIGT_SQRT2LOG2 * sigma_inhom_hi
         )
         max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * fwhm_total_hi
 
-        if with_hyperfine_splitting:
+        if infer_hyperfine:
             split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
             return {
                 "frequency": (f_lo, f_hi),
@@ -1742,7 +1886,7 @@ def nv_center_saturation_voigt_bounds_for_domain(
     fwhm_total_hi = 2.0 * NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + saturation_bounds[1]) + 2.0 * (
         2.0 * _SATURATION_VOIGT_SQRT2LOG2 * sigma_inhom_hi
     )
-    if with_hyperfine_splitting:
+    if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
             "frequency": (float(x_min), float(x_max)),
@@ -1750,28 +1894,29 @@ def nv_center_saturation_voigt_bounds_for_domain(
             "sigma_inhom": sigma_inhom_bounds,
             "split": split_bounds,
             "k_np": (MIN_K_NP, MAX_K_NP),
-            "_signal_max_span": (0.0, 2.0 * MAX_SPLIT + 4.0 * fwhm_total_hi),
+            "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * fwhm_total_hi),
         }
     return {
         "frequency": (float(x_min), float(x_max)),
         "saturation": saturation_bounds,
         "sigma_inhom": sigma_inhom_bounds,
-        "_signal_max_span": (0.0, 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * fwhm_total_hi),
+        "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * fwhm_total_hi),
     }
 
 
 def nv_center_lorentzian_bounds_for_domain(
     x_min: float,
     x_max: float,
-    with_hyperfine_splitting: bool = True,
+    hyperfine: str = "unresolved",
+    infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = False,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``.
 
     ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the frequency
     range so the two Zeeman dips always land within the domain.
-    ``with_hyperfine_splitting=False`` (default for builders) fixes split/k_np
-    to N-14 constants and omits them from the returned dict.
+    ``infer_hyperfine=False`` (the default) fixes split/k_np to the ``hyperfine``
+    isotope's own constants and omits them from the returned dict.
     """
     width = float(x_max - x_min)
     if width <= 0:
@@ -1780,16 +1925,20 @@ def nv_center_lorentzian_bounds_for_domain(
     linewidth_bounds = (MIN_LINEWIDTH, max(MAX_LINEWIDTH, width * 0.05))
     linewidth_hi = linewidth_bounds[1]
 
+    # Outermost hyperfine line offset: the whole searched range when split is a
+    # free parameter, otherwise the isotope's fixed coupling (0 for "unresolved").
+    hf_offset, _, _ = _check_hyperfine(hyperfine, infer_hyperfine)
+    hf_hi = MAX_SPLIT if infer_hyperfine else hf_offset
+
     if with_zeeman_splitting:
         # Center frequency must stay MAX_ZEEMAN_SPLIT inside each edge.
         zeeman_margin = MAX_ZEEMAN_SPLIT
         f_lo = float(x_min) + zeeman_margin
         f_hi = float(x_max) - zeeman_margin
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
-        hf_hi = MAX_SPLIT if with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
         max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * linewidth_hi
 
-        if with_hyperfine_splitting:
+        if infer_hyperfine:
             split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
             return {
                 "frequency": (f_lo, f_hi),
@@ -1809,7 +1958,7 @@ def nv_center_lorentzian_bounds_for_domain(
         }
 
     # Non-Zeeman cases (existing behaviour preserved).
-    if with_hyperfine_splitting:
+    if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
             "frequency": (float(x_min), float(x_max)),
@@ -1824,7 +1973,7 @@ def nv_center_lorentzian_bounds_for_domain(
         "frequency": (float(x_min), float(x_max)),
         "linewidth": linewidth_bounds,
         "c_total": (0.1, 0.4),
-        "_signal_max_span": (0.0, 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * linewidth_hi),
+        "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * linewidth_hi),
     }
 
 
@@ -1974,15 +2123,17 @@ def nv_center_one_peak_lorentzian_bounds_for_domain(
 def nv_center_voigt_bounds_for_domain(
     x_min: float,
     x_max: float,
-    with_hyperfine_splitting: bool = False,
+    hyperfine: str = "unresolved",
+    infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = False,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Voigt signals over ``[x_min, x_max]``.
 
     Mirrors ``nv_center_lorentzian_bounds_for_domain``'s structure exactly:
     ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the frequency range so
-    the two Zeeman groups always land within the domain; ``with_hyperfine_splitting=False``
-    (default) fixes ``split``/``k_np`` to N-14 constants and omits them from the returned dict.
+    the two Zeeman groups always land within the domain; ``infer_hyperfine=False``
+    (default) fixes ``split``/``k_np`` to the ``hyperfine`` isotope's own constants
+    and omits them from the returned dict.
     ``homogeneous_linewidth`` reuses the same bounds as Lorentzian's ``linewidth`` (same
     physical quantity); ``sigma_inhom`` reuses saturation-Voigt's inhomogeneous-width bound.
     """
@@ -1994,6 +2145,11 @@ def nv_center_voigt_bounds_for_domain(
     sigma_inhom_hi = max(1.2e6, width * 0.02)
     sigma_inhom_bounds = (0.0, sigma_inhom_hi)
 
+    # Outermost hyperfine line offset: the whole searched range when split is a
+    # free parameter, otherwise the isotope's fixed coupling (0 for "unresolved").
+    hf_offset, _, _ = _check_hyperfine(hyperfine, infer_hyperfine)
+    hf_hi = MAX_SPLIT if infer_hyperfine else hf_offset
+
     if with_zeeman_splitting:
         # Bounds must cover everything NVCenterCoreGenerator's voigt Zeeman branch can draw:
         # split ~ U(MIN_SPLIT, MAX_SPLIT). These previously capped homogeneous width at 5.0/2.8
@@ -2004,10 +2160,9 @@ def nv_center_voigt_bounds_for_domain(
         f_lo = float(x_min) + zeeman_margin
         f_hi = float(x_max) - zeeman_margin
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
-        hf_hi = MAX_SPLIT if with_hyperfine_splitting else NV_N14_HYPERFINE_SPLIT_HZ
         max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
-        if with_hyperfine_splitting:
+        if infer_hyperfine:
             split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
             return {
                 "frequency": (f_lo, f_hi),
@@ -2029,7 +2184,7 @@ def nv_center_voigt_bounds_for_domain(
         }
 
     # Non-Zeeman cases (existing behaviour preserved).
-    if with_hyperfine_splitting:
+    if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
             "frequency": (float(x_min), float(x_max)),
@@ -2046,5 +2201,5 @@ def nv_center_voigt_bounds_for_domain(
         "homogeneous_linewidth": linewidth_bounds,
         "sigma_inhom": sigma_inhom_bounds,
         "c_total": (0.1, 0.4),
-        "_signal_max_span": (0.0, 2.0 * NV_N14_HYPERFINE_SPLIT_HZ + 4.0 * VOIGT_FWHM_TOTAL_HI),
+        "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI),
     }

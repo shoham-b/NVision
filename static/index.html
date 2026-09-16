@@ -35,6 +35,7 @@
                 <span class="control-label">Parameters:</span>
                 <span id="scan-generator-facets"></span>
             </div>
+            <div id="signal-equation-panel" class="signal-equation-panel" style="display:none;"></div>
                 <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
         </div>
         <div class="panel panel-locator">
@@ -84,9 +85,10 @@
     <div class="sweep-metrics-panel" hidden id="scan-sweep-metrics"></div>
     <div class="narrowed-bounds-panel" hidden id="narrowed-bounds-panel"></div>
     <div id="scan-plot-div" style="width:100%;min-height:500px;"></div>
+    <div id="scan-view-at-caption" class="scan-view-at-caption" style="display:none;"></div>
     <iframe id="scan-iframe" title="Scan measurements plot" style="display:none;"></iframe>
     <div id="bayes-section-container" style="margin-top: 2em; border-top: 1px solid #eee; padding-top: 1em;">
-        <h2>Bayesian Analysis <span tabindex="0" class="help-icon-visible" title="Bayesian inference visualizations showing how beliefs evolve as measurements accumulate.">?</span></h2>
+        <h2>Bayesian Analysis <span tabindex="0" class="help-icon-visible" title="Bayesian inference visualizations showing how beliefs evolve as measurements accumulate. Orange dotted lines mark SMC resample+jitter steps -- a sharp uncertainty jump or ESS dip lined up with one of these is expected (fighting particle impoverishment), not an anomaly.">?</span></h2>
 
         <!-- Premium Sticky Global Timeline Controls -->
         <div id="global-timeline-controls" class="global-timeline-controls" style="display: none;">

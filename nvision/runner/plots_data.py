@@ -64,6 +64,34 @@ def _subsample_particles(
     return particles[idx], sub_w
 
 
+def _weighted_robust_sigma(values: np.ndarray, weights: np.ndarray) -> float:
+    """Weighted IQR/1.349 — a spread estimate that ignores rejuvenation particles.
+
+    Every resample injects ``int(N * min_exploration_frac * exp(-step/25))``
+    particles drawn from the prior (``_resample`` steps 8.5/8.6 in
+    ``smc_marginal.py``). They are a vanishing fraction of the cloud and the next
+    likelihood update kills them, but the standard deviation is quadratic in
+    distance, so a couple of prior-drawn particles sitting half a bound-range away
+    inflate it several-fold for exactly one step. The result is a sawtooth in the
+    uncertainty trace that reads as the belief repeatedly widening and re-narrowing
+    when nothing of the sort happened. The interquartile range is insensitive to
+    them; /1.349 rescales it to a Gaussian-equivalent sigma so the two curves are
+    directly comparable.
+    """
+    w = np.asarray(weights, dtype=np.float64)
+    total = w.sum()
+    if total <= 0 or len(values) < 4:
+        return float("nan")
+    order = np.argsort(np.asarray(values, dtype=np.float64))
+    v = np.asarray(values, dtype=np.float64)[order]
+    # Midpoint CDF: the quantile of a particle is the mass strictly below it plus
+    # half its own, which keeps the estimate unbiased for small clouds.
+    cw = np.cumsum(w[order]) / total
+    cw = cw - (w[order] / total) * 0.5
+    q1, q3 = np.interp([0.25, 0.75], cw, v)
+    return float((q3 - q1) / 1.349)
+
+
 def write_posterior_data(
     anim_all: dict[str, tuple[list[np.ndarray], np.ndarray]],
     out_path: Path | None = None,
@@ -73,6 +101,8 @@ def write_posterior_data(
     physical_bounds: dict[str, tuple[float, float]] | None = None,
     n_particles: int = 60,
     ess_threshold: float | None = None,
+    ess_history: list[float | None] | None = None,
+    num_particles: int | None = None,
     param_hist: list[dict[str, float]] | None = None,
     convergence_threshold: float | None = None,
     absolute_thresholds: dict[str, float] | None = None,
@@ -106,6 +136,7 @@ def write_posterior_data(
             if arr.ndim == 2 and arr.shape[1] == 2:
                 raw_particles = arr[:, 0]
                 raw_weights = arr[:, 1]
+                robust_val = _weighted_robust_sigma(raw_particles, raw_weights) / scale
                 particles, weights = _subsample_particles(raw_particles, raw_weights, n_particles)
                 # ndarrays are passed through; dump_gz encodes them directly
                 # to Float32 without materializing Python lists.
@@ -114,6 +145,8 @@ def write_posterior_data(
                     "values": particles / scale,
                     "weights": weights,
                 }
+                if np.isfinite(robust_val):
+                    step[param]["uncertainty_robust"] = float(robust_val)
             else:
                 step[param] = {
                     "type": "grid",
@@ -148,6 +181,12 @@ def write_posterior_data(
         if true_params
         else None,
         "resampled_steps": resampled_steps or [],
+        # Pre-resample ESS over the *full* particle cloud, recorded by the belief.
+        # The weights stored per step are a 60-particle subsample of that cloud and
+        # are uniform on any step that resampled, so an ESS derived from them is
+        # neither the filter's ESS nor comparable to ess_threshold * num_particles.
+        "ess_history": ess_history or [],
+        "num_particles": num_particles,
         "ess_threshold": ess_threshold,
         "convergence_threshold": convergence_threshold,
         "absolute_thresholds": abs_thresh_out,
@@ -213,6 +252,8 @@ def write_parameter_convergence_data(
     out_path: Path | None = None,
     *,
     true_params: dict[str, float] | None = None,
+    convergence_threshold: float | None = None,
+    absolute_thresholds: dict[str, float] | None = None,
 ) -> bytes | None:
     """Write per-step uncertainty and estimate history to JSON."""
     if not param_hist:
@@ -235,6 +276,10 @@ def write_parameter_convergence_data(
         "true_params": _scale_param_dict({k: v for k, v in (true_params or {}).items() if k in param_names})
         if true_params
         else None,
+        # Convergence-limit reference line data, mirroring write_convergence_metrics_data.
+        # Optional: absent on data written before this field existed.
+        "convergence_threshold": convergence_threshold,
+        "absolute_thresholds": absolute_thresholds or {},
         "steps": steps,
     }
 
@@ -314,5 +359,35 @@ def write_fisher_data(
         else None,
         "steps": steps,
     }
+
+    return dump_gz(payload, out_path)
+
+
+def write_matlab_freq_stats_data(
+    freq_hz: np.ndarray,
+    mean: np.ndarray,
+    std: np.ndarray,
+    min_vals: np.ndarray | None = None,
+    max_vals: np.ndarray | None = None,
+    out_path: Path | None = None,
+) -> bytes | None:
+    """Write per-frequency shot mean/std/min/max for a MATLAB run's "actual
+    averages per frequency" view — an alternative to the sampled-measurements
+    scatter, showing every recorded shot's per-bin average, spread, and extremes
+    rather than just the subset the locator happened to visit. min_vals/max_vals
+    are optional so older callers (and cached files) without them still decode.
+    """
+    if freq_hz is None or len(freq_hz) == 0:
+        return None
+
+    payload = {
+        "schema": "matlab_freq_stats_v1",
+        "freq_hz": np.asarray(freq_hz, dtype=np.float64),
+        "mean": np.asarray(mean, dtype=np.float64),
+        "std": np.asarray(std, dtype=np.float64),
+    }
+    if min_vals is not None and max_vals is not None:
+        payload["min"] = np.asarray(min_vals, dtype=np.float64)
+        payload["max"] = np.asarray(max_vals, dtype=np.float64)
 
     return dump_gz(payload, out_path)

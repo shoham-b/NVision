@@ -301,6 +301,65 @@ def _initial_sweep_steps_from_strategy(strat_obj: Any) -> int:
     return 0
 
 
+def _compute_fisher_history(
+    bayesian_snapshots: list[Any],
+    estimates_hist: list[dict[str, float]],
+    param_names: list[str],
+    physical_bounds: dict[str, tuple[float, float]],
+) -> tuple[list[np.ndarray], list[dict[str, float]], bool]:
+    """Per-step cumulative Fisher info: (fisher_hist, fisher_bounds_hist, fim_is_degenerate).
+
+    ``fisher_hist`` is the cumulative FIM at each step, in physical units (matching
+    ``write_fisher_data``'s expected input). ``fisher_bounds_hist`` is
+    ``[{param: sqrt(diag(inv(FIM)))} ...]`` per step, in physical units -- NOT the raw
+    ``np.ndarray`` :func:`~nvision.models.fisher_information.single_shot_marginal_stds_from_fim`
+    returns; ``write_fisher_data`` calls ``.items()`` on each element and crashes (silently
+    swallowed by the caller's bare ``except Exception``, along with every other Bayesian
+    auxiliary entry for that repeat -- posterior, convergence, covariance ellipses, jitter --
+    since they all share one try block) if handed that ndarray directly.
+
+    Also normalizes each step's gradient by the parameter's own physical range before
+    accumulating into the FIM (undone before returning): Hz-scale widths (~1e6) and a
+    dimensionless contrast (~0.1) differ by ~7 orders of magnitude, so an unnormalized FIM
+    lets ``single_shot_marginal_stds_from_fim``'s ridge dominate every Hz-scale direction and
+    its CRLB silently saturate at a constant ``sqrt(1/ridge)`` regardless of the data -- see
+    that function's docstring, and :func:`~nvision.models.fisher_information.
+    marginal_crlbs_at_budget`'s identical normalization for the other Fisher call site.
+    """
+    from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
+
+    n_params = len(param_names)
+    ranges = np.array(
+        [(physical_bounds[p][1] - physical_bounds[p][0]) if p in physical_bounds else 1.0 for p in param_names]
+    )
+    ranges[ranges <= 0] = 1.0
+    range_outer = np.outer(ranges, ranges)
+
+    fisher_hist: list[np.ndarray] = []
+    fisher_bounds_hist: list[dict[str, float]] = []
+    cum_fim_normalized = np.zeros((n_params, n_params))
+    for i, s in enumerate(bayesian_snapshots):
+        fim_i = fisher_information_matrix(
+            x=s.obs.x,
+            model=s.belief.model,
+            parameters=estimates_hist[i],
+            last_obs=s.obs,
+            param_bounds=physical_bounds,
+        )
+        if fim_i is not None:
+            # fim_i = outer(grad, grad) / sigma^2, so scaling each gradient component by
+            # ranges[k] scales the (i, j) entry by ranges[i] * ranges[j] -- no need to
+            # re-derive the gradient vector itself.
+            cum_fim_normalized = cum_fim_normalized + fim_i * range_outer
+
+        fisher_hist.append(cum_fim_normalized / range_outer)  # back to physical units
+        stds_normalized = single_shot_marginal_stds_from_fim(cum_fim_normalized, n_params)
+        fisher_bounds_hist.append({name: float(stds_normalized[j] * ranges[j]) for j, name in enumerate(param_names)})
+
+    fim_is_degenerate = not np.any(cum_fim_normalized != 0)
+    return fisher_hist, fisher_bounds_hist, fim_is_degenerate
+
+
 def _bayesian_auxiliary_entries(
     viz: Viz,
     entry_base: dict[str, Any],
@@ -348,6 +407,17 @@ def _bayesian_auxiliary_entries(
     viz_run_result = _dc_replace(run_result, snapshots=list(all_snapshots[:sweep_steps]) + bayesian_snapshots)
 
     resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
+    # ESS as the filter actually saw it, over the full particle cloud and *before*
+    # any resample reset the weights to uniform. Deriving it from the stored
+    # weights instead is doubly wrong: those are a 60-particle subsample, and on a
+    # resampled step they are uniform by construction -- so the curve could never
+    # cross the threshold that produced the resample.
+    # None (not NaN) for beliefs that never recorded it, so the UI draws a gap.
+    ess_history = [
+        (float(v) if (v := getattr(s.belief, "last_ess", None)) is not None and math.isfinite(v) else None)
+        for s in bayesian_snapshots
+    ]
+    smc_num_particles = getattr(bayesian_snapshots[0].belief, "num_particles", None) if bayesian_snapshots else None
 
     # Calculate parameter uncertainties history.
     # Snapshots from buffered locators (SimpleSobol/SimpleSweep) share belief
@@ -389,6 +459,8 @@ def _bayesian_auxiliary_entries(
             resampled_steps=resampled_steps,
             physical_bounds=physical_bounds,
             ess_threshold=ess_threshold,
+            ess_history=ess_history,
+            num_particles=smc_num_particles,
             param_hist=param_hist,
             convergence_threshold=NVISION_CONVERGENCE_THRESHOLD,
             absolute_thresholds=PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
@@ -417,6 +489,8 @@ def _bayesian_auxiliary_entries(
                 resampled_steps=resampled_steps,
                 physical_bounds=physical_bounds,
                 ess_threshold=ess_threshold,
+                ess_history=ess_history,
+                num_particles=smc_num_particles,
                 param_hist=param_hist,
                 convergence_threshold=NVISION_CONVERGENCE_THRESHOLD,
                 absolute_thresholds=PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
@@ -436,6 +510,8 @@ def _bayesian_auxiliary_entries(
             param_hist,
             estimates_hist,
             true_params=true_params,
+            convergence_threshold=NVISION_CONVERGENCE_THRESHOLD,
+            absolute_thresholds=PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
         )
         if data is not None:
             ce = entry_base.copy()
@@ -534,36 +610,18 @@ def _bayesian_auxiliary_entries(
 
     # Fisher information bounds vs actual uncertainty for SMC beliefs
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
 
     if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
         param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
-        n_params = len(param_names)
-
-        # Compute cumulative Fisher information and bounds at each step.
-        # Estimates and uncertainties are reused from the histories computed
-        # above instead of re-deriving them from the particle population
-        # (each estimates()/uncertainty() call is a full O(N x d) pass).
-        fisher_hist = []  # Cumulative FIM at each step
-        fisher_bounds_hist = []  # sqrt(diag(inv(FIM))) - theoretical minimum uncertainty
+        physical_bounds = getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) or {}
+        # Estimates and uncertainties are reused from the histories computed above instead of
+        # re-deriving them from the particle population (each estimates()/uncertainty() call
+        # is a full O(N x d) pass).
         actual_uncertainty_hist = param_hist  # Actual SMC uncertainty (already computed)
+        fisher_hist, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
+            bayesian_snapshots, estimates_hist, param_names, physical_bounds
+        )
 
-        cum_fim = np.zeros((n_params, n_params))
-        for i, s in enumerate(bayesian_snapshots):
-            fim_i = fisher_information_matrix(
-                x=s.obs.x,
-                model=s.belief.model,
-                parameters=estimates_hist[i],
-                last_obs=s.obs,
-            )
-            if fim_i is not None:
-                cum_fim = cum_fim + fim_i
-
-            fisher_hist.append(cum_fim.copy())
-            fisher_bounds_hist.append(single_shot_marginal_stds_from_fim(cum_fim, n_params))
-
-        # Skip Fisher plots if no model supports gradients (cum_fim stayed zero)
-        fim_is_degenerate = not np.any(cum_fim != 0)
         if fisher_hist and len(param_names) >= 2 and not fim_is_degenerate:
             fisher_path = bayes_dir / f"{attempt_slug}_fisher.json.gz"
             data = write_fisher_data(

@@ -35,6 +35,10 @@ function main() {
     // are verification only. Default to splitting_converged (falls back to 'full' when a
     // loaded run has no splitting milestone — see updateStoppingCriteriaVisibility).
     let currentStoppingCriteria = 'splitting_converged'; // 'full' | 'splitting_converged' | 'all_converged'
+    // Shared "log scale" toggle for the per-step uncertainty charts in the Convergence
+    // tab (parameter convergence + convergence metrics) — small uncertainties near the
+    // end of a run are hard to see on a linear axis dominated by the initial value.
+    let uncertaintyLogScale = false;
     try {
         plots = window.MANIFEST;
         if (!Array.isArray(plots)) {
@@ -74,6 +78,10 @@ function main() {
     });
 
     const scanPlots = plots.filter((p) => p.type === 'scan');
+    // Real (MATLAB) runs only: per-frequency mean/std/min/max of every recorded
+    // shot, overlaid as candle-like whiskers on top of the sampled-measurements
+    // scan plot (see _getFreqStatsOverlayTraces) rather than shown as its own panel.
+    const matlabFreqStatsPlots = plots.filter((p) => p.type === 'matlab_freq_stats');
     const bayesSection = document.getElementById('bayes-section-container');
     const bayesImage = document.getElementById('bayes-image');
     const bayesPlots = plots.filter((p) => p.type === 'bayesian');
@@ -136,6 +144,19 @@ function main() {
 
     // Track registered iframes
     const activeIframes = new Set();
+    // Adapter that lets the global play/scrub timeline also drive the scan
+    // measurements plot (item: play button should redraw "scan with sampled
+    // measurements" per step). Created lazily on first scan render; survives
+    // activeIframes.clear() calls elsewhere by being re-added there.
+    let scanTimelineAdapter = null;
+    // The timeline is also re-synced programmatically whenever Bayesian plot data
+    // loads (updateGlobalTimelineMetadata -> syncFrames(currentSliderValue), which
+    // defaults to 0) — without this flag that would immediately clobber the scan
+    // plot's "View at" convergence-cap default down to just its first measurement.
+    // Set true only by genuine user interaction (dragging the slider or pressing
+    // play) — from then on the scan plot follows the timeline like the Bayesian
+    // plots already do.
+    let scanTimelineUserDriven = false;
 
     function registerIframeForTimeline(iframe) {
         if (!iframe) return;
@@ -212,6 +233,7 @@ function main() {
             globalControls.style.display = 'flex';
             applyStoppingFrameLimit();
             syncFrames(parseInt(globalSlider.value, 10));
+            renderTimelineMilestoneMarkers();
         } else {
             globalTotalFrames = 0;
             globalStepValues = [];
@@ -219,7 +241,112 @@ function main() {
             if (globalIsPlaying) {
                 globalPause();
             }
+            renderTimelineMilestoneMarkers();
         }
+    }
+
+    // Maps a real step value (as reported in a plot's metrics, e.g.
+    // splitting_converged_step) to the closest global timeline frame index —
+    // globalStepValues may be a subsampled, non-contiguous list of real step
+    // numbers for long runs (see _subsample_snapshots in plots.py), so the exact
+    // value isn't always present.
+    function _closestFrameIndexForStep(step) {
+        if (!globalStepValues || !globalStepValues.length) return -1;
+        let best = 0;
+        let bestDiff = Math.abs(globalStepValues[0] - step);
+        for (let i = 1; i < globalStepValues.length; i++) {
+            const diff = Math.abs(globalStepValues[i] - step);
+            if (diff < bestDiff) { best = i; bestDiff = diff; }
+        }
+        return best;
+    }
+
+    // Moves the timeline playhead to the frame closest to `realStep` and marks
+    // the timeline as user-driven, exactly like dragging the slider there by hand.
+    function jumpTimelineToStep(realStep) {
+        if (globalTotalFrames === 0) return;
+        // Milestone marker clicks call setStoppingCriteria() first, which (via
+        // applyStoppingFrameLimit) shrinks globalSlider.max down to that milestone's
+        // own step. A range input's thumb position is (value/max), so setting .value
+        // right after — even to the correct frame — would render at 100% of that
+        // now-shrunk track, i.e. visually at the far right, no matter which milestone
+        // (splitting_converged/all_converged/full) was clicked. The milestone dots
+        // themselves are positioned against the fixed globalTotalFrames, so the thumb
+        // has to render against that same fixed scale to land where the dot is.
+        globalSlider.max = globalTotalFrames - 1;
+        const idx = Math.max(0, Math.min(_closestFrameIndexForStep(realStep), globalTotalFrames - 1));
+        globalSlider.value = idx;
+        scanTimelineUserDriven = true;
+        syncFrames(idx);
+    }
+
+    // Renders clickable "jump to" markers on the global timeline for the
+    // convergence milestones that used to be a separate "View at" button row
+    // (Full / Splitting converged / Converged) in single-scan ("Run") mode —
+    // clicking one both jumps the playhead there and sets currentStoppingCriteria,
+    // same as the old buttons did.
+    function renderTimelineMilestoneMarkers() {
+        const container = document.getElementById('timeline-ticks-container');
+        if (!container) return;
+        container.querySelectorAll('.timeline-milestone').forEach((el) => el.remove());
+        if (globalTotalFrames <= 1 || !currentPlot) return;
+
+        const d = _phaseData(currentPlot);
+        const milestones = [];
+        const splitStep = _mv(d, 'splitting_converged_step', 'steps_to_fb');
+        if (splitStep != null) {
+            milestones.push({ value: 'splitting_converged', label: 'Splitting converged', step: splitStep, cls: 'milestone-split' });
+        }
+        const allStep = _mv(d, 'all_converged_step');
+        if (allStep != null) {
+            milestones.push({ value: 'all_converged', label: 'Converged', step: allStep, cls: 'milestone-all' });
+        }
+        // "Full" = jump to the end of the timeline (no cap, everything visible).
+        milestones.push({ value: 'full', label: 'Full', step: globalStepValues[globalTotalFrames - 1], cls: 'milestone-full' });
+
+        // A converged run's milestones often land close together (e.g. "Converged"
+        // right before the final step, or equal to it) — their 12px circles would
+        // then overlap and the one painted last (always "Full", added above) would
+        // silently swallow clicks meant for the others. Stack any that fall within
+        // MIN_GAP_PCT of an already-placed marker one row higher instead, so every
+        // milestone stays independently clickable regardless of how close the run's
+        // real step values are.
+        const MIN_GAP_PCT = 5;
+        const positioned = milestones
+            .map((m) => {
+                const idx = _closestFrameIndexForStep(m.step);
+                const pct = idx >= 0 && globalTotalFrames > 1 ? (idx / (globalTotalFrames - 1)) * 100 : null;
+                return Object.assign({}, m, { idx, pct });
+            })
+            .filter((m) => m.idx >= 0 && m.pct != null)
+            .sort((a, b) => a.pct - b.pct);
+
+        const placedPctByRow = [];
+        positioned.forEach((m) => {
+            let row = 0;
+            while (placedPctByRow[row] != null && Math.abs(m.pct - placedPctByRow[row]) < MIN_GAP_PCT) {
+                row += 1;
+            }
+            placedPctByRow[row] = m.pct;
+            m.row = row;
+        });
+
+        positioned.forEach((m) => {
+            const marker = document.createElement('button');
+            marker.type = 'button';
+            marker.className = `timeline-milestone ${m.cls}`;
+            marker.style.left = `calc(${m.pct}% - 6px)`;
+            if (m.row > 0) marker.style.marginTop = `${-15 - m.row * 14}px`;
+            marker.title = `Jump to: ${m.label} (step ${formatCount(m.step)})`;
+            marker.setAttribute('aria-label', `Jump to ${m.label}`);
+            marker.addEventListener('click', (e) => {
+                e.preventDefault();
+                setStoppingCriteria(m.value);
+                updateScanViewAtCaption(currentPlot);
+                jumpTimelineToStep(m.step);
+            });
+            container.appendChild(marker);
+        });
     }
 
     function updateGlobalLabel(idx) {
@@ -233,7 +360,10 @@ function main() {
             try {
                 const win = iframe.contentWindow;
                 if (win && typeof win.showFrame === 'function') {
-                    const localIdx = Math.min(idx, win.totalFrames - 1);
+                    // totalFrames === 0 means "no fixed frame count" (e.g. the scan
+                    // measurements adapter, which filters by real step value rather than
+                    // a local frame index) — pass idx through unclamped in that case.
+                    const localIdx = (win.totalFrames > 0) ? Math.min(idx, win.totalFrames - 1) : idx;
                     win.showFrame(localIdx);
                 }
             } catch (e) { }
@@ -241,6 +371,7 @@ function main() {
     }
 
     globalSlider.addEventListener('input', (e) => {
+        scanTimelineUserDriven = true;
         const idx = parseInt(e.target.value, 10);
         syncFrames(idx);
     });
@@ -268,6 +399,7 @@ function main() {
         globalPlayBtn.style.color = '#960000';
 
         const intervalMs = parseInt(globalSpeedSelect.value, 10);
+        scanTimelineUserDriven = true;
         globalPlayInterval = setInterval(() => {
             let nextIdx = parseInt(globalSlider.value, 10) + 1;
             if (nextIdx > parseInt(globalSlider.max, 10)) {
@@ -351,6 +483,9 @@ function main() {
 
         // Clear registered iframes/adapters and reset the slider
         activeIframes.clear();
+        // The scan measurements adapter is independent of which Bayesian plots
+        // are selected — keep it registered across the clear above.
+        if (scanTimelineAdapter) activeIframes.add(scanTimelineAdapter);
         const ticksContainer = document.getElementById('timeline-ticks-container');
         if (ticksContainer) ticksContainer.innerHTML = '';
         globalTotalFrames = 0;
@@ -380,6 +515,12 @@ function main() {
             return;
         }
 
+        // CRLB overlay data — resolved once up front so the posterior/convergence
+        // renderers below can draw the Cramér-Rao bound alongside their existing
+        // actual-uncertainty and convergence-threshold lines.
+        const fisherDataPlotForOverlay = bayesFisherDataPlots.find((p) => _matchesSelected(p, selectedPlot));
+        const crlbOverlayPath = fisherDataPlotForOverlay ? fisherDataPlotForOverlay.path : null;
+
         // --- Posterior animation ---
         const posteriorDataPlot = bayesPosteriorDataPlots.find((p) => _matchesSelected(p, selectedPlot));
         const interactivePlot = bayesInteractivePlots.find((p) => _matchesSelected(p, selectedPlot));
@@ -389,7 +530,7 @@ function main() {
             bayesInteractiveSection.dataset.available = 'true';
             renderPosterior(div, posteriorDataPlot.path, (adapter) => {
                 registerTimelineAdapter(adapter);
-            });
+            }, crlbOverlayPath);
         } else if (interactivePlot) {
             _iframeContainer(bayesInteractiveSection, bayesInteractiveIframe, 'bayes-posterior-container', interactivePlot.path);
             bayesInteractiveIframe.style.height = '85vh';
@@ -419,13 +560,13 @@ function main() {
                 const div = _jsonContainer(bayesConvergenceSection, bayesConvMetricsIframe, 'bayes-conv-metrics-json-container');
                 renderConvergenceMetrics(div, convMetricsDataPlot.path, (adapter) => {
                     registerTimelineAdapter(adapter);
-                });
+                }, crlbOverlayPath);
             } else {
                 if (paramConvDataPlot) {
                     const div = _jsonContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container');
                     renderParameterConvergence(div, paramConvDataPlot.path, (adapter) => {
                         registerTimelineAdapter(adapter);
-                    });
+                    }, crlbOverlayPath);
                 } else {
                     _iframeContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container', convergencePlot ? convergencePlot.path : '');
                 }
@@ -442,7 +583,7 @@ function main() {
         }
 
         // --- Fisher information ---
-        const fisherDataPlot = bayesFisherDataPlots.find((p) => _matchesSelected(p, selectedPlot));
+        const fisherDataPlot = fisherDataPlotForOverlay;
         const fisherPlot = plots.find((p) => p.type === 'bayesian_fisher_bounds' && _matchesSelected(p, selectedPlot));
         const fisherPairsPlot = plots.find((p) => p.type === 'bayesian_fisher_crlb_pairs' && _matchesSelected(p, selectedPlot));
 
@@ -1066,7 +1207,14 @@ function main() {
                 if (v != null && Number.isFinite(v) && v >= center) idx.push(i);
             }
             const pick = (arr) => (Array.isArray(arr) && arr.length === t.x.length) ? idx.map((i) => arr[i]) : arr;
-            return Object.assign({}, t, { x: idx.map((i) => t.x[i]), y: pick(t.y), customdata: pick(t.customdata) });
+            const out = Object.assign({}, t, { x: idx.map((i) => t.x[i]), y: pick(t.y), customdata: pick(t.customdata) });
+            // error_y.array/arrayminus (the per-frequency stats overlay's asymmetric
+            // whiskers) are nested per-point fields parallel to x -- filter them the
+            // same way so lengths stay in sync, or Plotly misaligns them post-filter.
+            if (t.error_y && (t.error_y.array || t.error_y.arrayminus)) {
+                out.error_y = Object.assign({}, t.error_y, { array: pick(t.error_y.array), arrayminus: pick(t.error_y.arrayminus) });
+            }
+            return out;
         };
 
         const newData = figData.map(filterRight);
@@ -1100,7 +1248,9 @@ function main() {
 
     // Window one trace's points to [lo, hi] and, if mirrorAbout is given, reflect
     // x -> 2*mirrorAbout - x (re-sorted by x) so a mirrored trace reads in the same
-    // left-to-right orientation as its un-mirrored counterpart.
+    // left-to-right orientation as its un-mirrored counterpart. Also carries along
+    // error_y.array/arrayminus (the per-frequency stats overlay's whiskers) --
+    // a nested field parallel to x/y that would otherwise desync from it.
     function _windowAndMirrorTrace(t, lo, hi, mirrorAbout) {
         if (!t.x || !t.x.length) return null;
         const idx = [];
@@ -1110,18 +1260,30 @@ function main() {
         }
         if (!idx.length) return null;
         const pick = (arr) => (Array.isArray(arr) && arr.length === t.x.length) ? idx.map((i) => arr[i]) : arr;
+        const fieldNames = ['y', 'customdata'].filter((f) => t[f] !== undefined);
+        const hasErrorY = t.error_y && (t.error_y.array || t.error_y.arrayminus);
         let xs = idx.map((i) => t.x[i]);
-        let ys = pick(t.y);
-        let cd = pick(t.customdata);
+        const fields = {};
+        for (const f of fieldNames) fields[f] = pick(t[f]);
+        let errorY = hasErrorY ? { array: pick(t.error_y.array), arrayminus: pick(t.error_y.arrayminus) } : null;
         if (mirrorAbout != null) {
-            const hasCd = Array.isArray(cd) && cd.length === xs.length;
-            const pts = xs.map((x, i) => [2 * mirrorAbout - x, ys[i], hasCd ? cd[i] : null]);
-            pts.sort((a, b) => a[0] - b[0]);
-            xs = pts.map((p) => p[0]);
-            ys = pts.map((p) => p[1]);
-            if (hasCd) cd = pts.map((p) => p[2]);
+            const order = xs.map((_, i) => i);
+            order.sort((a, b) => (2 * mirrorAbout - xs[a]) - (2 * mirrorAbout - xs[b]));
+            const mirroredXs = order.map((i) => 2 * mirrorAbout - xs[i]);
+            for (const f of fieldNames) {
+                fields[f] = Array.isArray(fields[f]) ? order.map((i) => fields[f][i]) : fields[f];
+            }
+            if (errorY) {
+                errorY = {
+                    array: Array.isArray(errorY.array) ? order.map((i) => errorY.array[i]) : errorY.array,
+                    arrayminus: Array.isArray(errorY.arrayminus) ? order.map((i) => errorY.arrayminus[i]) : errorY.arrayminus,
+                };
+            }
+            xs = mirroredXs;
         }
-        return Object.assign({}, t, { x: xs, y: ys, customdata: cd });
+        const out = Object.assign({}, t, { x: xs }, fields);
+        if (errorY) out.error_y = Object.assign({}, t.error_y, errorY);
+        return out;
     }
 
     // Split a scan figure into two stacked subplots, one per Zeeman group (centered
@@ -1209,6 +1371,9 @@ function main() {
         // Tag this render so a stale fetch doesn't overwrite a newer one
         const renderToken = {};
         container._renderToken = renderToken;
+        // Captured synchronously (before any await) so a repeat/generator switch
+        // that races this render can't attach the wrong plot's overlay trace.
+        const plotAtStart = currentPlot;
         container.innerHTML = '<div style="padding:1.5em;color:#64748b;text-align:center;">Loading…</div>';
         try {
             await ensurePlotly();
@@ -1231,21 +1396,46 @@ function main() {
                 return o;
             };
 
+            const isScanPlot = container.id === 'scan-plot-div';
+            const plain = toPlain(raw);
+            const isScanFigure = isScanPlot && plain && plain._graph_type === 'scan';
+            if (isScanFigure) {
+                // Keep the decoded data around so the global play/scrub timeline and the
+                // "View at" convergence-criteria selector can re-filter measurements by
+                // step and re-render without re-fetching.
+                container._scanRawData = plain;
+            }
+
             let figData, figLayout;
             if (raw && raw._graph_type) {
                 // Lean data file — build figure from static definition.
                 // toPlain applied so builders receive plain arrays throughout.
-                const built = await buildFigureFromData(toPlain(raw));
+                let dataForBuild = plain;
+                if (isScanFigure && plain.measurements) {
+                    const cap = getStoppingFrameLimit();
+                    if (cap != null) {
+                        dataForBuild = Object.assign({}, plain, {
+                            measurements: _filterScanMeasurementsByStep(plain.measurements, cap),
+                        });
+                    }
+                }
+                const built = await buildFigureFromData(dataForBuild);
                 figData = built.data;
                 figLayout = Object.assign({}, built.layout, { autosize: true });
+                if (isScanFigure) {
+                    const withOverlay = await _withFreqStatsOverlay(figData, figLayout, plotAtStart, !!plain.has_metrics);
+                    if (container._renderToken !== renderToken) return;
+                    figData = withOverlay.data;
+                    figLayout = withOverlay.layout;
+                }
             } else {
                 // Full Plotly figure (legacy or Bayesian) — render as-is
-                const fig = toPlain(raw);
+                const fig = plain;
                 figData = fig.data || [];
                 figLayout = Object.assign({}, fig.layout || {}, { autosize: true });
             }
 
-            if (container.id === 'scan-plot-div' && scanFlipViewEnabled && raw && raw._graph_type === 'scan') {
+            if (isScanPlot && scanFlipViewEnabled && raw && raw._graph_type === 'scan') {
                 const folded = _foldScanFigureForFlipView(figData, figLayout);
                 figData = folded.data;
                 figLayout = folded.layout;
@@ -1287,17 +1477,179 @@ function main() {
                     container.innerHTML = `<div style="padding:1em;color:#ef4444;">Chart render error: ${e && e.message ? e.message : String(e)}</div>`;
                 }
             });
-            const isScanPlot = container.id === 'scan-plot-div';
             if (isScanPlot) {
                 applyMeasurementDistributionPreferenceInScanIframe();
                 bindScanIframeLegendPreferenceSync();
                 renderNarrowedBoundsFromIframe();
+            }
+            if (isScanFigure) {
+                ensureScanTimelineAdapter();
             }
         } catch (e) {
             if (container._renderToken !== renderToken) return;
             console.warn('renderPlotFromJson failed for', jsonPath, e);
             container.innerHTML = `<div style="padding:1em;color:#ef4444;">Failed to load plot: ${e && e.message ? e.message : String(e)}</div>`;
         }
+    }
+
+    // Re-renders the scan measurements plot with only the points recorded at or
+    // before `realStep` (an inference-step number, same units as the measurement
+    // `step`/`fine_step` fields and as splitting_converged_step/all_converged_step).
+    // Pass null/undefined to show every measurement. Used by both the global
+    // play/scrub timeline (per-frame) and the "View at" convergence selector (default cap).
+    async function applyScanStepCap(realStep) {
+        const container = document.getElementById('scan-plot-div');
+        if (!container || !container._scanRawData || !window.Plotly) return;
+        const raw = container._scanRawData;
+        const filtered = Object.assign({}, raw, {
+            measurements: _filterScanMeasurementsByStep(raw.measurements, realStep),
+        });
+        try {
+            const built = await buildFigureFromData(filtered);
+            let figData = built.data;
+            let figLayout = Object.assign({}, built.layout, { autosize: true });
+            // The per-frequency stats overlay covers every recorded shot regardless of
+            // inference step, so it's exempt from the step cap -- re-added at full extent.
+            const withOverlay = await _withFreqStatsOverlay(figData, figLayout, currentPlot, !!raw.has_metrics);
+            figData = withOverlay.data;
+            figLayout = withOverlay.layout;
+            if (scanFlipViewEnabled) {
+                const folded = _foldScanFigureForFlipView(figData, figLayout);
+                figData = folded.data;
+                figLayout = folded.layout;
+            }
+            await Plotly.react(container, figData, figLayout, { responsive: true });
+        } catch (e) {
+            console.warn('applyScanStepCap failed', e);
+        }
+    }
+
+    // Re-applies the "View at" stopping-criteria cap to the scan plot once
+    // currentPlot.metrics is known (it may not be populated yet at first render —
+    // mirrors the existing applyStoppingFrameLimit() re-apply pattern).
+    function refreshScanStepCapFromCriteria() {
+        const container = document.getElementById('scan-plot-div');
+        if (!container || !container._scanRawData) return;
+        applyScanStepCap(getStoppingFrameLimit());
+    }
+
+    // Lets the global play/scrub timeline drive the scan measurements plot too,
+    // alongside the Bayesian posterior/convergence/fisher/ellipse plots.
+    function ensureScanTimelineAdapter() {
+        if (!scanTimelineAdapter) {
+            scanTimelineAdapter = {
+                contentWindow: {
+                    showFrame: (idx) => {
+                        // Ignore programmatic syncs (data just loaded) — only a real user
+                        // interaction with the timeline should override the "View at" cap.
+                        if (!scanTimelineUserDriven) return;
+                        const realStep = (globalStepValues && idx < globalStepValues.length && globalStepValues[idx] != null)
+                            ? globalStepValues[idx] : idx;
+                        applyScanStepCap(realStep);
+                    },
+                    // 0 = "no fixed frame count": never wins the max-frames vote in
+                    // updateGlobalTimelineMetadata, and syncFrames passes idx through
+                    // unclamped (see the totalFrames > 0 guard there).
+                    totalFrames: 0,
+                },
+                addEventListener: () => {},
+            };
+        }
+        registerTimelineAdapter(scanTimelineAdapter);
+    }
+
+    // Builds the "actual averages per frequency" overlay traces for a MATLAB run
+    // -- the per-bin mean/std/min/max of every shot recorded in the .mat file
+    // (independent of which bins the adaptive locator actually visited). Drawn
+    // as candle-like error-bar pairs rather than Plotly's own `candlestick`
+    // trace type, which has no width control (confirmed against its attribute
+    // schema -- only `line.width` and a `whiskerwidth` that candlestick ignores)
+    // and can't mark a fifth point (the mean) inside the box: a thin whisker
+    // (pixel-width, not data-width, so it stays thin at any zoom or bin spacing)
+    // spans the true min-max range, and a thicker, shorter marker+error-bar pair
+    // centered exactly on the mean spans ±std with an explicit horizontal tick
+    // at the mean itself.
+    function _buildFreqStatsOverlayTraces(data) {
+        const freq = Array.from(data.freq_hz);
+        const mean = Array.from(data.mean);
+        const std = Array.from(data.std);
+        const traces = [];
+        const hasExtremes = Array.isArray(data.min) || ArrayBuffer.isView(data.min);
+        if (hasExtremes) {
+            const min = Array.from(data.min);
+            const max = Array.from(data.max);
+            traces.push({
+                type: 'scatter',
+                mode: 'markers',
+                x: freq,
+                y: mean,
+                marker: { size: 0, color: 'rgba(180,83,9,0.9)' },
+                error_y: {
+                    type: 'data',
+                    symmetric: false,
+                    array: mean.map((m, i) => max[i] - m),
+                    arrayminus: mean.map((m, i) => m - min[i]),
+                    thickness: 1.25,
+                    width: 0,
+                    color: 'rgba(180,83,9,0.9)',
+                },
+                customdata: min.map((m, i) => [m, max[i]]),
+                hovertemplate: 'frequency=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
+                name: 'Extremes (min–max)',
+                showlegend: true,
+            });
+        }
+        traces.push({
+            type: 'scatter',
+            mode: 'markers',
+            x: freq,
+            y: mean,
+            // Amber, not blue: this now shares a chart with the blue "recorded mean
+            // signal" line (a related but distinct statistic -- ratio-of-means vs.
+            // this trace's mean-of-ratios), and needs its own color to stay legible
+            // as a separate series rather than reading as a wide/fuzzy version of it.
+            marker: { symbol: 'line-ew', size: 10, line: { width: 2, color: '#b45309' } },
+            error_y: {
+                type: 'data', symmetric: true, array: std,
+                thickness: 5, width: 0, color: 'rgba(217,119,6,0.55)',
+            },
+            customdata: std,
+            hovertemplate: 'frequency=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
+            name: 'Actual averages per frequency (mean ± std)',
+            showlegend: true,
+        });
+        return traces;
+    }
+
+    // Fetches (and caches on the manifest entry, mirroring ensureRepeatMeta) the
+    // matlab_freq_stats companion data for the given scan plot and builds it into
+    // overlay traces -- present only for MATLAB (real-data) generators, which
+    // have a matching matlab_freq_stats entry. Resolves null when there is none.
+    function _getFreqStatsOverlayTraces(plot) {
+        const statsPlot = plot ? matlabFreqStatsPlots.find((p) => _matchesSelected(p, plot)) : null;
+        if (!statsPlot) return Promise.resolve(null);
+        if (!statsPlot._overlayTracesPromise) {
+            statsPlot._overlayTracesPromise = _fetchJson(statsPlot.path).then((data) => {
+                if (data.schema !== 'matlab_freq_stats_v1' || !data.freq_hz) return null;
+                return _buildFreqStatsOverlayTraces(data);
+            }).catch((e) => {
+                console.warn('Failed to load per-frequency stats overlay', e);
+                return null;
+            });
+        }
+        return statsPlot._overlayTracesPromise;
+    }
+
+    // Appends the per-frequency mean/std/min/max overlay (if any exists for
+    // `plot`) on top of a scan figure's traces -- last in `data` so it draws over
+    // the sampled-measurements markers rather than under them.
+    async function _withFreqStatsOverlay(figData, figLayout, plot, hasMetrics) {
+        const overlayTraces = await _getFreqStatsOverlayTraces(plot);
+        if (!overlayTraces || !overlayTraces.length) return { data: figData, layout: figLayout };
+        const traces = hasMetrics
+            ? overlayTraces.map((t) => Object.assign({}, t, { xaxis: 'x', yaxis: 'y' }))
+            : overlayTraces;
+        return { data: figData.concat(traces), layout: figLayout };
     }
 
     function _getOrCreateSiblingDiv(iframeEl) {
@@ -1809,13 +2161,28 @@ function main() {
         return getGeneratorFacetsIndex().get(name) || parseGeneratorFacetsFromNameLegacy(name);
     }
 
+    // Real-measurement generators from `nv matlab-run` (see matlab_cmd.py), named
+    // "MATLAB:<filename>". They carry no swept numeric axes to facet on, so they get
+    // their own flat "study" bucket (see groupGeneratorsByFamily) instead of either
+    // pretending to be a parameter-grid family or falling into "Default (ungrouped)"
+    // alongside unrelated plain/bare generators.
+    function isMatlabGenerator(name) {
+        return typeof name === 'string' && name.startsWith('MATLAB:');
+    }
+
     // Group generator names into parameter-study "families" (same variant + same
-    // swept axes) plus an "__ungrouped__" bucket for anything that doesn't parse
-    // (e.g. bare default generators from a plain, non-grid run).
+    // swept axes), a "matlab" bucket for real-measurement generators, and an
+    // "__ungrouped__" bucket for anything else that doesn't parse (e.g. bare default
+    // generators from a plain, non-grid run).
     function groupGeneratorsByFamily(items) {
         const families = new Map();
         const ungrouped = [];
+        const matlab = [];
         for (const name of items) {
+            if (isMatlabGenerator(name)) {
+                matlab.push(name);
+                continue;
+            }
             const parsed = parseGeneratorFacets(name);
             if (!parsed) {
                 ungrouped.push(name);
@@ -1826,7 +2193,7 @@ function main() {
             }
             families.get(parsed.family).members.push({ name, axisValues: parsed.axes });
         }
-        return { families, ungrouped };
+        return { families, ungrouped, matlab };
     }
 
     function axisDisplayValue(v) {
@@ -1876,7 +2243,7 @@ function main() {
             const wrapper = document.createElement('span');
             wrapper.className = 'facet-select-wrapper';
             const label = document.createElement('label');
-            label.textContent = `${meta.label}: `;
+            label.textContent = `${meta.label}${paramLetterSuffix(meta.key)}: `;
             label.className = 'facet-select-label';
 
             const values = [...new Set(familyGroup.members.map((m) => m.axisValues.find((a) => a.key === meta.key).value))]
@@ -2418,15 +2785,23 @@ function main() {
     // selected generator -- otherwise this same function's own re-render, triggered by
     // its onchange handler, would immediately revert the dropdown to the old family.
     function updateScanSignalControls(forcedFamilyKey = null) {
-        const scanGeneratorItems = [...new Set(scanPlots.map((p) => p.generator))].sort();
-        const { families, ungrouped } = groupGeneratorsByFamily(scanGeneratorItems);
+        // window.NVISION_ALL_GENERATORS (set by bootstrap.js from the cheap /api/combos
+        // index) covers every generator in the cache, even ones whose data isn't loaded
+        // into `plots` yet — bootstrap.js only fetches the initially-selected generator's
+        // parameter-study family to keep page load fast on a large shared cache. Falls
+        // back to scanPlots' own generators for the static-export path, where the whole
+        // manifest is always loaded and this global is never set.
+        const scanGeneratorItems = Array.isArray(window.NVISION_ALL_GENERATORS) && window.NVISION_ALL_GENERATORS.length
+            ? window.NVISION_ALL_GENERATORS
+            : [...new Set(scanPlots.map((p) => p.generator))].sort();
+        const { families, ungrouped, matlab } = groupGeneratorsByFamily(scanGeneratorItems);
         const familyKeys = [...families.keys()];
         const previousGenerator = controlValue(scanGenerator);
 
         let selectedScanGenerator;
 
-        if (familyKeys.length === 0) {
-            // No parseable grid families: original flat list.
+        if (familyKeys.length === 0 && matlab.length === 0) {
+            // No parseable grid families and no MATLAB generators: original flat list.
             scanGeneratorFlatRow.style.display = '';
             scanGeneratorFamilyRow.style.display = 'none';
             scanGeneratorFacetsRow.style.display = 'none';
@@ -2435,6 +2810,7 @@ function main() {
         } else {
             const familyOptions = [
                 ...familyKeys.map((key) => ({ key, label: families.get(key).label })),
+                ...(matlab.length > 0 ? [{ key: '__matlab__', label: 'MATLAB (real data)' }] : []),
                 ...(ungrouped.length > 0 ? [{ key: '__ungrouped__', label: 'Default (ungrouped)' }] : []),
             ];
             const needsFamilyPicker = familyOptions.length > 1;
@@ -2445,7 +2821,11 @@ function main() {
             let selectedFamilyKey;
             if (needsFamilyPicker) {
                 const prevParsed = parseGeneratorFacets(previousGenerator);
-                const prevFamilyKey = prevParsed ? prevParsed.family : (ungrouped.includes(previousGenerator) ? '__ungrouped__' : null);
+                const prevFamilyKey = prevParsed
+                    ? prevParsed.family
+                    : isMatlabGenerator(previousGenerator)
+                        ? '__matlab__'
+                        : (ungrouped.includes(previousGenerator) ? '__ungrouped__' : null);
                 scanGeneratorFamily.innerHTML = '';
                 for (const opt of familyOptions) {
                     const option = document.createElement('option');
@@ -2473,6 +2853,11 @@ function main() {
                 scanGeneratorFlatRow.style.display = '';
                 scanGeneratorFacets.dataset.selectedGenerators = '[]';
                 selectedScanGenerator = renderSegmentedControl(scanGenerator, ungrouped, previousGenerator);
+            } else if (selectedFamilyKey === '__matlab__') {
+                scanGeneratorFacetsRow.style.display = 'none';
+                scanGeneratorFlatRow.style.display = '';
+                scanGeneratorFacets.dataset.selectedGenerators = '[]';
+                selectedScanGenerator = renderSegmentedControl(scanGenerator, matlab, previousGenerator);
             } else {
                 scanGeneratorFacetsRow.style.display = '';
                 // Only carry the previous generator's facet selections into the new
@@ -2484,7 +2869,118 @@ function main() {
             }
         }
 
+        // The selection resolved to a generator whose data bootstrap.js never fetched
+        // (it only loaded the initially-selected generator's family — see
+        // updateScanSignalControls' scanGeneratorItems comment above). Reload scoped to
+        // the new one instead of rendering from an empty/wrong scanPlots slice.
+        if (selectedScanGenerator && window.nvisionNeedsWiderLoad && window.nvisionNeedsWiderLoad(selectedScanGenerator)) {
+            window.nvisionNavigateToGenerator(selectedScanGenerator);
+            return;
+        }
+
         refreshScanNoiseControlForSelectedGenerators();
+        updateSignalEquationPanel(selectedScanGenerator);
+    }
+
+    // Returns the signal-model equation (as HTML, using the PARAM_LETTERS symbols
+    // from format-utils.js) matching the generator variant encoded in its name, or
+    // null when the generator isn't a recognized NV-center model. Variant detection
+    // is a simple substring match on the generator name (lorentzian / voigt /
+    // saturation_voigt, plus a zeeman flag) — see nvision/sim/gen/nv_center_generator.py
+    // for the authoritative variant switch these formulas are transcribed from
+    // (numba_kernels.py / nv_center.py / voigt_zeeman.py).
+    // Stacked numerator/denominator span for a "num/den" term, instead of an inline
+    // slash — see .eq-frac in styles.css. Args are already-HTML-safe fragments
+    // (built from escapeHtml'd param letters and literal symbols), not raw user text.
+    function frac(num, den) {
+        return `<span class="eq-frac"><span class="eq-num">${num}</span><span class="eq-den">${den}</span></span>`;
+    }
+
+    function getSignalEquationInfo(generatorName) {
+        if (!generatorName) return null;
+        const n = generatorName.toLowerCase();
+        const L = (p) => escapeHtml(paramLetter(p) || p);
+
+        let title, formula, params;
+        if (n.includes('saturation_voigt')) {
+            title = 'Saturation-Voigt dip';
+            formula =
+                `γ = γ₀·√(1+${L('saturation')}), &nbsp; ${L('c_total')} = ${L('c_max')}·${frac(L('saturation'), `1+${L('saturation')}`)}<br>` +
+                `Γ and r are then derived from γ (homogeneous half-width) and ${L('sigma_inhom')} via the Voigt width relations, and:<br>` +
+                `S(x) = ${L('background')} − Voigt hyperfine multiplet centered at ${L('frequency')}, amplitude ${L('c_total')}, width Γ, shape r (see Voigt below)`;
+            params = ['saturation', 'sigma_inhom', 'c_max', 'frequency', 'background'];
+        } else if (n.includes('voigt')) {
+            title = 'Voigt NV dip';
+            formula =
+                `S(x) = ${L('background')} − [ ${frac(L('dip_depth'), L('k_np'))}·V(x; ${L('frequency')}−${L('split')}) ` +
+                `+ ${L('dip_depth')}·V(x; ${L('frequency')}) + ${L('dip_depth')}·${L('k_np')}·V(x; ${L('frequency')}+${L('split')}) ]<br>` +
+                `V(x; c) = peak-normalized Voigt profile centered at c, width ${L('fwhm_total')}, shape r`;
+            params = ['frequency', 'fwhm_total', 'lorentz_frac', 'split', 'k_np', 'dip_depth', 'background'];
+        } else if (n.includes('lorentzian')) {
+            title = 'Lorentzian NV dip';
+            formula =
+                `x' = ${frac(`x−${L('frequency')}`, L('linewidth'))}, &nbsp; α = ${frac(L('split'), L('linewidth'))}, ` +
+                `&nbsp; Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
+                `S(x) = ${L('background')} − ${frac(L('c_total'), 'Σ')} · [ ` +
+                `${frac('1', `${L('k_np')}·((x'+α)²+1)`)} + ${frac('w', "x'²+1")} + ${frac(L('k_np'), "(x'−α)²+1")} ]`;
+            params = ['frequency', 'linewidth', 'split', 'k_np', 'c_total', 'background'];
+        } else {
+            return null;
+        }
+
+        // w is the centre-line weight that selects the nitrogen hyperfine structure.
+        // It is a model setting, not a fitted parameter, so it is explained rather
+        // than listed among the parameters below.
+        let hyperfineNote = '';
+        if (n.includes('lorentzian') || n.includes('voigt')) {
+            hyperfineNote = `<div class="signal-equation-note">` +
+                `w is the centre-line weight, set by the nitrogen hyperfine structure rather ` +
+                `than fitted: w = 1 gives the ¹⁴N triplet (3 lines, ${L('split')} apart); ` +
+                `w = 0 gives the ¹⁵N doublet (2 lines, no centre); and ${L('split')} = 0 ` +
+                `collapses all three terms onto a single dip of the same total contrast — ` +
+                `the default, for when the lines are not resolved at the measured linewidth.</div>`;
+        }
+
+        // r is the Lorentzian fraction of the Voigt profile: 0 = pure Gaussian,
+        // 1 = pure Lorentzian.
+        let voigtNote = '';
+        if (n.includes('voigt')) {
+            voigtNote = `<div class="signal-equation-note">r ranges 0 (pure Gaussian) to 1 (pure Lorentzian).</div>`;
+        }
+
+        let zeemanNote = '';
+        if (n.includes('zeeman')) {
+            zeemanNote = `<div class="signal-equation-note">With Zeeman splitting: this pattern appears twice, ` +
+                `centered at ${L('frequency')} − ${L('zeeman_split')} and ${L('frequency')} + ${L('zeeman_split')} ` +
+                `(one hyperfine group each).</div>`;
+            params = params.concat(['zeeman_split']);
+        }
+
+        const paramsHtml = params.map((p) =>
+            `<span class="signal-eq-param"><b>${L(p)}</b> = ${escapeHtml(p.replace(/_/g, ' '))}</span>`
+        ).join('');
+
+        return {
+            html: `<div class="signal-equation-title">${escapeHtml(title)}</div>` +
+                  `<div class="signal-equation-formula">${formula}</div>` +
+                  hyperfineNote +
+                  voigtNote +
+                  zeemanNote +
+                  `<div class="signal-equation-params">${paramsHtml}</div>`,
+        };
+    }
+
+    function updateSignalEquationPanel(generatorName) {
+        const el = document.getElementById('signal-equation-panel');
+        if (!el) return;
+        const info = getSignalEquationInfo(generatorName);
+        if (!info) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        el.innerHTML = info.html;
+        el.style.display = '';
     }
 
     // Rebuilds the noise multi-select from whichever generators are currently
@@ -2888,6 +3384,8 @@ function main() {
                 updateBayesTabs();
                 // metrics just arrived — re-apply now that plot.metrics is actually populated.
                 applyStoppingFrameLimit();
+                refreshScanStepCapFromCriteria();
+                updateScanViewAtCaption(plot);
               });
             } else {
                 setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), null);
@@ -2902,6 +3400,7 @@ function main() {
                 updateBayesStatsView(null);
                 updateBayesInteractiveView(null);
                 updateBayesTabs();
+                updateScanViewAtCaption(null);
             }
         } else {
             setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), null);
@@ -2915,6 +3414,7 @@ function main() {
             updateBayesStatsView(null);
             updateBayesInteractiveView(null);
             updateBayesTabs();
+            updateScanViewAtCaption(null);
         }
 
         // Re-render the active Compare axis (if any) for the new selection.
@@ -2956,6 +3456,7 @@ function main() {
             let label = name.replace(/_/g, ' ');
             // Capitalize first letter
             label = label.charAt(0).toUpperCase() + label.slice(1);
+            label += paramLetterSuffix(name);
 
             let formatted = val;
             let fmtLo = b ? b[0] : null;
@@ -3313,7 +3814,7 @@ function main() {
         return { grid, kde };
     }
 
-    async function renderPosterior(container, jsonPath, onReady) {
+    async function renderPosterior(container, jsonPath, onReady, crlbJsonPath) {
         container.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;">Loading posterior data…</div>';
 
         let data;
@@ -3322,6 +3823,15 @@ function main() {
         } catch (e) {
             container.innerHTML = `<div style="padding:2em;color:#ef4444;">Failed to load posterior data: ${escapeHtml(String(e.message))}</div>`;
             return;
+        }
+
+        // CRLB overlay (optional — older runs / non-SMC beliefs have no fisher data).
+        let fisherData = null;
+        if (crlbJsonPath) {
+            try {
+                const fd = await _fetchJson(crlbJsonPath);
+                if (fd && fd.schema === 'fisher_v1' && fd.steps) fisherData = fd;
+            } catch (e) { /* CRLB overlay is optional — ignore load failures */ }
         }
 
         if (data.schema !== 'posterior_v1' || !data.steps || !data.param_names) {
@@ -3334,11 +3844,34 @@ function main() {
         const nSteps = steps.length;
         const nParams = param_names.length;
 
+        // Vertical markers at every SMC resample+jitter step, for the uncertainty
+        // and ESS mini-charts below. A sharp uncertainty jump exactly *on* one of
+        // these is expected, and is an artifact: the resample redraws a decaying
+        // fraction of particles from the prior, and since sigma is quadratic in
+        // distance a couple of them dominate it for one step, until the next
+        // likelihood update kills them. The dashed robust trace omits them. The
+        // step *before* a resample is an ordinary step -- measured across the
+        // matlab runs, u[r-1]/u[r-2] matches the run-wide median.
+        function resampleMarkerShapes(yref) {
+            // resampled_steps decodes as a Float32Array (compact numeric encoding) —
+            // TypedArray.prototype.map() coerces a returned object to NaN instead of
+            // collecting it, so convert to a plain array first.
+            return Array.from(resampled_steps || []).map((s) => ({
+                type: 'line',
+                x0: s, x1: s,
+                y0: 0, y1: 1,
+                yref: yref || 'paper',
+                line: { color: 'rgba(249, 115, 22, 0.6)', width: 1.5, dash: 'dot' },
+            }));
+        }
+
         await ensurePlotly();
         if (!container.isConnected) return;
 
         container.innerHTML = '';
         
+        container.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; updateStep(lastStepIdx); }));
+
         // Setup Grid Wrapper Container (max 4 columns)
         const gridWrapper = document.createElement('div');
         gridWrapper.className = 'posterior-card-grid';
@@ -3353,7 +3886,7 @@ function main() {
             
             const title = document.createElement('div');
             title.style.cssText = 'text-align:center; font-size:0.78em; color:#64748b; font-weight:600; margin-bottom:4px;';
-            title.textContent = param + unit;
+            title.textContent = param + unit + paramLetterSuffix(param);
             wrapper.appendChild(title);
             
             const rowWrapper = document.createElement('div');
@@ -3373,9 +3906,21 @@ function main() {
             
             // Calculate parameter uncertainty history across all steps
             const uncHistory = steps.map(s => (s[param] && s[param].uncertainty != null) ? s[param].uncertainty : null);
+            // Outlier-insensitive spread (weighted IQR/1.349). The reported sigma
+            // spikes on every resample because a handful of particles are redrawn
+            // from the prior; this curve shows what the bulk of the cloud did.
+            const robustHistory = steps.map(s => (s[param] && s[param].uncertainty_robust != null) ? s[param].uncertainty_robust : null);
+            // CRLB history, index-aligned with `steps` (both derive from the same
+            // per-step bayesian_snapshots list when fisherData is present).
+            const crlbHistory = fisherData
+                ? steps.map((_, i) => {
+                    const fs = fisherData.steps[i];
+                    return (fs && fs.fisher_bounds && fs.fisher_bounds[param] != null) ? fs.fisher_bounds[param] : null;
+                })
+                : null;
             const color = COLORS[ci % COLORS.length];
-            
-            plotDivs.push({ div: plotDiv, uncDiv: uncDiv, param, uncHistory, color });
+
+            plotDivs.push({ div: plotDiv, uncDiv: uncDiv, param, uncHistory, robustHistory, crlbHistory, color });
         });
 
         // SMC Diagnostics plotting setup
@@ -3389,23 +3934,38 @@ function main() {
         
         if (hasParticles && diagnosticsContainer) {
             diagnosticsContainer.style.display = 'block';
-            nParticles = steps[0][firstParam].weights.length;
             const thresholdPct = data.ess_threshold != null ? data.ess_threshold : 0.2;
-            thresholdVal = thresholdPct * nParticles;
-            
-            for (let s = 0; s < nSteps; s++) {
-                const stepEntry = steps[s][firstParam];
-                if (stepEntry && stepEntry.weights) {
-                    const w = stepEntry.weights;
-                    const wSum = w.reduce((a, b) => a + b, 0);
-                    const normW = wSum > 0 ? w.map(x => x / wSum) : w;
-                    const sumSq = normW.reduce((a, b) => a + b * b, 0);
-                    const ess = sumSq > 0 ? 1 / sumSq : 0;
-                    essHistory.push(ess);
-                } else {
-                    essHistory.push(null);
+
+            // Prefer the ESS the filter itself recorded: it covers the full particle
+            // cloud and is captured *before* the resample resets the weights. Deriving
+            // it from the stored weights gets both of those wrong -- they are a
+            // 60-particle subsample, and uniform on every resampled step -- so the
+            // fallback curve is capped at the subsample size and can never reach the
+            // threshold that actually fired. Only pre-fix runs take that path.
+            const recordedEss = Array.from(data.ess_history || []);
+            const haveRecordedEss = recordedEss.length === nSteps
+                && recordedEss.some(v => v != null && isFinite(v));
+
+            if (haveRecordedEss) {
+                nParticles = data.num_particles || Math.max(...recordedEss.filter(v => v != null && isFinite(v)));
+                essHistory = recordedEss.map(v => (v != null && isFinite(v)) ? v : null);
+            } else {
+                nParticles = steps[0][firstParam].weights.length;
+                for (let s = 0; s < nSteps; s++) {
+                    const stepEntry = steps[s][firstParam];
+                    if (stepEntry && stepEntry.weights) {
+                        const w = stepEntry.weights;
+                        const wSum = w.reduce((a, b) => a + b, 0);
+                        const normW = wSum > 0 ? w.map(x => x / wSum) : w;
+                        const sumSq = normW.reduce((a, b) => a + b * b, 0);
+                        const ess = sumSq > 0 ? 1 / sumSq : 0;
+                        essHistory.push(ess);
+                    } else {
+                        essHistory.push(null);
+                    }
                 }
             }
+            thresholdVal = thresholdPct * nParticles;
         } else if (diagnosticsContainer) {
             diagnosticsContainer.style.display = 'none';
         }
@@ -3445,11 +4005,13 @@ function main() {
             });
         }
 
+        let lastStepIdx = 0;
         function updateStep(stepIdx) {
+            lastStepIdx = stepIdx;
             const step = steps[Math.max(0, Math.min(stepIdx, nSteps - 1))];
             const isResampled = resampled_steps && resampled_steps.includes(stepIdx);
 
-            for (const { div, uncDiv, param, uncHistory, color } of plotDivs) {
+            for (const { div, uncDiv, param, uncHistory, robustHistory, crlbHistory, color } of plotDivs) {
                 const entry = step[param];
                 if (!entry) continue;
 
@@ -3572,7 +4134,41 @@ function main() {
                         showlegend: false
                     }];
 
+                    // Cramér-Rao lower bound overlay, when Fisher data is available for this run.
+                    // Robust spread overlay -- the same quantity, immune to the
+                    // resample rejuvenation particles, so the sawtooth in the solid
+                    // line reads as an artifact rather than the belief widening.
+                    if (robustHistory && robustHistory.some(v => v !== null)) {
+                        uncTraces.push({
+                            type: 'scatter',
+                            x: steps.map((_, idx) => idx),
+                            y: robustHistory,
+                            mode: 'lines',
+                            line: { color: color, width: 1.2, dash: 'dash' },
+                            opacity: 0.75,
+                            hoverinfo: 'skip',
+                            showlegend: false,
+                            name: 'robust (IQR)',
+                        });
+                    }
+
+                    if (crlbHistory && crlbHistory.some(v => v !== null)) {
+                        uncTraces.push({
+                            type: 'scatter',
+                            x: steps.map((_, idx) => idx),
+                            y: crlbHistory,
+                            mode: 'lines',
+                            line: { color: '#9333ea', width: 1.2, dash: 'dot' },
+                            hoverinfo: 'skip',
+                            showlegend: false,
+                            name: 'CRLB',
+                        });
+                    }
+
                     const uncShapes = [];
+                    // Resample+jitter markers, drawn first so the current-step line
+                    // layers on top when they coincide.
+                    uncShapes.push(...resampleMarkerShapes());
                     // Current step vertical indicator line
                     uncShapes.push({
                         type: 'line',
@@ -3607,6 +4203,26 @@ function main() {
                         });
                     }
 
+                    // Plotly's log-axis autorange only looks at trace *data* — it ignores
+                    // shapes entirely, so the threshold line (and, on an unconverged run,
+                    // the whole point of showing it) silently falls outside the view
+                    // whenever it sits below every uncertainty value plotted so far. Fold
+                    // the threshold (and the CRLB overlay, if drawn) into an explicit range
+                    // so both stay visible instead of relying on autorange.
+                    let logRange = null;
+                    if (uncertaintyLogScale) {
+                        const positiveVals = uncHistory.filter((v) => v != null && v > 0);
+                        if (robustHistory) positiveVals.push(...robustHistory.filter((v) => v != null && v > 0));
+                        if (crlbHistory) positiveVals.push(...crlbHistory.filter((v) => v != null && v > 0));
+                        if (threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
+                        if (positiveVals.length > 0) {
+                            const lo = Math.log10(Math.min(...positiveVals));
+                            const hi = Math.log10(Math.max(...positiveVals));
+                            const pad = Math.max((hi - lo) * 0.08, 0.05);
+                            logRange = [lo - pad, hi + pad];
+                        }
+                    }
+
                     const uncLayout = {
                         template: 'plotly_white',
                         margin: { l: 24, r: 5, t: 5, b: 20 },
@@ -3615,11 +4231,9 @@ function main() {
                             tickfont: { size: 8 },
                             title: { text: 'Step', font: { size: 8 } }
                         },
-                        yaxis: {
-                            visible: true,
-                            tickfont: { size: 8 },
-                            rangemode: 'tozero'
-                        },
+                        yaxis: uncertaintyLogScale
+                            ? { visible: true, tickfont: { size: 8 }, type: 'log', range: logRange, autorange: logRange ? false : true }
+                            : { visible: true, tickfont: { size: 8 }, rangemode: 'tozero' },
                         height: 180,
                         hovermode: false,
                         shapes: uncShapes
@@ -3651,6 +4265,12 @@ function main() {
                     height: 180,
                     showlegend: false,
                     shapes: [
+                        // Resample+jitter markers. These line up with threshold
+                        // crossings only when ess_history is the belief-recorded
+                        // one; on pre-fix runs the curve comes from post-resample
+                        // subsample weights and sits far above a threshold scaled
+                        // to that subsample.
+                        ...resampleMarkerShapes(),
                         {
                             type: 'line',
                             x0: 0,
@@ -3715,7 +4335,30 @@ function main() {
         if (onReady) onReady(adapter);
     }
 
-    async function renderParameterConvergence(container, jsonPath, onReady) {
+    // Small "Log scale" checkbox used above the Convergence tab's uncertainty charts —
+    // late-run uncertainties are often 10-100x smaller than the initial value, which
+    // flattens them to invisibility on a linear axis. `onToggle` is called after the
+    // shared `uncertaintyLogScale` flag is flipped; the caller re-renders its plot(s).
+    function _logScaleToggle(onToggle) {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'ios-switch';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = uncertaintyLogScale;
+        checkbox.addEventListener('change', onToggle);
+        const track = document.createElement('span');
+        track.className = 'ios-switch-track';
+        track.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.className = 'ios-switch-label';
+        label.textContent = 'Log scale (show small uncertainties)';
+        wrapper.appendChild(checkbox);
+        wrapper.appendChild(track);
+        wrapper.appendChild(label);
+        return wrapper;
+    }
+
+    async function renderParameterConvergence(container, jsonPath, onReady, crlbJsonPath) {
         container.innerHTML = '<div style="padding:1em;color:#64748b;text-align:center;">Loading…</div>';
 
         let data;
@@ -3732,10 +4375,19 @@ function main() {
         }
         if (!container.isConnected) return;
 
+        // CRLB overlay (optional — older runs / non-SMC beliefs have no fisher data).
+        let fisherData = null;
+        if (crlbJsonPath) {
+            try {
+                const fd = await _fetchJson(crlbJsonPath);
+                if (fd && fd.schema === 'fisher_v1' && fd.steps) fisherData = fd;
+            } catch (e) { /* CRLB overlay is optional — ignore load failures */ }
+        }
+
         await ensurePlotly();
         if (!container.isConnected) return;
 
-        const { param_names, param_units, true_params, steps } = data;
+        const { param_names, param_units, true_params, steps, convergence_threshold, absolute_thresholds } = data;
         const xs = steps.map((_, i) => i);
         const COLORS = ['#1e90ff', '#e05c00', '#00a878', '#9b59b6', '#e74c3c', '#2ecc71', '#f39c12'];
 
@@ -3746,7 +4398,7 @@ function main() {
             const uncerts = steps.map((s) => s.uncertainties[param] ?? null);
             traces.push({
                 type: 'scatter', x: xs, y: uncerts,
-                mode: 'lines', name: `${param}${unit} σ`,
+                mode: 'lines', name: `${param}${unit}${paramLetterSuffix(param)} σ`,
                 line: { color, width: 2 },
             });
             if (true_params && true_params[param] != null) {
@@ -3757,25 +4409,61 @@ function main() {
                     showlegend: false,
                 });
             }
+            // Convergence-limit threshold — this schema (unlike convergence_metrics_v1)
+            // has no physical bounds, so only the absolute-threshold case (plus the
+            // long-standing frequency special-case) can be drawn accurately; a fractional
+            // threshold would need bound width, which isn't available here.
+            let threshVal = absolute_thresholds ? absolute_thresholds[param] : null;
+            if (threshVal == null && param === 'frequency') threshVal = 100000.0;
+            if (threshVal != null) {
+                traces.push({
+                    type: 'scatter', x: [xs[0], xs[xs.length - 1]], y: [threshVal, threshVal],
+                    mode: 'lines', name: `${param} convergence limit`,
+                    line: { color: '#ef4444', width: 1.2, dash: 'dash' },
+                    showlegend: false,
+                });
+            }
+            // Cramér-Rao lower bound overlay, when Fisher data is available for this run.
+            if (fisherData) {
+                const crlbVals = steps.map((_, i) => {
+                    const fs = fisherData.steps[i];
+                    return (fs && fs.fisher_bounds && fs.fisher_bounds[param] != null) ? fs.fisher_bounds[param] : null;
+                });
+                if (crlbVals.some((v) => v !== null)) {
+                    traces.push({
+                        type: 'scatter', x: xs, y: crlbVals,
+                        mode: 'lines', name: `${param} CRLB`,
+                        line: { color, width: 1.2, dash: 'dot' },
+                        showlegend: false,
+                    });
+                }
+            }
         });
 
-        const layout = {
-            template: 'plotly_white',
-            margin: { l: 60, r: 20, t: 20, b: 50 },
-            xaxis: { title: 'Step' },
-            yaxis: { title: 'Uncertainty' },
-            legend: { orientation: 'h', y: -0.25 },
-            height: 320,
-        };
+        function buildLayout() {
+            return {
+                template: 'plotly_white',
+                margin: { l: 60, r: 20, t: 20, b: 50 },
+                xaxis: { title: 'Step' },
+                yaxis: uncertaintyLogScale
+                    ? { title: 'Uncertainty (log)', type: 'log', autorange: true }
+                    : { title: 'Uncertainty' },
+                legend: { orientation: 'h', y: -0.25 },
+                height: 320,
+            };
+        }
 
         container.innerHTML = '';
+        container.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; updateStep(lastStepIdx); }));
         const plotDiv = document.createElement('div');
         container.appendChild(plotDiv);
 
+        let lastStepIdx = 0;
         function updateStep(stepIdx) {
+            lastStepIdx = stepIdx;
             const activeStep = xs[Math.max(0, Math.min(stepIdx, xs.length - 1))];
             const updatedLayout = {
-                ...layout,
+                ...buildLayout(),
                 shapes: [
                     {
                         type: 'line',
@@ -3808,7 +4496,7 @@ function main() {
         if (onReady) onReady(adapter);
     }
 
-    async function renderConvergenceMetrics(container, jsonPath, onReady) {
+    async function renderConvergenceMetrics(container, jsonPath, onReady, crlbJsonPath) {
         container.innerHTML = '<div style="padding:1em;color:#64748b;text-align:center;">Loading…</div>';
 
         let data;
@@ -3822,6 +4510,17 @@ function main() {
         if (data.schema !== 'convergence_metrics_v1' || !data.steps) {
             container.innerHTML = '<div style="padding:1em;color:#64748b;">No convergence metrics.</div>';
             return;
+        }
+
+        // CRLB overlay (optional — older runs / non-SMC beliefs have no fisher data).
+        // fisher_v1's actual_uncertainty is the same per-step uncertainty quantity as
+        // convergence_metrics_v1's uncertainties, so fisher_bounds needs no unit conversion.
+        let fisherData = null;
+        if (crlbJsonPath) {
+            try {
+                const fd = await _fetchJson(crlbJsonPath);
+                if (fd && fd.schema === 'fisher_v1' && fd.steps) fisherData = fd;
+            } catch (e) { /* CRLB overlay is optional — ignore load failures */ }
         }
         if (!container.isConnected) return;
 
@@ -3858,7 +4557,8 @@ function main() {
         });
 
         container.innerHTML = '';
-        
+        container.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; updateStep(lastStepIdx); }));
+
         // Build cards stack for parameters
         const paramPlotContexts = [];
         param_names.forEach((param, ci) => {
@@ -3878,7 +4578,7 @@ function main() {
             titleSpan.style.cssText = 'font-weight:600; font-size:0.9em; color:#1e293b;';
             const isAbs = data.absolute_thresholds && data.absolute_thresholds[param] != null;
             const uncTypeStr = isAbs ? 'absolute uncertainty, KHz' : 'relative uncertainty';
-            titleSpan.textContent = `${param} (${uncTypeStr})`;
+            titleSpan.textContent = `${param}${paramLetterSuffix(param)} (${uncTypeStr})`;
             
             const subtitleSpan = document.createElement('span');
             subtitleSpan.style.cssText = 'font-size:0.75em; color:#64748b; margin-top:2px;';
@@ -3932,11 +4632,19 @@ function main() {
                 convergedRanges.push([rangeStart, steps.length - 1]);
             }
             
+            const crlbVals = fisherData
+                ? steps.map((_, i) => {
+                    const fs = fisherData.steps[i];
+                    return (fs && fs.fisher_bounds && fs.fisher_bounds[param] != null) ? fs.fisher_bounds[param] : null;
+                })
+                : null;
+
             paramPlotContexts.push({
                 param,
                 plotDiv,
                 badgeSpan,
                 vals,
+                crlbVals,
                 color,
                 convergedRanges,
                 isAbs,
@@ -3970,13 +4678,15 @@ function main() {
         
         const streakHistory = steps.map(s => s.convergence_streak ?? 0);
 
+        let lastStepIdx = 0;
         function updateStep(stepIdx) {
+            lastStepIdx = stepIdx;
             const idx = Math.max(0, Math.min(stepIdx, steps.length - 1));
             const activeStepVal = xs[idx];
             const patience = data.convergence_patience || 8;
 
             // 1. Update individual parameter cards
-            paramPlotContexts.forEach(({ param, plotDiv, badgeSpan, vals, color, convergedRanges, isAbs, bounds }) => {
+            paramPlotContexts.forEach(({ param, plotDiv, badgeSpan, vals, crlbVals, color, convergedRanges, isAbs, bounds }) => {
                 const isConvEnd = steps[steps.length - 1].converged_params[param];
                 const isConvCurrent = steps[idx].converged_params[param];
                 const streak = paramStreaks[param][idx];
@@ -4006,6 +4716,20 @@ function main() {
                     hoverinfo: 'skip',
                     showlegend: false
                 }];
+
+                // Cramér-Rao lower bound overlay, when Fisher data is available for this run.
+                if (crlbVals && crlbVals.some(v => v !== null)) {
+                    traces.push({
+                        type: 'scatter',
+                        x: xs,
+                        y: crlbVals,
+                        mode: 'lines',
+                        name: 'CRLB',
+                        line: { color: '#9333ea', width: 1.5, dash: 'dot' },
+                        hoverinfo: 'skip',
+                        showlegend: false,
+                    });
+                }
 
                 const shapes = [];
 
@@ -4129,16 +4853,14 @@ function main() {
                     });
                 }
 
+                const yTitle = `${isAbs ? 'Absolute' : 'Relative'} uncertainty${uncertaintyLogScale ? ' (log)' : ''}`;
                 const layout = {
                     template: 'plotly_white',
                     margin: { l: 45, r: 15, t: 15, b: 35 },
                     xaxis: { title: { text: 'Step', font: { size: 10 } }, tickfont: { size: 9 } },
-                    yaxis: {
-                        title: { text: isAbs ? 'Absolute uncertainty' : 'Relative uncertainty', font: { size: 10 } },
-                        tickfont: { size: 9 },
-                        range: [0, yMax],
-                        rangemode: 'tozero'
-                    },
+                    yaxis: uncertaintyLogScale
+                        ? { title: { text: yTitle, font: { size: 10 } }, tickfont: { size: 9 }, type: 'log', autorange: true }
+                        : { title: { text: yTitle, font: { size: 10 } }, tickfont: { size: 9 }, range: [0, yMax], rangemode: 'tozero' },
                     height: 180,
                     hovermode: false,
                     shapes: shapes,
@@ -4262,7 +4984,12 @@ function main() {
 
         // One subplot per parameter: CRLB (lower bound) vs actual uncertainty
         container.innerHTML = '';
-        container.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;';
+        const outer = document.createElement('div');
+        outer.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; renderFisher(container, jsonPath); }));
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;';
+        outer.appendChild(grid);
+        container.appendChild(outer);
 
         for (const [ci, param] of param_names.entries()) {
             const unit = param_units[param] ? ` (${param_units[param]})` : '';
@@ -4288,9 +5015,11 @@ function main() {
             const layout = {
                 template: 'plotly_white',
                 margin: { l: 55, r: 10, t: 28, b: 40 },
-                title: { text: param + unit, font: { size: 11 }, y: 0.96 },
+                title: { text: param + unit + paramLetterSuffix(param), font: { size: 11 }, y: 0.96 },
                 xaxis: { title: { text: 'Step', font: { size: 10 } } },
-                yaxis: { title: { text: 'Uncertainty', font: { size: 10 } }, rangemode: 'tozero' },
+                yaxis: uncertaintyLogScale
+                    ? { title: { text: 'Uncertainty (log)', font: { size: 10 } }, type: 'log', autorange: true }
+                    : { title: { text: 'Uncertainty', font: { size: 10 } }, rangemode: 'tozero' },
                 showlegend: ci === 0,
                 legend: { orientation: 'h', y: -0.3 },
                 height: 240,
@@ -4298,7 +5027,7 @@ function main() {
 
             const wrapper = document.createElement('div');
             wrapper.style.cssText = 'flex:1; min-width:200px; max-width:420px;';
-            container.appendChild(wrapper);
+            grid.appendChild(wrapper);
             Plotly.react(wrapper, traces, layout, { displayModeBar: false, responsive: true });
         }
     }
@@ -5055,28 +5784,49 @@ function main() {
 
     function updateStoppingCriteriaVisibility(plot) {
         // Don't override the row when noise view is active — it has its own logic
+        // (updateStoppingCriteriaForNoiseView), and is the only place this button
+        // row still applies. In single-scan ("Run") mode, "View at" is now chosen
+        // by clicking a milestone marker on the global timeline instead (see
+        // renderTimelineMilestoneMarkers) — there's no per-step timeline in the
+        // noise-aggregate view, so it keeps the button row.
         const activeMode = document.querySelector('#scan-view-mode button.is-active');
         if (activeMode && activeMode.dataset.value === 'noise') return;
 
         const row = document.getElementById('stopping-criteria-row');
-        if (!row) return;
+        if (row) row.style.display = 'none';
+    }
+
+    // Shows, directly under the scan measurements plot, which step/measurement the
+    // currently selected "View at" convergence criterion resolves to — the same
+    // step the plot's own measurement points are now capped at.
+    function updateScanViewAtCaption(plot) {
+        const captionEl = document.getElementById('scan-view-at-caption');
+        if (!captionEl) return;
         const d = plot ? _phaseData(plot) : null;
-        const hasFreq = d && (_mv(d, 'splitting_converged_step') != null || _mv(d, 'steps_to_fb') != null);
-        const hasAll  = d && _mv(d, 'all_converged_step') != null;
-        row.style.display = (hasFreq || hasAll) ? '' : 'none';
-        // Disable individual buttons if the data isn't available
-        const btns = row.querySelectorAll('button[data-value]');
-        for (const btn of btns) {
-            const v = btn.dataset.value;
-            if (v === 'splitting_converged') btn.disabled = !hasFreq;
-            else if (v === 'all_converged') btn.disabled = !hasAll;
-            else btn.disabled = false;
+        if (!d || currentStoppingCriteria === 'full') {
+            captionEl.style.display = 'none';
+            captionEl.textContent = '';
+            return;
         }
-        // If current criteria is now unavailable, reset to 'full'
-        if ((currentStoppingCriteria === 'splitting_converged' && !hasFreq) ||
-            (currentStoppingCriteria === 'all_converged' && !hasAll)) {
-            setStoppingCriteria('full');
+        let step = null;
+        let label = '';
+        if (currentStoppingCriteria === 'splitting_converged') {
+            step = _mv(d, 'splitting_converged_step', 'steps_to_fb');
+            label = 'Splitting converged';
+        } else if (currentStoppingCriteria === 'all_converged') {
+            step = _mv(d, 'all_converged_step');
+            label = 'Converged';
         }
+        if (step == null) {
+            captionEl.style.display = 'none';
+            captionEl.textContent = '';
+            return;
+        }
+        const total = _mv(d, 'measurements');
+        let text = `Viewing at: ${label} — measurements through step ${formatCount(step)}`;
+        if (total != null) text += ` of ${formatCount(total)} total`;
+        captionEl.textContent = text;
+        captionEl.style.display = '';
     }
 
     function updateStoppingCriteriaForNoiseView(generator) {
