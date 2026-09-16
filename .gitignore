@@ -128,6 +128,8 @@ articles/*Notes.bib
 .fuzz_cache/
 
 graphs/
+# ...except the repo's own graph-definition templates served by `nv serve` /
+# prepare_static_ui_data (nvision/cli/api_server.py, nvision/gui/report.py).
 !static/graphs/
 !static/graphs/**
 /.hypothesis/

@@ -375,7 +375,7 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
     assert abs(fit["split"] - 0.004) < 0.001, f"split: {fit['split']}"
 
 
-@pytest.mark.timeout(400)
+@pytest.mark.timeout(600)
 def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     """Highly asymmetric hyperfine triplet (k_np=4.5, split at max bound): all
     three lines fitted even when the shallow freq-split line hides below the
@@ -388,7 +388,9 @@ def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
     Windows, pytest-timeout has no SIGALRM and falls back to its "thread"
     method, which on firing hard-kills the whole pytest process rather than
     just failing this test -- silently aborting the entire suite with no
-    summary line. 400s gives headroom without masking a real future hang.
+    summary line -- so a generous budget matters more than it would for an
+    ordinary assertion failure. Measured >180s under `--cov` line-tracing the
+    whole `nvision` package; 600s keeps headroom under coverage plus real load.
 
     Regression guard for two coupled seeding bugs (found from a production
     sweep where the fit tracked only the deepest dips): with only 2 of 3

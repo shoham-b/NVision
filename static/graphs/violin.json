@@ -2,13 +2,17 @@
   "version": 1,
   "trace": {
     "type": "violin",
-    "box": {"visible": true},
-    "meanline": {"visible": true},
-    "fillcolor": "lightseagreen",
-    "line": {"color": "darkslategray"},
-    "opacity": 0.6
+    "box": { "visible": true },
+    "meanline": { "visible": true },
+    "points": "outliers",
+    "marker": { "color": "rgba(31,119,180,0.7)" }
   },
   "layout": {
-    "template": "plotly_white"
+    "paper_bgcolor": "white",
+    "plot_bgcolor": "white",
+    "showlegend": false,
+    "margin": { "t": 60 },
+    "xaxis": { "gridcolor": "#eee" },
+    "yaxis": { "gridcolor": "#eee" }
   }
 }
