@@ -1596,6 +1596,7 @@ function main() {
                 customdata: min.map((m, i) => [m, max[i]]),
                 hovertemplate: 'frequency=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
                 name: 'Extremes (min–max)',
+                legendgroup: 'matlab-freq-stats',
                 showlegend: true,
             });
         }
@@ -1616,6 +1617,7 @@ function main() {
             customdata: std,
             hovertemplate: 'frequency=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
             name: 'Actual averages per frequency (mean ± std)',
+            legendgroup: 'matlab-freq-stats',
             showlegend: true,
         });
         return traces;
@@ -1642,14 +1644,22 @@ function main() {
 
     // Appends the per-frequency mean/std/min/max overlay (if any exists for
     // `plot`) on top of a scan figure's traces -- last in `data` so it draws over
-    // the sampled-measurements markers rather than under them.
+    // the sampled-measurements markers rather than under them. `legend.groupclick:
+    // 'togglegroup'` makes clicking either of the two overlay legend entries (they
+    // share legendgroup 'matlab-freq-stats') hide/show both together, since they're
+    // two halves of one statistic rather than independent series.
     async function _withFreqStatsOverlay(figData, figLayout, plot, hasMetrics) {
         const overlayTraces = await _getFreqStatsOverlayTraces(plot);
         if (!overlayTraces || !overlayTraces.length) return { data: figData, layout: figLayout };
         const traces = hasMetrics
             ? overlayTraces.map((t) => Object.assign({}, t, { xaxis: 'x', yaxis: 'y' }))
             : overlayTraces;
-        return { data: figData.concat(traces), layout: figLayout };
+        return {
+            data: figData.concat(traces),
+            layout: Object.assign({}, figLayout, {
+                legend: Object.assign({}, figLayout.legend, { groupclick: 'togglegroup' }),
+            }),
+        };
     }
 
     function _getOrCreateSiblingDiv(iframeEl) {
