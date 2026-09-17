@@ -614,6 +614,29 @@ body {
             font-style: italic;
         }
 
+        .signal-eq-note-block {
+            font-style: normal;
+        }
+
+        .signal-eq-note-label {
+            color: #475569;
+            font-weight: 600;
+        }
+
+        .signal-eq-note-list {
+            margin: 0.25em 0 0;
+            padding-left: 1.2em;
+        }
+
+        .signal-eq-note-list li {
+            margin: 0.15em 0;
+        }
+
+        .signal-eq-note-list b {
+            color: #1e40af;
+            font-style: normal;
+        }
+
         .signal-equation-params {
             margin-top: 0.5em;
             display: flex;

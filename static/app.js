@@ -2920,7 +2920,7 @@ function main() {
             formula =
                 `S(x) = ${L('background')} − [ ${frac(L('dip_depth'), L('k_np'))}·V(x; ${L('frequency')}−${L('split')}) ` +
                 `+ ${L('dip_depth')}·V(x; ${L('frequency')}) + ${L('dip_depth')}·${L('k_np')}·V(x; ${L('frequency')}+${L('split')}) ]<br>` +
-                `V(x; c) = peak-normalized Voigt profile centered at c, width ${L('fwhm_total')}, shape r`;
+                `V(x; c) = Voigt profile, width ${L('fwhm_total')}, shape r`;
             params = ['frequency', 'fwhm_total', 'lorentz_frac', 'split', 'k_np', 'dip_depth', 'background'];
         } else if (n.includes('lorentzian')) {
             title = 'Lorentzian NV dip';
@@ -2936,22 +2936,29 @@ function main() {
 
         // w is the centre-line weight that selects the nitrogen hyperfine structure.
         // It is a model setting, not a fitted parameter, so it is explained rather
-        // than listed among the parameters below.
+        // than listed among the parameters below. Laid out as a label + bullet list
+        // (not one run-on sentence) so it can be scanned instead of read word-by-word.
         let hyperfineNote = '';
         if (n.includes('lorentzian') || n.includes('voigt')) {
-            hyperfineNote = `<div class="signal-equation-note">` +
-                `w is the centre-line weight, set by the nitrogen hyperfine structure rather ` +
-                `than fitted: w = 1 gives the ¹⁴N triplet (3 lines, ${L('split')} apart); ` +
-                `w = 0 gives the ¹⁵N doublet (2 lines, no centre); and ${L('split')} = 0 ` +
-                `collapses all three terms onto a single dip of the same total contrast — ` +
-                `the default, for when the lines are not resolved at the measured linewidth.</div>`;
+            hyperfineNote = `<div class="signal-equation-note signal-eq-note-block">` +
+                `<div class="signal-eq-note-label">w — centre-line weight, set by the nitrogen isotope (not fitted)</div>` +
+                `<ul class="signal-eq-note-list">` +
+                `<li><b>w = 1</b>: ¹⁴N triplet — 3 lines, ${L('split')} apart</li>` +
+                `<li><b>w = 0</b>: ¹⁵N doublet — 2 lines, no centre line</li>` +
+                `<li><b>${L('split')} = 0</b>: all lines merge into one dip of the same total contrast ` +
+                `— the default, for linewidths that don't resolve the hyperfine lines</li>` +
+                `</ul></div>`;
         }
 
         // r is the Lorentzian fraction of the Voigt profile: 0 = pure Gaussian,
         // 1 = pure Lorentzian.
         let voigtNote = '';
         if (n.includes('voigt')) {
-            voigtNote = `<div class="signal-equation-note">r ranges 0 (pure Gaussian) to 1 (pure Lorentzian).</div>`;
+            voigtNote = `<div class="signal-equation-note signal-eq-note-block">` +
+                `<div class="signal-eq-note-label">V(x; c) — Voigt profile, peak-normalized and centered at c</div>` +
+                `<ul class="signal-eq-note-list">` +
+                `<li>shape r: <b>0</b> pure Gaussian &nbsp;→&nbsp; <b>1</b> pure Lorentzian</li>` +
+                `</ul></div>`;
         }
 
         let zeemanNote = '';
