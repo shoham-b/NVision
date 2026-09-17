@@ -255,7 +255,9 @@ def test_compute_fisher_history_bounds_are_dicts_not_ndarrays() -> None:
         )
         for x in xs
     ]
-    estimates_hist = [true_params for _ in xs]
+    # estimates_hist is belief.estimates()'s contract: dict[str, float], not the
+    # model's typed params object -- _compute_fisher_history converts internally.
+    estimates_hist = [dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in xs]
     physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
 
     fisher_hist, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
@@ -309,7 +311,9 @@ def test_compute_fisher_history_normalizes_across_wildly_different_scales() -> N
             )
             for x in xs
         ]
-        estimates_hist = [true_params for _ in xs]
+        # estimates_hist is belief.estimates()'s contract: dict[str, float], not the
+        # model's typed params object -- _compute_fisher_history converts internally.
+        estimates_hist = [dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in xs]
         _, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
             snapshots, estimates_hist, param_names, physical_bounds
         )

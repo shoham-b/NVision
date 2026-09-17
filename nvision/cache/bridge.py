@@ -109,7 +109,16 @@ class CacheBridge:
         generations don't bloat the response).
         """
         return [
-            {**combo, "updated_at": payload.get("updated_at", "")}
+            {
+                **combo,
+                "updated_at": payload.get("updated_at", ""),
+                # The physics fingerprint the entry was WRITTEN with. Carried
+                # here (not in list_combinations' splattable kwargs) so a viewer
+                # can rebuild the exact key an older entry was stored under --
+                # see api_server._combo_key. `None` marks a v8-era config that
+                # predates the field, whose key was hashed without it at all.
+                "physics_fingerprint": (payload.get("config") or {}).get("physics_fingerprint"),
+            }
             for combo, payload in self._iter_combination_payloads()
         ]
 

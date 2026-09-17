@@ -145,6 +145,23 @@ class ReloadState:
 
 
 def _combo_key(combo: dict) -> str:
+    """The cache key this combo was stored under -- not the one the *current* code
+    would write it under.
+
+    PHYSICS_CONFIG_FINGERPRINT is folded into every combination key on purpose
+    (see nvision/cache/locator_keys.py), so changing a physical constant or bound
+    busts the cache for *runs* and old entries are never silently reused as if
+    they were drawn under the new physics. Reading is the opposite case: results
+    recorded under an older physics config are still perfectly valid results, and
+    the viewer has to be able to open them. Recomputing the key from the current
+    fingerprint instead of reusing the stored one made every pre-change combo
+    load as an empty page -- listed by /api/combos (that index comes from the
+    stored configs) but with no manifest entries behind it.
+
+    `physics_fingerprint` comes from CacheBridge.list_combinations_with_updated_at;
+    `None` means a v8-era config that predates the field, whose key was hashed
+    without the field entirely rather than with some default value.
+    """
     ptr_config = combination_base_cache_config(
         generator=combo["generator"],
         noise=combo["noise"],
@@ -153,6 +170,12 @@ def _combo_key(combo: dict) -> str:
         max_steps=combo["max_steps"],
         timeout_s=combo["timeout_s"],
     )
+    if "physics_fingerprint" in combo:
+        stored_fp = combo["physics_fingerprint"]
+        if stored_fp is None:
+            ptr_config.pop("physics_fingerprint", None)
+        else:
+            ptr_config["physics_fingerprint"] = stored_fp
     return stable_config_hash(ptr_config)
 
 

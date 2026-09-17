@@ -35,10 +35,6 @@ function main() {
     // are verification only. Default to splitting_converged (falls back to 'full' when a
     // loaded run has no splitting milestone — see updateStoppingCriteriaVisibility).
     let currentStoppingCriteria = 'splitting_converged'; // 'full' | 'splitting_converged' | 'all_converged'
-    // Shared "log scale" toggle for the per-step uncertainty charts in the Convergence
-    // tab (parameter convergence + convergence metrics) — small uncertainties near the
-    // end of a run are hard to see on a linear axis dominated by the initial value.
-    let uncertaintyLogScale = false;
     try {
         plots = window.MANIFEST;
         if (!Array.isArray(plots)) {
@@ -560,13 +556,13 @@ function main() {
                 const div = _jsonContainer(bayesConvergenceSection, bayesConvMetricsIframe, 'bayes-conv-metrics-json-container');
                 renderConvergenceMetrics(div, convMetricsDataPlot.path, (adapter) => {
                     registerTimelineAdapter(adapter);
-                }, crlbOverlayPath);
+                }, crlbOverlayPath, posteriorDataPlot ? posteriorDataPlot.path : null);
             } else {
                 if (paramConvDataPlot) {
                     const div = _jsonContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container');
                     renderParameterConvergence(div, paramConvDataPlot.path, (adapter) => {
                         registerTimelineAdapter(adapter);
-                    }, crlbOverlayPath);
+                    }, crlbOverlayPath, posteriorDataPlot ? posteriorDataPlot.path : null);
                 } else {
                     _iframeContainer(bayesConvergenceSection, bayesConvergenceIframe, 'bayes-conv-json-container', convergencePlot ? convergencePlot.path : '');
                 }
@@ -3145,35 +3141,34 @@ function main() {
                 function buildScanItems(phaseData, isOverall, totalMeasurements) {
                     const repeatTotal = plot.repeat_total ?? null;
                     const attemptLabel = repeatTotal
-                        ? 'Attempt ' + plot.repeat + ' of ' + repeatTotal
-                        : 'Attempt ' + plot.repeat;
+                        ? plot.repeat + '/' + repeatTotal
+                        : String(plot.repeat);
                     // For sweep-only runs, phaseData.measurements is the authoritative total.
                     const fullMeasurements = phaseData.measurements != null ? phaseData.measurements : totalMeasurements;
                     const splittingConvergedStep = phaseData.splitting_converged_step != null ? phaseData.splitting_converged_step : (phaseData.metrics && phaseData.metrics.splitting_converged_step != null ? phaseData.metrics.splitting_converged_step : null);
                     const allConvergedStep = phaseData.all_converged_step != null ? phaseData.all_converged_step : (phaseData.metrics && phaseData.metrics.all_converged_step != null ? phaseData.metrics.all_converged_step : null);
+                    const splitConvResolved = splittingConvergedStep != null ? splittingConvergedStep : phaseData.steps_to_fb;
 
                     let phaseMeasurements = fullMeasurements;
-                    let measurementsLabel = 'Measurements';
-                    let measurementsTip = 'Total number of measurements (sweep + acquisition) taken in this repeat.';
                     if (currentStoppingCriteria === 'splitting_converged' && splittingConvergedStep != null) {
                         phaseMeasurements = splittingConvergedStep;
-                        measurementsLabel = 'Splitting converged @';
-                        measurementsTip = 'Step at which splitting (zeeman_split) uncertainty first dropped below the convergence threshold.';
                     } else if (currentStoppingCriteria === 'all_converged' && allConvergedStep != null) {
                         phaseMeasurements = allConvergedStep;
-                        measurementsLabel = 'Converged @';
-                        measurementsTip = 'Step at which all tracked parameters first met the convergence threshold.';
                     }
 
                     const items = [
-                        { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to.' },
-                        { label: measurementsLabel, val: formatCount(phaseMeasurements), tip: measurementsTip },
+                        { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to (current/total).' },
                     ];
-                    if (splittingConvergedStep != null && currentStoppingCriteria === 'full') {
-                        items.push({ label: 'Splitting converged', val: formatCount(splittingConvergedStep), tip: 'Step at which splitting (zeeman_split) uncertainty first dropped below the convergence threshold.' });
-                    }
-                    if (phaseData.steps_to_fb != null && splittingConvergedStep == null) {
-                        items.push({ label: 'Splitting converged', val: formatCount(phaseData.steps_to_fb), tip: 'Measurements taken until splitting converged below threshold.' });
+                    if (splitConvResolved != null || allConvergedStep != null || fullMeasurements != null) {
+                        items.push({
+                            label: 'Converged',
+                            tip: 'Measurements at which splitting converged / all tracked parameters converged / the full run ended.',
+                            table: [
+                                { label: 'split', val: splitConvResolved != null ? formatCount(splitConvResolved) : '–' },
+                                { label: 'all', val: allConvergedStep != null ? formatCount(allConvergedStep) : '–' },
+                                { label: 'full', val: fullMeasurements != null ? formatCount(fullMeasurements) : '–' },
+                            ]
+                        });
                     }
                     // Show total sweep steps (if any)
                     const sweepSteps = phaseData.sweep_steps;
@@ -3189,10 +3184,34 @@ function main() {
                     if (phaseData.last_run != null) {
                         items.push({ label: 'Last run', val: formatTimestamp(phaseData.last_run), tip: 'Timestamp when this repeat was executed.' });
                     }
+
                     const phaseAbsErr = _mv(phaseData, 'abs_err_x', 'final_err_fc', 'pair_rmse');
-                    if (phaseAbsErr != null) {
+                    const errFbAtSplit = phaseData.err_fb_at_milestone;
+                    const uncertFbAtSplit = phaseData.uncert_fb_at_milestone;
+                    const errFbAtAll = _mv(phaseData, 'err_fb_at_all_converged');
+                    const uncertFbAtAll = _mv(phaseData, 'uncert_fb_at_all_converged');
+                    const errRows = [];
+                    if (errFbAtSplit != null || uncertFbAtSplit != null) {
+                        errRows.push({ label: 'split', vals: [
+                            errFbAtSplit != null ? formatFrequency(errFbAtSplit) : '–',
+                            uncertFbAtSplit != null ? formatFrequency(uncertFbAtSplit) : '–',
+                        ] });
+                    }
+                    if (errFbAtAll != null || uncertFbAtAll != null) {
+                        errRows.push({ label: 'all', vals: [
+                            errFbAtAll != null ? formatFrequency(errFbAtAll) : '–',
+                            uncertFbAtAll != null ? formatFrequency(uncertFbAtAll) : '–',
+                        ] });
+                    }
+                    if (phaseAbsErr != null || phaseData.uncert != null) {
+                        errRows.push({ label: 'full', vals: [
+                            phaseAbsErr != null ? formatFrequency(phaseAbsErr) : '–',
+                            phaseData.uncert != null ? formatFrequency(phaseData.uncert) : '–',
+                        ] });
+                    }
+                    if (errRows.length > 0) {
                         let cardClass = '';
-                        if (phaseData.uncert != null) {
+                        if (phaseAbsErr != null && phaseData.uncert != null) {
                             if (phaseAbsErr > 2 * phaseData.uncert) {
                                 cardClass = 'err-high-card';
                             } else if (phaseAbsErr > phaseData.uncert) {
@@ -3200,21 +3219,11 @@ function main() {
                             }
                         }
                         items.push({
-                            label: 'Abs error',
-                            val: formatFrequency(phaseAbsErr),
-                            tip: 'Absolute frequency error vs ground truth (pair RMSE for two-peak/Zeeman signals). Lower is better.',
-                            cardClass: cardClass
+                            label: 'Error / uncertainty at each checkpoint',
+                            tip: 'Error and uncertainty of the splitting-parameter estimate at the moment splitting converged / at the moment all tracked parameters converged / at the end of the full run. Lower is better.',
+                            cardClass: cardClass,
+                            table: { columns: ['error', 'uncert'], rows: errRows }
                         });
-                    }
-                    if (phaseData.uncert != null) {
-                        items.push({ label: 'Uncertainty', val: formatFrequency(phaseData.uncert), tip: 'Final estimated standard deviation of the frequency estimate. Lower is better.' });
-                    }
-
-                    // Milestone metrics. err_fb_at_milestone/err_fc_at_milestone are numerically
-                    // identical once frequency is fixed (both resolve to the splitting param) --
-                    // show a single "Splitting Err @ Milestone" card rather than two duplicates.
-                    if (phaseData.err_fb_at_milestone != null) {
-                        items.push({ label: 'Splitting Err @ Milestone', val: formatFrequency(phaseData.err_fb_at_milestone), tip: 'Absolute splitting error at the moment splitting converged.' });
                     }
                     return items;
                 }
@@ -3862,25 +3871,22 @@ function main() {
         // likelihood update kills them. The dashed robust trace omits them. The
         // step *before* a resample is an ordinary step -- measured across the
         // matlab runs, u[r-1]/u[r-2] matches the run-wide median.
+        // resampled_steps decodes as a Float32Array (compact numeric encoding) —
+        // TypedArray.prototype.map() coerces a returned object to NaN instead of
+        // collecting it, so _resampleMarkerShapes converts to a plain array first.
         function resampleMarkerShapes(yref) {
-            // resampled_steps decodes as a Float32Array (compact numeric encoding) —
-            // TypedArray.prototype.map() coerces a returned object to NaN instead of
-            // collecting it, so convert to a plain array first.
-            return Array.from(resampled_steps || []).map((s) => ({
-                type: 'line',
-                x0: s, x1: s,
-                y0: 0, y1: 1,
-                yref: yref || 'paper',
-                line: { color: 'rgba(249, 115, 22, 0.6)', width: 1.5, dash: 'dot' },
-            }));
+            return _resampleMarkerShapes(resampled_steps, yref);
         }
 
         await ensurePlotly();
         if (!container.isConnected) return;
 
         container.innerHTML = '';
-        
-        container.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; updateStep(lastStepIdx); }));
+
+        // Independent of the Convergence/Fisher tabs' own log-scale toggles — each
+        // view remembers its own choice rather than sharing one flag.
+        let logScale = false;
+        container.appendChild(_logScaleToggle(logScale, (v) => { logScale = v; updateStep(lastStepIdx); }));
 
         // Setup Grid Wrapper Container (max 4 columns)
         const gridWrapper = document.createElement('div');
@@ -3930,7 +3936,7 @@ function main() {
                 : null;
             const color = COLORS[ci % COLORS.length];
 
-            plotDivs.push({ div: plotDiv, uncDiv: uncDiv, param, uncHistory, robustHistory, crlbHistory, color });
+            plotDivs.push({ div: plotDiv, uncDiv: uncDiv, param, uncHistory, robustHistory, crlbHistory, color, zoomRange: null, zoomBound: false });
         });
 
         // SMC Diagnostics plotting setup
@@ -4016,12 +4022,27 @@ function main() {
         }
 
         let lastStepIdx = 0;
+        // Manual drag-zoom tracking for the uncDiv mini-charts (see the zoomRange
+        // field on each plotDivs entry): Plotly's uirevision mechanism does *not*
+        // preserve a user's zoom here, because every step re-render supplies its
+        // own explicit computed range (needed so the threshold/CRLB stay in view —
+        // see logRange below) rather than autorange, which is what uirevision
+        // actually needs to have something to defer to. So the zoom is tracked and
+        // re-applied by hand instead, and cleared when the scale mode flips (a
+        // linear-space zoom window isn't meaningful once re-interpreted as log10).
+        let lastScaleModeForZoom = logScale;
         function updateStep(stepIdx) {
             lastStepIdx = stepIdx;
             const step = steps[Math.max(0, Math.min(stepIdx, nSteps - 1))];
             const isResampled = resampled_steps && resampled_steps.includes(stepIdx);
 
-            for (const { div, uncDiv, param, uncHistory, robustHistory, crlbHistory, color } of plotDivs) {
+            if (lastScaleModeForZoom !== logScale) {
+                lastScaleModeForZoom = logScale;
+                plotDivs.forEach((pdEntry) => { pdEntry.zoomRange = null; });
+            }
+
+            for (const pdEntry of plotDivs) {
+                const { div, uncDiv, param, uncHistory, robustHistory, crlbHistory, color } = pdEntry;
                 const entry = step[param];
                 if (!entry) continue;
 
@@ -4202,6 +4223,12 @@ function main() {
                         threshVal = 0.01 * (bounds[1] - bounds[0]);
                     }
 
+                    // Text labels so a solid/dashed/dotted line doesn't have to be
+                    // decoded from color alone — same convention (and same left/right
+                    // anchoring, to keep the two labels apart) as the bigger Convergence
+                    // tab cards below.
+                    const uncAnnotations = [];
+
                     if (threshVal !== null) {
                         uncShapes.push({
                             type: 'line',
@@ -4211,6 +4238,24 @@ function main() {
                             y1: threshVal,
                             line: { color: '#ef4444', width: 1.2, dash: 'dash' }
                         });
+                        uncAnnotations.push({
+                            x: nSteps - 1, y: threshVal, xref: 'x', yref: 'y',
+                            text: 'threshold', showarrow: false,
+                            xanchor: 'right', yanchor: 'bottom',
+                            font: { size: 8, color: '#b91c1c' },
+                        });
+                    }
+
+                    if (crlbHistory) {
+                        const firstIdx = crlbHistory.findIndex((v) => v != null);
+                        if (firstIdx !== -1) {
+                            uncAnnotations.push({
+                                x: firstIdx, y: crlbHistory[firstIdx], xref: 'x', yref: 'y',
+                                text: 'CRLB', showarrow: false,
+                                xanchor: 'left', yanchor: 'top',
+                                font: { size: 8, color: '#9333ea' },
+                            });
+                        }
                     }
 
                     // Plotly's log-axis autorange only looks at trace *data* — it ignores
@@ -4220,16 +4265,23 @@ function main() {
                     // the threshold (and the CRLB overlay, if drawn) into an explicit range
                     // so both stay visible instead of relying on autorange.
                     let logRange = null;
-                    if (uncertaintyLogScale) {
-                        const positiveVals = uncHistory.filter((v) => v != null && v > 0);
-                        if (robustHistory) positiveVals.push(...robustHistory.filter((v) => v != null && v > 0));
-                        if (crlbHistory) positiveVals.push(...crlbHistory.filter((v) => v != null && v > 0));
-                        if (threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
-                        if (positiveVals.length > 0) {
-                            const lo = Math.log10(Math.min(...positiveVals));
-                            const hi = Math.log10(Math.max(...positiveVals));
-                            const pad = Math.max((hi - lo) * 0.08, 0.05);
-                            logRange = [lo - pad, hi + pad];
+                    if (logScale) {
+                        if (pdEntry.zoomRange) {
+                            // A manual drag-zoom is active for this chart — keep it across
+                            // step-scrubbing instead of snapping back to the full range
+                            // (see the plotly_relayout listener bound below).
+                            logRange = pdEntry.zoomRange;
+                        } else {
+                            const positiveVals = uncHistory.filter((v) => v != null && v > 0);
+                            if (robustHistory) positiveVals.push(...robustHistory.filter((v) => v != null && v > 0));
+                            if (crlbHistory) positiveVals.push(...crlbHistory.filter((v) => v != null && v > 0));
+                            if (threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
+                            if (positiveVals.length > 0) {
+                                const lo = Math.log10(Math.min(...positiveVals));
+                                const hi = Math.log10(Math.max(...positiveVals));
+                                const pad = Math.max((hi - lo) * 0.08, 0.05);
+                                logRange = [lo - pad, hi + pad];
+                            }
                         }
                     }
 
@@ -4241,15 +4293,34 @@ function main() {
                             tickfont: { size: 8 },
                             title: { text: 'Step', font: { size: 8 } }
                         },
-                        yaxis: uncertaintyLogScale
+                        yaxis: logScale
                             ? { visible: true, tickfont: { size: 8 }, type: 'log', range: logRange, autorange: logRange ? false : true }
                             : { visible: true, tickfont: { size: 8 }, rangemode: 'tozero' },
                         height: 180,
                         hovermode: false,
-                        shapes: uncShapes
+                        shapes: uncShapes,
+                        annotations: uncAnnotations,
                     };
 
                     Plotly.react(uncDiv, uncTraces, uncLayout, { responsive: true, displayModeBar: false });
+
+                    // Capture a manual drag-zoom (e.g. into the converged tail, to compare
+                    // against the threshold/CRLB) so the *next* step's Plotly.react call
+                    // above can re-apply it via pdEntry.zoomRange instead of the computed
+                    // logRange. Plotly's own uirevision doesn't help here since this chart
+                    // always supplies an explicit range/rangemode rather than autorange.
+                    if (!pdEntry.zoomBound) {
+                        pdEntry.zoomBound = true;
+                        uncDiv.on('plotly_relayout', (ev) => {
+                            if (ev['yaxis.range']) {
+                                pdEntry.zoomRange = ev['yaxis.range'].slice();
+                            } else if (ev['yaxis.range[0]'] !== undefined && ev['yaxis.range[1]'] !== undefined) {
+                                pdEntry.zoomRange = [ev['yaxis.range[0]'], ev['yaxis.range[1]']];
+                            } else if (ev['yaxis.autorange']) {
+                                pdEntry.zoomRange = null;
+                            }
+                        });
+                    }
                 }
             }
 
@@ -4345,17 +4416,19 @@ function main() {
         if (onReady) onReady(adapter);
     }
 
-    // Small "Log scale" checkbox used above the Convergence tab's uncertainty charts —
-    // late-run uncertainties are often 10-100x smaller than the initial value, which
-    // flattens them to invisibility on a linear axis. `onToggle` is called after the
-    // shared `uncertaintyLogScale` flag is flipped; the caller re-renders its plot(s).
-    function _logScaleToggle(onToggle) {
+    // Each tab (Posterior Evolution, Convergence, Fisher) keeps its *own* independent
+    // log-scale flag — this just builds the switch UI for whichever one the caller
+    // owns. `initialValue` seeds the switch's starting position; `onToggle(checked)`
+    // fires on change so the caller can update its own local flag and re-render only
+    // its own chart(s). Flipping one tab's switch deliberately does not touch any
+    // other tab's.
+    function _logScaleToggle(initialValue, onToggle) {
         const wrapper = document.createElement('label');
         wrapper.className = 'ios-switch';
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.checked = uncertaintyLogScale;
-        checkbox.addEventListener('change', onToggle);
+        checkbox.checked = initialValue;
+        checkbox.addEventListener('change', () => onToggle(checkbox.checked));
         const track = document.createElement('span');
         track.className = 'ios-switch-track';
         track.setAttribute('aria-hidden', 'true');
@@ -4368,7 +4441,22 @@ function main() {
         return wrapper;
     }
 
-    async function renderParameterConvergence(container, jsonPath, onReady, crlbJsonPath) {
+    // Vertical markers at every SMC resample+jitter step, shared by every chart that
+    // plots per-step uncertainty (Posterior Evolution's mini-charts and the
+    // Convergence tab's per-parameter cards) so a sharp uncertainty jump reads the
+    // same way everywhere: it lands *on* a resample (a decaying fraction of particles
+    // redrawn from the prior briefly dominates sigma), not before it.
+    function _resampleMarkerShapes(resampledSteps, yref) {
+        return Array.from(resampledSteps || []).map((s) => ({
+            type: 'line',
+            x0: s, x1: s,
+            y0: 0, y1: 1,
+            yref: yref || 'paper',
+            line: { color: 'rgba(249, 115, 22, 0.6)', width: 1.5, dash: 'dot' },
+        }));
+    }
+
+    async function renderParameterConvergence(container, jsonPath, onReady, crlbJsonPath, posteriorJsonPath) {
         container.innerHTML = '<div style="padding:1em;color:#64748b;text-align:center;">Loading…</div>';
 
         let data;
@@ -4392,6 +4480,16 @@ function main() {
                 const fd = await _fetchJson(crlbJsonPath);
                 if (fd && fd.schema === 'fisher_v1' && fd.steps) fisherData = fd;
             } catch (e) { /* CRLB overlay is optional — ignore load failures */ }
+        }
+
+        // Resample+jitter markers (optional — same posterior_v1 payload Posterior
+        // Evolution uses, so the two tabs agree on exactly which steps resampled).
+        let resampledSteps = null;
+        if (posteriorJsonPath) {
+            try {
+                const pd = await _fetchJson(posteriorJsonPath);
+                if (pd && pd.schema === 'posterior_v1' && pd.resampled_steps) resampledSteps = pd.resampled_steps;
+            } catch (e) { /* optional overlay — ignore load failures */ }
         }
 
         await ensurePlotly();
@@ -4444,19 +4542,30 @@ function main() {
                         type: 'scatter', x: xs, y: crlbVals,
                         mode: 'lines', name: `${param} CRLB`,
                         line: { color, width: 1.2, dash: 'dot' },
-                        showlegend: false,
+                        // Unlike the true-value/threshold reference traces above, CRLB
+                        // isn't self-explanatory from a dotted line alone — show it in
+                        // the legend so "what's the dotted line" doesn't need asking.
                     });
                 }
             }
         });
+
+        // Independent of the Posterior Evolution/Fisher tabs' own log-scale toggles.
+        let logScale = false;
+        // Manual drag-zoom tracking (Plotly's uirevision doesn't preserve it here
+        // either, since every step supplies its own explicit yaxis directive rather
+        // than pure autorange — see the fuller explanation in renderPosterior).
+        let zoomRange = null;
+        let zoomBound = false;
+        let lastScaleModeForZoom = logScale;
 
         function buildLayout() {
             return {
                 template: 'plotly_white',
                 margin: { l: 60, r: 20, t: 20, b: 50 },
                 xaxis: { title: 'Step' },
-                yaxis: uncertaintyLogScale
-                    ? { title: 'Uncertainty (log)', type: 'log', autorange: true }
+                yaxis: logScale
+                    ? { title: 'Uncertainty (log)', type: 'log', range: zoomRange, autorange: zoomRange ? false : true }
                     : { title: 'Uncertainty' },
                 legend: { orientation: 'h', y: -0.25 },
                 height: 320,
@@ -4464,17 +4573,22 @@ function main() {
         }
 
         container.innerHTML = '';
-        container.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; updateStep(lastStepIdx); }));
+        container.appendChild(_logScaleToggle(logScale, (v) => { logScale = v; updateStep(lastStepIdx); }));
         const plotDiv = document.createElement('div');
         container.appendChild(plotDiv);
 
         let lastStepIdx = 0;
         function updateStep(stepIdx) {
             lastStepIdx = stepIdx;
+            if (lastScaleModeForZoom !== logScale) {
+                lastScaleModeForZoom = logScale;
+                zoomRange = null;
+            }
             const activeStep = xs[Math.max(0, Math.min(stepIdx, xs.length - 1))];
             const updatedLayout = {
                 ...buildLayout(),
                 shapes: [
+                    ..._resampleMarkerShapes(resampledSteps),
                     {
                         type: 'line',
                         x0: activeStep,
@@ -4491,6 +4605,19 @@ function main() {
                 ]
             };
             Plotly.react(plotDiv, traces, updatedLayout, { responsive: true, displayModeBar: false });
+
+            if (!zoomBound) {
+                zoomBound = true;
+                plotDiv.on('plotly_relayout', (ev) => {
+                    if (ev['yaxis.range']) {
+                        zoomRange = ev['yaxis.range'].slice();
+                    } else if (ev['yaxis.range[0]'] !== undefined && ev['yaxis.range[1]'] !== undefined) {
+                        zoomRange = [ev['yaxis.range[0]'], ev['yaxis.range[1]']];
+                    } else if (ev['yaxis.autorange']) {
+                        zoomRange = null;
+                    }
+                });
+            }
         }
 
         updateStep(0);
@@ -4506,7 +4633,7 @@ function main() {
         if (onReady) onReady(adapter);
     }
 
-    async function renderConvergenceMetrics(container, jsonPath, onReady, crlbJsonPath) {
+    async function renderConvergenceMetrics(container, jsonPath, onReady, crlbJsonPath, posteriorJsonPath) {
         container.innerHTML = '<div style="padding:1em;color:#64748b;text-align:center;">Loading…</div>';
 
         let data;
@@ -4531,6 +4658,16 @@ function main() {
                 const fd = await _fetchJson(crlbJsonPath);
                 if (fd && fd.schema === 'fisher_v1' && fd.steps) fisherData = fd;
             } catch (e) { /* CRLB overlay is optional — ignore load failures */ }
+        }
+
+        // Resample+jitter markers (optional — same posterior_v1 payload Posterior
+        // Evolution uses, so both tabs mark exactly the same steps).
+        let resampledSteps = null;
+        if (posteriorJsonPath) {
+            try {
+                const pd = await _fetchJson(posteriorJsonPath);
+                if (pd && pd.schema === 'posterior_v1' && pd.resampled_steps) resampledSteps = pd.resampled_steps;
+            } catch (e) { /* optional overlay — ignore load failures */ }
         }
         if (!container.isConnected) return;
 
@@ -4567,7 +4704,9 @@ function main() {
         });
 
         container.innerHTML = '';
-        container.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; updateStep(lastStepIdx); }));
+        // Independent of the Posterior Evolution/Fisher tabs' own log-scale toggles.
+        let logScale = false;
+        container.appendChild(_logScaleToggle(logScale, (v) => { logScale = v; updateStep(lastStepIdx); }));
 
         // Build cards stack for parameters
         const paramPlotContexts = [];
@@ -4658,7 +4797,9 @@ function main() {
                 color,
                 convergedRanges,
                 isAbs,
-                bounds: param_bounds ? param_bounds[param] : null
+                bounds: param_bounds ? param_bounds[param] : null,
+                zoomRange: null,
+                zoomBound: false,
             });
         });
 
@@ -4689,14 +4830,25 @@ function main() {
         const streakHistory = steps.map(s => s.convergence_streak ?? 0);
 
         let lastStepIdx = 0;
+        // See the matching comment in renderPosterior: Plotly's uirevision doesn't
+        // preserve a manual drag-zoom here either, since every step supplies its own
+        // explicit range, so it's tracked by hand via zoomRange/zoomBound on each
+        // paramPlotContexts entry instead.
+        let lastScaleModeForZoom = logScale;
         function updateStep(stepIdx) {
             lastStepIdx = stepIdx;
             const idx = Math.max(0, Math.min(stepIdx, steps.length - 1));
             const activeStepVal = xs[idx];
             const patience = data.convergence_patience || 8;
 
+            if (lastScaleModeForZoom !== logScale) {
+                lastScaleModeForZoom = logScale;
+                paramPlotContexts.forEach((entry) => { entry.zoomRange = null; });
+            }
+
             // 1. Update individual parameter cards
-            paramPlotContexts.forEach(({ param, plotDiv, badgeSpan, vals, crlbVals, color, convergedRanges, isAbs, bounds }) => {
+            paramPlotContexts.forEach((ctx) => {
+                const { param, plotDiv, badgeSpan, vals, crlbVals, color, convergedRanges, isAbs, bounds } = ctx;
                 const isConvEnd = steps[steps.length - 1].converged_params[param];
                 const isConvCurrent = steps[idx].converged_params[param];
                 const streak = paramStreaks[param][idx];
@@ -4741,7 +4893,10 @@ function main() {
                     });
                 }
 
-                const shapes = [];
+                // Resample+jitter markers, drawn first so the converged-range shading
+                // and current-step line layer on top when they coincide — same
+                // convention as Posterior Evolution's mini-charts.
+                const shapes = [..._resampleMarkerShapes(resampledSteps)];
 
                 // Shaded green rects for converged ranges
                 convergedRanges.forEach(([start, end]) => {
@@ -4790,7 +4945,7 @@ function main() {
                         x1: xs[xs.length - 1],
                         y0: 1.0,
                         y1: 1.0,
-                        line: { color: 'rgba(100,100,100,0.3)', width: 1, dash: 'dash' }
+                        line: { color: 'rgba(100,100,100,0.65)', width: 1.2, dash: 'dash' }
                     });
                 }
 
@@ -4830,8 +4985,25 @@ function main() {
                         showarrow: false,
                         xanchor: 'right',
                         yanchor: 'bottom',
-                        font: { size: 9, color: 'rgba(100,100,100,0.6)' }
+                        font: { size: 9, color: 'rgba(71,85,105,0.85)' }
                     });
+                }
+
+                if (crlbVals) {
+                    const firstIdx = crlbVals.findIndex((v) => v != null);
+                    if (firstIdx !== -1) {
+                        annotations.push({
+                            x: xs[firstIdx],
+                            y: crlbVals[firstIdx],
+                            xref: 'x',
+                            yref: 'y',
+                            text: 'CRLB',
+                            showarrow: false,
+                            xanchor: 'left',
+                            yanchor: 'top',
+                            font: { size: 9, color: '#9333ea' }
+                        });
+                    }
                 }
 
                 // Add Plotly CONVERGED badge if converged at the active step
@@ -4863,21 +5035,59 @@ function main() {
                     });
                 }
 
-                const yTitle = `${isAbs ? 'Absolute' : 'Relative'} uncertainty${uncertaintyLogScale ? ' (log)' : ''}`;
+                // Plain autorange only looks at trace data, so — same fix as
+                // renderPosterior's mini-charts — fold the threshold and CRLB into an
+                // explicit range too, or they can silently fall outside the view (most
+                // easily seen on a run that hasn't converged yet, since then every
+                // plotted uncertainty sits above the threshold).
+                let logRange = null;
+                if (logScale) {
+                    if (ctx.zoomRange) {
+                        logRange = ctx.zoomRange;
+                    } else {
+                        const positiveVals = vals.filter((v) => v != null && v > 0);
+                        if (crlbVals) positiveVals.push(...crlbVals.filter((v) => v != null && v > 0));
+                        if (threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
+                        if (positiveVals.length > 0) {
+                            const lo = Math.log10(Math.min(...positiveVals));
+                            const hi = Math.log10(Math.max(...positiveVals));
+                            const pad = Math.max((hi - lo) * 0.08, 0.05);
+                            logRange = [lo - pad, hi + pad];
+                        }
+                    }
+                }
+
+                const yTitle = `${isAbs ? 'Absolute' : 'Relative'} uncertainty${logScale ? ' (log)' : ''}`;
                 const layout = {
                     template: 'plotly_white',
                     margin: { l: 45, r: 15, t: 15, b: 35 },
                     xaxis: { title: { text: 'Step', font: { size: 10 } }, tickfont: { size: 9 } },
-                    yaxis: uncertaintyLogScale
-                        ? { title: { text: yTitle, font: { size: 10 } }, tickfont: { size: 9 }, type: 'log', autorange: true }
+                    yaxis: logScale
+                        ? { title: { text: yTitle, font: { size: 10 } }, tickfont: { size: 9 }, type: 'log', range: logRange, autorange: logRange ? false : true }
                         : { title: { text: yTitle, font: { size: 10 } }, tickfont: { size: 9 }, range: [0, yMax], rangemode: 'tozero' },
                     height: 180,
                     hovermode: false,
                     shapes: shapes,
-                    annotations: annotations
+                    annotations: annotations,
                 };
 
                 Plotly.react(plotDiv, traces, layout, { responsive: true, displayModeBar: false });
+
+                // Capture a manual drag-zoom so the next step's Plotly.react call above
+                // re-applies it via ctx.zoomRange instead of the computed logRange (see
+                // the matching note in renderPosterior).
+                if (!ctx.zoomBound) {
+                    ctx.zoomBound = true;
+                    plotDiv.on('plotly_relayout', (ev) => {
+                        if (ev['yaxis.range']) {
+                            ctx.zoomRange = ev['yaxis.range'].slice();
+                        } else if (ev['yaxis.range[0]'] !== undefined && ev['yaxis.range[1]'] !== undefined) {
+                            ctx.zoomRange = [ev['yaxis.range[0]'], ev['yaxis.range[1]']];
+                        } else if (ev['yaxis.autorange']) {
+                            ctx.zoomRange = null;
+                        }
+                    });
+                }
             });
 
             // 2. Update Streak Plot
@@ -4992,10 +5202,17 @@ function main() {
         const xs = steps.map((_, i) => i);
         const COLORS = ['#1e90ff', '#e05c00', '#00a878', '#9b59b6', '#e74c3c', '#2ecc71', '#f39c12'];
 
+        // Independent of the Posterior Evolution/Convergence tabs' own log-scale
+        // toggles. Declared outside draw() (rather than inside renderFisher's top,
+        // which would re-fetch on every toggle) so it survives the toggle's redraw.
+        let logScale = false;
+        draw();
+
+        function draw() {
         // One subplot per parameter: CRLB (lower bound) vs actual uncertainty
         container.innerHTML = '';
         const outer = document.createElement('div');
-        outer.appendChild(_logScaleToggle(() => { uncertaintyLogScale = !uncertaintyLogScale; renderFisher(container, jsonPath); }));
+        outer.appendChild(_logScaleToggle(logScale, (v) => { logScale = v; draw(); }));
         const grid = document.createElement('div');
         grid.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;';
         outer.appendChild(grid);
@@ -5027,7 +5244,7 @@ function main() {
                 margin: { l: 55, r: 10, t: 28, b: 40 },
                 title: { text: param + unit + paramLetterSuffix(param), font: { size: 11 }, y: 0.96 },
                 xaxis: { title: { text: 'Step', font: { size: 10 } } },
-                yaxis: uncertaintyLogScale
+                yaxis: logScale
                     ? { title: { text: 'Uncertainty (log)', font: { size: 10 } }, type: 'log', autorange: true }
                     : { title: { text: 'Uncertainty', font: { size: 10 } }, rangemode: 'tozero' },
                 showlegend: ci === 0,
@@ -5039,6 +5256,7 @@ function main() {
             wrapper.style.cssText = 'flex:1; min-width:200px; max-width:420px;';
             grid.appendChild(wrapper);
             Plotly.react(wrapper, traces, layout, { displayModeBar: false, responsive: true });
+        }
         }
     }
 
@@ -5109,7 +5327,24 @@ function main() {
             const tipAttr = it.tip ? ' title="' + it.tip.replace(/"/g, '&quot;') + '"' : '';
             const icon = it.tip ? '<span class="help-icon" tabindex="0"' + tipAttr + '>?</span>' : '';
 
-            let valueHtml = '<div class="metric-value">' + it.val + '</div>';
+            let valueHtml;
+            if (Array.isArray(it.table)) {
+                valueHtml = '<table class="metric-mini-table"><thead><tr>' +
+                    it.table.map(c => '<th>' + escapeHtml(c.label) + '</th>').join('') +
+                    '</tr></thead><tbody><tr>' +
+                    it.table.map(c => '<td>' + c.val + '</td>').join('') +
+                    '</tr></tbody></table>';
+            } else if (it.table && Array.isArray(it.table.rows)) {
+                const cols = it.table.columns || [];
+                valueHtml = '<table class="metric-mini-table metric-mini-table-multirow"><thead><tr><th></th>' +
+                    cols.map(c => '<th>' + escapeHtml(c) + '</th>').join('') +
+                    '</tr></thead><tbody>' +
+                    it.table.rows.map(r => '<tr><th>' + escapeHtml(r.label) + '</th>' +
+                        r.vals.map(v => '<td>' + v + '</td>').join('') + '</tr>').join('') +
+                    '</tbody></table>';
+            } else {
+                valueHtml = '<div class="metric-value">' + it.val + '</div>';
+            }
 
             if (useSliders && it.bounds && typeof it.rawVal === 'number') {
                 const lo = it.bounds[0];

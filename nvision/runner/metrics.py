@@ -171,6 +171,17 @@ def generate_attempt_metrics(  # noqa: C901
             if val is not None:
                 theory_step_budget = int(val)
 
+    # All-converged milestone metrics -- error/uncertainty of the primary (split)
+    # parameter at all_converged_step, mirroring the fb-milestone fields above but
+    # keyed off the externally tracked step instead of re-detecting it (see
+    # calculate_all_converged_metrics docstring).
+    if run_result and all_converged_step is not None:
+        from nvision.metrics.milestones import calculate_all_converged_metrics
+
+        ac_metrics = calculate_all_converged_metrics(run_result, all_converged_step, fb_param=primary_param)
+        for k, v in ac_metrics.items():
+            metrics_serialized[k] = _maybe_finite(v)
+
     is_converged = False
     if not finalize_row.is_empty() and "converged" in finalize_row.columns:
         val = finalize_row.get_column("converged")[0]
@@ -324,6 +335,8 @@ def generate_attempt_metrics(  # noqa: C901
         "steps_to_fb": metrics_serialized.get("steps_to_fb"),
         "err_fb_at_milestone": metrics_serialized.get("err_fb_at_milestone"),
         "uncert_fb_at_milestone": metrics_serialized.get("uncert_fb_at_milestone"),
+        "err_fb_at_all_converged": metrics_serialized.get("err_fb_at_all_converged"),
+        "uncert_fb_at_all_converged": metrics_serialized.get("uncert_fb_at_all_converged"),
         "splitting_converged_step": splitting_converged_step,
         "all_converged_step": all_converged_step,
         "theory_step_budget": theory_step_budget,

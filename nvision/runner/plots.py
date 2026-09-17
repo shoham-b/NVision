@@ -339,10 +339,31 @@ def _compute_fisher_history(
     fisher_bounds_hist: list[dict[str, float]] = []
     cum_fim_normalized = np.zeros((n_params, n_params))
     for i, s in enumerate(bayesian_snapshots):
+        # bayesian_snapshots' beliefs are UnitCubeSMCMarginalDistribution, whose
+        # .model is always a UnitCubeSignalModel wrapper operating on [0, 1]
+        # particle-space parameters -- but estimates_hist[i] (belief.estimates())
+        # and s.obs.x are both physical (that's the whole point of the wrapper:
+        # everything outside the belief's own particles is physical). Unwrap to
+        # the inner physical model, which matches both directly; feeding physical
+        # values through the wrapper instead re-interprets them as [0, 1]
+        # fractions and rescales by the physical bound width *again* (e.g. a 1 MHz
+        # linewidth becomes ~1e13 Hz), so every gradient call raised out-of-bounds
+        # inside a broad except-and-return-None and the cumulative FIM silently
+        # stayed zero for the entire run.
+        model = s.belief.model
+        inner_model = getattr(model, "inner", model)
+        # estimates_hist[i] is belief.estimates()'s plain dict[str, float]; both
+        # inner_model.gradient() and the numerical_gradient_vector() fallback need
+        # the model's own typed params object instead (attribute access, not dict
+        # lookup) -- same conversion abstract_marginal.py's own fisher_information()
+        # and accumulate_fim() already do (for the non-unit-cube belief case).
+        typed_params = inner_model.spec.unpack_params(
+            [estimates_hist[i][name] for name in inner_model.parameter_names()]
+        )
         fim_i = fisher_information_matrix(
             x=s.obs.x,
-            model=s.belief.model,
-            parameters=estimates_hist[i],
+            model=inner_model,
+            parameters=typed_params,
             last_obs=s.obs,
             param_bounds=physical_bounds,
         )
@@ -1190,6 +1211,8 @@ def generate_attempt_plots(
                 "err_fb_at_milestone": scan_entry.get("err_fb_at_milestone"),
                 "err_fc_at_milestone": scan_entry.get("err_fc_at_milestone"),
                 "err_fc_diff": scan_entry.get("err_fc_diff"),
+                "err_fb_at_all_converged": scan_entry.get("err_fb_at_all_converged"),
+                "uncert_fb_at_all_converged": scan_entry.get("uncert_fb_at_all_converged"),
             }
 
         # true_params is now embedded in fig.layout.meta; keep here for backward compat

@@ -127,6 +127,38 @@ def extract_milestone_metrics(
     }
 
 
+def calculate_all_converged_metrics(
+    run_result: RunResult,
+    all_converged_step: int | None,
+    fb_param: str = "frequency",
+    fc_param: str | None = None,
+) -> dict[str, Any]:
+    """Error/uncertainty of the primary (fb) parameter at the all-converged milestone.
+
+    ``all_converged_step`` is tracked live by the locator (1-indexed measurement
+    count, see ``SequentialBayesianLocator._check_convergence_milestones``) rather
+    than re-detected here, since "all converged" depends on every tracked
+    parameter's uncertainty, not just ``fb_param`` -- unlike the fb milestone in
+    ``calculate_zeeman_metrics``, which re-derives its own step via
+    ``detect_milestone``.
+    """
+    if fc_param is None:
+        fc_param = default_fc_param(run_result)
+
+    step_idx = all_converged_step - 1 if all_converged_step is not None else -1
+    if step_idx < 0 or step_idx >= len(run_result.snapshots):
+        return {
+            "err_fb_at_all_converged": None,
+            "uncert_fb_at_all_converged": None,
+        }
+
+    ms = extract_milestone_metrics(run_result, step_idx, fb_param, fc_param)
+    return {
+        "err_fb_at_all_converged": ms["err_fb"],
+        "uncert_fb_at_all_converged": ms["uncert_fb"],
+    }
+
+
 def calculate_zeeman_metrics(
     run_result: RunResult,
     threshold: float = NVISION_CONVERGENCE_THRESHOLD,

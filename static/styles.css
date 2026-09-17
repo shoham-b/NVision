@@ -739,6 +739,33 @@ body {
             margin-bottom: 0.1em;
         }
 
+        .scan-metrics-panel .metric-mini-table {
+            border-collapse: collapse;
+            margin-top: 0.15em;
+            width: 100%;
+        }
+
+        .scan-metrics-panel .metric-mini-table th {
+            font-weight: 500;
+            color: #94a3b8;
+            font-size: 0.68em;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            text-align: left;
+            padding: 0 0.5em 0.1em 0;
+            white-space: nowrap;
+        }
+
+        .scan-metrics-panel .metric-mini-table td {
+            font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', monospace;
+            color: #5b21b6;
+            font-weight: 700;
+            font-size: 0.95em;
+            line-height: 1.1;
+            padding: 0 0.5em 0 0;
+            white-space: nowrap;
+        }
+
         .scan-metrics-panel.summary-grid {
             grid-template-columns: repeat(3, 1fr) !important;
             font-size: 0.85em;

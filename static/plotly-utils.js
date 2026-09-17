@@ -188,29 +188,32 @@ function _depthPct(y, baseline) {
 // Where a dense curve crosses `halfY`, walking outward from `iMin` (the dip's own index) in
 // direction `dir` (-1 left, +1 right). Linearly interpolated between the two straddling
 // samples; falls back to the last finite sample if the curve never rises back to halfY.
-function _halfDepthCrossing(xs, ys, iMin, halfY, dir) {
+function _halfDepthCrossing(xs, ys, iMin, halfY, dir, iLoBound, iHiBound) {
+    const lo = iLoBound == null ? 0 : iLoBound;
+    const hi = iHiBound == null ? xs.length - 1 : iHiBound;
     let i = iMin;
     let j = i + dir;
-    while (j >= 0 && j < xs.length && ys[j] != null && Number.isFinite(ys[j]) && ys[j] <= halfY) {
+    while (j >= lo && j <= hi && ys[j] != null && Number.isFinite(ys[j]) && ys[j] <= halfY) {
         i = j;
         j += dir;
     }
-    if (j < 0 || j >= xs.length || ys[j] == null || !Number.isFinite(ys[j])) return xs[i];
+    if (j < lo || j > hi || ys[j] == null || !Number.isFinite(ys[j])) return xs[i];
     const y0 = ys[i], y1 = ys[j];
     const t = y1 === y0 ? 0 : (halfY - y0) / (y1 - y0);
     return xs[i] + t * (xs[j] - xs[i]);
 }
 
-// Locates the deepest dip in a dense curve and measures it geometrically — full width at
-// half depth, and fractional depth below baseline — so the plot can label what "width" and
-// "contrast" mean using only the rendered curve itself. This deliberately reads no model
-// parameters (c_total, linewidth, ...): those differ by lineshape (Lorentzian vs. Voigt vs.
-// Saturation-Voigt, hyperfine or not), while "how wide/deep is the dip you're looking at"
-// is the same measurement for all of them.
-function _findDeepestDip(xs, ys, baseline) {
+// Locates the deepest dip within index range [iLo, iHi] of a dense curve and measures it
+// geometrically — full width at half depth, and fractional depth below baseline — so the
+// plot can label what "width" and "contrast" mean using only the rendered curve itself.
+// This deliberately reads no model parameters (c_total, linewidth, ...): those differ by
+// lineshape (Lorentzian vs. Voigt vs. Saturation-Voigt, hyperfine or not), while "how
+// wide/deep is the dip you're looking at" is the same measurement for all of them. Bounding
+// to [iLo, iHi] keeps the half-depth walk from crossing into a neighboring dip.
+function _findDip(xs, ys, baseline, iLo, iHi) {
     let iMin = -1;
     let yMin = Infinity;
-    for (let i = 0; i < ys.length; i++) {
+    for (let i = iLo; i <= iHi; i++) {
         const y = ys[i];
         if (y != null && Number.isFinite(y) && y < yMin) { yMin = y; iMin = i; }
     }
@@ -218,10 +221,89 @@ function _findDeepestDip(xs, ys, baseline) {
     const depth = baseline - yMin;
     if (depth <= 0 || depth / baseline < 0.05) return null; // too shallow to bother annotating
     const halfY = baseline - depth / 2;
-    const xLeft = _halfDepthCrossing(xs, ys, iMin, halfY, -1);
-    const xRight = _halfDepthCrossing(xs, ys, iMin, halfY, 1);
+    const xLeft = _halfDepthCrossing(xs, ys, iMin, halfY, -1, iLo, iHi);
+    const xRight = _halfDepthCrossing(xs, ys, iMin, halfY, 1, iLo, iHi);
     if (!(xRight > xLeft)) return null;
-    return { xMin: xs[iMin], yMin, xLeft, xRight, fwhm: xRight - xLeft, depthPct: (depth / baseline) * 100 };
+    return { xMin: xs[iMin], yMin, xLeft, xRight, fwhm: xRight - xLeft, depthPct: (depth / baseline) * 100, iLo, iHi };
+}
+
+// Indices of interior local minima of ys (y[i] <= both neighbors, strictly less than at
+// least one, so flat runs only yield their first sample). Used to find every dip in a
+// possibly-split spectrum (e.g. Voigt+Zeeman, two resolved groups) rather than only the
+// single globally-deepest point.
+function _localMinimaIndices(ys) {
+    const idx = [];
+    for (let i = 1; i < ys.length - 1; i++) {
+        const y = ys[i], yPrev = ys[i - 1], yNext = ys[i + 1];
+        if (y == null || !Number.isFinite(y) || yPrev == null || !Number.isFinite(yPrev) ||
+            yNext == null || !Number.isFinite(yNext)) continue;
+        if (y <= yPrev && y <= yNext && (y < yPrev || y < yNext)) idx.push(i);
+    }
+    return idx;
+}
+
+// Up to `maxDips` most prominent dips in a dense curve, each measured geometrically (see
+// _findDip) — so a resolved split spectrum (e.g. two Zeeman groups) gets a width/contrast
+// readout per dip instead of only the single deepest one. Candidate dip centers come from
+// every local minimum, ranked by depth; a candidate within `minSeparationFrac` of the
+// curve's x-span from an already-picked one is skipped as almost certainly the same dip
+// (numerical plateau) rather than a second, resolved feature. Returned left-to-right.
+function _findDips(xs, ys, baseline, maxDips) {
+    maxDips = maxDips || 2;
+    let candidates = _localMinimaIndices(ys);
+    if (!candidates.length) {
+        let iMin = -1, yMin = Infinity;
+        for (let i = 0; i < ys.length; i++) {
+            const y = ys[i];
+            if (y != null && Number.isFinite(y) && y < yMin) { yMin = y; iMin = i; }
+        }
+        if (iMin >= 0) candidates = [iMin];
+    }
+    if (!candidates.length) return [];
+    candidates.sort((a, b) => ys[a] - ys[b]); // deepest first
+    const xSpan = xs[xs.length - 1] - xs[0];
+    const minSep = Math.abs(xSpan) * 0.03;
+    const picked = [];
+    for (const i of candidates) {
+        if (picked.length >= maxDips) break;
+        if (picked.some((j) => Math.abs(xs[j] - xs[i]) < minSep)) continue;
+        picked.push(i);
+    }
+    picked.sort((a, b) => xs[a] - xs[b]); // left to right
+    // Bound each dip's half-depth walk at the midpoint with its picked neighbor(s) so
+    // resolved-but-close dips don't measure into each other.
+    const dips = [];
+    for (let k = 0; k < picked.length; k++) {
+        let iLo = 0, iHi = xs.length - 1;
+        if (k > 0) {
+            const mid = (xs[picked[k - 1]] + xs[picked[k]]) / 2;
+            while (iLo < xs.length && xs[iLo] < mid) iLo++;
+        }
+        if (k < picked.length - 1) {
+            const mid = (xs[picked[k]] + xs[picked[k + 1]]) / 2;
+            iHi = iLo;
+            while (iHi < xs.length && xs[iHi] <= mid) iHi++;
+            iHi = Math.max(iHi - 1, iLo);
+        }
+        const dip = _findDip(xs, ys, baseline, iLo, iHi);
+        if (dip) dips.push(dip);
+    }
+    return dips;
+}
+
+// Names whichever model parameter a geometric width/contrast reading is standing in for
+// (e.g. 'linewidth' for a plain Lorentzian, 'fwhm_total' for a plain Voigt,
+// 'homogeneous_linewidth' for a Voigt+Zeeman split, which samples that instead of
+// fwhm_total directly), so the annotation's bracketed letter matches the same symbol used
+// in the signal-equation panel (see PARAM_LETTERS / paramLetter in format-utils.js) —
+// picked by which key is actually present on this combo's true params rather than by
+// parsing the generator name.
+function _paramLetterFor(trueParams, candidates) {
+    if (!trueParams) return '';
+    for (const key of candidates) {
+        if (Number.isFinite(trueParams[key])) return paramLetterSuffix(key);
+    }
+    return '';
 }
 
 // A locator that revisits the same discrete frequency bin (e.g. matlab-run cycling
@@ -507,42 +589,87 @@ function _buildScanFigure(def, data) {
     }
 
     // Mark what "width" and "contrast" mean on the actual curve: half-depth crossings and
-    // baseline-to-trough drop of the most prominent dip, measured from the rendered curve
-    // itself (see _findDeepestDip) rather than any model's internal parameters.
+    // baseline-to-trough drop of the most prominent dip(s), measured from the rendered
+    // curve itself (see _findDip/_findDips) rather than any model's internal parameters —
+    // except the bracketed letter suffix, which names whichever model parameter that
+    // geometric reading stands in for (see _paramLetterFor), so it reads with the same
+    // symbol as the signal-equation panel. Up to 2 resolved dips are found by local minima
+    // (see _findDips), so a split spectrum (e.g. Voigt+Zeeman) gets one readout per dip
+    // instead of just the deepest. Measured primarily on the true/real signal
+    // (data.y_dense) — real data (data.y_dense all-NaN) has nothing to measure here — and,
+    // when the locator's belief/mode curve (data.y_dense_mode) is present, the same
+    // geometric reading is taken over that curve's own dip within the real dip's window
+    // and shown alongside it, real vs. fit, color-matched to each curve (see T.true_signal
+    // / T.mode_signal) so the two numbers read as a direct comparison rather than a second,
+    // unrelated measurement.
     if (_hasFiniteValues(data.y_dense) && data.x_dense && data.x_dense.length === data.y_dense.length) {
-        const dip = _findDeepestDip(data.x_dense, data.y_dense, baseline);
-        if (dip) {
-            const ws = def.width_style || {};
-            const csty = def.contrast_style || {};
-            const widthColor = ws.line_color || 'rgba(8, 145, 178, 0.85)';
-            const contrastColor = csty.line_color || 'rgba(220, 38, 38, 0.85)';
+        const tp = data.true_params && data.true_params.params;
+        const widthLetter = _paramLetterFor(tp, ['fwhm_total', 'linewidth', 'homogeneous_linewidth']);
+        const contrastLetter = _paramLetterFor(tp, ['c_total', 'dip_depth']);
+        const dips = _findDips(data.x_dense, data.y_dense, baseline, 2);
+        const realColor = (T.true_signal && T.true_signal.line && T.true_signal.line.color) || 'blue';
+        const fitColor = (T.mode_signal && T.mode_signal.line && T.mode_signal.line.color) || '#d62728';
+        const hasFit = data.y_dense_mode && data.y_dense_mode.length === data.y_dense.length;
+        dips.forEach((dip) => {
+            const fitDip = hasFit ? _findDip(data.x_dense, data.y_dense_mode, baseline, dip.iLo, dip.iHi) : null;
+
             shapes.push({
                 type: 'line', xref: 'x', yref: 'y',
                 x0: dip.xLeft, x1: dip.xRight, y0: dip.yMin, y1: dip.yMin,
-                line: { width: 1.5, color: widthColor, dash: 'dot' },
+                line: { width: 1.5, color: realColor, dash: 'dot' },
                 layer: 'above',
             });
+            const widthText = fitDip
+                ? `↔ width${widthLetter}: <span style="color:${realColor}">real ≈ ${formatHzValue('linewidth', dip.fwhm)}</span> vs ` +
+                  `<span style="color:${fitColor}">fit ≈ ${formatHzValue('linewidth', fitDip.fwhm)}</span>`
+                : `↔ width${widthLetter} ≈ ${formatHzValue('linewidth', dip.fwhm)}`;
             extraAnnotations.push({
-                text: `↔ width ≈ ${formatHzValue('linewidth', dip.fwhm)}`,
+                text: widthText,
                 x: (dip.xLeft + dip.xRight) / 2, xref: 'x',
-                y: dip.yMin, yref: 'y', yanchor: 'top', xanchor: 'center', yshift: -4,
-                showarrow: false, font: { size: 11, color: widthColor },
+                y: Math.min(dip.yMin, fitDip ? fitDip.yMin : dip.yMin), yref: 'y',
+                yanchor: 'top', xanchor: 'center', yshift: -4,
+                showarrow: false, font: { size: 11, color: realColor },
                 bgcolor: 'rgba(255,255,255,0.75)',
             });
+
             shapes.push({
                 type: 'line', xref: 'x', yref: 'y',
                 x0: dip.xMin, x1: dip.xMin, y0: dip.yMin, y1: baseline,
-                line: { width: 1.5, color: contrastColor, dash: 'dot' },
+                line: { width: 1.5, color: realColor, dash: 'dot' },
                 layer: 'above',
             });
+            const contrastText = fitDip
+                ? `↕ contrast${contrastLetter}: <span style="color:${realColor}">real ≈ ${dip.depthPct.toFixed(1)}%</span> vs ` +
+                  `<span style="color:${fitColor}">fit ≈ ${fitDip.depthPct.toFixed(1)}%</span>`
+                : `↕ contrast${contrastLetter} ≈ ${dip.depthPct.toFixed(1)}%`;
             extraAnnotations.push({
-                text: `↕ contrast ≈ ${dip.depthPct.toFixed(1)}%`,
+                text: contrastText,
                 x: dip.xMin, xref: 'x',
-                y: (dip.yMin + baseline) / 2, yref: 'y', yanchor: 'middle', xanchor: 'left', xshift: 8,
-                showarrow: false, font: { size: 11, color: contrastColor },
+                y: (Math.min(dip.yMin, fitDip ? fitDip.yMin : dip.yMin) + baseline) / 2, yref: 'y',
+                yanchor: 'middle', xanchor: 'left', xshift: 8,
+                showarrow: false, font: { size: 11, color: realColor },
                 bgcolor: 'rgba(255,255,255,0.75)',
             });
-        }
+
+            if (fitDip) {
+                // Fit's own dip geometry drawn dashed (matching the mode curve's own line
+                // dash) and offset a touch from the real markers so the two sit side by
+                // side on the chart rather than one hiding the other.
+                const xOff = (dip.xRight - dip.xLeft) * 0.08;
+                shapes.push({
+                    type: 'line', xref: 'x', yref: 'y',
+                    x0: fitDip.xLeft, x1: fitDip.xRight, y0: fitDip.yMin, y1: fitDip.yMin,
+                    line: { width: 1.5, color: fitColor, dash: 'dash' },
+                    layer: 'above',
+                });
+                shapes.push({
+                    type: 'line', xref: 'x', yref: 'y',
+                    x0: fitDip.xMin + xOff, x1: fitDip.xMin + xOff, y0: fitDip.yMin, y1: baseline,
+                    line: { width: 1.5, color: fitColor, dash: 'dash' },
+                    layer: 'above',
+                });
+            }
+        });
     }
 
     if (shapes.length) baseLayout.shapes = shapes;

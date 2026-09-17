@@ -10,8 +10,8 @@ Beta testing (isolated from demo artifacts, uses port 18082):
     uv run python -m nvision beta              # Run beta_artifacts on dedicated port
     uv run python -m nvision beta --no-cache   # Fresh beta run
 
-To run all NV center generators (slower):
-    uv run python -m nvision demo --filter-generator"""
+Both accept --run-group to choose what actually runs (there is no "demo" group;
+see `nv groups` for the list)."""
 
 from __future__ import annotations
 
@@ -77,11 +77,20 @@ def demo(
         Path | None,
         typer.Option("--out", help="Output directory for demo artifacts (default: demo_artifacts)"),
     ] = Path(cli_defaults.DEMO_OUT) if cli_defaults.DEMO_OUT else None,
+    run_group: Annotated[
+        str,
+        typer.Option("--run-group", help="Run group to execute (see `nv groups`)"),
+    ] = cli_defaults.DEMO_RUN_GROUP,
 ) -> int:
     """Quick demo to validate improvements - fast, focused, visual.
 
-    Runs the built-in ``demo`` run group with reduced repeats/steps for quick
-    feedback. Ideal for testing code changes before full benchmark runs.
+    Runs a run group with reduced repeats/steps for quick feedback. Ideal for
+    testing code changes before full benchmark runs.
+
+    ``loc_max_steps``/``sweep_max_steps`` are applied by lowering the locator step
+    budgets in :mod:`nvision.sim.defaults` before the run resolves its strategies
+    -- ``run()`` takes no step arguments of its own, and passing them to it was
+    what made this command fail outright with a TypeError.
     """
     demo_artifacts_root = out if out is not None else PROJECT_ROOT / "demo_artifacts"
     demo_logs_root = Path(cli_defaults.DEMO_LOGS_ROOT) if cli_defaults.DEMO_LOGS_ROOT else demo_artifacts_root / "logs"
@@ -97,13 +106,19 @@ def demo(
 
     start_time = time.time()
 
+    # Step budgets are module-level config read when strategies are resolved, not
+    # run() arguments -- see the docstring. Set before run() so every locator the
+    # group builds picks up the reduced budget.
+    import nvision.sim.defaults as sim_defaults
+
+    sim_defaults.NVISION_SBED_MAX_STEPS = loc_max_steps
+    sim_defaults.NVISION_SWEEP_MAX_STEPS = loc_max_steps
+
     result = run(
         out=demo_artifacts_root,
         repeats=repeats,
-        loc_max_steps=loc_max_steps,
-        sweep_max_steps=loc_max_steps,
         loc_timeout_s=cli_defaults.DEMO_LOC_TIMEOUT_S,
-        run_group="demo",
+        run_group=run_group,
         no_cache=no_cache,
         runners=runners,
         logs_root=demo_logs_root,
@@ -198,6 +213,10 @@ def beta(
         Path | None,
         typer.Option("--out", help="Output directory for beta artifacts (default: beta_artifacts)"),
     ] = Path(cli_defaults.BETA_OUT) if cli_defaults.BETA_OUT else None,
+    run_group: Annotated[
+        str,
+        typer.Option("--run-group", help="Run group to execute (see `nv groups`)"),
+    ] = cli_defaults.DEMO_RUN_GROUP,
 ) -> int:
     """Beta testing command - runs like demo but uses beta_artifacts by default.
 
@@ -212,6 +231,7 @@ def beta(
         open_browser=open_browser,
         runners=runners,
         out=out if out is not None else PROJECT_ROOT / "beta_artifacts",
+        run_group=run_group,
     )
 
 

@@ -4,62 +4,234 @@
     {
       "name": "nvision-serve-18080",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18080"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18080"
+      ],
       "port": 18080
     },
     {
       "name": "nvision-serve",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18082"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18082"
+      ],
       "port": 18082
     },
     {
       "name": "nvision-serve-midrun",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18083", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\021b041a-8901-4f87-8036-d21f063ff04a\\scratchpad\\midrun_check"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18083",
+        "--dir",
+        "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\021b041a-8901-4f87-8036-d21f063ff04a\\scratchpad\\midrun_check"
+      ],
       "port": 18083
     },
     {
       "name": "nvision-serve-verify",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18084", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\7a07601d-f9dd-4669-b900-99af84e3f67e\\scratchpad\\verify_serve_dir"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18084",
+        "--dir",
+        "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\7a07601d-f9dd-4669-b900-99af84e3f67e\\scratchpad\\verify_serve_dir"
+      ],
       "port": 18084
     },
     {
       "name": "nvision-serve-nan-repro",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18085", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\3be03e73-8b7c-4ece-b60c-fae0709f7bb0\\scratchpad\\repro_artifacts"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18085",
+        "--dir",
+        "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\3be03e73-8b7c-4ece-b60c-fae0709f7bb0\\scratchpad\\repro_artifacts"
+      ],
       "port": 18085
     },
     {
       "name": "nvision-serve-matlab",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18086", "--dir", "artifacts/matlab"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18086",
+        "--dir",
+        "artifacts/matlab"
+      ],
       "port": 18086
     },
     {
       "name": "nvision-serve-matlab-flip",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18087", "--dir", "artifacts/matlab"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18087",
+        "--dir",
+        "artifacts/matlab"
+      ],
       "port": 18087
     },
     {
       "name": "nvision-serve-timeline-check",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18098", "--dir", "artifacts/matlab"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18098",
+        "--dir",
+        "artifacts/matlab"
+      ],
       "port": 18098
     },
     {
       "name": "nvision-serve-main-own",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18096"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18096"
+      ],
       "port": 18096
     },
     {
       "name": "nvision-serve-dip-annotation",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--no-sync", "nvision", "serve", "--no-open", "--port", "18100", "--dir", "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\679434cb-7cf8-4244-bc34-6c0a8f8e7dec\\scratchpad\\verify_dip"],
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18100",
+        "--dir",
+        "C:\\Users\\shoha\\AppData\\Local\\Temp\\claude\\C--Users-shoha-git-NVision\\679434cb-7cf8-4244-bc34-6c0a8f8e7dec\\scratchpad\\verify_dip"
+      ],
       "port": 18100
+    },
+    {
+      "name": "nvision-serve-matlab-freq-stats-verify",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18101",
+        "--dir",
+        "artifacts/matlab_ESR_20251112_134403"
+      ],
+      "port": 18101
+    },
+    {
+      "name": "nvision-serve-main-own-2",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18102"
+      ],
+      "port": 18102
+    },
+    {
+      "name": "nvision-serve-verify-mini-table",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18110",
+        "--dir",
+        "artifacts"
+      ],
+      "port": 18110
+    },
+    {
+      "name": "nvision-serve-beta",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18082",
+        "--dir",
+        "beta_artifacts"
+      ],
+      "port": 18082
+    },
+    {
+      "name": "nvision-serve-beta-fisher-verify",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18111",
+        "--dir",
+        "beta_artifacts"
+      ],
+      "port": 18111
     }
   ]
 }

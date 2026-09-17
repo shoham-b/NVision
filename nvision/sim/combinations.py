@@ -18,6 +18,7 @@ from nvision.belief.smc_marginal import (
 )
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
+from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
@@ -173,7 +174,7 @@ class CombinationGrid:
                 "Bayesian-SBED",
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
-                    "config": {"max_steps": 200, **nv_smc_config},
+                    "config": {"max_steps": sim_defaults.NVISION_SBED_MAX_STEPS, **nv_smc_config},
                 },
             ),
             (

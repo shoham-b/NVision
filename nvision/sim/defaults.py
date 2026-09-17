@@ -65,6 +65,12 @@ NVISION_SWEEP_COVERAGE_FACTOR: float = float(os.getenv("NVISION_SWEEP_COVERAGE_F
 NVISION_SWEEP_MIN_STEPS: int = int(os.getenv("NVISION_SWEEP_MIN_STEPS", "50"))
 NVISION_SWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SWEEP_MAX_STEPS", "500"))
 
+# Step budget for the Bayesian-SBED locator (nvision/sim/combinations.py).
+# Read through the module (``sim_defaults.NVISION_SBED_MAX_STEPS``) rather than
+# from-imported, so callers that want a cheaper run -- `nv demo`/`nv beta` -- can
+# lower it at runtime the same way `nv run` already overrides the noise grid.
+NVISION_SBED_MAX_STEPS: int = int(os.getenv("NVISION_SBED_MAX_STEPS", "200"))
+
 # --- Noise Preset Defaults (presets.py) --------------------------------------
 
 NVISION_NOISE_GAUSS: float = float(os.getenv("NVISION_NOISE_GAUSS", "0.01"))
