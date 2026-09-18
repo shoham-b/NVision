@@ -34,7 +34,7 @@ from nvision.sim.grid_enums import GeneratorName, NoiseName
 from nvision.tools.artifacts import (
     merge_locator_results_with_existing,
     prepare_artifact_tree,
-    write_locator_results_csv,
+    write_locator_results,
     write_run_status,
 )
 from nvision.tools.log_context import CombinationLogFilter
@@ -212,6 +212,50 @@ def _split_oversized_tasks(tasks: list[LocatorTask], runners: int, min_chunk: in
     return split
 
 
+def _maybe_archive_combo(task: LocatorTask, cache_bridge: CacheBridge | None, log: logging.Logger) -> None:
+    """Best-effort: move a finished combination to its Parquet archive.
+
+    See ``nvision/cache/parquet_archive.py`` -- once a combination reaches its full
+    repeat target it stops being written to, so its SQLite rows are pure dead weight
+    in a live, point-access store; archiving is transparent to every read path above
+    ``CategoryDataStore``, so this never changes what the results UI or a later resumed
+    run sees. Never raises: archiving is a disk-space optimization, never allowed to
+    break a run. Callers must only invoke this once ALL of a combination's sub-tasks
+    (see ``_split_oversized_tasks``) are confirmed done, not from within a single
+    sub-task's own completion -- a sibling sub-task could still be writing to the same
+    combination.
+    """
+    if task.dry_run or not task.use_cache:
+        return
+    bridge = cache_bridge
+    owns_bridge = False
+    try:
+        if bridge is None:
+            if not task.cache_dir:
+                return
+            bridge = CacheBridge(task.cache_dir, shard_suffix=task.shard_index)
+            owns_bridge = True
+        from nvision.sim.combinations import CombinationGrid
+
+        category = CombinationGrid.generator_category(task.generator_name)
+        repo = bridge.get_cache_for_category(category)
+        repo.archive_if_complete(
+            generator=task.generator_name,
+            noise=task.noise_name,
+            strategy=task.strategy_name,
+            seed=task.seed,
+            max_steps=task.loc_max_steps,
+            timeout_s=task.loc_timeout_s,
+            target_repeats=task.repeat_total or task.repeats,
+            log=log,
+        )
+    except Exception:
+        log.debug("Post-completion archive check failed for %s (non-fatal)", task.slug, exc_info=True)
+    finally:
+        if owns_bridge and bridge is not None:
+            bridge.close()
+
+
 def _harvest_partial_results_from_cache(
     tasks: list[LocatorTask],
     cache_bridge: CacheBridge | None,
@@ -350,6 +394,17 @@ def _run_tasks_process_pool(
         )
     total_count = len(pending_tasks)
 
+    # Track per-combination sub-task completion so a combination can be moved to its
+    # Parquet archive (see _maybe_archive_combo) the moment ALL of its sub-tasks are
+    # confirmed done -- never from a single sub-task's own completion, which would race
+    # against siblings still writing to the same combination. Built once from the full
+    # post-split task list so it stays correct across MemoryError retry passes below
+    # (retried sub-tasks keep their original task_id and re-enter this same tracking).
+    archive_progress: dict[Any, dict[str, Any]] = {}
+    for t in pending_tasks:
+        entry = archive_progress.setdefault(t.task_id, {"expected": 0, "completed": 0, "failed": False})
+        entry["expected"] += 1
+
     while pending_tasks and current_runners > 0:
         # Recomputed each pass: `current_runners` shrinks on retry, and the surviving
         # workers should pick up the freed cores as threads rather than leave them idle.
@@ -402,6 +457,8 @@ def _run_tasks_process_pool(
                     return plot_manifest, df_rows, errors, completed_count, True
 
                 locator_task = future_to_task[future]
+                _sub_task_done = True
+                _sub_task_failed = False
                 try:
                     results_for_task = future.result()
                     # Progress is now handled by workers via the shared queue;
@@ -411,7 +468,7 @@ def _run_tasks_process_pool(
                         df_rows.append(main_result_row)
                 except concurrent.futures.CancelledError:
                     # Expected during shutdown - don't log as error
-                    pass
+                    _sub_task_failed = True
                 except KeyboardInterrupt:
                     raise  # Let outer handler deal with Ctrl+C
                 except MemoryError:
@@ -423,6 +480,7 @@ def _run_tasks_process_pool(
                             max(min_runners, current_runners - 1),
                         )
                         retry_tasks.append(locator_task)
+                        _sub_task_done = False
                     else:
                         log.error(
                             "MemoryError in task %s at minimum runner count (%s); failing permanently",
@@ -434,6 +492,7 @@ def _run_tasks_process_pool(
                                 f"Task {locator_task.slug} failed with memory exhaustion at {current_runners} runner(s)"
                             )
                         )
+                        _sub_task_failed = True
                 except Exception as exc:
                     # Log clean error to console (via monitor), full traceback to file only
                     log.error(
@@ -447,6 +506,7 @@ def _run_tasks_process_pool(
                         exc_info=True,
                     )
                     errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
+                    _sub_task_failed = True
                     if len(errors) > 5:
                         log.error("Too many errors (>5), terminating...")
                         for pending_future in future_to_task:
@@ -458,6 +518,15 @@ def _run_tasks_process_pool(
                 finally:
                     completed_count += 1
                     _update_status("running")
+
+                if _sub_task_done:
+                    entry = archive_progress.get(locator_task.task_id)
+                    if entry is not None:
+                        entry["completed"] += 1
+                        if _sub_task_failed:
+                            entry["failed"] = True
+                        if entry["completed"] >= entry["expected"] and not entry["failed"] and not interrupted:
+                            _maybe_archive_combo(locator_task, cache_bridge, log)
 
                 if interrupted:
                     break
@@ -1204,6 +1273,11 @@ def run(  # noqa: C901
                             for entries, main_result_row in results_for_task:
                                 plot_manifest.extend(entries)
                                 df_rows.append(main_result_row)
+                            # Single-runner mode never splits tasks (_split_oversized_tasks
+                            # is only called in the multi-runner pool path below), so each
+                            # task here already represents a whole combination -- safe to
+                            # archive-check right after its own success.
+                            _maybe_archive_combo(locator_task, cache_bridge, log)
                         except Exception as exc:
                             # Log clean error to console (via monitor), full traceback to file only
                             log.error(
@@ -1291,7 +1365,7 @@ def run(  # noqa: C901
 
     df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
     df_loc = merge_locator_results_with_existing(df_loc, out_dir, log)
-    out_path = write_locator_results_csv(df_loc, out_dir)
+    out_path = write_locator_results(df_loc, out_dir)
     log.info(f"Wrote locator results to: {out_path}")
 
     # No summary plots or plots_manifest.json are written anymore: `nv serve`'s

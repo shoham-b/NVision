@@ -58,7 +58,7 @@ repeats that landed after the manifest was built — you need to invalidate it f
 - Equivalently: `curl -X POST http://localhost:PORT/api/reload`, then reload the tab yourself.
 
 No `nv render` step is needed for the UI at all anymore — `nv render` still exists but now only
-writes `locator_results.csv`; it's unrelated to what `nv serve` shows.
+writes `locator_results.parquet`; it's unrelated to what `nv serve` shows.
 
 ## 3. Two things that look like bugs but are just scale
 

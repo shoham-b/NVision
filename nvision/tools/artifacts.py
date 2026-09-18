@@ -13,13 +13,35 @@ import polars as pl
 
 from nvision.tools.paths import ensure_out_dir
 
-LOCATOR_RESULTS_CSV = "locator_results.csv"
+LOCATOR_RESULTS_PARQUET = "locator_results.parquet"
+LOCATOR_RESULTS_CSV = "locator_results.csv"  # legacy format, still readable
 PLOTS_MANIFEST_JSON = "plots_manifest.json"
 RUN_STATUS_JSON = "run_status.json"
 
 
 def locator_results_path(out_dir: Path) -> Path:
-    return out_dir / LOCATOR_RESULTS_CSV
+    """Resolve the on-disk locator-results file, preferring Parquet.
+
+    Parquet's columnar compression runs ~4-5x smaller than the equivalent CSV for
+    this schema (mostly floats/enums), so it's the format new writes use. Falls
+    back to a legacy ``locator_results.csv`` when only that exists (an artifact
+    dir that predates the switch) so reads keep working until the next
+    ``nv render``/``nv run``/``nv groups`` rewrites it as Parquet.
+    """
+    parquet_path = out_dir / LOCATOR_RESULTS_PARQUET
+    if parquet_path.exists():
+        return parquet_path
+    legacy_csv = out_dir / LOCATOR_RESULTS_CSV
+    if legacy_csv.exists():
+        return legacy_csv
+    return parquet_path
+
+
+def read_locator_results(path: Path) -> pl.DataFrame:
+    """Read a locator-results file, dispatching on extension (Parquet or legacy CSV)."""
+    if path.suffix == ".parquet":
+        return pl.read_parquet(path)
+    return pl.read_csv(path, infer_schema_length=None)
 
 
 def plots_manifest_path(out_dir: Path) -> Path:
@@ -140,14 +162,14 @@ def merge_locator_results_with_existing(
         return df_loc
     if len(df_loc) == 0:
         try:
-            return pl.read_csv(out_path)
+            return read_locator_results(out_path)
         except Exception as e:
-            log.warning("Could not load existing locator_results.csv: %s", e)
+            log.warning("Could not load existing locator_results file: %s", e)
             return df_loc
     # Always merge to ensure we discard all old repeats/attempts for the updated
     # combinations while fully preserving other combinations on disk.
     try:
-        old_df = pl.read_csv(out_path)
+        old_df = read_locator_results(out_path)
 
         # Purge any old rows for the exact combinations being updated to prevent persisting old/different repeats
         if "generator" in df_loc.columns and "noise" in df_loc.columns and "strategy" in df_loc.columns:
@@ -242,13 +264,17 @@ def merge_locator_results_with_existing(
             merged = merged.with_columns(pl.col("repeats").max().over(group_cols))
         return merged
     except Exception as e:
-        log.warning("Could not merge with existing CSV (perhaps schema changed!): %s", e, exc_info=True)
+        log.warning("Could not merge with existing locator-results file (perhaps schema changed!): %s", e, exc_info=True)
     return df_loc
 
 
-def write_locator_results_csv(df_loc: pl.DataFrame, out_dir: Path) -> Path:
-    out_path = locator_results_path(out_dir)
-    df_loc.write_csv(out_path.as_posix())
+def write_locator_results(df_loc: pl.DataFrame, out_dir: Path) -> Path:
+    """Write the merged locator-results table as Parquet and drop a stale legacy CSV."""
+    out_path = out_dir / LOCATOR_RESULTS_PARQUET
+    df_loc.write_parquet(out_path, compression="zstd")
+    legacy_csv = out_dir / LOCATOR_RESULTS_CSV
+    if legacy_csv.exists():
+        legacy_csv.unlink()
     return out_path
 
 

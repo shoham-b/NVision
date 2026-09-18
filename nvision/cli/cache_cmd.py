@@ -268,7 +268,10 @@ def cache_convergence(
     out: Annotated[Path, typer.Option("--out", help="Output directory")] = Path("artifacts"),
     csv_path: Annotated[
         Path | None,
-        typer.Option("--csv", help="Path to locator_results.csv (default: <out>/locator_results.csv)."),
+        typer.Option(
+            "--csv",
+            help="Path to the locator-results file, Parquet or legacy CSV (default: <out>/locator_results.parquet).",
+        ),
     ] = None,
     strategy: Annotated[
         StrategyFilter | None,
@@ -306,7 +309,7 @@ def cache_convergence(
         typer.Option(
             "--breakdown",
             help=(
-                "Comma-separated locator_results.csv columns to group rows by. Default 'strategy' "
+                "Comma-separated locator-results columns to group rows by. Default 'strategy' "
                 "compares across every locator in the run. Use e.g. 'strategy,noise' or "
                 "'grid_linewidth,grid_c_total' to check whether a problem is isolated to part of the "
                 "grid or systemic across it."
@@ -320,8 +323,8 @@ def cache_convergence(
 ) -> None:
     """Check whether completed repeats are actually converging well, not just finishing.
 
-    Reads the aggregate metrics CSV that ``nv render`` (or the results UI's "Recalculate
-    results" button) writes to ``<out>/locator_results.csv``. For every repeat with a
+    Reads the aggregate metrics that ``nv render`` (or the results UI's "Recalculate
+    results" button) writes to ``<out>/locator_results.parquet``. For every repeat with a
     reported uncertainty, computes ``abs_err_x / uncert`` -- how many multiples of its own
     claimed uncertainty the locator's final estimate actually missed by. A locator that is
     well-calibrated keeps this ratio near or below 1 most of the time; a ratio that is
@@ -332,16 +335,16 @@ def cache_convergence(
     This is a purely quantitative, read-only check over already-computed metrics: it does
     not touch the cache, does not re-run anything, and is safe to run while ``nv run``/
     ``nv groups`` is still writing to the cache. Run ``nv render`` first (also safe against
-    a live cache) if you want the CSV to reflect the most recent repeats.
+    a live cache) if you want the results file to reflect the most recent repeats.
     """
-    resolved_csv = csv_path or (out / "locator_results.csv")
+    from nvision.tools.artifacts import locator_results_path, read_locator_results
+
+    resolved_csv = csv_path or locator_results_path(out)
     if not resolved_csv.exists():
         console.print(f"[yellow]{resolved_csv} not found. Run `nv render` first to generate it.[/yellow]")
         raise typer.Exit(1)
 
-    import polars as pl
-
-    df = pl.read_csv(resolved_csv, infer_schema_length=None)
+    df = read_locator_results(resolved_csv)
 
     if strategy:
         df = df.filter(pl.col("strategy") == str(strategy))
@@ -351,7 +354,7 @@ def cache_convergence(
         df = df.filter(pl.col("noise").str.starts_with(str(noise)))
 
     if df.is_empty():
-        console.print("[yellow]No matching rows in locator_results.csv.[/yellow]")
+        console.print("[yellow]No matching rows in locator-results file.[/yellow]")
         return
 
     group_cols = [c.strip() for c in breakdown.split(",") if c.strip()]
@@ -373,7 +376,7 @@ def cache_convergence(
     }
     missing_required = required - set(df.columns)
     if missing_required:
-        console.print(f"[red]locator_results.csv is missing expected column(s): {sorted(missing_required)}[/red]")
+        console.print(f"[red]locator-results file is missing expected column(s): {sorted(missing_required)}[/red]")
         raise typer.Exit(1)
 
     rows = df.select(*sorted(required)).to_dicts()

@@ -28,7 +28,7 @@ from nvision.sim.gen.nv_center_generator import (
 )
 from nvision.tools.artifacts import (
     prepare_artifact_tree,
-    write_locator_results_csv,
+    write_locator_results,
     write_plots_manifest,
 )
 from nvision.tools.paths import ARTIFACTS_ROOT
@@ -495,7 +495,7 @@ def recalc_metrics(
         log.info("Wrote manifest with %d entries to %s", len(all_manifest_entries), manifest_path)
 
         df_loc = pl.from_dicts(all_df_rows, infer_schema_length=None) if all_df_rows else pl.DataFrame()
-        csv_path = write_locator_results_csv(df_loc, out_dir)
+        csv_path = write_locator_results(df_loc, out_dir)
         log.info("Wrote locator results to %s", csv_path)
 
         if updated_combos:

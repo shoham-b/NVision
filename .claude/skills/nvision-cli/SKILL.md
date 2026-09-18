@@ -49,7 +49,7 @@ alone can't exercise what changed.
 
 `nv serve` builds the UI live from `artifacts/cache/` on each request (`nvision/cli/api_server.py`)
 — there's no `plots_manifest.json` or other rendered-to-disk step in between. `nv render` still
-exists but only writes `locator_results.csv`; it's unrelated to what the UI shows.
+exists but only writes `locator_results.parquet`; it's unrelated to what the UI shows.
 
 - **Plotting/viz code only** (`nvision/viz/`, plot mixins) — the cached simulation results are
   still valid. But since `nv serve` is a live Python process, it already has the *old* viz code

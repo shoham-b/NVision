@@ -1,6 +1,6 @@
 """Cache-wide reconstruction of the flat locator-results table for aggregate views.
 
-Rebuilds the same row shape ``nv render`` writes to ``locator_results.csv`` — one row
+Rebuilds the same row shape ``nv render`` writes to ``locator_results.parquet`` — one row
 per repeat, flat scalar columns (``abs_err_x``, ``splitting_converged_step``, ...) — directly
 from the cache's cheap ``:meta`` sidecars (``RepeatsRepository.load_repeats_meta``), so
 aggregate views (comparisons, grid-study, experiment summaries) can be served live
@@ -47,6 +47,6 @@ def build_locator_results_rows(bridge: CacheBridge) -> list[dict]:
 
 
 def build_locator_results_df(bridge: CacheBridge) -> pl.DataFrame:
-    """Polars DataFrame equivalent of ``locator_results.csv``, built live from the cache."""
+    """Polars DataFrame equivalent of ``locator_results.parquet``, built live from the cache."""
     rows = build_locator_results_rows(bridge)
     return pl.from_dicts(rows, infer_schema_length=None) if rows else pl.DataFrame()

@@ -150,16 +150,16 @@ def demo(
 
 def _display_summary(artifacts_root: Path) -> None:
     """Display a summary table of recent results."""
-    results_path = artifacts_root / "locator_results.csv"
+    from nvision.tools.artifacts import locator_results_path, read_locator_results
+
+    results_path = locator_results_path(artifacts_root)
 
     if not results_path.exists():
         console.print("[dim]No results file found yet[/dim]")
         return
 
     try:
-        import polars as pl
-
-        df = pl.read_csv(results_path)
+        df = read_locator_results(results_path)
         if df.is_empty():
             return
 
