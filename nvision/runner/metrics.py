@@ -68,7 +68,7 @@ def generate_attempt_metrics(  # noqa: C901
         )
 
     finalize_row = finalize_results.filter(pl.col("repeat_id") == attempt_idx_in_combo)
-    # Prefer per-repeat duration stored in `locator_results.csv` metadata (written by the executor).
+    # Prefer per-repeat duration stored in `locator_results.parquet` metadata (written by the executor).
     # Fall back to the legacy `repeat_start_times` timing for backward compatibility.
     duration_ms_value: float | None = None
     if not finalize_row.is_empty() and "duration_ms" in finalize_row.columns:
@@ -290,7 +290,7 @@ def generate_attempt_metrics(  # noqa: C901
 
     # Convergence step milestones — pre-existing gap: these were computed above and
     # forwarded to entry_base (plot-manifest rows) but never to main_result_row, so
-    # locator_results.csv never had them and every summary plot that checks for
+    # locator_results.parquet never had them and every summary plot that checks for
     # "splitting_converged_step"/"all_converged_step" (plot_experiment_summary,
     # plot_savings_vs_span_per_noise, plot_model_comparisons, plot_grid_study) was
     # silently skipping that metric.

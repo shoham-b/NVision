@@ -1526,7 +1526,7 @@ class _TaskRunner:
         finalize_record = run_result_to_finalize_record(
             result, locator_final_result, rid, experiment.x_min, experiment.x_max
         )
-        # Used by the progress ETA estimator via cached `locator_results.csv` metadata.
+        # Used by the progress ETA estimator via cached `locator_results.parquet` metadata.
         finalize_record["duration_ms"] = (time.perf_counter() - repeat_start_time) * 1000
         if experiment.drift is not None:
             # Under drift the static true_signal is only the truth at the first shot. Record

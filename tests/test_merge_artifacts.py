@@ -23,8 +23,8 @@ def test_merge_locator_results_schema_mismatch(tmp_path: Path):
     )
 
     out_dir = tmp_path
-    csv_path = locator_results_path(out_dir)
-    old_df.write_csv(csv_path)
+    results_path = locator_results_path(out_dir)
+    old_df.write_parquet(results_path)
 
     # Create a new df with Float64 for 'measurements' (or vice versa)
     new_df = pl.DataFrame(
@@ -66,7 +66,7 @@ def test_merge_locator_results_keeps_other_combinations_even_with_no_cache(tmp_p
             "measurements": [45, 30],
         }
     )
-    old_df.write_csv(locator_results_path(out_dir))
+    old_df.write_parquet(locator_results_path(out_dir))
 
     # New results updates ONLY combination 1 (NVCenter-lorentzian, strategy Bayesian) with a new repeat/attempt count
     new_df = pl.DataFrame(

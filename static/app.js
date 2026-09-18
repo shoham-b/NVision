@@ -62,9 +62,9 @@ function main() {
         outDirDisplay.textContent = `(${settings.out_dir})`;
     }
 
-    const locatorResultsLink = document.querySelector('a[download][href="locator_results.csv"]');
+    const locatorResultsLink = document.querySelector('a[download][href="locator_results.parquet"]');
     if (locatorResultsLink) {
-        locatorResultsLink.href = resolveAssetPath('locator_results.csv');
+        locatorResultsLink.href = resolveAssetPath('locator_results.parquet');
     }
 
     plots.forEach((p) => {

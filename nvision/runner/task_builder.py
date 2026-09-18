@@ -11,7 +11,7 @@ import polars as pl
 
 from nvision.models.task import LocatorTask
 from nvision.sim.combinations import Combination, CombinationGrid
-from nvision.tools.artifacts import locator_results_path
+from nvision.tools.artifacts import locator_results_path, read_locator_results
 from nvision.tools.paths import slugify
 
 if TYPE_CHECKING:
@@ -132,11 +132,11 @@ def build_task_list(
 def _load_duration_estimates(out_dir: Path) -> tuple[dict[tuple[str, str, str], float], float]:
     """Load duration estimates from previous run metadata if available."""
     fallback_default_ms = 1000.0
-    csv_path = locator_results_path(out_dir)
-    if not csv_path.exists():
+    results_path = locator_results_path(out_dir)
+    if not results_path.exists():
         return {}, fallback_default_ms
     try:
-        df = pl.read_csv(csv_path)
+        df = read_locator_results(results_path)
         if "duration_ms" not in df.columns:
             return {}, fallback_default_ms
         if not all(c in df.columns for c in ["generator", "noise", "strategy"]):

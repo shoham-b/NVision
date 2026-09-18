@@ -39,7 +39,7 @@ When a simulation is interrupted by user command (`Ctrl-C` / `KeyboardInterrupt`
 1. Background worker threads flush any completed repeats to the SQLite database.
 2. The parent process KeyboardInterrupt handler automatically invokes the harvester (`_harvest_partial_results_from_cache`).
 3. The harvester bypasses `skip_cache` checks and queries the SQLite database to retrieve all completed repeats for the task.
-4. Harvester appends the completed repeats directly into the final `locator_results.csv` output file and static UI plots manifest.
+4. Harvester appends the completed repeats directly into the final `locator_results.parquet` output file and static UI plots manifest.
 5. The next cached run will automatically load the completed repeats and resume exactly where it was interrupted, preventing any lost progress.
 
 ---

@@ -214,7 +214,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     """Build the FastAPI app serving the repo's frontend against *cache_dir*.
 
     *run_dir* is only needed for run-specific files that genuinely vary per
-    run (``locator_results.csv``, ``run_status.json``) — index.html, JS, CSS,
+    run (``locator_results.parquet``, ``run_status.json``) — index.html, JS, CSS,
     and graph-def templates are generated/served straight from the repo's
     ``static/`` directory, never copied into *run_dir*.
     """
@@ -485,7 +485,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         if asset_name in _STATIC_ASSET_NAMES:
             return FileResponse(_STATIC_DIR / asset_name, headers={"Cache-Control": "no-store"})
         # Not one of the repo-wide JS/CSS assets — fall through to run-specific files
-        # (locator_results.csv, run_status.json, a stale plots_manifest.json.gz from an
+        # (locator_results.parquet, run_status.json, a stale plots_manifest.json.gz from an
         # older static export, ...). This route is registered before app.mount("/", ...)
         # below, so without this fallback it shadows the mount for every single-segment
         # path and any such file 404s even though it's sitting right there in run_dir.
@@ -501,7 +501,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             raise HTTPException(status_code=404, detail="No such graph definition")
         return FileResponse(path, headers={"Cache-Control": "no-store"})
 
-    # Run-specific files (locator_results.csv, ...) last — anything not matched
+    # Run-specific files (locator_results.parquet, ...) last — anything not matched
     # by a route above falls through to whatever's physically in run_dir.
     app.mount("/", _NoCacheStaticFiles(directory=str(run_dir)), name="run_dir")
 

@@ -549,7 +549,7 @@ def _write_artifacts(
     elapsed: float,
     ts_str: str,
 ) -> Path:
-    """Write locator_results.csv, plots_manifest.json, and Bayesian plots."""
+    """Write locator_results.parquet, plots_manifest.json, and Bayesian plots."""
     from nvision.cache import CacheBridge
     from nvision.gui.report import prepare_static_ui_data
     from nvision.runner.cache import embed_graph_content
@@ -560,7 +560,7 @@ def _write_artifacts(
     from nvision.tools.artifacts import (
         merge_locator_results_with_existing,
         prepare_artifact_tree,
-        write_locator_results_csv,
+        write_locator_results,
         write_plots_manifest,
         write_run_status,
     )
@@ -650,10 +650,10 @@ def _write_artifacts(
             stats_entry["_bytes"] = stats_bytes
             plot_manifest.append(stats_entry)
 
-    # Write locator_results.csv (merge with existing)
+    # Write locator_results.parquet (merge with existing)
     loc_df = pl.DataFrame([main_result_row])
     loc_df = merge_locator_results_with_existing(loc_df, out_dir, log)
-    write_locator_results_csv(loc_df, out_dir)
+    write_locator_results(loc_df, out_dir)
 
     # Persist into a SQLite cache so `nv serve --dir` can render this run in the normal
     # results UI (it builds its manifest from a cache, never by scanning artifact trees).

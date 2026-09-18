@@ -341,6 +341,51 @@ class LocatorResultsRepository:
         ptr_key = stable_config_hash(ptr_config)
         self._repeats.save_repeat(ptr_key, repeat_idx, entries, main_result_row)
 
+    def archive_if_complete(
+        self,
+        *,
+        generator: str,
+        noise: str,
+        strategy: str,
+        seed: int,
+        max_steps: int,
+        timeout_s: int,
+        target_repeats: int,
+        repeat_offset: int = 0,
+        log: Any = None,
+    ) -> bool:
+        """Move this combination to its Parquet archive if it has reached ``target_repeats``.
+
+        Safe to call speculatively (e.g. once per completed sub-task): a no-op, returning
+        False, when the pointer is missing or below target. See
+        ``nvision/cache/parquet_archive.py`` for what "archived" means for reads (nothing
+        above this layer needs to change) and why re-archiving an already-archived
+        combination that later gained more repeats is safe.
+        """
+        import logging
+
+        from nvision.cache.parquet_archive import archive_combination
+
+        log = log or logging.getLogger(__name__)
+
+        ptr_config = combination_base_cache_config(
+            generator=generator,
+            noise=noise,
+            strategy=strategy,
+            seed=seed,
+            max_steps=max_steps,
+            timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
+        )
+        ptr_key = stable_config_hash(ptr_config)
+        ptr_df = self._store.load_df(ptr_key)
+        if ptr_df is None or ptr_df.is_empty():
+            return False
+        achieved = int(ptr_df.get_column("achieved_repeats")[0])
+        if achieved < target_repeats:
+            return False
+        return archive_combination(self, ptr_key, achieved, log)
+
     def purge_cached_combination(
         self,
         *,

@@ -41,7 +41,7 @@ uv run nv cache convergence --breakdown strategy    # compare every locator in t
 +-----------------------------------------------------------------------------+
 ```
 
-`--breakdown` accepts any `locator_results.csv` column, comma-separated:
+`--breakdown` accepts any `locator_results.parquet` column, comma-separated:
 - `strategy` (default) — is the problem in one locator or all of them? A shared bug in
   `nvision/runner/metrics.py`/`executor.py`'s finalize path looks like *every* strategy being
   bad simultaneously; a locator-specific algorithmic bug looks like one strategy standing out.
@@ -102,7 +102,7 @@ investigate first" — not "which strategy wins."
 ## Code
 
 `nv cache convergence` lives in `nvision/cli/cache_cmd.py` next to `nv cache progress`. It reads
-`<out>/locator_results.csv` (written by `nv render`) with polars, computes `abs_err_x / uncert`
+`<out>/locator_results.parquet` (written by `nv render`) with polars, computes `abs_err_x / uncert`
 per repeat, and groups by `--breakdown`. Read-only, safe against a cache a live run is still
 writing to — it never touches the cache itself, only the CSV snapshot. Run `nv render` again for
 a fresher snapshot before re-checking; it's the same safe-against-live-cache operation documented

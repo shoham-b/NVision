@@ -11,6 +11,7 @@ import polars as pl
 from polars.exceptions import ColumnNotFoundError
 
 from nvision.cache.mysql import MySqlCache
+from nvision.cache.parquet_archive import ComboArchive, _ArchiveFallbackBackend
 from nvision.cache.sqlite import ShardedSqliteCache
 
 
@@ -29,17 +30,23 @@ class CategoryDataStore:
     def __init__(self, db_path: Path, *, shard_suffix: str | None = None) -> None:
         self.db_path = db_path
         backend_kind = os.getenv("NVISION_CACHE_BACKEND", "sqlite").lower()
+        live: ShardedSqliteCache | MySqlCache
         if backend_kind == "mysql":
-            self._backend: ShardedSqliteCache | MySqlCache = MySqlCache(
-                table_prefix=db_path.stem, shard_suffix=shard_suffix
-            )
+            live = MySqlCache(table_prefix=db_path.stem, shard_suffix=shard_suffix)
         else:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._backend = ShardedSqliteCache(db_path)
+            live = ShardedSqliteCache(db_path)
+
+        # Finished combinations get moved out of the live backend into a per-combo
+        # Parquet file (nvision/cache/parquet_archive.py) once they hit their repeat
+        # target -- this wrapper makes that transparent to every read below, so
+        # nothing above CategoryDataStore needs to know a combo was archived.
+        archive_dir = db_path.parent / "archive" / db_path.stem
+        self._backend: _ArchiveFallbackBackend = _ArchiveFallbackBackend(live, ComboArchive(archive_dir))
 
     @property
-    def backend(self) -> ShardedSqliteCache | MySqlCache:
-        """Low-level KV store (used by admin CLI for iteration)."""
+    def backend(self) -> _ArchiveFallbackBackend:
+        """Low-level KV store (used by admin CLI for iteration) -- archive-fallback aware."""
         return self._backend
 
     def close(self) -> None:

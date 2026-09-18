@@ -24,7 +24,7 @@ from nvision.tools.artifacts import (
     merge_locator_results_with_existing,
     plots_manifest_path,
     prepare_artifact_tree,
-    write_locator_results_csv,
+    write_locator_results,
 )
 from nvision.tools.paths import ARTIFACTS_ROOT
 from nvision.tools.utils import NVISION_RNG_SEED
@@ -696,7 +696,7 @@ def render(
     if df_loc.is_empty():
         log.warning("No results found in cache or existing artifacts. The report will be empty.")
 
-    out_path = write_locator_results_csv(df_loc, out_dir)
+    out_path = write_locator_results(df_loc, out_dir)
     log.info(f"Wrote locator results to: {out_path}")
 
     # No summary/metric plots, no plots_manifest.json, no static UI bundle:

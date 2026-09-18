@@ -181,6 +181,174 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
     assert plot_manifest[0]["path"] == "p0.png"
 
 
+def test_maybe_archive_combo_moves_finished_combination(tmp_path: Path):
+    import logging
+
+    from nvision.cache import CacheBridge
+    from nvision.cli.run import _maybe_archive_combo
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
+    from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+
+    sig = NVCenterCoreGenerator(variant="lorentzian")
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
+    combo = Combination(
+        generator=sig,
+        noise=noise,
+        strategy=SimpleSobolBayesianLocator,
+        generator_name="NVCenter-lorentzian",
+        noise_name="Gauss(0.01)",
+        strategy_name="Bayesian-SBED",
+    )
+
+    task = LocatorTask(
+        combination=combo,
+        repeats=1,
+        seed=1,
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "scans",
+        bayes_dir=tmp_path / "bayes",
+        loc_max_steps=10,
+        sweep_max_steps=None,
+        loc_timeout_s=10,
+        use_cache=True,
+        cache_dir=tmp_path / "cache",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+    bridge = CacheBridge(task.cache_dir)
+    try:
+        repo = bridge.get_cache_for_category("NVCenter")
+        repo.save_cached_combination(
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="Bayesian-SBED",
+            repeats=1,
+            seed=1,
+            max_steps=10,
+            timeout_s=10,
+            repeat_offset=0,
+            results=[([{"path": "p0.png"}], {"attempt": 1})],
+        )
+    finally:
+        bridge.close()
+
+    _maybe_archive_combo(task, cache_bridge=None, log=logging.getLogger("test_archive"))
+
+    # The combo's data moved out of live SQLite into its Parquet archive file...
+    bridge2 = CacheBridge(task.cache_dir)
+    try:
+        repo2 = bridge2.get_cache_for_category("NVCenter")
+        from nvision.cache.hashing import stable_config_hash
+        from nvision.cache.locator_keys import combination_base_cache_config
+
+        ptr_key = stable_config_hash(
+            combination_base_cache_config(
+                generator="NVCenter-lorentzian", noise="Gauss(0.01)", strategy="Bayesian-SBED",
+                seed=1, max_steps=10, timeout_s=10,
+            )
+        )
+        assert repo2.backend._live.get(ptr_key) is None
+        assert repo2.backend.archive.has_combo(ptr_key)
+
+        # ...but is still transparently readable through the normal cache API.
+        loaded = repo2.get_cached_combination(
+            generator="NVCenter-lorentzian", noise="Gauss(0.01)", strategy="Bayesian-SBED",
+            repeats=1, seed=1, max_steps=10, timeout_s=10,
+        )
+        assert loaded is not None
+        assert len(loaded) == 1
+        assert loaded[0][1]["attempt"] == 1
+    finally:
+        bridge2.close()
+
+
+def test_maybe_archive_combo_below_target_is_noop(tmp_path: Path):
+    import logging
+
+    from nvision.cache import CacheBridge
+    from nvision.cli.run import _maybe_archive_combo
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
+    from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+
+    sig = NVCenterCoreGenerator(variant="lorentzian")
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
+    combo = Combination(
+        generator=sig,
+        noise=noise,
+        strategy=SimpleSobolBayesianLocator,
+        generator_name="NVCenter-lorentzian",
+        noise_name="Gauss(0.01)",
+        strategy_name="Bayesian-SBED",
+    )
+
+    # repeats=3 but only 1 will be cached below -- the combo is not yet finished.
+    task = LocatorTask(
+        combination=combo,
+        repeats=3,
+        seed=1,
+        slug="test_slug",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "scans",
+        bayes_dir=tmp_path / "bayes",
+        loc_max_steps=10,
+        sweep_max_steps=None,
+        loc_timeout_s=10,
+        use_cache=True,
+        cache_dir=tmp_path / "cache",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+    bridge = CacheBridge(task.cache_dir)
+    try:
+        repo = bridge.get_cache_for_category("NVCenter")
+        repo.append_cached_repeats(
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="Bayesian-SBED",
+            seed=1,
+            max_steps=10,
+            timeout_s=10,
+            new_results=[([{"path": "p0.png"}], {"attempt": 1})],
+            start_idx=0,
+        )
+    finally:
+        bridge.close()
+
+    _maybe_archive_combo(task, cache_bridge=None, log=logging.getLogger("test_archive"))
+
+    bridge2 = CacheBridge(task.cache_dir)
+    try:
+        repo2 = bridge2.get_cache_for_category("NVCenter")
+        from nvision.cache.hashing import stable_config_hash
+        from nvision.cache.locator_keys import combination_base_cache_config
+
+        ptr_key = stable_config_hash(
+            combination_base_cache_config(
+                generator="NVCenter-lorentzian", noise="Gauss(0.01)", strategy="Bayesian-SBED",
+                seed=1, max_steps=10, timeout_s=10,
+            )
+        )
+        assert repo2.backend._live.get(ptr_key) is not None
+        assert not repo2.backend.archive.has_combo(ptr_key)
+    finally:
+        bridge2.close()
+
+
 def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
     monkeypatch.setattr(
