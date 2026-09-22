@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Annotated, Any
 
+import polars as pl
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
