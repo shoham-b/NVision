@@ -179,6 +179,67 @@ def _combo_key(combo: dict) -> str:
     return stable_config_hash(ptr_config)
 
 
+def _find_repeat(bridge: CacheBridge, combo_key: str, repeat_idx: int) -> tuple[list[dict] | None, dict] | None:
+    """The (entries, main_row) for one repeat, trying every category's store --
+    combo_key alone doesn't carry which category it was recorded under (cheap:
+    one indexed lookup each).
+
+    Module-level, like _load_combo, to keep build_app's mccabe complexity down;
+    shared by the /api/graph and /api/repeat-meta routes, which both need this
+    same category-guessing lookup.
+    """
+    for cat_name in ("NVCenter", "Complementary"):
+        repo = bridge.get_cache_for_category(cat_name)
+        found = repo._repeats.load_repeat(combo_key, repeat_idx)
+        if found is not None:
+            return found
+    return None
+
+
+def _scan_field_row(combo: dict, repeat_entries: list[dict] | None, main_row: dict) -> dict | None:
+    """One repeat's Highlights-view row (generator/noise/strategy plus its scan
+    entry's series/true_params), or None if this repeat has no scan entry.
+
+    Module-level, like _load_combo, to keep build_app's mccabe complexity down.
+    """
+    scan_entry = (
+        next((e for e in repeat_entries if e.get("type") == "scan"), None) if repeat_entries is not None else None
+    )
+    if scan_entry is None:
+        return None
+    return {
+        "generator": combo["generator"],
+        "noise": combo["noise"],
+        "strategy": combo["strategy"],
+        "repeat": main_row.get("attempt"),
+        "failure_reason": main_row.get("failure_reason"),
+        "measurements": main_row.get("measurements"),
+        "splitting_converged_step": main_row.get("splitting_converged_step"),
+        "series": scan_entry.get("series"),
+        "true_params": scan_entry.get("true_params"),
+    }
+
+
+def _generator_grid_info_for(bridge: CacheBridge, combo: dict) -> dict | None:
+    """One generator's structural ``grid_*`` metrics from its repeat-0 scan entry --
+    see ``_get_generator_grid_info``'s docstring for what these are and why repeat-0
+    is enough.
+
+    Module-level (not a build_app closure), like _load_combo: it only needs its own
+    arguments, and keeping it out of build_app's body is what keeps that function's
+    mccabe complexity down as more endpoints are added there.
+    """
+    category = CombinationGrid.generator_category(combo["generator"])
+    repo = bridge.get_cache_for_category(category)
+    found = repo._repeats.load_repeat(_combo_key(combo), 0)
+    if found is None:
+        return None
+    entries, _main_row = found
+    scan_entry = next((e for e in entries if e.get("type") == "scan"), None)
+    metrics = (scan_entry or {}).get("metrics") or {}
+    return {k: v for k, v in metrics.items() if k.startswith("grid_") and v is not None}
+
+
 def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict]]:
     """One combo's (graph manifest entries, flat locator-result rows) — a single
     cache read per combo feeds both, instead of scanning the whole cache twice.
@@ -279,15 +340,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                         if gen in seen:
                             continue
                         seen.add(gen)
-                        category = CombinationGrid.generator_category(gen)
-                        repo = bridge.get_cache_for_category(category)
-                        found = repo._repeats.load_repeat(_combo_key(combo), 0)
-                        if found is None:
-                            continue
-                        entries, _main_row = found
-                        scan_entry = next((e for e in entries if e.get("type") == "scan"), None)
-                        metrics = (scan_entry or {}).get("metrics") or {}
-                        grid_fields = {k: v for k, v in metrics.items() if k.startswith("grid_") and v is not None}
+                        grid_fields = _generator_grid_info_for(bridge, combo)
                         if grid_fields:
                             info[gen] = grid_fields
                     cache["generator_grid_info"] = info
@@ -379,15 +432,8 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         gtype = gtype_with_ext.removesuffix(".json.gz")
         bridge = _bridge()
         try:
-            category = None
-            # combo_key doesn't carry the category; try both stores (cheap: one indexed lookup each).
-            for cat_name in ("NVCenter", "Complementary"):
-                repo = bridge.get_cache_for_category(cat_name)
-                found = repo._repeats.load_repeat(combo_key, repeat_idx)
-                if found is not None:
-                    category = cat_name
-                    break
-            if category is None or found is None:
+            found = _find_repeat(bridge, combo_key, repeat_idx)
+            if found is None:
                 raise HTTPException(status_code=404, detail="No such repeat")
             entries, _main_row = found
             entry = next((e for e in entries if e.get("type") == gtype), None)
@@ -420,12 +466,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         ever needs this for the single currently-selected repeat."""
         bridge = _bridge()
         try:
-            found = None
-            for cat_name in ("NVCenter", "Complementary"):
-                repo = bridge.get_cache_for_category(cat_name)
-                found = repo._repeats.load_repeat(combo_key, repeat_idx)
-                if found is not None:
-                    break
+            found = _find_repeat(bridge, combo_key, repeat_idx)
             if found is None:
                 raise HTTPException(status_code=404, detail="No such repeat")
             entries, _main_row = found
@@ -461,26 +502,9 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                 if meta is None:
                     meta = repo._repeats.load_repeats(combo_key, achieved)
                 for repeat_entries, main_row in meta:
-                    scan_entry = (
-                        next((e for e in repeat_entries if e.get("type") == "scan"), None)
-                        if repeat_entries is not None
-                        else None
-                    )
-                    if scan_entry is None:
-                        continue
-                    out.append(
-                        {
-                            "generator": combo["generator"],
-                            "noise": combo["noise"],
-                            "strategy": combo["strategy"],
-                            "repeat": main_row.get("attempt"),
-                            "failure_reason": main_row.get("failure_reason"),
-                            "measurements": main_row.get("measurements"),
-                            "splitting_converged_step": main_row.get("splitting_converged_step"),
-                            "series": scan_entry.get("series"),
-                            "true_params": scan_entry.get("true_params"),
-                        }
-                    )
+                    row = _scan_field_row(combo, repeat_entries, main_row)
+                    if row is not None:
+                        out.append(row)
             return out
         finally:
             bridge.close()
