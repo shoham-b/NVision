@@ -105,6 +105,49 @@ def test_combo_archive_cache_is_bounded(tmp_path):
     assert len(archive._df_cache) <= _DF_CACHE_MAX_COMBOS
 
 
+def test_combo_archive_single_key_lookup_does_not_filter_per_call(tmp_path, monkeypatch):
+    """Regression test: get()/blob_get()/contains() used to re-filter the whole combo
+    DataFrame linearly on every single-key call (O(rows) per key, O(rows^2) per combo
+    when a caller like `nv cache list` visits every key). They must instead build a
+    key->row index once per combo and do O(1) dict lookups after that."""
+    archive = ComboArchive(tmp_path / "archive")
+    n = 20
+    rows = [(f"repeat:c1:{i}", "json", f'{{"i": {i}}}'.encode()) for i in range(n)]
+    rows += [(f"blob:c1:{i}:scan", "blob", f"data-{i}".encode()) for i in range(n)]
+    archive.write_combo("c1", rows)
+
+    filter_calls = []
+    real_filter = pl.DataFrame.filter
+
+    def _counting_filter(self, *a, **kw):
+        filter_calls.append(1)
+        return real_filter(self, *a, **kw)
+
+    monkeypatch.setattr(pl.DataFrame, "filter", _counting_filter)
+
+    for i in range(n):
+        assert archive.get(f"repeat:c1:{i}") == {"i": i}
+        assert archive.blob_get(f"blob:c1:{i}:scan") == f"data-{i}".encode()
+        assert archive.contains(f"repeat:c1:{i}")
+
+    # The index is built once from the DataFrame (no per-key .filter() calls at all --
+    # single-key lookups go through a dict, .filter() is only used by the batch/*_is_in
+    # code paths, none of which were exercised here).
+    assert filter_calls == []
+
+
+def test_combo_archive_index_cache_is_bounded(tmp_path):
+    archive = ComboArchive(tmp_path / "archive")
+    from nvision.cache.parquet_archive import _DF_CACHE_MAX_COMBOS
+
+    for i in range(_DF_CACHE_MAX_COMBOS + 10):
+        key = f"c{i}"
+        archive.write_combo(key, [(key, "json", b"{}")])
+        archive.get(key)  # populate both caches
+
+    assert len(archive._index_cache) <= _DF_CACHE_MAX_COMBOS
+
+
 def test_combo_archive_delete_combo(tmp_path):
     archive = ComboArchive(tmp_path / "archive")
     archive.write_combo("c1", [("c1", "json", b"{}")])

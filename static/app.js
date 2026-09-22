@@ -65,6 +65,17 @@ function main() {
     const locatorResultsLink = document.querySelector('a[download][href="locator_results.parquet"]');
     if (locatorResultsLink) {
         locatorResultsLink.href = resolveAssetPath('locator_results.parquet');
+        // Older run directories (or ones not yet re-rendered since the Parquet
+        // migration) only have locator_results.csv on disk. Probe for the Parquet
+        // file and fall back to the CSV so the link isn't a dead 404.
+        fetch(locatorResultsLink.href, { method: 'HEAD', cache: 'no-store' })
+            .then((resp) => {
+                if (!resp.ok) {
+                    locatorResultsLink.href = resolveAssetPath('locator_results.csv');
+                    locatorResultsLink.textContent = 'Download locator_results.csv';
+                }
+            })
+            .catch(() => {});
     }
 
     plots.forEach((p) => {

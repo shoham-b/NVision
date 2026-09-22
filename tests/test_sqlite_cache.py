@@ -153,3 +153,33 @@ def test_list_keys_excluding_prefixes_empty_prefixes_returns_all(tmp_path):
     cache.set("b", {})
 
     assert sorted(cache.list_keys_excluding_prefixes([])) == ["a", "b"]
+
+
+def test_delete_removes_blob_row(tmp_path):
+    """delete() must clear the `graphs` table too, not just `cache` -- otherwise blob
+    payloads (the bulk of an archived combo's footprint) never actually leave the
+    live SQLite shard files."""
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    cache = ShardedSqliteCache(tmp_path / "base.db")
+    cache.blob_set("blob:aaa:0:scan", b"raw-bytes")
+    assert cache.blob_get("blob:aaa:0:scan") == b"raw-bytes"
+
+    cache.delete("blob:aaa:0:scan")
+
+    assert cache.blob_get("blob:aaa:0:scan") is None
+    assert "blob:aaa:0:scan" not in cache
+
+
+def test_delete_many_removes_blob_rows(tmp_path):
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    cache = ShardedSqliteCache(tmp_path / "base.db")
+    cache.set("combo:aaa", {"config": {"kind": "locator_combination_pointer"}})
+    cache.blob_set("blob:aaa:0:scan", b"raw-bytes-0")
+    cache.blob_set("blob:aaa:1:scan", b"raw-bytes-1")
+
+    cache.delete_many(["combo:aaa", "blob:aaa:0:scan", "blob:aaa:1:scan"])
+
+    assert cache.blob_batch_get(["blob:aaa:0:scan", "blob:aaa:1:scan"]) == {}
+    assert list(cache) == []
