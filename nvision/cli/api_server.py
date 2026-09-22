@@ -200,7 +200,8 @@ def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict
     result_rows: list[dict] = []
     for repeat_idx, (repeat_entries, main_row) in enumerate(meta):
         result_rows.append(main_row)
-        if repeat_entries is None: continue
+        if repeat_entries is None:
+            continue
         for entry in repeat_entries:
             gtype = entry.get("type", "unknown")
             slim = _slim_manifest_entry(entry)
@@ -460,7 +461,11 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                 if meta is None:
                     meta = repo._repeats.load_repeats(combo_key, achieved)
                 for repeat_entries, main_row in meta:
-                    scan_entry = next((e for e in repeat_entries if e.get("type") == "scan"), None) if repeat_entries is not None else None
+                    scan_entry = (
+                        next((e for e in repeat_entries if e.get("type") == "scan"), None)
+                        if repeat_entries is not None
+                        else None
+                    )
                     if scan_entry is None:
                         continue
                     out.append(
