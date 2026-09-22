@@ -64,6 +64,12 @@ class ComboArchive:
     def __init__(self, archive_dir: Path) -> None:
         self.archive_dir = archive_dir
         self._df_cache: OrderedDict[str, pl.DataFrame] = OrderedDict()
+        # key -> (kind, payload), built once per combo from its DataFrame. Single-key
+        # lookups (get/blob_get/contains) go through this instead of re-filtering the
+        # DataFrame linearly on every call -- without it, an admin loop that visits
+        # every key of an archived combo (nv cache list/progress/clean) does O(rows)
+        # work per key, i.e. O(rows^2) per combo.
+        self._index_cache: OrderedDict[str, dict[str, tuple[str, bytes]]] = OrderedDict()
 
     def _path(self, combo_key: str) -> Path:
         return self.archive_dir / f"{combo_key}.parquet"
@@ -73,6 +79,7 @@ class ComboArchive:
 
     def _invalidate(self, combo_key: str) -> None:
         self._df_cache.pop(combo_key, None)
+        self._index_cache.pop(combo_key, None)
 
     def write_combo(self, combo_key: str, rows: list[tuple[str, str, bytes]]) -> Path:
         """Write (overwrite) one combo's full row set. Atomic via temp file + rename."""
@@ -124,15 +131,27 @@ class ComboArchive:
             self._df_cache.popitem(last=False)
         return df
 
-    def _row_payload(self, combo_key: str, key: str) -> tuple[str, bytes] | None:
+    def _load_combo_index(self, combo_key: str) -> dict[str, tuple[str, bytes]] | None:
+        cached = self._index_cache.get(combo_key)
+        if cached is not None:
+            self._index_cache.move_to_end(combo_key)
+            return cached
+
         df = self._load_combo_df(combo_key)
         if df is None:
             return None
-        match = df.filter(pl.col("key") == key)
-        if match.is_empty():
+        index = {row["key"]: (row["kind"], row["payload"]) for row in df.iter_rows(named=True)}
+        self._index_cache[combo_key] = index
+        self._index_cache.move_to_end(combo_key)
+        if len(self._index_cache) > _DF_CACHE_MAX_COMBOS:
+            self._index_cache.popitem(last=False)
+        return index
+
+    def _row_payload(self, combo_key: str, key: str) -> tuple[str, bytes] | None:
+        index = self._load_combo_index(combo_key)
+        if index is None:
             return None
-        row = match.row(0, named=True)
-        return row["kind"], row["payload"]
+        return index.get(key)
 
     def get(self, key: str) -> dict | None:
         found = self._row_payload(combo_key_for(key), key)
@@ -163,10 +182,8 @@ class ComboArchive:
                 continue
             match = df.filter(pl.col("key").is_in(combo_keys) & (pl.col("kind") == "json"))
             for row in match.iter_rows(named=True):
-                try:
+                with contextlib.suppress(Exception):
                     result[row["key"]] = json.loads(row["payload"].decode("utf-8"))
-                except Exception:
-                    pass
         return result
 
     def blob_batch_get(self, keys: list[str]) -> dict[str, bytes]:
@@ -414,5 +431,7 @@ def archive_combination(
     # go straight to the live backend and leave the freshly-written archive alone.
     live_keys = [combo_key, *repeat_keys, *meta_keys, *blob_keys_needed]
     backend._live.delete_many(live_keys)
-    log.info("Archived combination %s (%d repeats, %d blobs) to Parquet", combo_key, achieved_repeats, len(blob_payloads))
+    log.info(
+        "Archived combination %s (%d repeats, %d blobs) to Parquet", combo_key, achieved_repeats, len(blob_payloads)
+    )
     return True

@@ -674,7 +674,14 @@ class ShardedSqliteCache:
                 db_path = self._path_for_shard_id(shard_id)
                 conn = self._get_conn_for_path(db_path)
                 self._ensure_cache_table(conn)
-                _retry_on_locked(lambda: (conn.execute("DELETE FROM cache WHERE key = ?", (key,)), conn.commit()))
+                self._ensure_graphs_table(conn)
+
+                def _write():
+                    conn.execute("DELETE FROM cache WHERE key = ?", (key,))
+                    conn.execute("DELETE FROM graphs WHERE key = ?", (key,))
+                    conn.commit()
+
+                _retry_on_locked(_write)
                 self._index_delete_key(key)
                 return
 
@@ -682,7 +689,14 @@ class ShardedSqliteCache:
             if self._legacy_path is not None:
                 conn = self._get_conn_for_path(self._legacy_path)
                 self._ensure_cache_table(conn)
-                _retry_on_locked(lambda: (conn.execute("DELETE FROM cache WHERE key = ?", (key,)), conn.commit()))
+                self._ensure_graphs_table(conn)
+
+                def _write_legacy():
+                    conn.execute("DELETE FROM cache WHERE key = ?", (key,))
+                    conn.execute("DELETE FROM graphs WHERE key = ?", (key,))
+                    conn.commit()
+
+                _retry_on_locked(_write_legacy)
         except Exception:
             pass
 
@@ -725,11 +739,13 @@ class ShardedSqliteCache:
             db_path = self._path_for_shard_id(shard_id)
             conn = self._get_conn_for_path(db_path)
             self._ensure_cache_table(conn)
+            self._ensure_graphs_table(conn)
 
             def _write(conn=conn, shard_keys=shard_keys):
                 for chunk in _chunks(shard_keys, _CHUNK):
                     placeholders = ",".join("?" * len(chunk))
                     conn.execute(f"DELETE FROM cache WHERE key IN ({placeholders})", chunk)
+                    conn.execute(f"DELETE FROM graphs WHERE key IN ({placeholders})", chunk)
                 conn.commit()
 
             _retry_on_locked(_write)
@@ -757,11 +773,13 @@ class ShardedSqliteCache:
             try:
                 conn = self._get_conn_for_path(self._legacy_path)
                 self._ensure_cache_table(conn)
+                self._ensure_graphs_table(conn)
 
                 def _write_legacy(conn=conn, missing=missing):
                     for chunk in _chunks(missing, _CHUNK):
                         placeholders = ",".join("?" * len(chunk))
                         conn.execute(f"DELETE FROM cache WHERE key IN ({placeholders})", chunk)
+                        conn.execute(f"DELETE FROM graphs WHERE key IN ({placeholders})", chunk)
                     conn.commit()
 
                 _retry_on_locked(_write_legacy)

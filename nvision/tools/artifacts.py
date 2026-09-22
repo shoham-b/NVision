@@ -264,7 +264,9 @@ def merge_locator_results_with_existing(
             merged = merged.with_columns(pl.col("repeats").max().over(group_cols))
         return merged
     except Exception as e:
-        log.warning("Could not merge with existing locator-results file (perhaps schema changed!): %s", e, exc_info=True)
+        log.warning(
+            "Could not merge with existing locator-results file (perhaps schema changed!): %s", e, exc_info=True
+        )
     return df_loc
 
 

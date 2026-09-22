@@ -251,8 +251,12 @@ def test_maybe_archive_combo_moves_finished_combination(tmp_path: Path):
 
         ptr_key = stable_config_hash(
             combination_base_cache_config(
-                generator="NVCenter-lorentzian", noise="Gauss(0.01)", strategy="Bayesian-SBED",
-                seed=1, max_steps=10, timeout_s=10,
+                generator="NVCenter-lorentzian",
+                noise="Gauss(0.01)",
+                strategy="Bayesian-SBED",
+                seed=1,
+                max_steps=10,
+                timeout_s=10,
             )
         )
         assert repo2.backend._live.get(ptr_key) is None
@@ -260,8 +264,13 @@ def test_maybe_archive_combo_moves_finished_combination(tmp_path: Path):
 
         # ...but is still transparently readable through the normal cache API.
         loaded = repo2.get_cached_combination(
-            generator="NVCenter-lorentzian", noise="Gauss(0.01)", strategy="Bayesian-SBED",
-            repeats=1, seed=1, max_steps=10, timeout_s=10,
+            generator="NVCenter-lorentzian",
+            noise="Gauss(0.01)",
+            strategy="Bayesian-SBED",
+            repeats=1,
+            seed=1,
+            max_steps=10,
+            timeout_s=10,
         )
         assert loaded is not None
         assert len(loaded) == 1
@@ -339,8 +348,12 @@ def test_maybe_archive_combo_below_target_is_noop(tmp_path: Path):
 
         ptr_key = stable_config_hash(
             combination_base_cache_config(
-                generator="NVCenter-lorentzian", noise="Gauss(0.01)", strategy="Bayesian-SBED",
-                seed=1, max_steps=10, timeout_s=10,
+                generator="NVCenter-lorentzian",
+                noise="Gauss(0.01)",
+                strategy="Bayesian-SBED",
+                seed=1,
+                max_steps=10,
+                timeout_s=10,
             )
         )
         assert repo2.backend._live.get(ptr_key) is not None
