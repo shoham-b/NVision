@@ -182,10 +182,8 @@ class ComboArchive:
                 continue
             match = df.filter(pl.col("key").is_in(combo_keys) & (pl.col("kind") == "json"))
             for row in match.iter_rows(named=True):
-                try:
+                with contextlib.suppress(Exception):
                     result[row["key"]] = json.loads(row["payload"].decode("utf-8"))
-                except Exception:
-                    pass
         return result
 
     def blob_batch_get(self, keys: list[str]) -> dict[str, bytes]:
@@ -433,5 +431,7 @@ def archive_combination(
     # go straight to the live backend and leave the freshly-written archive alone.
     live_keys = [combo_key, *repeat_keys, *meta_keys, *blob_keys_needed]
     backend._live.delete_many(live_keys)
-    log.info("Archived combination %s (%d repeats, %d blobs) to Parquet", combo_key, achieved_repeats, len(blob_payloads))
+    log.info(
+        "Archived combination %s (%d repeats, %d blobs) to Parquet", combo_key, achieved_repeats, len(blob_payloads)
+    )
     return True

@@ -52,8 +52,8 @@ def test_combo_archive_write_and_read_roundtrip(tmp_path):
 
 def test_combo_archive_batch_and_listing(tmp_path):
     archive = ComboArchive(tmp_path / "archive")
-    archive.write_combo("c1", [("c1", "json", b"{}"), (f"repeat:c1:0", "json", b'{"a": 1}')])
-    archive.write_combo("c2", [("c2", "json", b"{}"), (f"repeat:c2:0", "json", b'{"a": 2}')])
+    archive.write_combo("c1", [("c1", "json", b"{}"), ("repeat:c1:0", "json", b'{"a": 1}')])
+    archive.write_combo("c2", [("c2", "json", b"{}"), ("repeat:c2:0", "json", b'{"a": 2}')])
 
     batch = archive.batch_get(["repeat:c1:0", "repeat:c2:0", "repeat:missing:0"])
     assert batch == {"repeat:c1:0": {"a": 1}, "repeat:c2:0": {"a": 2}}
