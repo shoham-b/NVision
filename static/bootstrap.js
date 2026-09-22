@@ -10,29 +10,56 @@ if (!window.NVISION_ASSET_PREFIX) {
     window.NVISION_ASSET_PREFIX = '';
 }
 
-// Parses the same generator-name patterns as app.js's parseGeneratorFacetsFromNameLegacy
-// (main()'s copy is the source of truth for how the UI groups parameter-grid studies into
-// one "family" — keep these in sync). Duplicated here, not shared, because this file runs
-// before app.js even loads and must decide which generators' data to fetch before any of
-// main()'s closures exist. Only the family *key* is needed here (which names belong
-// together), not the parsed axis values app.js uses to build the facet dropdowns.
-function _nvisionLegacyFamilyKey(name) {
-    if (/^NVCenter-saturation_voigt-c[\d.]+-si[\d.]+MHz$/.test(name)) {
-        return 'saturation_voigt_saturation_sigma_inhom';
+// Single source of truth for how a generator's grid_* metrics (recorded by
+// nvision/runner/metrics.py, one repeat's worth fetched cheaply per distinct
+// generator via /api/generator-grid-info) map to swept-parameter axes and a
+// family key. Shared by this file (to decide which generators' data to fetch,
+// before app.js's main() even exists) and by app.js (to build the Study/facet
+// pickers), so there is exactly one implementation instead of two independent
+// name-regex parsers that had to be manually kept in sync (see git history --
+// that used to be a real drift hazard, not a hypothetical one).
+window.NVISION_GRID_AXIS_ORDER = ['width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
+window.NVISION_GRID_AXIS_INFO = {
+    width: { label: 'Width (MHz)', short: 'width', metricsKey: 'grid_linewidth', scaleToMHz: true },
+    contrast: { label: 'Contrast', short: 'contrast', metricsKey: 'grid_c_total', scaleToMHz: false },
+    saturation: { label: 'Saturation', short: 'saturation', metricsKey: 'grid_saturation', scaleToMHz: false },
+    sigma_inhom: { label: 'sigma_inhom (MHz)', short: 'sigma_inhom', metricsKey: 'grid_sigma_inhom', scaleToMHz: true },
+    hyperfine: { label: 'Isotope', short: 'isotope', metricsKey: 'grid_hyperfine', scaleToMHz: false },
+};
+
+// gridInfo: one generator's {grid_variant, grid_linewidth, ...} dict from
+// /api/generator-grid-info (or undefined/null for a generator with no recorded
+// grid_* metrics, e.g. a bare non-grid or MATLAB generator). Returns null for
+// those; otherwise {family, familyLabel, axes}.
+window.nvisionGeneratorAxes = function (gridInfo) {
+    if (!gridInfo) return null;
+    const variant = gridInfo.grid_variant;
+    if (!variant) return null;
+    const axes = [];
+    for (const key of window.NVISION_GRID_AXIS_ORDER) {
+        const info = window.NVISION_GRID_AXIS_INFO[key];
+        const raw = gridInfo[info.metricsKey];
+        if (raw == null) continue;
+        const value = info.scaleToMHz && typeof raw === 'number' ? raw / 1e6 : raw;
+        axes.push({ key, label: info.label, value });
     }
-    let m = /^NVCenter-([a-zA-Z_]+)-w[\d.]+MHz-c[\d.]+-si[\d.]+MHz$/.exec(name);
-    if (m) return `${m[1]}_width_contrast_sigma_inhom`;
-    m = /^NVCenter-([a-zA-Z_]+)-w[\d.]+MHz-c[\d.]+$/.exec(name);
-    if (m) return `${m[1]}_width_contrast`;
-    return null; // ungrouped — this generator is its own scope
-}
+    if (!axes.length) return null;
+    return {
+        family: `${variant}_${axes.map((a) => a.key).join('_')}`,
+        familyLabel: `${variant} (${axes.map((a) => window.NVISION_GRID_AXIS_INFO[a.key].short).join(' × ')})`,
+        axes,
+    };
+};
 
 // Every generator name that belongs to the same family as `name` (including itself),
-// or just `[name]` when it doesn't parse as part of a grid family.
-function _nvisionFamilyScope(name, allNames) {
-    const key = _nvisionLegacyFamilyKey(name);
-    if (!key) return [name];
-    return allNames.filter((n) => _nvisionLegacyFamilyKey(n) === key);
+// or just `[name]` when it has no grid_info (not part of any parsed grid family).
+function _nvisionFamilyScope(name, allNames, gridInfoByName) {
+    const parsed = window.nvisionGeneratorAxes(gridInfoByName[name]);
+    if (!parsed) return [name];
+    return allNames.filter((n) => {
+        const p = window.nvisionGeneratorAxes(gridInfoByName[n]);
+        return p && p.family === parsed.family;
+    });
 }
 
 function _nvisionHashGenerator() {
@@ -89,19 +116,26 @@ window.NVISION_BOOTSTRAP = (async () => {
         // time (see nvision project memory on /api/manifest performance). /api/combos is the
         // cheap picker index (no per-repeat scan) this scoping decision is based on.
         let allGenerators = [];
+        let gridInfoByName = {};
         try {
-            const combos = await fetchJson('api/combos');
+            const [combos, gridInfo] = await Promise.all([
+                fetchJson('api/combos'),
+                fetchJson('api/generator-grid-info'),
+            ]);
             allGenerators = [...new Set(combos.map((c) => c.generator))].sort();
+            gridInfoByName = gridInfo;
         } catch (e) {
-            console.warn('api/combos failed, falling back to an unscoped manifest fetch:', e);
+            console.warn('api/combos or api/generator-grid-info failed, falling back to an unscoped manifest fetch:', e);
         }
         window.NVISION_ALL_GENERATORS = allGenerators;
+        // Exposed for app.js so it doesn't need a second fetch of the same data.
+        window.NVISION_GENERATOR_GRID_INFO = gridInfoByName;
 
         let scopeGenerators = null; // null == unscoped (fallback when combos is empty/unknown)
         if (allGenerators.length && !_nvisionForcedUnscoped()) {
             const hashGenerator = _nvisionHashGenerator();
             const target = hashGenerator && allGenerators.includes(hashGenerator) ? hashGenerator : allGenerators[0];
-            scopeGenerators = _nvisionFamilyScope(target, allGenerators);
+            scopeGenerators = _nvisionFamilyScope(target, allGenerators, gridInfoByName);
         }
         window.NVISION_LOADED_GENERATORS = scopeGenerators;
 
@@ -153,11 +187,12 @@ window.nvisionNavigateToGenerator = function (generatorName) {
     if (_nvisionNavigating) return;
     _nvisionNavigating = true;
 
-    // Safety valve against a reload loop: this scope's family and app.js's own
-    // groupGeneratorsByFamily/parseGeneratorFacetsFromNameLegacy are two independent
-    // implementations of the same grouping (see _nvisionLegacyFamilyKey's comment) and
-    // are expected to always agree, making one reload always sufficient -- but if they
-    // ever drift out of sync, bail out to an unscoped fetch instead of reloading forever.
+    // Safety valve against a reload loop: this scope's family and app.js's grouping
+    // both go through the same window.nvisionGeneratorAxes (see above), so they
+    // can't drift out of sync the way two independent regex parsers previously
+    // could -- one reload should always be sufficient. Kept as defense-in-depth
+    // against any other cause of an unexpected repeat request (e.g. a stale
+    // /api/generator-grid-info cache mid-reload) instead of reloading forever.
     let attempted = [];
     try {
         attempted = JSON.parse(sessionStorage.getItem('nvisionGeneratorLoadAttempts') || '[]');

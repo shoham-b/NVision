@@ -208,8 +208,12 @@ def _fmt_sigma_inhom(hz: float) -> str:
     return f"si{hz / 1e6:.2f}MHz"
 
 
+def _fmt_hyperfine(hyperfine: str) -> str:
+    return f"hf{hyperfine}"
+
+
 def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
-    """Full width x contrast x sigma_inhom Cartesian grid of named plain-Voigt generators.
+    """Full width x contrast x sigma_inhom x hyperfine Cartesian grid of named plain-Voigt generators.
 
     Unlike :func:`param_grid_generators` (variant="voigt"), which sweeps only
     width x contrast and leaves the inhomogeneous (Gaussian) broadening either
@@ -221,6 +225,19 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
     Reuses the same ``NVISION_SBED_SIGMA_INHOM_*`` range as the saturation-Voigt
     grid so the two lineshapes' inhomogeneous-broadening axis is directly
     comparable.
+
+    ``hyperfine`` (``NVISION_SBED_HYPERFINE_VALUES``, default
+    ``unresolved``/``n14``/``n15``) is a fourth, categorical axis: which nitrogen
+    isotope's hyperfine structure the true signal resolves. It's encoded in the
+    generator name (``-hf<value>``) rather than left to the class default, so
+    each isotope gets its own selectable set of generators instead of silently
+    always using ``NVCenterCoreGenerator``'s ``"unresolved"`` default --
+    ``CombinationGrid.strategies_for()`` parses it back out of the name to keep
+    the locator's belief in sync (see that function's docstring for why a
+    generator/belief hyperfine mismatch is a real, silent bug and not a
+    cosmetic detail). ``infer_hyperfine`` stays ``False``: like sigma_inhom and
+    contrast, the isotope is a fixed, known grid coordinate here, not something
+    the locator has to infer per repeat.
     """
     import numpy as np
 
@@ -228,6 +245,7 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
         NVISION_SBED_CONTRAST_MAX,
         NVISION_SBED_CONTRAST_MIN,
         NVISION_SBED_CONTRAST_STEPS,
+        NVISION_SBED_HYPERFINE_VALUES,
         NVISION_SBED_SIGMA_INHOM_MAX,
         NVISION_SBED_SIGMA_INHOM_MIN,
         NVISION_SBED_SIGMA_INHOM_STEPS,
@@ -247,20 +265,25 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
         for contrast in contrasts:
             for sigma_inhom in sigma_inhoms:
                 width, contrast, sigma_inhom = float(width), float(contrast), float(sigma_inhom)
-                name = f"NVCenter-voigt-{_fmt_width(width)}-{_fmt_contrast(contrast)}-{_fmt_sigma_inhom(sigma_inhom)}"
-                generators.append(
-                    (
-                        name,
-                        NVCenterCoreGenerator(
-                            x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
-                            x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
-                            variant="voigt",
-                            linewidth=width,
-                            c_total=contrast,
-                            sigma_inhom=sigma_inhom,
-                        ),
+                for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
+                    name = (
+                        f"NVCenter-voigt-{_fmt_width(width)}-{_fmt_contrast(contrast)}-"
+                        f"{_fmt_sigma_inhom(sigma_inhom)}-{_fmt_hyperfine(hyperfine)}"
                     )
-                )
+                    generators.append(
+                        (
+                            name,
+                            NVCenterCoreGenerator(
+                                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
+                                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                                variant="voigt",
+                                linewidth=width,
+                                c_total=contrast,
+                                sigma_inhom=sigma_inhom,
+                                hyperfine=hyperfine,
+                            ),
+                        )
+                    )
     return generators
 
 

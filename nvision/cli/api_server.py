@@ -200,6 +200,7 @@ def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict
     result_rows: list[dict] = []
     for repeat_idx, (repeat_entries, main_row) in enumerate(meta):
         result_rows.append(main_row)
+        if repeat_entries is None: continue
         for entry in repeat_entries:
             gtype = entry.get("type", "unknown")
             slim = _slim_manifest_entry(entry)
@@ -225,7 +226,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     # In-process caches, invalidated by /api/reload. Rebuilding the manifest means
     # walking every cached combination's :meta sidecars — cheap per call, but not
     # cheap enough to redo on every page load, so we cache it until told otherwise.
-    cache: dict[str, Any] = {"manifest": None, "aggregate_bytes": {}, "combos": None}
+    cache: dict[str, Any] = {"manifest": None, "aggregate_bytes": {}, "combos": None, "generator_grid_info": None}
     # RLock, not Lock: _get_manifest/aggregate hold `lock` while calling
     # _build_manifest, which calls _get_combos -- itself a `with lock:` block.
     # A plain Lock would deadlock on that same-thread re-acquisition.
@@ -248,6 +249,50 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                 finally:
                     bridge.close()
             return cache["combos"]
+
+    def _get_generator_grid_info() -> dict[str, dict]:
+        """Structural swept-parameter coordinates (``grid_*`` -- variant, width,
+        contrast, saturation, sigma_inhom, hyperfine, ...) per *distinct generator*,
+        read straight from one representative repeat's own recorded metrics (see
+        ``nvision/runner/metrics.py``'s grid_* extraction loop) rather than parsed
+        back out of the generator name string. The UI's Study/facet pickers use
+        this as their single source of truth for how to group and split generators
+        into axes -- see nvision-ui's app.js, which used to duplicate this as a
+        name-regex parser (and bootstrap.js duplicated a second, independent copy
+        of that regex just to decide what to fetch) that could silently drift out
+        of sync with whatever grid shape presets.py actually produces.
+
+        One cheap repeat-0 read per distinct generator (bounded by the size of the
+        parameter grid -- tens to low hundreds of generators -- not by repeat count
+        or combo count), so this stays cheap even though /api/manifest itself is
+        not. Cached alongside combos/manifest; invalidated by /api/reload.
+        """
+        with lock:
+            if cache["generator_grid_info"] is None:
+                bridge = _bridge()
+                try:
+                    info: dict[str, dict] = {}
+                    seen: set[str] = set()
+                    for combo in _get_combos():
+                        gen = combo["generator"]
+                        if gen in seen:
+                            continue
+                        seen.add(gen)
+                        category = CombinationGrid.generator_category(gen)
+                        repo = bridge.get_cache_for_category(category)
+                        found = repo._repeats.load_repeat(_combo_key(combo), 0)
+                        if found is None:
+                            continue
+                        entries, _main_row = found
+                        scan_entry = next((e for e in entries if e.get("type") == "scan"), None)
+                        metrics = (scan_entry or {}).get("metrics") or {}
+                        grid_fields = {k: v for k, v in metrics.items() if k.startswith("grid_") and v is not None}
+                        if grid_fields:
+                            info[gen] = grid_fields
+                    cache["generator_grid_info"] = info
+                finally:
+                    bridge.close()
+            return cache["generator_grid_info"]
 
     def _build_manifest(generators: frozenset[str] | None = None) -> list[dict]:
         """Build graph-manifest entries for the given *generators*, or every combo
@@ -306,6 +351,15 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         for a scoped /api/manifest.
         """
         return _get_combos()
+
+    @app.get("/api/generator-grid-info")
+    def generator_grid_info() -> dict[str, dict]:
+        """One cheap repeat-0 read's worth of ``grid_*`` metrics per distinct
+        generator -- see ``_get_generator_grid_info``'s docstring. Fetched by
+        bootstrap.js alongside /api/combos and used by both it and app.js as the
+        structural source for family/facet grouping, instead of each parsing the
+        generator name with its own regex."""
+        return _get_generator_grid_info()
 
     @app.get("/api/manifest")
     def manifest(generators: str | None = None) -> list[dict]:
@@ -374,7 +428,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             if found is None:
                 raise HTTPException(status_code=404, detail="No such repeat")
             entries, _main_row = found
-            scan_entry = next((e for e in entries if e.get("type") == "scan"), None)
+            scan_entry = next((e for e in entries if e.get("type") == "scan"), None) if entries is not None else None
             if scan_entry is None:
                 raise HTTPException(status_code=404, detail="No scan entry for this repeat")
             return {field: scan_entry.get(field) for field in _BULK_STRIP_FIELDS}
@@ -406,7 +460,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                 if meta is None:
                     meta = repo._repeats.load_repeats(combo_key, achieved)
                 for repeat_entries, main_row in meta:
-                    scan_entry = next((e for e in repeat_entries if e.get("type") == "scan"), None)
+                    scan_entry = next((e for e in repeat_entries if e.get("type") == "scan"), None) if repeat_entries is not None else None
                     if scan_entry is None:
                         continue
                     out.append(
@@ -457,6 +511,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                     cache["manifest"] = None
                     cache["aggregate_bytes"] = {}
                     cache["combos"] = None
+                    cache["generator_grid_info"] = None
                 # Force a rebuild now so the next /api/manifest hit is warm, and to
                 # surface any errors in last_output immediately rather than lazily.
                 _get_manifest()

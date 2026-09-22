@@ -198,6 +198,17 @@ NVISION_SBED_C_MAX: float = float(os.getenv("NVISION_SBED_C_MAX", "0.5"))
 # width x contrast x sigma_inhom grid, so the inhomogeneous-broadening axis is
 # directly comparable between the voigt and saturation_voigt lineshape studies.
 
+# Nitrogen isotope values swept as a fourth axis by
+# sim.presets.voigt_sigma_inhom_param_grid_generators() (see NVCenterCoreGenerator's
+# `hyperfine` field for what each value means). Order matters only for display;
+# CombinationGrid.strategies_for() reads the isotope back out of the generator
+# name to keep the locator's belief in sync with whichever value produced the
+# true signal -- see nv_center_smc_belief's hyperfine/infer_hyperfine docstring
+# for why a mismatch there silently ruins a run instead of erroring.
+NVISION_SBED_HYPERFINE_VALUES: tuple[str, ...] = tuple(
+    v.strip() for v in os.getenv("NVISION_SBED_HYPERFINE_VALUES", "unresolved,n14,n15").split(",") if v.strip()
+)
+
 # Noise is swept the same way as width/contrast above — its own dedicated range,
 # independent of the generic NVISION_NOISE_MAX_GAUSS/NVISION_NOISE_GAUSS_STEPS
 # (which are shared by every other run path, e.g. `nvision run` without a group,

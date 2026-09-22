@@ -53,6 +53,8 @@ All files write to `window` globals (no modules, no bundler).
 | `main` | `app.js` | `reload.js` |
 | `window.NVISION_ALL_GENERATORS` | `bootstrap.js` (live mode only) | `app.js` (generator/study picker) |
 | `window.NVISION_LOADED_GENERATORS` | `bootstrap.js` (live mode only) | `app.js` (`nvisionNeedsWiderLoad`) |
+| `window.NVISION_GENERATOR_GRID_INFO` | `bootstrap.js` (`/api/generator-grid-info`) | `app.js` (`parseGeneratorFacets`) |
+| `window.nvisionGeneratorAxes`, `NVISION_GRID_AXIS_ORDER`/`_INFO` | `bootstrap.js` | `bootstrap.js` and `app.js` (facet/family grouping) |
 | `nvisionNeedsWiderLoad`, `nvisionNavigateToGenerator` | `bootstrap.js` | `app.js` (`updateScanSignalControls`) |
 
 ## Live manifest fetch is scoped to one generator family
@@ -61,18 +63,24 @@ In live mode (`nv serve`), `bootstrap.js` does NOT fetch the whole cache's `/api
 front — on a large shared cache (many unrelated generators/noises/strategies/repeats) that full
 scan is what made every page load slow, even though any one view only ever looks at one
 parameter-study "family" at a time (a family being either a single ungrouped generator, every
-generator sharing the same swept-parameter naming pattern, or — for `nv matlab-run` real-data
-generators — the flat "MATLAB (real data)" study bucket; see app.js's
-`parseGeneratorFacetsFromNameLegacy`/`groupGeneratorsByFamily`). Instead:
+generator sharing the same swept-parameter grid coordinates, or — for `nv matlab-run` real-data
+generators — the flat "MATLAB (real data)" study bucket). Instead:
 
-1. `bootstrap.js` fetches the cheap `/api/combos` index (generator/noise/strategy/repeat count,
-   no per-repeat scan) to learn every generator name in the cache.
-2. It picks the initial family to load — the URL hash's `generator` if present and known,
-   otherwise the first generator alphabetically — using its own small duplicate of the legacy
-   family-name regexes (`_nvisionLegacyFamilyKey` in bootstrap.js; **keep in sync** with app.js's
-   copy, since bootstrap.js runs before app.js's closures exist and can't call into them).
-3. It fetches only `/api/manifest?generators=<family members>`, sets `window.MANIFEST` to that,
-   and records the loaded scope on `window.NVISION_LOADED_GENERATORS`.
+1. `bootstrap.js` fetches two cheap indexes in parallel: `/api/combos` (generator/noise/strategy/
+   repeat count, no per-repeat scan) to learn every generator name in the cache, and
+   `/api/generator-grid-info` (one repeat-0 read per *distinct generator*, not per repeat/combo —
+   still cheap even on a huge cache) for each generator's recorded `grid_*` swept-parameter
+   coordinates (`nvision/runner/metrics.py`; see `api_server.py`'s `_get_generator_grid_info`).
+2. Both `bootstrap.js` (to decide what to fetch) and `app.js` (to build the Study/facet pickers)
+   group generators into families via the single shared `window.nvisionGeneratorAxes` function
+   (defined in `bootstrap.js`, called by both), which reads a generator's `grid_*` coordinates —
+   never the generator *name* string. There used to be two independent name-regex parsers here
+   (one per file, required to be kept in sync by hand) before this was fixed to read the actual
+   recorded data instead.
+3. It picks the initial family to load — the URL hash's `generator` if present and known,
+   otherwise the first generator alphabetically — via `_nvisionFamilyScope`, then fetches only
+   `/api/manifest?generators=<family members>`, sets `window.MANIFEST` to that, and records the
+   loaded scope on `window.NVISION_LOADED_GENERATORS`.
 
 `app.js`'s generator/study picker (`updateScanSignalControls`) still builds its options from
 *every* generator in the cache (`window.NVISION_ALL_GENERATORS`), not just the loaded ones, so
@@ -80,9 +88,11 @@ every generator remains selectable. Picking one outside the loaded scope calls
 `window.nvisionNavigateToGenerator(name)`, which updates the URL hash and does a full
 `location.reload()` — not an in-place re-fetch — because `main()` owns `plots`/`scanPlots`/etc.
 as plain `const`s computed once at call time and is only ever invoked once per page load (the
-existing recalculate/`r` flow already reloads the whole page for the same reason). A drift-safety
-valve (`sessionStorage`-backed, in `nvisionNavigateToGenerator`) falls back to an unscoped fetch
-if the two family-grouping implementations ever disagree, instead of reloading forever.
+existing recalculate/`r` flow already reloads the whole page for the same reason). A
+`sessionStorage`-backed safety valve in `nvisionNavigateToGenerator` still guards against a reload
+loop (defense-in-depth against something like a stale `/api/generator-grid-info` cache mid-reload)
+even though the single shared grouping function means the two call sites can no longer disagree
+the way two independent parsers previously could.
 
 The static-export path (`nv render`, `nv matlab`) is unaffected: `window.MANIFEST` is inlined (or
 fetched from `plots_manifest.json.gz`) as a single already-complete array, so `NVISION_ALL_

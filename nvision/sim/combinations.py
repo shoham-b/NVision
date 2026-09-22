@@ -121,6 +121,10 @@ class CombinationGrid:
         self._resolve_generators.update(dict(sim_presets.param_grid_generators()))
         self._resolve_generators.update(dict(sim_presets.param_grid_generators(variant="voigt")))
         self._resolve_generators.update(dict(sim_presets.saturation_voigt_param_grid_generators()))
+        # Also registered here (a pre-existing gap this fixes): without it,
+        # strategies_for() has no generator object to read the real hyperfine value
+        # off of for this grid and has to fall back to parsing it out of the name.
+        self._resolve_generators.update(dict(sim_presets.voigt_sigma_inhom_param_grid_generators()))
         if extra_generators:
             self._resolve_generators.update(extra_generators)
         self._noises: dict[str, CompositeNoise | None] = dict(sim_presets.noises_single_each())
@@ -166,6 +170,25 @@ class CombinationGrid:
             if "-si" not in generator_name:
                 nv_smc_config["hyperfine"] = "n14"
                 nv_smc_config["infer_hyperfine"] = True
+            else:
+                # voigt_sigma_inhom_param_grid_generators() (registered in
+                # self._resolve_generators above) may sweep hyperfine as its own
+                # axis -- the belief must be told the true signal's actual value, or
+                # nv_center_smc_belief falls back to its own "unresolved" default
+                # regardless of what the signal really resolves, exactly the
+                # generator/belief mismatch described above. Read straight off the
+                # resolved generator object (its `hyperfine` field, see
+                # NVCenterCoreGenerator) rather than re-derived from the name
+                # string -- structurally correct for any name this grid produces,
+                # including ones predating the hyperfine axis (whose generator
+                # object already carries the "unresolved" it was actually built
+                # with). infer_hyperfine stays False: the isotope is a fixed, known
+                # grid coordinate here (like sigma_inhom/contrast), not something
+                # the locator infers per repeat.
+                resolved = self._resolve_generators.get(generator_name)
+                hyperfine = getattr(resolved, "hyperfine", None)
+                if hyperfine is not None:
+                    nv_smc_config["hyperfine"] = hyperfine
 
         strats = [
             ("SimpleSweep", GenericSweepLocator),
