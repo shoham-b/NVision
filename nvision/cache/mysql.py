@@ -213,9 +213,14 @@ class MySqlCache:
     def delete(self, key: str) -> None:
         try:
             conn = self._get_conn()
-            _retry_on_mysql_transient(
-                lambda: self._exec_commit(conn, f"DELETE FROM `{self._cache_table}` WHERE `key` = %s", (key,))
-            )
+
+            def _write():
+                with conn.cursor() as cur:
+                    cur.execute(f"DELETE FROM `{self._cache_table}` WHERE `key` = %s", (key,))
+                    cur.execute(f"DELETE FROM `{self._graphs_table}` WHERE `key` = %s", (key,))
+                conn.commit()
+
+            _retry_on_mysql_transient(_write)
         except Exception:
             pass
 
@@ -237,6 +242,7 @@ class MySqlCache:
                         chunk = keys[i : i + 500]
                         placeholders = ",".join(["%s"] * len(chunk))
                         cur.execute(f"DELETE FROM `{self._cache_table}` WHERE `key` IN ({placeholders})", chunk)
+                        cur.execute(f"DELETE FROM `{self._graphs_table}` WHERE `key` IN ({placeholders})", chunk)
                 conn.commit()
 
             _retry_on_mysql_transient(_write)
@@ -389,11 +395,3 @@ class MySqlCache:
             except Exception:
                 continue
         return result
-
-    # -- helpers ------------------------------------------------------------------
-
-    @staticmethod
-    def _exec_commit(conn, sql: str, params: tuple) -> None:
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-        conn.commit()
