@@ -398,28 +398,54 @@ class LocatorResultsRepository:
         timeout_s: int,
         repeat_offset: int = 0,
     ) -> None:
-        """Purge all cached results (both inline and streaming repeats) for this combination across all partitions."""
-        backend = self._store.backend
-        keys_to_delete = []
-        for k in backend:
-            payload = backend.get(k)
-            if isinstance(payload, dict) and "config" in payload:
-                config = payload["config"]
-                # Match the combination base params, independent of repeat_offset and repeats
-                if (
-                    config.get("generator") == generator
-                    and config.get("noise") == noise
-                    and config.get("strategy") == strategy
-                    and config.get("seed") == seed
-                    and config.get("max_steps") == max_steps
-                    and config.get("timeout_s") == timeout_s
-                ):
-                    keys_to_delete.append(k)
+        """Purge all cached results (streaming pointer, repeat rows, inline entry) for this combination.
 
-        # Delete all matching pointer/inline keys and all associated repeat rows
-        for k in keys_to_delete:
-            self._store.delete(k)
+        Cost is independent of the cache size: the combination's keys are computed directly
+        (they are hashes of its identity, so they hit the backend's primary-key index) instead
+        of scanning and JSON-decoding every key in the cache. The scan this replaces cost
+        minutes per combination on a ~1M-key cache and blocked every ``--no-cache`` runner at
+        once (see docs/runner_architecture.md, "Stall diagnosis").
+
+        Only keys of the *current* schema/physics fingerprint (plus the legacy v8 form that
+        the read path still falls back to) are removed; older-fingerprint entries are
+        unreachable by current code and are left for ``nv cache clean``. ``repeat_offset`` is
+        accepted for call compatibility: it is not part of the key (see
+        :func:`combination_base_cache_config`).
+        """
+        del repeat_offset  # not part of any key; kept so existing callers keep working
+        ident = {
+            "generator": generator,
+            "noise": noise,
+            "strategy": strategy,
+            "seed": seed,
+            "max_steps": max_steps,
+            "timeout_s": timeout_s,
+        }
+        configs = [
+            combination_base_cache_config(**ident),
+            locator_combination_cache_config(repeats=repeats, **ident),
+        ]
+        for cfg in list(configs):  # legacy schema-8 form, which get_cached_combination still reads
+            legacy = dict(cfg)
+            legacy["schema_version"] = 8
+            legacy.pop("physics_fingerprint", None)
+            configs.append(legacy)
+        candidates = list(dict.fromkeys(stable_config_hash(cfg) for cfg in configs))
+
+        backend = self._store.backend
+        present = backend.keys_exist_batch(candidates)
+        existing = [k for k in candidates if k in present]
+        if not existing:
+            return
+
+        # One batched delete (a handful of transactions) instead of one fsync'd commit per key;
+        # for archived combinations this also drops the Parquet archive file, so stale archived
+        # repeats can no longer show through the live store's archive fallback.
+        keys_to_delete: list[str] = []
+        for k in existing:
+            keys_to_delete.append(k)
             for i in range(1000):
                 rep_key = self._repeats.make_repeat_key(k, i)
-                self._store.delete(rep_key)
-                self._store.delete(rep_key + ":meta")
+                keys_to_delete.append(rep_key)
+                keys_to_delete.append(rep_key + ":meta")
+        backend.delete_many(keys_to_delete)

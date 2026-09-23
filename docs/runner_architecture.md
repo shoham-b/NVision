@@ -25,6 +25,43 @@ After the baseline completes (or is skipped), a fresh belief is instantiated for
 - A hard timeout is enforced via a threading monitor (e.g., stopping the loop if it exceeds `timeout_s`).
 - At the end of the acquisition loop, if it's a Bayesian locator, the runner dumps the full posterior sample array into a parquet/feather artifact for downstream visualization.
 
+### 3b. Stall diagnosis: the `--no-cache` purge (fixed 2026-09-23)
+
+**Symptom.** On a long `nv run` / `nv groups` grid with `--no-cache`, the run sat idle for minutes,
+then a whole batch of tasks started in the same second, and again a few minutes later. Workers were
+using ~25% of one core each on a 12-core machine.
+
+**Evidence.**
+- Run log: after an initial burst, new "Running task" lines came in synchronized batches of six
+  (two noise levels x three strategies), 4 min apart, growing to 6 min later in the run. A run
+  whose combinations had all been purged before (flag present) had no gap at all.
+- Live `py-spy dump` of the six runner processes and the parent during a gap: **all six** runner main
+  threads were inside `_run_repeats -> _purge_cache_if_needed -> purge_cached_combination ->
+  _ArchiveFallbackBackend.get -> ShardedSqliteCache.get / ComboArchive.get`; the parent was idle in
+  `as_completed`. Nothing was blocked on a lock, the pool, graphs, or the parent.
+- Cause: `purge_cached_combination` did `for k in backend: backend.get(k)` -- it iterated every key
+  of the category cache (a run's cache had ~1M live keys: 880k `blob:`, 113k `repeat:`) and JSON-decoded
+  each payload to compare `config` fields, once per combination. ~60-100 us/key measured on a synthetic
+  cache with the same key formats, so >= 100 s single-process and minutes under 6-way disk/GIL
+  contention. Every new combination also added ~35 keys, so the cost grew during the run. Because each
+  batch of runners was doing the same fixed-length scan, they finished it together -- the synchronized
+  batches.
+
+**Fix.** The purge is now a keyed lookup: the combination's pointer/inline keys are hashes of its
+identity, so they are computed directly (current schema, plus the legacy v8 form the read path still
+accepts) and checked through the existing primary-key index (`keys_exist_batch`); only keys that exist
+are removed, with a single batched `delete_many`. It no longer depends on cache size (3.0 s -> ~0 ms on a
+46k-key synthetic cache) and it now also removes a combination's Parquet archive file, so stale archived
+repeats cannot show through the archive fallback. Entries under other schema versions / physics
+fingerprints (unreachable by current code) are not swept by the per-task purge; `nv cache clean` still
+handles them.
+
+**Does not need a re-run.** No result values change; only how fast a `--no-cache` task's purge is.
+
+**If a run stalls again**, arm the stall watchdog (`NVISION_STALL_DUMP_S=60`, see
+[graph_queue.md](graph_queue.md)) or attach `uvx py-spy dump --pid <pid>` to a runner and the parent:
+the stacks say what each is blocked on.
+
 ### 4. Memory & Streaming Optimizations
 When tasks request hundreds of combinations or repeats, storing all artifacts in memory before saving them would cause a memory exhaustion crash. 
 The runner implements a streaming mode:
