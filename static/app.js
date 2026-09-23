@@ -8057,15 +8057,6 @@ function main() {
         return plot;
     }
 
-    const dashHeatLayout = (xLabels, yLabels) => ({
-        template: 'plotly_white',
-        margin: { t: 10, b: Math.max(70, 50 + Math.max(...(xLabels.map(l => (l || '').length)), 0) * 4), l: 110, r: 15 },
-        xaxis: { type: 'category', tickangle: -35, tickfont: { size: 9.5 }, categoryorder: 'array', categoryarray: xLabels },
-        yaxis: { type: 'category', tickfont: { size: 10 }, categoryorder: 'array', categoryarray: yLabels },
-        plot_bgcolor: 'transparent',
-        paper_bgcolor: 'transparent',
-    });
-
     function renderDashboard() {
         const content = document.getElementById('dashboard-content');
         if (!content) return;
@@ -8395,425 +8386,6 @@ function main() {
         });
     }
 
-    // ── Noise Sweep summary plots (generator-level) ─────────────────────────
-
-    function initAndRenderNoiseSweepPlots(generator) {
-        const genPlots = scanPlots.filter(p => p.generator === generator);
-        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
-
-        // 1. Initialize selections if empty or invalid
-        if (!window._selectedNoiseLocators) {
-            window._selectedNoiseLocators = new Set(strategies);
-        } else {
-            // Remove strategies that are no longer available for this generator
-            for (const strat of window._selectedNoiseLocators) {
-                if (!strategies.includes(strat)) {
-                    window._selectedNoiseLocators.delete(strat);
-                }
-            }
-            if (window._selectedNoiseLocators.size === 0 && strategies.length > 0) {
-                window._selectedNoiseLocators = new Set(strategies);
-            }
-        }
-
-        const convergences = ['full', 'splitting_converged', 'all_converged'];
-        const convergenceLabels = {
-            'full': 'Full',
-            'splitting_converged': 'Splitting converged',
-            'all_converged': 'Converged'
-        };
-
-        if (!window._selectedNoiseConvergences) {
-            window._selectedNoiseConvergences = new Set(['splitting_converged']);
-        }
-
-        // 2. Render Locator buttons
-        const locContainer = document.getElementById('noise-locators-select');
-        if (locContainer) {
-            locContainer.innerHTML = '';
-            strategies.forEach(strat => {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.dataset.value = strat;
-                btn.setAttribute('role', 'checkbox');
-                const active = window._selectedNoiseLocators.has(strat);
-                btn.classList.toggle('is-active', active);
-                btn.setAttribute('aria-checked', String(active));
-                btn.tabIndex = 0;
-                btn.textContent = strat;
-                btn.className = 'tab-button'; // styling
-                btn.style.margin = '2px';
-                btn.addEventListener('click', () => {
-                    if (window._selectedNoiseLocators.has(strat)) {
-                        if (window._selectedNoiseLocators.size > 1) { // keep at least one
-                            window._selectedNoiseLocators.delete(strat);
-                            btn.classList.remove('is-active');
-                            btn.setAttribute('aria-checked', 'false');
-                        }
-                    } else {
-                        window._selectedNoiseLocators.add(strat);
-                        btn.classList.add('is-active');
-                        btn.setAttribute('aria-checked', 'true');
-                    }
-                    updateBaselineOptionsAndRedraw(generator);
-                });
-                locContainer.appendChild(btn);
-            });
-        }
-
-        // 3. Render Convergence buttons
-        const convContainer = document.getElementById('noise-convergences-select');
-        if (convContainer) {
-            convContainer.innerHTML = '';
-            convergences.forEach(conv => {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.dataset.value = conv;
-                btn.setAttribute('role', 'checkbox');
-                const active = window._selectedNoiseConvergences.has(conv);
-                btn.classList.toggle('is-active', active);
-                btn.setAttribute('aria-checked', String(active));
-                btn.tabIndex = 0;
-                btn.textContent = convergenceLabels[conv];
-                btn.className = 'tab-button'; // styling
-                btn.style.margin = '2px';
-                btn.addEventListener('click', () => {
-                    if (window._selectedNoiseConvergences.has(conv)) {
-                        if (window._selectedNoiseConvergences.size > 1) { // keep at least one
-                            window._selectedNoiseConvergences.delete(conv);
-                            btn.classList.remove('is-active');
-                            btn.setAttribute('aria-checked', 'false');
-                        }
-                    } else {
-                        window._selectedNoiseConvergences.add(conv);
-                        btn.classList.add('is-active');
-                        btn.setAttribute('aria-checked', 'true');
-                    }
-                    updateBaselineOptionsAndRedraw(generator);
-                });
-                convContainer.appendChild(btn);
-            });
-        }
-
-        updateBaselineOptionsAndRedraw(generator);
-    }
-
-    function updateBaselineOptionsAndRedraw(generator) {
-        const baselineSelect = document.getElementById('noise-baseline-select');
-        if (!baselineSelect) return;
-
-        // Build list of all available strategy-convergence pairs (independent of current selection)
-        const genPlots = scanPlots.filter(p => p.generator === generator);
-        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
-        const convergences = ['full', 'splitting_converged', 'all_converged'];
-
-        const pairs = [];
-        strategies.forEach(strat => {
-            convergences.forEach(conv => {
-                // A sweep's "convergence step" reflects where the dip sits in
-                // the fixed scan order, not efficiency — only its full run is
-                // a meaningful entity.
-                if (conv !== 'full' && isSweepBaseline(strat)) return;
-                pairs.push({ strategy: strat, convergence: conv });
-            });
-        });
-
-        // Save current baseline selection
-        const prevBaseline = baselineSelect.value;
-
-        // Populate baseline select dropdown
-        baselineSelect.innerHTML = '';
-        pairs.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = `${p.strategy}::${p.convergence}`;
-            const convLabel = p.convergence === 'full' ? 'Full' : (p.convergence === 'splitting_converged' ? 'Splitting converged' : 'Converged');
-            opt.textContent = `${p.strategy} (${convLabel})`;
-            baselineSelect.appendChild(opt);
-        });
-
-        // Restore baseline selection if still valid, otherwise choose a smart default
-        let newBaseline = prevBaseline;
-        const validValues = pairs.map(p => `${p.strategy}::${p.convergence}`);
-        // The shared Compare control bar dictates the baseline strategy: if it
-        // disagrees with the previous selection, adopt it (preserving the prior
-        // convergence choice when that pair exists, else Full).
-        if (sharedBaselineStrategy) {
-            const prevConv = prevBaseline ? (prevBaseline.split('::')[1] || 'full') : 'full';
-            const prevStrat = prevBaseline ? prevBaseline.split('::')[0] : null;
-            if (prevStrat !== sharedBaselineStrategy) {
-                newBaseline = validValues.find(v => v === `${sharedBaselineStrategy}::${prevConv}`)
-                    || validValues.find(v => v === `${sharedBaselineStrategy}::full`)
-                    || newBaseline;
-            }
-        }
-        if (!validValues.includes(newBaseline)) {
-            // Honor the shared baseline strategy (Full convergence) if available
-            // for this generator; otherwise prefer SimpleSweep (Full), then
-            // SimpleSweep (any), then SimpleSobol (Full), then any.
-            const sharedFull = sharedBaselineStrategy
-                ? validValues.find(v => v === `${sharedBaselineStrategy}::full`)
-                : null;
-            const sweepFull = validValues.find(v => v.startsWith('SimpleSweep::full') || v.startsWith('GenericSweep::full'));
-            const sweepAny = validValues.find(v => v.includes('Sweep::'));
-            const sobolFull = validValues.find(v => v.startsWith('SimpleSobol::full'));
-            newBaseline = sharedFull || sweepFull || sweepAny || sobolFull || validValues[0] || '';
-        }
-        baselineSelect.value = newBaseline;
-        // Adopt the chosen strategy as the shared baseline so other views agree.
-        if (newBaseline) sharedBaselineStrategy = newBaseline.split('::')[0];
-
-        // Setup event listener if not already done
-        if (!baselineSelect._hasListener) {
-            baselineSelect.addEventListener('change', () => {
-                const val = baselineSelect.value;
-                if (val) sharedBaselineStrategy = val.split('::')[0];
-                redrawDynamicNoisePlots(controlValue(scanGenerator));
-            });
-            baselineSelect._hasListener = true;
-        }
-
-        redrawDynamicNoisePlots(generator);
-    }
-
-    async function redrawDynamicNoisePlots(generator) {
-        await ensurePlotly();
-        const genPlots = scanPlots.filter(p => p.generator === generator);
-        const noises = [...new Set(genPlots.map(p => p.noise))].filter(Boolean);
-
-        const uniqueNoises = noises.sort((a, b) => {
-            const ga = a.match(/Gauss\(([\d.]+)\)/);
-            const gb = b.match(/Gauss\(([\d.]+)\)/);
-            if (ga && gb) return parseFloat(ga[1]) - parseFloat(gb[1]);
-            if (ga) return -1; if (gb) return 1;
-            return a.localeCompare(b);
-        });
-
-        const baselineVal = document.getElementById('noise-baseline-select').value;
-        const [baselineStrat, baselineConv] = baselineVal ? baselineVal.split('::') : [null, null];
-
-        const errorTraces = [];
-        const measTraces = [];
-        const savingsTraces = [];
-
-        const measValueOf = (p, conv) => {
-            if (conv === 'splitting_converged') return p.splitting_converged_step ?? p.steps_to_fb ?? p.measurements;
-            if (conv === 'all_converged') return p.all_converged_step ?? p.final_steps ?? p.measurements;
-            return p.measurements;
-        };
-        const finite = v => v !== null && v !== undefined && !isNaN(v);
-
-        // 1. Precalculate baseline measurements per noise level for savings:
-        //    per-repeat map (for paired differences) plus the median fallback.
-        const baselineMeasByNoise = {};        // noise -> median
-        const baselineMeasByNoiseRepeat = {};  // noise -> Map(repeat -> value)
-        if (baselineStrat && baselineConv) {
-            uniqueNoises.forEach(noise => {
-                const repPlots = genPlots.filter(p => p.noise === noise && p.strategy === baselineStrat);
-                const byRepeat = new Map();
-                const vals = [];
-                repPlots.forEach(p => {
-                    const v = measValueOf(p, baselineConv);
-                    if (finite(v)) {
-                        vals.push(v);
-                        if (p.repeat != null) byRepeat.set(p.repeat, v);
-                    }
-                });
-                if (vals.length > 0) {
-                    baselineMeasByNoise[noise] = hlMedian(vals);
-                    baselineMeasByNoiseRepeat[noise] = byRepeat;
-                }
-            });
-        }
-
-        // 2. Build Selected Pairs (sweep entities only make sense at 'full')
-        const selectedPairs = [];
-        window._selectedNoiseLocators.forEach(strat => {
-            window._selectedNoiseConvergences.forEach(conv => {
-                if (conv !== 'full' && isSweepBaseline(strat)) return;
-                selectedPairs.push({ strategy: strat, convergence: conv });
-            });
-        });
-
-        // 3. Generate Traces
-        const colors = [
-            '#2563eb', // Blue
-            '#f59e0b', // Orange
-            '#10b981', // Green
-            '#8b5cf6', // Purple
-            '#ec4899', // Pink
-            '#ef4444', // Red
-            '#06b6d4', // Cyan
-            '#14b8a6', // Teal
-        ];
-
-        selectedPairs.forEach((pair, idx) => {
-            const color = colors[idx % colors.length];
-            const convLabel = pair.convergence === 'full' ? 'Full' : (pair.convergence === 'splitting_converged' ? 'Splitting converged' : 'Converged');
-            const traceName = `${pair.strategy} (${convLabel})`;
-
-            const xVals = [];
-            const errY = [], errLo = [], errHi = [], errN = [];
-            const measY = [], measLo = [], measHi = [], measN = [];
-            const savY = [], savN = [];
-
-            uniqueNoises.forEach(noise => {
-                const repPlots = genPlots.filter(p => p.noise === noise && p.strategy === pair.strategy);
-                if (repPlots.length > 0) {
-                    xVals.push(noise);
-
-                    // Error: median + IQR across repeats (means are dominated
-                    // by the occasional catastrophic miss).
-                    const errVals = hlSorted(repPlots.map(p => {
-                        if (pair.convergence === 'splitting_converged') {
-                            return p.err_fb_at_milestone ?? p.final_err_fb ?? _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse');
-                        }
-                        return _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse');
-                    }));
-                    errY.push(errVals.length ? hlQuantileSorted(errVals, 0.5) : null);
-                    errLo.push(errVals.length ? hlQuantileSorted(errVals, 0.25) : null);
-                    errHi.push(errVals.length ? hlQuantileSorted(errVals, 0.75) : null);
-                    errN.push(errVals.length);
-
-                    // Measurements: median + IQR
-                    const measByRepeat = new Map();
-                    const measVals = [];
-                    repPlots.forEach(p => {
-                        const v = measValueOf(p, pair.convergence);
-                        if (finite(v)) {
-                            measVals.push(v);
-                            if (p.repeat != null) measByRepeat.set(p.repeat, v);
-                        }
-                    });
-                    const measSorted = hlSorted(measVals);
-                    const medMeas = measSorted.length ? hlQuantileSorted(measSorted, 0.5) : null;
-                    measY.push(medMeas);
-                    measLo.push(measSorted.length ? hlQuantileSorted(measSorted, 0.25) : null);
-                    measHi.push(measSorted.length ? hlQuantileSorted(measSorted, 0.75) : null);
-                    measN.push(measSorted.length);
-
-                    // Savings: median of per-repeat paired differences when the
-                    // repeats overlap (same ground truth), unpaired medians as
-                    // fallback.
-                    const baseByRepeat = baselineMeasByNoiseRepeat[noise];
-                    let sav = null, savCount = 0;
-                    if (baseByRepeat) {
-                        const diffs = [];
-                        measByRepeat.forEach((v, rep) => {
-                            const b = baseByRepeat.get(rep);
-                            if (b !== undefined) diffs.push(b - v);
-                        });
-                        if (diffs.length) {
-                            sav = hlMedian(diffs);
-                            savCount = diffs.length;
-                        }
-                    }
-                    if (sav === null && baselineMeasByNoise[noise] !== undefined && medMeas !== null) {
-                        sav = baselineMeasByNoise[noise] - medMeas;
-                    }
-                    savY.push(sav);
-                    savN.push(savCount);
-                }
-            });
-
-            if (xVals.length > 0) {
-                const bandPair = (ys, los, his, nArr, unitFmt) => ([
-                    { x: xVals, y: his, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: traceName },
-                    { x: xVals, y: los, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '22', hoverinfo: 'skip', showlegend: false, legendgroup: traceName },
-                    {
-                        x: xVals, y: ys, mode: 'lines+markers', name: traceName, legendgroup: traceName,
-                        line: { color: color, width: 2 }, marker: { size: 6 },
-                        text: nArr.map(n => `n=${n}`),
-                        hovertemplate: `%{y:${unitFmt}}<br>median (IQR band), %{text}<extra>${traceName}</extra>`,
-                    },
-                ]);
-                errorTraces.push(...bandPair(errY, errLo, errHi, errN, '.4g'));
-                measTraces.push(...bandPair(measY, measLo, measHi, measN, '.1f'));
-
-                // Do not add savings trace for the baseline itself (always 0)
-                if (`${pair.strategy}::${pair.convergence}` !== baselineVal) {
-                    savingsTraces.push({
-                        x: xVals,
-                        y: savY,
-                        mode: 'lines+markers',
-                        name: traceName,
-                        line: { color: color, width: 2 },
-                        marker: { size: 6 },
-                        text: savN.map(n => n > 0 ? `paired, n=${n}` : 'unpaired fallback'),
-                        hovertemplate: '%{y:.1f} steps saved<br>%{text}<extra>' + traceName + '</extra>',
-                    });
-                }
-            }
-        });
-
-        // 4. Common Layout
-        const commonLayout = {
-            template: 'plotly_white',
-            margin: { t: 40, b: 60, l: 60, r: 20 },
-            hovermode: 'closest',
-            legend: {
-                orientation: 'h',
-                yanchor: 'bottom',
-                y: 1.02,
-                xanchor: 'right',
-                x: 1
-            },
-            xaxis: {
-                title: 'Noise Level',
-                gridcolor: '#f1f5f9',
-            },
-            yaxis: {
-                gridcolor: '#f1f5f9',
-            },
-            shapes: []
-        };
-
-        // Draw vertical reference lines for selected noises
-        const selectedNoises = getSelectedScanNoises();
-        if (selectedNoises && selectedNoises.length) {
-            selectedNoises.forEach(noiseVal => {
-                commonLayout.shapes.push({
-                    type: 'line',
-                    xref: 'x',
-                    yref: 'paper',
-                    x0: noiseVal,
-                    x1: noiseVal,
-                    y0: 0,
-                    y1: 1,
-                    line: {
-                        color: '#f43f5e',
-                        width: 2,
-                        dash: 'dash'
-                    }
-                });
-            });
-        }
-
-        const errLayout = Object.assign({}, commonLayout, {
-            title: `Summary: ${generator} (Error)`,
-            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Median Absolute Error (Hz), IQR band' })
-        });
-
-        const measLayout = Object.assign({}, commonLayout, {
-            title: `Summary: ${generator} (Measurements)`,
-            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Median Steps, IQR band' })
-        });
-
-        const baselineLabel = baselineStrat ? `${baselineStrat} (${baselineConv === 'full' ? 'Full' : (baselineConv === 'splitting_converged' ? 'Splitting converged' : 'Converged')})` : 'Baseline';
-        const savLayout = Object.assign({}, commonLayout, {
-            title: `Measurement Savings vs ${baselineLabel}`,
-            yaxis: Object.assign({}, commonLayout.yaxis, { title: 'Median Steps Saved (paired per repeat)' })
-        });
-
-        try {
-            Plotly.react(document.getElementById('comp-div-summary-err'), errorTraces, errLayout, { responsive: true });
-            Plotly.react(document.getElementById('comp-div-summary-meas'), measTraces, measLayout, { responsive: true });
-            Plotly.react(document.getElementById('comp-div-summary-savings'), savingsTraces, savLayout, { responsive: true });
-        } catch (e) {
-            console.error('Failed to render dynamic noise sweep plots:', e);
-        }
-    }
-
-    // Toggle setup
     // Noise argument the aggregate renderers expect: an array in noise-range
     // mode, otherwise the single effective noise.
     function compareNoisesArg() {
@@ -8827,6 +8399,7 @@ function main() {
         const repeatView = document.getElementById('scan-repeat-view');
         const speedView = document.getElementById('speed-view');
         const accuracyView = document.getElementById('accuracy-view');
+        const pooledView = document.getElementById('pooled-view');
         const failedRunsView = document.getElementById('failed-runs-view');
         const gridStatsView = document.getElementById('grid-stats-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
@@ -8836,6 +8409,7 @@ function main() {
         if (repeatView) repeatView.style.display = 'none';
         if (speedView) speedView.style.display = 'none';
         if (accuracyView) accuracyView.style.display = 'none';
+        if (pooledView) pooledView.style.display = 'none';
         if (failedRunsView) failedRunsView.style.display = 'none';
         if (gridStatsView) gridStatsView.style.display = 'none';
 
@@ -8854,6 +8428,12 @@ function main() {
             if (accuracyView) {
                 accuracyView.style.display = 'block';
                 renderAccuracyTab(gen, noises);
+            }
+        } else if (mode === 'pooled') {
+            if (stoppingRow) stoppingRow.style.display = 'none';
+            if (pooledView) {
+                pooledView.style.display = 'block';
+                renderDashboard();
             }
         } else if (mode === 'failed-runs') {
             if (stoppingRow) stoppingRow.style.display = 'none';
@@ -9165,17 +8745,6 @@ function main() {
             }
         });
     }
-
-    // --- Strategy metrics (model_comparison bar charts) ---
-    const allAggregatePlots = plots.filter(p => p.type === 'model_comparison' || p.type === 'milestone');
-
-    // updateCompPlots: kept for backward compat; delegates to the new helpers
-    function updateCompPlots() {
-        const gen = controlValue(scanGenerator);
-        initAndRenderNoiseSweepPlots(gen);
-    }
-
-
 
     scanGenerator.addEventListener('controlchange', () => {
         lastComparePairIds = { a: null, b: null };
