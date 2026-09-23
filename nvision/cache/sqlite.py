@@ -233,7 +233,24 @@ class ShardedSqliteCache:
             conns[key] = conn
         return conns[key]
 
+    def _table_ensured(self, conn: sqlite3.Connection, table: str) -> bool:
+        """Whether ``table`` was already created through ``conn`` (thread-local, per connection).
+
+        ``_ensure_*_table`` used to run CREATE TABLE + commit on every read and write, so a
+        single repeat save paid dozens of empty commits (each a write-lock round trip that
+        contends with the other worker processes on the same shard file).
+        """
+        ensured: set[tuple[int, str]] | None = getattr(self._local, "ensured_tables", None)
+        if ensured is None:
+            ensured = self._local.ensured_tables = set()
+        if (id(conn), table) in ensured:
+            return True
+        ensured.add((id(conn), table))
+        return False
+
     def _ensure_cache_table(self, conn: sqlite3.Connection) -> None:
+        if self._table_ensured(conn, "cache"):
+            return
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS cache
@@ -250,6 +267,8 @@ class ShardedSqliteCache:
         conn.commit()
 
     def _ensure_graphs_table(self, conn: sqlite3.Connection) -> None:
+        if self._table_ensured(conn, "graphs"):
+            return
         conn.execute("CREATE TABLE IF NOT EXISTS graphs (key TEXT PRIMARY KEY, data BLOB)")
         conn.commit()
 
@@ -275,6 +294,7 @@ class ShardedSqliteCache:
                 with suppress(Exception):
                     conn.close()
             self._local.conns = {}
+        self._local.ensured_tables = set()
 
         with suppress(Exception):
             if hasattr(self._local, "conn"):
@@ -643,6 +663,78 @@ class ShardedSqliteCache:
                     new_index,
                 )
                 conn.commit()
+            except Exception:
+                pass
+
+    def write_repeat_batch(self, rows: dict[str, dict], blobs: dict[str, bytes]) -> None:
+        """Write a repeat's JSON rows and raw graph blobs in one transaction per shard + one index commit.
+
+        Saving a repeat used to be one ``blob_set`` per graph (a shard commit plus an index commit
+        each) followed by ``batch_set``: ~25 commits per repeat, every one taking the shard's
+        write lock against all the other worker processes. This does the same writes in
+        typically 2 commits (shard, index). Keys already indexed keep their shard, like
+        :meth:`batch_set` / :meth:`blob_set`; ``rows`` and ``blobs`` use disjoint key spaces.
+        """
+        if not rows and not blobs:
+            return
+        shard_cache = self._get_shard_cache()
+
+        unknown = [k for k in (*rows, *blobs) if k not in shard_cache]
+        if unknown:
+            try:
+                conn = self._get_index_conn()
+                placeholders = ",".join("?" * len(unknown))
+                cur = conn.execute(
+                    f"SELECT key, shard_id FROM cache_index WHERE key IN ({placeholders})",
+                    unknown,
+                )
+                for k, sid in cur.fetchall():
+                    shard_cache[k] = int(sid)
+            except Exception:
+                pass
+
+        row_pairs: dict[int, list[tuple[str, str]]] = {}
+        blob_pairs: dict[int, list[tuple[str, bytes]]] = {}
+        new_index: list[tuple[str, int]] = []
+
+        def _shard_for(key: str) -> int:
+            shard_id = shard_cache.get(key)
+            if shard_id is None:
+                shard_id = self._choose_write_shard_id()
+                shard_cache[key] = shard_id
+                new_index.append((key, shard_id))
+            return shard_id
+
+        for key, value in rows.items():
+            row_pairs.setdefault(_shard_for(key), []).append((key, json.dumps(value)))
+        for key, data in blobs.items():
+            blob_pairs.setdefault(_shard_for(key), []).append((key, data))
+
+        for shard_id in sorted(row_pairs.keys() | blob_pairs.keys()):
+            conn = self._get_conn_for_path(self._path_for_shard_id(shard_id))
+            self._ensure_cache_table(conn)
+            self._ensure_graphs_table(conn)
+            shard_rows = row_pairs.get(shard_id, [])
+            shard_blobs = blob_pairs.get(shard_id, [])
+
+            def _write(conn=conn, shard_rows=shard_rows, shard_blobs=shard_blobs):
+                if shard_blobs:
+                    conn.executemany("INSERT OR REPLACE INTO graphs (key, data) VALUES (?, ?)", shard_blobs)
+                if shard_rows:
+                    conn.executemany("INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", shard_rows)
+                conn.commit()
+
+            _retry_on_locked(_write)
+
+        if new_index:
+            try:
+                conn = self._get_index_conn()
+                _retry_on_locked(
+                    lambda: (
+                        conn.executemany("INSERT OR REPLACE INTO cache_index (key, shard_id) VALUES (?, ?)", new_index),
+                        conn.commit(),
+                    )
+                )
             except Exception:
                 pass
 

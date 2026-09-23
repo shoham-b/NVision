@@ -183,3 +183,49 @@ def test_delete_many_removes_blob_rows(tmp_path):
 
     assert cache.blob_batch_get(["blob:aaa:0:scan", "blob:aaa:1:scan"]) == {}
     assert list(cache) == []
+
+
+def test_write_repeat_batch_round_trips_rows_and_blobs(tmp_path):
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    cache = ShardedSqliteCache(tmp_path / "c.db")
+    rows = {"repeat:k:0": {"a": 1}, "repeat:k:0:meta": {"a": 2}}
+    blobs = {"blob:k:0:scan": b"\x00\x01raw", "blob:k:0:posterior": b"\x02"}
+    cache.write_repeat_batch(rows, blobs)
+
+    assert cache.get("repeat:k:0") == {"a": 1}
+    assert cache.get("repeat:k:0:meta") == {"a": 2}
+    assert cache.blob_get("blob:k:0:scan") == b"\x00\x01raw"
+    assert cache.blob_get("blob:k:0:posterior") == b"\x02"
+
+    # Overwriting the same keys replaces them (a re-run of the same repeat).
+    cache.write_repeat_batch({"repeat:k:0": {"a": 9}}, {"blob:k:0:scan": b"new"})
+    assert cache.get("repeat:k:0") == {"a": 9}
+    assert cache.blob_get("blob:k:0:scan") == b"new"
+    cache.close()
+
+
+def test_write_repeat_batch_uses_few_commits(tmp_path, monkeypatch):
+    """One repeat with many graph blobs must not cost a commit per blob (the pre-batching behaviour)."""
+    from nvision.cache.sqlite import ShardedSqliteCache
+
+    commits = 0
+    real_connect = sqlite3.connect
+
+    class CountingConn(sqlite3.Connection):
+        def commit(self):
+            nonlocal commits
+            commits += 1
+            super().commit()
+
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: real_connect(*a, factory=CountingConn, **k))
+    cache = ShardedSqliteCache(tmp_path / "c.db")
+    commits = 0  # ignore schema-init commits from construction
+    cache.write_repeat_batch(
+        {f"repeat:k:{i}": {"a": i} for i in range(2)},
+        {f"blob:k:0:{j}": b"x" for j in range(8)},
+    )
+    cache.close()
+
+    # Table creation (2, first use of the shard connection) + shard write (1) + index write (1).
+    assert commits <= 4

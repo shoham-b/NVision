@@ -15,6 +15,7 @@ import polars as pl
 from plotly.subplots import make_subplots
 
 from nvision.models.noise import CompositeOverFrequencyNoise
+from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
 from nvision.sim.batch import DataBatch
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.tools.paths import ensure_out_dir
@@ -774,16 +775,60 @@ def _compute_noisy_dense_band(
     single outlier draw doesn't dominate the width.
     """
     seed_rng = random.Random(seed)
-    draws = np.empty((n_draws, len(xs)), dtype=float)
-    for i in range(n_draws):
-        draws[i] = _compute_noisy_dense_values(
-            xs, ys, over_frequency_noise, noise_scale, rng=random.Random(seed_rng.randint(0, 2**31 - 1))
-        )
-    lo1 = np.percentile(draws, 15.87, axis=0)
-    hi1 = np.percentile(draws, 84.13, axis=0)
-    lo2 = np.percentile(draws, 2.28, axis=0)
-    hi2 = np.percentile(draws, 97.72, axis=0)
+    gaussian_parts = _gaussian_only_parts(over_frequency_noise)
+    if gaussian_parts is not None and len(xs) > 1:
+        draws = _gaussian_noisy_dense_draws(ys, gaussian_parts, noise_scale, n_draws, seed_rng)
+    else:
+        draws = np.empty((n_draws, len(xs)), dtype=float)
+        for i in range(n_draws):
+            draws[i] = _compute_noisy_dense_values(
+                xs, ys, over_frequency_noise, noise_scale, rng=random.Random(seed_rng.randint(0, 2**31 - 1))
+            )
+    # One call: np.percentile partitions the (n_draws, n_x) array once for all four quantiles.
+    lo1, hi1, lo2, hi2 = np.percentile(draws, [15.87, 84.13, 2.28, 97.72], axis=0)
     return lo1, hi1, lo2, hi2
+
+
+def _gaussian_only_parts(noise: CompositeOverFrequencyNoise) -> list[OverFrequencyGaussianNoise] | None:
+    """The noise's parts if it is a non-empty composite of plain Gaussian components, else ``None``."""
+    parts = getattr(noise, "_parts", None)
+    if parts and all(type(p) is OverFrequencyGaussianNoise for p in parts):
+        return list(parts)
+    return None
+
+
+def _gaussian_noisy_dense_draws(
+    ys: np.ndarray | list[float],
+    parts: Sequence[OverFrequencyGaussianNoise],
+    noise_scale: float,
+    n_draws: int,
+    seed_rng: random.Random,
+) -> np.ndarray:
+    """Bit-identical, Polars-free equivalent of ``n_draws`` calls to :func:`_compute_noisy_dense_values`.
+
+    Reproduces the generic path's RNG stream exactly: one ``random.Random`` per draw, seeded from
+    ``seed_rng``, from which each Gaussian component takes ``getrandbits(64)`` to seed its numpy
+    generator (see ``OverFrequencyGaussianNoise.apply``'s bulk branch), then adds and clips in the
+    same order. Skips the per-draw DataBatch/Polars round-trip, which dominated the cost.
+
+    Returns shape ``(n_draws, len(ys))``: noisy signal values per draw over the dense x grid.
+    """
+    ys_arr = np.asarray(ys, dtype=float)
+    n = ys_arr.size
+    draws = np.empty((n_draws, n), dtype=float)
+    for i in range(n_draws):
+        rng = random.Random(seed_rng.randint(0, 2**31 - 1))
+        vals = ys_arr
+        for part in parts:
+            noise = np.random.default_rng(rng.getrandbits(64)).normal(0.0, max(part.std, 0.0), size=n)
+            vals = vals + noise
+            if part.clip_min is not None or part.clip_max is not None:
+                vals = np.clip(vals, part.clip_min, part.clip_max)
+        draws[i] = vals
+    bad = ~np.isfinite(draws)
+    if noise_scale != 1.0:
+        draws = ys_arr + (draws - ys_arr) * noise_scale
+    return np.where(bad, ys_arr, draws)
 
 
 def _splice_noisy_dense_at_measurements(
