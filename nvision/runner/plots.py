@@ -23,6 +23,7 @@ from nvision.runner.plots_data import (
 )
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
+    NVISION_PLOT_SWEEP_STRATEGIES,
     PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
     param_converged,
     param_convergence_bound_width,
@@ -32,6 +33,10 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
+
+# Strategies whose figures are skipped unless NVISION_PLOT_SWEEP_STRATEGIES is set. Their
+# manifest entry, per-step series and metrics are still produced.
+_SWEEP_STRATEGY_NAMES = frozenset({"SimpleSweep", "SimpleSobol"})
 
 # Maximum number of snapshots fed into visualization loops.
 # SimpleSobol and other convergence-driven locators can accumulate thousands of
@@ -1269,30 +1274,37 @@ def generate_attempt_plots(
             "config_fingerprint": PHYSICS_CONFIG_FINGERPRINT,
         }
 
-    scan_entry["_bytes"] = viz.plot_scan_measurements(
-        current_scan,
-        history_with_phase,
-        over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
-        mode_estimates=mode_estimates,
-        focus_window=focus_window,
-        per_dip_windows=per_dip_windows,
-        belief_unit_cube=belief_unit_cube,
-        narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
-        sobol_xs=sobol_xs,
-        sobol_ys=sobol_ys,
-        sobol_mode_estimates=sobol_mode_estimates,
-        sweep_xs=sweep_xs,
-        sweep_ys=sweep_ys,
-        sweep_mode_estimates=sweep_mode_estimates,
-        true_params=_true_params_dict,
-        # Same preference as the final_est_* metrics (run_result_to_finalize_record): a
-        # sweep's least-squares fit over its possibly-collapsed belief.
-        found_params=(
-            {**run_result.final_estimates(), **(run_result.fit_mode_estimates or {})}
-            if run_result is not None
-            else None
-        ),
-    )
+    plots_skipped = strat_name in _SWEEP_STRATEGY_NAMES and not NVISION_PLOT_SWEEP_STRATEGIES
+    if plots_skipped:
+        # No figure: drop the path so nothing tries to embed or serve a plot that was never
+        # built, and flag the entry so the UI/server can tell "skipped by design" from "missing".
+        scan_entry.pop("path", None)
+        scan_entry["plot_skipped"] = True
+    else:
+        scan_entry["_bytes"] = viz.plot_scan_measurements(
+            current_scan,
+            history_with_phase,
+            over_frequency_noise=noise_obj.over_frequency_noise if noise_obj else None,
+            mode_estimates=mode_estimates,
+            focus_window=focus_window,
+            per_dip_windows=per_dip_windows,
+            belief_unit_cube=belief_unit_cube,
+            narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
+            sobol_xs=sobol_xs,
+            sobol_ys=sobol_ys,
+            sobol_mode_estimates=sobol_mode_estimates,
+            sweep_xs=sweep_xs,
+            sweep_ys=sweep_ys,
+            sweep_mode_estimates=sweep_mode_estimates,
+            true_params=_true_params_dict,
+            # Same preference as the final_est_* metrics (run_result_to_finalize_record): a
+            # sweep's least-squares fit over its possibly-collapsed belief.
+            found_params=(
+                {**run_result.final_estimates(), **(run_result.fit_mode_estimates or {})}
+                if run_result is not None
+                else None
+            ),
+        )
     # plot_data is loaded on-demand by UI from scan JSON to keep manifest small
 
     # Add per-phase breakdown for Bayesian runs with a preliminary sweep
@@ -1339,7 +1351,7 @@ def generate_attempt_plots(
 
     entries: list[dict[str, Any]] = [scan_entry]
 
-    if run_result is not None and _is_bayesian_run(strat_name, strat_obj):
+    if run_result is not None and _is_bayesian_run(strat_name, strat_obj) and not plots_skipped:
         try:
             entries.extend(
                 _bayesian_auxiliary_entries(

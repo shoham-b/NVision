@@ -32,6 +32,13 @@ NVISION_SOBOL_STEPS_FRACTION: float = float(os.getenv("NVISION_SOBOL_STEPS_FRACT
 # computed against — only SimpleSweep's own budget is capped here.
 NVISION_SIMPLESWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SIMPLESWEEP_MAX_STEPS", "400"))
 
+# Build the per-repeat plots (scan figure, posterior/Fisher/convergence extras) for the
+# SimpleSweep / SimpleSobol strategies. Off by default: these tasks still run and keep
+# their data and metrics (results rows, per-step `series`, and the baselines Bayesian-SBED
+# compares against), but the figures cost more than the locator run itself and are rarely
+# opened. Bayesian-SBED plots are unaffected. Set to 1 to build them again.
+NVISION_PLOT_SWEEP_STRATEGIES: bool = os.getenv("NVISION_PLOT_SWEEP_STRATEGIES", "0").lower() in ("1", "true", "yes")
+
 # Sweep curve-fit early stop: once a fit start converges to the noise floor -- reduced
 # chi-square <= 1 + K * sqrt(2 / dof), i.e. within K standard deviations of the ~1 a
 # correct fit gives -- the remaining starting points are skipped instead of all being

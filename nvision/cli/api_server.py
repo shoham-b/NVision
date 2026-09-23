@@ -270,7 +270,10 @@ def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict
             slim = _slim_manifest_entry(entry)
             for field in _BULK_STRIP_FIELDS:
                 slim.pop(field, None)
-            slim["path"] = f"/api/graph/{combo_key}/{repeat_idx}/{gtype}.json.gz"
+            if not entry.get("plot_skipped"):
+                # Entries whose figure was skipped by design (see NVISION_PLOT_SWEEP_STRATEGIES)
+                # keep their metadata/series but have no graph to serve, so get no path.
+                slim["path"] = f"/api/graph/{combo_key}/{repeat_idx}/{gtype}.json.gz"
             graph_entries.append(slim)
     return graph_entries, result_rows
 
