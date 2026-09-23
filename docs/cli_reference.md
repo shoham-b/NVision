@@ -22,7 +22,7 @@ Runs a batch of simulations across multiple locators and noise levels.
 
 **Common Options:**
 - `--repeats`: Number of repeat experiments (default: 5).
-- `--loc-max-steps`: Maximum steps for Bayesian locator (default: 1200).
+- Step budgets are not CLI options; set `NVISION_DEFAULT_LOC_MAX_STEPS` (see `.env.example`) instead. `nv demo` still takes `--loc-max-steps`.
 - `--filter-category`, `--filter-strategy`, `--filter-generator`, `--filter-noise`: Filter scenarios to run.
 - `--runners`: Number of parallel runner processes (default: `min(8, cpu_count // 2)`, scales with the machine — see `NVISION_DEFAULT_RUNNERS`; use 1 for sequential execution). Each worker's numba/BLAS thread count is capped to the leftover cores (`cpu_count // runners`) so processes and intra-worker threads don't oversubscribe.
 - `--no-cache`: Force bypass of the simulation cache.
@@ -32,7 +32,7 @@ Runs a batch of simulations across multiple locators and noise levels.
 **Example Use Cases:**
 ```bash
 # Standard batch run with 5 repeats
-uv run nv run --repeats 5 --loc-max-steps 150
+uv run nv run --repeats 5
 
 # Run only NVCenter Lorentzian generators across all noises for the Bayesian locator
 uv run nv run --filter-generator NVCenter-lorentzian --filter-strategy Bayesian
@@ -55,7 +55,7 @@ Runs exactly one combination of generator, noise, and strategy. Extremely useful
 **Example Use Cases:**
 ```bash
 # Run a fast dry-run for a specific strategy and noise level to verify code changes
-uv run nv run-single NVCenter-lorentzian "Gauss(0.01)" Bayesian-SBED --loc-max-steps 3 --repeats 1 --runners 1 --dry-run
+uv run nv run-single NVCenter-lorentzian "Gauss(0.01)" Bayesian-SBED --repeats 1 --runners 1 --dry-run
 ```
 
 ### `nv groups`
