@@ -118,6 +118,10 @@ class CacheBridge:
                 # see api_server._combo_key. `None` marks a v8-era config that
                 # predates the field, whose key was hashed without it at all.
                 "physics_fingerprint": (payload.get("config") or {}).get("physics_fingerprint"),
+                # Likewise the CACHE_SCHEMA_VERSION it was written under: the
+                # key hashes it, so bumping the constant must not orphan
+                # entries the viewer can still read.
+                "schema_version": (payload.get("config") or {}).get("schema_version"),
             }
             for combo, payload in self._iter_combination_payloads()
         ]

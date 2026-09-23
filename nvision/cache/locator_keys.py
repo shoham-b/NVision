@@ -18,7 +18,11 @@ from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 # are cleanly unreachable (repeat keys derive from combo_key, which changes
 # with this bump) rather than needing dual-format read support; delete
 # artifacts/cache to reclaim the disk they'd otherwise sit on unused.
-CACHE_SCHEMA_VERSION = 10
+# v11: Algorithm changes that make older results non-comparable (candidate-grid
+# density mixture, Rao-Blackwellized noise likelihood, no particle rejuvenation,
+# noise-floor fix, prior-mean widening). The viewer (`nv serve`) still opens
+# older entries via their stored schema_version (see api_server._combo_key).
+CACHE_SCHEMA_VERSION = 11
 
 # PHYSICS_CONFIG_FINGERPRINT (nvision/spectra/nv_center.py) is folded into every cache
 # config below instead of relying on a manual CACHE_SCHEMA_VERSION bump: a generator's

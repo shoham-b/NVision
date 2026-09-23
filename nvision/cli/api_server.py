@@ -176,6 +176,8 @@ def _combo_key(combo: dict) -> str:
             ptr_config.pop("physics_fingerprint", None)
         else:
             ptr_config["physics_fingerprint"] = stored_fp
+    if combo.get("schema_version") is not None:
+        ptr_config["schema_version"] = combo["schema_version"]
     return stable_config_hash(ptr_config)
 
 

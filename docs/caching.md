@@ -90,3 +90,12 @@ uv run nv groups both-sbed --repeats 50 --resume
 `save`/`restore` only ever copy — the live cache is never modified by `save`, and `restore`
 archives whatever is live before overwriting it. Best done while no `nv run`/`nv groups` is
 actively writing to the cache, for a fully consistent snapshot.
+
+## 6. Cache Invalidation (`CACHE_SCHEMA_VERSION` and the physics fingerprint)
+
+Every combination key hashes two version markers (`nvision/cache/locator_keys.py`):
+
+- `CACHE_SCHEMA_VERSION` — bumped by hand when algorithm or payload semantics change (currently 11: candidate-grid density mixture, Rao-Blackwellized noise likelihood, no particle rejuvenation, noise-floor fix, prior-mean widening).
+- `PHYSICS_CONFIG_FINGERPRINT` — derived automatically from the physical constants and bounds generators draw from.
+
+A change to either makes `nv run` miss the old entries and recompute, so stale results are never silently reused. Old entries are not deleted: `nv serve` rebuilds each entry's key from its *stored* schema version and fingerprint (`api_server._combo_key`), so results from earlier versions stay listed and openable. `nv render`, `nv cache` subcommands and other CLI readers build keys from the current versions and will not see them; delete `artifacts/cache` to reclaim the disk.
