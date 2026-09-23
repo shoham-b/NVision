@@ -66,6 +66,7 @@ def identify_dip_candidates(
     particle_weights: np.ndarray | None = None,
     confidence_threshold: float | None = None,
     max_split_hz: float | None = None,
+    assume_sorted: bool = False,
 ) -> list[DipCandidate]:
     """Return qualified dip candidates with continuous per-particle support.
 
@@ -82,12 +83,27 @@ def identify_dip_candidates(
         particle_weights: Particle weights in SMC filter. shape: (n_particles,)
         confidence_threshold: Binomial test confidence gate. If None, uses NVISION_DIP_CONFIDENCE.
         max_split_hz: Physical split upper bound for single-dip prior gating.
+        assume_sorted: If True, ``obs_xs`` is asserted to already be ascending
+            and the candidate-clustering sort plus the per-cluster window scan
+            are skipped in favor of a binary search over the (already sorted)
+            array. Callers that maintain observation history incrementally in
+            frequency order (e.g. ``SMCMarginalDistribution.sorted_observation_arrays``)
+            should pass True to avoid a redundant O(n log n) re-sort on every
+            call. Passing True with unsorted input raises ``ValueError`` — this
+            is a caller contract, not silently corrected, per the project's
+            fail-fast convention.
 
     Returns:
         List of DipCandidate objects, sorted by significance descending.
     """
     if len(obs_xs) == 0 or len(obs_ys) == 0:
         return []
+
+    if assume_sorted and obs_xs.shape[0] > 1 and not np.all(obs_xs[:-1] <= obs_xs[1:]):
+        raise ValueError(
+            "identify_dip_candidates: assume_sorted=True but obs_xs is not ascending. "
+            "Callers must pass an already frequency-sorted observation view."
+        )
 
     # 1. Uncertainty Gating Check
     if noise_std_unc is not None:
@@ -152,11 +168,16 @@ def identify_dip_candidates(
         logging.debug("identify_dip_candidates: no candidates with non-zero dip support.")
         return []
 
-    # 7. Sort by frequency before greedy clustering
-    sort_idx = np.argsort(cand_xs)
-    sorted_xs = cand_xs[sort_idx]
-    sorted_ys = cand_ys[sort_idx]
-    sorted_support = cand_support[sort_idx]
+    # 7. Sort by frequency before greedy clustering. Boolean masking (step 6)
+    # preserves relative order, so if obs_xs is already ascending, cand_xs is
+    # too -- skip the O(k log k) re-sort in that case.
+    if assume_sorted:
+        sorted_xs, sorted_ys, sorted_support = cand_xs, cand_ys, cand_support
+    else:
+        sort_idx = np.argsort(cand_xs)
+        sorted_xs = cand_xs[sort_idx]
+        sorted_ys = cand_ys[sort_idx]
+        sorted_support = cand_support[sort_idx]
 
     cluster_radius_hz = 3.0 * max_linewidth_hz
     clusters: list[list[tuple[float, float, float]]] = []
@@ -191,8 +212,15 @@ def identify_dip_candidates(
         # Binomial confidence gate
         f_min = float(np.min(xs))
         f_max = float(np.max(xs))
-        in_window = (obs_xs >= f_min - cluster_radius_hz) & (obs_xs <= f_max + cluster_radius_hz)
-        n_local = int(np.sum(in_window))
+        if assume_sorted:
+            # obs_xs is ascending -- locate the window by binary search (O(log n))
+            # instead of a full boolean scan (O(n)) over the whole observation history.
+            lo_idx = int(np.searchsorted(obs_xs, f_min - cluster_radius_hz, side="left"))
+            hi_idx = int(np.searchsorted(obs_xs, f_max + cluster_radius_hz, side="right"))
+            n_local = hi_idx - lo_idx
+        else:
+            in_window = (obs_xs >= f_min - cluster_radius_hz) & (obs_xs <= f_max + cluster_radius_hz)
+            n_local = int(np.sum(in_window))
 
         s_total = float(np.sum(sups))
         k_binom = int(np.round(s_total)) - 1

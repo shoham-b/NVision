@@ -440,6 +440,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _obs_x_arr: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_y_arr: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_count: int = field(init=False, repr=False, default=0)
+    # Permutation of [0, _obs_count) such that _obs_x_arr[_obs_sort_order[:_obs_count]]
+    # is ascending, for indices < _obs_sort_valid_count. Maintained lazily by
+    # sorted_observation_arrays() (one searchsorted + in-place shift per pending
+    # point) so dip detection can consume an already-sorted observation view
+    # instead of re-sorting from scratch each call.
+    _obs_sort_order: np.ndarray | None = field(init=False, repr=False, default=None)
+    _obs_sort_valid_count: int = field(init=False, repr=False, default=0)
     _scratch_logw: np.ndarray | None = field(init=False, repr=False, default=None)
     # EIG prediction-matrix cache (see NVISION_SMC_EIG_CACHE). _eig_epoch is
     # bumped whenever the candidate grid / particles change so the cache is
@@ -510,6 +517,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._rng = np.random.default_rng()
         self._obs_x_arr = np.empty(256, dtype=np.float64)
         self._obs_y_arr = np.empty(256, dtype=np.float64)
+        self._obs_sort_order = np.empty(256, dtype=np.int64)
+        self._obs_sort_valid_count = 0
         self._obs_count = 0
         self._scratch_logw = np.empty(self.num_particles, dtype=FLOAT_DTYPE)
         self._dip_centers = []
@@ -881,18 +890,84 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         return self._obs_x_arr[: self._obs_count], self._obs_y_arr[: self._obs_count]
 
+    def sorted_observation_arrays(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(x, signal_value)`` of all observations sorted ascending by x.
+
+        Maintains ``_obs_sort_order`` lazily: indices in
+        ``[_obs_sort_valid_count, _obs_count)`` haven't been incorporated into
+        the sorted permutation yet, so each is inserted in turn via a single
+        ``searchsorted`` (O(log n)) plus an in-place slice shift (O(n),
+        memmove-safe under overlapping numpy basic-index assignment). A call
+        with no new observations since the last one is O(1). This avoids
+        paying O(n log n) to re-sort the full history from scratch on every
+        call (e.g. once per SMC resample epoch, for dip detection).
+
+        Resolving lazily (reading each index's *current* ``_obs_x_arr`` value
+        at insertion time, not at append time) is required for correctness:
+        ``UnitCubeSMCMarginalDistribution`` writes a provisional narrowed-frame
+        x into ``_obs_x_arr`` via ``_append_observation`` and then overwrites it
+        with the original-frame value afterwards (see its ``update``/
+        ``batch_update``) — see ``_resync_sort_position`` for the case where
+        that overwrite happens *after* this method already consumed the index.
+
+        Returns freshly-gathered arrays (not views), safe for callers to hold
+        onto even as more observations are appended.
+        """
+        n = self._obs_count
+        order = self._obs_sort_order
+        for i in range(self._obs_sort_valid_count, n):
+            sorted_xs_so_far = self._obs_x_arr[order[:i]]
+            pos = int(np.searchsorted(sorted_xs_so_far, self._obs_x_arr[i], side="right"))
+            order[pos + 1 : i + 1] = order[pos:i]
+            order[pos] = i
+        self._obs_sort_valid_count = n
+        order = order[:n]
+        return self._obs_x_arr[order], self._obs_y_arr[order]
+
+    def _resync_sort_position(self, idx: int) -> None:
+        """Fix up ``_obs_sort_order`` after ``_obs_x_arr[idx]`` was mutated directly.
+
+        Only ``UnitCubeSMCMarginalDistribution`` needs this: it overwrites the
+        narrowed-frame x that ``_append_observation`` stored for the newest
+        observation(s) with the original-frame value, after ``super().update()``/
+        ``super().batch_update()`` returns. If ``sorted_observation_arrays()``
+        never ran in between, ``idx`` hasn't been incorporated into the sort
+        order yet and the next call will naturally pick up the corrected value
+        (no-op here). If it *did* run — dip detection can trigger mid-``update()``
+        via resampling, before this correction — ``idx`` is already placed in
+        ``_obs_sort_order`` at a position based on the stale value; this removes
+        it and re-inserts it using the corrected one, preserving sortedness for
+        ``[0, _obs_sort_valid_count)`` without needing a full re-sort.
+        """
+        valid = self._obs_sort_valid_count
+        if idx >= valid:
+            return
+        order = self._obs_sort_order
+        cur_pos = int(np.where(order[:valid] == idx)[0][0])
+        order[cur_pos : valid - 1] = order[cur_pos + 1 : valid]
+        sorted_xs = self._obs_x_arr[order[: valid - 1]]
+        new_pos = int(np.searchsorted(sorted_xs, self._obs_x_arr[idx], side="right"))
+        order[new_pos + 1 : valid] = order[new_pos : valid - 1]
+        order[new_pos] = idx
+
     @property
     def num_observations(self) -> int:
         """Number of observations recorded so far."""
         return self._obs_count
 
     def _append_observation(self, x: float, y: float) -> None:
-        """Record one observation into the flat history buffers (amortized growth)."""
+        """Record one observation into the flat history buffers (amortized growth).
+
+        Does not touch ``_obs_sort_order`` — that's maintained lazily by
+        ``sorted_observation_arrays()`` (see its docstring for why: subclasses
+        may still mutate ``_obs_x_arr[n]`` after this call returns).
+        """
         n = self._obs_count
         if n >= self._obs_x_arr.shape[0]:
             cap = 2 * self._obs_x_arr.shape[0]
             self._obs_x_arr = np.resize(self._obs_x_arr, cap)
             self._obs_y_arr = np.resize(self._obs_y_arr, cap)
+            self._obs_sort_order = np.resize(self._obs_sort_order, cap)
         self._obs_x_arr[n] = x
         self._obs_y_arr[n] = y
         self._obs_count = n + 1
@@ -916,10 +991,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         cap = max(256, n)
         self._obs_x_arr = np.empty(cap, dtype=np.float64)
         self._obs_y_arr = np.empty(cap, dtype=np.float64)
+        self._obs_sort_order = np.empty(cap, dtype=np.int64)
         for i, o in enumerate(observations):
             self._obs_x_arr[i] = o.x
             self._obs_y_arr[i] = o.signal_value
         self._obs_count = n
+        # Bulk-set path (not the hot per-observation append) — a single sort is fine.
+        self._obs_sort_order[:n] = np.argsort(self._obs_x_arr[:n])
+        self._obs_sort_valid_count = n
 
     def estimated_noise_std(self) -> float:
         """Conservative (90th percentile highest) noise σ estimate.
@@ -1206,7 +1285,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     "Ensure physical_param_bounds includes 'frequency' at construction."
                 )
             freq_rescale = rescale_maps["frequency"]
-            obs_xs, obs_ys = self.observation_arrays()
+            # Sorted-by-x view (maintained incrementally in _append_observation,
+            # not re-sorted here). to_phys() is a strictly increasing affine map
+            # (RescaleMap enforces hi > lo), so sortedness is preserved.
+            obs_xs, obs_ys = self.sorted_observation_arrays()
             obs_xs_phys = freq_rescale.to_phys(obs_xs)
             noise_std = self.estimated_noise_std()
             noise_std_unc = self.noise_std_uncertainty(noise_std)
@@ -1254,6 +1336,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 per_particle_sigmas=per_particle_sigmas,
                 particle_weights=self._weights,
                 max_split_hz=max_split_hz,
+                assume_sorted=True,
             )
 
             self._dip_centers = [c.centroid_hz for c in dip_candidates]
@@ -1741,6 +1824,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist.last_ess = self.last_ess
         dist._obs_x_arr = self._obs_x_arr.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()
+        dist._obs_sort_order = self._obs_sort_order.copy()
+        dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
         dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
         if getattr(self, "_use_rao_blackwell_noise", False):

@@ -704,7 +704,13 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         super().update(obs_eval)
         # Restore the original-frame x in the history buffer and last_obs
         # (the rescaled obs_eval.x was recorded by super().update()).
-        self._obs_x_arr[self._obs_count - 1] = obs.x
+        idx = self._obs_count - 1
+        self._obs_x_arr[idx] = obs.x
+        # super().update() may have triggered a resample (and thus dip
+        # detection via sorted_observation_arrays()) before this correction --
+        # if so, idx is already placed in _obs_sort_order using the stale
+        # narrowed-frame value. Fix it up; a no-op if that hasn't happened yet.
+        self._resync_sort_position(idx)
         self.last_obs = obs
 
     def batch_update(self, observations: list[Observation]) -> None:
@@ -729,7 +735,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # (the rescaled observations_eval x values were recorded by super()).
         n_obs = len(observations)
         if n_obs:
-            self._obs_x_arr[self._obs_count - n_obs : self._obs_count] = [o.x for o in observations]
+            start = self._obs_count - n_obs
+            self._obs_x_arr[start : self._obs_count] = [o.x for o in observations]
+            # See update()'s comment: fix up any indices dip detection already
+            # sorted using the pre-correction (narrowed-frame) value.
+            for idx in range(start, self._obs_count):
+                self._resync_sort_position(idx)
             self.last_obs = observations[-1]
 
     def copy(self) -> UnitCubeSMCMarginalDistribution:
@@ -766,6 +777,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._original_physical_x_bounds = self._original_physical_x_bounds
         dist._obs_x_arr = self._obs_x_arr.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()
+        dist._obs_sort_order = self._obs_sort_order.copy()
+        dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
         dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
         if getattr(self, "_use_rao_blackwell_noise", False):

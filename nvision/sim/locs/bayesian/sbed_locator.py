@@ -274,7 +274,15 @@ def compute_focus_window_confidence(
     if rescale_maps is None or "frequency" not in rescale_maps:
         return None
 
-    if hasattr(belief, "observation_arrays"):
+    # Prefer the incrementally-maintained sorted view: this function runs every
+    # step once dense mode kicks in (see _should_check_focus_confidence), so
+    # avoiding a fresh O(n log n) re-sort here matters more than at the other
+    # (resample-only) call sites.
+    obs_sorted = hasattr(belief, "sorted_observation_arrays")
+    if obs_sorted:
+        obs_xs_unit, obs_ys = belief.sorted_observation_arrays()
+        obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
+    elif hasattr(belief, "observation_arrays"):
         obs_xs_unit, obs_ys = belief.observation_arrays()
         obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
     else:
@@ -323,6 +331,7 @@ def compute_focus_window_confidence(
         per_particle_sigmas=per_particle_sigmas,
         particle_weights=particle_weights,
         max_split_hz=max_split_hz,
+        assume_sorted=obs_sorted,
     )
 
     if not candidates:
@@ -608,7 +617,15 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                             "Ensure physical_param_bounds includes 'frequency' at construction."
                         )
                     freq_rescale = rescale_maps["frequency"]
-                    if hasattr(self.belief, "observation_arrays"):
+                    # Prefer the incrementally-maintained sorted view (avoids an
+                    # O(n log n) re-sort inside identify_dip_candidates below) when
+                    # the belief type supports it; to_phys() is a strictly increasing
+                    # affine map so sortedness carries over into physical units.
+                    obs_sorted = hasattr(self.belief, "sorted_observation_arrays")
+                    if obs_sorted:
+                        obs_xs_unit, obs_ys = self.belief.sorted_observation_arrays()
+                        obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
+                    elif hasattr(self.belief, "observation_arrays"):
                         obs_xs_unit, obs_ys = self.belief.observation_arrays()
                         obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
                     else:
@@ -658,6 +675,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                         per_particle_sigmas=per_particle_sigmas,
                         particle_weights=particle_weights,
                         max_split_hz=max_split_hz,
+                        assume_sorted=obs_sorted,
                     )
                     dip_centers = [c.centroid_hz for c in dip_candidates]
 
