@@ -232,6 +232,20 @@
         "beta_artifacts"
       ],
       "port": 18111
+    },
+    {
+      "name": "nvision-serve-noise-sigma-ui-check",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18120"
+      ],
+      "port": 18120
     }
   ]
 }
