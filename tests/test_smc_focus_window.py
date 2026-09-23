@@ -84,8 +84,11 @@ def test_focus_window_automatic_narrowing_during_resampling():
     assert new_hi < old_hi, f"Expected hi bound to decrease, but stayed {new_hi}"
     assert (new_hi - new_lo) < (old_hi - old_lo), "Expected window to be narrowed"
 
+    # Threshold reflects jitter + the min_exploration_frac floor only (particle
+    # rejuvenation, which used to inflate this further, was removed after an A/B
+    # showed no measurable accuracy/calibration benefit even on its target regime).
     internal_var_after = np.var(smc._particles[:, f_idx])
-    assert internal_var_after > 3e-4, f"Internal variance after resampling did not recover: {internal_var_after}"
+    assert internal_var_after > 1e-4, f"Internal variance after resampling did not recover: {internal_var_after}"
 
     print(f"Natively narrowed bounds from {(old_lo, old_hi)} to {(new_lo, new_hi)}")
 

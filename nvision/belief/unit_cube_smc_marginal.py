@@ -637,10 +637,10 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             linewidth_phys = np.full_like(freq_phys, 2.0e6)
 
         cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
-        # Rejuvenation fraction is max 5%. By using the 5th/95th percentiles, we
-        # safely skip the uniform background particles while minimally eating into
-        # the true dense clusters (which span ~100s of kHz, so losing 5% of their mass
-        # barely moves the boundary).
+        # The 5th/95th percentiles skip stray low-weight tail particles (e.g. from the
+        # min_exploration_frac floor) while minimally eating into the true dense
+        # clusters (which span ~100s of kHz, so losing 5% of their mass barely moves
+        # the boundary).
         tail_percentile = 5.0
 
         # Per particle, the active range is exactly symmetric about freq_i: both dips

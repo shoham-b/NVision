@@ -107,7 +107,7 @@ class AbstractMarginalDistribution(ABC):
     def robust_uncertainty(self) -> ParameterValues[float]:
         """Outlier-insensitive marginal spread, for gating streak/consecutive-
         checks decisions that would otherwise flicker on a transient event (e.g.
-        an SMC resample's rejuvenation particles -- see
+        a handful of outlier particles after an SMC resample -- see
         :meth:`~nvision.belief.smc_marginal.SMCMarginalDistribution.
         _robust_uncertainty_unit` for why).
 

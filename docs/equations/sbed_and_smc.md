@@ -58,7 +58,7 @@ $$C_{jj} \leftarrow \max\!\left(C_{jj},\, \left[(h_j - l_j) \cdot f_{\rm expl} \
 
 with f_expl = `min_exploration_frac` = 0.01, t = `_step_count`, and [l_j, h_j] the bound of parameter j.  An eigenvalue decomposition then regularises C (minimum eigenvalue clamped to max(1e−11, 1e−6·λ_max)) to restore positive-definiteness before the Cholesky draw.
 
-**Particle rejuvenation:** A fraction f_rejuv = 0.05·e^(−t/25) of particles are replaced by fresh uniform prior draws to prevent mode collapse.
+**No particle rejuvenation:** Earlier versions replaced a fraction f_rejuv = 0.05·e^(−t/25) of particles with fresh prior draws at each resample (plus a joint dip-informed variant for (frequency, zeeman_split)). Both were removed: an A/B on the danger-zone Lorentzian configs (zeeman_split/linewidth < 1.5, n=60 per arm, paired) showed no measurable accuracy or calibration benefit. Diversity after resampling comes only from the nudge covariance C above, including its `NVISION_SMC_MIN_EXPLORATION_FRAC` floor.
 
 ### 1.5 Weighted Statistics
 
