@@ -629,6 +629,37 @@ class TestWriteFisherData:
         data = _load(out)
         assert isinstance(data, dict)
 
+    def test_oracle_crlb_included_and_scaled(self, tmp_path):
+        param_names = ["frequency", "linewidth"]
+        fisher_bounds = [{"frequency": 2e6, "linewidth": 3e6}]
+        actual_unc = [{"frequency": 4e6, "linewidth": 5e6}]
+        oracle_crlb = [{"frequency": 1e6, "linewidth": 2e6}]
+        fim = [np.eye(2)]
+        out = tmp_path / "fisher.json"
+        write_fisher_data(fisher_bounds, actual_unc, fim, param_names, out, oracle_crlb_hist=oracle_crlb)
+        data = _load(out)
+        oc = data["steps"][0]["oracle_crlb"]
+        assert abs(oc["frequency"] - 1e6 / 1e9) < 1e-12
+        assert abs(oc["linewidth"] - 2.0) < 1e-9
+
+    def test_oracle_crlb_absent_when_not_passed(self, tmp_path):
+        rng = np.random.default_rng(45)
+        param_names, fb, au, fh = self._make_inputs(rng, n_steps=2, n_params=2)
+        out = tmp_path / "fisher.json"
+        write_fisher_data(fb, au, fh, param_names, out)
+        data = _load(out)
+        assert "oracle_crlb" not in data["steps"][0]
+
+    def test_oracle_crlb_length_mismatch_ignored(self, tmp_path):
+        rng = np.random.default_rng(46)
+        param_names, fb, au, fh = self._make_inputs(rng, n_steps=3, n_params=2)
+        out = tmp_path / "fisher.json"
+        # Wrong length (2 vs 3 steps) must be dropped rather than zipped-and-truncated silently.
+        write_fisher_data(fb, au, fh, param_names, out, oracle_crlb_hist=[{"frequency": 1.0}, {"frequency": 2.0}])
+        data = _load(out)
+        assert len(data["steps"]) == 3
+        assert "oracle_crlb" not in data["steps"][0]
+
 
 # ---------------------------------------------------------------------------
 # Cross-cutting: output is always pure Python types (no numpy leaks)

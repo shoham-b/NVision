@@ -333,6 +333,107 @@ def test_compute_fisher_history_normalizes_across_wildly_different_scales() -> N
 
 
 # ---------------------------------------------------------------------------
+# _compute_oracle_crlb_history (nvision.runner.plots) -- the "best any ideal
+# acquisition could do" reference curve, as distinct from _compute_fisher_history's
+# data-driven "how well did THIS run's actual measurements do" curve above.
+# ---------------------------------------------------------------------------
+
+
+def test_oracle_crlb_history_decreases_as_one_over_sqrt_n() -> None:
+    """CRLB ~ 1/sqrt(N): step k's oracle bound should equal step 0's divided by sqrt(k+1)."""
+    from nvision.runner.plots import _compute_oracle_crlb_history
+
+    model = _SimpleGaussModel()
+    param_names = model.parameter_names()
+    true_params = _GaussParams(amplitude=0.5, center=0.5)
+    physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
+
+    history = _compute_oracle_crlb_history(
+        n_steps=9,
+        inner_model=model,
+        true_typed_params=true_params,
+        x_lo=0.0,
+        x_hi=1.0,
+        representative_noise_std=0.01,
+        param_names=param_names,
+        physical_bounds=physical_bounds,
+    )
+
+    assert len(history) == 9
+    for name in param_names:
+        step0 = history[0][name]
+        assert math.isfinite(step0)
+        assert step0 > 0
+        for k in (1, 3, 8):
+            expected = step0 / math.sqrt(k + 1)
+            assert math.isclose(history[k][name], expected, rel_tol=1e-6)
+
+
+def test_oracle_crlb_history_scales_with_noise() -> None:
+    """Doubling the noise std should double every oracle CRLB value (linear in sigma)."""
+    from nvision.runner.plots import _compute_oracle_crlb_history
+
+    model = _SimpleGaussModel()
+    param_names = model.parameter_names()
+    true_params = _GaussParams(amplitude=0.5, center=0.5)
+    physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
+
+    low = _compute_oracle_crlb_history(
+        n_steps=3,
+        inner_model=model,
+        true_typed_params=true_params,
+        x_lo=0.0,
+        x_hi=1.0,
+        representative_noise_std=0.01,
+        param_names=param_names,
+        physical_bounds=physical_bounds,
+    )
+    high = _compute_oracle_crlb_history(
+        n_steps=3,
+        inner_model=model,
+        true_typed_params=true_params,
+        x_lo=0.0,
+        x_hi=1.0,
+        representative_noise_std=0.02,
+        param_names=param_names,
+        physical_bounds=physical_bounds,
+    )
+    for name in param_names:
+        assert math.isclose(high[0][name], 2.0 * low[0][name], rel_tol=1e-6)
+
+
+def test_oracle_crlb_history_no_gradient_returns_empty_dicts() -> None:
+    """A model with no analytical gradient and a degenerate numerical fallback
+
+    (pack_params raising, here) should degrade to empty per-step dicts rather
+    than crashing -- mirrors _compute_fisher_history's fim_i is None handling.
+    """
+    from nvision.runner.plots import _compute_oracle_crlb_history
+
+    class _NoGradSpec:
+        def pack_params(self, p):
+            raise RuntimeError("no analytical or numerical gradient available")
+
+    class _NoGradModel:
+        spec = _NoGradSpec()
+
+        def parameter_names(self):
+            return ["amplitude", "center"]
+
+    history = _compute_oracle_crlb_history(
+        n_steps=2,
+        inner_model=_NoGradModel(),
+        true_typed_params=object(),
+        x_lo=0.0,
+        x_hi=1.0,
+        representative_noise_std=0.01,
+        param_names=["amplitude", "center"],
+        physical_bounds={"amplitude": (0.0, 1.0), "center": (0.0, 1.0)},
+    )
+    assert history == [{}, {}]
+
+
+# ---------------------------------------------------------------------------
 # SBED forced calibration mode
 # ---------------------------------------------------------------------------
 

@@ -2852,26 +2852,30 @@ function main() {
         let title, formula, params;
         if (n.includes('saturation_voigt')) {
             title = 'Saturation-Voigt dip';
+            const g = 'γ', s = L('sigma_inhom');
             formula =
-                `γ = γ₀·√(1+${L('saturation')}), &nbsp; ${L('c_total')} = ${L('c_max')}·${frac(L('saturation'), `1+${L('saturation')}`)}<br>` +
-                `Γ and r are then derived from γ (homogeneous half-width) and ${L('sigma_inhom')} via the Voigt width relations, and:<br>` +
-                `S(x) = ${L('background')} − Voigt hyperfine multiplet centered at ${L('frequency')}, amplitude ${L('c_total')}, width Γ, shape r (see Voigt below)`;
-            params = ['saturation', 'sigma_inhom', 'c_max', 'frequency', 'background'];
+                `γ = γ₀·√(1+${L('saturation')}), &nbsp; ${L('c_total')} = ${L('c_max')}·${frac(L('saturation'), `1+${L('saturation')}`)} ` +
+                `&nbsp; (γ₀, ${L('c_max')} fixed constants, not fitted)<br>` +
+                `S(f) = 1 − hyperfine multiplet of V(f; ${g},${s},c) terms centered at ` +
+                `${L('frequency')}±${L('split')}, ${L('frequency')}`;
+            params = ['saturation', 'sigma_inhom', 'frequency'];
         } else if (n.includes('voigt')) {
             title = 'Voigt NV dip';
+            const g = L('homogeneous_linewidth'), s = L('sigma_inhom');
             formula =
-                `S(x) = ${L('background')} − [ ${frac(L('dip_depth'), L('k_np'))}·V(x; ${L('frequency')}−${L('split')}) ` +
-                `+ ${L('dip_depth')}·V(x; ${L('frequency')}) + ${L('dip_depth')}·${L('k_np')}·V(x; ${L('frequency')}+${L('split')}) ]<br>` +
-                `V(x; c) = Voigt profile, width ${L('fwhm_total')}, shape r`;
-            params = ['frequency', 'fwhm_total', 'lorentz_frac', 'split', 'k_np', 'dip_depth', 'background'];
+                `Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
+                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · [ ` +
+                `${frac('1', L('k_np'))}·V(f; ${g},${s},${L('frequency')}−${L('split')}) + w·V(f; ${g},${s},${L('frequency')}) ` +
+                `+ ${L('k_np')}·V(f; ${g},${s},${L('frequency')}+${L('split')}) ]`;
+            params = ['frequency', 'homogeneous_linewidth', 'sigma_inhom', 'split', 'k_np', 'c_total'];
         } else if (n.includes('lorentzian')) {
             title = 'Lorentzian NV dip';
             formula =
-                `x' = ${frac(`x−${L('frequency')}`, L('linewidth'))}, &nbsp; α = ${frac(L('split'), L('linewidth'))}, ` +
+                `f' = ${frac(`f−${L('frequency')}`, L('linewidth'))}, &nbsp; α = ${frac(L('split'), L('linewidth'))}, ` +
                 `&nbsp; Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
-                `S(x) = ${L('background')} − ${frac(L('c_total'), 'Σ')} · [ ` +
-                `${frac('1', `${L('k_np')}·((x'+α)²+1)`)} + ${frac('w', "x'²+1")} + ${frac(L('k_np'), "(x'−α)²+1")} ]`;
-            params = ['frequency', 'linewidth', 'split', 'k_np', 'c_total', 'background'];
+                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · [ ` +
+                `${frac('1', `${L('k_np')}·((f'+α)²+1)`)} + ${frac('w', "f'²+1")} + ${frac(L('k_np'), "(f'−α)²+1")} ]`;
+            params = ['frequency', 'linewidth', 'split', 'k_np', 'c_total'];
         } else {
             return null;
         }
@@ -2892,14 +2896,18 @@ function main() {
                 `</ul></div>`;
         }
 
-        // r is the Lorentzian fraction of the Voigt profile: 0 = pure Gaussian,
-        // 1 = pure Lorentzian.
+        // V's definition lives ONLY here -- the formula above just calls it, it
+        // doesn't restate it, so there's exactly one place a reader needs to look.
+        // Written as an actual equation (not a prose description) per feedback:
+        // the pseudo-Voigt kernel approximates this convolution with a cheaper
+        // weighted sum -- see sbed_and_smc.md Sec 7.2 for that implementation.
         let voigtNote = '';
         if (n.includes('voigt')) {
             voigtNote = `<div class="signal-equation-note signal-eq-note-block">` +
-                `<div class="signal-eq-note-label">V(x; c) — Voigt profile, peak-normalized and centered at c</div>` +
+                `<div class="signal-eq-note-label">V(f; γ,σ,c) = (L<sub>γ</sub> ∗ G<sub>σ</sub>)(f−c)</div>` +
                 `<ul class="signal-eq-note-list">` +
-                `<li>shape r: <b>0</b> pure Gaussian &nbsp;→&nbsp; <b>1</b> pure Lorentzian</li>` +
+                `<li>γ: homogeneous half-width (Lorentzian) &nbsp;·&nbsp; ${L('sigma_inhom')}: inhomogeneous std (Gaussian)</li>` +
+                `<li>γ ≫ σ: pure Lorentzian &nbsp;→&nbsp; σ ≫ γ: pure Gaussian</li>` +
                 `</ul></div>`;
         }
 
@@ -3140,37 +3148,32 @@ function main() {
                     const errFbAtAll = _mv(phaseData, 'err_fb_at_all_converged');
                     const uncertFbAtAll = _mv(phaseData, 'uncert_fb_at_all_converged');
                     const errRows = [];
+                    // Red when |error| > uncert, deep red when |error| > 2·uncert.
+                    const errRow = (label, err, unc) => {
+                        let rowClass = '';
+                        if (err != null && unc != null) {
+                            const absErr = Math.abs(err);
+                            if (absErr > 2 * unc) rowClass = 'err-high-row';
+                            else if (absErr > unc) rowClass = 'err-medium-row';
+                        }
+                        return { label: label, rowClass: rowClass, vals: [
+                            err != null ? formatFrequency(err) : '–',
+                            unc != null ? formatFrequency(unc) : '–',
+                        ] };
+                    };
                     if (errFbAtSplit != null || uncertFbAtSplit != null) {
-                        errRows.push({ label: 'split', vals: [
-                            errFbAtSplit != null ? formatFrequency(errFbAtSplit) : '–',
-                            uncertFbAtSplit != null ? formatFrequency(uncertFbAtSplit) : '–',
-                        ] });
+                        errRows.push(errRow('split', errFbAtSplit, uncertFbAtSplit));
                     }
                     if (errFbAtAll != null || uncertFbAtAll != null) {
-                        errRows.push({ label: 'all', vals: [
-                            errFbAtAll != null ? formatFrequency(errFbAtAll) : '–',
-                            uncertFbAtAll != null ? formatFrequency(uncertFbAtAll) : '–',
-                        ] });
+                        errRows.push(errRow('all', errFbAtAll, uncertFbAtAll));
                     }
                     if (phaseAbsErr != null || phaseData.uncert != null) {
-                        errRows.push({ label: 'full', vals: [
-                            phaseAbsErr != null ? formatFrequency(phaseAbsErr) : '–',
-                            phaseData.uncert != null ? formatFrequency(phaseData.uncert) : '–',
-                        ] });
+                        errRows.push(errRow('full', phaseAbsErr, phaseData.uncert));
                     }
                     if (errRows.length > 0) {
-                        let cardClass = '';
-                        if (phaseAbsErr != null && phaseData.uncert != null) {
-                            if (phaseAbsErr > 2 * phaseData.uncert) {
-                                cardClass = 'err-high-card';
-                            } else if (phaseAbsErr > phaseData.uncert) {
-                                cardClass = 'err-medium-card';
-                            }
-                        }
                         items.push({
                             label: 'Error / uncertainty at each checkpoint',
-                            tip: 'Error and uncertainty of the splitting-parameter estimate at the moment splitting converged / at the moment all tracked parameters converged / at the end of the full run. Lower is better.',
-                            cardClass: cardClass,
+                            tip: 'Error and uncertainty of the splitting-parameter estimate at the moment splitting converged / at the moment all tracked parameters converged / at the end of the full run. Lower is better. Rows turn red when |error| > uncert, deep red when |error| > 2·uncert.',
                             table: { columns: ['error', 'uncert'], rows: errRows }
                         });
                     }
@@ -3763,7 +3766,16 @@ function main() {
             variance += (weights[i] / wSum) * d * d;
         }
         const sigma = Math.sqrt(Math.max(variance, 1e-30));
-        const bw = Math.max(0.12 * sigma * Math.pow(n, -0.2), (hi - lo) * 1e-5);
+        // Silverman's rule of thumb (the standard bandwidth for a KDE of a
+        // roughly-unimodal distribution). A prior commit shrank the 1.06
+        // constant to 0.12 (~9x narrower) with no recorded reason; combined
+        // with the display subsample capped at 60 particles (_MAX_VIZ_PARTICLES
+        // in nvision/runner/plots.py), that under-smoothing turns ordinary
+        // sampling noise from the 60-particle draw into spurious bumps/lobes --
+        // so even a true single Gaussian prior/posterior renders jagged and
+        // multi-modal-looking here. Silverman's constant is calibrated to stay
+        // reasonable at small n, unlike an arbitrarily small fixed fraction.
+        const bw = Math.max(1.06 * sigma * Math.pow(n, -0.2), (hi - lo) * 1e-4);
 
         const grid = [], kde = [];
         const step = (hi - lo) / (nGrid - 1);
@@ -3883,9 +3895,19 @@ function main() {
                     return (fs && fs.fisher_bounds && fs.fisher_bounds[param] != null) ? fs.fisher_bounds[param] : null;
                 })
                 : null;
+            // Oracle CRLB: the hard information limit for an ideal, uniformly-sampled
+            // design at the *true* parameters -- distinct from crlbHistory above, which
+            // is derived from this run's own actual measurements (and reflects how well
+            // THIS acquisition did, not what's fundamentally achievable).
+            const oracleCrlbHistory = fisherData
+                ? steps.map((_, i) => {
+                    const fs = fisherData.steps[i];
+                    return (fs && fs.oracle_crlb && fs.oracle_crlb[param] != null) ? fs.oracle_crlb[param] : null;
+                })
+                : null;
             const color = COLORS[ci % COLORS.length];
 
-            plotDivs.push({ div: plotDiv, uncDiv: uncDiv, param, uncHistory, robustHistory, crlbHistory, color, zoomRange: null, zoomBound: false });
+            plotDivs.push({ div: plotDiv, uncDiv: uncDiv, param, uncHistory, robustHistory, crlbHistory, oracleCrlbHistory, color, zoomRange: null, zoomBound: false });
         });
 
         // SMC Diagnostics plotting setup
@@ -3991,7 +4013,7 @@ function main() {
             }
 
             for (const pdEntry of plotDivs) {
-                const { div, uncDiv, param, uncHistory, robustHistory, crlbHistory, color } = pdEntry;
+                const { div, uncDiv, param, uncHistory, robustHistory, crlbHistory, oracleCrlbHistory, color } = pdEntry;
                 const entry = step[param];
                 if (!entry) continue;
 
@@ -4017,7 +4039,9 @@ function main() {
                         variance += (weights[i] / wSum) * d * d;
                     }
                     const sigma = Math.sqrt(Math.max(variance, 1e-30));
-                    const bw_est = 0.12 * sigma * Math.pow(n, -0.2);
+                    // Kept identical to _weightedKDE's own bandwidth (Silverman's rule)
+                    // so the padding this pads by actually matches the curve it pads.
+                    const bw_est = 1.06 * sigma * Math.pow(n, -0.2);
 
                     if (window.POSTERIOR_AUTOSCALE !== false) {
                         if (n > 0) {
@@ -4091,12 +4115,13 @@ function main() {
                     template: 'plotly_white',
                     margin: { l: 10, r: 10, t: 4, b: 36 },
                     xaxis: {
-                        title: { text: param + unit, font: { size: 10 } },
+                        title: { text: param + unit, font: { size: 11 } },
+                        tickfont: { size: 10 },
                         range: xrange,
                         autorange: xrange === undefined
                     },
                     yaxis: { visible: false },
-                    height: 180,
+                    height: 240,
                     hovermode: false,
                     shapes: shapes,
                 };
@@ -4104,33 +4129,29 @@ function main() {
 
                 // Render the small uncertainty line chart
                 if (uncDiv && uncHistory && uncHistory.some(v => v !== null)) {
+                    // A single uncertainty line, not two: raw sigma spikes on every SMC
+                    // resample (a decaying fraction of particles is redrawn from the
+                    // prior, and sigma is quadratic in distance, so a couple of them
+                    // dominate it for exactly one step) which reads as the belief
+                    // repeatedly widening and re-narrowing when it didn't. That's a
+                    // rendering artifact, not new information, and the resample steps
+                    // are already marked separately by the vertical orange lines below
+                    // -- so prefer the outlier-insensitive robust (IQR-based) value
+                    // per step where it's available, falling back to raw sigma only for
+                    // steps too early to have 4+ particles for an IQR (robustHistory[i]
+                    // is null there).
+                    const displayHistory = steps.map((_, idx) =>
+                        (robustHistory && robustHistory[idx] != null) ? robustHistory[idx] : uncHistory[idx]
+                    );
                     const uncTraces = [{
                         type: 'scatter',
                         x: steps.map((_, idx) => idx),
-                        y: uncHistory,
+                        y: displayHistory,
                         mode: 'lines',
                         line: { color: color, width: 1.5 },
                         hoverinfo: 'skip',
                         showlegend: false
                     }];
-
-                    // Cramér-Rao lower bound overlay, when Fisher data is available for this run.
-                    // Robust spread overlay -- the same quantity, immune to the
-                    // resample rejuvenation particles, so the sawtooth in the solid
-                    // line reads as an artifact rather than the belief widening.
-                    if (robustHistory && robustHistory.some(v => v !== null)) {
-                        uncTraces.push({
-                            type: 'scatter',
-                            x: steps.map((_, idx) => idx),
-                            y: robustHistory,
-                            mode: 'lines',
-                            line: { color: color, width: 1.2, dash: 'dash' },
-                            opacity: 0.75,
-                            hoverinfo: 'skip',
-                            showlegend: false,
-                            name: 'robust (IQR)',
-                        });
-                    }
 
                     if (crlbHistory && crlbHistory.some(v => v !== null)) {
                         uncTraces.push({
@@ -4141,7 +4162,23 @@ function main() {
                             line: { color: '#9333ea', width: 1.2, dash: 'dot' },
                             hoverinfo: 'skip',
                             showlegend: false,
-                            name: 'CRLB',
+                            name: 'CRLB (achieved)',
+                        });
+                    }
+
+                    // Oracle CRLB: absolute best any acquisition could do with the same
+                    // number of measurements (ideal placement, true parameters) -- a hard
+                    // floor, plotted distinctly from the achieved (data-driven) CRLB above.
+                    if (oracleCrlbHistory && oracleCrlbHistory.some(v => v !== null)) {
+                        uncTraces.push({
+                            type: 'scatter',
+                            x: steps.map((_, idx) => idx),
+                            y: oracleCrlbHistory,
+                            mode: 'lines',
+                            line: { color: '#059669', width: 1.2, dash: 'dashdot' },
+                            hoverinfo: 'skip',
+                            showlegend: false,
+                            name: 'CRLB (oracle)',
                         });
                     }
 
@@ -4200,9 +4237,21 @@ function main() {
                         if (firstIdx !== -1) {
                             uncAnnotations.push({
                                 x: firstIdx, y: crlbHistory[firstIdx], xref: 'x', yref: 'y',
-                                text: 'CRLB', showarrow: false,
+                                text: 'CRLB (achieved)', showarrow: false,
                                 xanchor: 'left', yanchor: 'top',
                                 font: { size: 8, color: '#9333ea' },
+                            });
+                        }
+                    }
+
+                    if (oracleCrlbHistory) {
+                        const firstIdx = oracleCrlbHistory.findIndex((v) => v != null);
+                        if (firstIdx !== -1) {
+                            uncAnnotations.push({
+                                x: firstIdx, y: oracleCrlbHistory[firstIdx], xref: 'x', yref: 'y',
+                                text: 'CRLB (oracle)', showarrow: false,
+                                xanchor: 'left', yanchor: 'bottom',
+                                font: { size: 8, color: '#059669' },
                             });
                         }
                     }
@@ -4214,23 +4263,47 @@ function main() {
                     // the threshold (and the CRLB overlay, if drawn) into an explicit range
                     // so both stay visible instead of relying on autorange.
                     let logRange = null;
-                    if (logScale) {
-                        if (pdEntry.zoomRange) {
-                            // A manual drag-zoom is active for this chart — keep it across
-                            // step-scrubbing instead of snapping back to the full range
-                            // (see the plotly_relayout listener bound below).
-                            logRange = pdEntry.zoomRange;
-                        } else {
-                            const positiveVals = uncHistory.filter((v) => v != null && v > 0);
-                            if (robustHistory) positiveVals.push(...robustHistory.filter((v) => v != null && v > 0));
-                            if (crlbHistory) positiveVals.push(...crlbHistory.filter((v) => v != null && v > 0));
-                            if (threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
+                    // The actual (achieved) uncertainty is the primary quantity this chart
+                    // exists to show; CRLB/oracle-CRLB are reference lines. A CRLB well above
+                    // the actual uncertainty is common and expected (see the informative-prior
+                    // discussion), but letting it set the axis max flattens the actual line to
+                    // an invisible flat 0 — so the range is sized off the primary data
+                    // (+threshold), and a CRLB line that exceeds it is simply clipped at the
+                    // top rather than compressing everything else. Applied in both scale
+                    // modes -- linear mode had no explicit range at all before (pure
+                    // autorange), which is the more severe case since one large CRLB point
+                    // rescales the *entire* axis, not just a couple of log decades.
+                    let linRange = null;
+                    if (pdEntry.zoomRange) {
+                        // A manual drag-zoom is active for this chart — keep it across
+                        // step-scrubbing instead of snapping back to the full range
+                        // (see the plotly_relayout listener bound below).
+                        if (logScale) logRange = pdEntry.zoomRange;
+                        else linRange = pdEntry.zoomRange;
+                    } else {
+                        const priorityVals = displayHistory.filter((v) => v != null && v >= 0);
+                        if (threshVal !== null && threshVal >= 0) priorityVals.push(threshVal);
+                        const referenceVals = [];
+                        if (crlbHistory) referenceVals.push(...crlbHistory.filter((v) => v != null && v > 0));
+                        if (oracleCrlbHistory) referenceVals.push(...oracleCrlbHistory.filter((v) => v != null && v > 0));
+
+                        if (logScale) {
+                            const positiveVals = priorityVals.filter((v) => v > 0).concat(referenceVals);
                             if (positiveVals.length > 0) {
                                 const lo = Math.log10(Math.min(...positiveVals));
                                 const hi = Math.log10(Math.max(...positiveVals));
                                 const pad = Math.max((hi - lo) * 0.08, 0.05);
                                 logRange = [lo - pad, hi + pad];
                             }
+                        } else if (priorityVals.length > 0) {
+                            const dataMax = Math.max(...priorityVals);
+                            // 30% headroom above the primary data; reference (CRLB) lines
+                            // above that are allowed to run off the top of the view.
+                            linRange = [0, dataMax > 0 ? dataMax * 1.3 : 1];
+                        } else if (referenceVals.length > 0) {
+                            // No actual/threshold data yet -- fall back to fitting the
+                            // reference lines so the chart isn't a blank 0-1 box.
+                            linRange = [0, Math.max(...referenceVals) * 1.1];
                         }
                     }
 
@@ -4243,9 +4316,9 @@ function main() {
                             title: { text: 'Step', font: { size: 8 } }
                         },
                         yaxis: logScale
-                            ? { visible: true, tickfont: { size: 8 }, type: 'log', range: logRange, autorange: logRange ? false : true }
-                            : { visible: true, tickfont: { size: 8 }, rangemode: 'tozero' },
-                        height: 180,
+                            ? { visible: true, tickfont: { size: 9 }, type: 'log', range: logRange, autorange: logRange ? false : true }
+                            : { visible: true, tickfont: { size: 9 }, range: linRange, autorange: linRange ? false : true, rangemode: 'tozero' },
+                        height: 240,
                         hovermode: false,
                         shapes: uncShapes,
                         annotations: uncAnnotations,
@@ -4489,11 +4562,25 @@ function main() {
                 if (crlbVals.some((v) => v !== null)) {
                     traces.push({
                         type: 'scatter', x: xs, y: crlbVals,
-                        mode: 'lines', name: `${param} CRLB`,
+                        mode: 'lines', name: `${param} CRLB (achieved)`,
                         line: { color, width: 1.2, dash: 'dot' },
                         // Unlike the true-value/threshold reference traces above, CRLB
                         // isn't self-explanatory from a dotted line alone — show it in
                         // the legend so "what's the dotted line" doesn't need asking.
+                    });
+                }
+                // Oracle CRLB: the hard information limit for an ideal, uniformly-sampled
+                // design at the true parameters -- distinct from crlbVals above, which is
+                // derived from this run's own actual measurements and estimates.
+                const oracleCrlbVals = steps.map((_, i) => {
+                    const fs = fisherData.steps[i];
+                    return (fs && fs.oracle_crlb && fs.oracle_crlb[param] != null) ? fs.oracle_crlb[param] : null;
+                });
+                if (oracleCrlbVals.some((v) => v !== null)) {
+                    traces.push({
+                        type: 'scatter', x: xs, y: oracleCrlbVals,
+                        mode: 'lines', name: `${param} CRLB (oracle)`,
+                        line: { color, width: 1.2, dash: 'dashdot' },
                     });
                 }
             }
@@ -4736,6 +4823,15 @@ function main() {
                     return (fs && fs.fisher_bounds && fs.fisher_bounds[param] != null) ? fs.fisher_bounds[param] : null;
                 })
                 : null;
+            // Oracle CRLB: the hard information limit for an ideal, uniformly-sampled
+            // design at the true parameters -- distinct from crlbVals above, which is
+            // derived from this run's own actual measurements and estimates.
+            const oracleCrlbVals = fisherData
+                ? steps.map((_, i) => {
+                    const fs = fisherData.steps[i];
+                    return (fs && fs.oracle_crlb && fs.oracle_crlb[param] != null) ? fs.oracle_crlb[param] : null;
+                })
+                : null;
 
             paramPlotContexts.push({
                 param,
@@ -4743,6 +4839,7 @@ function main() {
                 badgeSpan,
                 vals,
                 crlbVals,
+                oracleCrlbVals,
                 color,
                 convergedRanges,
                 isAbs,
@@ -4797,7 +4894,7 @@ function main() {
 
             // 1. Update individual parameter cards
             paramPlotContexts.forEach((ctx) => {
-                const { param, plotDiv, badgeSpan, vals, crlbVals, color, convergedRanges, isAbs, bounds } = ctx;
+                const { param, plotDiv, badgeSpan, vals, crlbVals, oracleCrlbVals, color, convergedRanges, isAbs, bounds } = ctx;
                 const isConvEnd = steps[steps.length - 1].converged_params[param];
                 const isConvCurrent = steps[idx].converged_params[param];
                 const streak = paramStreaks[param][idx];
@@ -4835,8 +4932,24 @@ function main() {
                         x: xs,
                         y: crlbVals,
                         mode: 'lines',
-                        name: 'CRLB',
+                        name: 'CRLB (achieved)',
                         line: { color: '#9333ea', width: 1.5, dash: 'dot' },
+                        hoverinfo: 'skip',
+                        showlegend: false,
+                    });
+                }
+
+                // Oracle CRLB: absolute best any acquisition could do with the same
+                // number of measurements (ideal placement, true parameters) -- a hard
+                // floor, distinct from the achieved (data-driven) CRLB above.
+                if (oracleCrlbVals && oracleCrlbVals.some(v => v !== null)) {
+                    traces.push({
+                        type: 'scatter',
+                        x: xs,
+                        y: oracleCrlbVals,
+                        mode: 'lines',
+                        name: 'CRLB (oracle)',
+                        line: { color: '#059669', width: 1.5, dash: 'dashdot' },
                         hoverinfo: 'skip',
                         showlegend: false,
                     });
@@ -4946,11 +5059,28 @@ function main() {
                             y: crlbVals[firstIdx],
                             xref: 'x',
                             yref: 'y',
-                            text: 'CRLB',
+                            text: 'CRLB (achieved)',
                             showarrow: false,
                             xanchor: 'left',
                             yanchor: 'top',
                             font: { size: 9, color: '#9333ea' }
+                        });
+                    }
+                }
+
+                if (oracleCrlbVals) {
+                    const firstIdx = oracleCrlbVals.findIndex((v) => v != null);
+                    if (firstIdx !== -1) {
+                        annotations.push({
+                            x: xs[firstIdx],
+                            y: oracleCrlbVals[firstIdx],
+                            xref: 'x',
+                            yref: 'y',
+                            text: 'CRLB (oracle)',
+                            showarrow: false,
+                            xanchor: 'left',
+                            yanchor: 'bottom',
+                            font: { size: 9, color: '#059669' }
                         });
                     }
                 }
@@ -4996,6 +5126,7 @@ function main() {
                     } else {
                         const positiveVals = vals.filter((v) => v != null && v > 0);
                         if (crlbVals) positiveVals.push(...crlbVals.filter((v) => v != null && v > 0));
+                        if (oracleCrlbVals) positiveVals.push(...oracleCrlbVals.filter((v) => v != null && v > 0));
                         if (threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
                         if (positiveVals.length > 0) {
                             const lo = Math.log10(Math.min(...positiveVals));
@@ -5173,6 +5304,10 @@ function main() {
 
             const crlb = steps.map((s) => s.fisher_bounds[param] ?? null);
             const actual = steps.map((s) => s.actual_uncertainty[param] ?? null);
+            // Oracle CRLB: the hard information limit for an ideal, uniformly-sampled
+            // design at the true parameters -- distinct from `crlb` above, which is
+            // derived from this run's own actual measurements and estimates.
+            const oracleCrlb = steps.map((s) => (s.oracle_crlb ? (s.oracle_crlb[param] ?? null) : null));
 
             const traces = [
                 {
@@ -5182,11 +5317,18 @@ function main() {
                 },
                 {
                     type: 'scatter', x: xs, y: crlb,
-                    mode: 'lines', name: 'CRLB',
+                    mode: 'lines', name: 'CRLB (achieved)',
                     line: { color, width: 1.5, dash: 'dash' },
                     fill: 'tonexty', fillcolor: `${color}22`,
                 },
             ];
+            if (oracleCrlb.some((v) => v != null)) {
+                traces.push({
+                    type: 'scatter', x: xs, y: oracleCrlb,
+                    mode: 'lines', name: 'CRLB (oracle)',
+                    line: { color: '#059669', width: 1.5, dash: 'dashdot' },
+                });
+            }
 
             const layout = {
                 template: 'plotly_white',
@@ -5288,7 +5430,7 @@ function main() {
                 valueHtml = '<table class="metric-mini-table metric-mini-table-multirow"><thead><tr><th></th>' +
                     cols.map(c => '<th>' + escapeHtml(c) + '</th>').join('') +
                     '</tr></thead><tbody>' +
-                    it.table.rows.map(r => '<tr><th>' + escapeHtml(r.label) + '</th>' +
+                    it.table.rows.map(r => '<tr' + (r.rowClass ? ' class="' + r.rowClass + '"' : '') + '><th>' + escapeHtml(r.label) + '</th>' +
                         r.vals.map(v => '<td>' + v + '</td>').join('') + '</tr>').join('') +
                     '</tbody></table>';
             } else {

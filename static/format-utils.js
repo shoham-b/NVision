@@ -82,7 +82,7 @@ function isFrequencyVariable(name) {
 // Used in the signal equation panel and wherever else a parameter name is shown in
 // the UI, so the same parameter always reads with the same symbol everywhere.
 const PARAM_LETTERS = {
-    frequency: 'f',
+    frequency: 'f_B',
     linewidth: 'w',
     dip_depth: 'A',
     background: 'B',

@@ -103,6 +103,7 @@ def extract_step_series(
     steps: list[int] = []
     errs: list[float | None] = []
     uncerts: list[float | None] = []
+    crlbs: list[float | None] = []
     for i, snapshot in enumerate(run_result.snapshots):
         try:
             est = snapshot.belief.estimates().get(param)
@@ -114,6 +115,21 @@ def extract_step_series(
         steps.append(i + 1)
         errs.append(abs(float(est) - true_value) if est is not None and math.isfinite(est) else None)
         uncerts.append(float(unc) if unc is not None and math.isfinite(unc) else None)
+        crlb_val = None
+        try:
+            crlb_fn = getattr(snapshot.belief, "crlb_frequency", None)
+            if crlb_fn is not None:
+                val = crlb_fn()
+                if val is not None and math.isfinite(val) and val > 0:
+                    crlb_val = float(val)
+            if crlb_val is None:
+                per_param = snapshot.belief.crlb_per_param()
+                val = per_param.get(param)
+                if val is not None and math.isfinite(val) and val > 0:
+                    crlb_val = float(val)
+        except Exception:
+            pass
+        crlbs.append(crlb_val)
 
     if not steps:
         return None
@@ -124,6 +140,8 @@ def extract_step_series(
         "e": [_round_sig(errs[i]) for i in keep],
         "u": [_round_sig(uncerts[i]) for i in keep],
     }
+    if any(c is not None for c in crlbs):
+        series["c"] = [_round_sig(crlbs[i]) for i in keep]
     tau = effective_convergence_threshold(run_result, param)
     if tau is not None:
         series["tau"] = _round_sig(tau)

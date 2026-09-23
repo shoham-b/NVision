@@ -30,13 +30,16 @@ class MockSignalModel(SignalModel):
         return np.ones(len(samples))
 
 
-def _make_mock_belief(model, est, uncert):
+def _make_mock_belief(model, est, uncert, crlb=None):
     class MockBelief(GridMarginalDistribution):
         def estimates(self):
             return {"frequency": est}
 
         def uncertainty(self):
             return {"frequency": uncert}
+
+        def crlb_frequency(self):
+            return crlb if crlb is not None else float("inf")
 
         def copy(self):
             return self
@@ -54,14 +57,15 @@ def _make_mock_belief(model, est, uncert):
     return MockBelief(model=model, parameters=[param])
 
 
-def _make_run(n_steps=10, true_value=0.5):
+def _make_run(n_steps=10, true_value=0.5, with_crlb=False):
     model = MockSignalModel()
     true_signal = TrueSignal(model=model, typed_parameters=(true_value,), bounds={"frequency": (0.0, 1.0)})
     snapshots = []
     for i in range(n_steps):
         est = true_value + 0.1 / (i + 1)
         uncert = 0.2 / (i + 1)
-        belief = _make_mock_belief(model, est, uncert)
+        crlb = (0.05 / np.sqrt(i + 1)) if with_crlb else None
+        belief = _make_mock_belief(model, est, uncert, crlb=crlb)
         obs = Observation(x=0.5, signal_value=1.0, noise_std=0.01)
         snapshots.append(StepSnapshot(obs=obs, belief=belief, true_signal=true_signal))
     return RunResult(snapshots=snapshots, true_signal=true_signal)
@@ -82,6 +86,20 @@ def test_extract_step_series_basic():
     # tau is present (absolute frequency threshold or relative fallback)
     assert series.get("tau") is not None
     assert series["tau"] > 0
+    # No CRLB when belief does not report finite crlb
+    assert "c" not in series
+
+
+def test_extract_step_series_with_crlb():
+    run = _make_run(n_steps=10, with_crlb=True)
+    series = extract_step_series(run, param="frequency")
+
+    assert series is not None
+    assert "c" in series
+    assert len(series["c"]) == 10
+    assert series["c"][0] > 0
+    # CRLB should decrease with sqrt(step)
+    assert series["c"][-1] < series["c"][0]
 
 
 def test_extract_step_series_downsamples_long_runs():

@@ -1592,6 +1592,17 @@ body {
             color: #dc2626 !important;
         }
 
+        .scan-metrics-panel .metric-mini-table tr.err-medium-row td {
+            color: #ef4444;
+        }
+        .scan-metrics-panel .metric-mini-table tr.err-high-row td {
+            color: #991b1b;
+            background-color: #fee2e2;
+        }
+        .scan-metrics-panel .metric-mini-table tr.err-high-row th {
+            color: #991b1b;
+        }
+
         .scan-metrics-panel .metric-item.err-high-card {
             background-color: #fef2f2 !important; /* pale red */
             border-color: #fca5a5 !important;
@@ -1616,8 +1627,8 @@ body {
             width: 100%;
         }
         .posterior-card {
-            flex: 1 1 calc(33.333% - 8px);
-            min-width: 320px;
+            flex: 1 1 calc(50% - 8px);
+            min-width: 480px;
             box-sizing: border-box;
             background: #ffffff;
             border: 1px solid #e2e8f0;

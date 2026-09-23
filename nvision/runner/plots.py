@@ -47,6 +47,18 @@ _MAX_VIZ_SNAPSHOTS = 1000
 # wastes hundreds of MB on large filters.
 _MAX_VIZ_PARTICLES = 60
 
+# A direction whose (normalized) cumulative FIM diagonal sits at or below this
+# floor has accumulated no real information yet -- single_shot_marginal_stds_from_fim's
+# sqrt(1/ridge) floor (ridge=1e-6) is then the only thing setting its "std", not the
+# data. In unit-normalized scale a direction with real information runs ~1e4-1e7 (see
+# that function's docstring), so anything within a few orders of the ridge is a
+# numerical artifact, not a measurement. Left in physical units (after *= ranges**2,
+# which can be ~1e12 for Hz-scale params) that artifact turns into a spurious ~1e9+
+# spike that dominates a linear-scale plot's autorange and flattens every real value
+# to zero -- so _compute_fisher_history reports NaN for those points instead,
+# leaving a gap in the CRLB overlay rather than a fake number.
+_DEGENERATE_FIM_DIAG_FLOOR = 1e-3
+
 
 def _viz_particle_subsample(weights: np.ndarray, max_particles: int = _MAX_VIZ_PARTICLES):
     """Weighted random subsample indices for posterior visualization.
@@ -375,10 +387,89 @@ def _compute_fisher_history(
 
         fisher_hist.append(cum_fim_normalized / range_outer)  # back to physical units
         stds_normalized = single_shot_marginal_stds_from_fim(cum_fim_normalized, n_params)
-        fisher_bounds_hist.append({name: float(stds_normalized[j] * ranges[j]) for j, name in enumerate(param_names)})
+        fim_diag = np.diag(cum_fim_normalized)
+        bounds_this_step: dict[str, float] = {}
+        for j, name in enumerate(param_names):
+            if fim_diag[j] > _DEGENERATE_FIM_DIAG_FLOOR:
+                bounds_this_step[name] = float(stds_normalized[j] * ranges[j])
+            else:
+                bounds_this_step[name] = float("nan")
+        fisher_bounds_hist.append(bounds_this_step)
 
     fim_is_degenerate = not np.any(cum_fim_normalized != 0)
     return fisher_hist, fisher_bounds_hist, fim_is_degenerate
+
+
+def _compute_oracle_crlb_history(
+    n_steps: int,
+    inner_model: Any,
+    true_typed_params: Any,
+    x_lo: float,
+    x_hi: float,
+    representative_noise_std: float,
+    param_names: list[str],
+    physical_bounds: dict[str, tuple[float, float]],
+    n_grid: int = 64,
+) -> list[dict[str, float]]:
+    """Best-achievable CRLB per step: ``step + 1`` ideal (uniformly-placed)
+    measurements at the *true* parameters, independent of where the locator
+    actually measured or what it currently estimates.
+
+    Complements ``_compute_fisher_history``'s data-driven curve: that one shows
+    how close the *actual* acquisition got to the information limit; this one
+    is the hard floor no acquisition strategy (not even an oracle one) could
+    beat with the same number of measurements. Since CRLB scales as
+    ``1 / sqrt(N)``, the mean single-measurement Fisher information (averaged
+    over a uniform x-grid at the true parameters) is computed once and simply
+    scaled by ``step + 1`` -- no need to re-derive the grid gradient per step.
+    """
+    from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
+    from nvision.models.observation import Observation
+
+    n_params = len(param_names)
+    ranges = np.array(
+        [(physical_bounds[p][1] - physical_bounds[p][0]) if p in physical_bounds else 1.0 for p in param_names]
+    )
+    ranges[ranges <= 0] = 1.0
+    range_outer = np.outer(ranges, ranges)
+
+    # Only .noise_std is read off this (via gaussian_likelihood_std) -- x and
+    # signal_value are unused by fisher_information_matrix, which takes the
+    # probe position as its own explicit `x` argument.
+    probe_obs = Observation(x=0.0, signal_value=0.0, noise_std=representative_noise_std)
+
+    mean_fim_normalized = np.zeros((n_params, n_params))
+    valid = 0
+    for xi in np.linspace(x_lo, x_hi, n_grid):
+        fim_i = fisher_information_matrix(
+            x=float(xi),
+            model=inner_model,
+            parameters=true_typed_params,
+            last_obs=probe_obs,
+            param_bounds=physical_bounds,
+        )
+        if fim_i is not None:
+            mean_fim_normalized = mean_fim_normalized + fim_i * range_outer
+            valid += 1
+
+    if valid == 0:
+        return [{} for _ in range(n_steps)]
+    mean_fim_normalized /= valid
+
+    history: list[dict[str, float]] = []
+    for step in range(n_steps):
+        fim_at_step = mean_fim_normalized * (step + 1)
+        fim_diag = np.diag(fim_at_step)
+        stds_normalized = single_shot_marginal_stds_from_fim(fim_at_step, n_params)
+        history.append(
+            {
+                name: (
+                    float(stds_normalized[j] * ranges[j]) if fim_diag[j] > _DEGENERATE_FIM_DIAG_FLOOR else float("nan")
+                )
+                for j, name in enumerate(param_names)
+            }
+        )
+    return history
 
 
 def _bayesian_auxiliary_entries(
@@ -643,6 +734,25 @@ def _bayesian_auxiliary_entries(
             bayesian_snapshots, estimates_hist, param_names, physical_bounds
         )
 
+        # Oracle CRLB: the hard information limit for step+1 ideal (uniformly
+        # placed) measurements at the *true* parameters -- independent of where
+        # this particular run actually measured, unlike fisher_bounds_hist above
+        # (which is data-driven and also credits nothing for the informative
+        # prior). Lets the UI show "how good could any acquisition strategy
+        # possibly do" next to "how good did this one actually do".
+        oracle_crlb_hist: list[dict[str, float]] = []
+        with suppress(Exception):
+            oracle_crlb_hist = _compute_oracle_crlb_history(
+                n_steps=len(bayesian_snapshots),
+                inner_model=run_result.true_signal.model,
+                true_typed_params=run_result.true_signal.typed_parameters,
+                x_lo=float(experiment.x_min),
+                x_hi=float(experiment.x_max),
+                representative_noise_std=float(bayesian_snapshots[0].obs.noise_std),
+                param_names=param_names,
+                physical_bounds=physical_bounds,
+            )
+
         if fisher_hist and len(param_names) >= 2 and not fim_is_degenerate:
             fisher_path = bayes_dir / f"{attempt_slug}_fisher.json.gz"
             data = write_fisher_data(
@@ -651,6 +761,7 @@ def _bayesian_auxiliary_entries(
                 fisher_hist,
                 param_names,
                 true_params=true_params,
+                oracle_crlb_hist=oracle_crlb_hist or None,
             )
             if data is not None:
                 che = entry_base.copy()

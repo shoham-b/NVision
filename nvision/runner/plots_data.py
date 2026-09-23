@@ -330,8 +330,16 @@ def write_fisher_data(
     out_path: Path | None = None,
     *,
     true_params: dict[str, float] | None = None,
+    oracle_crlb_hist: list[dict[str, float]] | None = None,
 ) -> bytes | None:
-    """Write Fisher information history (bounds + full FIM) to JSON."""
+    """Write Fisher information history (bounds + full FIM) to JSON.
+
+    ``oracle_crlb_hist`` (optional, same length as the other histories) is the
+    hard information limit for an ideal, uniformly-sampled design at the *true*
+    parameters -- distinct from ``fisher_bounds_hist``, which is derived from
+    this run's own actual measurements and estimates. Absent for older callers
+    / when it couldn't be computed (e.g. no analytical or numerical gradient).
+    """
     if not fisher_hist:
         return None
 
@@ -339,16 +347,22 @@ def write_fisher_data(
     # FIM scales as 1/variance, so scale FIM by 1/scale² per param pair
     fim_scale = np.outer(scales, scales)
 
+    if oracle_crlb_hist is not None and len(oracle_crlb_hist) != len(fisher_hist):
+        oracle_crlb_hist = None
+
     steps = []
-    for bounds, actuals, fim in zip(fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, strict=False):
-        steps.append(
-            {
-                "fisher_bounds": _scale_param_dict(bounds),
-                "actual_uncertainty": _scale_param_dict(actuals),
-                # Scale FIM to display units (ndarray encoded directly by dump_gz)
-                "fisher_matrix": fim * fim_scale,
-            }
-        )
+    for i, (bounds, actuals, fim) in enumerate(
+        zip(fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, strict=False)
+    ):
+        step_entry = {
+            "fisher_bounds": _scale_param_dict(bounds),
+            "actual_uncertainty": _scale_param_dict(actuals),
+            # Scale FIM to display units (ndarray encoded directly by dump_gz)
+            "fisher_matrix": fim * fim_scale,
+        }
+        if oracle_crlb_hist is not None:
+            step_entry["oracle_crlb"] = _scale_param_dict(oracle_crlb_hist[i])
+        steps.append(step_entry)
 
     payload = {
         "schema": "fisher_v1",
