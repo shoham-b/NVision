@@ -981,7 +981,6 @@ def run(  # noqa: C901
                 f"combination(s) that ran in last session."
             )
 
-
     # Cross-pod sharding: slice the fully-resolved combination list so each shard
     # runs a disjoint subset. Applied last so it composes with --run-group,
     # --combination, --single-run, filters, and --retry-failed above.

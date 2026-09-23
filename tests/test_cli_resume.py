@@ -3,20 +3,21 @@ from __future__ import annotations
 import queue
 from pathlib import Path
 
-import pytest
+from rich.console import Console
 
+from nvision.cli.monitor import ProgressMonitor
 from nvision.cli.run import _find_latest_session_log, _parse_started_combos_from_log
 from nvision.runner.task_builder import TaskListBuildConfig, build_task_list
-from nvision.cli.monitor import ProgressMonitor
-from rich.console import Console
 
 
 def test_parse_started_combos_from_log(tmp_path: Path) -> None:
     log_file = tmp_path / "nvision-run-2026-09-22_10-00-00.log"
     log_content = (
         "2026-09-22 10:00:00 INFO nvision: Starting simulations...\n"
-        "2026-09-22 10:00:01 INFO nvision.runner.executor: Running task: GenA/NoiseA/StratA (50 total repeats, 0 loaded from cache)\n"
-        "2026-09-22 10:00:02 INFO nvision.runner.executor: Running task: GenB/NoiseB/StratB (50 total repeats, 0 loaded from cache)\n"
+        "2026-09-22 10:00:01 INFO nvision.runner.executor: "
+        "Running task: GenA/NoiseA/StratA (50 total repeats, 0 loaded from cache)\n"
+        "2026-09-22 10:00:02 INFO nvision.runner.executor: "
+        "Running task: GenB/NoiseB/StratB (50 total repeats, 0 loaded from cache)\n"
         "2026-09-22 10:00:03 WARNING nvision: Run interrupted by user (Ctrl-C).\n"
     )
     log_file.write_text(log_content, encoding="utf-8")
@@ -88,4 +89,3 @@ def test_task_builder_resume_cache_flag(tmp_path: Path) -> None:
             assert task.use_cache is True, f"{triple} should use cache (was in session)"
         else:
             assert task.use_cache is False, f"{triple} should bypass cache (was unrun in session)"
-

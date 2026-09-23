@@ -1595,10 +1595,8 @@ class _TaskRunner:
         true_noise_std: float | None = None
         over_freq_noise = getattr(experiment.noise, "over_frequency_noise", None) if experiment.noise else None
         if over_freq_noise is not None and hasattr(over_freq_noise, "noise_std"):
-            try:
+            with suppress(Exception):
                 true_noise_std = float(over_freq_noise.noise_std())
-            except Exception:
-                pass
         finalize_record["true_noise_std"] = true_noise_std
 
         finalize_record["sobol_baseline_steps"] = sobol_baseline_steps

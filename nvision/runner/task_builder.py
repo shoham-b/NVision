@@ -57,7 +57,6 @@ class TaskListBuildConfig:
     ran_in_resume_session: set[tuple[str, str, str]] | None = None
 
 
-
 def build_task_list(
     config: TaskListBuildConfig,
     monitor: ProgressMonitor,

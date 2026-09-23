@@ -265,7 +265,9 @@ def generate_attempt_metrics(  # noqa: C901
     # structured values instead of parsing them back out of the generator name string.
     for grid_field in ("saturation", "sigma_inhom", "linewidth", "c_total", "hyperfine"):
         val = getattr(generator_obj, grid_field, None)
-        metrics_serialized[f"grid_{grid_field}"] = _maybe_finite(val) if val is not None and not isinstance(val, str) else val
+        metrics_serialized[f"grid_{grid_field}"] = (
+            _maybe_finite(val) if val is not None and not isinstance(val, str) else val
+        )
     # Lineshape variant ("lorentzian", "voigt", "saturation_voigt", ...) -- a string, so
     # kept separate from the numeric grid_* loop above.
     metrics_serialized["grid_variant"] = getattr(generator_obj, "variant", None)
