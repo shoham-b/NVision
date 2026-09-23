@@ -108,3 +108,44 @@ def test_shared_core_experiment_same_true_signal_across_noise_names():
     assert len(built) == 1
 
     clear_signal_experiment_cache()
+
+
+def test_shared_signal_does_not_leak_noise_model_across_noise_levels():
+    """Each noise level must get its own noise_sigma prior window, whichever task builds the signal first."""
+    from types import SimpleNamespace
+
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.combinations import CombinationGrid
+
+    gen_name = "NVCenter-voigt-w0.50MHz-c0.10-si0.60MHz-hfn14"
+    grid = CombinationGrid()
+
+    def runner_for(noise_name: str) -> _TaskRunner:
+        combo = grid.resolve(gen_name, noise_name, "Bayesian-SBED")
+        assert combo is not None
+        runner = _TaskRunner.__new__(_TaskRunner)
+        runner.task = SimpleNamespace(
+            seed=42,
+            generator_name=gen_name,
+            generator=combo.generator,
+            noise=combo.noise,
+            noise_name=noise_name,
+        )
+        return runner
+
+    noise_names = ["Gauss(0.01)", "Gauss(0.002)", "Gauss(0.008)"]
+    expected = {n: runner_for(n)._build_experiment(random.Random(0)).true_signal.noise_bounds for n in noise_names}
+    assert len({tuple(sorted(b.items())) for b in expected.values()}) == len(noise_names)
+
+    # Try every task as the first builder: the result must not depend on who populates the cache.
+    for first in noise_names:
+        clear_signal_experiment_cache()
+        order = [first, *[n for n in noise_names if n != first]]
+        got = {n: runner_for(n)._shared_experiment_for_repeat(0) for n in order}
+        for n in noise_names:
+            assert got[n].true_signal.noise_bounds == expected[n], f"{n} (first builder: {first})"
+            assert got[n].noise is not None
+        # The noise-independent part of the signal is still shared.
+        assert got[noise_names[0]].true_signal.model is got[noise_names[1]].true_signal.model
+
+    clear_signal_experiment_cache()

@@ -678,7 +678,7 @@ class _TaskRunner:
             repeat_rngs.append(measurement_rng)
             experiments.append(
                 attach_drift_for_repeat(
-                    get_shared_core_experiment(self.task, rid, self._build_experiment),
+                    self._shared_experiment_for_repeat(rid),
                     self.task.seed,
                     self.generator_name,
                     rid,
@@ -1126,25 +1126,47 @@ class _TaskRunner:
             "sweep_mode_estimates": sweep_mode_estimates,
         }
 
-    def _build_experiment(self, rng: random.Random) -> CoreExperiment:
+    def _build_signal_experiment(self, rng: random.Random) -> CoreExperiment:
+        """Build the noise-independent ground-truth experiment (no noise model on ``true_signal``).
+
+        This is what the shared signal cache stores: one signal per (seed, generator, repeat),
+        reused by every noise level and strategy. The Bayesian noise model depends on the task's
+        noise level, so it must be attached per task afterwards via :meth:`_attach_task_noise`.
+        """
         true_signal = self.task.generator.generate(rng)
         x_min, x_max = self._domain_from_signal_params(true_signal)
         if x_min is None or x_max is None:
             x_min, x_max = self._domain_from_generator(self.task.generator)
         if x_min is None or x_max is None:
             raise ValueError("TrueSignal must expose x_min/x_max parameters or frequency bounds")
+        return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
 
-        # Attach noise model (Bayesian inference dual of the physical noise)
-        if self.task.noise is not None:
-            noise_sig_model = self.task.noise.to_noise_signal_model()
-            noise_bounds = noise_sig_model.spec.bounds if noise_sig_model else {}
-            true_signal = dataclasses.replace(
-                true_signal,
-                noise_model=noise_sig_model,
-                noise_bounds=noise_bounds,
-            )
+    def _attach_task_noise(self, experiment: CoreExperiment) -> CoreExperiment:
+        """Return ``experiment`` with this task's noise and its Bayesian noise model attached.
 
-        return CoreExperiment(true_signal=true_signal, noise=self.task.noise, x_min=x_min, x_max=x_max)
+        The noise-model prior window (``noise_sigma`` in ``[0.2, 5] x`` the task's sigma) is
+        per-noise-level, so it must never be shared through the signal cache.
+        """
+        if self.task.noise is None:
+            return experiment
+        noise_sig_model = self.task.noise.to_noise_signal_model()
+        noise_bounds = noise_sig_model.spec.bounds if noise_sig_model else {}
+        true_signal = dataclasses.replace(
+            experiment.true_signal,
+            noise_model=noise_sig_model,
+            noise_bounds=noise_bounds,
+        )
+        return CoreExperiment(
+            true_signal=true_signal, noise=self.task.noise, x_min=experiment.x_min, x_max=experiment.x_max
+        )
+
+    def _build_experiment(self, rng: random.Random) -> CoreExperiment:
+        return self._attach_task_noise(self._build_signal_experiment(rng))
+
+    def _shared_experiment_for_repeat(self, rid: int) -> CoreExperiment:
+        """Shared (cached) noise-free signal for repeat ``rid`` with this task's noise attached."""
+        shared = get_shared_core_experiment(self.task, rid, self._build_signal_experiment)
+        return self._attach_task_noise(shared)
 
     @staticmethod
     def _domain_from_signal_params(true_signal: Any) -> tuple[float | None, float | None]:

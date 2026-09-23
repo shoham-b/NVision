@@ -157,7 +157,10 @@ def get_shared_core_experiment(
     are stored and reused for all later tasks (any strategy or noise name).
 
     The cache key omits ``strategy_name`` and ``noise_name`` so every combination shares one
-    ground-truth draw per repeat.
+    ground-truth draw per repeat. ``build`` must therefore return a **noise-independent**
+    ``true_signal`` (no noise model / noise bounds on it): anything derived from the task's noise
+    level, such as the Bayesian ``noise_sigma`` prior window, has to be attached by the caller
+    afterwards, or one task's noise prior would leak into every other noise level's experiment.
     """
     key = signal_repeat_key(task.seed, task.generator_name, repeat_idx)
 
