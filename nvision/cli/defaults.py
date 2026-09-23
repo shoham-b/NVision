@@ -39,6 +39,13 @@ DEFAULT_LOC_TIMEOUT_S: int = int(os.getenv("NVISION_DEFAULT_LOC_TIMEOUT_S", "150
 DEFAULT_RUN_ALL: bool = os.getenv("NVISION_DEFAULT_RUN_ALL", "False").lower() in ("true", "1", "yes")
 STREAMING_REPEAT_THRESHOLD: int = int(os.getenv("NVISION_STREAMING_REPEAT_THRESHOLD", "0"))
 
+# Deferred graph generation: runners save results immediately and leave each repeat's plot
+# inputs in a spool; separate graph-worker processes generate a combination's graphs once
+# all its repeats are saved, then archive it (see nvision/runner/graph_queue.py). This is the
+# number of graph-worker processes `nv run` starts. 0 disables deferral (graphs are built
+# inline by the runners, as before).
+GRAPH_WORKERS: int = int(os.getenv("NVISION_GRAPH_WORKERS", "1"))
+
 # UI & Browser Flags
 DEFAULT_OPEN_BROWSER: bool = os.getenv("NVISION_DEFAULT_OPEN_BROWSER", "False").lower() in ("true", "1", "yes")
 

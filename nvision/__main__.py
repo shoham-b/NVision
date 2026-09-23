@@ -4,6 +4,7 @@ from __future__ import annotations
 # Imported for side-effects only.
 from nvision.cli import cache_cmd as _cache_cmd  # noqa: F401
 from nvision.cli import demo as _demo  # noqa: F401
+from nvision.cli import graphs_cmd as _graphs_cmd  # noqa: F401
 from nvision.cli import groups_cmd as _groups_cmd  # noqa: F401
 from nvision.cli import matlab_cmd as _matlab_cmd  # noqa: F401
 from nvision.cli import metrics_cmd as _metrics_cmd  # noqa: F401

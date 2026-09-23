@@ -10,6 +10,7 @@ The NVision CLI (`uv run nv`) is a Typer-driven command-line interface for runni
 | `run-single` | Run a single (generator, noise, strategy) combination. |
 | `demo` | Quick demo to validate improvements - fast, focused, visual. |
 | `groups` | Run preset simulation groups. |
+| `graphs` | Build the graphs still queued by an earlier run (see [Deferred Graph Generation](graph_queue.md)). |
 | `render` | Render reports and graphs from cache without running simulations. |
 | `serve` | Start a local HTTP server for viewing NVision results. |
 | `cache` | Manage simulation cache (list, clean, recalc). |

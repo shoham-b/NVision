@@ -39,6 +39,12 @@ NVISION_SIMPLESWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SIMPLESWEEP_MAX_STEP
 # opened. Bayesian-SBED plots are unaffected. Set to 1 to build them again.
 NVISION_PLOT_SWEEP_STRATEGIES: bool = os.getenv("NVISION_PLOT_SWEEP_STRATEGIES", "0").lower() in ("1", "true", "yes")
 
+# Build graphs only for the first N repeats of each combination (repeat indices 0..N-1); later
+# repeats keep their metrics, per-step series and results row but get no figures. Graphs are
+# a small part of a repeat's compute but a lot of stored bytes, and only a few repeats per
+# combination are ever inspected. 0 (or negative) builds graphs for every repeat.
+NVISION_GRAPH_REPEATS: int = int(os.getenv("NVISION_GRAPH_REPEATS", "2"))
+
 # Sweep curve-fit early stop: once a fit start converges to the noise floor -- reduced
 # chi-square <= 1 + K * sqrt(2 / dof), i.e. within K standard deviations of the ~1 a
 # correct fit gives -- the remaining starting points are skipped instead of all being

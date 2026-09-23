@@ -55,6 +55,8 @@ class TaskListBuildConfig:
     # When set, tasks in this set use cache (keeping completed and resuming partials),
     # while tasks not in this set bypass cache (running fresh without stale pre-session cache).
     ran_in_resume_session: set[tuple[str, str, str]] | None = None
+    # Spool each repeat's plot inputs for a graph-worker process instead of building graphs inline.
+    defer_graphs: bool = False
 
 
 def build_task_list(
@@ -130,6 +132,7 @@ def build_task_list(
                 task_id=task_id,
                 repeat_total=config.repeats,
                 shard_index=config.shard_index,
+                defer_graphs=config.defer_graphs,
             )
         )
 

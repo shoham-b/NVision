@@ -77,6 +77,10 @@ class LocatorTask:
     repeat_offset: int = 0
     repeat_total: int = 0
     shard_index: str | None = None
+    # When True the executor saves each repeat's results immediately and spools its plot
+    # inputs for a separate graph-worker process instead of building the graphs inline
+    # (see nvision/runner/graph_queue.py). Ignored for dry runs.
+    defer_graphs: bool = False
 
     def __post_init__(self) -> None:
         self.strategy_spec = StrategySpec.from_raw(self.combination.strategy)

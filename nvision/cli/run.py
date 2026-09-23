@@ -28,9 +28,10 @@ from nvision.cli import options as cli_options
 from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
 from nvision.models.task import LocatorTask
-from nvision.runner import TaskListBuildConfig, build_task_list, run_task
+from nvision.runner import TaskListBuildConfig, build_task_list, graph_queue, run_task
 from nvision.sim import run_groups as sim_run_groups
 from nvision.sim.grid_enums import GeneratorName, NoiseName
+from nvision.tools import stall_watch
 from nvision.tools.artifacts import (
     merge_locator_results_with_existing,
     prepare_artifact_tree,
@@ -205,6 +206,7 @@ def _split_oversized_tasks(tasks: list[LocatorTask], runners: int, min_chunk: in
                 task_id=task.task_id,
                 repeat_offset=offset,
                 repeat_total=task.repeat_total,
+                defer_graphs=task.defer_graphs,
             )
             split.append(sub)
             offset += chunk_size
@@ -254,6 +256,115 @@ def _maybe_archive_combo(task: LocatorTask, cache_bridge: CacheBridge | None, lo
     finally:
         if owns_bridge and bridge is not None:
             bridge.close()
+
+
+def _graph_worker_entry(
+    log_queue: Any,
+    log_level: int,
+    spool: str,
+    cache_dir: str,
+    shard_index: str | None,
+) -> None:
+    """Graph-worker process entry point (module level so ``spawn`` can import it)."""
+    _worker_init(log_queue, log_level, threads_per_worker=1)
+    graph_queue.run_worker_loop(Path(spool), Path(cache_dir), shard_index)
+
+
+class _GraphWorkers:
+    """Graph-worker processes that build a combination's graphs once it is complete.
+
+    Started lazily -- on the first combination handed over -- so a run with nothing to graph
+    never spawns one. See ``nvision/runner/graph_queue.py`` for the queue protocol.
+    """
+
+    def __init__(
+        self,
+        n_workers: int,
+        cache_dir: Path,
+        shard_index: str | None,
+        log_level: int,
+        handlers: list[logging.Handler],
+    ) -> None:
+        self.n_workers = n_workers
+        self.cache_dir = cache_dir
+        self.spool = graph_queue.spool_dir(cache_dir)
+        self.shard_index = shard_index
+        self.log_level = log_level
+        self._handlers = handlers
+        self._procs: list[Any] = []
+        self._log_queue: Any = None
+        self._listener: QueueListener | None = None
+        graph_queue.prepare_spool(self.spool)
+
+    def hand_over(self, slug: str) -> None:
+        """A combination is complete and has queued graph inputs: mark it ready, start workers."""
+        graph_queue.mark_ready(self.spool, slug)
+        if not self._procs:
+            ctx = multiprocessing.get_context("spawn")
+            self._log_queue = ctx.Queue()
+            self._listener = QueueListener(self._log_queue, *self._handlers)
+            self._listener.start()
+            for _ in range(self.n_workers):
+                proc = ctx.Process(
+                    target=_graph_worker_entry,
+                    args=(
+                        self._log_queue,
+                        self.log_level,
+                        str(self.spool),
+                        str(self.cache_dir),
+                        self.shard_index,
+                    ),
+                    daemon=True,
+                )
+                proc.start()
+                self._procs.append(proc)
+            log.info("Started %s graph worker(s).", self.n_workers)
+
+    def finish(self, should_abort: Any) -> None:
+        """No more combinations are coming: let the workers drain the queue, then stop."""
+        graph_queue.mark_producers_done(self.spool)
+        last_report = 0.0
+        while any(p.is_alive() for p in self._procs):
+            if should_abort():
+                log.warning(
+                    "Stopping before all graphs were built; run `nv graphs` to finish them (queue: %s).", self.spool
+                )
+                return
+            now = time.monotonic()
+            if now - last_report >= 10.0:
+                combos, repeats = graph_queue.pending_counts(self.spool)
+                log.info("Waiting for graph workers: %s combination(s), %s repeat(s) left.", combos, repeats)
+                last_report = now
+            time.sleep(0.5)
+
+    def close(self) -> None:
+        for proc in self._procs:
+            if proc.is_alive():
+                proc.terminate()
+        for proc in self._procs:
+            proc.join(timeout=5.0)
+        self._procs = []
+        if self._listener is not None:
+            _stop_listener_with_timeout(self._listener, timeout=3.0)
+            self._listener = None
+
+
+def _finish_combo(
+    task: LocatorTask,
+    cache_bridge: CacheBridge | None,
+    log: logging.Logger,
+    graph_workers: _GraphWorkers | None,
+) -> None:
+    """All of a combination's sub-tasks are done: graph it, then archive it.
+
+    With graph workers and queued graph inputs, the combination is handed to them -- they build
+    all its graphs and archive it afterwards, so it is never archived before its graphs exist.
+    Otherwise (no deferral, or nothing was queued: cache hits, skipped plots) archive right away.
+    """
+    if graph_workers is not None and graph_queue.has_state(graph_workers.spool, task.slug):
+        graph_workers.hand_over(task.slug)
+        return
+    _maybe_archive_combo(task, cache_bridge, log)
 
 
 def _harvest_partial_results_from_cache(
@@ -350,6 +461,7 @@ def _run_tasks_process_pool(
     shm_lock: Any | None = None,
     sweep_shm_name: str | None = None,
     sweep_shm_lock: Any | None = None,
+    graph_workers: _GraphWorkers | None = None,
 ) -> tuple[list[dict[str, object]], list[dict], list[Exception], int, bool]:
     """Run tasks in a process pool and aggregate results in the parent process.
 
@@ -438,7 +550,11 @@ def _run_tasks_process_pool(
             }
             pending_tasks = []
 
+            # If no task completes for NVISION_STALL_DUMP_S seconds, dump this (parent) process's
+            # thread stacks to logs/stall-pool-<pid>.txt; re-armed after every completion below.
+            stall_watch.arm("pool", "first task completion")
             for future in concurrent.futures.as_completed(future_to_task):
+                stall_watch.arm("pool", f"next task completion ({completed_count} done)")
                 # Check if user requested exit via 'q' key
                 if monitor is not None and monitor.exit_requested:
                     for pending_future in future_to_task:
@@ -526,7 +642,7 @@ def _run_tasks_process_pool(
                         if _sub_task_failed:
                             entry["failed"] = True
                         if entry["completed"] >= entry["expected"] and not entry["failed"] and not interrupted:
-                            _maybe_archive_combo(locator_task, cache_bridge, log)
+                            _finish_combo(locator_task, cache_bridge, log, graph_workers)
 
                 if interrupted:
                     break
@@ -572,6 +688,7 @@ def _run_tasks_process_pool(
             _harvest_partial_results_from_cache(still_running_tasks, cache_bridge, df_rows, plot_manifest, log)
             return plot_manifest, df_rows, errors, completed_count, True
         finally:
+            stall_watch.disarm()
             # If we didn't terminate early, wait for workers to finish.
             try:
                 if not shutdown_called:
@@ -1175,6 +1292,21 @@ def run(  # noqa: C901
         worker_log_queue = log_queue
         worker_progress_queue = progress_queue
 
+        # Deferred graph generation: runners save results right away and leave each repeat's plot
+        # inputs for graph-worker processes (started lazily, see _GraphWorkers).
+        defer_graphs = cli_defaults.GRAPH_WORKERS > 0 and not dry_run
+        graph_workers: _GraphWorkers | None = (
+            _GraphWorkers(
+                cli_defaults.GRAPH_WORKERS,
+                tree.cache_dir,
+                shard_index_str,
+                log_level_value,
+                stream_handlers,
+            )
+            if defer_graphs
+            else None
+        )
+
         tasks, _ = build_task_list(
             TaskListBuildConfig(
                 repeats=repeats,
@@ -1202,6 +1334,7 @@ def run(  # noqa: C901
                 extra_generators=extra_generators,
                 shard_index=shard_index_str,
                 ran_in_resume_session=ran_in_resume_session,
+                defer_graphs=defer_graphs,
             ),
             monitor=monitor,
         )
@@ -1304,6 +1437,7 @@ def run(  # noqa: C901
                         shm_lock=shm_lock,
                         sweep_shm_name=sweep_shm.name if sweep_shm else None,
                         sweep_shm_lock=sweep_shm_lock,
+                        graph_workers=graph_workers,
                     )
                     if _pool_interrupted:
                         # _run_tasks_process_pool already harvested partial results
@@ -1325,7 +1459,7 @@ def run(  # noqa: C901
                             # is only called in the multi-runner pool path below), so each
                             # task here already represents a whole combination -- safe to
                             # archive-check right after its own success.
-                            _maybe_archive_combo(locator_task, cache_bridge, log)
+                            _finish_combo(locator_task, cache_bridge, log, graph_workers)
                         except Exception as exc:
                             # Log clean error to console (via monitor), full traceback to file only
                             log.error(
@@ -1341,8 +1475,14 @@ def run(  # noqa: C901
                         finally:
                             completed_tasks += 1
                             _update_run_status("running")
+                if graph_workers is not None:
+                    # All results are saved; let the graph workers finish their queue (the runners'
+                    # cores are free now) before the run reports completion.
+                    graph_workers.finish(lambda: monitor.exit_requested)
         except KeyboardInterrupt:
             interrupted = True
+            if graph_workers is not None:
+                log.warning("Graph workers stopped; run `nv graphs` to build the graphs still queued.")
             # Stop monitor immediately to clean up UI
             monitor.stop()
             console.print("\n[yellow]Interrupted by user. Saving partial results and generating UI...[/yellow]")
@@ -1350,6 +1490,8 @@ def run(  # noqa: C901
             if not already_harvested:
                 _harvest_partial_results_from_cache(tasks, cache_bridge, df_rows, plot_manifest, log)
         finally:
+            if graph_workers is not None:
+                graph_workers.close()
             if cache_bridge is not None:
                 cache_bridge.close()
             if shm:

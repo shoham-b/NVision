@@ -25,8 +25,9 @@ from nvision.models.task import LocatorTask
 from nvision.noises.drift import attach_drift_for_repeat
 from nvision.runner.cache import embed_graph_content, strip_heavy_fields
 from nvision.runner.convert import run_result_to_finalize_record, run_result_to_history_df
+from nvision.runner.graph_queue import GraphJob, spool_dir, write_state
 from nvision.runner.metrics import generate_attempt_metrics
-from nvision.runner.plots import generate_attempt_plots
+from nvision.runner.plots import generate_attempt_plots, plots_wanted
 from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
 from nvision.runner.signal_cache import get_shared_core_experiment
 from nvision.runner.sweep_cache import (
@@ -39,10 +40,14 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse import SweepingLocator
 from nvision.sim.locs.dyadic import van_der_corput_fraction
+from nvision.tools import stall_watch
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
+
+# A repeat whose metrics+graphs step takes at least this long is logged (see _run_repeats).
+_SLOW_OUTPUTS_S = 5.0
 
 MAX_PROCESS_MEMORY_GIB = 1.0
 _PROCESS_CACHE = None
@@ -222,7 +227,10 @@ def run_task(
     token = set_combination_log_initials(task.generator_name, task.noise_name, task.strategy_name, task.seed)
     try:
         runner = _TaskRunner(task, cache_bridge=cache_bridge)
-        return runner.run()
+        # Dump thread stacks to logs/stall-worker-<pid>.txt if this task makes no progress (no
+        # repeat finishes) for NVISION_STALL_DUMP_S seconds; re-armed after every repeat.
+        with stall_watch.watch("worker", task.slug):
+            return runner.run()
     finally:
         reset_combination_log_initials(token)
 
@@ -271,6 +279,11 @@ class _TaskRunner:
         self._sweep_cache = SweepCache()
         # Background saver for streaming repeats
         self._saver_pool = ThreadPoolExecutor(max_workers=1)
+        # Deferred graph generation (see nvision/runner/graph_queue.py): plot inputs per repeat,
+        # spooled for a graph worker only once that repeat's results are saved.
+        self._graph_spool = spool_dir(task.cache_dir) if task.defer_graphs and not task.dry_run else None
+        self._graph_jobs: dict[int, GraphJob] = {}
+        self._combo_kw_memo: dict[str, Any] | None = None
 
     @property
     def viz(self) -> Viz:
@@ -733,6 +746,7 @@ class _TaskRunner:
                     )
                     break
                 raise
+            inference_s = time.perf_counter() - repeat_start_times[i]
             stop_reasons[i] = stop_reason
             run_results.append(run_result)
             finalize_records.append(finalize_record)
@@ -742,6 +756,7 @@ class _TaskRunner:
 
             # Incremental streaming save for long runs
             if is_streaming:
+                outputs_start = time.perf_counter()
                 # Generate plots and metrics for JUST this repeat
                 artifacts_single = _RepeatArtifacts(
                     history_df=hist_df,
@@ -769,6 +784,20 @@ class _TaskRunner:
                         main_result_row=main_result_row,
                     )
 
+                # A run that seems stuck: say when building results and graphs (not inference) is
+                # what took the time. Quiet otherwise (workers only log at INFO and above).
+                outputs_s = time.perf_counter() - outputs_start
+                if outputs_s >= _SLOW_OUTPUTS_S:
+                    log.info(
+                        "Slow repeat outputs: repeat %s/%s of %s spent %.1fs on metrics+graphs (inference %.1fs, %s)",
+                        rid + 1,
+                        total_repeats,
+                        self.task.slug,
+                        outputs_s,
+                        inference_s,
+                        "graphs deferred" if self._defer_graphs_for(rid, run_result) else "graphs built inline",
+                    )
+
                 # FREE MEMORY: hist_df is no longer needed locally
                 del hist_df
             else:
@@ -776,6 +805,7 @@ class _TaskRunner:
                     history_dfs.append(hist_df)
 
             self._notify_repeat_finished(rid)
+            stall_watch.arm("worker", f"{self.task.slug} (after repeat {rid + 1})")
 
         if is_streaming:
             return streaming_results
@@ -801,9 +831,77 @@ class _TaskRunner:
             run_results=run_results,
         )
 
+    def _combo_kw(self) -> dict[str, Any]:
+        """``save_repeat`` keyword arguments identifying this combination (built once per task)."""
+        if self._combo_kw_memo is None:
+            self._combo_kw_memo = {k: v for k, v in self._combination_cache_kwargs().items() if k != "repeats"}
+        return self._combo_kw_memo
+
+    def _defer_graphs_for(self, attempt_idx: int, run_result: Any) -> bool:
+        """True when this repeat's graphs are built later by a graph worker instead of inline.
+
+        Needs a spool, the repeat's run state, graphs actually wanted for it, and streaming saves
+        (the spooled job is released only after the repeat's own save -- see
+        ``_background_save_repeat``). Otherwise the graphs are built inline as before.
+        """
+        from nvision.cache.locator_repository import STREAMING_REPEAT_THRESHOLD
+
+        return (
+            self._graph_spool is not None
+            and run_result is not None
+            and plots_wanted(self.strategy_name, attempt_idx)
+            and (self.task.repeat_total or self.repeats) > STREAMING_REPEAT_THRESHOLD
+        )
+
+    def _make_graph_job(
+        self,
+        attempt_idx: int,
+        entry_base: dict[str, Any],
+        main_result_row: dict[str, Any],
+        history_df: pl.DataFrame,
+        experiment: CoreExperiment,
+        run_result: Any,
+    ) -> GraphJob:
+        seed, gen, noise = self.task.seed, self.generator_name, self.noise_name
+        return GraphJob(
+            slug=self.task.slug,
+            rid=attempt_idx,
+            combo_kw=self._combo_kw(),
+            target_repeats=self.task.repeat_total or self.repeats,
+            cache_dir=self.task.cache_dir,
+            shard_index=self.task.shard_index,
+            out_dir=self.task.out_dir,
+            scans_dir=self.task.scans_dir,
+            bayes_dir=self.task.bayes_dir,
+            entry_base=entry_base,
+            main_result_row=main_result_row,
+            current_scan=experiment,
+            history_df=history_df,
+            noise_obj=self.task.noise,
+            strat_obj=self.task.strategy,
+            run_result=run_result,
+            sobol_baseline=self._sweep_cache.get_sobol_baseline(experiment, seed, gen, noise, attempt_idx),
+            simplesweep_baseline=self._sweep_cache.get_simplesweep_baseline(experiment, seed, gen, noise, attempt_idx),
+        )
+
+    def _spool_graph_job(self, rid: int) -> None:
+        """Hand a saved repeat's plot inputs to the graph workers (no-op if it has none)."""
+        job = self._graph_jobs.pop(rid, None)
+        if job is None or self._graph_spool is None:
+            return
+        try:
+            write_state(self._graph_spool, job)
+        except Exception:
+            log.error(
+                "Could not queue graphs for repeat %s of %s; its entry stays without figures",
+                rid,
+                self.task.slug,
+                exc_info=True,
+            )
+
     def _background_save_repeat(self, rid: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]) -> None:
         """Worker function for background saving, with exponential-backoff retry on transient errors."""
-        combo_kw = {k: v for k, v in self._combination_cache_kwargs().items() if k != "repeats"}
+        combo_kw = self._combo_kw()
         for attempt in range(5):
             try:
                 self.cache.save_repeat(
@@ -829,6 +927,9 @@ class _TaskRunner:
                     new_results=[],
                     start_idx=self.task.repeat_total or (rid + 1),
                 )
+                # Only now that the slim result is in the cache may a graph worker overwrite it
+                # with the full graphs, so the job is released here and not earlier.
+                self._spool_graph_job(rid)
                 return
             except Exception:
                 if attempt < 4:
@@ -873,6 +974,8 @@ class _TaskRunner:
                 generator_obj=self.task.generator,
             )
 
+            run_result = artifacts.run_results[i] if i < len(artifacts.run_results) else None
+            defer = self._defer_graphs_for(attempt_idx, run_result)
             entries = generate_attempt_plots(
                 viz=self.viz,
                 entry_base=entry_base,
@@ -885,8 +988,18 @@ class _TaskRunner:
                 out_dir=self.task.out_dir,
                 scans_dir=self.task.scans_dir,
                 bayes_dir=self.task.bayes_dir,
-                run_result=artifacts.run_results[i] if i < len(artifacts.run_results) else None,
+                run_result=run_result,
+                defer=defer,
             )
+            if defer:
+                self._graph_jobs[attempt_idx] = self._make_graph_job(
+                    attempt_idx,
+                    entry_base,
+                    main_result_row,
+                    current_history_df,
+                    artifacts.experiments[i],
+                    run_result,
+                )
             all_results.append((entries, main_result_row))
 
         return all_results
