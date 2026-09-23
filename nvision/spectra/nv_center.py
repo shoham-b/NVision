@@ -151,6 +151,24 @@ NV_NATURAL_HWHM_HZ: float = 150e3  # 150 kHz — typical NV T2*-limited natural 
 _load_env = load_dotenv()  # Ensure .env is loaded
 PRIOR_STD_FRACTION: float = float(os.getenv("NVISION_PRIOR_STD_FRACTION", "0.1"))
 
+# How far (in units of PRIOR_STD_FRACTION's own std) the generator's random draw
+# for a parameter's prior *mean* is allowed to land from the true value it's
+# meant to approximate. The prior mean is drawn as
+# rng.gauss(true_value, PRIOR_MEAN_OFFSET_SIGMAS * std) -- at the previous
+# hardcoded 1.0 (i.e. drawing the mean from the same N(true, std) as the belief's
+# own spread), the offset was usually *within* one prior-std of the truth
+# (E[|offset|]/std = sqrt(2/pi) ~ 0.8 for a standard-normal draw), so the
+# Bayesian locator's starting belief was suspiciously close to the answer before
+# a single measurement -- effectively pre-solving the problem for every
+# non-frequency parameter and making genuine active inference on them
+# unobservable in outcomes like "steps to convergence". At 3.0, the *typical*
+# offset is E[|offset|]/std = 3.0*sqrt(2/pi) ~ 2.4 prior-sigmas (and P(offset >=
+# 2 sigma) ~ 50%, P(offset >= 3 sigma) ~ 32%), simulating a real experimentalist
+# whose rough calibration guess is often meaningfully wrong, not almost-exactly
+# right. The prior's own reported width/uncertainty (the "std" used for the SMC
+# particle spread) is unaffected -- only where the prior is *centered* changes.
+PRIOR_MEAN_OFFSET_SIGMAS: float = float(os.getenv("NVISION_PRIOR_MEAN_OFFSET_SIGMAS", "3.0"))
+
 # Saturated (drive -> infinity) ODMR contrast ceiling for the saturation-coupled
 # Voigt model. Fixed rather than inferred: like NV_NATURAL_HWHM_HZ, this is a
 # property of the specific NV ensemble/detection setup, not something that

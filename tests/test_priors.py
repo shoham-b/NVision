@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import statistics
 
 import numpy as np
 
@@ -142,3 +143,52 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     # Verify that c_total particles are standard deviations-bound and not uniformly distributed
     c_particle_std = np.std(c_particles_phys)
     assert abs(c_particle_std - prior_c_std_phys) < 0.5 * prior_c_std_phys
+
+
+def test_prior_mean_offset_from_truth_is_widened_by_prior_mean_offset_sigmas():
+    """The generator's prior *mean* is drawn as gauss(true_value, std *
+    PRIOR_MEAN_OFFSET_SIGMAS), not gauss(true_value, std) -- otherwise the SBED
+    locator's starting belief for every non-frequency parameter is suspiciously
+    close to the true value before a single measurement (see nv_center_generator's
+    PRIOR_MEAN_OFFSET_SIGMAS import). At the default multiplier (3.0), the
+    *typical* offset should be a couple of prior-sigmas, not the ~0.8 sigma a
+    plain gauss(true, std) draw (multiplier 1.0) would produce on average.
+    """
+    import nvision.sim.gen.nv_center_generator as gen_mod
+
+    offsets_in_std = []
+    for seed in range(300):
+        rng = random.Random(seed)
+        gen = NVCenterCoreGenerator(variant="lorentzian")
+        signal = gen.generate(rng)
+        mean, std = signal.bounds["_priors"]["linewidth"]
+        true_linewidth = signal.typed_parameters.linewidth
+        offsets_in_std.append(abs(mean - true_linewidth) / std)
+
+    mean_offset_in_std = statistics.mean(offsets_in_std)
+    # E[|offset|/std] = PRIOR_MEAN_OFFSET_SIGMAS * sqrt(2/pi); at the default
+    # 3.0 that's ~2.39. A same-std draw (multiplier 1.0) would average ~0.8 --
+    # assert we're clearly in the widened regime, not the old narrow one.
+    assert mean_offset_in_std > 1.8, (
+        f"mean |prior_mean - true| / std was {mean_offset_in_std:.2f}, expected "
+        "~2.4 at the default PRIOR_MEAN_OFFSET_SIGMAS=3.0 -- looks like the "
+        "narrow (pre-fix) offset is back"
+    )
+    # Sanity-check it scales with the constant (rather than being a coincidence
+    # of some other unrelated std): halving the multiplier should roughly halve
+    # the average offset.
+    orig = gen_mod.PRIOR_MEAN_OFFSET_SIGMAS
+    try:
+        gen_mod.PRIOR_MEAN_OFFSET_SIGMAS = orig / 2.0
+        halved_offsets = []
+        for seed in range(300):
+            rng = random.Random(seed)
+            gen = NVCenterCoreGenerator(variant="lorentzian")
+            signal = gen.generate(rng)
+            mean, std = signal.bounds["_priors"]["linewidth"]
+            true_linewidth = signal.typed_parameters.linewidth
+            halved_offsets.append(abs(mean - true_linewidth) / std)
+        halved_mean_offset = statistics.mean(halved_offsets)
+    finally:
+        gen_mod.PRIOR_MEAN_OFFSET_SIGMAS = orig
+    assert halved_mean_offset < mean_offset_in_std * 0.7

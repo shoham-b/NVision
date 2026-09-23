@@ -36,10 +36,15 @@ conventions exist in this codebase, used in different places:
 The NV center ODMR signal from a hyperfine triplet is three dips sharing one linewidth and
 one asymmetry ratio `k_np`, with population fractions that sum to the total contrast:
 
-$$p_{\rm sum} = \frac{1}{k_{np}} + 1 + k_{np}, \qquad
+$$p_{\rm sum} = \frac{1}{k_{np}} + w + k_{np}, \qquad
 p_L = c_{\rm total}\cdot\frac{1/k_{np}}{p_{\rm sum}}, \qquad
-p_0 = c_{\rm total}\cdot\frac{1}{p_{\rm sum}}, \qquad
+p_0 = c_{\rm total}\cdot\frac{w}{p_{\rm sum}}, \qquad
 p_R = c_{\rm total}\cdot\frac{k_{np}}{p_{\rm sum}}$$
+
+$w$ (`w_center` in code) is the *structural* weight of the center line, fixed by which nitrogen
+isotope is modeled — $w=1$ for the ¹⁴N triplet, $w=0$ for the ¹⁵N doublet (no center line). It is
+a model configuration set via `hyperfine=`, not a fitted parameter (`nv_population_weights`,
+`numba_kernels.py:69`).
 
 ```
                      ┌─ Left dip:   depth = p_L = c_total·(1/k_np)/p_sum,  center = f_B − Δ
@@ -57,13 +62,25 @@ project settled on `c_total` over the older per-dip `dip_depth` convention when 
 Lorentzian, Voigt, and Saturation-Voigt (2026-07-15): the same amplitude parameter, and the
 same non-negativity guarantee, now applies uniformly across all three lineshapes.
 
-### Full Signal Equation (Lorentzian dip term)
+### Full Signal Equation
 
-$$S(f) = B - \frac{p_L\cdot\omega^2}{(f-f_B+\Delta)^2+\omega^2} - \frac{p_0\cdot\omega^2}{(f-f_B)^2+\omega^2} - \frac{p_R\cdot\omega^2}{(f-f_B-\Delta)^2+\omega^2}$$
+Written generally, with the dip lineshape as a height-normalized profile $V(x;\Gamma,r)$ — width
+$\Gamma$ and shape $r$ made explicit as its own parameters, rather than folded into an opaque
+constant — the three-line signal is (with $B \equiv 1$ fixed for every NV-center model — see the
+Parameter Roles table below — not a free parameter despite appearing as one in the general form):
 
-For Voigt/Saturation-Voigt, each Lorentzian dip term above is replaced by the height-normalized
-pseudo-Voigt profile of [`sbed_and_smc.md` §7.2](equations/sbed_and_smc.md), with the same
-$(p_L, p_0, p_R)$ population weights.
+$$S(f) = B - p_L\cdot V(f-f_B+\Delta;\,\Gamma,r) - p_0\cdot V(f-f_B;\,\Gamma,r) - p_R\cdot V(f-f_B-\Delta;\,\Gamma,r)$$
+
+with the same $(p_L, p_0, p_R)$ population weights for every lineshape (only $V$ itself changes):
+
+- **Lorentzian**: $V(x;\Gamma,r) \equiv \Gamma^2/(x^2+\Gamma^2)$, with $\Gamma=\omega$ (the HWHM)
+  and $r$ unused. This recovers the original per-dip formula:
+  $$S(f) = B - \frac{p_L\cdot\omega^2}{(f-f_B+\Delta)^2+\omega^2} - \frac{p_0\cdot\omega^2}{(f-f_B)^2+\omega^2} - \frac{p_R\cdot\omega^2}{(f-f_B-\Delta)^2+\omega^2}$$
+- **Voigt/Saturation-Voigt**: $V$ is the height-normalized pseudo-Voigt profile of
+  [`sbed_and_smc.md` §7.2](equations/sbed_and_smc.md), an approximation to the true
+  Lorentzian⊛Gaussian convolution, with $\Gamma=\texttt{fwhm\_total}$ (total width) and
+  $r=\texttt{lorentz\_frac}\in[0,1]$ (Lorentzian shape fraction; $r=1$ is pure Lorentzian,
+  matching the case above).
 
 ### Zero-Field Limit
 
@@ -80,7 +97,8 @@ by construction, so no separate combined-depth formula is needed).
 | `split`        | $\Delta$   | Hyperfine splitting (dip separation)         | ✓ |
 | `k_np`         | $k_{np}$   | Asymmetry ratio between left/right peaks     | ✓ |
 | `c_total`      | —          | Population-normalized total contrast         | ✓ |
-| `background`   | $B$        | Baseline fluorescence level                  | ✓ |
+| `w_center` (from `hyperfine=`) | $w$ | Structural center-line weight: 1 for ¹⁴N triplet, 0 for ¹⁵N doublet | fixed by isotope choice — not a free parameter |
+| `background`   | $B$        | Baseline fluorescence level                  | fixed at 1 — not a free parameter for any NV-center model (`get_background_ones`, `numba_kernels.py:30`); a kernel argument, not a typed spectrum field |
 
 Because `c_total` controls **absolute contrast** and `k_np` controls the **relative ratio**
 between peaks, there is no degeneracy between them. Each parameter affects a distinct
@@ -107,16 +125,22 @@ ridge.
 
 ```python
 @njit(cache=True)
-def nv_center_lorentzian_eval(x, freq, linewidth, split, k_np, c_total, background):
-    p_sum = (1.0 / k_np) + 1.0 + k_np
-    p_L = c_total * (1.0 / k_np) / p_sum
-    p_0 = c_total / p_sum
-    p_R = c_total * k_np / p_sum
-    left   = p_L * linewidth**2 / ((x - freq + split) ** 2 + linewidth**2)
-    center = p_0 * linewidth**2 / ((x - freq) ** 2 + linewidth**2)
-    right  = p_R * linewidth**2 / ((x - freq - split) ** 2 + linewidth**2)
-    return background - (left + center + right)
+def nv_center_lorentzian_eval(x, freq, linewidth, split, k_np, w_center, c_total, background):
+    omega = linewidth if linewidth > 1e-10 else 1e-10
+    x_dim = (x - freq) / omega
+    alpha = split / omega
+
+    p_l, p_0, p_r = nv_population_weights(k_np, c_total, w_center)
+
+    return background - (
+        p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0)
+    )
 ```
+
+(`numba_kernels.py:118-137`; verbatim except renaming `l`/`r` to `L`/`R` for consistency with this
+doc's $p_L,p_R$. The $\omega^2$ form shown earlier in this doc is algebraically identical — this is
+just the dimensionless substitution $x_{\rm dim}=(x-f)/\omega$, $\alpha=\Delta/\omega$ the kernel
+actually uses, and previous revisions of this snippet predated `w_center` entirely and are stale.)
 
 The Voigt/Saturation-Voigt kernels (`nv_center_zeeman_pseudo_voigt_eval` and vectorized
 variants) use the same $(p_L, p_0, p_R)$ split, replacing each Lorentzian dip term with the

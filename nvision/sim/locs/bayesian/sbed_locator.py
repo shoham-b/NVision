@@ -846,10 +846,27 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             self.belief._resample()
 
         if check_convergence:
-            # One uncertainty pass shared by the streak and milestone checks
+            # One uncertainty pass shared by the milestone/plateau/CRLB checks
             # (each belief.uncertainty() call is a full O(particles x params) pass).
+            # This is the raw (non-robust) value deliberately: milestones, the
+            # plateau check, and the CRLB comparison should all reflect the
+            # belief's actual claimed precision, not a smoothed one -- see
+            # robust_uncertainty's docstring on why it must not become the
+            # general-purpose uncertainty.
             physical_uncertainties = self.belief.uncertainty()
-            if self._target_params_converged(physical_uncertainties):
+
+            # The streak counter below is the one place raw uncertainty causes a
+            # real (not just cosmetic) problem: every SMC resample transiently
+            # inflates it (a decaying fraction of particles redrawn from the
+            # prior), and _target_params_converged failing on that single step
+            # resets the whole streak to 0 -- so a run sitting on the verge of
+            # convergence can lose all its progress purely from the resample
+            # artifact and cost extra measurements waiting to rebuild the streak.
+            # robust_uncertainty() (weighted IQR/1.349) is immune to that: the
+            # transient particles are a small minority of the mass and don't move
+            # the interquartile range.
+            streak_uncertainties = self.belief.robust_uncertainty()
+            if self._target_params_converged(streak_uncertainties):
                 self._convergence_streak += 1
                 if self._convergence_streak >= self._convergence_patience_steps:
                     self._is_converged = True
@@ -875,6 +892,14 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                             self._focus_conf_dense = True
                         if conf.is_stable and self.focus_stable_step is None:
                             self.focus_stable_step = self.step_count
+                            # The dip is detected and the empirical/posterior signals
+                            # agree on where it is -- domain-wide exploration via the
+                            # global grid is no longer needed, and for some signal
+                            # models (see signal_min_span) it doesn't shrink with
+                            # focus-window narrowing on its own. One-way: nothing
+                            # here re-enables it if confidence later dips.
+                            if hasattr(self.belief, "use_global_grid"):
+                                self.belief.use_global_grid = False
 
     def _should_check_focus_confidence(self) -> bool:
         """Whether to run the (expensive) focus-window confidence check this step.

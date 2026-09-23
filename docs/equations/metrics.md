@@ -147,7 +147,7 @@ Computed elsewhere and passed through `metrics.py` for reporting:
 
 - **`measurements`** — total observations recorded for the repeat.
 - **`final_est_<param>`** — final posterior-mean estimate for each parameter (`frequency`, `linewidth`/`homogeneous_linewidth`, `split`, `sigma_inhom`, `c_total`, `k_np`), populated dynamically off whatever `parameter_names()` the model returns rather than a hardcoded list.
-- **`uncert`** — reported frequency uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at K_safety × CRLB_f).
+- **`uncert`** — reported frequency uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at 1× CRLB_f, no safety factor).
 - **`splitting_converged_step` / `all_converged_step`** — first step at which the primary parameter (`zeeman_split`/`split` when present, else `frequency`) / all target parameters converged.
 - **`duration_ms`** — wall-clock runtime of the repeat.
 - **Milestone metrics** (`steps_to_fb`, `err_fb_at_milestone`, `uncert_fb_at_milestone`) — from `calculate_zeeman_metrics`, now called with the same primary-parameter resolution (`resolve_primary_param`) so `fb` means splitting once frequency is fixed, rather than always being vacuous.

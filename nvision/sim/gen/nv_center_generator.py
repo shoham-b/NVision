@@ -19,6 +19,7 @@ from nvision.spectra.nv_center import (
     MIN_LINEWIDTH,
     MIN_SPLIT,
     MIN_ZEEMAN_SPLIT,
+    PRIOR_MEAN_OFFSET_SIGMAS,
     PRIOR_STD_FRACTION,
     NVCenterLorentzianModel,
     NVCenterLorentzianSingleDipSpectrum,
@@ -44,6 +45,17 @@ from .peak_spec import _true_signal_from_typed
 # Gaussian FWHM = 2*sqrt(2 ln2)*sigma; used to convert a physical sigma_inhom
 # (Hz) into the voigt variant's lorentz_frac ratio.
 _VOIGT_SQRT2LOG2 = math.sqrt(2.0 * math.log(2.0))
+
+
+def _widened_prior_mean(rng: random.Random, true_value: float, std: float) -> float:
+    """Draw a parameter's prior mean, deliberately offset from ``true_value``.
+
+    See ``PRIOR_MEAN_OFFSET_SIGMAS``'s docstring (nvision/spectra/nv_center.py):
+    widening this draw beyond the prior's own std (rather than reusing it) keeps
+    the SBED locator's starting belief from being suspiciously close to the
+    answer before a single measurement.
+    """
+    return rng.gauss(true_value, std * PRIOR_MEAN_OFFSET_SIGMAS)
 
 
 @dataclass
@@ -177,11 +189,11 @@ class NVCenterCoreGenerator:
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_split": (rng.gauss(zeeman_split, zeeman_std), zeeman_std),
-                    "split": (rng.gauss(split, split_std), split_std),
-                    "linewidth": (rng.gauss(linewidth, linewidth_std), linewidth_std),
-                    "k_np": (rng.gauss(k_np, k_np_std), k_np_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "zeeman_split": (_widened_prior_mean(rng, zeeman_split, zeeman_std), zeeman_std),
+                    "split": (_widened_prior_mean(rng, split, split_std), split_std),
+                    "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
+                    "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.with_zeeman_splitting:
@@ -197,9 +209,9 @@ class NVCenterCoreGenerator:
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_split": (rng.gauss(zeeman_split, zeeman_std), zeeman_std),
-                    "linewidth": (rng.gauss(linewidth, linewidth_std), linewidth_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "zeeman_split": (_widened_prior_mean(rng, zeeman_split, zeeman_std), zeeman_std),
+                    "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.infer_hyperfine:
@@ -218,10 +230,10 @@ class NVCenterCoreGenerator:
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "split": (rng.gauss(split, split_std), split_std),
-                    "linewidth": (rng.gauss(linewidth, linewidth_std), linewidth_std),
-                    "k_np": (rng.gauss(k_np, k_np_std), k_np_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "split": (_widened_prior_mean(rng, split, split_std), split_std),
+                    "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
+                    "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             else:
@@ -233,8 +245,8 @@ class NVCenterCoreGenerator:
                 )
                 bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, hyperfine=self.hyperfine)
                 bounds["_priors"] = {
-                    "linewidth": (rng.gauss(linewidth, linewidth_std), linewidth_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
         elif self.variant == "saturation_voigt":
@@ -260,8 +272,8 @@ class NVCenterCoreGenerator:
                 with_zeeman_splitting=self.with_zeeman_splitting,
             )
             priors = {
-                "saturation": (rng.gauss(saturation, saturation_std), saturation_std),
-                "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                "saturation": (_widened_prior_mean(rng, saturation, saturation_std), saturation_std),
+                "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
                 "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
 
@@ -278,9 +290,9 @@ class NVCenterCoreGenerator:
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
-                priors["zeeman_split"] = (rng.gauss(zeeman_split, zeeman_std), zeeman_std)
-                priors["split"] = (rng.gauss(split, split_std), split_std)
-                priors["k_np"] = (rng.gauss(k_np, k_np_std), k_np_std)
+                priors["zeeman_split"] = (_widened_prior_mean(rng, zeeman_split, zeeman_std), zeeman_std)
+                priors["split"] = (_widened_prior_mean(rng, split, split_std), split_std)
+                priors["k_np"] = (_widened_prior_mean(rng, k_np, k_np_std), k_np_std)
             elif self.with_zeeman_splitting:
                 typed_params = NVCenterSaturationVoigtZeemanSpectrum(
                     frequency=center_freq,
@@ -289,7 +301,7 @@ class NVCenterCoreGenerator:
                     zeeman_split=zeeman_split,
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
-                priors["zeeman_split"] = (rng.gauss(zeeman_split, zeeman_std), zeeman_std)
+                priors["zeeman_split"] = (_widened_prior_mean(rng, zeeman_split, zeeman_std), zeeman_std)
             elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 typed_params = NVCenterSaturationVoigtSpectrum(
@@ -301,8 +313,8 @@ class NVCenterCoreGenerator:
                 )
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
-                priors["split"] = (rng.gauss(split, split_std), split_std)
-                priors["k_np"] = (rng.gauss(k_np, k_np_std), k_np_std)
+                priors["split"] = (_widened_prior_mean(rng, split, split_std), split_std)
+                priors["k_np"] = (_widened_prior_mean(rng, k_np, k_np_std), k_np_std)
             else:
                 typed_params = NVCenterSaturationVoigtSingleDipSpectrum(
                     frequency=center_freq,
@@ -356,12 +368,15 @@ class NVCenterCoreGenerator:
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_split": (rng.gauss(zeeman_split, zeeman_std), zeeman_std),
-                    "split": (rng.gauss(split, split_std), split_std),
-                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
-                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
-                    "k_np": (rng.gauss(k_np, k_np_std), k_np_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "zeeman_split": (_widened_prior_mean(rng, zeeman_split, zeeman_std), zeeman_std),
+                    "split": (_widened_prior_mean(rng, split, split_std), split_std),
+                    "homogeneous_linewidth": (
+                        _widened_prior_mean(rng, homogeneous_linewidth, linewidth_std),
+                        linewidth_std,
+                    ),
+                    "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.with_zeeman_splitting:
@@ -378,10 +393,13 @@ class NVCenterCoreGenerator:
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_split": (rng.gauss(zeeman_split, zeeman_std), zeeman_std),
-                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
-                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "zeeman_split": (_widened_prior_mean(rng, zeeman_split, zeeman_std), zeeman_std),
+                    "homogeneous_linewidth": (
+                        _widened_prior_mean(rng, homogeneous_linewidth, linewidth_std),
+                        linewidth_std,
+                    ),
+                    "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.infer_hyperfine:
@@ -401,11 +419,14 @@ class NVCenterCoreGenerator:
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "split": (rng.gauss(split, split_std), split_std),
-                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
-                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
-                    "k_np": (rng.gauss(k_np, k_np_std), k_np_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "split": (_widened_prior_mean(rng, split, split_std), split_std),
+                    "homogeneous_linewidth": (
+                        _widened_prior_mean(rng, homogeneous_linewidth, linewidth_std),
+                        linewidth_std,
+                    ),
+                    "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             else:
@@ -418,9 +439,12 @@ class NVCenterCoreGenerator:
                 )
                 bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, hyperfine=self.hyperfine)
                 bounds["_priors"] = {
-                    "homogeneous_linewidth": (rng.gauss(homogeneous_linewidth, linewidth_std), linewidth_std),
-                    "sigma_inhom": (rng.gauss(sigma_inhom, sigma_inhom_std), sigma_inhom_std),
-                    "c_total": (rng.gauss(c_total, c_total_std), c_total_std),
+                    "homogeneous_linewidth": (
+                        _widened_prior_mean(rng, homogeneous_linewidth, linewidth_std),
+                        linewidth_std,
+                    ),
+                    "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
+                    "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
 

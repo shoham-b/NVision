@@ -148,13 +148,15 @@ $$\sigma^{\rm phys}_j = \sigma^u_j \cdot (h_j - l_j)$$
 
 #### Per-parameter CRLB floor (`reported_uncertainty`)
 
-`reported_uncertainty()` floors every non-frequency parameter at its own marginal CRLB
-(§4.3's `crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
-profiling out the other parameters rather than holding them fixed), unconditionally — this floor
-is independent of the `NVISION_SBED_FIM_CRLB_STOP` switch in §5.5, which only governs whether the
-same quantity may *stop* a run:
+`reported_uncertainty()` floors every parameter — including frequency — at its own CRLB,
+unconditionally, at 1× (no safety factor): frequency uses the closed-form `crlb_frequency()`
+(§2.3); every other parameter uses its marginal CRLB from the cumulative FIM (§4.3's
+`crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
+profiling out the other parameters rather than holding them fixed). This floor is independent of
+the `NVISION_SBED_FIM_CRLB_STOP` switch in §5.5, which only governs whether the same quantity may
+*stop* a run:
 
-$$\sigma^{\rm reported}_j = \max\!\left(\sigma^{\rm phys}_j,\; \text{CRLB}_j\right), \qquad j \neq \text{frequency}$$
+$$\sigma^{\rm reported}_j = \max\!\left(\sigma^{\rm phys}_j,\; \text{CRLB}_j\right), \qquad \forall j$$
 
 The particle spread alone understates uncertainty exactly where it matters: when two parameters
 trade off along a near-flat ridge (`zeeman_split` against the width pair below dip-resolution is
@@ -165,9 +167,11 @@ repeats (56 deliberately degenerate configs), flooring moves the median `error/r
 goes 1.61→0.96 and 18.3%→3.3%. The width pair becomes ~2–3× conservative (medians 1.03/1.38 →
 0.36/0.49) since both sit *in* the degenerate direction even though their sum stays well
 determined — accepted, since overstating precision is the dangerous direction. No safety factor
-is applied here (unlike the frequency floor's $K_{\rm safety}$, §2.3): the CRLB is already a hard
-lower bound on any unbiased estimator's variance, so 1× is the principled choice — a 4× factor
-was measured to over-correct badly (medians drop to 0.09–0.25).
+is applied to this floor: the CRLB is already a hard lower bound on any unbiased estimator's
+variance, so 1× is the principled choice — a 4× factor was measured to over-correct badly
+(medians drop to 0.09–0.25). $K_{\rm safety}$ (§5.5) governs only *when `_check_crlb_early_stop`
+declares a run converged* — it is a stopping-decision margin, not a property of the CRLB itself,
+so it must not scale a value this method reports.
 
 ### 2.3 Analytical CRLB for Frequency (Lorentzian, Gaussian noise)
 
@@ -353,8 +357,9 @@ $$\sigma_f < T_f = 100\,\text{kHz} \quad (\texttt{NVISION\_FREQ\_CONVERGENCE\_TH
 
 $$\sigma_j < \text{threshold} \times (h_j - l_j), \qquad \text{threshold} = 0.01 = 1\%$$
 
-**Saturation-Voigt models** — derived-quantity gating: the raw parameters
-(`saturation`, `sigma_inhom`, `c_max`) are **not** checked individually (their relative
+**Saturation-Voigt models** — derived-quantity gating: the raw *inferred* parameters
+(`saturation`, `sigma_inhom` — `c_max` is excluded, being a fixed constant with no posterior
+uncertainty to gate on) are **not** checked individually (their relative
 thresholds are physically inconsistent along the saturation axis since
 $\Omega \propto \sqrt{1+s}$). Instead their uncertainties are propagated through the
 local Jacobian onto two derived quantities that carry Lorentzian-equivalent semantics
@@ -532,11 +537,21 @@ Both Zeeman groups share the same `(split, k_np)` — the spectrum is exactly sy
 
 ### 7.2 Homogeneous vs. Inhomogeneous Broadening
 
-Modeled as a pseudo-Voigt — a height-normalized weighted *sum*, not the true Lorentzian⊛Gaussian convolution (see the model docstrings and `tests/spectra/test_pseudo_voigt_accuracy.py`):
+Modeled as a pseudo-Voigt profile $V(x;\Gamma,r)$, with total width $\Gamma = \texttt{fwhm\_total}$ and
+shape $r = \texttt{lorentz\_frac}\in[0,1]$ ($r=1$ pure Lorentzian, $r=0$ pure Gaussian). It is a
+height-normalized weighted *sum* of a Lorentzian $L$ and Gaussian $G$ at matched width — not the
+true Voigt profile, which is their convolution $L_\Gamma * G_\Gamma$ (see the model docstrings and
+`tests/spectra/test_pseudo_voigt_accuracy.py` for how closely the sum tracks the convolution):
 
-$$V(dx) = \frac{\eta \cdot \dfrac{\gamma}{dx^2+\gamma^2} \;+\; (1-\eta)\cdot G_{\rm peak}\, e^{-dx^2/2\sigma^2}}{\text{center height}}$$
+$$V(dx;\Gamma,r) = \frac{\eta(r)\cdot L_\gamma(dx) \;+\; (1-\eta(r))\cdot G_\sigma(dx)}{\text{center height}}, \qquad L_\gamma(dx) = \frac{\gamma}{dx^2+\gamma^2}, \quad G_\sigma(dx) = G_{\rm peak}\, e^{-dx^2/2\sigma^2}$$
 
-with $\gamma = \text{fwhm}_l/2$, $\sigma = \text{fwhm}_g/(2\sqrt{2\ln 2})$, $\text{fwhm}_l = \texttt{lorentz\_frac}\cdot\texttt{fwhm\_total}$, $\text{fwhm}_g = (1-\texttt{lorentz\_frac})\cdot\texttt{fwhm\_total}$, and η the Thompson-Cox-Hastings mixing weight (`_pv_factors`, `numba_kernels.py:1234`).
+with **both components evaluated at the same combined width** $\gamma = \Gamma/2$,
+$\sigma = \Gamma/(2\sqrt{2\ln 2})$ — *not* split into separate per-component widths by $r$ — and
+η(r) the Thompson-Cox-Hastings mixing polynomial in $r$ alone (`_pv_factors`, `numba_kernels.py:1352`).
+This shared-width form is what the TCH `η(r)` polynomial is calibrated against; an earlier version
+that instead used $\gamma=r\Gamma/2$, $\sigma=(1-r)\Gamma/(2\sqrt{2\ln2})$ diverged from the true
+Voigt profile by up to 68% of peak height and could never merge a hyperfine triplet regardless of
+broadening, and was replaced (see `tests/spectra/test_pseudo_voigt_accuracy.py`).
 
 Plain Voigt and Saturation-Voigt both infer physical widths one level up from
 `(fwhm_total, lorentz_frac)` and reparametrize down to them right before the kernel call:

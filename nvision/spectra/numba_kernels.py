@@ -1172,18 +1172,30 @@ def nv_center_lorentzian_eig_variance(
 
     background is omitted -- for NV-center models it is always 1.0 and
     cancels out of the variance calculation.
+
+    Precompute and the (i, j) hot loop are float32 throughout (not just the
+    array dtype -- literals are explicitly ``np.float32`` too, since a bare
+    Python ``1.0``/``0.0`` would unify with a float32 operand to float64 and
+    silently undo the point of this). float32 doubles the AVX lane width
+    here for a ~3.5-7x wall-clock win, validated against the float64 path by
+    replaying the actual chunk-argmax + Boltzmann candidate selection (see
+    scratch/bench_threading_layer.py): float32-driven regret was
+    statistically identical to float64-driven regret across wide-prior,
+    converged, and pathologically-converged posteriors, because that
+    selection already treats near-tied candidates as interchangeable. EIG
+    ranking only -- see the module-level fastmath-kernels note above; this
+    must never back a weight update or uncertainty computation.
     """
     m = xs.shape[0]
     n = freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math (including three
-    # divisions per pair) out of the m x n inner loop. float64 arrays keep the
-    # numerics identical to the previous per-pair scalar computation.
-    inv_omega = np.empty(n, dtype=np.float64)
-    alpha = np.empty(n, dtype=np.float64)
-    p_0 = np.empty(n, dtype=np.float64)
-    p_l = np.empty(n, dtype=np.float64)
-    p_r = np.empty(n, dtype=np.float64)
+    # divisions per pair) out of the m x n inner loop.
+    inv_omega = np.empty(n, dtype=np.float32)
+    alpha = np.empty(n, dtype=np.float32)
+    p_0 = np.empty(n, dtype=np.float32)
+    p_l = np.empty(n, dtype=np.float32)
+    p_r = np.empty(n, dtype=np.float32)
     for j in range(n):
         lw = linewidth[j]
         omega = lw if lw > 1e-10 else 1e-10
@@ -1195,21 +1207,25 @@ def nv_center_lorentzian_eig_variance(
 
     for i in prange(m):
         x = xs[i]
-        sum_p = 0.0
-        sum_p2 = 0.0
+        sum_p = np.float32(0.0)
+        sum_p2 = np.float32(0.0)
         for j in range(n):
             x_dim = (x - freq[j]) * inv_omega[j]
             a = alpha[j]
             d_l = x_dim + a
             d_r = x_dim - a
-            pred = 1.0 - (p_l[j] / (d_l * d_l + 1.0) + p_0[j] / (x_dim * x_dim + 1.0) + p_r[j] / (d_r * d_r + 1.0))
+            pred = np.float32(1.0) - (
+                p_l[j] / (d_l * d_l + np.float32(1.0))
+                + p_0[j] / (x_dim * x_dim + np.float32(1.0))
+                + p_r[j] / (d_r * d_r + np.float32(1.0))
+            )
 
             wi = weights[j]
             sum_p += wi * pred
             sum_p2 += wi * pred * pred
 
         v = sum_p2 - sum_p * sum_p
-        out[i] = v if v > 0.0 else 0.0
+        out[i] = v if v > np.float32(0.0) else np.float32(0.0)
 
 
 @njit(cache=True, parallel=True, fastmath=True)

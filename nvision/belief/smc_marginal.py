@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from dotenv import load_dotenv
 from numba import njit, prange
+from scipy.special import gammaln
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
@@ -50,6 +51,15 @@ NVISION_SMC_EIG_CACHE: bool = os.getenv("NVISION_SMC_EIG_CACHE", "1") not in ("0
 # finest resolution the slope-targeting grid can achieve regardless of sigma.
 # Set to 0 (or a very small value) via env to let the grid refine with sigma.
 NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ: float = float(os.getenv("NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ", "10000.0"))
+
+# Minimum half-width (Hz) of the per-dip candidate window (the dip-focused
+# grid in _generate_epoch_candidates, distinct from the slope-targeting grid
+# above). The window is `max(3*linewidth, sigma_eff, this floor)`, so once the
+# linewidth/uncertainty estimates shrink below this floor the window stops
+# shrinking with them -- this is what caps the finest resolution that grid can
+# reach for a given fixed point budget, regardless of how confident the
+# posterior gets.
+NVISION_SMC_DIP_WINDOW_MIN_HZ: float = float(os.getenv("NVISION_SMC_DIP_WINDOW_MIN_HZ", "5000000.0"))
 
 _EIG_CHUNK_SIZE: int = 64
 
@@ -330,6 +340,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _noise_param_slice: slice | None = field(init=False, repr=False, default=None)
     _current_candidates: np.ndarray = field(init=False, repr=False)
     _global_grid: np.ndarray = field(init=False, repr=False)
+    # Whether _generate_epoch_candidates includes the domain-wide global grid
+    # (see its own field above) in the merged candidate set. A locator that has
+    # its own notion of the scan being settled (e.g. dip detected and stable)
+    # may set `use_global_grid = False` via the property below to drop it --
+    # the global grid's point count does not shrink with focus-window
+    # narrowing for every signal model (see signal_min_span), so it can become
+    # the dominant, wasted term once the scan no longer needs domain-wide
+    # exploration.
+    _use_global_grid: bool = field(init=False, repr=False, default=True)
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
     _eig_kernel_type: str = field(init=False, repr=False, default="generic")
@@ -557,14 +576,35 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             k = int(getattr(obs, "n_shots", 1) or 1)
             sample_var = getattr(obs, "sample_var", None)
 
-            sigmas = self._noise_betas / self._noise_alphas
-            np.sqrt(sigmas, out=sigmas)
-            np.maximum(sigmas, 1e-9, out=sigmas)
             residuals = obs.signal_value - predicted
-            # The batch mean has noise sigma_i / sqrt(k), so the residual precision
-            # scales by k. The additive log(k) is constant across particles and
-            # cancels under normalization, but is kept for a correct log-likelihood.
-            log_liks = -0.5 * k * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2 / k)
+            # Rao-Blackwellized marginal likelihood: sigma^2 is analytically
+            # *integrated out* of its current per-particle Inverse-Gamma(alpha,
+            # beta) posterior rather than plugged in as a point estimate
+            # sqrt(beta/alpha). Plugging in the point estimate is a Gaussian
+            # likelihood that, for a single residual, is maximized exactly at
+            # sigma == |residual| -- so resampling (which selects on this
+            # likelihood) systematically favors whichever particle's *current*
+            # sigma estimate happens to match that step's single noise draw.
+            # Since median(|N(0, sigma)|) ~= 0.6745*sigma, an under-estimating
+            # particle wins more often than not, and nothing thereafter
+            # perturbs the noise state back apart (_resample() reindexes
+            # _noise_alphas/_noise_betas but never nudges them) -- the
+            # population's sigma estimate drifts to the prior's lower bound
+            # over successive resamples. Integrating over the Inverse-Gamma
+            # instead gives the exact Normal-InverseGamma predictive, a
+            # (shifted, scaled) Student-t with nu = 2*alpha d.o.f. and
+            # scale^2 = beta / (k*alpha) for the k-shot batch mean; its
+            # fatter tails don't reward an under-confident sigma for
+            # coincidentally matching one residual.
+            alpha = self._noise_alphas
+            beta = self._noise_betas
+            z_sq = k * residuals**2 / beta
+            log_liks = (
+                gammaln(alpha + 0.5)
+                - gammaln(alpha)
+                - 0.5 * np.log(2.0 * np.pi * beta / (k * alpha))
+                - (alpha + 0.5) * np.log1p(z_sq / (2.0 * alpha))
+            )
             if self.tempering_factor != 1.0:
                 log_liks *= self.tempering_factor
             # In-place Inverse-Gamma posterior update (residuals are dead after this).
@@ -662,13 +702,24 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             # over alphas/betas is inherently sequential but cheap.
             all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
             predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
-            for k, obs in enumerate(observations):
-                predicted = predictions[k]
-                sigmas = self._noise_betas / self._noise_alphas
-                np.sqrt(sigmas, out=sigmas)
-                np.maximum(sigmas, 1e-9, out=sigmas)
+            for obs_idx, obs in enumerate(observations):
+                predicted = predictions[obs_idx]
                 residuals = obs.signal_value - predicted
-                log_liks = -0.5 * (residuals / sigmas) ** 2 - 0.5 * np.log(sigmas**2)
+                # Rao-Blackwellized marginal likelihood (see the matching branch
+                # in update() for why the point-estimate plug-in sigma biases
+                # the posterior toward zero): integrate sigma^2 out of its
+                # current Inverse-Gamma(alpha, beta) posterior instead of
+                # substituting sqrt(beta/alpha), giving the Normal-InverseGamma
+                # Student-t predictive with nu = 2*alpha and scale^2 = beta/alpha.
+                alpha = self._noise_alphas
+                beta = self._noise_betas
+                z_sq = residuals**2 / beta
+                log_liks = (
+                    gammaln(alpha + 0.5)
+                    - gammaln(alpha)
+                    - 0.5 * np.log(2.0 * np.pi * beta / alpha)
+                    - (alpha + 0.5) * np.log1p(z_sq / (2.0 * alpha))
+                )
                 if self.tempering_factor != 1.0:
                     log_liks *= self.tempering_factor
                 log_weights += log_liks
@@ -771,6 +822,22 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def num_observations(self) -> int:
         """Number of observations recorded so far."""
         return self._obs_count
+
+    @property
+    def use_global_grid(self) -> bool:
+        """Whether the merged candidate set includes the domain-wide global grid.
+
+        True by default. A locator may set this False once it has its own
+        signal that the scan no longer needs domain-wide exploration (e.g. a
+        detected dip whose location the posterior agrees with) to drop the
+        global grid's candidates from future `_generate_epoch_candidates`
+        calls.
+        """
+        return self._use_global_grid
+
+    @use_global_grid.setter
+    def use_global_grid(self, value: bool) -> None:
+        self._use_global_grid = value
 
     def _append_observation(self, x: float, y: float) -> None:
         """Record one observation into the flat history buffers (amortized growth)."""
@@ -1114,7 +1181,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 for candidate in dip_candidates:
                     frac = candidate.significance / total_sig if total_sig > 0 else 1.0 / len(dip_candidates)
                     n_pts = max(10, int(frac * total_budget))
-                    window_phys = max(3.0 * omega_phys, sigma_eff_phys, 5e6)
+                    window_phys = max(3.0 * omega_phys, sigma_eff_phys, NVISION_SMC_DIP_WINDOW_MIN_HZ)
                     s = max(candidate.centroid_hz - window_phys, phys_f_lo)
                     e = min(candidate.centroid_hz + window_phys, phys_f_hi)
                     if s >= e:
@@ -1122,8 +1189,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     dip_grid_phys = np.linspace(s, e, n_pts)
                     local_grids.append(_to_unit_freq(dip_grid_phys))
 
-        # 6. Merge with pre-computed global grid; clip everything to [f_lo, f_hi]
-        merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
+        # 6. Merge with pre-computed global grid (unless the locator has dropped
+        # it via use_global_grid); clip everything to [f_lo, f_hi]
+        if self._use_global_grid:
+            merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
+        else:
+            if not local_grids:
+                raise RuntimeError(
+                    "_generate_epoch_candidates: use_global_grid is False but no local "
+                    "grids were generated -- refusing to produce an empty candidate set."
+                )
+            merged = np.concatenate(local_grids)
         merged = np.clip(merged, f_lo_unit, f_hi_unit).astype(np.float32, copy=False)
         # Each constituent grid is already ascending, so the concatenation is a
         # handful of sorted runs — a stable (timsort) sort is near-linear here,
@@ -1398,6 +1474,66 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         return self._uncertainty_unit()
 
+    def _robust_uncertainty_unit(self) -> ParameterValues[float]:
+        """Outlier-insensitive marginal spread (weighted IQR / 1.349) in unit space.
+
+        Every resample injects a decaying fraction of particles redrawn from the
+        prior (see ``_resample``). They vanish by the next likelihood update, but
+        standard deviation is quadratic in distance, so even a couple of them
+        sitting far from the bulk of the cloud inflate ``_uncertainty_unit`` several-
+        fold for exactly one step -- a rendering/consumer-visible sawtooth that
+        reads as the belief repeatedly widening and re-narrowing when nothing of
+        the sort happened. The interquartile range only depends on the *bulk* of
+        the (weighted) particle mass, so those transient particles don't move it;
+        dividing by 1.349 rescales it to a Gaussian-equivalent sigma so it's
+        directly comparable to ``_uncertainty_unit``'s output.
+
+        Deliberately NOT used as the default ``uncertainty()`` / ``_empirical_
+        uncertainty()``: IQR only reflects the middle 50% of the mass, so a
+        genuinely bimodal posterior (e.g. two still-live candidate frequencies)
+        can report a falsely tight spread if both modes' particles fall outside
+        that middle 50% -- masking real ambiguity the raw std correctly flags.
+        This exists for callers that specifically want the resample artifact
+        filtered out of a streak/consecutive-checks decision (see
+        SequentialBayesianLocator._check_and_resample's convergence-streak use),
+        not as a general-purpose replacement for the reported uncertainty.
+        """
+        w = self._weights
+        sw = w.sum()
+        n_params = len(self._param_names)
+        if sw <= 0.0 or self.num_particles < 4:
+            stds = dict.fromkeys(self._param_names, float("nan"))
+            if getattr(self, "_use_rao_blackwell_noise", False):
+                stds["noise_sigma"] = float("nan")
+            return ParameterValues.from_mapping(list(stds.keys()), stds)
+
+        p = self._particles  # (N, d)
+        w_norm = w / sw
+        stds: dict[str, float] = {}
+        for i in range(n_params):
+            values = p[:, i]
+            order = np.argsort(values)
+            v = values[order]
+            wo = w_norm[order]
+            # Midpoint CDF: the quantile of a particle is the mass strictly below
+            # it plus half its own -- keeps the estimate unbiased for small clouds
+            # (matches nvision.runner.plots_data._weighted_robust_sigma).
+            cw = np.cumsum(wo) - wo * 0.5
+            q1, q3 = np.interp([0.25, 0.75], cw, v)
+            stds[self._param_names[i]] = float((q3 - q1) / 1.349)
+
+        if getattr(self, "_use_rao_blackwell_noise", False):
+            # noise_sigma has no particle dimension of its own (it's a Rao-
+            # Blackwellized per-particle Normal-Inverse-Gamma posterior, not a
+            # sampled coordinate) -- no IQR is defined for it; fall back to the
+            # same value _uncertainty_unit reports.
+            stds["noise_sigma"] = float(self._uncertainty_unit().get("noise_sigma", float("nan")))
+
+        return ParameterValues.from_mapping(list(stds.keys()), stds)
+
+    def _empirical_robust_uncertainty(self) -> ParameterValues[float]:
+        return self._robust_uncertainty_unit()
+
     def entropy(self) -> float:
         # Simple Kozachenko-Leonenko nearest-neighbor entropy estimator could go here.
         # For now, approximate via a Gaussian assumption on the particles.
@@ -1511,6 +1647,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             dist._noise_betas = self._noise_betas.copy()
         if hasattr(self, "_dip_centers"):
             dist._dip_centers = list(self._dip_centers)
+        dist._use_global_grid = self._use_global_grid
         return dist
 
     def _weighted_mean(self, name: str) -> float:

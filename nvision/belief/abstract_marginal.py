@@ -104,6 +104,21 @@ class AbstractMarginalDistribution(ABC):
         """
         return self._empirical_uncertainty()
 
+    def robust_uncertainty(self) -> ParameterValues[float]:
+        """Outlier-insensitive marginal spread, for gating streak/consecutive-
+        checks decisions that would otherwise flicker on a transient event (e.g.
+        an SMC resample's rejuvenation particles -- see
+        :meth:`~nvision.belief.smc_marginal.SMCMarginalDistribution.
+        _robust_uncertainty_unit` for why).
+
+        This is NOT a general-purpose replacement for :meth:`uncertainty`: it can
+        underreport genuine multi-modal spread. Use it only for that narrow
+        purpose, not for CRLB comparisons or anything reported as the belief's
+        claimed precision. Falls back to :meth:`uncertainty` for belief types
+        with no such estimate (e.g. grid beliefs).
+        """
+        return self._empirical_robust_uncertainty()
+
     def crlb_frequency(self) -> float:
         """Analytical Cramér-Rao lower bound for frequency in physical Hz.
 
@@ -141,6 +156,18 @@ class AbstractMarginalDistribution(ABC):
     @abstractmethod
     def _empirical_uncertainty(self) -> ParameterValues[float]:
         """Compute empirical uncertainty from the underlying grid/particles."""
+
+    def _empirical_robust_uncertainty(self) -> ParameterValues[float]:
+        """Outlier-insensitive variant of :meth:`_empirical_uncertainty`.
+
+        Default falls back to the raw value -- belief types with no cheaper/
+        more-robust estimate (e.g. grid beliefs, which have no resample-artifact
+        equivalent to filter out) just report the same thing under both names.
+        Override where a robust estimate is meaningful (see
+        :meth:`~nvision.belief.smc_marginal.SMCMarginalDistribution.
+        _empirical_robust_uncertainty`).
+        """
+        return self._empirical_uncertainty()
 
     @abstractmethod
     def entropy(self) -> float:
