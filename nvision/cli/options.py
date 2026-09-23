@@ -113,3 +113,16 @@ RetryFailedOption = Annotated[
         ),
     ),
 ]
+
+ResumeOption = Annotated[
+    bool,
+    typer.Option(
+        "--resume",
+        help=(
+            "Resume an interrupted run: keeps results for combinations that ran in the "
+            "latest session (resuming partial repeats), and runs unstarted combinations "
+            "fresh without reusing stale pre-session cache."
+        ),
+    ),
+]
+

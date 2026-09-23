@@ -69,6 +69,24 @@ uv run nv cache gen restore before-optimization
 uv run nv cache gen prune --keep 2
 ```
 
+---
+
+## 5. Resuming Interrupted Runs (`--resume`)
+
+When a large parameter grid or group run (e.g. `nv groups both-sbed --repeats 50 --no-cache`) is interrupted midway, the cache is left with fresh results for the combinations reached so far, but stale entries for combinations that haven't started yet.
+
+The `--resume` flag non-destructively bridges this gap:
+1. **Scans the latest session log** (`logs/nvision-run-*.log`) to detect which combinations executed in that session.
+2. **Completed combinations:** Preserved and skipped instantly via cache.
+3. **Partial combinations:** Resumed from where they were interrupted (e.g. repeat 26 $\to$ 50).
+4. **Unstarted combinations:** Executed fresh from repeat 0 to the target count, bypassing any stale pre-session cache without requiring manual purging or database deletions.
+
+```bash
+# Resume any interrupted group run safely
+uv run nv groups both-sbed --repeats 50 --resume
+```
+
+
 `save`/`restore` only ever copy — the live cache is never modified by `save`, and `restore`
 archives whatever is live before overwriting it. Best done while no `nv run`/`nv groups` is
 actively writing to the cache, for a fully consistent snapshot.

@@ -51,6 +51,11 @@ class TaskListBuildConfig:
     # This run's shard index (see nv run --shard-index), threaded onto every
     # built task so worker processes know which MySQL shard table to use.
     shard_index: str | None = None
+    # Set of (generator, noise, strategy) triples that ran in the session being resumed.
+    # When set, tasks in this set use cache (keeping completed and resuming partials),
+    # while tasks not in this set bypass cache (running fresh without stale pre-session cache).
+    ran_in_resume_session: set[tuple[str, str, str]] | None = None
+
 
 
 def build_task_list(
@@ -111,7 +116,11 @@ def build_task_list(
                 loc_max_steps=config.loc_max_steps,
                 sweep_max_steps=config.sweep_max_steps,
                 loc_timeout_s=config.loc_timeout_s,
-                use_cache=not config.no_cache,
+                use_cache=(
+                    (combo.generator_name, combo.noise_name, combo.strategy_name) in config.ran_in_resume_session
+                    if config.ran_in_resume_session is not None
+                    else not config.no_cache
+                ),
                 cache_dir=config.cache_dir,
                 log_queue=config.log_queue,
                 log_level=config.log_level_value,

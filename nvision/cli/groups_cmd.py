@@ -74,6 +74,7 @@ def _run_named_group(
     loc_timeout_s: int = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: bool = False,
     retry_failed: bool = False,
+    resume: bool = False,
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> None:
@@ -93,6 +94,7 @@ def _run_named_group(
         runners=runners,
         open_browser=open_browser,
         retry_failed=retry_failed,
+        resume=resume,
         shard_index=shard_index,
         shard_count=shard_count,
     )
@@ -175,6 +177,7 @@ def run_preset(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
     shard_index: cli_options.ShardIndexOption = None,
     shard_count: cli_options.ShardCountOption = None,
 ) -> None:
@@ -191,6 +194,7 @@ def run_preset(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
         shard_index=shard_index,
         shard_count=shard_count,
     )
@@ -210,6 +214,7 @@ def run_all(
     open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> int:
     """Run all experiments (alias for ``nvision groups run lorentzian-sbed``)."""
     return run(
@@ -224,6 +229,7 @@ def run_all(
         open_browser=open_browser,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -241,6 +247,7 @@ def lorentzian_sbed(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run lorentzian-sbed``."""
     _run_named_group(
@@ -254,6 +261,7 @@ def lorentzian_sbed(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -268,6 +276,7 @@ def lorentzian_sweep_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run lorentzian-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
     _run_named_group(
@@ -281,6 +290,7 @@ def lorentzian_sweep_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -295,6 +305,7 @@ def lorentzian_sbed_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run lorentzian-sbed-only`` (SBED only, no sweep/sobol baselines)."""
     _run_named_group(
@@ -308,6 +319,7 @@ def lorentzian_sbed_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -322,6 +334,7 @@ def voigt_sbed(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run voigt-sbed``."""
     _run_named_group(
@@ -335,6 +348,7 @@ def voigt_sbed(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -349,6 +363,7 @@ def voigt_sweep_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run voigt-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
     _run_named_group(
@@ -362,6 +377,7 @@ def voigt_sweep_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -376,6 +392,7 @@ def voigt_sbed_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run voigt-sbed-only`` (SBED only, no sweep/sobol baselines)."""
     _run_named_group(
@@ -389,6 +406,7 @@ def voigt_sbed_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -403,6 +421,7 @@ def lorentzian_plain_sbed(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run lorentzian-plain-sbed`` (plain Lorentzian, not saturation-Voigt)."""
     _run_named_group(
@@ -416,6 +435,7 @@ def lorentzian_plain_sbed(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -430,6 +450,7 @@ def lorentzian_plain_sweep_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run lorentzian-plain-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
     _run_named_group(
@@ -443,6 +464,7 @@ def lorentzian_plain_sweep_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -457,6 +479,7 @@ def lorentzian_plain_sbed_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run lorentzian-plain-sbed-only`` (SBED only, no sweep/sobol baselines)."""
     _run_named_group(
@@ -470,6 +493,7 @@ def lorentzian_plain_sbed_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -484,6 +508,7 @@ def both_sbed(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run both-sbed`` (plain Voigt width x contrast x sigma_inhom,
 
@@ -500,6 +525,7 @@ def both_sbed(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -514,6 +540,7 @@ def both_sweep_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run both-sweep-only`` (plain Voigt width x contrast x sigma_inhom,
 
@@ -530,6 +557,7 @@ def both_sweep_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )
 
 
@@ -544,6 +572,7 @@ def both_sbed_only(
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
+    resume: cli_options.ResumeOption = False,
 ) -> None:
     """Alias for ``groups run both-sbed-only`` (plain Voigt width x contrast x sigma_inhom,
 
@@ -560,4 +589,5 @@ def both_sbed_only(
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
         retry_failed=retry_failed,
+        resume=resume,
     )

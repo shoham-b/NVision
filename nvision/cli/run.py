@@ -720,6 +720,39 @@ def _apply_retry_failed_filter(
     return failed
 
 
+_RUNNING_TASK_LOG_RE = re.compile(r"Running task:\s*(\S+)")
+
+
+def _parse_started_combos_from_log(log_path: Path) -> set[tuple[str, str, str]]:
+    """Extract (generator, noise, strategy) triples that executed in the session log."""
+    found: set[tuple[str, str, str]] = set()
+    with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            m = _RUNNING_TASK_LOG_RE.search(line)
+            if m:
+                parts = m.group(1).split("/", 2)
+                if len(parts) == 3:
+                    found.add((parts[0], parts[1], parts[2]))
+    return found
+
+
+def _find_latest_session_log(logs_root: Path | None) -> Path | None:
+    """Find the most recent run log that recorded actual task executions."""
+    from nvision.tools.paths import LOGS_ROOT as _DEFAULT_LOGS_ROOT
+
+    effective_logs_root = logs_root if logs_root is not None else _DEFAULT_LOGS_ROOT
+    candidates = sorted(effective_logs_root.glob("nvision-run-*.log"), key=lambda p: p.stat().st_mtime)
+    for cand in reversed(candidates):
+        try:
+            with cand.open("r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if "Running task:" in line:
+                        return cand
+        except Exception:
+            continue
+    return candidates[-1] if candidates else None
+
+
 @app.command()
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)
@@ -869,6 +902,7 @@ def run(  # noqa: C901
             ),
         ),
     ] = False,
+    resume: cli_options.ResumeOption = False,
     shard_index: cli_options.ShardIndexOption = None,
     shard_count: cli_options.ShardCountOption = None,
 ) -> int:
@@ -933,6 +967,20 @@ def run(  # noqa: C901
         if not combination_names:
             console.print("[yellow]--retry-failed: no MemoryError failures found — nothing to retry.[/yellow]")
             return 0
+
+    ran_in_resume_session: set[tuple[str, str, str]] | None = None
+    if resume:
+        session_log = _find_latest_session_log(logs_root)
+        if session_log is None:
+            console.print("[yellow]--resume: no previous run logs found to resume from.[/yellow]")
+        else:
+            ran_in_resume_session = _parse_started_combos_from_log(session_log)
+            console.print(f"[bold cyan]--resume: resuming from {session_log.name}[/bold cyan]")
+            console.print(
+                f"  Recognized [bold green]{len(ran_in_resume_session)}[/bold green] "
+                f"combination(s) that ran in last session."
+            )
+
 
     # Cross-pod sharding: slice the fully-resolved combination list so each shard
     # runs a disjoint subset. Applied last so it composes with --run-group,
@@ -1154,6 +1202,7 @@ def run(  # noqa: C901
                 combination_names=combination_names,
                 extra_generators=extra_generators,
                 shard_index=shard_index_str,
+                ran_in_resume_session=ran_in_resume_session,
             ),
             monitor=monitor,
         )

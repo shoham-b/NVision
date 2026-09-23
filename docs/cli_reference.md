@@ -71,6 +71,10 @@ uv run nv groups run sbed-only
 
 # Or use the shortcut alias
 uv run nv groups sbed-only
+
+# Resume an interrupted run: keeps completed/partial results from the latest session,
+# and runs unstarted combinations fresh without reading stale pre-session cache:
+uv run nv groups both-sbed --repeats 50 --resume
 ```
 
 ### `nv render`
