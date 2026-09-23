@@ -27,9 +27,9 @@ To understand the core design of the inference engine, you **MUST** read the doc
 ### 2. Developer Workflows
 - **Dependency Management**: Always use [uv](https://github.com/astral-sh/uv) for installing and running Python commands (see `.github/copilot-instructions.md`). Never run python directly (e.g., `python file.py`); always use the `uv run nv <command>` interface. For full CLI documentation, see **[CLI Reference](file:///c:/Users/shoha/git/NVision/docs/cli_reference.md)**.
 - **Running Experiments & Verification**:
-  - Use `uv run nv run --repeats 5 --loc-max-steps 150` to execute regular simulation runs.
+  - Use `uv run nv run --repeats 5` to execute regular simulation runs.
   - To quickly verify that the CLI, locators, and task orchestration are working without performing heavy simulations or overwriting cached results, run this lightweight dry-run:
-    `uv run nv run-single NVCenter-lorentzian "Gauss(0.01)" Bayesian-SBED --loc-max-steps 3 --repeats 1 --runners 1 --dry-run`
+    `uv run nv run-single NVCenter-lorentzian "Gauss(0.01)" Bayesian-SBED --repeats 1 --runners 1 --dry-run`
   - Results are cached and written to `artifacts/`.
 - **Serving the UI (Server)**:
   - To view the UI and interact with artifacts, run the server: `uv run nv serve`

@@ -32,7 +32,7 @@ Models for generating synthetic signals to test locators.
 
 - **Running Experiments**:
   - Run full experiment pipelines using the CLI:
-    `uv run --no-sync python -m nvision run --repeats 5 --loc-max-steps 150`
+    `uv run --no-sync python -m nvision run --repeats 5`
   - Results are cached and written to `artifacts/`.
   - **Note on `--no-sync`**: On Windows, `uv run` may fail with `os error 32` because `nvision.exe` is locked by a prior process. `--no-sync` skips the sync step and uses the existing venv.
 

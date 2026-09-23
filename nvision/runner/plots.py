@@ -1195,7 +1195,10 @@ def generate_attempt_plots(
     sweep_mode_estimates: dict[str, float] | None = None
     if strat_name not in ("SimpleSobol", "SimpleSweep"):
         try:
-            seed = int(entry_base.get("seed", 0))
+            # entry_base["seed"] is explicitly None (not missing) for MATLAB real-data
+            # runs, which have no synthetic generator seed -- `.get(..., 0)` only
+            # covers a missing key, so None must be coalesced separately.
+            seed = int(entry_base.get("seed") or 0)
             generator_name = str(entry_base.get("generator", ""))
             noise_name = str(entry_base.get("noise", ""))
             sobol_data = get_or_run_sobol_baseline(
@@ -1212,7 +1215,7 @@ def generate_attempt_plots(
         except Exception as exc:
             log.warning("Failed to retrieve or simulate Sobol baseline for plotting: %s", exc)
         try:
-            seed = int(entry_base.get("seed", 0))
+            seed = int(entry_base.get("seed") or 0)
             generator_name = str(entry_base.get("generator", ""))
             noise_name = str(entry_base.get("noise", ""))
             simplesweep_data = get_or_run_simplesweep_baseline(

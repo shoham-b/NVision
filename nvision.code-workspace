@@ -99,9 +99,7 @@
         "args": [
           "run",
           "--repeats",
-          "5",
-          "--loc-max-steps",
-          "150"
+          "5"
         ],
         "console": "integratedTerminal",
         "justMyCode": true,

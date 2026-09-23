@@ -8,6 +8,13 @@ from nvision.spectra.nv_center import NVCenterLorentzianModel
 def test_smc_stable_update_prevents_uniform_reset():
     """Test that a highly unlikely observation doesn't cause raw weights to underflow to 0
     and reset to uniform, but instead properly re-weights using log-likelihoods."""
+    # Particle initialization draws from the legacy global np.random state
+    # (see SMCMarginalDistribution.__post_init__), so seed it for a deterministic
+    # particle layout — otherwise an unlucky draw can leave too few particles
+    # near the extreme-outlier observation to produce a dominant weight, flaking
+    # this test without any underlying bug.
+    np.random.seed(0)
+
     model = NVCenterLorentzianModel()
     bounds = {
         "frequency": (2.7e9, 2.8e9),

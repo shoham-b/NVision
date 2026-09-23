@@ -678,8 +678,13 @@ def purge_cache_and_artifacts_for_combinations(
         for cat_cache in (bridge.nv_center, bridge.complementary):
             backend = cat_cache.backend
             matched_keys: list[str] = []
-            for k in backend:
-                payload = backend.get(k)
+            # Filter out repeat:/blob: rows in SQL and batch-fetch the rest in one
+            # round-trip per shard, instead of backend.get(k) per key in the whole
+            # cache -- see CacheBridge._iter_combination_payloads for why the naive
+            # per-key loop is the dominant cost against a large cache.
+            candidate_keys = backend.list_keys_excluding_prefixes(["repeat:", "blob:"])
+            payloads = backend.batch_get(candidate_keys)
+            for k, payload in payloads.items():
                 if not (isinstance(payload, dict) and "config" in payload):
                     continue
                 cfg = payload["config"]
@@ -778,8 +783,13 @@ def purge_cache_and_artifacts_for_strategies(
         for cat_cache in (bridge.nv_center, bridge.complementary):
             backend = cat_cache.backend
             matched_keys: list[str] = []
-            for k in backend:
-                payload = backend.get(k)
+            # Filter out repeat:/blob: rows in SQL and batch-fetch the rest in one
+            # round-trip per shard, instead of backend.get(k) per key in the whole
+            # cache -- see CacheBridge._iter_combination_payloads for why the naive
+            # per-key loop is the dominant cost against a large cache.
+            candidate_keys = backend.list_keys_excluding_prefixes(["repeat:", "blob:"])
+            payloads = backend.batch_get(candidate_keys)
+            for k, payload in payloads.items():
                 if not (isinstance(payload, dict) and "config" in payload):
                     continue
                 cfg = payload["config"]
