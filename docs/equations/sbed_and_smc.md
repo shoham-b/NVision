@@ -2,7 +2,7 @@
 
 The SMC belief, its unit-cube extension, the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
 
-> Scope: only the additive Gaussian measurement-noise path. Rao-Blackwell (Inverse-Gamma) noise, Poisson likelihoods, and non-SBED locators are out of scope.
+> Scope: only the additive Gaussian measurement-noise path, with either a fixed σ or a per-particle Inverse-Gamma noise state that is integrated out (§1.1a). Poisson likelihoods and non-SBED locators are out of scope.
 
 ---
 
@@ -27,6 +27,14 @@ log_w ← log(max(w, 1e-30)) + log_lik
 log_w ← log_w − max(log_w)      # shift for numerical stability
 w ← exp(log_w) / sum(exp(log_w))
 ```
+
+#### 1.1a Rao-Blackwellized noise likelihood (`_use_rao_blackwell_noise`)
+
+Enabled when the noise model exposes a `noise_sigma` parameter. Each particle i then carries an Inverse-Gamma(α_i, β_i) posterior over σ² instead of a fixed σ.  Plugging in the point estimate σ̂_i = √(β_i/α_i) is biased: a single-residual Gaussian likelihood is maximised at σ = |residual|, and since median|N(0,σ)| ≈ 0.6745σ, resampling systematically prefers particles whose σ̂ under-estimates the noise, so the population's σ drifts to the prior's lower bound.  Instead σ² is integrated out analytically, giving the Normal-Inverse-Gamma predictive (a Student-t with ν = 2α_i degrees of freedom) for a batch mean of k shots, with residual r_i = y − S(x, θ_i):
+
+$$\log p(y \mid \theta_i, x) = \ln\Gamma(\alpha_i + \tfrac12) - \ln\Gamma(\alpha_i) - \tfrac12\ln\frac{2\pi\beta_i}{k\,\alpha_i} - \left(\alpha_i + \tfrac12\right)\ln\left(1 + \frac{k\,r_i^2}{2\beta_i}\right)$$
+
+Its fatter tails do not reward an under-confident σ for coincidentally matching one residual.  After the likelihood is applied, the noise state is updated (first discounting both α and β by `noise_discount_factor` = 0.99): α_i += ½ and β_i += ½·k·r_i², plus α_i += ½(k−1) and β_i += ½(k−1)·s² when a within-batch sample variance s² is available.  The prior is α₀ = `noise_prior_strength` = 10, β₀ = α₀·σ_nom², with σ_nom the geometric mean of the noise-σ prior bounds.  The tempering factor multiplies this log-likelihood as in §1.1.
 
 ### 1.2 Effective Sample Size (ESS)
 
@@ -286,6 +294,8 @@ $$\hat\sigma_{\rm bg} = 1.4826 \cdot \operatorname{median}\!\left(\left|y_i^{\rm
 
 The factor 1.4826 = 1/Φ⁻¹(0.75) makes the MAD a consistent estimator of σ for Gaussian data.  Returns `None` (triggering forced calibration) when fewer than `NVISION_NOISE_MIN_BG_POINTS` = 15 background points exist.
 
+**Noise-std fallbacks** (`CompositeOverFrequencyNoise.estimated_noise_std`, used to seed the likelihood σ before enough background exists): with no noise model configured the true level is unknown and 0.05 is assumed; with a noise model that is configured but evaluates to ≈ 0 (e.g. `Gauss(0.0)`) the level is known to be negligible, so only a 1e-4 numerical floor is applied.  Using 0.05 in the second case would understate the measurement precision by about three orders of magnitude and starve the likelihood of information.
+
 ### 3.4 Forced Background Calibration
 
 When σ̂_bg is unavailable, the locator samples uniformly from the two background regions
@@ -306,6 +316,8 @@ $$N_{\rm budget} = \max(N_{\rm max},\; K_{\rm theory}\cdot n_{\rm theory} + 1)$$
 
 with K_theory = `NVISION_SBED_STEPS_THEORY_FACTOR` = 20, so it only fires when something has genuinely gone wrong — EIG should converge far sooner.
 
+**Default SBED step budget.** Unless overridden, the SBED locator's `max_steps` is `ceil(N_simplesweep × f)` with f = `NVISION_SBED_STEPS_FRACTION` = 0.5 (previously 0.32), so it is capped at half the uniform-sweep budget it is compared against.
+
 ### 3.6 Focus Window Confidence (`FocusWindowConfidence`)
 
 Computed at each resample by merging two independent signals:
@@ -317,6 +329,8 @@ The window is flagged **stable** (`is_stable`) when all of:
 1. Detector confidence ≥ `NVISION_DIP_CONFIDENCE` = 0.99
 2. `methods_agree`: l ≤ f̄ ≤ r
 3. σ_f < ρ_stab·(r − l), with `stability_ratio` ρ_stab = 0.5
+
+**Sorted observations.** Dip detection needs the observations ordered by x.  `SMCMarginalDistribution.sorted_observation_arrays()` keeps them sorted incrementally (one `searchsorted` insertion per new observation, lazily applied) so `identify_dip_candidates(..., assume_sorted=True)` can use binary search instead of re-sorting the full history on every call.
 
 #### Check cadence (`_should_check_focus_confidence`)
 
@@ -437,6 +451,8 @@ Both the per-parameter and RMS checks must pass simultaneously.
 ### 5.3 Convergence Patience Streak
 
 A running counter `_convergence_streak` is incremented whenever `_target_params_converged()` returns `True` (evaluated once per resample, sharing a single uncertainty pass).  Convergence is declared only when the streak reaches `convergence_patience_steps` = 8 consecutive successes; any failure resets it to 0.
+
+The streak is evaluated on `robust_uncertainty()` — the weighted IQR/1.349 marginal spread — not on the raw weighted std.  Right after a resample the nudge (§1.4) briefly inflates the raw std with a handful of freshly nudged particles, which would otherwise reset the streak even though the bulk of the posterior has converged.  `robust_uncertainty()` can under-report genuine multi-modal spread, so it is used only for this gate; `reported_uncertainty()` (what is plotted and scored) keeps the raw std with the CRLB floor (§2.2).
 
 ### 5.4 Dynamic CRLB Budget (base locator)
 
