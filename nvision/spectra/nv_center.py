@@ -27,6 +27,7 @@ from nvision.spectra.numba_kernels import (
     nv_center_zeeman_lorentzian_vectorized_many_fast,
     nv_center_zeeman_lorentzian_vectorized_one_serial,
     nv_center_zeeman_pseudo_voigt_eval,
+    nv_center_zeeman_pseudo_voigt_eval_xs,
     nv_center_zeeman_pseudo_voigt_vectorized_many,
     nv_center_zeeman_pseudo_voigt_vectorized_many_fast,
     nv_center_zeeman_pseudo_voigt_vectorized_one_serial,
@@ -1229,6 +1230,28 @@ class NVCenterVoigtModel(
             1.0,
         )
 
+    def compute_many_float64(self, xs: np.ndarray, params) -> np.ndarray:
+        hf_split = params.split if self._infer_hyperfine else self._hf_offset
+        k_np = params.k_np if self._infer_hyperfine else 1.0
+        zeeman_split = params.zeeman_split if self._with_zeeman_splitting else 0.0
+        fwhm_total, lorentz_frac = _voigt_reparam_scalar(params.homogeneous_linewidth, params.sigma_inhom)
+        xs64 = np.ascontiguousarray(xs, dtype=np.float64)
+        out = np.empty(xs64.shape[0], dtype=np.float64)
+        nv_center_zeeman_pseudo_voigt_eval_xs(
+            xs64,
+            float(params.frequency),
+            float(fwhm_total),
+            float(lorentz_frac),
+            float(zeeman_split),
+            float(hf_split),
+            float(k_np),
+            float(self._w_center),
+            float(params.c_total),
+            1.0,
+            out,
+        )
+        return out
+
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
         n = freq.shape[0]
@@ -1756,6 +1779,30 @@ class NVCenterSaturationVoigtModel(
             c_total,
             1.0,
         )
+
+    def compute_many_float64(self, xs: np.ndarray, params) -> np.ndarray:
+        hf_split = params.split if self._infer_hyperfine else self._hf_offset
+        k_np = params.k_np if self._infer_hyperfine else 1.0
+        zeeman_split = params.zeeman_split if self._with_zeeman_splitting else 0.0
+        fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam_scalar(
+            params.saturation, params.sigma_inhom, NV_SATURATION_C_MAX
+        )
+        xs64 = np.ascontiguousarray(xs, dtype=np.float64)
+        out = np.empty(xs64.shape[0], dtype=np.float64)
+        nv_center_zeeman_pseudo_voigt_eval_xs(
+            xs64,
+            float(params.frequency),
+            float(fwhm_total),
+            float(lorentz_frac),
+            float(zeeman_split),
+            float(hf_split),
+            float(k_np),
+            float(self._w_center),
+            float(c_total),
+            1.0,
+            out,
+        )
+        return out
 
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
         freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)

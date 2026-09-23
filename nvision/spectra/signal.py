@@ -48,6 +48,16 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
     def compute_vectorized_samples(self, x: float, samples: SampleParamsT) -> np.ndarray:
         """Vectorized prediction at one probe x over many parameter samples."""
 
+    def compute_many_float64(self, xs: np.ndarray, params: ParamsT) -> np.ndarray:
+        """float64 prediction at every probe in ``xs`` for ONE parameter set.
+
+        ``xs`` has shape ``(n_x,)`` (probe positions); returns shape ``(n_x,)``. Unlike the
+        float32 vectorized paths this keeps full precision, which the sweep curve fit needs for
+        its numerical Jacobian. Default is a per-point loop over :meth:`compute`; models with a
+        compiled kernel should override it (results must be identical to the loop).
+        """
+        return np.array([float(self.compute(float(x), params)) for x in xs], dtype=np.float64)
+
     def compute_vectorized_many(
         self,
         x_array: Sequence[float],

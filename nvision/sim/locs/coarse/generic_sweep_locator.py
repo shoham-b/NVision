@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.sim.defaults import NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.spectra.signal import SignalModel
 
@@ -352,8 +353,24 @@ class GenericSweepLocator(SweepingLocator):
             xs_norm, ys, smoothed, dip_depth, domain_lo, domain_width, zs_idx, split_idx, lo_bounds, hi_bounds
         )
 
+        # Parameters with no data-driven seed below (e.g. k_np) start at their belief-prior
+        # mean rather than the bounds midpoint. The prior mean is deliberately offset from the
+        # truth by the generator (see _widened_prior_mean), so this is not an oracle start.
+        # Data-seeded parameters keep their data-driven seeds: starting sigma_inhom at a broad
+        # default is the documented wrong-basin trap, so priors are NOT used for those.
+        data_seeded_idx = {
+            i for i in (scan_idx, ct_idx, width_idx, sigma_inhom_idx, zs_idx, split_idx) if i is not None
+        }
+        start_priors = self._resolve_physical_priors(
+            param_names, scan_param, param_bounds_phys, names=frozenset(param_names)
+        )
+
         def make_p0(freq_hz: float, half_sep_hz: float | None, hf_split_hz: float | None) -> list[float]:
             p0 = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
+            for name, (prior_mean, _prior_std) in start_priors.items():
+                i = param_names.index(name)
+                if i not in data_seeded_idx:
+                    p0[i] = float(np.clip(prior_mean, lo_bounds[i], hi_bounds[i]))
             if scan_idx is not None:
                 p0[scan_idx] = float(np.clip(freq_hz, domain_lo, domain_hi))
             if ct_idx is not None:
@@ -433,7 +450,7 @@ class GenericSweepLocator(SweepingLocator):
             # the frequency gradient and stalls the fit.  float64 is required here.
             def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
                 typed = inner.spec.unpack_params(list(params))
-                data_vals = np.array([float(inner.compute(float(x), typed)) for x in xs[:n_pts]])
+                data_vals = inner.compute_many_float64(xs[:n_pts], typed)
                 if n_prior_terms:
                     prior_vals = np.array([params[i] for i in prior_param_idx])
                     return np.concatenate([data_vals, prior_vals])
@@ -451,8 +468,28 @@ class GenericSweepLocator(SweepingLocator):
         else:
             xs_fit, ys_fit, sigma_fit = xs_phys, ys, None
 
+        # Early stop: a start that reaches the noise floor (reduced chi-square within K sigmas of
+        # 1) ends the race. Only at high peak SNR, where the smart seeds are trusted; at low SNR
+        # the chi-square gap between a right and a wrong basin is within the noise band, so every
+        # start is still raced (see _build_fit_candidates).
+        early_stop_redchi2: float | None = None
+        dof = len(ys_fit) - len(param_names)
+        peak_snr = dip_depth / max(float(self._noise_std), 1e-9)
+        if NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS > 0 and dof > 0 and peak_snr >= _FIT_GRID_SNR:
+            early_stop_redchi2 = 1.0 + NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS * float(np.sqrt(2.0 / dof))
+
         best_popt, best_pcov = self._run_curve_fit_candidates(
-            curve_fn, xs_fit, ys_fit, candidates, make_p0, lo_bounds, hi_bounds, xtol, sigma=sigma_fit
+            curve_fn,
+            xs_fit,
+            ys_fit,
+            candidates,
+            make_p0,
+            lo_bounds,
+            hi_bounds,
+            xtol,
+            sigma=sigma_fit,
+            early_stop_redchi2=early_stop_redchi2,
+            data_noise_std=max(float(self._noise_std), 1e-12),
         )
 
         freq_phys = float(best_popt[scan_idx]) if scan_idx is not None else fixed_scan_value
@@ -522,38 +559,56 @@ class GenericSweepLocator(SweepingLocator):
         param_names: list[str],
         scan_param: str,
         param_bounds_phys: dict[str, tuple[float, float]],
+        names: frozenset[str] | None = None,
     ) -> dict[str, tuple[float, float]]:
-        """Physical-unit Gaussian priors ``{name: (mean, std)}`` for MAP regularization.
+        """Physical-unit Gaussian priors ``{name: (mean, std)}``.
 
-        The SMC belief already carries these (unit-space, via ``nv_center_smc_belief``'s
-        ``bounds["_priors"]`` -> ``priors=`` conversion in ``belief_builders.py``) to seed
+        ``names`` restricts which parameters are returned; by default only
+        ``_MAP_REGULARIZED_PARAMS`` (the MAP-penalty set). The fit's starting point passes
+        every parameter name to read prior means for otherwise-unseeded parameters.
+
+        These are the same priors SBED's belief is built from (the generator's
+        ``bounds["_priors"]``, physical ``(mean, std)``). The SMC belief uses them to seed
         initial particles and rejuvenate during resampling — but neither mechanism helps
         ``curve_fit``, which has no Bayesian concept at all. Restricted to
         ``_MAP_REGULARIZED_PARAMS`` (see its comment) rather than every parameter with a
-        belief prior — broader application actively hurt well-identified parameters.
+        prior — broader application actively hurt well-identified parameters.
+
+        Source: the ``_priors`` entry the executor passes to the locator inside
+        ``parameter_bounds`` (physical units). The sweep's own belief is a flat grid without
+        priors, so reading ``self.belief.priors`` alone never found any in the real pipeline;
+        that unit-space attribute is only a fallback for locators built with an SMC belief.
 
         ``scan_param`` (frequency) is excluded even if a prior exists for it: localizing
         frequency from data is the entire point of the sweep, and its prior is a coarse
         "sin^2" shape rather than a Gaussian mean/std anyway.
         """
-        belief_priors = getattr(self.belief, "priors", None)
-        if not belief_priors:
+        allowed = self._MAP_REGULARIZED_PARAMS if names is None else names
+        raw_phys = (self._parameter_bounds or {}).get("_priors")
+        raw_belief = getattr(self.belief, "priors", None)
+        if not raw_phys and not raw_belief:
             return {}
         phys_priors: dict[str, tuple[float, float]] = {}
         for name in param_names:
-            if name == scan_param or name not in belief_priors or name not in self._MAP_REGULARIZED_PARAMS:
+            if name == scan_param or name not in allowed:
                 continue
-            prior_val = belief_priors[name]
-            if not (isinstance(prior_val, tuple) and len(prior_val) >= 2):
+            if raw_phys and name in raw_phys:
+                prior_val = raw_phys[name]
+                to_phys = False
+            elif raw_belief and name in raw_belief:
+                prior_val = raw_belief[name]
+                to_phys = True
+            else:
                 continue
-            if prior_val[0] == "sin^2":
+            if not (isinstance(prior_val, tuple) and len(prior_val) >= 2) or prior_val[0] == "sin^2":
                 continue
-            unit_mu, unit_std = prior_val
-            if unit_std <= 0:
+            mean, std = float(prior_val[0]), float(prior_val[1])
+            if std <= 0:
                 continue
-            lo, hi = param_bounds_phys[name]
-            span = hi - lo
-            phys_priors[name] = (lo + float(unit_mu) * span, float(unit_std) * span)
+            if to_phys:
+                lo, hi = param_bounds_phys[name]
+                mean, std = lo + mean * (hi - lo), std * (hi - lo)
+            phys_priors[name] = (mean, std)
         return phys_priors
 
     def _smooth_for_peak_detection(self, ys: np.ndarray) -> tuple[np.ndarray, int]:
@@ -919,8 +974,15 @@ class GenericSweepLocator(SweepingLocator):
         hi_bounds: list[float],
         xtol: float,
         sigma: np.ndarray | None = None,
+        early_stop_redchi2: float | None = None,
+        data_noise_std: float = 1.0,
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """Run curve_fit from each candidate start, keep the lowest-residual result.
+
+        ``early_stop_redchi2``, when set, ends the race at the first start whose reduced
+        chi-square (chi-square / (n_rows - n_params), weighted by ``sigma`` or, when that is
+        ``None``, by ``data_noise_std``) is at or below it: that fit is already at the noise
+        floor, so the remaining starts cannot meaningfully improve it.
 
         ``x_scale`` = bounds width per parameter is essential: the raw
         parameter vector mixes a GHz-scale frequency with O(1) shape
@@ -950,13 +1012,22 @@ class GenericSweepLocator(SweepingLocator):
         best_popt = None
         best_pcov = None
         best_resid = np.inf
+        seen_p0: set[tuple[float, ...]] = set()
         for freq_c, half_c, hf_c in candidates:
+            p0 = make_p0(freq_c, half_c, hf_c)
+            # Candidates that resolve to the same start vector give the identical fit (curve_fit
+            # is deterministic) -- e.g. a frequency grid when frequency is fixed, so make_p0
+            # ignores it. Skipping repeats cannot change the winner, only the run time.
+            p0_key = tuple(p0)
+            if p0_key in seen_p0:
+                continue
+            seen_p0.add(p0_key)
             try:
                 popt, pcov = curve_fit(
                     curve_fn,
                     xs_phys,
                     ys,
-                    p0=make_p0(freq_c, half_c, hf_c),
+                    p0=p0,
                     bounds=(lo_bounds, hi_bounds),
                     maxfev=_FIT_MAXFEV,
                     xtol=xtol,
@@ -974,6 +1045,11 @@ class GenericSweepLocator(SweepingLocator):
                 best_resid = resid
                 best_popt = popt
                 best_pcov = pcov
+            if early_stop_redchi2 is not None:
+                weights = sigma if sigma is not None else data_noise_std
+                chi2 = float(np.sum(((curve_fn(xs_phys, *popt) - ys) / weights) ** 2))
+                if chi2 / (len(ys) - len(popt)) <= early_stop_redchi2:
+                    break
 
         if best_popt is None:
             raise RuntimeError(f"curve_fit failed to converge from any of {len(candidates)} candidate starts")

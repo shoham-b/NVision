@@ -1486,6 +1486,35 @@ def nv_center_zeeman_pseudo_voigt_eval(
 
 
 @njit(cache=True)
+def nv_center_zeeman_pseudo_voigt_eval_xs(
+    xs: np.ndarray,
+    freq: float,
+    fwhm_total: float,
+    lorentz_frac: float,
+    zeeman_split: float,
+    hf_split: float,
+    k_np: float,
+    w_center: float,
+    c_total: float,
+    background: float,
+    out: np.ndarray,
+) -> None:
+    """float64 pseudo-Voigt at many probes ``xs`` (shape ``(n_x,)``) for ONE parameter set.
+
+    Same arithmetic as :func:`nv_center_zeeman_pseudo_voigt_eval` per point; the parameter-only
+    factors are hoisted out of the loop. Used by the sweep curve fit, which needs float64 (the
+    float32 vectorized kernels quantize the numerical Jacobian of a GHz-scale frequency away).
+    ``out`` has shape ``(n_x,)`` and receives the prediction at each ``xs[i]``.
+    """
+    elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
+    p_l, p_0, p_r = _zeeman_pv_populations(k_np, c_total, w_center)
+    for i in range(xs.shape[0]):
+        out[i] = background - _zeeman_pv_pred(
+            xs[i], freq, zeeman_split, hf_split, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+        )
+
+
+@njit(cache=True)
 def nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
     x: float,
     freq: np.ndarray,

@@ -32,6 +32,14 @@ NVISION_SOBOL_STEPS_FRACTION: float = float(os.getenv("NVISION_SOBOL_STEPS_FRACT
 # computed against — only SimpleSweep's own budget is capped here.
 NVISION_SIMPLESWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SIMPLESWEEP_MAX_STEPS", "400"))
 
+# Sweep curve-fit early stop: once a fit start converges to the noise floor -- reduced
+# chi-square <= 1 + K * sqrt(2 / dof), i.e. within K standard deviations of the ~1 a
+# correct fit gives -- the remaining starting points are skipped instead of all being
+# raced. Only applied when the peak SNR is high enough that the smart seeds are trusted
+# (below that the residual gap between basins is within the noise band, so the full
+# multi-start race stays). 0 disables early stop (race every start, as before).
+NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS", "3.0"))
+
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 NVISION_DIP_N_SIGMA: float = float(os.getenv("NVISION_DIP_N_SIGMA", "3.0"))
