@@ -127,6 +127,10 @@ class CategoryDataStore:
         """Persist raw bytes under ``key`` in the BLOB table — no text encoding at all."""
         self._backend.blob_set(key, data)
 
+    def save_repeat_batch(self, rows: dict[str, dict], blobs: dict[str, bytes]) -> None:
+        """Persist pre-built JSON payload rows and raw blobs together (one transaction per shard on SQLite)."""
+        self._backend.write_repeat_batch(rows, blobs)
+
     def load_blob(self, key: str) -> bytes | None:
         return self._backend.blob_get(key)
 

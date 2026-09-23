@@ -350,6 +350,12 @@ class MySqlCache:
 
         _retry_on_mysql_transient(_write)
 
+    def write_repeat_batch(self, rows: dict[str, dict], blobs: dict[str, bytes]) -> None:
+        """Same contract as ``ShardedSqliteCache.write_repeat_batch`` (blobs first, then JSON rows)."""
+        for key, data in blobs.items():
+            self.blob_set(key, data)
+        self.batch_set(rows)
+
     # -- blob (graphs) store ------------------------------------------------------
 
     def blob_get(self, key: str) -> bytes | None:

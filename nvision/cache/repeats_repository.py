@@ -33,24 +33,30 @@ class RepeatsRepository:
 
     _HEAVY_FIELDS = frozenset({"content", "content_bin", "plot_data", "_bytes"})
 
-    def _extract_blobs(self, combo_key: str, repeat_idx: int, entries: list[dict]) -> list[dict]:
-        """Move each entry's ``content_bin`` (base85-in-JSON) to a raw-bytes BLOB row.
+    def _extract_blobs(
+        self, combo_key: str, repeat_idx: int, entries: list[dict]
+    ) -> tuple[list[dict], dict[str, bytes]]:
+        """Split each entry's ``content_bin`` (base85-in-JSON) out into a raw-bytes BLOB row.
 
         Eliminates base85's ~25% inflation entirely instead of just shrinking it —
         the entry keeps a lightweight ``_blob: True`` marker so :meth:`_rehydrate_blobs`
         knows to fetch it back on read. Legacy ``content`` (old zlib+base85 text
         format) is left as-is; it's a dead/rare path not worth the same treatment.
+
+        Returns the lightweight entries and ``{blob_key: raw_bytes}``; the caller persists
+        both in one store call (see :meth:`save_repeat`).
         """
         out = []
+        blobs: dict[str, bytes] = {}
         for e in entries:
             content_bin = e.get("content_bin")
             if content_bin is not None:
                 e = dict(e)
                 raw = base64.b85decode(e.pop("content_bin"))
-                self._store.save_blob(_blob_key(combo_key, repeat_idx, e), raw)
+                blobs[_blob_key(combo_key, repeat_idx, e)] = raw
                 e["_blob"] = True
             out.append(e)
-        return out
+        return out, blobs
 
     def _rehydrate_blobs(self, combo_key: str, repeat_idx: int, entries: list[dict]) -> None:
         """Reattach ``content_bin`` (base85) from the BLOB table, in place.
@@ -68,12 +74,12 @@ class RepeatsRepository:
     def save_repeat(
         self, combo_key: str, repeat_idx: int, entries: list[dict[str, Any]], main_result_row: dict[str, Any]
     ) -> None:
-        """Persist one repeat — writes main payload and :meta sidecar in a single batch.
+        """Persist one repeat — main payload, :meta sidecar and graph blobs in a single batch.
 
-        The batch_set path commits both keys in one transaction per shard (instead of
-        two separate transactions), halving the index and shard I/O overhead.
+        Everything goes through one ``save_repeat_batch`` call (one transaction per shard plus
+        one index commit on SQLite) instead of a commit pair per graph blob and another per row.
         """
-        entries = self._extract_blobs(combo_key, repeat_idx, entries)
+        entries, blobs = self._extract_blobs(combo_key, repeat_idx, entries)
         key = self.make_repeat_key(combo_key, repeat_idx)
         payload = {"entries": entries, "main_result_row": main_result_row}
         stripped_entries = [{k: v for k, v in e.items() if k not in self._HEAVY_FIELDS} for e in entries]
@@ -86,11 +92,12 @@ class RepeatsRepository:
                 "data": [{"results": json.dumps(p)}],
             }
 
-        self._store.save_df_batch(
+        self._store.save_repeat_batch(
             {
                 key: _df_payload(payload),
                 key + ":meta": _df_payload(meta_payload),
-            }
+            },
+            blobs,
         )
 
     def load_repeat(self, combo_key: str, repeat_idx: int) -> RepeatResult | None:

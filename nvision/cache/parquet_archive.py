@@ -306,6 +306,9 @@ class _ArchiveFallbackBackend:
     def blob_set(self, key: str, data: bytes) -> None:
         self._live.blob_set(key, data)
 
+    def write_repeat_batch(self, rows: dict[str, dict], blobs: dict[str, bytes]) -> None:
+        self._live.write_repeat_batch(rows, blobs)
+
     def blob_batch_get(self, keys: list[str]) -> dict[str, bytes]:
         result = self._live.blob_batch_get(keys)
         missing = [k for k in keys if k not in result]
