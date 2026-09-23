@@ -30,7 +30,6 @@ load_dotenv()
 NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
 NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.2"))
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
-NVISION_SMC_POINTS_PER_MIN_FEATURE: int = int(os.getenv("NVISION_SMC_POINTS_PER_MIN_FEATURE", "5"))
 NVISION_SMC_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_SMC_MIN_EXPLORATION_FRAC", "0.01"))
 NVISION_SMC_TEMPERING_FACTOR: float = float(os.getenv("NVISION_SMC_TEMPERING_FACTOR", "1.0"))
 
@@ -52,14 +51,20 @@ NVISION_SMC_EIG_CACHE: bool = os.getenv("NVISION_SMC_EIG_CACHE", "1") not in ("0
 # Set to 0 (or a very small value) via env to let the grid refine with sigma.
 NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ: float = float(os.getenv("NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ", "10000.0"))
 
-# Minimum half-width (Hz) of the per-dip candidate window (the dip-focused
-# grid in _generate_epoch_candidates, distinct from the slope-targeting grid
-# above). The window is `max(3*linewidth, sigma_eff, this floor)`, so once the
-# linewidth/uncertainty estimates shrink below this floor the window stops
-# shrinking with them -- this is what caps the finest resolution that grid can
-# reach for a given fixed point budget, regardless of how confident the
-# posterior gets.
+# Minimum half-width (Hz) for a dip-focus kernel's window in the epoch candidate
+# density mixture (see _generate_epoch_candidates), mirroring the role the old
+# per-slope grid half-width played: a detected dip narrower than this still gets
+# a window wide enough to be found even if its empirical centroid is slightly off.
 NVISION_SMC_DIP_WINDOW_MIN_HZ: float = float(os.getenv("NVISION_SMC_DIP_WINDOW_MIN_HZ", "5000000.0"))
+
+# Single coherent candidate budget for the epoch candidate density mixture,
+# replacing the old three independently-tuned counts (a ~12,500-point global
+# grid for Lorentzian models, an implicit ~180 points/slope from the sigma/30
+# spacing floor, and a 100-point dip-grid budget). Fixed rather than
+# env-configurable: unlike the physical constants around it, this is a pure
+# computational-budget/quality tradeoff knob, not a physical or algorithmic
+# parameter someone would need to retune per experiment.
+NVISION_SMC_EPOCH_CANDIDATE_BUDGET: int = 800
 
 _EIG_CHUNK_SIZE: int = 64
 
@@ -275,6 +280,90 @@ def _weighted_cdf(samples: np.ndarray, weights: np.ndarray, x_query: np.ndarray)
     return np.interp(x_query, sorted_samples, cdf_vals)
 
 
+# --- Epoch candidate density mixture (see _generate_epoch_candidates) --------
+
+# Baseline (flat) term's mass share of the local (slope + dip) kernel mass when
+# use_global_grid is enabled. A judgment call, not derived: big enough that the
+# domain-wide backstop coverage the old global grid provided isn't lost, small
+# enough that it never dominates the budget away from the slope/dip kernels
+# that carry the actual acquired information.
+_EPOCH_BASELINE_MASS_FRACTION: float = 0.2
+
+# Resolution of the scaffold grid used to numerically build the mixture's CDF
+# before quantile inversion (see _quantile_place_candidates). This is a pure
+# numerical-accuracy knob for that intermediate scaffold -- unrelated to the
+# final candidate budget (NVISION_SMC_EPOCH_CANDIDATE_BUDGET) or to the
+# resolution floor (NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ) the final candidates
+# are snapped to.
+_EPOCH_DENSITY_BASELINE_POINTS: int = 2000
+_EPOCH_DENSITY_KERNEL_POINTS: int = 400
+_EPOCH_DENSITY_KERNEL_SPAN_SIGMAS: float = 6.0
+
+
+def _quantile_place_candidates(
+    kernels: list[tuple[float, float, float]],
+    baseline_weight: float,
+    lo: float,
+    hi: float,
+    n_candidates: int,
+) -> np.ndarray:
+    """Deterministically place ``n_candidates`` points at evenly-spaced quantiles
+    of a density mixture over ``[lo, hi]``.
+
+    The mixture is a weighted sum of Gaussian kernels, each given as
+    ``(center, bandwidth, weight)``, plus an optional flat baseline term of total
+    mass ``baseline_weight``. Placement is exact inverse-CDF quantile sampling
+    (deterministic -- evenly-spaced quantile levels, not a random draw), so it
+    does not consume or depend on any RNG state and leaves reproducibility under
+    a fixed ``NVISION_RNG_SEED`` untouched.
+
+    Implementation note: there is no closed form for a truncated Gaussian-mixture
+    CDF inverse, so the density is instead evaluated on an adaptive scaffold grid
+    (locally dense around each kernel, coarse elsewhere) and its CDF built by
+    trapezoidal integration; quantiles are then read off by linear interpolation
+    against that empirical CDF. The scaffold itself is discarded -- it is not the
+    returned candidate set.
+    """
+    if not (hi > lo):
+        raise ValueError(f"_quantile_place_candidates: degenerate domain [{lo}, {hi}].")
+    if n_candidates <= 0:
+        raise ValueError(f"_quantile_place_candidates: n_candidates must be positive, got {n_candidates}.")
+
+    pieces = [np.linspace(lo, hi, _EPOCH_DENSITY_BASELINE_POINTS)]
+    for center, bandwidth, weight in kernels:
+        if weight <= 0:
+            continue
+        bw = max(bandwidth, 1e-9)
+        span = _EPOCH_DENSITY_KERNEL_SPAN_SIGMAS * bw
+        lo_k = max(center - span, lo)
+        hi_k = min(center + span, hi)
+        if hi_k <= lo_k:
+            continue
+        pieces.append(np.linspace(lo_k, hi_k, _EPOCH_DENSITY_KERNEL_POINTS))
+    xs = np.unique(np.concatenate(pieces))
+
+    density = np.zeros_like(xs)
+    if baseline_weight > 0:
+        density += baseline_weight / (hi - lo)
+    for center, bandwidth, weight in kernels:
+        if weight <= 0:
+            continue
+        bw = max(bandwidth, 1e-9)
+        density += weight * np.exp(-0.5 * ((xs - center) / bw) ** 2) / (bw * math.sqrt(2.0 * math.pi))
+
+    seg_area = 0.5 * (density[1:] + density[:-1]) * np.diff(xs)
+    cdf = np.concatenate([[0.0], np.cumsum(seg_area)])
+    total_mass = cdf[-1]
+    if not (total_mass > 0) or not math.isfinite(total_mass):
+        raise ValueError(f"_quantile_place_candidates: degenerate density (total mass={total_mass!r}).")
+    cdf /= total_mass
+
+    # Midpoint quantile levels avoid q=0/q=1, which would map to exactly lo/hi
+    # regardless of where the mixture's actual mass sits.
+    q = (np.arange(n_candidates, dtype=np.float64) + 0.5) / n_candidates
+    return np.interp(q, cdf, xs)
+
+
 @dataclass
 class SMCMarginalDistribution(AbstractMarginalDistribution):
     """Belief distribution using Sequential Monte Carlo (Particle Filter).
@@ -339,16 +428,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _param_names: list[str] = field(init=False, repr=False)
     _noise_param_slice: slice | None = field(init=False, repr=False, default=None)
     _current_candidates: np.ndarray = field(init=False, repr=False)
-    _global_grid: np.ndarray = field(init=False, repr=False)
-    # Whether _generate_epoch_candidates includes the domain-wide global grid
-    # (see its own field above) in the merged candidate set. A locator that has
-    # its own notion of the scan being settled (e.g. dip detected and stable)
-    # may set `use_global_grid = False` via the property below to drop it --
-    # the global grid's point count does not shrink with focus-window
-    # narrowing for every signal model (see signal_min_span), so it can become
-    # the dominant, wasted term once the scan no longer needs domain-wide
-    # exploration.
-    _use_global_grid: bool = field(init=False, repr=False, default=True)
+    # Whether the epoch candidate density mixture includes the flat domain-wide
+    # baseline term (see _generate_epoch_candidates / use_global_grid property).
+    _use_global_grid: bool = field(init=False, default=True, repr=False)
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
     _eig_kernel_type: str = field(init=False, repr=False, default="generic")
@@ -454,30 +536,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         )
 
         if self.skip_state_init:
-            # copy() assigns the real grids/candidates right after construction.
-            self._global_grid = np.array([], dtype=np.float32)
+            # copy() assigns the real candidates right after construction.
             self._current_candidates = np.array([], dtype=np.float32)
         else:
-            # Initialize the first epoch-based candidate grid.
-            # Spacing must resolve the narrowest possible signal feature so that EIG
-            # has a meaningful score at the true frequency even when the local slope
-            # grids are focused on the wrong location.
-            #
-            # signal_min_span returns the minimum signal feature width (e.g. 4 × linewidth_min).
-            # We require POINTS_PER_MIN_FEATURE grid points within that span.
-            # Formula: n = ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE)
-            POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE  # noqa: N806
-            f_lo, f_hi = self.parameter_bounds["frequency"]
-            domain_width = float(f_hi - f_lo)
-            min_span = self.model.signal_min_span(domain_width)
-            if min_span is None or min_span <= 0:
-                raise ValueError(
-                    f"{type(self.model).__name__}.signal_min_span({domain_width}) returned {min_span!r}. "
-                    "Implement signal_min_span() to return the minimum signal feature width in Hz."
-                )
-            n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
-
-            self._global_grid = np.linspace(f_lo, f_hi, n_global).astype(np.float32)
+            # Initialize the first epoch-based candidate grid (see
+            # _generate_epoch_candidates for the density-mixture construction).
             self._generate_epoch_candidates()
 
         # Cache which fused EIG-variance kernel to use — avoids isinstance checks
@@ -823,22 +886,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Number of observations recorded so far."""
         return self._obs_count
 
-    @property
-    def use_global_grid(self) -> bool:
-        """Whether the merged candidate set includes the domain-wide global grid.
-
-        True by default. A locator may set this False once it has its own
-        signal that the scan no longer needs domain-wide exploration (e.g. a
-        detected dip whose location the posterior agrees with) to drop the
-        global grid's candidates from future `_generate_epoch_candidates`
-        calls.
-        """
-        return self._use_global_grid
-
-    @use_global_grid.setter
-    def use_global_grid(self, value: bool) -> None:
-        self._use_global_grid = value
-
     def _append_observation(self, x: float, y: float) -> None:
         """Record one observation into the flat history buffers (amortized growth)."""
         n = self._obs_count
@@ -955,11 +1002,36 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             "noise_std_uncertainty() called but no active noise model or noise parameters are configured in the belief."
         )
 
-    def _generate_epoch_candidates(self) -> None:
-        """Generate a dense slope-targeted grid and cache it for the current epoch.
+    @property
+    def use_global_grid(self) -> bool:
+        """Whether the epoch candidate density mixture includes the flat,
+        domain-wide baseline term (see :meth:`_generate_epoch_candidates`).
 
-        Grid targets the steepest slopes (center ± linewidth) of the 3 hyperfine
-        dips. Resolution and search windows scale with posterior uncertainty.
+        Defaults to ``True``. The SBED locator sets this ``False`` once its
+        focus-window confidence signal (``compute_focus_window_confidence(...)
+        .is_stable``) fires, on the reasoning that once the true dip location is
+        confidently found, spending candidate budget on domain-wide backstop
+        coverage is no longer worth it.
+        """
+        return self._use_global_grid
+
+    @use_global_grid.setter
+    def use_global_grid(self, value: bool) -> None:
+        value = bool(value)
+        if value == self._use_global_grid:
+            return
+        self._use_global_grid = value
+        self._generate_epoch_candidates()
+
+    def _generate_epoch_candidates(self) -> None:
+        """Generate the epoch candidate density mixture and cache its quantile
+        placement for the current epoch.
+
+        Targets the steepest slopes (center ± linewidth) of the hyperfine dips
+        and (once enough observations exist) empirically-detected dip centroids.
+        Kernel bandwidths and window sizes scale with posterior uncertainty. See
+        the "5. Build the unified candidate-density mixture" comment below for
+        the full construction.
         """
         # New epoch: candidates and particles have changed, so the EIG
         # prediction-matrix cache (built from both) must be rebuilt.
@@ -1066,12 +1138,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 "'fwhm_total') not found in uncertainties"
             )
 
-        # 3. Compute effective uncertainty and resolution in physical space
+        # 3. Compute effective uncertainty in physical space -- the bandwidth of
+        # each slope-targeting Gaussian kernel below.
         sigma_eff_phys = np.sqrt(sigma_f_phys**2 + sigma_omega_phys**2)
-
         min_step_physical = NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ
-        delta_d_phys = max(sigma_eff_phys / 30.0, min_step_physical)
-        half_width_phys = 3 * sigma_eff_phys
 
         # 4. Slope Targeting: centers for all Zeeman groups × HF sub-peaks (deduplicated)
         zeeman_offsets = [-df_zeeman_phys, df_zeeman_phys] if df_zeeman_phys > 0 else [0.0]
@@ -1090,8 +1160,20 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             slopes_phys.append(c - omega_phys)
             slopes_phys.append(c + omega_phys)
 
-        # 5. Generate local grids in physical space, then map to unit space
-        local_grids = []
+        # 5. Build the unified candidate-density mixture.
+        #
+        # Replaces the old three independently-sized grids (global coarse grid +
+        # per-slope uniform windows + a separately-budgeted dip grid) with one
+        # continuous density over [f_lo, f_hi]: a Gaussian kernel per slope point
+        # (bandwidth = sigma_eff_phys, matching the old uniform slope windows'
+        # 3-sigma half-width), a Gaussian kernel per empirically-detected dip
+        # centroid (bandwidth = its detection window / 3, same span-matching
+        # logic), and an optional flat baseline term for domain-wide backstop
+        # coverage. NVISION_SMC_EPOCH_CANDIDATE_BUDGET candidates are then placed
+        # at that density's evenly-spaced CDF quantiles -- deterministic (no RNG
+        # draw, so NVISION_RNG_SEED reproducibility is untouched), and
+        # concentrated where the mixture says information actually is, rather
+        # than uniform-within-window-then-a-density-cliff at the window edge.
         if "frequency" not in phys_bounds:
             raise RuntimeError(
                 "_generate_epoch_candidates: 'frequency' is missing from "
@@ -1099,15 +1181,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             )
         phys_f_lo, phys_f_hi = phys_bounds["frequency"]
         f_lo_unit, f_hi_unit = self.parameter_bounds["frequency"]
+        if not (phys_f_hi > phys_f_lo):
+            raise ValueError(f"_generate_epoch_candidates: degenerate frequency domain [{phys_f_lo}, {phys_f_hi}].")
 
-        for s_phys in slopes_phys:
-            start_phys = max(s_phys - half_width_phys, phys_f_lo)
-            stop_phys = min(s_phys + half_width_phys, phys_f_hi)
-            if start_phys >= stop_phys:
-                continue
-            grid_phys = np.arange(start_phys, stop_phys + delta_d_phys, delta_d_phys)
-            grid_unit = _to_unit_freq(grid_phys)
-            local_grids.append(grid_unit)
+        slope_bw_phys = max(sigma_eff_phys, min_step_physical)
+        kernels: list[tuple[float, float, float]] = [(s_phys, slope_bw_phys, 1.0) for s_phys in slopes_phys]
+        n_slope_kernels = len(kernels)
+        if n_slope_kernels == 0:
+            raise RuntimeError(
+                "_generate_epoch_candidates: no slope-targeting centers were generated -- "
+                "slopes_phys must always contain at least one dip's ±omega points."
+            )
 
         # 5b. Observation-driven dip focusing.
         # Use empirically measured low-signal values to add dense candidates directly
@@ -1174,36 +1258,52 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             self._dip_centers = [c.centroid_hz for c in dip_candidates]
 
-            # Proportional candidate density
             if dip_candidates:
                 total_sig = sum(c.significance for c in dip_candidates)
-                total_budget = 100  # total candidate points across all dip grids
+                # The dip family competes with the slope family on equal aggregate
+                # footing (each gets n_slope_kernels total mixture weight); within
+                # the dip family, individual dips are still split by significance,
+                # mirroring the old total_budget=100 proportional split.
+                dip_family_weight = float(n_slope_kernels)
                 for candidate in dip_candidates:
                     frac = candidate.significance / total_sig if total_sig > 0 else 1.0 / len(dip_candidates)
-                    n_pts = max(10, int(frac * total_budget))
                     window_phys = max(3.0 * omega_phys, sigma_eff_phys, NVISION_SMC_DIP_WINDOW_MIN_HZ)
-                    s = max(candidate.centroid_hz - window_phys, phys_f_lo)
-                    e = min(candidate.centroid_hz + window_phys, phys_f_hi)
-                    if s >= e:
-                        continue
-                    dip_grid_phys = np.linspace(s, e, n_pts)
-                    local_grids.append(_to_unit_freq(dip_grid_phys))
+                    dip_bw_phys = max(window_phys / 3.0, min_step_physical)
+                    kernels.append((candidate.centroid_hz, dip_bw_phys, frac * dip_family_weight))
 
-        # 6. Merge with pre-computed global grid (unless the locator has dropped
-        # it via use_global_grid); clip everything to [f_lo, f_hi]
-        if self._use_global_grid:
-            merged = np.concatenate([*local_grids, self._global_grid]) if local_grids else self._global_grid
-        else:
-            if not local_grids:
-                raise RuntimeError(
-                    "_generate_epoch_candidates: use_global_grid is False but no local "
-                    "grids were generated -- refusing to produce an empty candidate set."
-                )
-            merged = np.concatenate(local_grids)
-        merged = np.clip(merged, f_lo_unit, f_hi_unit).astype(np.float32, copy=False)
-        # Each constituent grid is already ascending, so the concatenation is a
-        # handful of sorted runs — a stable (timsort) sort is near-linear here,
-        # unlike np.unique's full introsort. Dedup with a neighbor mask.
+        # 6. Optional flat baseline term for domain-wide backstop coverage, gated
+        # by use_global_grid. Scaled relative to the local (slope + dip) mass so
+        # its share stays roughly constant whether or not dips have been detected.
+        local_weight_total = sum(w for _, _, w in kernels)
+        baseline_weight = _EPOCH_BASELINE_MASS_FRACTION * local_weight_total if self.use_global_grid else 0.0
+
+        total_weight = local_weight_total + baseline_weight
+        if not (total_weight > 0) or not math.isfinite(total_weight):
+            raise ValueError(
+                "_generate_epoch_candidates: candidate density mixture has zero total weight "
+                f"(use_global_grid={self.use_global_grid}, n_kernels={len(kernels)}, "
+                f"local_weight_total={local_weight_total!r}). There is nothing to build an "
+                "epoch candidate grid from."
+            )
+
+        candidates_phys = _quantile_place_candidates(
+            kernels=kernels,
+            baseline_weight=baseline_weight,
+            lo=phys_f_lo,
+            hi=phys_f_hi,
+            n_candidates=NVISION_SMC_EPOCH_CANDIDATE_BUDGET,
+        )
+
+        # Snap to the resolution floor (skipped if the floor is disabled via env,
+        # matching NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ's documented "0 to let the
+        # grid refine with sigma" escape hatch), clip into bounds, dedup.
+        if min_step_physical > 0:
+            candidates_phys = np.round(candidates_phys / min_step_physical) * min_step_physical
+        candidates_phys = np.clip(candidates_phys, phys_f_lo, phys_f_hi)
+        merged = np.clip(_to_unit_freq(candidates_phys), f_lo_unit, f_hi_unit).astype(np.float32, copy=False)
+        # Quantile placement returns an ascending sequence, so this is already
+        # (near-)sorted -- a stable (timsort) sort is near-linear here, unlike
+        # np.unique's full introsort. Dedup with a neighbor mask.
         merged.sort(kind="stable")
         if merged.shape[0] > 1:
             keep = np.empty(merged.shape[0], dtype=bool)
@@ -1628,9 +1728,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             noise_prior_strength=self.noise_prior_strength,
             skip_state_init=True,
         )
-        # Grids depend only on bounds, which are identical — share by reference
-        # (consumers rebind on narrowing/resample, never mutate in place).
-        dist._global_grid = self._global_grid
+        # Candidates depend only on bounds/particles, which are identical here —
+        # share by reference (consumers rebind on narrowing/resample, never
+        # mutate in place).
+        dist._use_global_grid = self._use_global_grid
         dist._current_candidates = self._current_candidates
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy(order="K")  # preserve F-order layout
@@ -1960,14 +2061,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 self._particles[:, idx] = np.clip(self._particles[:, idx], lo, hi)
                 self._belief_version += 1
 
-            # If the scan parameter was narrowed, update the global grid and candidates
+            # If the scan parameter was narrowed, rebuild the candidate density mixture
+            # against the new (tighter) domain bounds.
             if param_name == "frequency":
-                POINTS_PER_MIN_FEATURE: int = NVISION_SMC_POINTS_PER_MIN_FEATURE  # noqa: N806
-                domain_width = float(hi - lo)
-                min_span = self.model.signal_min_span(domain_width)
-                if min_span is not None and min_span > 0:
-                    n_global = int(np.ceil(domain_width / min_span * POINTS_PER_MIN_FEATURE))
-                    self._global_grid = np.linspace(lo, hi, n_global).astype(np.float32)
                 self._generate_epoch_candidates()
 
     @property

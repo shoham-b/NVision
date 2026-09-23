@@ -892,14 +892,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                             self._focus_conf_dense = True
                         if conf.is_stable and self.focus_stable_step is None:
                             self.focus_stable_step = self.step_count
-                            # The dip is detected and the empirical/posterior signals
-                            # agree on where it is -- domain-wide exploration via the
-                            # global grid is no longer needed, and for some signal
-                            # models (see signal_min_span) it doesn't shrink with
-                            # focus-window narrowing on its own. One-way: nothing
-                            # here re-enables it if confidence later dips.
-                            if hasattr(self.belief, "use_global_grid"):
-                                self.belief.use_global_grid = False
+                            # The true dip location is now confidently found --
+                            # stop spending epoch candidate budget on domain-wide
+                            # backstop coverage (see use_global_grid docstring).
+                            self.belief.use_global_grid = False
 
     def _should_check_focus_confidence(self) -> bool:
         """Whether to run the (expensive) focus-window confidence check this step.

@@ -110,17 +110,60 @@ where d is the number of parameters.  The log-determinant is computed via `slogd
 
 ### 1.8 Epoch Candidate Grid
 
-After each resample a new slope-targeted grid is generated in frequency space.  Six slope points (two per dip, at dip center ± linewidth HWHM) define dense local windows:
+After each resample, the candidate grid is rebuilt as a single deterministic
+**quantile placement** against a continuous density mixture over the frequency
+domain `[f_lo, f_hi]`, rather than the union of several independently-sized
+uniform grids. `_generate_epoch_candidates()` (`smc_marginal.py`) builds three
+kinds of Gaussian-kernel-weight `(center, bandwidth, weight)` mixture
+components, plus an optional flat baseline term:
 
-$$\text{slope points} = \{f_B \pm \Delta f_{\rm hf}\} \pm \Omega_{\rm hw}$$
+- **Slope kernels.** One per slope point — two per dip (dip center ±
+  linewidth HWHM), for every Zeeman-group × hyperfine-offset combination:
 
-where f_B = posterior mean frequency, Δf_hf = posterior mean split, Ω_hw = posterior mean linewidth (HWHM).
+  $$\text{slope points} = \{f_B \pm \Delta f_{\rm hf}\} \pm \Omega_{\rm hw}$$
 
-Each window has half-width 3·σ_eff and step max(σ_eff/30, Δ_min), where
+  where f_B = posterior mean frequency, Δf_hf = posterior mean split, Ω_hw =
+  posterior mean linewidth (HWHM). Each slope kernel has bandwidth
+  σ_eff = √(σ_f² + σ_Ω²) (floored at Δ_min = `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ`
+  = 10 kHz) and mixture weight 1 — this bandwidth reproduces the old uniform
+  slope window's 3σ_eff half-width as the kernel's ≈3σ span.
 
-$$\sigma_{\rm eff} = \sqrt{\sigma_f^2 + \sigma_\Omega^2}$$
+- **Dip kernels.** Once ≥5 observations exist, one per empirically-detected
+  dip centroid (`identify_dip_candidates`, `dip_detection.py`). Each dip
+  kernel's bandwidth is its detection window / 3, where the window is
+  max(3Ω, σ_eff, `NVISION_SMC_DIP_WINDOW_MIN_HZ` = 5 MHz) (also floored at
+  Δ_min). The dip family's *total* weight always equals the slope family's
+  total weight (i.e. the number of slope kernels), split among individual
+  dips by detection significance — the same proportional split the old
+  100-point dip budget used, just expressed as mixture weight instead of a
+  point count.
 
-is the quadrature of posterior frequency and linewidth uncertainties, and Δ_min = `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ` = 10 kHz.  A global coarse grid with n_global = ⌈W / s_min · P⌉ points (W = bandwidth, s_min = minimum feature width, P = `POINTS_PER_MIN_FEATURE` = 5) is merged with the local grids.
+- **Flat baseline term.** Optional, gated by the `use_global_grid` property
+  (`SMCMarginalDistribution`/`UnitCubeSMCMarginalDistribution`, default
+  `True`). When enabled its mass is 20% of the combined slope+dip weight —
+  domain-wide backstop coverage, scaled so its share stays roughly constant
+  regardless of how many slope/dip kernels exist. The SBED locator sets it
+  `False` the first time `compute_focus_window_confidence(...).is_stable`
+  fires (§3.6) — once the dip location is confidently found, backstop
+  coverage is no longer worth spending budget on.
+
+`NVISION_SMC_EPOCH_CANDIDATE_BUDGET` = 800 points are then placed at the
+mixture's evenly-spaced CDF quantiles: the density is evaluated on an adaptive
+scaffold grid (locally dense around each kernel, coarse elsewhere), its CDF
+built by trapezoidal integration, and quantile positions read off by linear
+interpolation (`_quantile_place_candidates`). This is deterministic —
+evenly-spaced quantile levels, not a random draw — so it does not touch
+`NVISION_RNG_SEED`-based reproducibility. The result is snapped to Δ_min,
+clipped to `[f_lo, f_hi]`, and deduplicated, which may reduce the final count
+below 800.
+
+This replaces the previous three independently-tuned grids (a global grid
+whose point count was governed by `POINTS_PER_MIN_FEATURE`, per-slope uniform
+windows, and a separately-budgeted dip grid) and their "uniform density inside
+the window, then a cliff at the window edge" failure mode: because the final
+candidates are quantile-placed against a smooth mixture rather than
+uniform-then-truncated, density now actually peaks at each kernel's center and
+decays smoothly, instead of being flat out to an arbitrary window boundary.
 
 ---
 
@@ -503,6 +546,8 @@ that margin at a 2.2× rather than 3.6× saving.
 | a | `NVISION_SMC_A_PARAM` | 0.98 | — |
 | N_EIG | `NVISION_SMC_EIG_PARTICLES` | 500 | — |
 | Δ_min | `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ` | 10 000 | Hz |
+| — | `NVISION_SMC_DIP_WINDOW_MIN_HZ` | 5 000 000 | Hz |
+| — | `NVISION_SMC_EPOCH_CANDIDATE_BUDGET` | 800 | — (fixed, not env-configurable) |
 | T_f | `NVISION_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
 | K_safety | `NVISION_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
 | K_theory | `NVISION_SBED_STEPS_THEORY_FACTOR` | 20 | — |
