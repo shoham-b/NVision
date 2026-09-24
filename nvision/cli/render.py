@@ -28,16 +28,9 @@ from nvision.tools.artifacts import (
 )
 from nvision.tools.paths import ARTIFACTS_ROOT
 from nvision.tools.utils import NVISION_RNG_SEED
-from nvision.viz.measurements import backfill_scan_plot_data_if_missing
 
 log = logging.getLogger("nvision")
 console = Console()
-
-
-def _postprocess_manifest_entries(plot_manifest: list[dict[str, object]], out_dir: Path) -> None:
-    """Backfill ``plot_data`` on scan rows from existing HTML when cache predates it."""
-    for entry in plot_manifest:
-        backfill_scan_plot_data_if_missing(entry, out_dir)
 
 
 def _collect_cache_results(

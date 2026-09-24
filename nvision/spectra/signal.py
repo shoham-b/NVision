@@ -159,14 +159,6 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
 
         return list(self.spec.names)
 
-    def compute_jax(self, x: float, params: ParamsT) -> Any:
-        """JAX-compatible prediction at probe x.
-
-        Defaults to calling compute(), but subclasses should override with
-        a jax.numpy implementation to support auto-differentiation.
-        """
-        return self.compute(x, params)
-
     def compute_from_params(self, x: float, params: ParamsT) -> float:
         """Evaluate the model at ``x`` using a typed parameter bundle."""
 
@@ -244,32 +236,6 @@ class TrueSignal[ParamsT]:
 
     def all_param_bounds(self) -> dict[str, tuple[float, float]]:
         return {name: self.get_param_bounds(name) for name in self.parameter_names}
-
-    def min_dip_amplitude(self) -> float | None:
-        """Return the smallest dip amplitude for multi-dip signals, or None for single-peak.
-
-        For NV center with Zeeman splitting (3 dips), the smallest dip is:
-            dip_depth / k_np^2
-
-        This is used to constrain noise so that max_noise < smallest_dip,
-        ensuring the signal remains detectable.
-        """
-        params = self.typed_parameters
-
-        # NV center models with k_np and dip_depth or c_total
-        try:
-            k_np = float(params.k_np)
-            if hasattr(params, "dip_depth"):
-                dip_depth = float(params.dip_depth)
-                return dip_depth / (k_np**2)
-            elif hasattr(params, "c_total"):
-                c_total = float(params.c_total)
-                # For Lorentzian model, the population-normalized reparameterization
-                # has the left dip amplitude as c_total / (1.0 + k_np + k_np**2)
-                return c_total / (1.0 + k_np + k_np**2)
-        except AttributeError:
-            pass
-        return None
 
     def all_bounds(self) -> dict[str, tuple[float, float]]:
         """Merge signal and noise bounds for joint Bayesian inference."""

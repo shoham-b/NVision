@@ -16,11 +16,6 @@ def repeat_seed_int(seed_str: str) -> int:
     return int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (10**8)
 
 
-def clear_repeat_seed_int_cache() -> None:
-    """Drop :func:`repeat_seed_int` cache (e.g. between tests)."""
-    repeat_seed_int.cache_clear()
-
-
 def signal_repeat_key(seed: int, generator_name: str, repeat_idx: int) -> str:
     """Key for ground-truth signal generation — strategy- and noise-independent."""
     return f"{seed}-{generator_name}-{repeat_idx}"

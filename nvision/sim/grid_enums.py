@@ -5,12 +5,6 @@ from __future__ import annotations
 from enum import StrEnum
 
 
-class GeneratorCategory(StrEnum):
-    """High-level generator family used by :meth:`nvision.sim.combinations.CombinationGrid.generator_category`."""
-
-    NVCENTER = "NVCenter"
-
-
 class StrategyFilter(StrEnum):
     """Strategies available in the active simulation grid."""
 

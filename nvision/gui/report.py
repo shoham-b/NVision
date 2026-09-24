@@ -33,12 +33,6 @@ def _read_manifest_json(out_dir: Path) -> str | None:
     return manifest_path.read_text(encoding="utf-8") or None
 
 
-def _write_js_data_file(path: Path, var_name: str, value_json: str) -> None:
-    # Prevent accidental HTML/script termination if someone embeds this in a <script> tag.
-    safe_json = value_json.replace("</", "<\\/")
-    path.write_text(f"window.{var_name} = {safe_json};\n", encoding="utf-8")
-
-
 _MAX_INLINE_MANIFEST_BYTES: int = 50 * 1024 * 1024  # 50 MB threshold
 
 

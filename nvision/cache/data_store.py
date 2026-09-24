@@ -90,21 +90,6 @@ class CategoryDataStore:
         """Return the subset of ``keys`` that exist in the store (no DataFrame parsing)."""
         return self._backend.keys_exist_batch(keys)
 
-    def save_df_batch(self, items: dict[str, pl.DataFrame | dict]) -> None:
-        """Persist multiple keys atomically — delegates to batch_set for one transaction per shard."""
-        payloads: dict[str, dict] = {}
-        for key, item in items.items():
-            if isinstance(item, pl.DataFrame):
-                payloads[key] = {
-                    "__nvision_cache__": "dataframe",
-                    "columns": list(item.columns),
-                    "data": item.to_dicts(),
-                }
-            else:
-                # Pre-built payload dict (e.g. from save_repeat fast path)
-                payloads[key] = item
-        self._backend.batch_set(payloads)
-
     def save_df(self, df: pl.DataFrame, key: str, metadata: dict[str, Any] | None = None) -> Path:
         """Persist a Polars DataFrame under ``key`` with optional metadata merged into the blob."""
         payload: dict[str, Any] = {
@@ -123,16 +108,9 @@ class CategoryDataStore:
         with suppress(Exception):
             self._backend.delete(key)
 
-    def save_blob(self, key: str, data: bytes) -> None:
-        """Persist raw bytes under ``key`` in the BLOB table — no text encoding at all."""
-        self._backend.blob_set(key, data)
-
     def save_repeat_batch(self, rows: dict[str, dict], blobs: dict[str, bytes]) -> None:
         """Persist pre-built JSON payload rows and raw blobs together (one transaction per shard on SQLite)."""
         self._backend.write_repeat_batch(rows, blobs)
 
     def load_blob(self, key: str) -> bytes | None:
         return self._backend.blob_get(key)
-
-    def load_blob_batch(self, keys: list[str]) -> dict[str, bytes]:
-        return self._backend.blob_batch_get(keys)

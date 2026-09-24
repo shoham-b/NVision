@@ -180,10 +180,6 @@ class CoreExperiment:
         values = self.true_signal.parameter_values()
         return [value for name, value in values.items() if "frequency" in name or "position" in name]
 
-    def normalize_x(self, x_physical: float) -> float:
-        """Convert physical x to normalized [0, 1]."""
-        return (x_physical - self.x_min) / (self.x_max - self.x_min)
-
     def denormalize_x(self, x_normalized: float) -> float:
         """Convert normalized x to physical domain."""
         return self.x_min + x_normalized * (self.x_max - self.x_min)
