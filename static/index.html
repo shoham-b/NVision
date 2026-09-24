@@ -38,9 +38,12 @@
             <div id="signal-equation-panel" class="signal-equation-panel" style="display:none;"></div>
                 <div aria-label="Scan noise" class="segmented-control" id="scan-noise" role="radiogroup"></div>
         </div>
-        <div class="panel panel-locator">
+        <div class="panel panel-locator" id="panel-locator" hidden>
             <h3 class="panel-title">Locator</h3>
-            <div class="control-row">
+            <!-- The main scan graph shows every strategy's data, so the picker is hidden.
+                 The control stays in the DOM as the hidden "primary strategy" state
+                 (defaults to the first enabled strategy; still settable via #strategy=). -->
+            <div class="control-row" id="scan-strategy-row" hidden>
                 <span class="control-label">Strategy:</span>
                 <div aria-label="Scan strategy" class="segmented-control" id="scan-strategy" role="radiogroup"></div>
             </div>
