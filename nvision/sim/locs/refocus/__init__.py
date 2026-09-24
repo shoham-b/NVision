@@ -8,16 +8,16 @@ regions in the raw (x, y) observations (down then up = a dip), infers each
 dip's width from the signal shape, and computes a single tight bounding box
 around all observed dips.  No particle filter, no statistics.
 
-This is distinct from ``nvision.sim.locs.bayesian.dip_detection``, which is
-used by SBED to assess posterior convergence.  The two detectors serve
-different purposes and are not interchangeable:
+This is distinct from ``nvision.belief.dip_detection``, which SBED uses to find
+the dips its observations show.  The two detectors serve different purposes and
+are not interchangeable:
 
 - ``refocus.detect_dips``: geometric, returns raw ``(lo, hi)`` edge pairs.
   Used to answer "where should I keep scanning?"
-- ``dip_detection.identify_dip_candidates``: statistical, uses per-particle
-  noise sigmas and a binomial confidence test.  Returns ``DipCandidate``
-  objects with confidence scores and background estimates.
-  Used to answer "has the posterior converged to the right dip?"
+- ``dip_detection.find_dips``: statistical -- a noise-sigma threshold below the
+  baseline plus a binomial confidence test, from the observations alone.
+  Returns ``DipCandidate`` objects with confidence scores.
+  Used to answer "where do the measurements show dips?"
 
 Public API
 ----------

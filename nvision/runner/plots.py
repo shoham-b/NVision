@@ -208,7 +208,7 @@ def _posterior_animation_inputs_all_params(
 
     b0 = snapshots[0].belief
     names = list(b0.model.parameter_names())
-    if getattr(b0, "_use_rao_blackwell_noise", False) and "noise_sigma" not in names:
+    if getattr(b0, "noise_model", None) is not None and "noise_sigma" not in names:
         names.append("noise_sigma")
     if not names:
         return None
@@ -243,7 +243,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     b0 = snapshots[0].belief
     stub_grid = np.linspace(0.0, 1.0, 2)
     is_unit_cube = hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel)
-    use_rb = getattr(b0, "_use_rao_blackwell_noise", False)
+    use_rb = getattr(b0, "noise_model", None) is not None
 
     # Resolve particle column indices once; physical bounds are resolved
     # per snapshot because the frequency window can narrow during a run.
@@ -801,7 +801,7 @@ def _bayesian_auxiliary_entries(
         # Parameter names are identical across snapshots; resolve once.
         first_belief = viz_snapshots_for_conv[0].belief
         param_names = list(first_belief.model.parameter_names())
-        if getattr(first_belief, "_use_rao_blackwell_noise", False) and "noise_sigma" not in param_names:
+        if getattr(first_belief, "noise_model", None) is not None and "noise_sigma" not in param_names:
             param_names.append("noise_sigma")
 
         conv_metrics = []
@@ -848,7 +848,7 @@ def _bayesian_auxiliary_entries(
 
         # Collect bound ranges from the first snapshot for display
         param_bounds = dict(viz_snapshots_for_conv[0].belief.physical_param_bounds)
-        if getattr(viz_snapshots_for_conv[0].belief, "_use_rao_blackwell_noise", False):
+        if getattr(viz_snapshots_for_conv[0].belief, "noise_model", None) is not None:
             noise_spec = viz_snapshots_for_conv[0].belief.noise_model.spec
             if "noise_sigma" in noise_spec.bounds:
                 param_bounds["noise_sigma"] = noise_spec.bounds["noise_sigma"]
@@ -940,7 +940,9 @@ def get_or_run_sobol_baseline(
     if experiment.true_signal.noise_bounds:
         bounds.update(experiment.true_signal.noise_bounds)
 
-    belief = nv_center_smc_belief(bounds, lineshape=nv_lineshape_for_model(model))
+    belief = nv_center_smc_belief(
+        bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
+    )
 
     locator = SimpleSobolBayesianLocator(
         belief=belief,
@@ -1061,7 +1063,9 @@ def get_or_run_simplesweep_baseline(
     if experiment.true_signal.noise_bounds:
         bounds.update(experiment.true_signal.noise_bounds)
 
-    belief = nv_center_smc_belief(bounds, lineshape=nv_lineshape_for_model(model))
+    belief = nv_center_smc_belief(
+        bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
+    )
 
     f_lo, f_hi = bounds.get("frequency", (experiment.x_min, experiment.x_max))
     f_domain_width = float(f_hi - f_lo)

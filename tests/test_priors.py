@@ -12,6 +12,7 @@ from nvision import (
     nv_center_smc_belief,
 )
 from nvision.spectra.nv_center import MIN_LINEWIDTH
+from tests.noise import gaussian_noise
 
 
 def test_generator_adds_gaussian_and_sin2_priors():
@@ -86,7 +87,9 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     # requires frequency to be a free particle dimension (it's fixed by default --
     # see NVCenterCoreGenerator's docstring -- so nv_center_smc_belief's own default
     # would otherwise leave it out of belief._param_names entirely).
-    belief = nv_center_smc_belief(signal.bounds, num_particles=1000, with_fixed_frequency=False)
+    belief = nv_center_smc_belief(
+        signal.bounds, num_particles=1000, with_fixed_frequency=False, noise_model=gaussian_noise()
+    )
 
     # Verify particles for frequency follow sin^2(k f) prior
     f_idx = belief._param_names.index("frequency")

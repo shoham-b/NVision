@@ -19,6 +19,7 @@ from nvision.spectra.nv_center import (
     MIN_LINEWIDTH,
     MIN_SPLIT,
     MIN_ZEEMAN_SPLIT,
+    NV_ZERO_FIELD_SPLITTING_HZ,
     PRIOR_MEAN_OFFSET_SIGMAS,
     PRIOR_STD_FRACTION,
     NVCenterLorentzianModel,
@@ -109,8 +110,6 @@ class NVCenterCoreGenerator:
         TrueSignal
             NV center signal with realistic parameters
         """
-        width = self.x_max - self.x_min
-
         # Random linewidth (HWHM for Lorentzian), or fixed if provided
         linewidth = self.linewidth if self.linewidth is not None else rng.uniform(MIN_LINEWIDTH, MAX_LINEWIDTH)
 
@@ -124,43 +123,11 @@ class NVCenterCoreGenerator:
         if self.infer_hyperfine:
             split = rng.uniform(MIN_SPLIT, MAX_SPLIT)
 
-        # Margin needed to keep the full spectrum -- not just its center -- inside
-        # [x_min, x_max]. Uses each model's own signal_max_span() (the worst-case
-        # center-to-outermost-dip-edge extent across every value this generator could
-        # draw for linewidth/split/saturation/etc.), not this repeat's actual drawn
-        # values, so center_freq is safely bounded regardless of what gets drawn below.
-        if self.variant == "saturation_voigt":
-            _margin_model = NVCenterSaturationVoigtModel(
-                hyperfine=self.hyperfine,
-                infer_hyperfine=self.infer_hyperfine,
-                with_zeeman_splitting=self.with_zeeman_splitting,
-            )
-        elif self.variant == "voigt":
-            _margin_model = NVCenterVoigtModel(
-                hyperfine=self.hyperfine,
-                infer_hyperfine=self.infer_hyperfine,
-                with_zeeman_splitting=self.with_zeeman_splitting,
-            )
-        else:
-            _margin_model = NVCenterLorentzianModel(
-                hyperfine=self.hyperfine,
-                infer_hyperfine=self.infer_hyperfine,
-                with_zeeman_splitting=self.with_zeeman_splitting,
-            )
-        max_span = _margin_model.signal_max_span(width)
-        margin = max_span / 2.0 if max_span is not None else zeeman_split + split
-
-        usable_lo = self.x_min + margin + 0.05 * width
-        usable_hi = self.x_max - margin - 0.05 * width
-        if usable_lo >= usable_hi:
-            usable_lo = self.x_min + 0.05 * width
-            usable_hi = self.x_max - 0.05 * width
-
-        # Zero-field center is a fixed, known reference (like a calibrated instrument
-        # constant) -- only zeeman_split/hyperfine/linewidth/contrast vary between
-        # draws. Fixed at the midpoint of the safe (margin-adjusted) range so the
-        # full dip cluster fits in [x_min, x_max] regardless of what gets drawn above.
-        center_freq = (usable_lo + usable_hi) / 2.0
+        # The zero-field center is a fixed, known reference (like a calibrated instrument
+        # constant) -- only zeeman_split/hyperfine/linewidth/contrast vary between draws.
+        # The probe window is the upper half [D, D + delta] of the mirror-symmetric spectrum
+        # (see DEFAULT_NV_CENTER_FREQ_X_MIN), so the center is D itself, on its lower edge.
+        center_freq = NV_ZERO_FIELD_SPLITTING_HZ
 
         if self.variant == "lorentzian":
             c_total = self.c_total if self.c_total is not None else rng.uniform(0.1, 0.4)

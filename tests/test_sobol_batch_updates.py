@@ -26,6 +26,7 @@ from nvision.models.observer import Observer
 from nvision.sim.defaults import NVISION_SOBOL_BATCH_CHUNK_SIZE
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
 from nvision.spectra.nv_center import NVCenterLorentzianModel
+from tests.noise import gaussian_noise
 
 
 class _FakeBelief:
@@ -170,6 +171,7 @@ def test_end_to_end_never_calls_update_directly():
         parameter_bounds,
         num_particles=64,
         lineshape=nv_lineshape_for_model(exp.true_signal.model),
+        noise_model=gaussian_noise(),
     )
     calls = _spy_belief(belief)
 
@@ -213,6 +215,7 @@ def test_sobol_converges_with_batched_updates():
         num_particles=300,
         lineshape=nv_lineshape_for_model(exp.true_signal.model),
         with_fixed_frequency=False,
+        noise_model=gaussian_noise(),
     )
 
     observer = Observer(exp.true_signal, exp.x_min, exp.x_max)

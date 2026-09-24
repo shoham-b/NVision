@@ -117,8 +117,8 @@ NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "2.0e6"))
 NVISION_MAX_SPLIT: float = float(os.getenv("NVISION_MAX_SPLIT", "8.5e6"))
 # NV center frequency domain is configured via NVISION_NV_ZERO_FIELD_SPLITTING_HZ /
 # NVISION_NV_CENTER_FREQ_DELTA_HZ, read directly in nvision/spectra/nv_center.py
-# (DEFAULT_NV_CENTER_FREQ_X_MIN/MAX) so x_min/x_max always stay symmetric around
-# the physical zero-field center and can't drift out of sync.
+# (DEFAULT_NV_CENTER_FREQ_X_MIN/MAX): the window is the upper half [D, D + delta] of the
+# mirror-symmetric spectrum around the physical zero-field center D.
 # --- Convergence Defaults ----------------------------------------------------
 
 # Default relative convergence threshold (fraction of parameter bound width; 0.01 = 1%).
@@ -149,14 +149,6 @@ NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
 # Pre-run fail gate: infeasible if any param CRLB > threshold × this margin.
 # 1.0 = require CRLB strictly below threshold; increase to allow slight infeasibility.
 NVISION_CRLB_FEASIBILITY_MARGIN: float = float(os.getenv("NVISION_CRLB_FEASIBILITY_MARGIN", "1.0"))
-
-# Minimum number of out-of-span (background) observations before trusting σ̂.
-# If fewer exist, forced background calibration is triggered in SBED.
-NVISION_NOISE_MIN_BG_POINTS: int = int(os.getenv("NVISION_NOISE_MIN_BG_POINTS", "15"))
-
-# Half-span radius (in linewidths) used to classify a measurement as background.
-# Points with |x - f̂| > k * linewidth_hat are considered background.
-NVISION_NOISE_BG_SPAN_FACTOR: float = float(os.getenv("NVISION_NOISE_BG_SPAN_FACTOR", "3.0"))
 
 # Permissive multiplier on the theoretical step count n_theory for SBED's backstop limit.
 # n_theory = 2σ̂²·lw·bandwidth / (π·c²·T²); stops when inference_step_count > K × n_theory.
@@ -196,8 +188,8 @@ NVISION_SBED_CONTRAST_MIN: float = float(os.getenv("NVISION_SBED_CONTRAST_MIN", 
 NVISION_SBED_CONTRAST_MAX: float = float(os.getenv("NVISION_SBED_CONTRAST_MAX", "0.4"))
 NVISION_SBED_CONTRAST_STEPS: int = int(os.getenv("NVISION_SBED_CONTRAST_STEPS", "5"))
 
-# Default grid for the SBED run-groups (lorentzian-sbed and variants) in
-# run_groups.py: saturation-Voigt lineshape, swept over target contrast (the
+# Grid for the saturation-Voigt study generators (sim.presets; no longer a run-group
+# in run_groups.py, but historical results still resolve): saturation-Voigt lineshape, swept over target contrast (the
 # same NVISION_SBED_CONTRAST_* range as the lorentzian/voigt width x contrast
 # grids above, for direct cross-lineshape comparability) and sigma_inhom
 # (independent inhomogeneous/Gaussian width). saturation is *solved* per grid

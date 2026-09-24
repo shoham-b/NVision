@@ -8,8 +8,7 @@ right metric here, not the locator's own stop reason.
 
 ## Files
 
-- `initial_program.py` — standalone copies of `_acquire`, `_eig_acquire`, and
-  `_dual_window_acquire`, taken verbatim from
+- `initial_program.py` — standalone copies of `_acquire` and `_eig_acquire`, taken verbatim from
   `nvision/sim/locs/bayesian/sbed_locator.py`. Only the code between
   `EVOLVE-BLOCK-START`/`END` is mutated. **This never touches production
   code** — the evaluator monkeypatches these functions onto the real locator
@@ -114,7 +113,7 @@ several MHz — catastrophic by this evaluator's own bar). They're excluded
 from `EVAL_GRID` deliberately: at that noise level the *evaluation* is both
 too slow and too noisy for a search loop, not usefully "harder". If you want
 to validate a winning candidate at realistic noise, do that afterward with
-the normal pipeline (`nv groups run lorentzian-sbed`), not by editing
+the normal pipeline (`nv groups run both-sbed`), not by editing
 `EVAL_GRID`.
 
 ## Known limitation: acquisition randomness isn't seeded
@@ -159,7 +158,7 @@ doing anything with it:
 2. Validate it properly: copy the winning block into a scratch locator
    subclass (or temporarily monkeypatch it the same way `evaluator.py`
    does) and run it through the real evaluation pipeline
-   (`nv groups run lorentzian-sbed` / the `nvision-convergence-check` and
+   (`nv groups run both-sbed` / the `nvision-convergence-check` and
    `nvision-plot-integrity-check` skills) at realistic noise levels and
    repeat counts — `EVAL_GRID` here is deliberately a cheap proxy, not a
    substitute for that.

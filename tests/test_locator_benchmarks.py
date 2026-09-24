@@ -28,6 +28,7 @@ from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.coarse import GenericSweepLocator
 from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
+from tests.noise import gaussian_noise
 
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
@@ -117,6 +118,7 @@ class TestOverallNVCenter:
             SbedLocator,
             exp,
             builder=nv_center_smc_belief,
+            noise_model=gaussian_noise(),
             max_steps=12,
             n_mc_samples=8,
             n_candidates=8,
@@ -133,6 +135,7 @@ class TestSBEDAcquireBottleneck:
         rng = random.Random(42)
         loc = SbedLocator.create(
             builder=nv_center_smc_belief,
+            noise_model=gaussian_noise(),
             max_steps=12,
             n_mc_samples=8,
             n_candidates=8,

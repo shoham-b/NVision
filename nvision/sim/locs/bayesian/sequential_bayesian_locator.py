@@ -15,11 +15,6 @@ from nvision.sim.defaults import (
     param_convergence_bound_width,
 )
 
-_POSTERIOR_NARROWING_INTERVAL: int = 20
-_POSTERIOR_CREDIBLE_LEVEL: float = 0.95
-_POSTERIOR_MIN_NARROWING_FRACTION: float = 0.05
-_CONVERGENCE_CHECK_INTERVAL: int = 100
-
 # Raw saturation-Voigt parameters whose convergence is gated via the derived
 # effective-HWHM / realized-contrast quantities instead of per-param thresholds.
 # c_max is not included: it's a fixed constant (NV_SATURATION_C_MAX), not an
@@ -224,53 +219,6 @@ class SequentialBayesianLocator(Locator):
     # ------------------------------------------------------------------
     # SMC lifecycle hooks — subclasses may override any stage
     # ------------------------------------------------------------------
-
-    def _native_scan_candidates(self, lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
-        """Return (candidates, probabilities) from the belief's native discretization.
-
-        - Grid beliefs: grid points of the scan parameter within [lo, hi],
-          probabilities are the normalized posterior masses.
-        - SMC beliefs: particle scan-parameter values within [lo, hi],
-          probabilities are the normalized particle weights.
-        Returns empty arrays when the belief has no native discretization.
-        """
-        belief = self.belief
-        scan = self._scan_param
-
-        if hasattr(belief, "get_grid_param"):
-            p = belief.get_grid_param(scan)
-            grid = np.asarray(p.grid, dtype=float)
-            mask = (grid >= lo) & (grid <= hi)
-            if mask.any():
-                candidates = grid[mask]
-                probs = np.asarray(p.posterior, dtype=float)[mask]
-                total = float(probs.sum())
-                if total > 0:
-                    return candidates, probs / total
-            return np.array([]), np.array([])
-
-        if hasattr(belief, "_particles") and hasattr(belief, "_weights"):
-            param_names = getattr(belief, "_param_names", None)
-            if param_names is not None and scan in param_names:
-                idx = param_names.index(scan)
-                vals = np.asarray(belief._particles[:, idx], dtype=float)
-                # Map internal particles (which may be unit-cube) to physical space
-                if hasattr(belief, "physical_param_bounds") and scan in belief.physical_param_bounds:
-                    p_lo, p_hi = belief.physical_param_bounds[scan]
-                    phys_vals = p_lo + vals * (p_hi - p_lo)
-                else:
-                    phys_vals = vals
-
-                mask = (phys_vals >= lo) & (phys_vals <= hi)
-                if mask.any():
-                    candidates = phys_vals[mask]
-                    probs = np.asarray(belief._weights, dtype=float)[mask]
-                    total = float(probs.sum())
-                    if total > 0:
-                        return candidates, probs / total
-            return np.array([]), np.array([])
-
-        return np.array([]), np.array([])
 
     def _acquire(self) -> float:
         """Acquisition logic must be implemented by subclasses.
@@ -563,105 +511,6 @@ class SequentialBayesianLocator(Locator):
     # ------------------------------------------------------------------
     # Utility helpers available to all acquisition implementations
     # ------------------------------------------------------------------
-
-    def _generate_candidates(self, num_candidates: int) -> np.ndarray:
-        """Generate grid from acquisition bounds (log-uniform for scale params)."""
-        lo, hi = self._acquisition_bounds()
-        is_scale = getattr(self.belief.model, "is_scale_parameter", lambda name: False)(self._scan_param)
-        if is_scale and lo > 0 and hi > lo:
-            return np.exp(np.linspace(np.log(lo), np.log(hi), num_candidates))
-        return np.linspace(lo, hi, num_candidates)
-
-    def _apply_parameter_weight_bias(
-        self,
-        utilities: np.ndarray,
-        mu_preds: np.ndarray,
-        sampled: object,
-        candidates: np.ndarray | None = None,
-    ) -> np.ndarray:
-        """Boost utilities toward measurements that are most informative about high-weight parameters.
-
-        For each candidate ``x_i`` the **frequency-specificity** is the squared
-        correlation between the signal predictions ``S(x_i, θ)`` and the
-        frequency dimension of the posterior samples::
-
-            R²_f(x_i) = Cov(S(x_i,θ), θ_f)² / [Var(S(x_i,θ)) · Var(θ_f)]
-
-        This is in ``[0, 1]``.  A measurement where predictions are perfectly
-        correlated with frequency uncertainty gets its utility multiplied by
-        ``freq_weight``; a measurement uncorrelated with frequency is unchanged.
-
-        Additionally, when candidates are provided, a **center-frequency proximity**
-        bonus is applied: measurements near the posterior mean frequency receive
-        higher weight, with a Gaussian falloff::
-
-            center_boost(x_i) = 1.0 + center_freq_weight * exp(-0.5 * ((x_i - f_mean) / f_std)²)
-
-        Only parameters with weight > 1 contribute (default weight = 1 → no-op).
-
-        Parameters
-        ----------
-        utilities : np.ndarray
-            Shape ``(n_candidates,)`` — base acquisition utilities.
-        mu_preds : np.ndarray
-            Shape ``(n_candidates, n_samples)`` — signal predictions over posterior samples.
-        sampled : ParameterValues[np.ndarray]
-            Posterior parameter samples (unit-cube or physical; scale does not matter).
-        candidates : np.ndarray | None
-            Shape ``(n_candidates,)`` — candidate positions in physical units.
-            Required for center-frequency proximity weighting.
-
-        Returns
-        -------
-        np.ndarray
-            Biased utilities, same shape as input.
-        """
-        inner_model = getattr(self.belief.model, "inner", self.belief.model)
-        if not hasattr(inner_model, "parameter_weights"):
-            return utilities
-        weights = inner_model.parameter_weights()
-
-        result = utilities.copy()
-        pred_var = np.var(mu_preds, axis=1)  # (n_candidates,)
-
-        for param_name, weight in weights.items():
-            if weight <= 1.0:
-                continue
-            try:
-                param_particles = np.asarray(sampled[param_name], dtype=np.float64)
-            except (KeyError, TypeError):
-                continue
-            p_var = float(np.var(param_particles))
-            if p_var < 1e-30:
-                continue
-
-            p_mean = param_particles.mean()
-            p_dev = param_particles - p_mean
-            mu_mean = mu_preds.mean(axis=1)
-            cov = ((mu_preds - mu_mean[:, None]) * p_dev[None, :]).mean(axis=1)
-            r2 = cov**2 / (pred_var * p_var + 1e-30)
-            r2 = np.clip(r2, 0.0, 1.0)
-
-            result = result * (1.0 + (weight - 1.0) * r2)
-
-        # Center-frequency proximity weighting: boost utilities near posterior mean frequency
-        if candidates is not None and "frequency" in weights:
-            freq_weight = weights["frequency"]
-            try:
-                freq_particles = np.asarray(sampled["frequency"], dtype=np.float64)
-                f_mean = float(np.mean(freq_particles))
-                f_std = float(np.std(freq_particles))
-                if f_std > 1e-12:
-                    # Gaussian proximity factor: 1.0 at center, decays with distance
-                    z = (candidates - f_mean) / f_std
-                    proximity = np.exp(-0.5 * z * z)
-                    # Boost: up to (freq_weight - 1.0) additional weight at center
-                    center_boost = 1.0 + (freq_weight - 1.0) * proximity
-                    result = result * center_boost
-            except (KeyError, TypeError):
-                pass
-
-        return result
 
     def _to_experiment_normalized(self, physical_value: float) -> float:
         """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""

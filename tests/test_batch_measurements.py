@@ -2,8 +2,7 @@
 
 Covers the sufficient-statistic aggregation (``aggregate_shots``), the batched
 ``CoreExperiment.measure`` path, the Rao-Blackwell noise-posterior update that
-consumes the within-batch variance, and the SBED locator using the batch-mean
-noise for EIG scoring.
+consumes the within-batch variance.
 """
 
 from __future__ import annotations
@@ -115,7 +114,7 @@ def _make_rb_belief(seed: int = 0):
         noise_model=noise_model,
         auto_resample=False,
     )
-    assert belief._use_rao_blackwell_noise
+    assert belief.noise_model is not None
     return belief
 
 
@@ -157,54 +156,6 @@ def test_rb_single_shot_update_unchanged():
     assert np.allclose(b_plain._noise_alphas, b_default._noise_alphas)
     assert np.allclose(b_plain._noise_betas, b_default._noise_betas)
     assert np.allclose(b_plain._weights, b_default._weights)
-
-
-# --------------------------------------------------------------------------- #
-# SBED locator: EIG uses the batch-mean noise
-# --------------------------------------------------------------------------- #
-class _FakeModel:
-    def parameter_names(self):
-        return ["frequency"]
-
-
-class _FakeBelief:
-    """Just enough surface for SBED construction and _eig_acquire."""
-
-    def __init__(self):
-        self.model = _FakeModel()
-        self.physical_param_bounds = {"frequency": (2.7e9, 2.8e9)}
-        self.parameter_bounds = self.physical_param_bounds
-        self.auto_resample = True
-        self.last_noise_std = None
-
-    def get_candidates(self):
-        return np.linspace(2.7e9, 2.8e9, 64)
-
-    def select_max_information_gain(self, candidates, n, noise_std=None):
-        self.last_noise_std = noise_std
-        return np.array([candidates[len(candidates) // 2]])
-
-
-def _make_sbed(fake_belief, prior_noise=0.02):
-    from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
-
-    return SequentialBayesianExperimentDesignLocator(fake_belief, max_steps=10, noise_std=prior_noise)
-
-
-def test_eig_uses_constructor_prior_before_any_batch():
-    fake = _FakeBelief()
-    loc = _make_sbed(fake, prior_noise=0.02)
-    assert loc._empirical_batch_noise_std is None
-    loc._eig_acquire()
-    assert fake.last_noise_std == 0.02
-
-
-def test_eig_uses_empirical_batch_noise_once_available():
-    fake = _FakeBelief()
-    loc = _make_sbed(fake, prior_noise=0.02)
-    loc._empirical_batch_noise_std = 0.005
-    loc._eig_acquire()
-    assert fake.last_noise_std == 0.005
 
 
 # --------------------------------------------------------------------------- #

@@ -1111,7 +1111,11 @@ class _TaskRunner:
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
 
         # Build belief directly
-        belief = nv_center_smc_belief(parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model))
+        belief = nv_center_smc_belief(
+            parameter_bounds,
+            noise_model=experiment.true_signal.noise_model,
+            lineshape=nv_lineshape_for_model(experiment.true_signal.model),
+        )
 
         locator = SimpleSobolBayesianLocator(
             belief=belief,
@@ -1189,7 +1193,11 @@ class _TaskRunner:
 
         sweep_rng = self._rng_for_simplesweep_baseline(rid)
         parameter_bounds = self._injected_parameter_bounds(experiment)
-        belief = nv_center_smc_belief(parameter_bounds, lineshape=nv_lineshape_for_model(experiment.true_signal.model))
+        belief = nv_center_smc_belief(
+            parameter_bounds,
+            noise_model=experiment.true_signal.noise_model,
+            lineshape=nv_lineshape_for_model(experiment.true_signal.model),
+        )
 
         f_lo, f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
         domain_width = float(f_hi - f_lo)
@@ -1523,8 +1531,7 @@ class _TaskRunner:
             belief = _create_sweep_belief(experiment)
             cfg["belief"] = belief
             cfg["signal_model"] = experiment.true_signal.model
-            if experiment.true_signal.noise_model is not None:
-                cfg["noise_model"] = experiment.true_signal.noise_model
+            cfg["noise_model"] = experiment.true_signal.noise_model
 
         # --- Pre-run CRLB feasibility gate (Bayesian locators only) -------
         # Uses true parameter values (oracle) to check whether ANY parameter's
@@ -1700,28 +1707,17 @@ class _TaskRunner:
             finalize_record["all_converged_step"] = None
         finalize_record["infeasible_crlb_params"] = infeasible_crlb_params if infeasible_crlb_params else None
 
-        # SBED-specific background noise diagnostics
+        # SBED-specific noise diagnostics
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
         if last_loc is not None and isinstance(last_loc, SequentialBayesianExperimentDesignLocator):
-            finalize_record["bg_noise_std"] = getattr(last_loc, "_bg_noise_std", None)
-            finalize_record["bg_points_used"] = getattr(last_loc, "_bg_points_used", 0)
-            finalize_record["forced_bg_measurements"] = getattr(last_loc, "_forced_bg_measurements", 0)
             finalize_record["theory_step_budget"] = getattr(last_loc, "_theory_step_budget", None)
-            # The literal noise_std the SMC likelihood weighting and CRLB floor actually used
-            # for the final observation -- distinct from (and, pre-noise-floor-fix, potentially
-            # very different from) bg_noise_std's independent MAD-based estimate. Comparing the
-            # two per-repeat is how a likelihood/CRLB noise-assumption mismatch is diagnosed.
-            last_obs = getattr(last_loc.belief, "last_obs", None) if hasattr(last_loc, "belief") else None
-            finalize_record["assumed_noise_std_at_last_obs"] = (
-                float(last_obs.noise_std) if last_obs is not None else None
-            )
+            # The belief's conjugate (Inverse-Gamma) noise estimate -- the only noise sigma the
+            # locator uses. Compare with true_noise_std below to see how well it was recovered.
+            finalize_record["estimated_noise_std"] = float(last_loc.belief.estimated_noise_std())
         else:
-            finalize_record["bg_noise_std"] = None
-            finalize_record["bg_points_used"] = None
-            finalize_record["forced_bg_measurements"] = None
             finalize_record["theory_step_budget"] = None
-            finalize_record["assumed_noise_std_at_last_obs"] = None
+            finalize_record["estimated_noise_std"] = None
         # Ground truth: the configured noise preset's raw combined std, read directly off
         # over_frequency_noise (bypasses estimated_noise_std()'s unknown/negligible-noise
         # fallback floor entirely) -- unlike the fallback-laden estimate, this is 0.0 for an

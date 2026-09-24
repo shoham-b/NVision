@@ -4,6 +4,7 @@ from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistributio
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+from tests.noise import gaussian_noise
 
 
 def test_sbed_candidate_thinning():
@@ -28,6 +29,7 @@ def test_sbed_candidate_thinning():
         num_particles=50,
         physical_param_bounds=phys_bounds,
         physical_x_bounds=x_bounds,
+        noise_model=gaussian_noise(),
     )
 
     # Initialize locator with a step size that gives ~100 candidates
@@ -41,9 +43,9 @@ def test_sbed_candidate_thinning():
     original_select = belief.select_max_information_gain
     passed_candidates = []
 
-    def mock_select(candidates, n, noise_std=0.02):
+    def mock_select(candidates, n):
         passed_candidates.append(candidates)
-        return original_select(candidates, n, noise_std=noise_std)
+        return original_select(candidates, n)
 
     belief.select_max_information_gain = mock_select
 

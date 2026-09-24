@@ -3,6 +3,7 @@ import numpy as np
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+from tests.noise import gaussian_noise
 
 
 def test_select_max_information_gain_diversity():
@@ -34,6 +35,7 @@ def test_select_max_information_gain_diversity():
         num_particles=1000,
         physical_param_bounds=phys_bounds,
         physical_x_bounds=x_bounds,
+        noise_model=gaussian_noise(),
     )
 
     # Generate candidates
@@ -42,7 +44,7 @@ def test_select_max_information_gain_diversity():
     # Call select_max_information_gain multiple times
     results = []
     for _ in range(50):
-        best = belief.select_max_information_gain(candidates, 1, noise_std=0.02)
+        best = belief.select_max_information_gain(candidates, 1)
         results.append(best[0])
 
     results = np.array(results)

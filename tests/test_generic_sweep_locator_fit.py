@@ -18,6 +18,7 @@ from nvision.spectra.nv_center import (
     NVCenterLorentzianZeemanSpectrum,
 )
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+from tests.noise import gaussian_noise
 
 _BOUNDS = {
     "frequency": (2.82, 2.92),
@@ -43,6 +44,7 @@ def _build_locator(domain_lo=2.82, domain_hi=2.92, n_steps=100) -> GenericSweepL
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,
         physical_x_bounds=(domain_lo, domain_hi),
+        noise_model=gaussian_noise(),
     )
     return GenericSweepLocator(
         belief=belief,
@@ -100,6 +102,7 @@ def _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=100, noise_s
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,
         physical_x_bounds=(domain_lo, domain_hi),
+        noise_model=gaussian_noise(),
     )
     return GenericSweepLocator(
         belief=belief,

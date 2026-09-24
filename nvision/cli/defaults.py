@@ -90,7 +90,7 @@ BETA_OUT: str | None = os.getenv("NVISION_BETA_OUT", None)
 # Run group `nv demo` / `nv beta` execute. There is no "demo" group -- the
 # commands used to hardcode that name and died with a KeyError; pick a real one
 # from `nv groups` (overridable per-invocation with --run-group).
-DEMO_RUN_GROUP: str = os.getenv("NVISION_DEMO_RUN_GROUP", "lorentzian-plain-sbed")
+DEMO_RUN_GROUP: str = os.getenv("NVISION_DEMO_RUN_GROUP", "both-sbed-only")
 
 # Locator convergence (relative fraction of parameter bound width; 0.01 = 1%).
 # Per-parameter absolute overrides: NVISION_FREQ_CONVERGENCE_THRESHOLD,

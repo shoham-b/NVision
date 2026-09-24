@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from tests.noise import gaussian_noise
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +51,11 @@ def _concentrate_and_resample(smc, f0: float, delta0: float | None, *, seed: int
 class TestZeemanEnvelopeContainment:
     def test_lorentzian_envelope_contains_both_dips(self):
         smc = nv_center_smc_belief(
-            num_particles=1000, with_zeeman_splitting=True, hyperfine="unresolved", with_fixed_frequency=False
+            num_particles=1000,
+            with_zeeman_splitting=True,
+            hyperfine="unresolved",
+            with_fixed_frequency=False,
+            noise_model=gaussian_noise(),
         )
         f_lo, f_hi = smc.physical_param_bounds["frequency"]
         f0 = 0.5 * (f_lo + f_hi)
@@ -75,6 +80,7 @@ class TestZeemanEnvelopeContainment:
             hyperfine="unresolved",
             with_fixed_frequency=False,
             lineshape="saturation_voigt",
+            noise_model=gaussian_noise(),
         )
         f_lo, f_hi = smc.physical_param_bounds["frequency"]
         f0 = 0.5 * (f_lo + f_hi)
@@ -93,7 +99,11 @@ class TestNoZeemanRegression:
     def test_single_dip_narrowing_unaffected(self):
         """Without zeeman_split in the model, narrowing behaves as before (hull around one dip)."""
         smc = nv_center_smc_belief(
-            num_particles=1000, with_zeeman_splitting=False, hyperfine="unresolved", with_fixed_frequency=False
+            num_particles=1000,
+            with_zeeman_splitting=False,
+            hyperfine="unresolved",
+            with_fixed_frequency=False,
+            noise_model=gaussian_noise(),
         )
         assert "zeeman_split" not in smc._param_names
         f_lo, f_hi = smc.physical_param_bounds["frequency"]
@@ -110,7 +120,11 @@ class TestNoZeemanRegression:
 class TestGapAwareAcquisition:
     def test_high_eig_candidates_avoid_gap_and_cover_both_dips(self):
         smc = nv_center_smc_belief(
-            num_particles=2000, with_zeeman_splitting=True, hyperfine="unresolved", with_fixed_frequency=False
+            num_particles=2000,
+            with_zeeman_splitting=True,
+            hyperfine="unresolved",
+            with_fixed_frequency=False,
+            noise_model=gaussian_noise(),
         )
         f_lo, f_hi = smc.physical_param_bounds["frequency"]
         f0 = 0.5 * (f_lo + f_hi)
@@ -119,7 +133,7 @@ class TestGapAwareAcquisition:
         _concentrate_and_resample(smc, f0, delta0, seed=0, n=2000)
 
         cands = smc.get_candidates()
-        eig = smc.expected_information_gain(cands, noise_std=0.02)
+        eig = smc.expected_information_gain(cands)
         order = np.argsort(eig)[::-1]
 
         gap_lo, gap_hi = f0 - delta0 / 3.0, f0 + delta0 / 3.0

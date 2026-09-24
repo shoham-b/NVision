@@ -13,9 +13,9 @@ from scipy.special import gammaln
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
+from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_hz, find_dips
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
-from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.numba_kernels import (
     nv_center_lorentzian_eig_variance,
@@ -389,7 +389,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     a_param: float = NVISION_SMC_A_PARAM
     noise_model: NoiseSignalModel | None = None
     auto_resample: bool = True
-    resample_delay: int = 0
     priors: dict[str, tuple[float, float]] | None = None
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR
@@ -426,11 +425,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _weights: np.ndarray = field(init=False, repr=False)
     _step_count: int = field(init=False, repr=False, default=0)
     _param_names: list[str] = field(init=False, repr=False)
-    _noise_param_slice: slice | None = field(init=False, repr=False, default=None)
     _current_candidates: np.ndarray = field(init=False, repr=False)
-    # Whether the epoch candidate density mixture includes the flat domain-wide
-    # baseline term (see _generate_epoch_candidates / use_global_grid property).
-    _use_global_grid: bool = field(init=False, default=True, repr=False)
+    _dip_candidates: list[DipCandidate] = field(init=False, repr=False, default_factory=list)
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
     _eig_kernel_type: str = field(init=False, repr=False, default="generic")
@@ -455,16 +451,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _eig_cache: tuple | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
-        self._use_rao_blackwell_noise = False
-        if self.noise_model is not None and "noise_sigma" in self.noise_model.spec.names:
-            self._use_rao_blackwell_noise = True
+        # The noise level is always inferred through its conjugate prior (see
+        # docs/equations/sbed_and_smc.md 1.1a): sigma^2 is integrated out of a per-particle
+        # Inverse-Gamma posterior, so ``noise_sigma`` is never a particle dimension and there is
+        # no other way the belief obtains a noise sigma.
+        if self.noise_model is None:
+            raise ValueError("SMCMarginalDistribution requires a noise_model exposing 'noise_sigma'.")
+        if list(self.noise_model.spec.names) != ["noise_sigma"]:
+            raise ValueError(
+                f"SMC belief noise_model must expose exactly ['noise_sigma'], got {list(self.noise_model.spec.names)}"
+            )
 
         self._param_names = list(self.model.parameter_names())
-        if self.noise_model is not None and not self._use_rao_blackwell_noise:
-            # Append noise parameters to the state space
-            for name in self.noise_model.spec.names:
-                if name not in self._param_names:
-                    self._param_names.append(name)
 
         # Initialize particles uniformly within bounds.
         # Column-major (Fortran) layout: per-parameter columns are the access
@@ -521,28 +519,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._obs_sort_valid_count = 0
         self._obs_count = 0
         self._scratch_logw = np.empty(self.num_particles, dtype=FLOAT_DTYPE)
-        self._dip_centers = []
+        self._dip_candidates = []
 
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            prior_bounds = self.noise_model.spec.bounds
-            lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
-            nominal_sigma = float(np.sqrt(max(lo * hi, 0.0)))
-            self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
-            self._noise_betas = np.full(
-                self.num_particles, self.noise_prior_strength * (nominal_sigma**2), dtype=np.float32
-            )
-
-        # Detect noise param dimensions
-        if self.noise_model is not None:
-            noise_names = set(self.noise_model.spec.names)
-            indices = [i for i, name in enumerate(self._param_names) if name in noise_names]
-            if indices:
-                self._noise_param_slice = slice(min(indices), max(indices) + 1)
-
-        # Cache the number of signal dimensions (everything before noise params)
-        self._d_signal = (
-            self._noise_param_slice.start if self._noise_param_slice is not None else len(self._param_names)
+        prior_bounds = self.noise_model.spec.bounds
+        lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
+        nominal_sigma = float(np.sqrt(max(lo * hi, 0.0)))
+        self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
+        self._noise_betas = np.full(
+            self.num_particles, self.noise_prior_strength * (nominal_sigma**2), dtype=np.float32
         )
+
+        # Every particle dimension is a signal parameter (noise lives in _noise_alphas/_noise_betas).
+        self._d_signal = len(self._param_names)
 
         if self.skip_state_init:
             # copy() assigns the real candidates right after construction.
@@ -642,89 +630,56 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
         predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
 
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            # Shot-batch sufficient statistics: n_shots (k) and within-batch
-            # variance s^2. k == 1 reproduces the single-shot update exactly.
-            k = int(getattr(obs, "n_shots", 1) or 1)
-            sample_var = getattr(obs, "sample_var", None)
+        # Shot-batch sufficient statistics: n_shots (k) and within-batch
+        # variance s^2. k == 1 reproduces the single-shot update exactly.
+        k = int(getattr(obs, "n_shots", 1) or 1)
+        sample_var = getattr(obs, "sample_var", None)
 
-            residuals = obs.signal_value - predicted
-            # Rao-Blackwellized marginal likelihood: sigma^2 is analytically
-            # *integrated out* of its current per-particle Inverse-Gamma(alpha,
-            # beta) posterior rather than plugged in as a point estimate
-            # sqrt(beta/alpha). Plugging in the point estimate is a Gaussian
-            # likelihood that, for a single residual, is maximized exactly at
-            # sigma == |residual| -- so resampling (which selects on this
-            # likelihood) systematically favors whichever particle's *current*
-            # sigma estimate happens to match that step's single noise draw.
-            # Since median(|N(0, sigma)|) ~= 0.6745*sigma, an under-estimating
-            # particle wins more often than not, and nothing thereafter
-            # perturbs the noise state back apart (_resample() reindexes
-            # _noise_alphas/_noise_betas but never nudges them) -- the
-            # population's sigma estimate drifts to the prior's lower bound
-            # over successive resamples. Integrating over the Inverse-Gamma
-            # instead gives the exact Normal-InverseGamma predictive, a
-            # (shifted, scaled) Student-t with nu = 2*alpha d.o.f. and
-            # scale^2 = beta / (k*alpha) for the k-shot batch mean; its
-            # fatter tails don't reward an under-confident sigma for
-            # coincidentally matching one residual.
-            alpha = self._noise_alphas
-            beta = self._noise_betas
-            z_sq = k * residuals**2 / beta
-            log_liks = (
-                gammaln(alpha + 0.5)
-                - gammaln(alpha)
-                - 0.5 * np.log(2.0 * np.pi * beta / (k * alpha))
-                - (alpha + 0.5) * np.log1p(z_sq / (2.0 * alpha))
-            )
-            if self.tempering_factor != 1.0:
-                log_liks *= self.tempering_factor
-            # In-place Inverse-Gamma posterior update (residuals are dead after this).
-            # Two orthogonal pieces of evidence about sigma:
-            #   between-batch: the fit residual, rescaled by k since the mean's
-            #                  variance is sigma^2/k, so k*res^2 estimates sigma^2;
-            #   within-batch:  the empirical sample variance s^2 with (k-1) dof.
-            self._noise_alphas *= self.noise_discount_factor
-            self._noise_betas *= self.noise_discount_factor
-            np.square(residuals, out=residuals)
-            residuals *= 0.5 * k
-            self._noise_alphas += 0.5
-            self._noise_betas += residuals
-            if k >= 2 and sample_var is not None:
-                self._noise_alphas += 0.5 * (k - 1)
-                self._noise_betas += 0.5 * (k - 1) * float(sample_var)
-
-        elif self.noise_model is not None and self._noise_param_slice is not None:
-            # Epistemic spread is passed to the noise model for its own tempering logic
-            sigma_epistemic = float(np.std(predicted))
-            noise_arrays = [
-                self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
-            ]
-            residuals = obs.signal_value - predicted
-            log_liks = self.noise_model.composite_log_likelihood(predicted, residuals, noise_arrays, sigma_epistemic)
-        else:
-            if getattr(obs, "frequency_noise_model", None) is not None:
-                # Fallback to match custom frequency noise transformations sequentially
-                liks = likelihood_from_observation_model(
-                    obs_y=obs.signal_value,
-                    predicted=predicted,
-                    noise_std=obs.noise_std,
-                    frequency_noise_model=obs.frequency_noise_model,
-                    tempering_factor=self.tempering_factor,
-                )
-                log_liks = np.log(np.maximum(liks, 1e-30))
-            else:
-                # Optimized pure Gaussian path, computed in place on the
-                # freshly-allocated predictions array (sign of the residual is
-                # irrelevant once squared): log_liks = -0.5 * ((y - pred)/sigma)^2
-                sigma = max(float(obs.noise_std), 1e-9)
-                if self.tempering_factor != 1.0:
-                    sigma *= np.sqrt(self.tempering_factor)
-                predicted -= obs.signal_value
-                predicted /= sigma
-                np.square(predicted, out=predicted)
-                predicted *= -0.5
-                log_liks = predicted
+        residuals = obs.signal_value - predicted
+        # Rao-Blackwellized marginal likelihood: sigma^2 is analytically
+        # *integrated out* of its current per-particle Inverse-Gamma(alpha,
+        # beta) posterior rather than plugged in as a point estimate
+        # sqrt(beta/alpha). Plugging in the point estimate is a Gaussian
+        # likelihood that, for a single residual, is maximized exactly at
+        # sigma == |residual| -- so resampling (which selects on this
+        # likelihood) systematically favors whichever particle's *current*
+        # sigma estimate happens to match that step's single noise draw.
+        # Since median(|N(0, sigma)|) ~= 0.6745*sigma, an under-estimating
+        # particle wins more often than not, and nothing thereafter
+        # perturbs the noise state back apart (_resample() reindexes
+        # _noise_alphas/_noise_betas but never nudges them) -- the
+        # population's sigma estimate drifts to the prior's lower bound
+        # over successive resamples. Integrating over the Inverse-Gamma
+        # instead gives the exact Normal-InverseGamma predictive, a
+        # (shifted, scaled) Student-t with nu = 2*alpha d.o.f. and
+        # scale^2 = beta / (k*alpha) for the k-shot batch mean; its
+        # fatter tails don't reward an under-confident sigma for
+        # coincidentally matching one residual.
+        alpha = self._noise_alphas
+        beta = self._noise_betas
+        z_sq = k * residuals**2 / beta
+        log_liks = (
+            gammaln(alpha + 0.5)
+            - gammaln(alpha)
+            - 0.5 * np.log(2.0 * np.pi * beta / (k * alpha))
+            - (alpha + 0.5) * np.log1p(z_sq / (2.0 * alpha))
+        )
+        if self.tempering_factor != 1.0:
+            log_liks *= self.tempering_factor
+        # In-place Inverse-Gamma posterior update (residuals are dead after this).
+        # Two orthogonal pieces of evidence about sigma:
+        #   between-batch: the fit residual, rescaled by k since the mean's
+        #                  variance is sigma^2/k, so k*res^2 estimates sigma^2;
+        #   within-batch:  the empirical sample variance s^2 with (k-1) dof.
+        self._noise_alphas *= self.noise_discount_factor
+        self._noise_betas *= self.noise_discount_factor
+        np.square(residuals, out=residuals)
+        residuals *= 0.5 * k
+        self._noise_alphas += 0.5
+        self._noise_betas += residuals
+        if k >= 2 and sample_var is not None:
+            self._noise_alphas += 0.5 * (k - 1)
+            self._noise_betas += 0.5 * (k - 1) * float(sample_var)
 
         # 2. Numerically stable weight update (prevents complete underflow collapse).
         # Runs in the persistent scratch buffer — no per-step allocations here.
@@ -749,11 +704,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 4. Resample if Effective Sample Size (ESS) is too low [cite: 198, 199]
         ess = _inverse_sum_squares(self._weights)
         self.last_ess = float(ess)
-        if (
-            self.auto_resample
-            and ess < self.ess_threshold * self.num_particles
-            and self._step_count >= self.resample_delay
-        ):
+        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
 
     def batch_update(self, observations: list[Observation]) -> None:
@@ -768,86 +719,39 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
         log_weights = np.zeros(self.num_particles, dtype=FLOAT_DTYPE)
 
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            # Batch the model evaluation (the expensive part) into one
-            # vectorized matrix call; the Inverse-Gamma posterior recursion
-            # over alphas/betas is inherently sequential but cheap.
-            all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
-            predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
-            for obs_idx, obs in enumerate(observations):
-                predicted = predictions[obs_idx]
-                residuals = obs.signal_value - predicted
-                # Rao-Blackwellized marginal likelihood (see the matching branch
-                # in update() for why the point-estimate plug-in sigma biases
-                # the posterior toward zero): integrate sigma^2 out of its
-                # current Inverse-Gamma(alpha, beta) posterior instead of
-                # substituting sqrt(beta/alpha), giving the Normal-InverseGamma
-                # Student-t predictive with nu = 2*alpha and scale^2 = beta/alpha.
-                alpha = self._noise_alphas
-                beta = self._noise_betas
-                z_sq = residuals**2 / beta
-                log_liks = (
-                    gammaln(alpha + 0.5)
-                    - gammaln(alpha)
-                    - 0.5 * np.log(2.0 * np.pi * beta / alpha)
-                    - (alpha + 0.5) * np.log1p(z_sq / (2.0 * alpha))
-                )
-                if self.tempering_factor != 1.0:
-                    log_liks *= self.tempering_factor
-                log_weights += log_liks
-                # In-place Inverse-Gamma posterior update (residuals are dead after this)
-                self._noise_alphas *= self.noise_discount_factor
-                self._noise_alphas += 0.5
-                np.square(residuals, out=residuals)
-                residuals *= 0.5
-                self._noise_betas *= self.noise_discount_factor
-                self._noise_betas += residuals
-
-        elif self.noise_model is not None and self._noise_param_slice is not None:
-            # Path A: Custom composite noise model evaluating epistemic spread.
-            # Model evaluation is batched into one vectorized matrix call; only
-            # the per-observation composite likelihood remains in the loop.
-            noise_arrays = [
-                self._particles[:, j] for j in range(self._noise_param_slice.start, self._noise_param_slice.stop)
-            ]
-            all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
-            predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
-            for k, obs in enumerate(observations):
-                predicted = predictions[k]
-                sigma_epistemic = float(np.std(predicted))
-                residuals = obs.signal_value - predicted
-
-                # Accumulated directly; inner max-subtraction removed for speed
-                log_weights += self.noise_model.composite_log_likelihood(
-                    predicted, residuals, noise_arrays, sigma_epistemic
-                )
-        else:
-            # Path B: Standard/Frequency noise model
-            if any(obs.frequency_noise_model is not None for obs in observations):
-                # Fallback to match custom frequency noise transformations sequentially
-                for obs in observations:
-                    predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
-                    lik = likelihood_from_observation_model(
-                        obs_y=obs.signal_value,
-                        predicted=predicted,
-                        noise_std=obs.noise_std,
-                        frequency_noise_model=obs.frequency_noise_model,
-                        tempering_factor=self.tempering_factor,
-                    )
-                    log_weights += np.log(np.maximum(lik, 1e-30))
-            else:
-                # Optimized pure Gaussian path via vectorized matrix operations
-                all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
-                predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
-
-                ys = np.array([obs.signal_value for obs in observations], dtype=FLOAT_DTYPE)
-                sigmas = np.array([max(float(obs.noise_std), 1e-9) for obs in observations], dtype=FLOAT_DTYPE)
-                if self.tempering_factor != 1.0:
-                    sigmas *= np.sqrt(self.tempering_factor)
-
-                residuals = ys[:, None] - predictions
-                log_liks_matrix = -0.5 * (residuals / sigmas[:, None]) ** 2
-                log_weights += log_liks_matrix.sum(axis=0)
+        # Batch the model evaluation (the expensive part) into one
+        # vectorized matrix call; the Inverse-Gamma posterior recursion
+        # over alphas/betas is inherently sequential but cheap.
+        all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
+        predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
+        for obs_idx, obs in enumerate(observations):
+            predicted = predictions[obs_idx]
+            residuals = obs.signal_value - predicted
+            # Rao-Blackwellized marginal likelihood (see the matching branch
+            # in update() for why the point-estimate plug-in sigma biases
+            # the posterior toward zero): integrate sigma^2 out of its
+            # current Inverse-Gamma(alpha, beta) posterior instead of
+            # substituting sqrt(beta/alpha), giving the Normal-InverseGamma
+            # Student-t predictive with nu = 2*alpha and scale^2 = beta/alpha.
+            alpha = self._noise_alphas
+            beta = self._noise_betas
+            z_sq = residuals**2 / beta
+            log_liks = (
+                gammaln(alpha + 0.5)
+                - gammaln(alpha)
+                - 0.5 * np.log(2.0 * np.pi * beta / alpha)
+                - (alpha + 0.5) * np.log1p(z_sq / (2.0 * alpha))
+            )
+            if self.tempering_factor != 1.0:
+                log_liks *= self.tempering_factor
+            log_weights += log_liks
+            # In-place Inverse-Gamma posterior update (residuals are dead after this)
+            self._noise_alphas *= self.noise_discount_factor
+            self._noise_alphas += 0.5
+            np.square(residuals, out=residuals)
+            residuals *= 0.5
+            self._noise_betas *= self.noise_discount_factor
+            self._noise_betas += residuals
 
         self._step_count += len(observations)
 
@@ -871,12 +775,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Evaluate Effective Sample Size (ESS) for resampling
         ess = _inverse_sum_squares(self._weights)
         self.last_ess = float(ess)
-        if (
-            self.auto_resample
-            and ess < self.ess_threshold * self.num_particles
-            and self._step_count >= self.resample_delay
-        ):
+        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
+
+    @property
+    def dip_candidates(self) -> list[DipCandidate]:
+        """Dips the observations showed when the current epoch's candidates were generated.
+
+        Deterministic function of the measured scan and the conjugate noise estimate (see
+        :func:`nvision.belief.dip_detection.find_dips`); empty until enough observations exist.
+        """
+        return list(self._dip_candidates)
 
     def get_candidates(self) -> np.ndarray:
         """Return the current epoch's slope-targeted candidate grid."""
@@ -1004,30 +913,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Conservative (90th percentile highest) noise σ estimate.
 
         Returns the 90th percentile of the noise standard deviation posterior
-        distribution across the weighted particle population. Under Rao-Blackwell,
-        uses the mode of each particle's Inverse-Gamma posterior.
+        distribution across the weighted particle population, using
+        the mode of each particle's Inverse-Gamma posterior.
         """
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            sigmas = np.sqrt(self._noise_betas / (self._noise_alphas + 0.5))
-        elif hasattr(self, "_param_names") and "noise_sigma" in self._param_names:
-            idx = self._param_names.index("noise_sigma")
-            raw_sigmas = self._particles[:, idx]
-            if hasattr(self, "physical_param_bounds") and "noise_sigma" in self.physical_param_bounds:
-                lo, hi = self.physical_param_bounds["noise_sigma"]
-                sigmas = lo + raw_sigmas * (hi - lo)
-            else:
-                sigmas = raw_sigmas
-        else:
-            # Retrieve nominal noise std from the noise model spec itself
-            if self.noise_model is not None and hasattr(self.noise_model, "spec") and self.noise_model.spec is not None:
-                bounds = getattr(self.noise_model.spec, "bounds", {})
-                if "noise_sigma" in bounds:
-                    lo, hi = bounds["noise_sigma"]
-                    return float(np.sqrt(max(lo * hi, 0.0)))
-            raise ValueError(
-                "estimated_noise_std() called but no active noise model or noise "
-                "parameters are configured in the belief."
-            )
+        sigmas = np.sqrt(self._noise_betas / (self._noise_alphas + 0.5))
 
         # Compute the 90th percentile of the weighted sigmas distribution
         weights = self._weights
@@ -1047,60 +936,27 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def noise_std_uncertainty(self, est_std: float | None = None) -> float:
         """Return the posterior uncertainty (standard deviation) of the noise parameter.
 
-        If Rao-Blackwell is active, calculates the uncertainty of the standard
-        deviation sigma using the Delta method:
+        Calculates the uncertainty of the standard deviation sigma using the Delta method:
         Uncertainty(sigma) = Uncertainty(sigma^2) / (2 * estimated_noise_std).
-        Otherwise, returns the empirical uncertainty from the particle population
-        if noise is a regular particle parameter.
         """
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            # overall_var_sigma_sq is the variance of variance (sigma^2).
-            # From _uncertainty_unit():
-            expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
-            mean_var = np.sum(self._weights * expected_vars)
+        # overall_var_sigma_sq is the variance of variance (sigma^2).
+        # From _uncertainty_unit():
+        expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
+        mean_var = np.sum(self._weights * expected_vars)
 
-            denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-            within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+        denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
+        within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
 
-            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
-                self._weights * (expected_vars - mean_var) ** 2
-            )
-            var_sigma_sq_std = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
-
-            if est_std is None:
-                est_std = self.estimated_noise_std()
-            if est_std > 1e-9:
-                return var_sigma_sq_std / (2.0 * est_std)
-            return var_sigma_sq_std
-
-        if hasattr(self, "_param_names") and "noise_sigma" in self._param_names:
-            uncs = self.uncertainty()
-            return float(uncs["noise_sigma"])
-
-        raise ValueError(
-            "noise_std_uncertainty() called but no active noise model or noise parameters are configured in the belief."
+        overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
+            self._weights * (expected_vars - mean_var) ** 2
         )
+        var_sigma_sq_std = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
 
-    @property
-    def use_global_grid(self) -> bool:
-        """Whether the epoch candidate density mixture includes the flat,
-        domain-wide baseline term (see :meth:`_generate_epoch_candidates`).
-
-        Defaults to ``True``. The SBED locator sets this ``False`` once its
-        focus-window confidence signal (``compute_focus_window_confidence(...)
-        .is_stable``) fires, on the reasoning that once the true dip location is
-        confidently found, spending candidate budget on domain-wide backstop
-        coverage is no longer worth it.
-        """
-        return self._use_global_grid
-
-    @use_global_grid.setter
-    def use_global_grid(self, value: bool) -> None:
-        value = bool(value)
-        if value == self._use_global_grid:
-            return
-        self._use_global_grid = value
-        self._generate_epoch_candidates()
+        if est_std is None:
+            est_std = self.estimated_noise_std()
+        if est_std > 1e-9:
+            return var_sigma_sq_std / (2.0 * est_std)
+        return var_sigma_sq_std
 
     def _generate_epoch_candidates(self) -> None:
         """Generate the epoch candidate density mixture and cache its quantile
@@ -1116,7 +972,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # prediction-matrix cache (built from both) must be rebuilt.
         self._eig_epoch += 1
         self._eig_cache = None
-        self._dip_centers = []
+        self._dip_candidates = []
         # Use unit-space estimates and uncertainties to avoid physical-unit mismatch in subclasses
         estimates = self._estimates_unit()
         uncertainties = self._uncertainty_unit()
@@ -1234,10 +1090,25 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 if c_key not in centers_seen:
                     centers_seen.add(c_key)
                     centers_phys.append(c)
+        if "frequency" not in phys_bounds:
+            raise RuntimeError(
+                "_generate_epoch_candidates: 'frequency' is missing from "
+                "physical_param_bounds — all beliefs must declare frequency bounds at construction."
+            )
+        phys_f_lo, phys_f_hi = phys_bounds["frequency"]
+        if not (phys_f_hi > phys_f_lo):
+            raise ValueError(f"_generate_epoch_candidates: degenerate frequency domain [{phys_f_lo}, {phys_f_hi}].")
+        # The probe window is typically only one half of the mirror-symmetric spectrum
+        # (see DEFAULT_NV_CENTER_FREQ_X_MIN), so a slope point falling outside it is
+        # measured at its mirror image about the signal center instead.
         slopes_phys = []
         for c in centers_phys:
-            slopes_phys.append(c - omega_phys)
-            slopes_phys.append(c + omega_phys)
+            for s in (c - omega_phys, c + omega_phys):
+                if not (phys_f_lo <= s <= phys_f_hi):
+                    mirror = 2.0 * f_b_phys - s
+                    if phys_f_lo <= mirror <= phys_f_hi:
+                        s = mirror
+                slopes_phys.append(s)
 
         # 5. Build the unified candidate-density mixture.
         #
@@ -1253,15 +1124,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # draw, so NVISION_RNG_SEED reproducibility is untouched), and
         # concentrated where the mixture says information actually is, rather
         # than uniform-within-window-then-a-density-cliff at the window edge.
-        if "frequency" not in phys_bounds:
-            raise RuntimeError(
-                "_generate_epoch_candidates: 'frequency' is missing from "
-                "physical_param_bounds — all beliefs must declare frequency bounds at construction."
-            )
-        phys_f_lo, phys_f_hi = phys_bounds["frequency"]
         f_lo_unit, f_hi_unit = self.parameter_bounds["frequency"]
-        if not (phys_f_hi > phys_f_lo):
-            raise ValueError(f"_generate_epoch_candidates: degenerate frequency domain [{phys_f_lo}, {phys_f_hi}].")
 
         slope_bw_phys = max(sigma_eff_phys, min_step_physical)
         kernels: list[tuple[float, float, float]] = [(s_phys, slope_bw_phys, 1.0) for s_phys in slopes_phys]
@@ -1275,81 +1138,25 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 5b. Observation-driven dip focusing.
         # Use empirically measured low-signal values to add dense candidates directly
         # at the true dip locations, correcting for posterior bias when belief is wrong.
-        if self._obs_count >= 5 and self.noise_model is not None:
-            from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
-
-            rescale_maps = self._rescale_maps
-            if "frequency" not in rescale_maps:
-                raise RuntimeError(
-                    f"{type(self).__name__} is missing _rescale_maps['frequency']. "
-                    "Ensure physical_param_bounds includes 'frequency' at construction."
-                )
-            freq_rescale = rescale_maps["frequency"]
-            # Sorted-by-x view (maintained incrementally in _append_observation,
-            # not re-sorted here). to_phys() is a strictly increasing affine map
-            # (RescaleMap enforces hi > lo), so sortedness is preserved.
+        if self._obs_count >= 5:
             obs_xs, obs_ys = self.sorted_observation_arrays()
-            obs_xs_phys = freq_rescale.to_phys(obs_xs)
             noise_std = self.estimated_noise_std()
-            noise_std_unc = self.noise_std_uncertainty(noise_std)
-            # Derive cluster radius from the linewidth prior upper bound (lineshape-agnostic:
-            # mirrors sbed_locator._effective_max_linewidth_hz).
-            if "linewidth" in phys_bounds:
-                max_linewidth_hz = phys_bounds["linewidth"][1]
-            elif "saturation" in phys_bounds and "sigma_inhom" in phys_bounds:
-                from nvision.spectra.nv_center import NV_NATURAL_HWHM_HZ
-
-                s_hi = phys_bounds["saturation"][1]
-                sigma_inhom_hi = phys_bounds["sigma_inhom"][1]
-                gamma_hom_hi = NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + s_hi)
-                max_linewidth_hz = gamma_hom_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
-            elif "homogeneous_linewidth" in phys_bounds:
-                hl_hi = phys_bounds["homogeneous_linewidth"][1]
-                sigma_inhom_hi = phys_bounds.get("sigma_inhom", (0.0, 0.0))[1]
-                max_linewidth_hz = hl_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
-            elif "fwhm_total" in phys_bounds:
-                max_linewidth_hz = phys_bounds["fwhm_total"][1] / 2.0
-            else:
-                max_linewidth_hz = 1e6
-            max_zeeman_hz = phys_bounds["zeeman_split"][1] if "zeeman_split" in phys_bounds else 0.0
-            max_hf_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else 0.0
-            if max_zeeman_hz > 0 or max_hf_split_hz > 0:
-                max_split_hz: float | None = 2.0 * max_zeeman_hz + 2.0 * max_hf_split_hz
-            else:
-                max_split_hz = None
-
-            # Extract per-particle noise sigmas
-            if getattr(self, "_use_rao_blackwell_noise", False):
-                per_particle_sigmas = np.sqrt(self._noise_betas / (self._noise_alphas + 0.5))
-            elif "noise_sigma" in self._param_names:
-                idx = self._param_names.index("noise_sigma")
-                per_particle_sigmas = self._particles[:, idx]
-            else:
-                per_particle_sigmas = None
-
-            dip_candidates = identify_dip_candidates(
-                obs_xs_phys,
+            self._dip_candidates = find_dips(
+                self._rescale_maps["frequency"].to_phys(obs_xs),
                 obs_ys,
                 noise_std,
-                max_linewidth_hz,
-                noise_std_unc=noise_std_unc,
-                per_particle_sigmas=per_particle_sigmas,
-                particle_weights=self._weights,
-                max_split_hz=max_split_hz,
+                effective_max_linewidth_hz(phys_bounds),
+                noise_std_unc=self.noise_std_uncertainty(noise_std),
                 assume_sorted=True,
             )
-
-            self._dip_centers = [c.centroid_hz for c in dip_candidates]
-
-            if dip_candidates:
-                total_sig = sum(c.significance for c in dip_candidates)
+            if self._dip_candidates:
+                total_sig = sum(c.significance for c in self._dip_candidates)
                 # The dip family competes with the slope family on equal aggregate
                 # footing (each gets n_slope_kernels total mixture weight); within
-                # the dip family, individual dips are still split by significance,
-                # mirroring the old total_budget=100 proportional split.
+                # the dip family, individual dips are still split by significance.
                 dip_family_weight = float(n_slope_kernels)
-                for candidate in dip_candidates:
-                    frac = candidate.significance / total_sig if total_sig > 0 else 1.0 / len(dip_candidates)
+                for candidate in self._dip_candidates:
+                    frac = candidate.significance / total_sig
                     window_phys = max(3.0 * omega_phys, sigma_eff_phys, NVISION_SMC_DIP_WINDOW_MIN_HZ)
                     dip_bw_phys = max(window_phys / 3.0, min_step_physical)
                     kernels.append((candidate.centroid_hz, dip_bw_phys, frac * dip_family_weight))
@@ -1358,13 +1165,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # by use_global_grid. Scaled relative to the local (slope + dip) mass so
         # its share stays roughly constant whether or not dips have been detected.
         local_weight_total = sum(w for _, _, w in kernels)
-        baseline_weight = _EPOCH_BASELINE_MASS_FRACTION * local_weight_total if self.use_global_grid else 0.0
+        baseline_weight = _EPOCH_BASELINE_MASS_FRACTION * local_weight_total
 
         total_weight = local_weight_total + baseline_weight
         if not (total_weight > 0) or not math.isfinite(total_weight):
             raise ValueError(
                 "_generate_epoch_candidates: candidate density mixture has zero total weight "
-                f"(use_global_grid={self.use_global_grid}, n_kernels={len(kernels)}, "
+                f"(n_kernels={len(kernels)}, "
                 f"local_weight_total={local_weight_total!r}). There is nothing to build an "
                 "epoch candidate grid from."
             )
@@ -1424,9 +1231,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles = self._particles.T[:, new_indices].T
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            self._noise_alphas = self._noise_alphas[new_indices]
-            self._noise_betas = self._noise_betas[new_indices]
+        self._noise_alphas = self._noise_alphas[new_indices]
+        self._noise_betas = self._noise_betas[new_indices]
 
         # 4. Enforce minimum exploration variance based on parameter ranges.
         # We apply this to the total covariance before nudging, so the steady
@@ -1501,9 +1307,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         means = _weighted_mean_axis0(self._particles, self._weights)
         res = {name: float(means[i]) for i, name in enumerate(self._param_names)}
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            est_sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
-            res["noise_sigma"] = float(np.sum(self._weights * est_sigmas))
+        est_sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
+        res["noise_sigma"] = float(np.sum(self._weights * est_sigmas))
 
         self._estimates_cache = res
         self._estimates_cache_version = self._belief_version
@@ -1522,8 +1327,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         idx = int(np.argmax(self._weights))
         res = {name: float(self._particles[idx, i]) for i, name in enumerate(self._param_names)}
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            res["noise_sigma"] = float(np.sqrt(self._noise_betas[idx] / self._noise_alphas[idx]))
+        res["noise_sigma"] = float(np.sqrt(self._noise_betas[idx] / self._noise_alphas[idx]))
         return res
 
     def _uncertainty_unit(self) -> ParameterValues[float]:
@@ -1542,8 +1346,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         sw = w.sum()
         if sw <= 0.0:
             stds = {name: 0.0 for name in self._param_names}
-            if getattr(self, "_use_rao_blackwell_noise", False):
-                stds["noise_sigma"] = 0.0
+            stds["noise_sigma"] = 0.0
             result = ParameterValues.from_mapping(list(stds.keys()), stds)
             self._uncertainty_cache = result
             self._uncertainty_cache_version = self._belief_version
@@ -1554,17 +1357,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         var = (w @ (diff**2)) / sw  # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
 
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
-            mean_var = np.sum(self._weights * expected_vars)
+        expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
+        mean_var = np.sum(self._weights * expected_vars)
 
-            denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-            within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+        denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
+        within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
 
-            overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
-                self._weights * (expected_vars - mean_var) ** 2
-            )
-            stds["noise_sigma"] = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
+        overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
+            self._weights * (expected_vars - mean_var) ** 2
+        )
+        stds["noise_sigma"] = float(np.sqrt(max(0.0, overall_var_sigma_sq)))
 
         result = ParameterValues.from_mapping(list(stds.keys()), stds)
         self._uncertainty_cache = result
@@ -1603,8 +1405,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         n_params = len(self._param_names)
         if sw <= 0.0 or self.num_particles < 4:
             stds = dict.fromkeys(self._param_names, float("nan"))
-            if getattr(self, "_use_rao_blackwell_noise", False):
-                stds["noise_sigma"] = float("nan")
+            stds["noise_sigma"] = float("nan")
             return ParameterValues.from_mapping(list(stds.keys()), stds)
 
         p = self._particles  # (N, d)
@@ -1622,12 +1423,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             q1, q3 = np.interp([0.25, 0.75], cw, v)
             stds[self._param_names[i]] = float((q3 - q1) / 1.349)
 
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            # noise_sigma has no particle dimension of its own (it's a Rao-
-            # Blackwellized per-particle Normal-Inverse-Gamma posterior, not a
-            # sampled coordinate) -- no IQR is defined for it; fall back to the
-            # same value _uncertainty_unit reports.
-            stds["noise_sigma"] = float(self._uncertainty_unit().get("noise_sigma", float("nan")))
+        # noise_sigma has no particle dimension of its own (it's a Rao-
+        # Blackwellized per-particle Normal-Inverse-Gamma posterior, not a
+        # sampled coordinate) -- no IQR is defined for it; fall back to the
+        # same value _uncertainty_unit reports.
+        stds["noise_sigma"] = float(self._uncertainty_unit().get("noise_sigma", float("nan")))
 
         return ParameterValues.from_mapping(list(stds.keys()), stds)
 
@@ -1720,7 +1520,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             last_obs=self.last_obs,
             noise_model=self.noise_model,
             auto_resample=self.auto_resample,
-            resample_delay=self.resample_delay,
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
             tempering_factor=self.tempering_factor,
@@ -1731,7 +1530,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Candidates depend only on bounds/particles, which are identical here —
         # share by reference (consumers rebind on narrowing/resample, never
         # mutate in place).
-        dist._use_global_grid = self._use_global_grid
         dist._current_candidates = self._current_candidates
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy(order="K")  # preserve F-order layout
@@ -1744,13 +1542,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._obs_sort_order = self._obs_sort_order.copy()
         dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
-        dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            dist._noise_alphas = self._noise_alphas.copy()
-            dist._noise_betas = self._noise_betas.copy()
-        if hasattr(self, "_dip_centers"):
-            dist._dip_centers = list(self._dip_centers)
-        dist._use_global_grid = self._use_global_grid
+        dist._noise_alphas = self._noise_alphas.copy()
+        dist._noise_betas = self._noise_betas.copy()
+        dist._dip_candidates = list(self._dip_candidates)
         return dist
 
     def _weighted_mean(self, name: str) -> float:
@@ -1766,7 +1560,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, data)
 
-    def select_max_information_gain(self, candidates: np.ndarray, n: int, noise_std: float = 0.02) -> np.ndarray:
+    def select_max_information_gain(self, candidates: np.ndarray, n: int) -> np.ndarray:
         """Select the top-n candidate locations by expected information gain.
 
         Evaluates EIG across ``candidates`` in chunks of :data:`_EIG_CHUNK_SIZE`
@@ -1776,7 +1570,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Args:
             candidates: 1D array of candidate measurement locations.
             n: Number of top candidates to return.
-            noise_std: Measurement noise floor for EIG calculation.
 
         Returns:
             1D numpy array of up to *n* candidate locations ranked by EIG
@@ -1786,7 +1579,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             return candidates[:0]
 
         # Evaluate EIG over all candidates in one vectorized call.
-        eig_scores = self.expected_information_gain(candidates, noise_std=noise_std).astype(FLOAT_DTYPE)
+        eig_scores = self.expected_information_gain(candidates).astype(FLOAT_DTYPE)
 
         # Boltzmann sampling over chunk winners to avoid getting stuck at a
         # single numerical noise peak (same logic, now over the full grid).
@@ -1805,13 +1598,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         return candidates[best_indices]
 
-    def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
+    def expected_information_gain(self, candidates: np.ndarray) -> np.ndarray:
         """Compute the approximate expected information gain for candidate locations.
 
         Uses the approximation:
         EIG(d) ≈ 1/2 * ln(1 + sigma_theta^2 / sigma_eta^2)
         where sigma_theta^2 is the prediction variance (disagreement for that frequency across particles)
-        and sigma_eta^2 is the measurement noise variance.
+        and sigma_eta^2 is the measurement noise variance (the conjugate posterior's expected
+        sigma^2, averaged over the particles).
 
         When the particle count exceeds ``NVISION_SMC_EIG_PARTICLES``, a weighted
         subsample is used for the prediction-variance estimate.  EIG only needs
@@ -1853,12 +1647,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             # without materialising the (n_candidates x n_eig) predictions matrix.
             var_pred = self._eig_variance_fused(candidates, part_t, w_sub)
 
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
-            noise_var = float(np.sum(self._weights * est_variances))
-            noise_var = max(noise_var, 1e-12)
-        else:
-            noise_var = max(noise_std**2, 1e-12)
+        est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
+        noise_var = max(float(np.sum(self._weights * est_variances)), 1e-12)
 
         return 0.5 * np.log1p(var_pred / noise_var)
 

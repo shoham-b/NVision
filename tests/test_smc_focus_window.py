@@ -4,6 +4,7 @@ import pytest
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.spectra.gaussian import GaussianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+from tests.noise import gaussian_noise
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +28,13 @@ def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarg
     base_model = GaussianModel()
     base_model.signal_min_span = lambda w: 1e5
     model = UnitCubeSignalModel(base_model, param_bounds_phys=bounds, x_bounds_phys=(freq_lo, freq_hi))
-    smc = MockSMC(model=model, num_particles=1000, physical_param_bounds=bounds, physical_x_bounds=(freq_lo, freq_hi))
+    smc = MockSMC(
+        model=model,
+        num_particles=1000,
+        physical_param_bounds=bounds,
+        physical_x_bounds=(freq_lo, freq_hi),
+        noise_model=gaussian_noise(),
+    )
     smc._param_names = ["frequency", "sigma", "dip_depth", "background"]
     smc._weights = np.ones(1000, dtype=np.float32) / 1000.0
     return smc

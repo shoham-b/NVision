@@ -5,6 +5,7 @@ from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+from tests.noise import gaussian_noise
 
 
 def test_generic_sweep_classic_fit():
@@ -41,6 +42,7 @@ def test_generic_sweep_classic_fit():
         num_particles=100,
         physical_param_bounds=unit_model.param_bounds_phys,
         physical_x_bounds=unit_model.x_bounds_phys,
+        noise_model=gaussian_noise(),
     )
 
     locator = GenericSweepLocator(

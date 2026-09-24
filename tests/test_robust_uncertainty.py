@@ -25,6 +25,7 @@ from nvision.belief.abstract_marginal import AbstractMarginalDistribution, Param
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+from tests.noise import gaussian_noise
 
 # ---------------------------------------------------------------------------
 # Minimal synthetic model (no gradient needed -- robust_uncertainty only
@@ -80,6 +81,7 @@ def _make_belief(num_particles: int = 200) -> SMCMarginalDistribution:
         parameter_bounds={"amplitude": (0.0, 1.0), "center": (0.0, 1.0)},
         num_particles=num_particles,
         skip_state_init=True,
+        noise_model=gaussian_noise(),
     )
     _fill_particles(belief, num_particles)
     return belief
@@ -173,6 +175,7 @@ def _make_unit_cube_belief(phys_bounds: dict, num_particles: int = 200) -> UnitC
         physical_param_bounds=phys_bounds,
         physical_x_bounds=phys_bounds["center"],
         skip_state_init=True,
+        noise_model=gaussian_noise(),
     )
     _fill_particles(belief, num_particles)
     return belief
@@ -272,6 +275,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
             num_particles=200,
             physical_param_bounds=phys_bounds,
             physical_x_bounds=phys_bounds["frequency"],
+            noise_model=gaussian_noise(),
         )
         loc = SequentialBayesianExperimentDesignLocator(
             belief=belief,
@@ -300,7 +304,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
 
         # Build up a genuine streak first (tight cloud, no spike).
         for _ in range(3):
-            loc._check_and_resample(check_convergence=True)
+            loc._check_and_resample()
         assert loc._convergence_streak == 3
         assert not loc._is_converged
 
@@ -317,7 +321,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
         robust_unc = belief.robust_uncertainty()["linewidth"]
         assert raw_unc > robust_unc * 3
 
-        loc._check_and_resample(check_convergence=True)
+        loc._check_and_resample()
         assert loc._convergence_streak == 4, (
             "convergence streak was reset by a transient raw-uncertainty spike "
             "that robust_uncertainty() should have filtered out"

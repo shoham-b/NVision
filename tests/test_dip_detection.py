@@ -1,4 +1,4 @@
-"""Unit tests for robust dip detection and noise estimation."""
+"""Unit tests for deterministic dip detection and the belief's conjugate noise estimate."""
 
 from __future__ import annotations
 
@@ -6,225 +6,109 @@ import numpy as np
 import pytest
 
 from nvision import nv_center_smc_belief
-from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
+from nvision.belief.dip_detection import effective_max_linewidth_hz, find_dips
+from tests.noise import gaussian_noise
+
+# A clean scan: baseline 1.0 with one dip (three points ~0.2-0.3 below it) around 2.822 GHz.
+_DIP_XS = np.array([2.8e9, 2.81e9, 2.82e9, 2.822e9, 2.824e9, 2.83e9, 2.84e9, 2.85e9, 2.86e9, 2.87e9])
+_DIP_YS = np.array([1.0, 1.0, 0.8, 0.7, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0])
 
 
-def test_identify_dip_candidates_empty():
-    # Empty inputs
-    assert identify_dip_candidates(np.array([]), np.array([]), 0.02, 5e6) == []
+def test_find_dips_empty():
+    assert find_dips(np.array([]), np.array([]), 0.02, 5e6) == []
 
 
-def test_identify_dip_candidates_no_dips():
-    # Signals all around background level (1.0), with noise std of 0.02, min cluster count 2.
+def test_find_dips_no_dips():
+    # Every point is ~1.0, within noise of the baseline: nothing sits 3 sigma below it.
     obs_xs = np.linspace(2.8e9, 2.9e9, 10)
-    obs_ys = np.ones(10) + np.random.uniform(-0.01, 0.01, 10)
-    # The threshold will be background - max(3 * 0.02, 0.01) = 1.0 - 0.06 = 0.94.
-    # All signals are ~1.0, so no dips are found.
-    assert identify_dip_candidates(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2) == []
+    obs_ys = np.ones(10) + np.random.default_rng(0).uniform(-0.01, 0.01, 10)
+    assert find_dips(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2) == []
 
 
-def test_identify_dip_candidates_single_isolated_spike():
-    # A single isolated point below threshold.
-    # With min_cluster_count=2, it should be filtered out.
+def test_find_dips_single_isolated_low_point_is_filtered():
     obs_xs = np.linspace(2.8e9, 2.9e9, 10)
     obs_ys = np.ones(10)
-    obs_ys[5] = 0.8  # Deep dip at index 5, but only 1 point.
-    # Threshold background is ~1.0. dip_thresh = 1.0 - 0.06 = 0.94.
-    # The point at index 5 is 0.8 < 0.94, but it is alone.
-    assert identify_dip_candidates(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2) == []
+    obs_ys[5] = 0.8  # deep, but alone: below min_cluster_count
+    assert find_dips(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2) == []
 
 
-def test_identify_dip_candidates_cluster_detection():
-    # Two points close to each other below threshold.
-    # Should be detected as a cluster, and return its signal-depth-weighted centroid.
-    obs_xs = np.array([2.8e9, 2.81e9, 2.82e9, 2.822e9, 2.824e9, 2.83e9, 2.84e9, 2.85e9, 2.86e9, 2.87e9])
-    obs_ys = np.array([1.0, 1.0, 0.8, 0.7, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0])
-    # Points at 2.82e9, 2.822e9, 2.824e9 are below 0.94.
-    # They are within 3 * 5 MHz = 15 MHz of each other, so they form a single cluster.
-    # Depth weights: background = 1.0.
-    # weights: 1.0 - 0.8 = 0.2, 1.0 - 0.7 = 0.3, 1.0 - 0.8 = 0.2.
-    # centroid = (2.82e9 * 0.2 + 2.822e9 * 0.3 + 2.824e9 * 0.2) / 0.7 = 2.822e9.
-    centroids = identify_dip_candidates(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2)
-    assert len(centroids) == 1
-    assert np.isclose(centroids[0].centroid_hz, 2.822e9)
+def test_find_dips_cluster_centroid_is_depth_weighted():
+    # 2.82/2.822/2.824 GHz are all > 3 sigma below the 1.0 baseline and within 3 * 5 MHz of each
+    # other, so they form one dip; depth weights are 0.2, 0.3, 0.2.
+    dips = find_dips(_DIP_XS, _DIP_YS, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2)
+    assert len(dips) == 1
+    assert np.isclose(dips[0].centroid_hz, 2.822e9)
+    assert dips[0].n_points == 3
+    assert dips[0].significance == 3.0
+    assert (dips[0].f_min, dips[0].f_max) == (2.82e9, 2.824e9)
+    assert np.isclose(dips[0].background, 1.0)
 
 
-def test_identify_dip_candidates_per_particle_voting():
-    obs_xs = np.array([2.8e9, 2.802e9, 2.9e9, 2.91e9, 2.92e9, 2.93e9])
-    obs_ys = np.array([0.7, 0.7, 1.0, 1.0, 1.0, 1.0])
-
-    # 2 particles:
-    # Particle 0: sigma = 0.01, weight = 0.8
-    # Particle 1: sigma = 0.15, weight = 0.2
-    per_particle_sigmas = np.array([0.01, 0.15])
-    particle_weights = np.array([0.8, 0.2])
-
-    candidates = identify_dip_candidates(
-        obs_xs,
-        obs_ys,
-        noise_std=0.05,
-        max_linewidth_hz=5e6,
-        per_particle_sigmas=per_particle_sigmas,
-        particle_weights=particle_weights,
-        min_cluster_count=2,
-        confidence_threshold=0.0,
-    )
-    assert len(candidates) == 1
-    assert np.isclose(candidates[0].significance, 1.6)
+def test_find_dips_separates_distant_dips_and_ranks_by_significance():
+    xs = np.array([2.80e9, 2.802e9, 2.804e9, 2.85e9, 2.90e9, 2.902e9, 2.95e9, 2.96e9])
+    ys = np.array([0.7, 0.7, 0.7, 1.0, 0.7, 0.7, 1.0, 1.0])
+    dips = find_dips(xs, ys, 0.03, 5e6, n_sigma=3.0, min_cluster_count=2, confidence_threshold=0.0)
+    assert [d.n_points for d in dips] == [3, 2]
+    assert dips[0].centroid_hz < 2.81e9 < 2.89e9 < dips[1].centroid_hz
 
 
-def test_identify_dip_candidates_binomial_confidence_gate():
-    obs_xs = np.array([2.8e9, 2.802e9, 2.9e9, 2.91e9, 2.92e9, 2.93e9, 2.94e9, 2.95e9, 2.96e9, 2.97e9])
-    obs_ys = np.array([0.9, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-
-    # 2 particles:
-    # Particle 0: sigma = 0.01, weight = 0.1
-    # Particle 1: sigma = 0.04, weight = 0.9
-    per_particle_sigmas = np.array([0.01, 0.04])
-    particle_weights = np.array([0.1, 0.9])
-
-    cands_gated = identify_dip_candidates(
-        obs_xs,
-        obs_ys,
-        noise_std=0.03,
-        max_linewidth_hz=5e6,
-        per_particle_sigmas=per_particle_sigmas,
-        particle_weights=particle_weights,
-        min_cluster_count=2,
-        confidence_threshold=0.99,
-    )
-    assert cands_gated == []
-
-    cands_ungated = identify_dip_candidates(
-        obs_xs,
-        obs_ys,
-        noise_std=0.03,
-        max_linewidth_hz=5e6,
-        per_particle_sigmas=per_particle_sigmas,
-        particle_weights=particle_weights,
-        min_cluster_count=2,
-        confidence_threshold=0.0,
-    )
-    assert len(cands_ungated) == 1
+def test_find_dips_is_deterministic_and_ignores_input_order():
+    order = np.random.default_rng(1).permutation(len(_DIP_XS))
+    a = find_dips(_DIP_XS, _DIP_YS, 0.02, 5e6)
+    b = find_dips(_DIP_XS, _DIP_YS, 0.02, 5e6)
+    c = find_dips(_DIP_XS[order], _DIP_YS[order], 0.02, 5e6)
+    assert a == b == c
 
 
-def test_identify_dip_candidates_single_dip_prior():
-    obs_xs = np.array([2.82e9, 2.822e9, 2.92e9, 2.922e9, 2.85e9, 2.86e9, 2.87e9, 2.88e9])
-    obs_ys = np.array([0.7, 0.7, 0.8, 0.8, 1.0, 1.0, 1.0, 1.0])
-
-    per_particle_sigmas = np.array([0.01, 0.05])
-    particle_weights = np.array([0.8, 0.2])
-
-    cands_gated = identify_dip_candidates(
-        obs_xs,
-        obs_ys,
-        noise_std=0.03,
-        max_linewidth_hz=5e6,
-        per_particle_sigmas=per_particle_sigmas,
-        particle_weights=particle_weights,
-        min_cluster_count=2,
-        confidence_threshold=0.0,
-        max_split_hz=10e6,
-    )
-    assert len(cands_gated) == 1
-    assert np.isclose(cands_gated[0].centroid_hz, 2.821e9)
-
-    cands_ungated = identify_dip_candidates(
-        obs_xs,
-        obs_ys,
-        noise_std=0.03,
-        max_linewidth_hz=5e6,
-        per_particle_sigmas=per_particle_sigmas,
-        particle_weights=particle_weights,
-        min_cluster_count=2,
-        confidence_threshold=0.0,
-        max_split_hz=150e6,
-    )
-    assert len(cands_ungated) == 2
+def test_find_dips_binomial_confidence_gate():
+    # Two low points (0.1 below the baseline, ~1 sigma at noise 0.1) among ten nearby points: at
+    # a 1-sigma threshold a pair of low points is quite likely to be chance, so the 0.99 gate
+    # rejects it; with no gate it is reported.
+    xs = np.array([2.800e9, 2.802e9] + [2.805e9 + i * 1e6 for i in range(8)])
+    ys = np.array([0.9, 0.9] + [1.0] * 8)
+    kwargs = dict(noise_std=0.09, max_linewidth_hz=5e6, n_sigma=1.0, min_cluster_count=2)
+    assert find_dips(xs, ys, confidence_threshold=0.99, **kwargs) == []
+    assert len(find_dips(xs, ys, confidence_threshold=0.0, **kwargs)) == 1
 
 
-def test_identify_dip_candidates_assume_sorted_matches_default():
-    # Same fixture as test_identify_dip_candidates_cluster_detection, pre-sorted
-    # (it already happens to be ascending, but sort explicitly to state the
-    # assume_sorted=True precondition rather than relying on that coincidence).
-    obs_xs_raw = np.array([2.8e9, 2.81e9, 2.82e9, 2.822e9, 2.824e9, 2.83e9, 2.84e9, 2.85e9, 2.86e9, 2.87e9])
-    obs_ys_raw = np.array([1.0, 1.0, 0.8, 0.7, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0])
-    order = np.argsort(obs_xs_raw)
-    obs_xs, obs_ys = obs_xs_raw[order], obs_ys_raw[order]
-
-    default = identify_dip_candidates(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2)
-    fast = identify_dip_candidates(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2, assume_sorted=True)
-
-    assert len(default) == len(fast) == 1
-    assert np.isclose(default[0].centroid_hz, fast[0].centroid_hz)
-    assert np.isclose(default[0].significance, fast[0].significance)
-    assert default[0].n_points == fast[0].n_points
-    assert np.isclose(default[0].confidence, fast[0].confidence)
-    assert np.isclose(default[0].background, fast[0].background)
+def test_find_dips_assume_sorted_matches_default():
+    order = np.argsort(_DIP_XS)
+    xs, ys = _DIP_XS[order], _DIP_YS[order]
+    assert find_dips(xs, ys, 0.02, 5e6, assume_sorted=True) == find_dips(xs, ys, 0.02, 5e6)
 
 
-def test_identify_dip_candidates_assume_sorted_matches_default_multi_cluster():
-    # Same fixture as test_identify_dip_candidates_single_dip_prior, sorted --
-    # exercises the multi-cluster in_window/searchsorted path.
-    obs_xs_raw = np.array([2.82e9, 2.822e9, 2.92e9, 2.922e9, 2.85e9, 2.86e9, 2.87e9, 2.88e9])
-    obs_ys_raw = np.array([0.7, 0.7, 0.8, 0.8, 1.0, 1.0, 1.0, 1.0])
-    order = np.argsort(obs_xs_raw)
-    obs_xs, obs_ys = obs_xs_raw[order], obs_ys_raw[order]
-
-    per_particle_sigmas = np.array([0.01, 0.05])
-    particle_weights = np.array([0.8, 0.2])
-    kwargs = dict(
-        noise_std=0.03,
-        max_linewidth_hz=5e6,
-        per_particle_sigmas=per_particle_sigmas,
-        particle_weights=particle_weights,
-        min_cluster_count=2,
-        confidence_threshold=0.0,
-        max_split_hz=150e6,
-    )
-
-    default = identify_dip_candidates(obs_xs, obs_ys, **kwargs)
-    fast = identify_dip_candidates(obs_xs, obs_ys, assume_sorted=True, **kwargs)
-
-    assert len(default) == len(fast) == 2
-    for d, f in zip(default, fast, strict=True):
-        assert np.isclose(d.centroid_hz, f.centroid_hz)
-        assert np.isclose(d.significance, f.significance)
-        assert d.n_points == f.n_points
-        assert np.isclose(d.confidence, f.confidence)
-
-
-def test_identify_dip_candidates_assume_sorted_raises_on_unsorted_input():
-    obs_xs = np.array([2.8e9, 2.9e9, 2.85e9])  # not ascending
-    obs_ys = np.array([1.0, 1.0, 1.0])
+def test_find_dips_assume_sorted_raises_on_unsorted_input():
     with pytest.raises(ValueError, match="assume_sorted"):
-        identify_dip_candidates(obs_xs, obs_ys, 0.02, 5e6, assume_sorted=True)
+        find_dips(np.array([2.8e9, 2.9e9, 2.85e9]), np.array([1.0, 1.0, 1.0]), 0.02, 5e6, assume_sorted=True)
 
 
-def test_identify_dip_candidates_uncertainty_gating():
-    # Setup observations with a valid dip cluster
-    obs_xs = np.array([2.8e9, 2.81e9, 2.82e9, 2.822e9, 2.824e9, 2.83e9, 2.84e9, 2.85e9, 2.86e9, 2.87e9])
-    obs_ys = np.array([1.0, 1.0, 0.8, 0.7, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0])
+@pytest.mark.parametrize("noise_std", [0.0, -0.01, float("nan")])
+def test_find_dips_rejects_a_non_positive_noise_sigma(noise_std):
+    with pytest.raises(ValueError, match="noise_std"):
+        find_dips(_DIP_XS, _DIP_YS, noise_std, 5e6)
 
-    # Case A: High relative uncertainty (noise_std_unc = 0.01, noise_std = 0.05 => 20% relative unc).
-    # Since 20% >= 15% (default threshold), it should gate the dip and return []
-    centroids_gated = identify_dip_candidates(obs_xs, obs_ys, noise_std=0.05, max_linewidth_hz=5e6, noise_std_unc=0.01)
-    assert centroids_gated == []
 
-    # Case B: Low relative uncertainty (noise_std_unc = 0.002, noise_std = 0.05 => 4% relative unc).
-    # Since 4% < 15%, it should successfully return the cluster centroid
-    centroids_ungated = identify_dip_candidates(
-        obs_xs, obs_ys, noise_std=0.05, max_linewidth_hz=5e6, noise_std_unc=0.002
-    )
-    assert len(centroids_ungated) == 1
-    assert np.isclose(centroids_ungated[0].centroid_hz, 2.822e9)
+def test_find_dips_uncertainty_gating():
+    # noise_std_unc / noise_std = 20% >= the 15% default threshold: the noise level is too poorly
+    # known to threshold against, so nothing is reported. At 4% the dip is found.
+    assert find_dips(_DIP_XS, _DIP_YS, 0.05, 5e6, noise_std_unc=0.01) == []
+    dips = find_dips(_DIP_XS, _DIP_YS, 0.05, 5e6, noise_std_unc=0.002)
+    assert len(dips) == 1
+    assert np.isclose(dips[0].centroid_hz, 2.822e9)
+
+
+def test_effective_max_linewidth_hz_uses_prior_bounds():
+    assert effective_max_linewidth_hz({"linewidth": (1e6, 5e6)}) == 5e6
+    assert effective_max_linewidth_hz({"homogeneous_linewidth": (1e6, 4e6)}) == 4e6
+    with pytest.raises(ValueError, match="no linewidth parameter"):
+        effective_max_linewidth_hz({"frequency": (2.8e9, 2.9e9)})
 
 
 def test_sorted_observation_arrays_matches_full_sort():
     # _append_observation() doesn't touch _obs_sort_order (maintained lazily by
     # sorted_observation_arrays()), so exercise it directly without going
     # through the full model/likelihood update path.
-    b = nv_center_smc_belief(num_particles=50)
+    b = nv_center_smc_belief(num_particles=50, noise_model=gaussian_noise())
     rng = np.random.default_rng(42)
     xs = rng.uniform(0.0, 1.0, 200)
     for x in xs:
@@ -243,7 +127,7 @@ def test_sorted_observation_arrays_lazy_incremental_across_calls():
     # Interleave appends with reads to exercise the lazy catch-up loop running
     # more than once (each call should only re-sort points added since the
     # previous call, not the whole history).
-    b = nv_center_smc_belief(num_particles=50)
+    b = nv_center_smc_belief(num_particles=50, noise_model=gaussian_noise())
     rng = np.random.default_rng(7)
     seen: list[float] = []
     for _ in range(5):
@@ -264,7 +148,7 @@ def test_resync_sort_position_after_stale_insertion():
     # dip detection (via sorted_observation_arrays()) runs mid-update using a
     # provisional value, then the caller overwrites _obs_x_arr with the real
     # one afterwards. _resync_sort_position must restore global sortedness.
-    b = nv_center_smc_belief(num_particles=50)
+    b = nv_center_smc_belief(num_particles=50, noise_model=gaussian_noise())
     for x in (0.1, 0.5, 0.9):
         b._append_observation(x, 1.0)
     b.sorted_observation_arrays()  # finalizes _obs_sort_valid_count == 3
@@ -282,7 +166,7 @@ def test_resync_sort_position_after_stale_insertion():
 def test_resync_sort_position_noop_before_first_read():
     # If sorted_observation_arrays() never ran, the newly-appended index isn't
     # in the sort order yet -- resync must be a no-op, not raise or corrupt state.
-    b = nv_center_smc_belief(num_particles=50)
+    b = nv_center_smc_belief(num_particles=50, noise_model=gaussian_noise())
     b._append_observation(0.5, 1.0)
     b._append_observation(0.99, 1.0)
     b._obs_x_arr[1] = 0.1  # correct before it was ever read
@@ -332,11 +216,10 @@ def test_unit_cube_belief_narrowing_dip_detection_stays_consistent():
     # never hit the fail-fast ValueError across this whole run.
 
 
-def test_noise_std_uncertainty_unconfigured_raises_error():
-    # Fresh SMC belief without noise model should raise ValueError
-    b = nv_center_smc_belief(num_particles=200)
-    with pytest.raises(ValueError, match="no active noise model"):
-        b.noise_std_uncertainty()
+def test_belief_requires_a_noise_model():
+    """The noise level is always inferred through the conjugate prior, so a belief cannot exist without one."""
+    with pytest.raises(ValueError, match="requires a noise model"):
+        nv_center_smc_belief(num_particles=50, noise_model=None)
 
 
 def test_noise_std_uncertainty_configured():
@@ -368,14 +251,7 @@ def test_noise_sigma_updates_every_update_but_dip_detection_only_upon_resampling
 
     post_update_noise_std = b.estimated_noise_std()
     assert not np.isclose(initial_noise_std, post_update_noise_std)
-    assert getattr(b, "_dip_centers", []) == []
-
-
-def test_estimated_noise_std_unconfigured_raises_error():
-    # Fresh SMC belief without noise model should raise ValueError
-    b = nv_center_smc_belief(num_particles=200)
-    with pytest.raises(ValueError, match="no active noise model"):
-        b.estimated_noise_std()
+    assert b.dip_candidates == []
 
 
 def test_estimated_noise_std_configured():
@@ -395,11 +271,10 @@ def test_estimated_noise_std_is_90th_percentile():
     noise_model = GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (0.01, 0.1)})
     b = nv_center_smc_belief(num_particles=10, noise_model=noise_model)
 
-    if getattr(b, "_use_rao_blackwell_noise", False):
-        b._noise_alphas = np.full(10, 9.5, dtype=np.float32)
-        sigmas = np.linspace(0.01, 0.10, 10)
-        b._noise_betas = (sigmas**2 * 10.0).astype(np.float32)
-        b._weights = np.full(10, 0.10, dtype=np.float32)
+    b._noise_alphas = np.full(10, 9.5, dtype=np.float32)
+    sigmas = np.linspace(0.01, 0.10, 10)
+    b._noise_betas = (sigmas**2 * 10.0).astype(np.float32)
+    b._weights = np.full(10, 0.10, dtype=np.float32)
 
-        est = b.estimated_noise_std()
-        assert np.isclose(est, 0.09)
+    est = b.estimated_noise_std()
+    assert np.isclose(est, 0.09)

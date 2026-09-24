@@ -9,18 +9,6 @@ on:
         default: "both-sbed-only"
         type: choice
         options:
-          - lorentzian-sbed
-          - lorentzian-sbed-only
-          - lorentzian-sweep-only
-          - voigt-sbed
-          - voigt-sbed-only
-          - voigt-sweep-only
-          - voigt-inhom-sbed
-          - voigt-inhom-sbed-only
-          - voigt-inhom-sweep-only
-          - lorentzian-plain-sbed
-          - lorentzian-plain-sbed-only
-          - lorentzian-plain-sweep-only
           - both-sbed
           - both-sbed-only
           - both-sweep-only
