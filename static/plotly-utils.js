@@ -554,8 +554,8 @@ function _buildScanFigure(def, data) {
     // Per-step candidate windows during timeline playback (set by applyScanStepCap from
     // series.w) take precedence over the static end-of-run focus_window/per_dip_windows:
     // exact boundaries matter less here than "a focus window might be around here", so
-    // candidate rects skip the per-window annotation and use a dotted border to read as
-    // provisional; once only one candidate remains it renders with the same solid style
+    // candidate rects are a borderless pale fill only (no outline, no per-window
+    // annotation); once only one candidate remains it renders with the same solid fill
     // as the settled focus_window below, so "converging to one" reads visually as landing
     // on the final look.
     const stepCandidates = data.focus_window_candidates && data.focus_window_candidates.length
@@ -570,7 +570,7 @@ function _buildScanFigure(def, data) {
                 type: 'rect', xref: 'x', yref,
                 x0: lo, x1: hi, y0: 0, y1: 1,
                 fillcolor: fws.fillcolor,
-                line: { width: 1, color: fws.line_color },
+                line: { width: 0 },
                 layer: 'below',
             });
             extraAnnotations.push({
@@ -584,7 +584,7 @@ function _buildScanFigure(def, data) {
                 shapes.push({
                     type: 'rect', xref: 'x', yref,
                     x0: lo, x1: hi, y0: 0, y1: 1,
-                    fillcolor: c.fill, line: { width: 1, color: c.line, dash: 'dot' }, layer: 'below',
+                    fillcolor: c.fill, line: { width: 0 }, layer: 'below',
                 });
             });
         }
@@ -597,7 +597,7 @@ function _buildScanFigure(def, data) {
                     type: 'rect', xref: 'x', yref,
                     x0: fw0, x1: fw1, y0: 0, y1: 1,
                     fillcolor: fws.fillcolor,
-                    line: { width: 1, color: fws.line_color },
+                    line: { width: 0 },
                     layer: 'below',
                 });
                 extraAnnotations.push({
@@ -615,7 +615,7 @@ function _buildScanFigure(def, data) {
                 shapes.push({
                     type: 'rect', xref: 'x', yref,
                     x0: lo, x1: hi, y0: 0, y1: 1,
-                    fillcolor: c.fill, line: { width: 1, color: c.line }, layer: 'below',
+                    fillcolor: c.fill, line: { width: 0 }, layer: 'below',
                 });
                 extraAnnotations.push({
                     text: `Dip ${i + 1}`, x: lo, xref: 'x',
