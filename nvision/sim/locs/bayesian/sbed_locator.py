@@ -239,6 +239,12 @@ class FocusWindowConfidence:
         methods_agree — True when center ∈ [left_bound, right_bound].
         is_stable — agreement-gated: detector_confidence ≥ floor AND methods_agree
                     AND center_std < stability_ratio × window_width.
+
+    all_candidates — (f_min, f_max) of *every* qualifying dip candidate this call,
+        significance-descending (index 0 is the dominant cluster, i.e. left_bound/
+        right_bound). Length > 1 while the detector still can't tell which cluster
+        is the real dip -- used to animate "candidates narrowing down to one" in the
+        UI timeline (see StepSnapshot.focus_window_candidates).
     """
 
     left_bound: float
@@ -253,6 +259,7 @@ class FocusWindowConfidence:
     center_ci_hi: float
     methods_agree: bool
     is_stable: bool
+    all_candidates: tuple[tuple[float, float], ...] = ()
 
 
 def compute_focus_window_confidence(
@@ -387,6 +394,7 @@ def compute_focus_window_confidence(
         center_ci_hi=center_ci_hi,
         methods_agree=methods_agree,
         is_stable=is_stable,
+        all_candidates=tuple((float(cd.f_min), float(cd.f_max)) for cd in candidates),
     )
 
 
@@ -935,6 +943,35 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if self._focus_window_conf is None:
             return True
         return self.step_count % self._focus_conf_interval == 0
+
+    def bayesian_focus_window(self) -> tuple[float, float] | None:
+        """Current best-guess focus window (dominant dip-candidate cluster), or None."""
+        if self._focus_window_conf is None:
+            return None
+        return (self._focus_window_conf.left_bound, self._focus_window_conf.right_bound)
+
+    def per_dip_windows(self) -> list[tuple[float, float]] | None:
+        """All qualifying dip-candidate windows, when more than one is still competing.
+
+        None once the detector has settled on a single dominant cluster -- at that
+        point ``bayesian_focus_window()`` is the window to show, matching the sweep
+        locators' convention of using ``per_dip_windows`` only for genuinely multiple
+        regions.
+        """
+        if self._focus_window_conf is None or len(self._focus_window_conf.all_candidates) < 2:
+            return None
+        return list(self._focus_window_conf.all_candidates)
+
+    def focus_window_candidates(self) -> list[tuple[float, float]] | None:
+        """Every currently qualifying dip-candidate window (>=1), for per-step UI animation.
+
+        Unlike ``per_dip_windows()``, this is never gated to "more than one" -- it is
+        read every step (see ``Observer.watch``) to animate the candidates narrowing
+        down to the single settled focus window over the course of a run.
+        """
+        if self._focus_window_conf is None:
+            return None
+        return list(self._focus_window_conf.all_candidates)
 
     def _acquisition_done(self) -> bool:
         """Extend base stop logic with a permissive theory-step-budget backstop.

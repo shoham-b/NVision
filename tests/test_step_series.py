@@ -57,7 +57,7 @@ def _make_mock_belief(model, est, uncert, crlb=None):
     return MockBelief(model=model, parameters=[param])
 
 
-def _make_run(n_steps=10, true_value=0.5, with_crlb=False):
+def _make_run(n_steps=10, true_value=0.5, with_crlb=False, focus_windows=None):
     model = MockSignalModel()
     true_signal = TrueSignal(model=model, typed_parameters=(true_value,), bounds={"frequency": (0.0, 1.0)})
     snapshots = []
@@ -67,7 +67,8 @@ def _make_run(n_steps=10, true_value=0.5, with_crlb=False):
         crlb = (0.05 / np.sqrt(i + 1)) if with_crlb else None
         belief = _make_mock_belief(model, est, uncert, crlb=crlb)
         obs = Observation(x=0.5, signal_value=1.0, noise_std=0.01)
-        snapshots.append(StepSnapshot(obs=obs, belief=belief, true_signal=true_signal))
+        windows = focus_windows[i] if focus_windows is not None else None
+        snapshots.append(StepSnapshot(obs=obs, belief=belief, true_signal=true_signal, focus_window_candidates=windows))
     return RunResult(snapshots=snapshots, true_signal=true_signal)
 
 
@@ -112,6 +113,35 @@ def test_extract_step_series_downsamples_long_runs():
     assert series["s"][-1] == 500
     # Steps strictly increasing
     assert all(a < b for a, b in zip(series["s"], series["s"][1:], strict=False))
+
+
+def test_extract_step_series_omits_w_when_no_locator_supplies_windows():
+    run = _make_run(n_steps=5)
+    series = extract_step_series(run, param="frequency")
+    assert "w" not in series
+
+
+def test_extract_step_series_includes_w_narrowing_to_one_candidate():
+    """Mirrors the UI timeline story: multiple candidates collapsing to one."""
+    dominant = (0.40, 0.42)
+    secondary = (0.60, 0.62)
+    focus_windows = [
+        None,
+        None,
+        [dominant, secondary],
+        [dominant, secondary],
+        [dominant],
+    ]
+    run = _make_run(n_steps=5, focus_windows=focus_windows)
+    series = extract_step_series(run, param="frequency")
+
+    assert series is not None
+    assert "w" in series
+    assert len(series["w"]) == len(series["s"])
+    assert series["w"][0] is None
+    assert series["w"][1] is None
+    assert series["w"][2] == [[0.4, 0.42], [0.6, 0.62]]
+    assert series["w"][4] == [[0.4, 0.42]]
 
 
 def test_extract_step_series_handles_empty_run():
