@@ -698,12 +698,30 @@ def purge_cache_and_artifacts_for_combinations(
             # (fsyncs) individually, which is O(len(matched_keys) x 2000) wasted commits
             # against a filter that mostly probes nonexistent repeat indices.
             all_keys: list[str] = []
+            repeat_key_origin: dict[str, tuple[str, int]] = {}
             for k in matched_keys:
                 all_keys.append(k)
                 for i in range(1000):
                     rep_key = RepeatsRepository.make_repeat_key(k, i)
                     all_keys.append(rep_key)
                     all_keys.append(rep_key + ":meta")
+                    repeat_key_origin[rep_key] = (k, i)
+
+            # Blob rows (graph/plot bytes, RepeatsRepository._extract_blobs) are keyed by
+            # entry type, not guessable from the repeat index alone -- discover them from
+            # each existing repeat's own entries, same as
+            # LocatorResultsRepository.purge_cached_combination. Without this, a purge
+            # leaves every repeat's graph blobs orphaned in the live store forever.
+            for rep_key, payload in backend.batch_get(list(repeat_key_origin)).items():
+                combo_key, idx = repeat_key_origin[rep_key]
+                try:
+                    entries = json.loads(payload["data"][0]["results"])["entries"]
+                except Exception:
+                    continue
+                for entry in entries:
+                    if entry.get("_blob"):
+                        all_keys.append(f"blob:{combo_key}:{idx}:{entry.get('type', 'unknown')}")
+
             backend.delete_many(all_keys)
             deleted_pointers += len(matched_keys)
     finally:
@@ -804,12 +822,27 @@ def purge_cache_and_artifacts_for_strategies(
             # delete_many() call instead of looping delete() -- see
             # purge_cache_and_artifacts_for_combinations for why the per-key loop is slow.
             all_keys: list[str] = []
+            repeat_key_origin: dict[str, tuple[str, int]] = {}
             for k in matched_keys:
                 all_keys.append(k)
                 for i in range(1000):
                     rep_key = RepeatsRepository.make_repeat_key(k, i)
                     all_keys.append(rep_key)
                     all_keys.append(rep_key + ":meta")
+                    repeat_key_origin[rep_key] = (k, i)
+
+            # Blob rows must be discovered from each repeat's own entries -- see
+            # purge_cache_and_artifacts_for_combinations for why.
+            for rep_key, payload in backend.batch_get(list(repeat_key_origin)).items():
+                combo_key, idx = repeat_key_origin[rep_key]
+                try:
+                    entries = json.loads(payload["data"][0]["results"])["entries"]
+                except Exception:
+                    continue
+                for entry in entries:
+                    if entry.get("_blob"):
+                        all_keys.append(f"blob:{combo_key}:{idx}:{entry.get('type', 'unknown')}")
+
             backend.delete_many(all_keys)
             deleted_pointers += len(matched_keys)
     finally:
