@@ -19,7 +19,7 @@ launched from `nvision/cli/run.py` (`_GraphWorkers`), drained manually by `nv gr
 | Variable | Default | Meaning |
 |---|---|---|
 | `NVISION_GRAPH_REPEATS` | `10` | Build graphs only for the first N repeats of each combination (0 = all). Later repeats keep metrics/series but get no figures (`plot_skipped`). |
-| `NVISION_GRAPH_WORKERS` | `1` | Graph-worker processes `nv run` starts. `0` builds graphs inline in the runners (no deferral). |
+| `NVISION_GRAPH_WORKERS` | half of `--runners` (min 1) | Graph-worker processes `nv run` starts. `0` builds graphs inline in the runners (no deferral). Set explicitly to override the runner-scaled default -- see `graph_workers_for` in `nvision/cli/defaults.py`; a single worker against several runners lets the `graph_queue/` spool backlog grow far past what's actually archived. |
 | `NVISION_PLOT_SWEEP_STRATEGIES` | `0` | Also build figures for `SimpleSweep`/`SimpleSobol` (off by default). |
 | `NVISION_STALL_DUMP_S` | `600` | Stall watchdog interval, see below. `0` disables. |
 
