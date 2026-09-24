@@ -375,6 +375,22 @@ function _filterScanMeasurementsByStep(measurements, stepCap) {
     return out;
 }
 
+// Picks the focus-window-candidate list applicable at `stepCap` (an inference-step
+// number, same units as `_filterScanMeasurementsByStep`'s cap) from a scan manifest
+// entry's `series.w`/`series.s` (see nvision/metrics/series.py). Returns null when
+// there's no candidate-window data at all, or when stepCap is null/undefined (the
+// "show everything" / static-final-state case, which keeps using the run's
+// end-of-run focus_window/per_dip_windows instead). `series.s` is ascending.
+function _focusWindowCandidatesForStep(series, stepCap) {
+    if (!series || !series.w || !series.s || !series.w.length || stepCap == null) return null;
+    let chosen = null;
+    for (let i = 0; i < series.s.length; i++) {
+        if (series.s[i] > stepCap) break;
+        chosen = series.w[i];
+    }
+    return chosen || null;
+}
+
 function _buildScanFigure(def, data) {
     const traces = [];
     const hasMetrics = !!data.has_metrics;
@@ -535,40 +551,79 @@ function _buildScanFigure(def, data) {
     const extraAnnotations = [];
     const yref = hasMetrics ? 'y domain' : 'paper';
 
-    if (data.focus_window && data.focus_window.length === 2) {
-        const [fw0, fw1] = data.focus_window;
-        if (Number.isFinite(fw0) && Number.isFinite(fw1) && fw1 > fw0) {
+    // Per-step candidate windows during timeline playback (set by applyScanStepCap from
+    // series.w) take precedence over the static end-of-run focus_window/per_dip_windows:
+    // exact boundaries matter less here than "a focus window might be around here", so
+    // candidate rects skip the per-window annotation and use a dotted border to read as
+    // provisional; once only one candidate remains it renders with the same solid style
+    // as the settled focus_window below, so "converging to one" reads visually as landing
+    // on the final look.
+    const stepCandidates = data.focus_window_candidates && data.focus_window_candidates.length
+        ? data.focus_window_candidates.filter(([lo, hi]) => Number.isFinite(lo) && Number.isFinite(hi) && hi > lo)
+        : null;
+
+    if (stepCandidates && stepCandidates.length) {
+        if (stepCandidates.length === 1) {
+            const [lo, hi] = stepCandidates[0];
             const fws = def.focus_window_style;
             shapes.push({
                 type: 'rect', xref: 'x', yref,
-                x0: fw0, x1: fw1, y0: 0, y1: 1,
+                x0: lo, x1: hi, y0: 0, y1: 1,
                 fillcolor: fws.fillcolor,
                 line: { width: 1, color: fws.line_color },
                 layer: 'below',
             });
             extraAnnotations.push({
-                text: fws.annotation, x: fw0, xref: 'x',
+                text: fws.annotation, x: lo, xref: 'x',
                 y: 1, yref, yanchor: 'bottom', xanchor: 'left',
                 showarrow: false, font: { size: 11 },
+            });
+        } else {
+            stepCandidates.forEach(([lo, hi], i) => {
+                const c = def.per_dip_colors[i % def.per_dip_colors.length];
+                shapes.push({
+                    type: 'rect', xref: 'x', yref,
+                    x0: lo, x1: hi, y0: 0, y1: 1,
+                    fillcolor: c.fill, line: { width: 1, color: c.line, dash: 'dot' }, layer: 'below',
+                });
             });
         }
-    }
+    } else {
+        if (data.focus_window && data.focus_window.length === 2) {
+            const [fw0, fw1] = data.focus_window;
+            if (Number.isFinite(fw0) && Number.isFinite(fw1) && fw1 > fw0) {
+                const fws = def.focus_window_style;
+                shapes.push({
+                    type: 'rect', xref: 'x', yref,
+                    x0: fw0, x1: fw1, y0: 0, y1: 1,
+                    fillcolor: fws.fillcolor,
+                    line: { width: 1, color: fws.line_color },
+                    layer: 'below',
+                });
+                extraAnnotations.push({
+                    text: fws.annotation, x: fw0, xref: 'x',
+                    y: 1, yref, yanchor: 'bottom', xanchor: 'left',
+                    showarrow: false, font: { size: 11 },
+                });
+            }
+        }
 
-    if (data.per_dip_windows && data.per_dip_windows.length) {
-        data.per_dip_windows.forEach(([lo, hi], i) => {
-            if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return;
-            const c = def.per_dip_colors[i % def.per_dip_colors.length];
-            shapes.push({
-                type: 'rect', xref: 'x', yref,
-                x0: lo, x1: hi, y0: 0, y1: 1,
-                fillcolor: c.fill, line: { width: 1, color: c.line }, layer: 'below',
+        if (data.per_dip_windows && data.per_dip_windows.length) {
+            data.per_dip_windows.forEach(([lo, hi], i) => {
+                if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return;
+                const c = def.per_dip_colors[i % def.per_dip_colors.length];
+                shapes.push({
+                    type: 'rect', xref: 'x', yref,
+                    x0: lo, x1: hi, y0: 0, y1: 1,
+                    fillcolor: c.fill, line: { width: 1, color: c.line }, layer: 'below',
+                });
+                extraAnnotations.push({
+                    text: `Dip ${i + 1}`, x: lo, xref: 'x',
+                    y: 1, yref, yanchor: 'bottom', xanchor: 'left',
+                    showarrow: false, font: { size: 11 },
+                });
             });
-            extraAnnotations.push({
-                text: `Dip ${i + 1}`, x: lo, xref: 'x',
-                y: 1, yref, yanchor: 'bottom', xanchor: 'left',
-                showarrow: false, font: { size: 11 },
-            });
-        });
+        }
     }
 
     // Mark the true (fixed, physical) center frequency with a vertical reference line.

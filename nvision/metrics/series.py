@@ -9,6 +9,13 @@ compact, downsampled per-step series stored on each scan manifest entry:
 Steps are 1-indexed; values are rounded to 4 significant digits to keep the
 manifest small. ``tau`` is the effective absolute convergence threshold for
 the parameter so the UI can recompute convergence steps at scaled thresholds.
+
+An optional ``"w"`` key carries the per-step focus-window-candidate history
+(physical Hz), one entry per kept step index, aligned with ``"s"``: ``w[i]`` is
+either ``None`` (locator has no live candidate windows yet) or a list of
+``[lo, hi]`` pairs -- more than one while multiple dip candidates are still
+competing, collapsing to one once the locator settles. Powers the timeline's
+focus-window playback animation (see ``static/plotly-utils.js``).
 """
 
 from __future__ import annotations
@@ -104,6 +111,7 @@ def extract_step_series(
     errs: list[float | None] = []
     uncerts: list[float | None] = []
     crlbs: list[float | None] = []
+    windows: list[list[tuple[float, float]] | None] = []
     for i, snapshot in enumerate(run_result.snapshots):
         try:
             est = snapshot.belief.estimates().get(param)
@@ -130,6 +138,7 @@ def extract_step_series(
         except Exception:
             pass
         crlbs.append(crlb_val)
+        windows.append(getattr(snapshot, "focus_window_candidates", None))
 
     if not steps:
         return None
@@ -142,6 +151,10 @@ def extract_step_series(
     }
     if any(c is not None for c in crlbs):
         series["c"] = [_round_sig(crlbs[i]) for i in keep]
+    if any(windows):
+        series["w"] = [
+            [[_round_sig(lo), _round_sig(hi)] for lo, hi in windows[i]] if windows[i] else None for i in keep
+        ]
     tau = effective_convergence_threshold(run_result, param)
     if tau is not None:
         series["tau"] = _round_sig(tau)

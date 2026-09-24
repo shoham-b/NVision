@@ -30,6 +30,12 @@ class StepSnapshot:
         Ground truth for error computation
     narrowed_param_bounds : dict[str, tuple[float, float]] | None
         Current narrowed parameter bounds at this step (for dynamic UI updates)
+    focus_window_candidates : list[tuple[float, float]] | None
+        Every currently qualifying candidate focus window (physical Hz) at this step,
+        for locators that implement a live ``focus_window_candidates()`` getter (e.g.
+        SBED's dip-candidate detector). Length > 1 while multiple candidates are still
+        competing; collapses to a single window once the locator settles. Used to
+        animate the timeline's focus-window overlay.
     """
 
     obs: Observation
@@ -37,6 +43,7 @@ class StepSnapshot:
     true_signal: TrueSignal
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None
     resampled: bool = False
+    focus_window_candidates: list[tuple[float, float]] | None = None
 
 
 @dataclass
@@ -267,6 +274,9 @@ class Observer:
                     if nb:
                         current_bounds = nb
 
+                windows_getter = getattr(locator, "focus_window_candidates", None)
+                current_focus_windows = windows_getter() if callable(windows_getter) else None
+
                 belief = locator.belief
                 step_count = getattr(belief, "_step_count", None)
                 belief_key = (id(belief), step_count, belief.resampled) if step_count is not None else None
@@ -289,6 +299,7 @@ class Observer:
                     true_signal=self.true_signal,
                     narrowed_param_bounds=current_bounds,
                     resampled=locator.belief.resampled,
+                    focus_window_candidates=current_focus_windows,
                 )
                 self.snapshots.append(snapshot)
             # else:

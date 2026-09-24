@@ -1508,8 +1508,10 @@ function main() {
         const container = document.getElementById('scan-plot-div');
         if (!container || !container._scanRawData || !window.Plotly) return;
         const raw = container._scanRawData;
+        const stepCandidates = _focusWindowCandidatesForStep(currentPlot && currentPlot.series, realStep);
         const filtered = Object.assign({}, raw, {
             measurements: _filterScanMeasurementsByStep(raw.measurements, realStep),
+            focus_window_candidates: stepCandidates,
         });
         try {
             const built = await buildFigureFromData(filtered);
