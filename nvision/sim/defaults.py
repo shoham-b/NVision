@@ -20,11 +20,11 @@ load_dotenv()
 NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", "1500"))
 
 # Fraction of SimpleSweep max_steps allocated to SBED and Sobol baseline locators.
-# SBED's effective budget is ceil(domain_width / min_linewidth) * this fraction. Was silently
-# running at 0.5 via a local, gitignored .env override while this default said 0.32 -- 0.5 is
-# the value the last full grid run actually used, so it's committed here instead of only living
-# in an untracked file.
-NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "0.5"))
+# SBED's effective budget is ceil(domain_width / min_linewidth) * this fraction. Raised
+# 0.5 -> 1.0 (0.32 before that): at 0.5 (450 steps) a large share of wide-linewidth, noisy
+# Voigt repeats ran the whole budget without meeting the stop gate even though their
+# estimates were accurate (median |err| ~0.3 sigma), i.e. budget-limited rather than wrong.
+NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "1.0"))
 NVISION_SOBOL_STEPS_FRACTION: float = float(os.getenv("NVISION_SOBOL_STEPS_FRACTION", "0.5"))
 
 # Actual step count SimpleSweep itself runs with. Kept independent of the
@@ -43,7 +43,7 @@ NVISION_PLOT_SWEEP_STRATEGIES: bool = os.getenv("NVISION_PLOT_SWEEP_STRATEGIES",
 # repeats keep their metrics, per-step series and results row but get no figures. Graphs are
 # a small part of a repeat's compute but a lot of stored bytes, and only a few repeats per
 # combination are ever inspected. 0 (or negative) builds graphs for every repeat.
-NVISION_GRAPH_REPEATS: int = int(os.getenv("NVISION_GRAPH_REPEATS", "2"))
+NVISION_GRAPH_REPEATS: int = int(os.getenv("NVISION_GRAPH_REPEATS", "10"))
 
 # Sweep curve-fit early stop: once a fit start converges to the noise floor -- reduced
 # chi-square <= 1 + K * sqrt(2 / dof), i.e. within K standard deviations of the ~1 a
