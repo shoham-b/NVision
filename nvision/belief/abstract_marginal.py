@@ -347,14 +347,6 @@ class AbstractMarginalDistribution(ABC):
         """
         pass
 
-    def normalized_uncertainties(self) -> ParameterValues[float]:
-        """Return uncertainties in normalized [0, 1] space (for convergence checking).
-
-        For beliefs already in physical space this equals :meth:`_empirical_uncertainty`.
-        Unit-cube beliefs override to return the raw unit-cube uncertainties before scaling.
-        """
-        return self._empirical_uncertainty()
-
     def _to_physical(self, param_name: str, val: float) -> float:
         """Convert an internal coordinate back to physical space.
 

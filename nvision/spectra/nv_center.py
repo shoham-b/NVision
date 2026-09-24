@@ -607,32 +607,6 @@ class NVCenterLorentzianModel(
             1.0,
         )
 
-    def compute_nvcenter_lorentzian_model_vectorized(
-        self,
-        x: float,
-        frequency: np.ndarray,
-        linewidth: np.ndarray,
-        split: np.ndarray,
-        k_np: np.ndarray,
-        c_total: np.ndarray,
-    ) -> np.ndarray:
-        """Vectorized Lorentzian NV evaluation for one probe location."""
-        freq = np.asarray(frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
-        out = np.empty(n, dtype=FLOAT_DTYPE)
-        nv_center_lorentzian_vectorized_one_serial(
-            float(x),
-            freq,
-            np.asarray(linewidth, dtype=FLOAT_DTYPE),
-            np.asarray(split, dtype=FLOAT_DTYPE),
-            np.asarray(k_np, dtype=FLOAT_DTYPE),
-            self._w_center,
-            np.asarray(c_total, dtype=FLOAT_DTYPE),
-            get_background_ones(n),
-            out,
-        )
-        return out
-
     @property
     def spec(self):
         if self._with_zeeman_splitting:
@@ -2172,23 +2146,6 @@ class NVCenterOnePeakLorentzianModel(
         lw2 = lw[None, :] ** 2
         denom = (x2d - freq[None, :]) ** 2 + lw2
         return (1.0 - depth[None, :] * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
-
-
-def nv_center_one_peak_lorentzian_bounds_for_domain(
-    x_min: float,
-    x_max: float,
-) -> dict[str, tuple[float, float]]:
-    """Physical parameter bounds for NV single-peak (zero-field) Lorentzian over ``[x_min, x_max]``."""
-    width = float(x_max - x_min)
-    if width <= 0:
-        raise ValueError("x_max must exceed x_min")
-    linewidth_hi = width * 0.05
-    return {
-        "frequency": (float(x_min), float(x_max)),
-        "linewidth": (width * 0.0001, linewidth_hi),
-        "dip_depth": (0.01, 1.0),
-        "_signal_max_span": (0.0, 4.0 * linewidth_hi),
-    }
 
 
 def nv_center_voigt_bounds_for_domain(

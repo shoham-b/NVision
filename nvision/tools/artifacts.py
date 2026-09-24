@@ -280,11 +280,6 @@ def write_locator_results(df_loc: pl.DataFrame, out_dir: Path) -> Path:
     return out_path
 
 
-def relativize_summary_plot_paths(summary_plots_meta: list[dict[str, object]], out_dir: Path) -> None:
-    for meta in summary_plots_meta:
-        meta["path"] = Path(meta["path"]).relative_to(out_dir).as_posix()
-
-
 def _strip_heavy_fields(entry: dict[str, object]) -> dict[str, object]:
     """Return entry without heavy fields (content, plot_data) that bloat the manifest."""
     return {k: v for k, v in entry.items() if k not in ("content", "plot_data")}
@@ -409,31 +404,6 @@ def merge_run_plot_manifest_with_existing_on_disk(
         plot_manifest[:] = filtered_old + plot_manifest
     except Exception as e:
         log.warning("Could not merge with existing plots_manifest.json: %s", e)
-
-
-def dummy_scan_plot_manifest_entry() -> dict[str, object]:
-    return {
-        "type": "scan",
-        "generator": "Dummy-Generator",
-        "noise": "None",
-        "strategy": "Dummy-Strategy",
-        "repeat": 1,
-        "repeat_total": 1,
-        "stop_reason": "no_data",
-        "abs_err_x": None,
-        "uncert": None,
-        "measurements": 0,
-        "duration_ms": 0,
-        "metrics": {},
-        "path": "",
-    }
-
-
-def ensure_plot_manifest_non_empty(plot_manifest: list[dict[str, object]], log: logging.Logger) -> None:
-    if plot_manifest:
-        return
-    log.warning("No plots were generated. Adding a dummy entry to manifest.")
-    plot_manifest.append(dummy_scan_plot_manifest_entry())
 
 
 def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:

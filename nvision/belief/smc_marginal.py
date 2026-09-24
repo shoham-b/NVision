@@ -1196,10 +1196,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._generate_epoch_candidates()
         self._belief_version += 1
 
-    def _marginal_std(self, dim_idx: int) -> float:
-        _, var = _weighted_mean_variance_1d(self._particles[:, dim_idx], self._weights)
-        return float(np.sqrt(max(0.0, var)))
-
     def _estimates_unit(self) -> dict[str, float]:
         """Return parameter estimates in internal unit/belief space.
 
@@ -1380,39 +1376,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Return cached covariance if available for the current step.
         return self._cached_covariance()
 
-    def correlation_matrix(self) -> np.ndarray:
-        """Return correlation matrix (normalized covariance).
-
-        Returns a (d, d) array with values in [-1, 1].
-        Diagonal entries are always 1.0.
-        """
-        cov = self.covariance_matrix()
-        d_dim = cov.shape[0]
-
-        # Regularize diagonal to avoid division by zero if variance is zero
-        cov.flat[:: d_dim + 1] += 1e-20
-
-        stds = np.sqrt(np.diag(cov))
-        corr = cov / np.outer(stds, stds)
-        # Clip to handle numerical errors
-        return np.clip(corr, -1.0, 1.0)
-
-    def generalized_variance(self) -> float:
-        """Return determinant of covariance matrix (generalized variance).
-
-        This is a scalar measure of total uncertainty volume.
-        Smaller values indicate tighter posterior concentration.
-        """
-        cov = self.covariance_matrix()
-        d_dim = cov.shape[0]
-
-        # Regularize to ensure valid log-determinant
-        reg = 1e-12 * (np.trace(cov) / d_dim + 1e-15)
-        cov.flat[:: d_dim + 1] += reg
-
-        _, logdet = np.linalg.slogdet(cov)
-        return float(np.exp(logdet))
-
     def converged(self, threshold: float) -> bool:
         return all(u < threshold for u in self.uncertainty().values())
 
@@ -1452,13 +1415,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._noise_betas = self._noise_betas.copy()
         dist._dip_candidates = list(self._dip_candidates)
         return dist
-
-    def _weighted_mean(self, name: str) -> float:
-        if name not in self.parameter_bounds:
-            raise KeyError(f"Parameter {name} not found")
-        idx = self._param_names.index(name)
-        mean_val, _ = _weighted_mean_variance_1d(self._particles[:, idx], self._weights)
-        return float(mean_val)
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
         indices = np.random.choice(self.num_particles, size=n, p=self._weights)

@@ -96,14 +96,6 @@ class DataBatch:
     def signal_values(self) -> list[float]:
         return self.df.get_column("signal_values").to_list()
 
-    def to_polars(self) -> pl.DataFrame:
-        """Return the underlying Polars DataFrame (columns: x, signal_values)."""
-        return self.df
-
-    def with_y(self, new_y: Sequence[float]) -> DataBatch:
-        df = self.df.with_columns(signal_values=pl.Series(list(new_y)))
-        return DataBatch(df=df, meta=self.meta)
-
 
 class OverFrequencyNoise(ABC):
     """Base class for noise applied across all frequencies in a batch."""

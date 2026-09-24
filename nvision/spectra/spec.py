@@ -144,13 +144,6 @@ class GenericParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
         return tuple(np.asarray(getattr(samples, name), dtype=FLOAT_DTYPE) for name in self.names)
 
 
-class SignalParamSpec(ParamSpec):
-    """Refined protocol for signal models (backward compat)."""
-
-    @property
-    def bounds(self) -> dict[str, tuple[float, float]]: ...
-
-
 @runtime_checkable
 class NoiseSignalModel(Protocol):
     """Abstract base for noise models that can be jointly inferred.

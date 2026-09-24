@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import fnmatch
 import logging
-import math
 import random
 from pathlib import Path
 from typing import Annotated, Any
@@ -79,110 +78,6 @@ _METRIC_KEYS: tuple[str, ...] = (
     "min_dip_width",
     "sweep_efficiency",
 )
-
-
-def _crlb_min_obs(noise_std: float, linewidth: float, c_total: float, threshold_hz: float) -> int:
-    """Return the minimum observation count N where 2×CRLB_phys < threshold_hz.
-
-    Derived from 2×sqrt(2σ²Ω·bandwidth/(π·a²·N)) < threshold_hz:
-        N > 8σ²Ω·bandwidth / (π·a²·threshold_hz²)
-    """
-    if c_total <= 0 or linewidth <= 0 or noise_std <= 0 or threshold_hz <= 0:
-        return 0
-    return math.ceil(8.0 * noise_std**2 * linewidth * _CRLB_BANDWIDTH / (math.pi * c_total**2 * threshold_hz**2))
-
-
-def _apply_crlb_convergence_steps(row: dict[str, Any], noise_std: float, threshold_hz: float) -> dict[str, Any]:
-    """Push splitting_converged_step / all_converged_step forward to honour the CRLB check.
-
-    NOTE: this closed-form CRLB formula (``_crlb_min_obs``) is derived specifically
-    for frequency/linewidth/contrast physics and is not re-derived for zeeman_split.
-    It already no-ops for non-Lorentzian rows (see the linewidth/c_total guard
-    below), which happens to also make it a safe no-op for splitting-based
-    convergence today -- left as a known follow-up rather than guessed physics.
-
-    The locator originally set these steps when raw uncertainty() first dropped
-    below threshold_hz, without a CRLB check.  After the CRLB-aware change the
-    effective convergence step is max(old_step, sweep_steps + N_crlb), where
-    N_crlb is the minimum number of locator observations needed so that
-    2×CRLB_phys < threshold_hz.  If that new step exceeds total measurements
-    the run never satisfied both conditions; the field is set to None.
-    """
-    linewidth = row.get("final_est_linewidth")
-    c_total = row.get("final_est_c_total")
-    if not all(isinstance(v, int | float) for v in (linewidth, c_total)):
-        return row  # non-Lorentzian or missing estimates — leave unchanged
-
-    n_crlb = _crlb_min_obs(noise_std, float(linewidth), float(c_total), threshold_hz)  # type: ignore[arg-type]
-    if n_crlb == 0:
-        return row
-
-    sweep = int(row.get("sweep_steps") or 0)
-    total = int(row.get("measurements") or 0)
-    crlb_step = sweep + n_crlb  # locator step at which CRLB condition first satisfied
-
-    updated = dict(row)
-    changed = False
-
-    for field in ("splitting_converged_step", "all_converged_step"):
-        old = row.get(field)
-        if old is None:
-            continue  # run never converged empirically — leave as None
-        old = int(old)
-        new = max(old, crlb_step)
-        new_val = None if new > total else new  # None: CRLB requires more measurements than the run had
-        if new_val != old:
-            updated[field] = new_val
-            changed = True
-
-    return updated if changed else row
-
-
-def _apply_crlb_floor(row: dict[str, Any], noise_std: float) -> dict[str, Any]:
-    """Floor the frequency uncertainty at 2× the Lorentzian CRLB.
-
-    Mirrors UnitCubeSMCMarginalDistribution.crlb_frequency() and reported_uncertainty().
-    Returns *row* unchanged when any required field is absent, non-positive, or the
-    floor has no effect (i.e. the empirical uncertainty already exceeds 2×CRLB).
-
-    Formula: CRLB_f = sqrt(2σ²Ω / (π a² ρ))
-        σ   = noise std
-        Ω   = linewidth (FWHM, Hz) — from final posterior mean
-        a   = c_total (contrast) — from final posterior mean
-        ρ   = n_obs / bandwidth
-
-    Note: main_result_row never stores uncert_frequency directly — _promote_uncert
-    collapses it into `uncert`.  For NV-center Lorentzian models `uncert` equals
-    uncert_frequency because frequency is first in the promotion priority list, so
-    we treat `uncert` as the pre-floor frequency uncertainty.
-    """
-    linewidth = row.get("final_est_linewidth")
-    c_total = row.get("final_est_c_total")
-    n_obs = row.get("measurements")
-    uncert = row.get("uncert")
-
-    if not all(isinstance(v, int | float) for v in (linewidth, c_total, n_obs, uncert)):
-        return row
-
-    linewidth = float(linewidth)  # type: ignore[arg-type]
-    c_total = float(c_total)  # type: ignore[arg-type]
-    n_obs = float(n_obs)  # type: ignore[arg-type]
-    uncert = float(uncert)  # type: ignore[arg-type]
-
-    if c_total <= 0 or linewidth <= 0 or noise_std <= 0 or n_obs <= 0 or not math.isfinite(uncert):
-        return row
-
-    rho = n_obs / _CRLB_BANDWIDTH
-    variance = (2.0 * noise_std**2 * linewidth) / (math.pi * c_total**2 * rho)
-    crlb = math.sqrt(max(variance, 0.0))
-    floored = max(uncert, 2.0 * crlb)
-
-    if floored == uncert:
-        return row  # floor has no effect; avoid spurious cache writes
-
-    updated = dict(row)
-    updated["uncert"] = floored
-    return updated
 
 
 def _configure_logging(log_level: str) -> None:

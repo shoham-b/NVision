@@ -51,10 +51,6 @@ class RescaleMap:
         """Map a unit-cube value (scalar or array) in [0, 1] to physical units."""
         return self.lo + u * (self.hi - self.lo)
 
-    def to_unit(self, phys: _Numeric) -> _Numeric:
-        """Map a physical value (scalar or array) to [0, 1]."""
-        return (phys - self.lo) / (self.hi - self.lo)
-
     @property
     def width(self) -> float:
         """Physical width of the parameter range."""
