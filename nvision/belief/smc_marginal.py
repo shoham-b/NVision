@@ -17,11 +17,6 @@ from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_h
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.noise_model import NoiseSignalModel
-from nvision.spectra.numba_kernels import (
-    nv_center_lorentzian_eig_variance,
-    nv_center_pseudo_voigt_eig_variance,
-    nv_center_zeeman_pseudo_voigt_eig_variance,
-)
 
 # --- Environment-driven defaults ---------------------------------------------
 
@@ -38,13 +33,6 @@ NVISION_SMC_TEMPERING_FACTOR: float = float(os.getenv("NVISION_SMC_TEMPERING_FAC
 # Using all N particles at N=10k produces an 80 MB matrix per EIG call.
 # Subsampling keeps the matrix small (< 4 MB) with negligible quality loss.
 NVISION_SMC_EIG_PARTICLES: int = int(os.getenv("NVISION_SMC_EIG_PARTICLES", "500"))
-
-# EIG prediction-matrix cache: between resamples the particles and candidate
-# grid are frozen, so the prediction surface M[candidate, particle] is invariant
-# and only the weights change. When enabled, M (and M^2) are built once per
-# epoch and each subsequent step computes EIG as two matrix-vector products
-# against the current weights — no model re-evaluation per step.
-NVISION_SMC_EIG_CACHE: bool = os.getenv("NVISION_SMC_EIG_CACHE", "1") not in ("0", "false", "False")
 
 # Minimum physical spacing (Hz) for the epoch candidate grid. Controls the
 # finest resolution the slope-targeting grid can achieve regardless of sigma.
@@ -429,7 +417,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _dip_candidates: list[DipCandidate] = field(init=False, repr=False, default_factory=list)
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
-    _eig_kernel_type: str = field(init=False, repr=False, default="generic")
     # Observation history as flat buffers (amortized growth). Only (x, y) are
     # ever consumed from history (dip detection), so full Observation objects
     # are not stored — see the _observations compatibility property.
@@ -444,7 +431,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _obs_sort_order: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_sort_valid_count: int = field(init=False, repr=False, default=0)
     _scratch_logw: np.ndarray | None = field(init=False, repr=False, default=None)
-    # EIG prediction-matrix cache (see NVISION_SMC_EIG_CACHE). _eig_epoch is
+    # EIG prediction-matrix cache (see _eig_variance_cached). _eig_epoch is
     # bumped whenever the candidate grid / particles change so the cache is
     # rebuilt; _eig_cache holds (key, M, M2, sub_idx) for the current epoch.
     _eig_epoch: int = field(init=False, repr=False, default=0)
@@ -540,87 +527,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             # _generate_epoch_candidates for the density-mixture construction).
             self._generate_epoch_candidates()
 
-        # Cache which fused EIG-variance kernel to use — avoids isinstance checks
-        # and module imports inside the per-step hot path.
-        # Unit-cube beliefs wrap the physical model, so unwrap before dispatching;
-        # _eig_variance_fused then converts the (small) particle subset and
-        # candidates from unit to physical space instead of falling back to the
-        # generic path that materializes the (n_candidates x n_eig) matrix.
-        self._eig_needs_phys = False
-        self._eig_hf_offset = 0.0
-        self._eig_w_center = 1.0
-        try:
-            from nvision.spectra.nv_center import (
-                NVCenterLorentzianModel,
-                NVCenterSaturationVoigtModel,
-                NVCenterVoigtModel,
-            )
-            from nvision.spectra.unit_cube import UnitCubeSignalModel
-
-            kernel_model = self.model
-            is_unit_cube = isinstance(kernel_model, UnitCubeSignalModel)
-            if is_unit_cube:
-                kernel_model = kernel_model.inner
-
-            # Hyperfine geometry the fused kernels need: the fixed line offset to
-            # substitute when `split` isn't a particle column, and the center-line
-            # weight that selects triplet vs. doublet vs. merged-single.
-            self._eig_hf_offset = float(getattr(kernel_model, "_hf_offset", 0.0))
-            self._eig_w_center = float(getattr(kernel_model, "_w_center", 1.0))
-
-            if isinstance(kernel_model, NVCenterSaturationVoigtModel):
-                self._eig_kernel_type = "saturation_voigt"
-                self._eig_needs_phys = is_unit_cube
-            elif isinstance(kernel_model, NVCenterLorentzianModel):
-                # Same issue as the NVCenterVoigtModel branch below:
-                # nv_center_lorentzian_eig_variance is a single-dip, 5-column
-                # kernel [freq, linewidth, split, k_np, c_total]. A Zeeman-split
-                # model has a 6th column (zeeman_split, inserted before split), so
-                # every column from "split" onward would be read one slot off and
-                # c_total wouldn't be read at all. No fused Zeeman-Lorentzian EIG
-                # kernel exists (nv_center_zeeman_lorentzian_eig_variance is
-                # referenced only in a docstring elsewhere, never implemented) --
-                # route to the generic path, which is correct by construction.
-                # It also hardcodes `split`/`k_np` as columns 2/3, which only exist
-                # when infer_hyperfine=True -- with the structure unresolved (the
-                # default) the model has no such columns and c_total would be read
-                # as `split`. Require the exact layout, else use the generic path.
-                names = kernel_model.parameter_names()
-                has_zeeman = "zeeman_split" in names
-                layout_ok = not has_zeeman and "split" in names and "k_np" in names
-                self._eig_kernel_type = "lorentzian" if layout_ok else "generic"
-                self._eig_needs_phys = is_unit_cube and layout_ok
-            elif isinstance(kernel_model, NVCenterVoigtModel):
-                # nv_center_pseudo_voigt_eig_variance (the fused kernel below) is a
-                # single-dip kernel with a hardcoded 6-column layout [freq,
-                # fwhm_total, lorentz_frac, split, k_np, dip_depth]. A Zeeman-split
-                # NVCenterVoigtModel has a 7th column (zeeman_split, inserted before
-                # split), so every column from "split" onward would be read one slot
-                # off and dip_depth wouldn't be read at all -- scoring every
-                # acquisition candidate against a wrong-parameter single-dip
-                # prediction. There's also no fused Zeeman kernel for this model's
-                # dip_depth (physical-depth) amplitude scheme, unlike
-                # saturation_voigt's population-normalized c_total (which
-                # nv_center_zeeman_pseudo_voigt_eig_variance below actually
-                # implements) -- so route to the generic path instead of guessing.
-                # That path is correct-by-construction: it calls
-                # model.compute_vectorized_many_fast(), which already dispatches on
-                # with_zeeman_splitting.
-                # Same `split`/`k_np` column requirement as the Lorentzian branch
-                # above: those columns only exist when infer_hyperfine=True.
-                # nv_center_pseudo_voigt_eig_variance also predates the isotope
-                # split and always evaluates a centre line, so it cannot stand in
-                # for a ¹⁵N doublet (w_center = 0).
-                names = kernel_model.parameter_names()
-                has_zeeman = "zeeman_split" in names
-                layout_ok = not has_zeeman and "split" in names and "k_np" in names and self._eig_w_center == 1.0
-                self._eig_kernel_type = "voigt" if layout_ok else "generic"
-                self._eig_needs_phys = is_unit_cube and layout_ok
-            else:
-                self._eig_kernel_type = "generic"
-        except ImportError:
-            self._eig_kernel_type = "generic"
-
     def update(self, obs: Observation) -> None:
         self._append_observation(obs.x, obs.signal_value)
         self.last_obs = obs
@@ -632,8 +538,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # Shot-batch sufficient statistics: n_shots (k) and within-batch
         # variance s^2. k == 1 reproduces the single-shot update exactly.
-        k = int(getattr(obs, "n_shots", 1) or 1)
-        sample_var = getattr(obs, "sample_var", None)
+        k = obs.n_shots
+        sample_var = obs.sample_var
 
         residuals = obs.signal_value - predicted
         # Rao-Blackwellized marginal likelihood: sigma^2 is analytically
@@ -1615,37 +1521,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         quality loss.  This is critical at large particle counts (e.g. N=10 000
         produces an 80 MB matrix at 2000 candidates; subsampling to 500 gives 4 MB).
         """
-        n_total = self._particles.shape[0]
-        n_eig = NVISION_SMC_EIG_PARTICLES
-
-        if NVISION_SMC_EIG_CACHE:
-            var_pred = self._eig_variance_cached(candidates, n_total, n_eig)
-        else:
-            if n_total > n_eig:
-                # Stratified resampling — O(n_eig) vs O(n_total) for np.random.choice.
-                # Divides [0,1] into n_eig equal strata; each stratum gets its own
-                # independent U(0, 1/n_eig) draw, so there is no fixed grid pattern
-                # across steps while coverage of the weight distribution is still
-                # guaranteed (one sample per stratum).
-                w_norm = self._weights / (self._weights.sum() + 1e-30)
-                cdf = np.cumsum(w_norm).astype(np.float32)
-                u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
-                positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
-                idx = _systematic_resample_indices(cdf, positions)
-                # Gather straight into (d, n_eig) layout: the fancy index on the
-                # transposed view produces C-contiguous rows, so the fused kernel
-                # gets contiguous per-parameter arrays without a second copy.
-                part_t = self._particles.T[:, idx]  # (d, n_eig) — one copy
-                w_sub = w_norm[idx].astype(np.float32)
-                w_sub /= w_sub.sum()
-            else:
-                # _particles is F-order, so .T is already C-contiguous: zero-copy.
-                part_t = np.ascontiguousarray(self._particles.T)  # (d, n_total)
-                w_sub = self._weights  # already float32, normalized
-
-            # Fused kernel: weighted prediction variance per candidate in one pass,
-            # without materialising the (n_candidates x n_eig) predictions matrix.
-            var_pred = self._eig_variance_fused(candidates, part_t, w_sub)
+        var_pred = self._eig_variance_cached(candidates, self._particles.shape[0], NVISION_SMC_EIG_PARTICLES)
 
         est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
         noise_var = max(float(np.sum(self._weights * est_variances)), 1e-12)
@@ -1664,8 +1540,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             Var_w[pred] = (M2 @ w) - (M @ w) ** 2
 
         The particle subset is fixed for the epoch (drawn when the matrix is
-        built), so the estimator uses explicit importance weights instead of the
-        per-step weight-stratified resample used by the fused path.
+        built, right after a resample when the weights are ~uniform) and the
+        estimator applies the current weights to it explicitly.
         """
         n_c = candidates.shape[0]
         # Key from the raw array -- no dtype/contiguity conversion needed just to
@@ -1714,131 +1590,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         var_pred -= mean * mean
         np.maximum(var_pred, 0.0, out=var_pred)
         return var_pred
-
-    def _eig_variance_fused(self, candidates: np.ndarray, part_t: np.ndarray, weights: np.ndarray) -> np.ndarray:
-        """Dispatch to the model-specific fused EIG-variance kernel.
-
-        ``part_t`` is the particle subset in transposed ``(d, n)`` layout with
-        C-contiguous rows, so each per-parameter slice below is a zero-copy
-        contiguous view.
-
-        The kernel type is resolved once at construction and cached in
-        ``_eig_kernel_type``, so this method has no isinstance checks or
-        module imports in the hot path.
-
-        Falls back to the two-step (matrix + variance) path for models that
-        do not have a fused kernel.
-        """
-        out = np.empty(len(candidates), dtype=np.float32)
-        xs = np.asarray(candidates, dtype=np.float32)
-        w = np.asarray(weights, dtype=np.float32)
-
-        kernel = self._eig_kernel_type
-
-        if kernel != "generic" and getattr(self, "_eig_needs_phys", False):
-            # Unit-cube belief with a physical fused kernel: map candidates and
-            # the per-parameter rows to physical space. These are tiny arrays
-            # (n_candidates + d_signal x n_eig), so the linear maps cost nothing
-            # next to the kernel; semantics match UnitCubeSignalModel exactly.
-            from nvision.spectra.unit_cube import _unit_interval_to_physical
-
-            x_lo, x_hi = self.model.x_bounds_phys
-            xs = np.float32(x_lo) + xs * (np.float32(x_hi) - np.float32(x_lo))
-
-            if kernel == "lorentzian":
-                n_sig = 5
-            elif kernel == "saturation_voigt":
-                # 3 (single dip) / 4 (Zeeman) / 5 (hyperfine) / 6 (Zeeman + hyperfine).
-                n_sig = self._d_signal
-            else:
-                n_sig = 6
-            bounds = self.model.param_bounds_phys
-            part_phys = np.empty((n_sig, part_t.shape[1]), dtype=np.float32)
-            for j, name in enumerate(self._param_names[:n_sig]):
-                lo, hi = bounds[name]
-                part_phys[j] = _unit_interval_to_physical(
-                    np.asarray(part_t[j], dtype=np.float32), float(lo), float(hi), name
-                )
-            part_t = part_phys
-
-        if kernel == "lorentzian":
-            nv_center_lorentzian_eig_variance(
-                xs,
-                np.ascontiguousarray(part_t[0], dtype=np.float32),  # freq
-                np.ascontiguousarray(part_t[1], dtype=np.float32),  # linewidth
-                np.ascontiguousarray(part_t[2], dtype=np.float32),  # split
-                np.ascontiguousarray(part_t[3], dtype=np.float32),  # k_np
-                self._eig_w_center,
-                np.ascontiguousarray(part_t[4], dtype=np.float32),  # c_total
-                w,
-                out,
-            )
-            return out
-
-        if kernel == "voigt":
-            nv_center_pseudo_voigt_eig_variance(
-                xs,
-                np.ascontiguousarray(part_t[0], dtype=np.float32),  # freq
-                np.ascontiguousarray(part_t[1], dtype=np.float32),  # fwhm_total
-                np.ascontiguousarray(part_t[2], dtype=np.float32),  # lorentz_frac
-                np.ascontiguousarray(part_t[3], dtype=np.float32),  # split
-                np.ascontiguousarray(part_t[4], dtype=np.float32),  # k_np
-                np.ascontiguousarray(part_t[5], dtype=np.float32),  # dip_depth
-                w,
-                out,
-            )
-            return out
-
-        if kernel == "saturation_voigt":
-            from nvision.spectra.nv_center import (
-                NV_SATURATION_C_MAX,
-                _saturation_voigt_reparam,
-            )
-
-            n_p = part_t.shape[1]
-            # Signal columns follow parameter_names order:
-            #   freq, saturation, sigma_inhom, [zeeman_split,] [split, k_np]
-            # c_max is a fixed constant (NV_SATURATION_C_MAX), not a particle column.
-            has_zeeman = "zeeman_split" in self._param_names
-            has_hf = "split" in self._param_names
-            saturation = part_t[1]
-            sigma_inhom = part_t[2]
-            if has_zeeman:
-                zeeman_split = np.ascontiguousarray(part_t[3], dtype=np.float32)
-                next_idx = 4
-            else:
-                zeeman_split = np.zeros(n_p, dtype=np.float32)
-                next_idx = 3
-            if has_hf:
-                hf_split = np.ascontiguousarray(part_t[next_idx], dtype=np.float32)
-                k_np = np.ascontiguousarray(part_t[next_idx + 1], dtype=np.float32)
-            else:
-                # Not an inferred column: use the model's own fixed line offset
-                # (0 when the structure is unresolved -- one merged dip).
-                hf_split = np.full(n_p, np.float32(self._eig_hf_offset), dtype=np.float32)
-                k_np = np.ones(n_p, dtype=np.float32)
-            c_max = np.full(n_p, np.float32(NV_SATURATION_C_MAX), dtype=np.float32)
-
-            fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam(saturation, sigma_inhom, c_max)
-            nv_center_zeeman_pseudo_voigt_eig_variance(
-                xs,
-                np.ascontiguousarray(part_t[0], dtype=np.float32),  # freq
-                np.ascontiguousarray(fwhm_total, dtype=np.float32),
-                np.ascontiguousarray(lorentz_frac, dtype=np.float32),
-                zeeman_split,
-                hf_split,
-                k_np,
-                self._eig_w_center,
-                np.ascontiguousarray(c_total, dtype=np.float32),
-                w,
-                out,
-            )
-            return out
-
-        # Generic fallback: two-step path for any other model type.
-        arrays_in_order = [part_t[j] for j in range(self._d_signal)]
-        predictions = self.model.compute_vectorized_many_fast(candidates, arrays_in_order)
-        return _weighted_variance_rows(predictions, w)
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
         """Shrink physical bounds and clip particles into the new window."""

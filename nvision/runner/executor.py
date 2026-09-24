@@ -17,6 +17,7 @@ from typing import Any
 
 import polars as pl
 
+from nvision.belief.dip_detection import min_linewidth_hz
 from nvision.cache import CacheBridge
 from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
@@ -117,7 +118,10 @@ def run_loop(
         # the dyadic table, in another order); replaying them would feed this run a truth
         # from the wrong moment.
         sweep_cache = None
-    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
+    # Sweep locators are handed a belief + signal model; Bayesian locators build their own belief.
+    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False) and not issubclass(
+        locator_class, SequentialBayesianLocator
+    )
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.model)
@@ -1083,8 +1087,6 @@ class _TaskRunner:
         experiment: CoreExperiment,
         locator_config: dict[str, Any],
         noise_std: float,
-        noise_max_dev: float | None,
-        signal_max_span: float | None,
     ) -> dict[str, Any]:
         """Simulate the SimpleSobolBayesianLocator until convergence and return detailed stats."""
         import math
@@ -1102,12 +1104,7 @@ class _TaskRunner:
 
         _f_lo, _f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
         _domain = float(_f_hi - _f_lo)
-        if "linewidth" in parameter_bounds:
-            _min_lw = float(parameter_bounds["linewidth"][0])
-        elif "homogeneous_linewidth" in parameter_bounds:
-            _min_lw = float(parameter_bounds["homogeneous_linewidth"][0])
-        else:
-            _min_lw = 200e3
+        _min_lw = min_linewidth_hz(parameter_bounds)
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
 
         # Build belief directly
@@ -1121,8 +1118,6 @@ class _TaskRunner:
             belief=belief,
             max_steps=_sobol_max_steps,
             noise_std=noise_std,
-            **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
-            **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         )
         # The parameter these "sobol_freq_*" stats are actually about -- zeeman_split
         # (or split) once frequency is fixed by default, else frequency itself for
@@ -1201,12 +1196,7 @@ class _TaskRunner:
 
         f_lo, f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
         domain_width = float(f_hi - f_lo)
-        if "linewidth" in parameter_bounds:
-            min_linewidth = float(parameter_bounds["linewidth"][0])
-        elif "homogeneous_linewidth" in parameter_bounds:
-            min_linewidth = float(parameter_bounds["homogeneous_linewidth"][0])
-        else:
-            min_linewidth = 200e3
+        min_linewidth = min_linewidth_hz(parameter_bounds)
         max_steps = max(30, math.ceil(domain_width / min_linewidth))
 
         locator = GenericSweepLocator(
@@ -1356,12 +1346,7 @@ class _TaskRunner:
         bounds = self._injected_parameter_bounds(experiment)
         f_lo, f_hi = bounds["frequency"]
         domain_width = f_hi - f_lo
-        if "linewidth" in bounds:
-            min_linewidth = bounds["linewidth"][0]
-        elif "homogeneous_linewidth" in bounds:
-            min_linewidth = bounds["homogeneous_linewidth"][0]
-        else:
-            min_linewidth = 200e3
+        min_linewidth = min_linewidth_hz(bounds)
         import numpy as np
 
         simplesweep_steps = int(np.ceil(domain_width / min_linewidth))
@@ -1402,6 +1387,8 @@ class _TaskRunner:
         This ensures that when repeats are spawned, the sweep is already in cache
         and all repeats can share the same initial sweep measurements.
         """
+        if issubclass(locator_class, SequentialBayesianLocator):
+            return  # Bayesian locators have no initial sweep to share
         noise_std = 0.05
         noise_max_dev: float | None = None
         if experiment.noise is not None:
@@ -1476,9 +1463,7 @@ class _TaskRunner:
                 experiment, self.task.seed, self.generator_name, self.noise_name, rid
             )
             if sobol_data is None:
-                sobol_data = self._run_sobol_baseline(
-                    rid, experiment, locator_config, noise_std, noise_max_dev, signal_max_span
-                )
+                sobol_data = self._run_sobol_baseline(rid, experiment, locator_config, noise_std)
                 self._sweep_cache.put_sobol_baseline(
                     experiment, self.task.seed, self.generator_name, self.noise_name, rid, sobol_data
                 )
@@ -1517,21 +1502,25 @@ class _TaskRunner:
         n_shots = int(locator_config.get("n_shots", 1))
         batch_noise_std = noise_std / math.sqrt(n_shots)
 
+        is_bayesian = issubclass(locator_class, SequentialBayesianLocator)
         cfg = {
             **{k: v for k, v in locator_config.items() if k != "n_shots"},
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": batch_noise_std,
-            **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
-            **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
-
-        # For locators that require belief, add belief and signal_model
         if requires_belief:
-            belief = _create_sweep_belief(experiment)
-            cfg["belief"] = belief
-            cfg["signal_model"] = experiment.true_signal.model
             cfg["noise_model"] = experiment.true_signal.noise_model
+        if not is_bayesian:
+            # Sweep locators use the noise/signal-span hints and are handed a belief + signal model;
+            # Bayesian locators infer everything through their own belief.
+            if noise_max_dev is not None:
+                cfg["noise_max_dev"] = noise_max_dev
+            if signal_max_span is not None:
+                cfg["signal_max_span"] = signal_max_span
+            if requires_belief:
+                cfg["belief"] = _create_sweep_belief(experiment)
+                cfg["signal_model"] = experiment.true_signal.model
 
         # --- Pre-run CRLB feasibility gate (Bayesian locators only) -------
         # Uses true parameter values (oracle) to check whether ANY parameter's

@@ -37,11 +37,6 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         "convergence_threshold": 0.15,
         "parameter_bounds": pb,
         "noise_std": 0.05,
-        "n_grid_freq": 48,
-        "n_grid_linewidth": 24,
-        "n_grid_split": 24,
-        "n_grid_k_np": 16,
-        "n_grid_amplitude": 16,
     }
     final = Observer(true_signal, exp.x_min, exp.x_max).watch(
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
@@ -76,7 +71,7 @@ def test_narrow_scan_parameter_physical_bounds_smc():
 def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     # Test 1: Narrowing delay safeguard
     # Set the environment variable to 8 steps
-    monkeypatch.setenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8")
+    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 8)
 
     b = nv_center_smc_belief(num_particles=100, with_fixed_frequency=False, noise_model=gaussian_noise())
     assert isinstance(b, UnitCubeSMCMarginalDistribution)
@@ -163,9 +158,7 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
 
 def test_smc_exact_active_range_union_narrowing(monkeypatch):
     # Set step count > min_narrowing_steps so narrowing runs
-    monkeypatch.setenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "5")
-    monkeypatch.setenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0")
-    monkeypatch.setenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0")
+    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 5)
 
     # Mock the base class _resample to be a no-op so it doesn't resample, shrink,
     # or nudge our manually controlled particles.

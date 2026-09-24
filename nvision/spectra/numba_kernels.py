@@ -172,7 +172,7 @@ def nv_center_lorentzian_vectorized_many(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math (three divisions
-    # per particle) out of the m x n inner loop — see nv_center_lorentzian_eig_variance
+    # per particle) out of the m x n inner loop.
     # for the same pattern applied to the fused EIG-variance kernel.
     inv_omega = np.empty(n, dtype=np.float64)
     alpha_arr = np.empty(n, dtype=np.float64)
@@ -391,7 +391,7 @@ def nv_center_zeeman_lorentzian_vectorized_many(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math out of the m x n
-    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    # inner loop.
     inv_omega = np.empty(n, dtype=np.float64)
     alpha_arr = np.empty(n, dtype=np.float64)
     beta_arr = np.empty(n, dtype=np.float64)
@@ -447,7 +447,7 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math out of the m x n
-    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    # inner loop.
     inv_omega = np.empty(n, dtype=np.float64)
     alpha_arr = np.empty(n, dtype=np.float64)
     beta_arr = np.empty(n, dtype=np.float64)
@@ -568,7 +568,6 @@ def nv_center_pseudo_voigt_vectorized_one(
 
 
 _SQRT2PI = math.sqrt(2.0 * math.pi)
-_SQRT2 = math.sqrt(2.0)
 _SQRT2LOG2 = math.sqrt(2.0 * math.log(2.0))
 
 
@@ -677,7 +676,7 @@ def nv_center_pseudo_voigt_vectorized_many(
 
     # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
     # (eta polynomial, several divisions, factor setup) out of the m x n inner
-    # loop — same pattern as nv_center_pseudo_voigt_eig_variance.
+    # loop.
     elf_arr = np.empty(n, dtype=np.float64)
     egf_arr = np.empty(n, dtype=np.float64)
     nhs_arr = np.empty(n, dtype=np.float64)
@@ -786,7 +785,7 @@ def nv_center_pseudo_voigt_vectorized_many_fast_serial(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
-    # out of the m x n inner loop — same pattern as nv_center_pseudo_voigt_eig_variance.
+    # out of the m x n inner loop.
     elf_arr = np.empty(n, dtype=np.float64)
     egf_arr = np.empty(n, dtype=np.float64)
     nhs_arr = np.empty(n, dtype=np.float64)
@@ -953,7 +952,7 @@ def nv_center_lorentzian_vectorized_many_fast(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math out of the m x n
-    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    # inner loop.
     inv_omega = np.empty(n, dtype=np.float64)
     alpha_arr = np.empty(n, dtype=np.float64)
     p_0_arr = np.empty(n, dtype=np.float64)
@@ -1004,7 +1003,7 @@ def nv_center_lorentzian_vectorized_many_fast_serial(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math out of the m x n
-    # inner loop (same pattern as nv_center_lorentzian_eig_variance).
+    # inner loop.
     inv_omega = np.empty(n, dtype=np.float64)
     alpha_arr = np.empty(n, dtype=np.float64)
     p_0_arr = np.empty(n, dtype=np.float64)
@@ -1054,7 +1053,7 @@ def nv_center_pseudo_voigt_vectorized_many_fast(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
-    # out of the m x n inner loop — same pattern as nv_center_pseudo_voigt_eig_variance.
+    # out of the m x n inner loop.
     elf_arr = np.empty(n, dtype=np.float64)
     egf_arr = np.empty(n, dtype=np.float64)
     nhs_arr = np.empty(n, dtype=np.float64)
@@ -1150,199 +1149,6 @@ def nv_center_pseudo_voigt_vectorized_many_fast(
 #   _weighted_variance_rows           ->  reads  4 MB matrix back
 # with a single pass that accumulates weighted mean/mean-square on the fly.
 # ---------------------------------------------------------------------------
-
-
-@njit(cache=True, parallel=True, fastmath=True)
-def nv_center_lorentzian_eig_variance(
-    xs: np.ndarray,
-    freq: np.ndarray,
-    linewidth: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    w_center: float,
-    c_total: np.ndarray,
-    weights: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Fused: weighted prediction variance per candidate -- Lorentzian EIG path.
-
-    Computes Var_w[f(x, theta)] for each probe position x in xs without
-    materialising the (len(xs), len(freq)) predictions matrix.
-    Writes one float32 per candidate into out (shape (len(xs),)).
-
-    background is omitted -- for NV-center models it is always 1.0 and
-    cancels out of the variance calculation.
-
-    Precompute and the (i, j) hot loop are float32 throughout (not just the
-    array dtype -- literals are explicitly ``np.float32`` too, since a bare
-    Python ``1.0``/``0.0`` would unify with a float32 operand to float64 and
-    silently undo the point of this). float32 doubles the AVX lane width
-    here for a ~3.5-7x wall-clock win, validated against the float64 path by
-    replaying the actual chunk-argmax + Boltzmann candidate selection (see
-    scratch/bench_threading_layer.py): float32-driven regret was
-    statistically identical to float64-driven regret across wide-prior,
-    converged, and pathologically-converged posteriors, because that
-    selection already treats near-tied candidates as interchangeable. EIG
-    ranking only -- see the module-level fastmath-kernels note above; this
-    must never back a weight update or uncertainty computation.
-    """
-    m = xs.shape[0]
-    n = freq.shape[0]
-
-    # Per-particle precompute: hoists all particle-only math (including three
-    # divisions per pair) out of the m x n inner loop.
-    inv_omega = np.empty(n, dtype=np.float32)
-    alpha = np.empty(n, dtype=np.float32)
-    p_0 = np.empty(n, dtype=np.float32)
-    p_l = np.empty(n, dtype=np.float32)
-    p_r = np.empty(n, dtype=np.float32)
-    for j in range(n):
-        lw = linewidth[j]
-        omega = lw if lw > 1e-10 else 1e-10
-        io = 1.0 / omega
-        inv_omega[j] = io
-        alpha[j] = split[j] * io
-
-        p_l[j], p_0[j], p_r[j] = nv_population_weights(k_np[j], c_total[j], w_center)
-
-    for i in prange(m):
-        x = xs[i]
-        sum_p = np.float32(0.0)
-        sum_p2 = np.float32(0.0)
-        for j in range(n):
-            x_dim = (x - freq[j]) * inv_omega[j]
-            a = alpha[j]
-            d_l = x_dim + a
-            d_r = x_dim - a
-            pred = np.float32(1.0) - (
-                p_l[j] / (d_l * d_l + np.float32(1.0))
-                + p_0[j] / (x_dim * x_dim + np.float32(1.0))
-                + p_r[j] / (d_r * d_r + np.float32(1.0))
-            )
-
-            wi = weights[j]
-            sum_p += wi * pred
-            sum_p2 += wi * pred * pred
-
-        v = sum_p2 - sum_p * sum_p
-        out[i] = v if v > np.float32(0.0) else np.float32(0.0)
-
-
-@njit(cache=True, parallel=True, fastmath=True)
-def nv_center_pseudo_voigt_eig_variance(
-    xs: np.ndarray,
-    freq: np.ndarray,
-    fwhm_total: np.ndarray,
-    lorentz_frac: np.ndarray,
-    split: np.ndarray,
-    k_np: np.ndarray,
-    dip_depth: np.ndarray,
-    weights: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Fused: weighted prediction variance per candidate -- pseudo-Voigt EIG path.
-
-    Same contract as nv_center_lorentzian_eig_variance.
-    """
-    m = xs.shape[0]
-    n = freq.shape[0]
-
-    # Per-particle precompute: hoists the entire pseudo-Voigt parameterisation
-    # (eta polynomial, several divisions, factor setup) out of the m x n inner
-    # loop. float64 arrays keep the numerics identical to the previous
-    # per-pair scalar computation.
-    elf_arr = np.empty(n, dtype=np.float64)  # eta * gamma * inv_center_height (0 when no gamma)
-    egf_arr = np.empty(n, dtype=np.float64)  # (1-eta) * gauss_center * inv_center_height (0 when no sigma)
-    nhs_arr = np.empty(n, dtype=np.float64)  # -0.5 / sigma^2 (0 when no sigma)
-    gamma2_arr = np.empty(n, dtype=np.float64)
-    amp_l_arr = np.empty(n, dtype=np.float64)
-    amp_c_arr = np.empty(n, dtype=np.float64)
-    amp_r_arr = np.empty(n, dtype=np.float64)
-    has_gamma_arr = np.empty(n, dtype=np.bool_)
-    has_sigma_arr = np.empty(n, dtype=np.bool_)
-    for j in range(n):
-        fwhm = fwhm_total[j]
-        k = k_np[j]
-        d = dip_depth[j]
-
-        gamma = fwhm / 2.0
-        sigma = fwhm / (2.0 * _SQRT2LOG2)
-        ratio = lorentz_frac[j] if fwhm > 1e-30 else 0.0
-        eta = 1.36603 * ratio - 0.47719 * ratio * ratio + 0.11116 * ratio * ratio * ratio
-
-        gamma2 = gamma * gamma
-        has_gamma = abs(gamma) > 1e-12
-        lorentz_center = 1.0 / gamma if has_gamma else 0.0
-
-        has_sigma = abs(sigma) > 1e-12
-        if has_sigma:
-            inv_sigma = 1.0 / sigma
-            gauss_center = inv_sigma / _SQRT2PI
-            neg_half_inv_sigma2 = -0.5 * inv_sigma * inv_sigma
-            eta_gauss_factor = (1.0 - eta) * gauss_center
-        else:
-            gauss_center = 0.0
-            neg_half_inv_sigma2 = 0.0
-            eta_gauss_factor = 0.0
-
-        center_height = eta * lorentz_center + (1.0 - eta) * gauss_center
-        inv_center_height = 1.0 / center_height if abs(center_height) > 1e-12 else 0.0
-
-        inv_k = 1.0 / k
-        actual_depth = d * inv_k
-
-        elf_arr[j] = eta * gamma * inv_center_height if has_gamma else 0.0
-        egf_arr[j] = eta_gauss_factor * inv_center_height
-        nhs_arr[j] = neg_half_inv_sigma2
-        gamma2_arr[j] = gamma2
-        amp_c_arr[j] = actual_depth
-        amp_l_arr[j] = actual_depth * inv_k
-        amp_r_arr[j] = actual_depth * k
-        has_gamma_arr[j] = has_gamma
-        has_sigma_arr[j] = has_sigma
-
-    for i in prange(m):
-        x = xs[i]
-        sum_p = 0.0
-        sum_p2 = 0.0
-        for j in range(n):
-            eta_lorentz_factor = elf_arr[j]
-            eta_gauss_factor = egf_arr[j]
-            neg_half_inv_sigma2 = nhs_arr[j]
-            gamma2 = gamma2_arr[j]
-            has_gamma = has_gamma_arr[j]
-            has_sigma = has_sigma_arr[j]
-            s = split[j]
-            wi = weights[j]
-
-            dx_c = x - freq[j]
-            dx_c2 = dx_c * dx_c
-            lorentz_c = eta_lorentz_factor / (dx_c2 + gamma2) if has_gamma else 0.0
-            gauss_c = eta_gauss_factor * math.exp(dx_c2 * neg_half_inv_sigma2) if has_sigma else 0.0
-            pc = lorentz_c + gauss_c
-
-            if s < 1e-10:
-                pred = 1.0 - amp_c_arr[j] * pc
-            else:
-                dx_l = dx_c + s
-                dx_l2 = dx_l * dx_l
-                lorentz_l = eta_lorentz_factor / (dx_l2 + gamma2) if has_gamma else 0.0
-                gauss_l = eta_gauss_factor * math.exp(dx_l2 * neg_half_inv_sigma2) if has_sigma else 0.0
-                pl = lorentz_l + gauss_l
-
-                dx_r = dx_c - s
-                dx_r2 = dx_r * dx_r
-                lorentz_r = eta_lorentz_factor / (dx_r2 + gamma2) if has_gamma else 0.0
-                gauss_r = eta_gauss_factor * math.exp(dx_r2 * neg_half_inv_sigma2) if has_sigma else 0.0
-                pr = lorentz_r + gauss_r
-
-                pred = 1.0 - (amp_l_arr[j] * pl + amp_c_arr[j] * pc + amp_r_arr[j] * pr)
-
-            sum_p += wi * pred
-            sum_p2 += wi * pred * pred
-
-        v = sum_p2 - sum_p * sum_p
-        out[i] = v if v > 0.0 else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1557,7 +1363,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many(
     n = freq.shape[0]
 
     # Per-particle precompute: hoists the pseudo-Voigt + population setup out of
-    # the m x n inner loop — same pattern as nv_center_zeeman_pseudo_voigt_eig_variance.
+    # the m x n inner loop.
     elf_arr = np.empty(n, dtype=np.float64)
     egf_arr = np.empty(n, dtype=np.float64)
     nhs_arr = np.empty(n, dtype=np.float64)
@@ -1659,78 +1465,3 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
                 has_gamma_arr[j],
                 has_sigma_arr[j],
             )
-
-
-@njit(cache=True, parallel=True, fastmath=True)
-def nv_center_zeeman_pseudo_voigt_eig_variance(
-    xs: np.ndarray,
-    freq: np.ndarray,
-    fwhm_total: np.ndarray,
-    lorentz_frac: np.ndarray,
-    zeeman_split: np.ndarray,
-    hf_split: np.ndarray,
-    k_np: np.ndarray,
-    w_center: float,
-    c_total: np.ndarray,
-    weights: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """Fused: weighted prediction variance per candidate — Zeeman pseudo-Voigt EIG path.
-
-    Same contract as :func:`nv_center_zeeman_lorentzian_eig_variance`: background
-    is omitted (always 1.0 for NV models and cancels out of the variance).
-    """
-    m = xs.shape[0]
-    n = freq.shape[0]
-
-    # Per-particle precompute hoists the entire pseudo-Voigt + population setup
-    # out of the m x n inner loop. float64 keeps the numerics identical to the
-    # per-pair scalar path.
-    elf_arr = np.empty(n, dtype=np.float64)
-    egf_arr = np.empty(n, dtype=np.float64)
-    nhs_arr = np.empty(n, dtype=np.float64)
-    gamma2_arr = np.empty(n, dtype=np.float64)
-    has_gamma_arr = np.empty(n, dtype=np.bool_)
-    has_sigma_arr = np.empty(n, dtype=np.bool_)
-    p_l_arr = np.empty(n, dtype=np.float64)
-    p_0_arr = np.empty(n, dtype=np.float64)
-    p_r_arr = np.empty(n, dtype=np.float64)
-    for j in range(n):
-        elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
-        elf_arr[j] = elf
-        egf_arr[j] = egf
-        nhs_arr[j] = nhs
-        gamma2_arr[j] = gamma2
-        has_gamma_arr[j] = has_gamma
-        has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
-        p_l_arr[j] = p_l
-        p_0_arr[j] = p_0
-        p_r_arr[j] = p_r
-
-    for i in prange(m):
-        x = xs[i]
-        sum_p = 0.0
-        sum_p2 = 0.0
-        for j in range(n):
-            pred = 1.0 - _zeeman_pv_pred(
-                x,
-                freq[j],
-                zeeman_split[j],
-                hf_split[j],
-                p_l_arr[j],
-                p_0_arr[j],
-                p_r_arr[j],
-                elf_arr[j],
-                egf_arr[j],
-                nhs_arr[j],
-                gamma2_arr[j],
-                has_gamma_arr[j],
-                has_sigma_arr[j],
-            )
-            wi = weights[j]
-            sum_p += wi * pred
-            sum_p2 += wi * pred * pred
-
-        v = sum_p2 - sum_p * sum_p
-        out[i] = v if v > 0.0 else 0.0

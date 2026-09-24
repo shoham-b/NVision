@@ -142,7 +142,6 @@ def _make_locator(uncertainties):
 
     loc = SequentialBayesianLocator.__new__(SequentialBayesianLocator)
     loc.belief = _StubBelief(uncertainties)
-    loc._convergence_params = None
     loc.convergence_threshold = 0.01
     return loc
 
@@ -201,7 +200,6 @@ def test_target_params_converged_lorentzian_path_unchanged():
     loc = SequentialBayesianLocator.__new__(SequentialBayesianLocator)
     unc = {"frequency": 1e4, "linewidth": 1e4, "c_total": 1e-4}
     loc.belief = _LorBelief(unc)
-    loc._convergence_params = None
     loc.convergence_threshold = 0.01
     assert loc._target_params_converged(unc) is True
 

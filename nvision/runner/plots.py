@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from nvision.belief.dip_detection import min_linewidth_hz
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
@@ -907,17 +908,10 @@ def get_or_run_sobol_baseline(
 
     # 1. Setup locator noise/bounds
     noise_std = 0.05
-    noise_max_dev = None
     if experiment.noise is not None:
         noise_std = float(experiment.noise.estimated_noise_std())
-        if hasattr(experiment.noise, "estimated_max_noise_deviation"):
-            noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
 
-    domain_width = float(experiment.x_max - experiment.x_min)
-    signal_max_span = None
     model = experiment.true_signal.model
-    if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
-        signal_max_span = model.signal_max_span(domain_width)
 
     # Inject bounds (replicating Executor._injected_parameter_bounds(experiment))
     bounds: dict[str, tuple[float, float]] = {}
@@ -948,8 +942,6 @@ def get_or_run_sobol_baseline(
         belief=belief,
         max_steps=10000,
         noise_std=noise_std,
-        **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
-        **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
     )
     # See nvision/runner/executor.py's identical Sobol-baseline block: field names
     # keep their historical "freq" spelling, only the tracked parameter changes.
@@ -1069,12 +1061,7 @@ def get_or_run_simplesweep_baseline(
 
     f_lo, f_hi = bounds.get("frequency", (experiment.x_min, experiment.x_max))
     f_domain_width = float(f_hi - f_lo)
-    if "linewidth" in bounds:
-        min_linewidth = float(bounds["linewidth"][0])
-    elif "homogeneous_linewidth" in bounds:
-        min_linewidth = float(bounds["homogeneous_linewidth"][0])
-    else:
-        min_linewidth = 200e3
+    min_linewidth = min_linewidth_hz(bounds)
     max_steps = max(30, math.ceil(f_domain_width / min_linewidth))
 
     locator = GenericSweepLocator(

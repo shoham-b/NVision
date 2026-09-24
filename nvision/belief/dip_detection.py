@@ -72,6 +72,19 @@ def effective_max_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -
     )
 
 
+def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
+    """Lower bound (Hz) of the linewidth prior: the narrowest dip the prior allows.
+
+    Sets how finely a uniform sweep must sample to be sure of hitting a dip.
+    """
+    for name in ("linewidth", "homogeneous_linewidth"):
+        if name in phys_bounds:
+            return float(phys_bounds[name][0])
+    raise ValueError(
+        f"min_linewidth_hz: bounds define no 'linewidth' or 'homogeneous_linewidth'; got {sorted(phys_bounds)}"
+    )
+
+
 def find_dips(
     obs_xs_phys: np.ndarray,
     obs_ys: np.ndarray,

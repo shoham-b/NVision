@@ -9,7 +9,6 @@ import numpy as np
 from numba import njit
 
 from nvision.belief.dip_detection import effective_max_linewidth_hz
-from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
@@ -282,9 +281,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self._check_and_resample()
 
     def _check_and_resample(self) -> None:
-        belief = self.belief
-        if _inverse_sum_squares(belief._weights) < belief.ess_threshold * belief.num_particles:
-            belief._resample()
+        self._resample_if_degenerate()
 
         # One uncertainty pass shared by the milestone/plateau/CRLB checks
         # (each belief.uncertainty() call is a full O(particles x params) pass).
@@ -386,9 +383,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             return
 
         est = self.belief.estimates()
-        target_params = (
-            list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
-        )
+        target_params = list(self.belief.model.parameter_names())
         self._estimate_history.append({p: float(est[p]) for p in target_params if p in est})
         # Only the window endpoints are ever compared; keep the list bounded.
         if len(self._estimate_history) > _PLATEAU_WINDOW + 1:
@@ -461,9 +456,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         crlbs_stored = {"frequency": crlb_f}
 
         bounds = self.belief.physical_param_bounds
-        target_params = (
-            list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
-        )
+        target_params = list(self.belief.model.parameter_names())
 
         from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import (

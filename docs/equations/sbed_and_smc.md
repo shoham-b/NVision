@@ -100,11 +100,11 @@ This is the variance of the signal prediction under the current posterior — a 
 
 #### EIG Subsampling
 
-When N > N_EIG (default 500), a stratified subsample of N_EIG particles is drawn before the EIG prediction matrix is built.  Variance estimation converges with ~200–500 particles, so the quality loss is negligible while the matrix shrinks from O(n_cand × N) to O(n_cand × N_EIG).
+When N > N_EIG (default 500), a stratified subsample of N_EIG particles is drawn once per epoch, right after a resample, when the weights are ~uniform; the matrix is built for that fixed subset and the current weights are applied to it each step.  Variance estimation converges with ~200–500 particles, so the quality loss is negligible while the matrix shrinks from O(n_cand × N) to O(n_cand × N_EIG).
 
-#### EIG Prediction-Matrix Cache (`NVISION_SMC_EIG_CACHE`)
+#### EIG Prediction-Matrix Cache
 
-Between resamples the particle positions and candidate grid are frozen, so the prediction matrix M[c, i] = S(x_c, θ_i) and its element-wise square M⁽²⁾ = M ⊙ M are invariant.  They are built once per epoch, and the per-step variance is recovered with two matrix-vector products against the current weights:
+This is the only EIG evaluation path. Between resamples the particle positions and candidate grid are frozen, so the prediction matrix M[c, i] = S(x_c, θ_i) and its element-wise square M⁽²⁾ = M ⊙ M are invariant.  They are built once per epoch, and the per-step variance is recovered with two matrix-vector products against the current weights:
 
 $$\sigma^2_{\rm pred} = M^{(2)} \mathbf{w} - (M \mathbf{w})^2$$
 
@@ -253,7 +253,7 @@ The search window narrows to the union of particle-predicted active regions.  Ea
 
 $$[f_i - \Delta f_{\rm hf,i} - k\Omega_i,\quad f_i + \Delta f_{\rm hf,i} + k\Omega_i]$$
 
-with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0.  The new bounds are the p-th / (1−p)-th percentiles of the left/right edges, with p = `NVISION_SMC_FOCUSING_TAIL_PERCENTILE` = 1.0 %.
+with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0.  The new bounds are the p-th / (1−p)-th percentiles of the left/right edges, with p = 5 % (a fixed constant, `_FOCUSING_TAIL_PERCENTILE`); a narrowing is applied only if it shrinks the window by at least 5 %, and only after `NVISION_MIN_STEPS_BEFORE_NARROWING` = 8 steps.
 
 When particles pile up at a unit boundary (> 15 % within 5 % of the edge), the window is instead expanded by max(cur_width, 10·Ω) in that direction.
 

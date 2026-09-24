@@ -5,7 +5,6 @@ import os
 from dotenv import load_dotenv
 
 from nvision.sim import presets as sim_presets
-from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 
 # Load environment variables from .env here so it's guaranteed to load
 # before any of these constants are evaluated, regardless of where
@@ -71,10 +70,6 @@ GRAPH_WORKERS: int = graph_workers_for(DEFAULT_RUNNERS)
 # UI & Browser Flags
 DEFAULT_OPEN_BROWSER: bool = os.getenv("NVISION_DEFAULT_OPEN_BROWSER", "False").lower() in ("true", "1", "yes")
 
-# Noise presets limits
-DEFAULT_NOISE_MAX_GAUSS: float = float(os.getenv("NVISION_NOISE_MAX_GAUSS", "0.01"))
-DEFAULT_NOISE_GAUSS_STEPS: int = int(os.getenv("NVISION_NOISE_GAUSS_STEPS", "5"))
-
 # Output & Logs Config
 DEFAULT_OUT: str | None = os.getenv("NVISION_DEFAULT_OUT", None)
 DEFAULT_LOGS_ROOT: str | None = os.getenv("NVISION_DEFAULT_LOGS_ROOT", None)
@@ -91,13 +86,3 @@ BETA_OUT: str | None = os.getenv("NVISION_BETA_OUT", None)
 # commands used to hardcode that name and died with a KeyError; pick a real one
 # from `nv groups` (overridable per-invocation with --run-group).
 DEMO_RUN_GROUP: str = os.getenv("NVISION_DEMO_RUN_GROUP", "both-sbed-only")
-
-# Locator convergence (relative fraction of parameter bound width; 0.01 = 1%).
-# Per-parameter absolute overrides: NVISION_FREQ_CONVERGENCE_THRESHOLD,
-# NVISION_K_NP_CONVERGENCE_THRESHOLD, etc. (see nvision.sim.defaults).
-DEFAULT_CONVERGENCE_THRESHOLD: float = NVISION_CONVERGENCE_THRESHOLD
-
-# SMC Belief parameters
-MIN_STEPS_BEFORE_NARROWING: int = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
-SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
-SMC_FOCUSING_TAIL_PERCENTILE: float = float(os.getenv("NVISION_SMC_FOCUSING_TAIL_PERCENTILE", "1.0"))

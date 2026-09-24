@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -12,6 +13,19 @@ from nvision.belief.coordinate import RescaleMap
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.models.observation import Observation
 from nvision.spectra.unit_cube import UnitCubeSignalModel
+
+# --- Focus-window narrowing (only active when frequency is a particle dimension) --------------
+# Narrowing waits this many steps so multi-modal hyperfine ambiguity resolves before the window
+# focuses on a (possibly wrong) place.
+NVISION_MIN_STEPS_BEFORE_NARROWING: int = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
+# Each particle's active range is [f - split - k*Omega, f + split + k*Omega]; k is this cover factor.
+NVISION_SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+# The 5th/95th percentiles skip stray low-weight tail particles (e.g. from the min_exploration_frac
+# floor) while barely eating into the true dense clusters (which span ~100s of kHz, so losing 5% of
+# their mass barely moves the boundary).
+_FOCUSING_TAIL_PERCENTILE: float = 5.0
+# A narrowing is only applied when it shrinks the window by at least this fraction.
+_MIN_NARROWING_FRACTION: float = 0.05
 
 
 @dataclass
@@ -29,6 +43,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     physical_x_bounds: tuple[float, float] = (0.0, 1.0)
+    # Step of the most recent boundary-escape window expansion (-1: never).
+    _last_expansion_step: int = field(init=False, default=-1, repr=False)
 
     @property
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:  # type: ignore[override]  # noqa: F811
@@ -211,7 +227,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         """
         from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterSaturationVoigtModel, NVCenterVoigtModel
 
-        inner = getattr(self.model, "inner", None)
+        inner = self.model.inner
 
         if self._obs_count == 0 or self.last_obs is None:
             return math.inf
@@ -480,7 +496,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
         lo_orig, hi_orig = self._original_physical_x_bounds
         import logging
-        import os
 
         if left_piling and lo_phys > lo_orig:
             expansion = max(cur_width, 10.0 * omega_phys + 2.0 * zeeman_hat_phys)
@@ -522,12 +537,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Delay narrowing until we have completed a minimum number of global
         # measurements (default 8 steps) to resolve multi-modal hyperfine peak
         # ambiguity and ensure we never focus on the wrong place.
-        min_narrowing_steps = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
+        min_narrowing_steps = NVISION_MIN_STEPS_BEFORE_NARROWING
         if self._step_count < min_narrowing_steps:
             return
 
         # Also delay narrowing if we recently expanded the bounds to allow exploration
-        last_exp = getattr(self, "_last_expansion_step", -1)
+        last_exp = self._last_expansion_step
         if last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
             return
 
@@ -590,14 +605,13 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
             linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
         else:
-            linewidth_phys = np.full_like(freq_phys, 2.0e6)
+            raise ValueError(
+                "_resample: no linewidth parameter ('linewidth', 'saturation'+'sigma_inhom', "
+                f"'homogeneous_linewidth' or 'fwhm_total') among {self._param_names}; cannot focus the window."
+            )
 
-        cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
-        # The 5th/95th percentiles skip stray low-weight tail particles (e.g. from the
-        # min_exploration_frac floor) while minimally eating into the true dense
-        # clusters (which span ~100s of kHz, so losing 5% of their mass barely moves
-        # the boundary).
-        tail_percentile = 5.0
+        cover_factor = NVISION_SMC_FOCUSING_COVER_FACTOR
+        tail_percentile = _FOCUSING_TAIL_PERCENTILE
 
         # Per particle, the active range is exactly symmetric about freq_i: both dips
         # (or the hyperfine triplet) reach the same offset in either direction. Pool that
@@ -631,9 +645,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if new_hi <= new_lo:
             return
 
-        # Only apply if the window actually shrinks by at least 5%.
-        min_narrowing_fraction = 0.05
-        if (cur_width - (new_hi - new_lo)) / cur_width < min_narrowing_fraction:
+        if (cur_width - (new_hi - new_lo)) / cur_width < _MIN_NARROWING_FRACTION:
             return
 
         self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
@@ -734,9 +746,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._obs_sort_order = self._obs_sort_order.copy()
         dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
-        if self.noise_model is not None:
-            dist._noise_alphas = self._noise_alphas.copy()
-            dist._noise_betas = self._noise_betas.copy()
-        if hasattr(self, "_dip_centers"):
-            dist._dip_centers = list(self._dip_centers)
+        dist._noise_alphas = self._noise_alphas.copy()
+        dist._noise_betas = self._noise_betas.copy()
+        dist._dip_candidates = list(self._dip_candidates)
         return dist

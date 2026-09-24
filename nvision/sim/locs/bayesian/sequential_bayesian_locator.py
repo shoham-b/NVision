@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
@@ -120,15 +121,10 @@ class SequentialBayesianLocator(Locator):
         max_steps: int = 450,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
-        convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
         noise_std: float | None = None,
-        noise_max_dev: float | None = None,
-        signal_max_span: float | None = None,
-        initial_sweep_steps: int | None = None,
     ) -> None:
         super().__init__(belief)
-        self.initial_sweep_steps: int = 0
         self.max_steps = int(max_steps)
         if self.max_steps <= 0:
             raise ValueError("max_steps must be positive")
@@ -141,10 +137,6 @@ class SequentialBayesianLocator(Locator):
         # inferred) model parameter and therefore absent from parameter_names().
         self._scan_param = scan_param or (
             "frequency" if "frequency" in belief.physical_param_bounds else belief.model.parameter_names()[0]
-        )
-        # Default convergence target is all model parameters.
-        self._convergence_params: tuple[str, ...] = (
-            tuple(convergence_params) if convergence_params is not None else tuple(self.belief.model.parameter_names())
         )
         self._convergence_patience_steps = max(1, int(convergence_patience_steps))
         self._convergence_streak = 0
@@ -161,23 +153,11 @@ class SequentialBayesianLocator(Locator):
         if noise_std is None or float(noise_std) <= 0:
             raise ValueError(f"noise_std must be a positive float; got {noise_std!r}")
         self._noise_std: float = float(noise_std)
-        self._noise_max_dev: float | None = (
-            float(noise_max_dev) if (noise_max_dev is not None and noise_max_dev > 0) else None
-        )
-        self._signal_max_span: float | None = (
-            float(signal_max_span) if (signal_max_span is not None and signal_max_span > 0) else None
-        )
         self._true_signal = None
 
         # Set domain bounds for acquisition.
-        bounds = getattr(self.belief, "physical_param_bounds", self.belief.parameter_bounds)
-        self._scan_lo, self._scan_hi = bounds[self._scan_param]
+        self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._scan_param]
         self._full_domain_lo, self._full_domain_hi = float(self._scan_lo), float(self._scan_hi)
-
-        # Post-sweep interval in physical units where _acquire may search; starts at full scan.
-        self._acquisition_lo, self._acquisition_hi = self._scan_lo, self._scan_hi
-        # Non-scan parameter bounds narrowed (empty = not yet set).
-        self._narrowed_param_bounds: dict[str, tuple[float, float]] = {}
 
     @classmethod
     def create(
@@ -187,11 +167,8 @@ class SequentialBayesianLocator(Locator):
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
-        convergence_params: Sequence[str] | None = None,
         convergence_patience_steps: int = 8,
         noise_std: float | None = None,
-        noise_max_dev: float | None = None,
-        signal_max_span: float | None = None,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -209,11 +186,8 @@ class SequentialBayesianLocator(Locator):
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
-            convergence_params=convergence_params,
             convergence_patience_steps=convergence_patience_steps,
             noise_std=noise_std,
-            noise_max_dev=noise_max_dev,
-            signal_max_span=signal_max_span,
         )
 
     # ------------------------------------------------------------------
@@ -344,9 +318,7 @@ class SequentialBayesianLocator(Locator):
         ``physical_uncertainties`` may be passed in to avoid recomputing the
         full O(particles x params) uncertainty pass.
         """
-        target_params = (
-            list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
-        )
+        target_params = list(self.belief.model.parameter_names())
         if physical_uncertainties is None:
             physical_uncertainties = self.belief.uncertainty()
         bounds = self.belief.physical_param_bounds
@@ -406,14 +378,11 @@ class SequentialBayesianLocator(Locator):
 
     def _compute_expected_uniform_points(self) -> float:
         """Compute the expected points a simple Sobol sweep would require."""
-        true_signal = getattr(self, "_true_signal", None)
+        true_signal = self._true_signal
         if true_signal is None:
             return 0.0
 
-        bounds = getattr(self.belief, "physical_param_bounds", self.belief.parameter_bounds)
-        if self._scan_param not in bounds:
-            return 0.0
-        lo_phys, hi_phys = bounds[self._scan_param]
+        lo_phys, hi_phys = self.belief.physical_param_bounds[self._scan_param]
         domain_width = hi_phys - lo_phys
         if domain_width <= 0:
             return 0.0
@@ -478,35 +447,22 @@ class SequentialBayesianLocator(Locator):
 
         # Fallback to model min_span
         min_span = None
-        model = getattr(true_signal, "model", None)
-        if model is not None and hasattr(model, "signal_min_span") and callable(model.signal_min_span):
-            min_span = model.signal_min_span(domain_width)
+        min_span = true_signal.model.signal_min_span(domain_width)
         if min_span is not None and min_span > 0:
             return float(6.0 * domain_width / min_span)
 
         return float(self.max_steps)
 
     def _acquisition_bounds(self) -> tuple[float, float]:
-        """Physical bounds where :meth:`_acquire` searches (post-sweep window)."""
-        bounds = getattr(self.belief, "physical_param_bounds", self.belief.parameter_bounds)
-        lo, hi = bounds[self._scan_param]
+        """Physical bounds where :meth:`_acquire` searches."""
+        lo, hi = self.belief.physical_param_bounds[self._scan_param]
         return (min(lo, hi), max(lo, hi))
 
-    def effective_initial_sweep_steps(self) -> int:
-        """Effective initial sweep step count (always 0 since sweep is removed)."""
-        return 0
-
-    def bayesian_focus_window(self) -> tuple[float, float] | None:
-        """Return the tight focus window (always None since sweep is removed)."""
-        return None
-
-    def per_dip_windows(self) -> list[tuple[float, float]] | None:
-        """Individual per-dip focus windows (always None since sweep is removed)."""
-        return None
-
-    def narrowed_param_bounds(self) -> dict[str, tuple[float, float]]:
-        """Physical bounds of non-scan parameters narrowed (always empty since sweep is removed)."""
-        return {}
+    def _resample_if_degenerate(self) -> None:
+        """Resample when the effective sample size has fallen below the belief's threshold."""
+        belief = self.belief
+        if _inverse_sum_squares(belief._weights) < belief.ess_threshold * belief.num_particles:
+            belief._resample()
 
     # ------------------------------------------------------------------
     # Utility helpers available to all acquisition implementations

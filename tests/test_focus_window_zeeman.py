@@ -33,7 +33,7 @@ from tests.noise import gaussian_noise
 
 @pytest.fixture(autouse=True)
 def _no_narrowing_delay(monkeypatch):
-    monkeypatch.setenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "0")
+    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 0)
 
 
 def _concentrate_and_resample(smc, f0: float, delta0: float | None, *, seed: int, n: int):

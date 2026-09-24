@@ -69,7 +69,6 @@ def nv_center_smc_belief(
     with_zeeman_splitting: bool = True,
     with_fixed_frequency: bool = True,
     lineshape: str = "lorentzian",
-    **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
