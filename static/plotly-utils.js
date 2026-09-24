@@ -665,8 +665,45 @@ function _buildScanFigure(def, data) {
         const realColor = (T.true_signal && T.true_signal.line && T.true_signal.line.color) || 'blue';
         const fitColor = (T.mode_signal && T.mode_signal.line && T.mode_signal.line.color) || '#d62728';
         const hasFit = data.y_dense_mode && data.y_dense_mode.length === data.y_dense.length;
+        // Real (MATLAB) runs have no ground truth: y_dense is just the recorded mean, a
+        // measurement rather than a reference, so it is only used to locate each dip and
+        // nothing is labelled "real" -- only the locator's own fit is read out.
+        const noTruth = data.true_signal_label === 'recorded mean signal';
         dips.forEach((dip) => {
             const fitDip = hasFit ? _findDip(data.x_dense, data.y_dense_mode, baseline, dip.iLo, dip.iHi) : null;
+
+            if (noTruth) {
+                if (!fitDip) return;
+                shapes.push({
+                    type: 'line', xref: 'x', yref: 'y',
+                    x0: fitDip.xLeft, x1: fitDip.xRight, y0: fitDip.yMin, y1: fitDip.yMin,
+                    line: { width: 1.5, color: fitColor, dash: 'dash' },
+                    layer: 'above',
+                });
+                extraAnnotations.push({
+                    text: `↔ width${widthLetter} (fit) ≈ ${formatHzValue('linewidth', fitDip.fwhm)}`,
+                    x: (fitDip.xLeft + fitDip.xRight) / 2, xref: 'x',
+                    y: fitDip.yMin, yref: 'y',
+                    yanchor: 'top', xanchor: 'center', yshift: -4,
+                    showarrow: false, font: { size: 11, color: fitColor },
+                    bgcolor: 'rgba(255,255,255,0.75)',
+                });
+                shapes.push({
+                    type: 'line', xref: 'x', yref: 'y',
+                    x0: fitDip.xMin, x1: fitDip.xMin, y0: fitDip.yMin, y1: baseline,
+                    line: { width: 1.5, color: fitColor, dash: 'dash' },
+                    layer: 'above',
+                });
+                extraAnnotations.push({
+                    text: `↕ contrast${contrastLetter} (fit) ≈ ${fitDip.depthPct.toFixed(1)}%`,
+                    x: fitDip.xMin, xref: 'x',
+                    y: (fitDip.yMin + baseline) / 2, yref: 'y',
+                    yanchor: 'middle', xanchor: 'left', xshift: 8,
+                    showarrow: false, font: { size: 11, color: fitColor },
+                    bgcolor: 'rgba(255,255,255,0.75)',
+                });
+                return;
+            }
 
             shapes.push({
                 type: 'line', xref: 'x', yref: 'y',
