@@ -75,6 +75,10 @@ body {
             margin: 0.5em 0;
         }
 
+        .control-row[hidden] {
+            display: none;
+        }
+
         .control-label {
             font-weight: bold;
         }
@@ -670,6 +674,23 @@ body {
 
         .eq-frac .eq-num {
             border-bottom: 1px solid currentColor;
+        }
+
+        /* Square brackets that span the full height of their content, including when
+           it wraps onto several lines. Drawn with borders + gradient end-ticks (rather
+           than "[" "]" glyphs) so they stretch with stacked fractions. */
+        .eq-brackets {
+            display: inline-block;
+            vertical-align: middle;
+            margin: 0 0.15em;
+            padding: 0.15em 0.6em;
+            border-left: 1.5px solid currentColor;
+            border-right: 1.5px solid currentColor;
+            background:
+                linear-gradient(currentColor, currentColor) top left / 0.35em 1.5px no-repeat,
+                linear-gradient(currentColor, currentColor) bottom left / 0.35em 1.5px no-repeat,
+                linear-gradient(currentColor, currentColor) top right / 0.35em 1.5px no-repeat,
+                linear-gradient(currentColor, currentColor) bottom right / 0.35em 1.5px no-repeat;
         }
 
         /* ---- "View at" caption under the scan measurements plot ---- */

@@ -832,13 +832,11 @@ function main() {
     let gridStatsScanAxisKey = null;
     let gridStatsFixedValues = {};
     let currentRepeatItems = [];
-    let measurementDistributionVisible = null;
+    // Legend visibility the user chose on the scan plot, keyed by trace name
+    // (true = shown, false = legendonly). Re-applied to every re-render (timeline
+    // scrub/jump, step cap, repeat switch) so toggles persist.
+    const scanLegendVisibility = new Map();
     let scanFlipViewEnabled = false;
-
-    function isMeasurementDistributionTrace(trace) {
-        const name = (trace && trace.name) ? String(trace.name).trim().toLowerCase() : '';
-        return name === 'measurement distribution';
-    }
 
     function resolveTraceVisibleState(value) {
         if (Array.isArray(value)) {
@@ -871,38 +869,62 @@ function main() {
         return null;
     }
 
-    function applyMeasurementDistributionPreferenceInScanIframe() {
-        if (measurementDistributionVisible === null) return;
+    function _scanLegendKey(trace) {
+        if (!trace || trace.showlegend === false || trace.name == null) return null;
+        const name = String(trace.name).trim();
+        return name === '' ? null : name;
+    }
+
+    // Applies the remembered legend visibility to figure traces in place, before
+    // Plotly.react, so re-renders don't flash back to the default visibility.
+    function applyScanLegendPreferenceToFigure(figData) {
+        if (!Array.isArray(figData) || scanLegendVisibility.size === 0) return figData;
+        for (const trace of figData) {
+            const key = _scanLegendKey(trace);
+            if (key !== null && scanLegendVisibility.has(key)) {
+                trace.visible = scanLegendVisibility.get(key) ? true : 'legendonly';
+            }
+        }
+        return figData;
+    }
+
+    function applyScanLegendPreferenceInScanIframe() {
+        if (scanLegendVisibility.size === 0) return;
         const s = _getScanGraphDiv();
         if (!s || !Array.isArray(s.graphDiv.data)) return;
-        const targetIndices = [];
+        const shown = [];
+        const hidden = [];
         s.graphDiv.data.forEach((trace, idx) => {
-            if (isMeasurementDistributionTrace(trace)) targetIndices.push(idx);
+            const key = _scanLegendKey(trace);
+            if (key === null || !scanLegendVisibility.has(key)) return;
+            const want = scanLegendVisibility.get(key);
+            const current = trace.visible === undefined ? true : resolveTraceVisibleState(trace.visible);
+            if (current === want) return;
+            (want ? shown : hidden).push(idx);
         });
-        if (targetIndices.length === 0) return;
-        const visibleValue = measurementDistributionVisible ? true : 'legendonly';
-        s.plotly.restyle(s.graphDiv, { visible: visibleValue }, targetIndices);
+        if (shown.length) s.plotly.restyle(s.graphDiv, { visible: true }, shown);
+        if (hidden.length) s.plotly.restyle(s.graphDiv, { visible: 'legendonly' }, hidden);
     }
 
     function bindScanIframeLegendPreferenceSync() {
         const s = _getScanGraphDiv();
         if (!s) return;
         const graphDiv = s.graphDiv;
-        if (graphDiv.dataset.measureDistListenerAttached === '1') return;
-        graphDiv.dataset.measureDistListenerAttached = '1';
+        if (graphDiv.dataset.scanLegendListenerAttached === '1') return;
+        graphDiv.dataset.scanLegendListenerAttached = '1';
         graphDiv.on('plotly_restyle', (restyleData) => {
             if (!Array.isArray(restyleData) || restyleData.length < 2) return;
             const updates = restyleData[0] || {};
             const traceIndices = Array.isArray(restyleData[1]) ? restyleData[1] : [];
             if (!('visible' in updates) || traceIndices.length === 0 || !Array.isArray(graphDiv.data)) return;
             const visibleUpdate = updates.visible;
-            for (const traceIdx of traceIndices) {
-                const trace = graphDiv.data[traceIdx];
-                if (!isMeasurementDistributionTrace(trace)) continue;
-                const nextState = resolveTraceVisibleState(visibleUpdate);
-                if (nextState !== null) measurementDistributionVisible = nextState;
-                break;
-            }
+            traceIndices.forEach((traceIdx, i) => {
+                const key = _scanLegendKey(graphDiv.data[traceIdx]);
+                if (key === null) return;
+                const perTrace = Array.isArray(visibleUpdate) ? visibleUpdate[i % visibleUpdate.length] : visibleUpdate;
+                const nextState = resolveTraceVisibleState(perTrace);
+                if (nextState !== null) scanLegendVisibility.set(key, nextState);
+            });
         });
     }
 
@@ -1375,6 +1397,8 @@ function main() {
         // Without this, an in-flight Plotly.restyle blocks the queue and subsequent
         // Plotly.react calls never execute.
         try { if (window.Plotly) Plotly.purge(container); } catch (_) {}
+        // purge drops Plotly's event listeners, so the legend-sync one must be re-bound.
+        delete container.dataset.scanLegendListenerAttached;
         // Tag this render so a stale fetch doesn't overwrite a newer one
         const renderToken = {};
         container._renderToken = renderToken;
@@ -1476,6 +1500,8 @@ function main() {
                 }
             }
 
+            if (isScanPlot) applyScanLegendPreferenceToFigure(figData);
+
             // Plotly.react modifies DOM synchronously; don't await so a concurrent render
             // on the same container doesn't stall this one.
             Plotly.react(container, figData, figLayout, { responsive: true }).catch((e) => {
@@ -1485,7 +1511,7 @@ function main() {
                 }
             });
             if (isScanPlot) {
-                applyMeasurementDistributionPreferenceInScanIframe();
+                applyScanLegendPreferenceInScanIframe();
                 bindScanIframeLegendPreferenceSync();
                 renderNarrowedBoundsFromIframe();
             }
@@ -1525,7 +1551,9 @@ function main() {
                 figData = folded.data;
                 figLayout = folded.layout;
             }
+            applyScanLegendPreferenceToFigure(figData);
             await Plotly.react(container, figData, figLayout, { responsive: true });
+            bindScanIframeLegendPreferenceSync();
         } catch (e) {
             console.warn('applyScanStepCap failed', e);
         }
@@ -2844,6 +2872,12 @@ function main() {
         return `<span class="eq-frac"><span class="eq-num">${num}</span><span class="eq-den">${den}</span></span>`;
     }
 
+    // Square brackets that stretch to the full height of their content (stacked
+    // fractions included) instead of text "[ ]" glyphs — see .eq-brackets in styles.css.
+    function bracket(inner) {
+        return `<span class="eq-brackets">${inner}</span>`;
+    }
+
     function getSignalEquationInfo(generatorName) {
         if (!generatorName) return null;
         const n = generatorName.toLowerCase();
@@ -2864,17 +2898,21 @@ function main() {
             const g = L('homogeneous_linewidth'), s = L('sigma_inhom');
             formula =
                 `Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
-                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · [ ` +
-                `${frac('1', L('k_np'))}·V(f; ${g},${s},${L('frequency')}−${L('split')}) + w·V(f; ${g},${s},${L('frequency')}) ` +
-                `+ ${L('k_np')}·V(f; ${g},${s},${L('frequency')}+${L('split')}) ]`;
+                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · ` +
+                bracket(
+                    `${frac('1', L('k_np'))}·V(f; ${g},${s},${L('frequency')}−${L('split')}) + w·V(f; ${g},${s},${L('frequency')}) ` +
+                    `+ ${L('k_np')}·V(f; ${g},${s},${L('frequency')}+${L('split')})`
+                );
             params = ['frequency', 'homogeneous_linewidth', 'sigma_inhom', 'split', 'k_np', 'c_total'];
         } else if (n.includes('lorentzian')) {
             title = 'Lorentzian NV dip';
             formula =
                 `f' = ${frac(`f−${L('frequency')}`, L('linewidth'))}, &nbsp; α = ${frac(L('split'), L('linewidth'))}, ` +
                 `&nbsp; Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
-                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · [ ` +
-                `${frac('1', `${L('k_np')}·((f'+α)²+1)`)} + ${frac('w', "f'²+1")} + ${frac(L('k_np'), "(f'−α)²+1")} ]`;
+                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · ` +
+                bracket(
+                    `${frac('1', `${L('k_np')}·((f'+α)²+1)`)} + ${frac('w', "f'²+1")} + ${frac(L('k_np'), "(f'−α)²+1")}`
+                );
             params = ['frequency', 'linewidth', 'split', 'k_np', 'c_total'];
         } else {
             return null;
@@ -8524,10 +8562,24 @@ function main() {
         });
     }
 
+    // With the Strategy picker hidden, the Locator panel only holds the "View at"
+    // row; show the panel only while that row is visible (it is toggled via
+    // style.display in several places, so observe it rather than patch each one).
+    const locatorPanel = document.getElementById('panel-locator');
+    const stoppingCriteriaRow = document.getElementById('stopping-criteria-row');
+    if (locatorPanel && stoppingCriteriaRow) {
+        const syncLocatorPanelVisibility = () => {
+            locatorPanel.hidden = stoppingCriteriaRow.style.display === 'none';
+        };
+        new MutationObserver(syncLocatorPanelVisibility)
+            .observe(stoppingCriteriaRow, { attributes: true, attributeFilter: ['style'] });
+        syncLocatorPanelVisibility();
+    }
+
     if (scanIframe) {
         scanIframe.addEventListener('load', () => {
             // Keep legend preference when switching locator strategy/repeat (new iframe src).
-            applyMeasurementDistributionPreferenceInScanIframe();
+            applyScanLegendPreferenceInScanIframe();
             bindScanIframeLegendPreferenceSync();
             // Parse and render narrowed param bounds from the scan figure meta.
             renderNarrowedBoundsFromIframe();
