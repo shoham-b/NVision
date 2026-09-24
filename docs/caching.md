@@ -26,6 +26,7 @@ Caching is enabled by default to optimize repeat runs and avoid redundant comput
 ### Ignored Caching Flow (`--no-cache`)
 * **Behavior:** The runner ignores any existing cache on load and starts calculations fresh from repeat `0`.
 * **Purging & Saving:** Once the first repeat finishes successfully, the old cache database entries for the combination are purged/deleted. Fresh results are then actively saved to the database as they finish, allowing future cache-enabled runs to leverage them.
+* **Purge cost:** the purge computes the combination's keys directly (pointer + repeat/meta rows, current and legacy-v8 schema) and deletes them in one batch, dropping its Parquet archive file too. It never scans the cache, so its cost does not grow with cache size (an earlier full-cache scan stalled all runners for minutes per combination; see [runner_architecture.md](runner_architecture.md#3b-stall-diagnosis-the---no-cache-purge-fixed-2026-09-23)).
 
 ### Dry-Run Bypass Flow (`--dry-run`)
 * **Behavior:** The runner completely bypasses all cache updates. 
