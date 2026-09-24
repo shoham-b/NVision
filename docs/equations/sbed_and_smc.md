@@ -2,7 +2,9 @@
 
 The SMC belief, its unit-cube extension, the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
 
-> Scope: only the additive Gaussian measurement-noise path, with either a fixed σ or a per-particle Inverse-Gamma noise state that is integrated out (§1.1a). Poisson likelihoods and non-SBED locators are out of scope.
+> Scope: only the additive Gaussian measurement-noise path. The noise level is always inferred through its conjugate prior — a per-particle Inverse-Gamma state that is integrated out (§1.1a) — and that posterior is the only source of a noise σ anywhere in the stack. Poisson likelihoods and non-SBED locators are out of scope.
+>
+> Probe window: the NV spectrum is mirror-symmetric about the zero-field splitting D, so measuring both sides duplicates information. The probe window is the upper half `[D, D + Δ]` (`DEFAULT_NV_CENTER_FREQ_X_MIN/MAX`, `nv_center.py`) and generated signals are centred on D, on the window's lower edge.
 
 ---
 
@@ -28,9 +30,9 @@ log_w ← log_w − max(log_w)      # shift for numerical stability
 w ← exp(log_w) / sum(exp(log_w))
 ```
 
-#### 1.1a Rao-Blackwellized noise likelihood (`_use_rao_blackwell_noise`)
+#### 1.1a Rao-Blackwellized noise likelihood
 
-Enabled when the noise model exposes a `noise_sigma` parameter. Each particle i then carries an Inverse-Gamma(α_i, β_i) posterior over σ² instead of a fixed σ.  Plugging in the point estimate σ̂_i = √(β_i/α_i) is biased: a single-residual Gaussian likelihood is maximised at σ = |residual|, and since median|N(0,σ)| ≈ 0.6745σ, resampling systematically prefers particles whose σ̂ under-estimates the noise, so the population's σ drifts to the prior's lower bound.  Instead σ² is integrated out analytically, giving the Normal-Inverse-Gamma predictive (a Student-t with ν = 2α_i degrees of freedom) for a batch mean of k shots, with residual r_i = y − S(x, θ_i):
+Always used: the belief requires a noise model exposing exactly `noise_sigma`. Each particle i then carries an Inverse-Gamma(α_i, β_i) posterior over σ² instead of a fixed σ.  Plugging in the point estimate σ̂_i = √(β_i/α_i) is biased: a single-residual Gaussian likelihood is maximised at σ = |residual|, and since median|N(0,σ)| ≈ 0.6745σ, resampling systematically prefers particles whose σ̂ under-estimates the noise, so the population's σ drifts to the prior's lower bound.  Instead σ² is integrated out analytically, giving the Normal-Inverse-Gamma predictive (a Student-t with ν = 2α_i degrees of freedom) for a batch mean of k shots, with residual r_i = y − S(x, θ_i):
 
 $$\log p(y \mid \theta_i, x) = \ln\Gamma(\alpha_i + \tfrac12) - \ln\Gamma(\alpha_i) - \tfrac12\ln\frac{2\pi\beta_i}{k\,\alpha_i} - \left(\alpha_i + \tfrac12\right)\ln\left(1 + \frac{k\,r_i^2}{2\beta_i}\right)$$
 
@@ -98,11 +100,11 @@ This is the variance of the signal prediction under the current posterior — a 
 
 #### EIG Subsampling
 
-When N > N_EIG (default 500), a stratified subsample of N_EIG particles is drawn before the EIG prediction matrix is built.  Variance estimation converges with ~200–500 particles, so the quality loss is negligible while the matrix shrinks from O(n_cand × N) to O(n_cand × N_EIG).
+When N > N_EIG (default 500), a stratified subsample of N_EIG particles is drawn once per epoch, right after a resample, when the weights are ~uniform; the matrix is built for that fixed subset and the current weights are applied to it each step.  Variance estimation converges with ~200–500 particles, so the quality loss is negligible while the matrix shrinks from O(n_cand × N) to O(n_cand × N_EIG).
 
-#### EIG Prediction-Matrix Cache (`NVISION_SMC_EIG_CACHE`)
+#### EIG Prediction-Matrix Cache
 
-Between resamples the particle positions and candidate grid are frozen, so the prediction matrix M[c, i] = S(x_c, θ_i) and its element-wise square M⁽²⁾ = M ⊙ M are invariant.  They are built once per epoch, and the per-step variance is recovered with two matrix-vector products against the current weights:
+This is the only EIG evaluation path. Between resamples the particle positions and candidate grid are frozen, so the prediction matrix M[c, i] = S(x_c, θ_i) and its element-wise square M⁽²⁾ = M ⊙ M are invariant.  They are built once per epoch, and the per-step variance is recovered with two matrix-vector products against the current weights:
 
 $$\sigma^2_{\rm pred} = M^{(2)} \mathbf{w} - (M \mathbf{w})^2$$
 
@@ -130,14 +132,17 @@ components, plus an optional flat baseline term:
 
   $$\text{slope points} = \{f_B \pm \Delta f_{\rm hf}\} \pm \Omega_{\rm hw}$$
 
-  where f_B = posterior mean frequency, Δf_hf = posterior mean split, Ω_hw =
-  posterior mean linewidth (HWHM). Each slope kernel has bandwidth
+  where f_B = posterior mean frequency (the fixed zero-field D when frequency is not
+  inferred), Δf_hf = posterior mean split, Ω_hw = posterior mean linewidth (HWHM). A slope
+  point that falls outside the probe window is measured at its mirror image about f_B
+  (`2 f_B − s`) when that lies inside it, so the lower Zeeman group's slopes land on the
+  upper half instead of wasting kernel mass outside the window. Each slope kernel has bandwidth
   σ_eff = √(σ_f² + σ_Ω²) (floored at Δ_min = `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ`
   = 10 kHz) and mixture weight 1 — this bandwidth reproduces the old uniform
   slope window's 3σ_eff half-width as the kernel's ≈3σ span.
 
-- **Dip kernels.** Once ≥5 observations exist, one per empirically-detected
-  dip centroid (`identify_dip_candidates`, `dip_detection.py`). Each dip
+- **Dip kernels.** Once ≥5 observations exist, one per dip the measured scan shows
+  (`find_dips`, `belief/dip_detection.py`, §3.5). Each dip
   kernel's bandwidth is its detection window / 3, where the window is
   max(3Ω, σ_eff, `NVISION_SMC_DIP_WINDOW_MIN_HZ` = 5 MHz) (also floored at
   Δ_min). The dip family's *total* weight always equals the slope family's
@@ -146,14 +151,9 @@ components, plus an optional flat baseline term:
   100-point dip budget used, just expressed as mixture weight instead of a
   point count.
 
-- **Flat baseline term.** Optional, gated by the `use_global_grid` property
-  (`SMCMarginalDistribution`/`UnitCubeSMCMarginalDistribution`, default
-  `True`). When enabled its mass is 20% of the combined slope+dip weight —
-  domain-wide backstop coverage, scaled so its share stays roughly constant
-  regardless of how many slope/dip kernels exist. The SBED locator sets it
-  `False` the first time `compute_focus_window_confidence(...).is_stable`
-  fires (§3.6) — once the dip location is confidently found, backstop
-  coverage is no longer worth spending budget on.
+- **Flat baseline term.** Always present: its mass is 20% of the combined slope+dip
+  weight — domain-wide backstop coverage, scaled so its share stays roughly constant
+  regardless of how many slope/dip kernels exist.
 
 `NVISION_SMC_EPOCH_CANDIDATE_BUDGET` = 800 points are then placed at the
 mixture's evenly-spaced CDF quantiles: the density is evaluated on an adaptive
@@ -203,9 +203,8 @@ $$\sigma^{\rm phys}_j = \sigma^u_j \cdot (h_j - l_j)$$
 unconditionally, at 1× (no safety factor): frequency uses the closed-form `crlb_frequency()`
 (§2.3); every other parameter uses its marginal CRLB from the cumulative FIM (§4.3's
 `crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
-profiling out the other parameters rather than holding them fixed). This floor is independent of
-the `NVISION_SBED_FIM_CRLB_STOP` switch in §5.5, which only governs whether the same quantity may
-*stop* a run:
+profiling out the other parameters rather than holding them fixed). This floor is independent of the stop rule in §5.5, which uses only the closed-form frequency
+CRLB and never the FIM-based marginal CRLBs:
 
 $$\sigma^{\rm reported}_j = \max\!\left(\sigma^{\rm phys}_j,\; \text{CRLB}_j\right), \qquad \forall j$$
 
@@ -248,11 +247,13 @@ where `c_total` is the population-normalized contrast (a free parameter for plai
 
 ### 2.4 Focus-Window Narrowing (at each resample)
 
+Applies only when frequency is a particle dimension (`with_fixed_frequency=False`); with the default fixed frequency there is no frequency posterior to narrow and `_resample` returns after §1.3–1.4.
+
 The search window narrows to the union of particle-predicted active regions.  Each particle i covers
 
 $$[f_i - \Delta f_{\rm hf,i} - k\Omega_i,\quad f_i + \Delta f_{\rm hf,i} + k\Omega_i]$$
 
-with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0.  The new bounds are the p-th / (1−p)-th percentiles of the left/right edges, with p = `NVISION_SMC_FOCUSING_TAIL_PERCENTILE` = 1.0 %.
+with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0.  The new bounds are the p-th / (1−p)-th percentiles of the left/right edges, with p = 5 % (a fixed constant, `_FOCUSING_TAIL_PERCENTILE`); a narrowing is applied only if it shrinks the window by at least 5 %, and only after `NVISION_MIN_STEPS_BEFORE_NARROWING` = 8 steps.
 
 When particles pile up at a unit boundary (> 15 % within 5 % of the edge), the window is instead expanded by max(cur_width, 10·Ω) in that direction.
 
@@ -281,34 +282,20 @@ At each acquisition step a single uniform draw u selects the branch:
 | Condition | Action | Notes |
 |-----------|--------|-------|
 | u < 0.1·e^(−t/25) | Uniform global sample | Decaying exploration probability |
-| u < 0.20 | Sample near an empirical dip centroid ± 5 MHz jitter | Corrects posterior bias |
+| u < 0.20 | Sample near a dip the data show (`belief.dip_candidates`, §3.5) ± 5 MHz jitter | Corrects posterior bias |
 | otherwise | Full EIG maximisation | Main path |
 
 with t = `inference_step_count`.  The factor e^(−t/25) makes global exploration decay exponentially so steps concentrate on EIG as the scan progresses.
 
-### 3.3 Background Noise Estimation (MAD)
+### 3.3 Noise Estimation (conjugate prior)
 
-Measurements with |x − f̂| > k·|Ω̂| are classified as **background** (k = `NVISION_NOISE_BG_SPAN_FACTOR` = 3.0).  The Gaussian noise std is estimated robustly from the background scatter:
+The locator has exactly one noise estimate: the belief's Inverse-Gamma posterior (§1.1a). `estimated_noise_std()` is the weighted 90th percentile over particles of each particle's posterior-mode σ = √(β_i / (α_i + ½)), and `noise_std_uncertainty()` its delta-method uncertainty. It feeds the EIG noise variance (§1.6), the closed-form CRLB (§2.3), the theoretical step budget (§3.4) and the dip detector (§3.5). There is no background-scatter (MAD) estimate and no forced background calibration: every measurement, dip or not, informs σ through the residual it leaves against each particle's prediction.
 
-$$\hat\sigma_{\rm bg} = 1.4826 \cdot \operatorname{median}\!\left(\left|y_i^{\rm bg} - \operatorname{median}(y^{\rm bg})\right|\right)$$
+### 3.4 Theoretical Step Budget (backstop)
 
-The factor 1.4826 = 1/Φ⁻¹(0.75) makes the MAD a consistent estimator of σ for Gaussian data.  Returns `None` (triggering forced calibration) when fewer than `NVISION_NOISE_MIN_BG_POINTS` = 15 background points exist.
+Once the belief's noise estimate σ̂ (§3.3) is available and contrast ĉ > 0, a permissive backstop budget is computed from the uniform-sampling CRLB of §2.3:
 
-**Noise-std fallbacks** (`CompositeOverFrequencyNoise.estimated_noise_std`, used to seed the likelihood σ before enough background exists): with no noise model configured the true level is unknown and 0.05 is assumed; with a noise model that is configured but evaluates to ≈ 0 (e.g. `Gauss(0.0)`) the level is known to be negligible, so only a 1e-4 numerical floor is applied.  Using 0.05 in the second case would understate the measurement precision by about three orders of magnitude and starve the likelihood of information.
-
-### 3.4 Forced Background Calibration
-
-When σ̂_bg is unavailable, the locator samples uniformly from the two background regions
-
-$$[f_{\rm lo},\, \hat{f} - k\hat\Omega] \;\cup\; [\hat{f} + k\hat\Omega,\, f_{\rm hi}]$$
-
-with probability proportional to each region's width, until enough background points accumulate.
-
-### 3.5 Theoretical Step Budget (backstop)
-
-Once σ̂_bg is available and contrast ĉ > 0, a permissive backstop budget is computed from the uniform-sampling CRLB of §2.3:
-
-$$n_{\rm theory} = \frac{4\hat\sigma_{\rm bg}^2\, \hat\Omega\, W}{\pi \hat{c}^2 T^2}$$
+$$n_{\rm theory} = \frac{4\hat\sigma^2\, \hat\Omega\, W}{\pi \hat{c}^2 T^2}$$
 
 where T = `NVISION_FREQ_CONVERGENCE_THRESHOLD` = 100 kHz and W = bandwidth.  (This is exactly n such that Var^CRLB(f), evaluated at ρ = n/W, equals T².)  The applied limit is
 
@@ -318,32 +305,21 @@ with K_theory = `NVISION_SBED_STEPS_THEORY_FACTOR` = 20, so it only fires when s
 
 **Default SBED step budget.** Unless overridden, the SBED locator's `max_steps` is `ceil(N_simplesweep × f)` with f = `NVISION_SBED_STEPS_FRACTION` = 1.0 (previously 0.5, and 0.32 before that), so it is capped at the full uniform-sweep budget it is compared against.
 
-### 3.6 Focus Window Confidence (`FocusWindowConfidence`)
+### 3.5 Dip Detection (`find_dips`, `belief/dip_detection.py`)
 
-Computed at each resample by merging two independent signals:
+Deterministic, classic dip finding from the measured scan alone — it never reads the SMC particles' inferred signal parameters. Inputs are the observations (x, y), the scalar noise σ̂ of §3.3 (and its uncertainty) and the linewidth prior's upper bound Ω_max, taken from the parameter *bounds*:
 
-- **Empirical** (dip detector): dominant dip cluster bounds [l, r] and detector confidence.
-- **Posterior** (particles): weighted-mean frequency f̄, std σ_f, and 16th/84th-percentile CI.
+1. Baseline b = 70th percentile of y.
+2. A *dip point* is an observation with b − y > n_σ·σ̂ (n_σ = `NVISION_DIP_N_SIGMA` = 3.0) and b − y > 1% of b.
+3. Consecutive dip points closer than 3·Ω_max form one cluster; clusters with fewer than `NVISION_DIP_MIN_CLUSTER` = 2 points are dropped.
+4. **Binomial test.** A cluster of k dip points with n_local observations within [f_min − 3Ω_max, f_max + 3Ω_max] is accepted when P(Binom(n_local, Φ(−n_σ)) ≤ k−1) ≥ `NVISION_DIP_CONFIDENCE` = 0.99, i.e. that many low points among the nearby ones cannot plausibly be noise.
+5. Centroid = depth-weighted mean frequency; significance = k; candidates are returned most-significant first.
 
-The window is flagged **stable** (`is_stable`) when all of:
-1. Detector confidence ≥ `NVISION_DIP_CONFIDENCE` = 0.99
-2. `methods_agree`: l ≤ f̄ ≤ r
-3. σ_f < ρ_stab·(r − l), with `stability_ratio` ρ_stab = 0.5
+When σ̂'s relative uncertainty is ≥ `NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD` = 0.15 the noise level is too poorly known to threshold against and no dips are reported.
 
-**Sorted observations.** Dip detection needs the observations ordered by x.  `SMCMarginalDistribution.sorted_observation_arrays()` keeps them sorted incrementally (one `searchsorted` insertion per new observation, lazily applied) so `identify_dip_candidates(..., assume_sorted=True)` can use binary search instead of re-sorting the full history on every call.
+The belief runs the detector at each resample once ≥5 observations exist; the result is `belief.dip_candidates`. It supplies the dip kernels of §1.8, the dip-biased exploration of §3.2, and the focus windows the UI animates (`bayesian_focus_window`, `per_dip_windows`, `focus_window_candidates` are the extents [f_min, f_max] of the detected dips).
 
-#### Check cadence (`_should_check_focus_confidence`)
-
-`compute_focus_window_confidence` re-runs the empirical dip detector over the full
-observation history, making it the single most expensive per-step check in the
-locator. Its only effects are recording `_focus_window_conf` and the `focus_stable_step`
-milestone — it does not gate stopping — so while the detector confidence is still below
-`NVISION_DIP_CONFIDENCE` (nothing can be recorded as stable yet) it is evaluated only
-every `NVISION_FOCUS_CONF_INTERVAL` = 4 steps. The first reading is always taken (it is
-what promotes the check to dense mode), and once detector confidence clears the floor
-the cadence switches to every step permanently, so the exact step at which `is_stable`
-first holds is still captured rather than rounded up to the next interval boundary.
-Set `NVISION_FOCUS_CONF_INTERVAL=1` to restore the previous every-step behavior.
+**Sorted observations.** Detection needs the observations ordered by x. `SMCMarginalDistribution.sorted_observation_arrays()` keeps them sorted incrementally (one `searchsorted` insertion per new observation, lazily applied) so `find_dips(..., assume_sorted=True)` can use binary search instead of re-sorting the full history on every call.
 
 ---
 
@@ -469,39 +445,17 @@ with K_safety = `NVISION_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
 
 ### 5.5 CRLB Early-Stop in SBED (`_check_crlb_early_stop`)
 
-The background noise estimate rescales the FIM-based CRLBs (which were accumulated at the nominal noise std) — valid because the CRLB std scales linearly with σ:
+The only analytical CRLB the locator uses is the closed-form frequency CRLB of §2.3, evaluated at the belief's conjugate noise estimate σ̂ (§3.3). Convergence is declared per parameter against the safety-factored CRLB:
 
-$$\text{CRLB}^{\rm scaled}_j = \text{CRLB}^{\rm FIM}_j \cdot \frac{\hat\sigma_{\rm bg}}{\sigma_{\rm nominal}}$$
+$$\sigma_j < K_{\rm safety}\cdot \text{CRLB}_j$$
 
-Convergence is then declared per parameter against the safety-factored CRLB:
-
-$$\sigma_j < K_{\rm safety}\cdot \text{CRLB}^{\rm scaled}_j$$
-
-- All target parameters pass the CRLB gate → sets `_is_converged = True`.
+- All target parameters pass the CRLB gate for `patience` consecutive checks → sets `_is_converged = True`. With the default fixed frequency `frequency` is not a target parameter, so this gate never fires; it is live for free-frequency beliefs.
 - The primary parameter (`zeeman_split`/`split` when present, else `frequency` -- see
   `resolve_primary_param` in `nvision/metrics/milestones.py`) passes (CRLB **or** absolute
   threshold) → records `splitting_converged_step`.
 - All parameters pass (CRLB **or** absolute threshold each) → records `all_converged_step`.
 
-**The multi-parameter FIM gate (`crlbs_stored`) is off by default** (`NVISION_SBED_FIM_CRLB_STOP=0`).
-Until §4.3's numerical-gradient fallback existed, `crlb_per_param()` returned `{}` for every
-NV-center model and this branch was dead code, so the frequency-only closed-form CRLB
-(§2.3/§5.4) was the only thing this check ever actually gated. Switching the FIM gate on once the
-fallback made it live was tested and measurably improves the reported numbers — median run
-length 450→24 steps, catastrophic rate on known-degenerate configs 67%→12% — but that improvement
-is an artifact, not a win, so it stays off:
-
-- **Trivially-passing near-degenerate points.** `_crlb_done` asks "is my spread already below the
-  information limit?" At a near-degenerate point the marginal CRLB is inflated by a
-  near-singular FIM (e.g. 11.8 MHz measured on `zeeman_split` where the achieved error was only
-  1.3 MHz), so the test passes from the first steps — exactly when the problem is hardest.
-- **Prior leakage from the benchmark itself.** Generators draw each repeat's prior mean as
-  `gauss(true_value, sigma)`, so stopping early scores well precisely because it reports a
-  truth-centred prior it never had to earn. Real hardware has no such prior. This is the same
-  failure class as three earlier snapshot-CRLB early-stop bugs in this locator's history.
-
-Frequency-only CRLB stopping (§5.4, closed-form and not FIM-dependent) is unaffected and remains
-active regardless of this switch.
+The FIM-derived marginal CRLBs (§4.3) are not used to stop a run. A FIM-driven stop was tested and rejected: it improved the reported numbers (median run length 450→24 steps, catastrophic rate on known-degenerate configs 67%→12%) only as an artifact. At a near-degenerate point the marginal CRLB is inflated by a near-singular FIM (e.g. 11.8 MHz on `zeeman_split` where the achieved error was 1.3 MHz), so the test passes from the first steps, exactly when the problem is hardest; and generators draw each repeat's prior mean as `gauss(true_value, sigma)`, so stopping early scores well precisely because it reports a truth-centred prior it never had to earn.
 
 ### 5.6 Adaptive Plateau Stop (`_check_estimate_plateau`, default-on)
 
@@ -567,15 +521,11 @@ that margin at a 2.2× rather than 3.6× saving.
 | T_f | `NVISION_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
 | K_safety | `NVISION_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
 | K_theory | `NVISION_SBED_STEPS_THEORY_FACTOR` | 20 | — |
-| k_bg | `NVISION_NOISE_BG_SPAN_FACTOR` | 3.0 | linewidths |
-| N_bg,min | `NVISION_NOISE_MIN_BG_POINTS` | 15 | — |
 | patience | `NVISION_CONVERGENCE_PATIENCE` | 8 | steps |
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
 | p_conf | `NVISION_DIP_CONFIDENCE` | 0.99 | — |
+| n_σ | `NVISION_DIP_N_SIGMA` | 3.0 | noise σ |
 | f_expl | `NVISION_SMC_MIN_EXPLORATION_FRAC` | 0.01 | — |
-| — | `NVISION_FOCUS_CONF_INTERVAL` | 4 | steps |
-| — | `NVISION_SBED_FIM_CRLB_STOP` | 0 (off) | bool |
-| — | `NVISION_SBED_PLATEAU_STOP` | 1 (on) | bool |
 | W | `NVISION_SBED_PLATEAU_WINDOW` | 30 | steps |
 | f_σ | `NVISION_SBED_PLATEAU_SIGMA_FRAC` | 0.25 | — |
 

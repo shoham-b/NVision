@@ -2,34 +2,31 @@ import numpy as np
 import pytest
 
 from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-from nvision.spectra.gaussian import GaussianModel
-from nvision.spectra.unit_cube import UnitCubeSignalModel
+from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from tests.noise import gaussian_noise
 
 
 @pytest.fixture(autouse=True)
-def mock_narrowing_steps(monkeypatch):
-    monkeypatch.setenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "0")
+def isolate_focus_window_logic(monkeypatch):
+    """Narrow immediately, and skip the (expensive, irrelevant here) epoch candidate generation."""
+    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 0)
+
+    def no_op_candidates(self) -> None:
+        self._current_candidates = np.linspace(0.0, 1.0, 10).astype(np.float32)
+
+    monkeypatch.setattr(UnitCubeSMCMarginalDistribution, "_generate_epoch_candidates", no_op_candidates)
 
 
 def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarginalDistribution:
-    """Helper: return a MockSMC with no-op candidate generation."""
-
-    class MockSMC(UnitCubeSMCMarginalDistribution):
-        def _generate_epoch_candidates(self) -> None:
-            self._current_candidates = np.linspace(0.0, 1.0, 10).astype(np.float32)
-
-    bounds = {
-        "frequency": (freq_lo, freq_hi),
-        "dip_depth": (0.0, 1.0),
-        "sigma": (1e6, 10e6),
-        "background": (0.0, 1.0),
-    }
-    base_model = GaussianModel()
-    base_model.signal_min_span = lambda w: 1e5
-    model = UnitCubeSignalModel(base_model, param_bounds_phys=bounds, x_bounds_phys=(freq_lo, freq_hi))
-    smc = MockSMC(model=model, num_particles=1000, physical_param_bounds=bounds, physical_x_bounds=(freq_lo, freq_hi))
-    smc._param_names = ["frequency", "sigma", "dip_depth", "background"]
-    smc._weights = np.ones(1000, dtype=np.float32) / 1000.0
+    """A free-frequency NV-Lorentzian belief whose probe window is ``[freq_lo, freq_hi]``."""
+    smc = nv_center_smc_belief(
+        {"frequency": (freq_lo, freq_hi)},
+        noise_model=gaussian_noise(),
+        num_particles=1000,
+        with_zeeman_splitting=False,
+        with_fixed_frequency=False,
+    )
+    assert smc._param_names[0] == "frequency"
     return smc
 
 
@@ -87,8 +84,10 @@ def test_focus_window_automatic_narrowing_during_resampling():
     # Threshold reflects jitter + the min_exploration_frac floor only (particle
     # rejuvenation, which used to inflate this further, was removed after an A/B
     # showed no measurable accuracy/calibration benefit even on its target regime).
+    # Before narrowing the frequency spread was ~1e-10 (scale 1e-5); after remapping to the narrowed
+    # window it must be orders of magnitude larger, not underflowed.
     internal_var_after = np.var(smc._particles[:, f_idx])
-    assert internal_var_after > 1e-4, f"Internal variance after resampling did not recover: {internal_var_after}"
+    assert internal_var_after > 1e-6, f"Internal variance after resampling did not recover: {internal_var_after}"
 
     print(f"Natively narrowed bounds from {(old_lo, old_hi)} to {(new_lo, new_hi)}")
 

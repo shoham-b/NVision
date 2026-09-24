@@ -1,7 +1,7 @@
 """OpenEvolve evaluator for the SBED acquisition-function evolve target.
 
 Loads a candidate program (see ``initial_program.py``), monkeypatches its
-``_acquire`` / ``_eig_acquire`` / ``_dual_window_acquire`` onto the real
+``_acquire`` / ``_eig_acquire`` onto the real
 ``SequentialBayesianExperimentDesignLocator`` class, runs a small in-process
 evaluation grid directly through ``nvision.runner`` (no CLI/subprocess, no
 cache writes -- mirrors the ``nv run-single --dry-run`` verification pattern
@@ -87,7 +87,7 @@ def _load_candidate(program_path: str):
         raise ImportError(f"could not load spec from {program_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    for name in ("_acquire", "_eig_acquire", "_dual_window_acquire"):
+    for name in ("_acquire", "_eig_acquire"):
         if not callable(getattr(module, name, None)):
             raise ValueError(f"candidate program is missing a callable '{name}'")
     return module
@@ -96,7 +96,7 @@ def _load_candidate(program_path: str):
 def _apply_patch(module):
     from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator as Locator
 
-    names = ("_acquire", "_eig_acquire", "_dual_window_acquire")
+    names = ("_acquire", "_eig_acquire")
     originals = {name: getattr(Locator, name) for name in names}
     for name in names:
         setattr(Locator, name, getattr(module, name))

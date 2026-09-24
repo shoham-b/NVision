@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from nvision.belief.dip_detection import min_linewidth_hz
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
@@ -208,7 +209,7 @@ def _posterior_animation_inputs_all_params(
 
     b0 = snapshots[0].belief
     names = list(b0.model.parameter_names())
-    if getattr(b0, "_use_rao_blackwell_noise", False) and "noise_sigma" not in names:
+    if getattr(b0, "noise_model", None) is not None and "noise_sigma" not in names:
         names.append("noise_sigma")
     if not names:
         return None
@@ -243,7 +244,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     b0 = snapshots[0].belief
     stub_grid = np.linspace(0.0, 1.0, 2)
     is_unit_cube = hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel)
-    use_rb = getattr(b0, "_use_rao_blackwell_noise", False)
+    use_rb = getattr(b0, "noise_model", None) is not None
 
     # Resolve particle column indices once; physical bounds are resolved
     # per snapshot because the frequency window can narrow during a run.
@@ -801,7 +802,7 @@ def _bayesian_auxiliary_entries(
         # Parameter names are identical across snapshots; resolve once.
         first_belief = viz_snapshots_for_conv[0].belief
         param_names = list(first_belief.model.parameter_names())
-        if getattr(first_belief, "_use_rao_blackwell_noise", False) and "noise_sigma" not in param_names:
+        if getattr(first_belief, "noise_model", None) is not None and "noise_sigma" not in param_names:
             param_names.append("noise_sigma")
 
         conv_metrics = []
@@ -848,7 +849,7 @@ def _bayesian_auxiliary_entries(
 
         # Collect bound ranges from the first snapshot for display
         param_bounds = dict(viz_snapshots_for_conv[0].belief.physical_param_bounds)
-        if getattr(viz_snapshots_for_conv[0].belief, "_use_rao_blackwell_noise", False):
+        if getattr(viz_snapshots_for_conv[0].belief, "noise_model", None) is not None:
             noise_spec = viz_snapshots_for_conv[0].belief.noise_model.spec
             if "noise_sigma" in noise_spec.bounds:
                 param_bounds["noise_sigma"] = noise_spec.bounds["noise_sigma"]
@@ -907,17 +908,10 @@ def get_or_run_sobol_baseline(
 
     # 1. Setup locator noise/bounds
     noise_std = 0.05
-    noise_max_dev = None
     if experiment.noise is not None:
         noise_std = float(experiment.noise.estimated_noise_std())
-        if hasattr(experiment.noise, "estimated_max_noise_deviation"):
-            noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
 
-    domain_width = float(experiment.x_max - experiment.x_min)
-    signal_max_span = None
     model = experiment.true_signal.model
-    if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
-        signal_max_span = model.signal_max_span(domain_width)
 
     # Inject bounds (replicating Executor._injected_parameter_bounds(experiment))
     bounds: dict[str, tuple[float, float]] = {}
@@ -940,14 +934,14 @@ def get_or_run_sobol_baseline(
     if experiment.true_signal.noise_bounds:
         bounds.update(experiment.true_signal.noise_bounds)
 
-    belief = nv_center_smc_belief(bounds, lineshape=nv_lineshape_for_model(model))
+    belief = nv_center_smc_belief(
+        bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
+    )
 
     locator = SimpleSobolBayesianLocator(
         belief=belief,
         max_steps=10000,
         noise_std=noise_std,
-        **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
-        **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
     )
     # See nvision/runner/executor.py's identical Sobol-baseline block: field names
     # keep their historical "freq" spelling, only the tracked parameter changes.
@@ -1061,16 +1055,13 @@ def get_or_run_simplesweep_baseline(
     if experiment.true_signal.noise_bounds:
         bounds.update(experiment.true_signal.noise_bounds)
 
-    belief = nv_center_smc_belief(bounds, lineshape=nv_lineshape_for_model(model))
+    belief = nv_center_smc_belief(
+        bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
+    )
 
     f_lo, f_hi = bounds.get("frequency", (experiment.x_min, experiment.x_max))
     f_domain_width = float(f_hi - f_lo)
-    if "linewidth" in bounds:
-        min_linewidth = float(bounds["linewidth"][0])
-    elif "homogeneous_linewidth" in bounds:
-        min_linewidth = float(bounds["homogeneous_linewidth"][0])
-    else:
-        min_linewidth = 200e3
+    min_linewidth = min_linewidth_hz(bounds)
     max_steps = max(30, math.ceil(f_domain_width / min_linewidth))
 
     locator = GenericSweepLocator(

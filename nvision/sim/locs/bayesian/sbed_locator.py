@@ -4,57 +4,22 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
 
 import numpy as np
 from numba import njit
 
-from nvision.belief.smc_marginal import _inverse_sum_squares
+from nvision.belief.dip_detection import effective_max_linewidth_hz
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
-    NVISION_DIP_CONFIDENCE,
     NVISION_FREQ_CRLB_SAFETY_FACTOR,
-    NVISION_NOISE_BG_SPAN_FACTOR,
-    NVISION_NOISE_MIN_BG_POINTS,
     NVISION_SMC_CANDIDATE_STEP_HZ,
 )
-from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
 # Minimum number of consecutive converged checks before declaring convergence.
 # Prevents false early stops on the first measurement, especially with no noise.
 NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
-
-# Step cadence for the focus-window confidence check while the dip detector is still
-# below its confidence floor (see _should_check_focus_confidence). Set to 1 to restore
-# the previous every-step behavior.
-NVISION_FOCUS_CONF_INTERVAL: int = int(os.getenv("NVISION_FOCUS_CONF_INTERVAL", "4"))
-
-# Kill-switch for the dual symmetric-window acquisition strategy (see
-# _dual_window_acquire). On by default; set NVISION_SBED_DUAL_WINDOW=0 to fall back to
-# plain EIG over the single unioned focus window.
-_DUAL_WINDOW_ENABLED: bool = os.getenv("NVISION_SBED_DUAL_WINDOW", "1") not in ("0", "false", "False")
-
-# Whether the FIM-derived per-parameter CRLB may drive the early-stop decision in
-# `_check_crlb_early_stop`. OFF by default, deliberately.
-#
-# `crlb_per_param()` returned {} for every NV-center run until numerical gradients
-# were added (the models define no analytical `gradient`), so this stop path was
-# dead code and the locator always ran to `max_steps`. Switching it on measurably
-# makes things *look* much better -- median run length 450 -> 24 steps, catastrophic
-# rate on the known-degenerate configs 67% -> 12% -- but that is an artifact, not a
-# win: `_crlb_done` asks "is my spread already below the information limit?", and at
-# a near-degenerate point the marginal CRLB is inflated by a near-singular FIM (e.g.
-# 11.8 MHz on `zeeman_split` where the achieved error is 1.3 MHz), so the test passes
-# trivially from the first steps -- exactly when the problem is hardest. The accuracy
-# "gain" is the benchmark's own prior leaking in: generators draw each repeat's prior
-# mean as `gauss(true_value, sigma)`, so stopping early scores well precisely because
-# it reports a truth-centred prior it never had to earn. Real hardware has no such prior.
-# This is the same failure class as the three snapshot-CRLB early-stop bugs already
-# fixed here; leave it off unless a stopping rule is validated against something other
-# than simulated-prior-centred accuracy.
-_FIM_CRLB_STOP_ENABLED: bool = os.getenv("NVISION_SBED_FIM_CRLB_STOP", "0") not in ("0", "false", "False")
 
 # Adaptive plateau stop: give up when the *estimate itself* stops moving, rather than
 # when some derived quantity claims the information limit has been reached.
@@ -64,7 +29,7 @@ _FIM_CRLB_STOP_ENABLED: bool = os.getenv("NVISION_SBED_FIM_CRLB_STOP", "0") not 
 # -> 0.022 at 100 -> 0.016 at 450. The knee is around step 100; the last 350 steps of a
 # 450-step budget buy ~1.3x while costing 4.5x the measurements. So there IS a real
 # early-stop win here -- roughly 3-4x fewer measurements for a few percent of accuracy --
-# but the FIM-CRLB rule above cannot capture it: it fires at median step 24, i.e. just
+# but a FIM-CRLB-driven stop (evaluated and rejected) cannot capture it: it fired at median step 24, i.e. just
 # *before* the steepest part of the curve, where the estimate is still 14x worse than it
 # will be. Tracking movement of the estimate measures diminishing returns directly, so it
 # fires where the curve actually flattens and adapts per-run instead of encoding a budget.
@@ -94,95 +59,8 @@ _FIM_CRLB_STOP_ENABLED: bool = os.getenv("NVISION_SBED_FIM_CRLB_STOP", "0") not 
 # Cost to be aware of when tuning: on the degenerate configs the catastrophic rate
 # (`zeeman_split` error > 1 MHz) went 7.1% -> 12.5% (4 -> 7 of 56, small counts). Drop
 # SIGMA_FRAC to 0.15 to keep most of that margin at a 2.2x rather than 3.6x saving.
-_PLATEAU_STOP_ENABLED: bool = os.getenv("NVISION_SBED_PLATEAU_STOP", "1") not in ("0", "false", "False")
 _PLATEAU_WINDOW: int = int(os.getenv("NVISION_SBED_PLATEAU_WINDOW", "30"))
 _PLATEAU_SIGMA_FRAC: float = float(os.getenv("NVISION_SBED_PLATEAU_SIGMA_FRAC", "0.25"))
-
-
-def background_noise_std(
-    xs: np.ndarray,
-    ys: np.ndarray,
-    f_hat: float,
-    linewidth_hat: float,
-    k: float = NVISION_NOISE_BG_SPAN_FACTOR,
-    min_bg_points: int = NVISION_NOISE_MIN_BG_POINTS,
-    max_dip_cluster_span_hz: float | None = None,
-) -> float | None:
-    """Robust noise estimate from out-of-span (background) measurements.
-
-    Points with |x - f_hat| > span are considered background, where span is
-    ``k * linewidth_hat`` widened to also clear the outermost dip when
-    ``max_dip_cluster_span_hz`` (e.g. from Zeeman + hyperfine splitting) is
-    given — otherwise real dips far from ``f_hat`` get misclassified as
-    background and bias the MAD estimate upward.
-    Returns None when fewer than ``min_bg_points`` background points exist.
-    Otherwise returns the MAD-based sigma: 1.4826 * median(|y_bg - median(y_bg)|).
-    """
-    if len(xs) == 0:
-        return None
-    span = max(k * abs(linewidth_hat), max_dip_cluster_span_hz or 0.0)
-    mask = np.abs(xs - f_hat) > span
-    y_bg = ys[mask]
-    if len(y_bg) < min_bg_points:
-        return None
-    med = float(np.median(y_bg))
-    mad = float(np.median(np.abs(y_bg - med)))
-    return 1.4826 * mad
-
-
-def _max_dip_cluster_span_hz(phys_bounds: dict, est: dict | None = None) -> float | None:
-    """Maximum expected span (Hz) between the outermost dips of one NV signal.
-
-    Mirrors ``SMCMarginalDistribution._generate_epoch_candidates``: the outermost
-    dips are the two Zeeman groups (± ``zeeman_split``) each displaced by the
-    hyperfine split (± ``split``), so the full extent is
-    ``2·zeeman + 2·split``. Returns ``None`` when neither splitting is
-    modeled (single-dip signal), matching the pre-Zeeman behavior.
-
-    Uses the belief's *current point estimate* of ``zeeman_split``/``split``
-    (from ``est``) when available, rather than the prior's worst-case upper
-    bound: the bound stays pinned at its max (e.g. 100 MHz Zeeman -> 200 MHz
-    span) for the entire run even after the belief has localized the true
-    split to a much narrower value, which starves background-point
-    classification and forces repeated background-calibration passes. Falls
-    back to the bound before any estimate exists (e.g. before the first
-    resample) or for models without these parameters.
-    """
-    if est is not None and "zeeman_split" in est:
-        zeeman_hz = abs(est.get("zeeman_split", 0.0))
-        split_hz = abs(est.get("split", 0.0)) if "split" in est else 0.0
-        if zeeman_hz > 0 or split_hz > 0:
-            return 2.0 * zeeman_hz + 2.0 * split_hz
-        return None
-
-    max_zeeman_hz = phys_bounds["zeeman_split"][1] if "zeeman_split" in phys_bounds else 0.0
-    max_hf_split_hz = phys_bounds["split"][1] if "split" in phys_bounds else 0.0
-    if max_zeeman_hz > 0 or max_hf_split_hz > 0:
-        return 2.0 * max_zeeman_hz + 2.0 * max_hf_split_hz
-    return None
-
-
-def _effective_max_linewidth_hz(phys_bounds: dict) -> float:
-    """Upper-bound effective HWHM (Hz), lineshape-agnostic.
-
-    Used for background-span classification and dip-clustering thresholds,
-    which only need a single width scale regardless of how that width is
-    parameterized by the underlying model.
-    """
-    if "linewidth" in phys_bounds:
-        return phys_bounds["linewidth"][1]
-    if "saturation" in phys_bounds and "sigma_inhom" in phys_bounds:
-        from nvision.spectra.nv_center import NV_NATURAL_HWHM_HZ
-
-        s_hi = phys_bounds["saturation"][1]
-        sigma_inhom_hi = phys_bounds["sigma_inhom"][1]
-        gamma_hom_hi = NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + s_hi)
-        return gamma_hom_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
-    if "homogeneous_linewidth" in phys_bounds:
-        hl_hi = phys_bounds["homogeneous_linewidth"][1]
-        sigma_inhom_hi = phys_bounds.get("sigma_inhom", (0.0, 0.0))[1]
-        return hl_hi + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
-    return 1e6
 
 
 def _effective_linewidth_and_contrast_estimate(est: dict, phys_bounds: dict) -> tuple[float, float | None]:
@@ -202,200 +80,13 @@ def _effective_linewidth_and_contrast_estimate(est: dict, phys_bounds: dict) -> 
         saturation = est.get("saturation")
         sigma_inhom = est.get("sigma_inhom")
         if saturation is None or sigma_inhom is None:
-            return _effective_max_linewidth_hz(phys_bounds), None
+            return effective_max_linewidth_hz(phys_bounds), None
         fwhm_total, _, c_total = _saturation_voigt_reparam_scalar(saturation, sigma_inhom, NV_SATURATION_C_MAX)
         return fwhm_total / 2.0, c_total
     if "homogeneous_linewidth" in est:
         hl_bounds = phys_bounds.get("homogeneous_linewidth", (0.0, 2e6))
         return est.get("homogeneous_linewidth", hl_bounds[1]), est.get("c_total")
-    return _effective_max_linewidth_hz(phys_bounds), None
-
-
-def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
-    """Weighted empirical quantile via sorted cumulative weights."""
-    order = np.argsort(values)
-    cw = np.cumsum(weights[order])
-    cw /= cw[-1]
-    return float(np.interp(q, cw, values[order]))
-
-
-@dataclass(frozen=True)
-class FocusWindowConfidence:
-    """Joint confidence estimate for the focus window, merging empirical and posterior signals.
-
-    Empirical fields (from dip detector, model-free):
-        left_bound / right_bound — f_min/f_max of the dominant dip cluster.
-        left_unc / right_unc — gap to the nearest observation outside each edge (Hz);
-            inf when no observations exist on that side.
-        detector_confidence — binomial confidence of the dominant cluster.
-        background — empirical baseline (70th pct of obs_ys) used by the detector.
-
-    Posterior fields (from SMC particles):
-        center — weighted-mean frequency (Hz).
-        center_std — weighted std of frequency (Hz).
-        center_ci_lo / center_ci_hi — 16th / 84th pct of frequency posterior (Hz).
-
-    Merged:
-        methods_agree — True when center ∈ [left_bound, right_bound].
-        is_stable — agreement-gated: detector_confidence ≥ floor AND methods_agree
-                    AND center_std < stability_ratio × window_width.
-
-    all_candidates — (f_min, f_max) of *every* qualifying dip candidate this call,
-        significance-descending (index 0 is the dominant cluster, i.e. left_bound/
-        right_bound). Length > 1 while the detector still can't tell which cluster
-        is the real dip -- used to animate "candidates narrowing down to one" in the
-        UI timeline (see StepSnapshot.focus_window_candidates).
-    """
-
-    left_bound: float
-    right_bound: float
-    left_unc: float
-    right_unc: float
-    detector_confidence: float
-    background: float
-    center: float
-    center_std: float
-    center_ci_lo: float
-    center_ci_hi: float
-    methods_agree: bool
-    is_stable: bool
-    all_candidates: tuple[tuple[float, float], ...] = ()
-
-
-def compute_focus_window_confidence(
-    belief,
-    noise_std: float,
-    stability_ratio: float = 0.5,
-    confidence_floor: float = NVISION_DIP_CONFIDENCE,
-) -> FocusWindowConfidence | None:
-    """Compute focus window confidence by merging the empirical dip detector with the particle posterior.
-
-    Returns None when fewer than 5 observations exist, when the belief lacks particles,
-    or when the empirical detector does not qualify any cluster (still in early search).
-    """
-    if not hasattr(belief, "_particles") or not hasattr(belief, "_weights"):
-        return None
-
-    # --- Build observation arrays in physical Hz ---
-    rescale_maps = getattr(belief, "_rescale_maps", None)
-    if rescale_maps is None or "frequency" not in rescale_maps:
-        return None
-
-    # Prefer the incrementally-maintained sorted view: this function runs every
-    # step once dense mode kicks in (see _should_check_focus_confidence), so
-    # avoiding a fresh O(n log n) re-sort here matters more than at the other
-    # (resample-only) call sites.
-    obs_sorted = hasattr(belief, "sorted_observation_arrays")
-    if obs_sorted:
-        obs_xs_unit, obs_ys = belief.sorted_observation_arrays()
-        obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
-    elif hasattr(belief, "observation_arrays"):
-        obs_xs_unit, obs_ys = belief.observation_arrays()
-        obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
-    else:
-        obs_list = getattr(belief, "_observations", [])
-        if not obs_list:
-            return None
-        obs_xs_phys = rescale_maps["frequency"].to_phys(np.array([o.x for o in obs_list]))
-        obs_ys = np.array([o.signal_value for o in obs_list])
-
-    if len(obs_xs_phys) < 5:
-        return None
-
-    # --- Build identify_dip_candidates kwargs (mirrors _acquire / _check_crlb_early_stop) ---
-    phys_bounds = getattr(belief, "physical_param_bounds", getattr(belief, "parameter_bounds", {}))
-    max_linewidth_hz = _effective_max_linewidth_hz(phys_bounds)
-    max_split_hz = _max_dip_cluster_span_hz(phys_bounds, belief.estimates())
-
-    noise_std_unc = 0.0
-    per_particle_sigmas = None
-    particle_weights = None  # only set when per_particle_sigmas is also set (arrays must match)
-    if getattr(belief, "_use_rao_blackwell_noise", False):
-        per_particle_sigmas = np.sqrt(belief._noise_betas / (belief._noise_alphas + 0.5))
-        particle_weights = belief._weights
-    elif hasattr(belief, "_param_names") and "noise_sigma" in belief._param_names:
-        idx = belief._param_names.index("noise_sigma")
-        raw_sigmas = belief._particles[:, idx]
-        if "noise_sigma" in phys_bounds:
-            lo_ns, hi_ns = phys_bounds["noise_sigma"]
-            per_particle_sigmas = lo_ns + raw_sigmas * (hi_ns - lo_ns)
-        else:
-            per_particle_sigmas = raw_sigmas
-        particle_weights = belief._weights
-
-    if hasattr(belief, "estimated_noise_std") and getattr(belief, "noise_model", None) is not None:
-        noise_std_used = belief.estimated_noise_std()
-        noise_std_unc = belief.noise_std_uncertainty(noise_std_used)
-    else:
-        noise_std_used = noise_std
-
-    candidates = identify_dip_candidates(
-        obs_xs_phys,
-        obs_ys,
-        noise_std_used,
-        max_linewidth_hz,
-        noise_std_unc=noise_std_unc,
-        per_particle_sigmas=per_particle_sigmas,
-        particle_weights=particle_weights,
-        max_split_hz=max_split_hz,
-        assume_sorted=obs_sorted,
-    )
-
-    if not candidates:
-        return None
-
-    c = candidates[0]  # already sorted by significance descending
-    left_bound = c.f_min
-    right_bound = c.f_max
-
-    # --- Per-side sampling-gap uncertainty ---
-    left_outside = obs_xs_phys[obs_xs_phys < left_bound]
-    left_unc = float(left_bound - left_outside.max()) if len(left_outside) > 0 else math.inf
-    right_outside = obs_xs_phys[obs_xs_phys > right_bound]
-    right_unc = float(right_outside.min() - right_bound) if len(right_outside) > 0 else math.inf
-
-    # --- Posterior center from particles ---
-    param_names = list(belief._param_names)
-    if "frequency" not in param_names:
-        return None
-    f_idx = param_names.index("frequency")
-    f_unit = belief._particles[:, f_idx]
-    f_phys = rescale_maps["frequency"].to_phys(f_unit)
-    w = belief._weights
-    sw = float(w.sum())
-    if sw <= 0:
-        return None
-
-    center = float((w @ f_phys) / sw)
-    center_std = float(np.sqrt(max(0.0, float((w @ ((f_phys - center) ** 2)) / sw))))
-    center_ci_lo = _weighted_quantile(f_phys, w, 0.16)
-    center_ci_hi = _weighted_quantile(f_phys, w, 0.84)
-
-    # --- Merge ---
-    methods_agree = left_bound <= center <= right_bound
-    window_width = right_bound - left_bound
-    is_stable = (
-        c.confidence >= confidence_floor
-        and methods_agree
-        and window_width > 0
-        and center_std < stability_ratio * window_width
-    )
-
-    return FocusWindowConfidence(
-        left_bound=left_bound,
-        right_bound=right_bound,
-        left_unc=left_unc,
-        right_unc=right_unc,
-        detector_confidence=c.confidence,
-        background=c.background,
-        center=center,
-        center_std=center_std,
-        center_ci_lo=center_ci_lo,
-        center_ci_hi=center_ci_hi,
-        methods_agree=methods_agree,
-        is_stable=is_stable,
-        all_candidates=tuple((float(cd.f_min), float(cd.f_max)) for cd in candidates),
-    )
+    return effective_max_linewidth_hz(phys_bounds), None
 
 
 @njit(cache=True)
@@ -452,47 +143,23 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         )
 
         # We handle resampling manually to check convergence at the right moment
-        if hasattr(self.belief, "auto_resample"):
-            self.belief.auto_resample = False
+        self.belief.auto_resample = False
         self._is_converged = False
-        # Separate streak from `_convergence_streak` (which gates
-        # `_target_params_converged`) -- `_check_crlb_early_stop`'s `all_crlb_done`
-        # is its own independent single-snapshot signal and must not be allowed to
-        # set `_is_converged` on one lucky reading (see `_check_crlb_early_stop`).
+        # Own streak, separate from `_convergence_streak` (which gates `_target_params_converged`):
+        # `_check_crlb_early_stop`'s `all_crlb_done` is an independent single-snapshot signal and
+        # must not be allowed to set `_is_converged` on one lucky reading.
         self._crlb_convergence_streak: int = 0
         # Rolling history of parameter estimates, for the plateau stop (see
         # _check_estimate_plateau). One dict per convergence check, oldest first.
         self._estimate_history: list[dict[str, float]] = []
         self._plateau_streak: int = 0
         self.plateau_stop_step: int | None = None
-
-        # Background noise estimation / forced calibration state
-        self._forced_bg_mode: bool = False
-        self._forced_bg_measurements: int = 0
-        self._bg_noise_std: float | None = None
-        self._bg_points_used: int = 0
-        self._focus_window_conf: FocusWindowConfidence | None = None
-        self.focus_stable_step: int | None = None
-        # Coarse-then-dense cadence for the focus-window confidence check.
-        self._focus_conf_interval: int = max(1, NVISION_FOCUS_CONF_INTERVAL)
-        self._focus_conf_dense: bool = False
-        # Empirical batch-mean noise (running mean of received obs.noise_std over
-        # multi-shot batches). Reflects the σ/√k precision of the measurement the
-        # locator will actually take; used for EIG scoring and as a noise-floor
-        # fallback for the CRLB early-stop before background points accumulate.
-        self._empirical_batch_noise_std: float | None = None
-        self._batch_noise_sum: float = 0.0
-        self._batch_noise_count: int = 0
-        # How many acquisitions have landed in each symmetric Zeeman-flank window so
-        # far (see _dual_window_acquire). Used to force balanced information between
-        # the two flanks rather than letting EIG greedily favor one.
-        self._dual_window_counts: dict[str, int] = {"left": 0, "right": 0}
         # Physical frequency of the most recent EIG selection, re-injected into
         # the candidate grid so a second batch there is a legitimate EIG outcome
         # rather than being dropped by minimum-spacing thinning.
         self._last_eig_physical_x: float | None = None
-        # Theoretical step budget: K_theory × n_theory, computed from σ̂ + belief estimates.
-        # None until the first valid background noise estimate is available.
+        # Theoretical step budget: K_theory × n_theory, computed from the conjugate noise
+        # estimate and belief estimates. None until the first check has run.
         self._theory_step_budget: int | None = None
 
     @classmethod
@@ -521,24 +188,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             convergence_patience_steps=convergence_patience_steps,
         )
 
-    def _generate_candidates(self, num_candidates: int | None = None) -> np.ndarray:
-        """Generate candidates spanning the whole frequency spectrum.
-
-        When ``num_candidates`` is not provided, compute it dynamically from
-        the acquisition bounds so that the step resolution is two decimal
-        places finer than the order of magnitude of the range.
-        """
-        if num_candidates is None:
-            lo, hi = self._acquisition_bounds()
-            range_val = float(hi - lo)
-            if range_val <= 0:
-                num_candidates = 1
-            else:
-                magnitude = math.floor(math.log10(range_val))
-                resolution = 10 ** (magnitude - 2)
-                num_candidates = max(1, math.ceil(range_val / resolution)) + 1
-        return super()._generate_candidates(num_candidates)
-
     def _thin_candidates_by_step(self, candidates: np.ndarray) -> np.ndarray:
         """Return a subset of *candidates* (physical space) with minimum physical spacing.
 
@@ -553,261 +202,45 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         return candidates[kept]
 
     def _acquire(self) -> float:
-        """Select the next measurement point by maximizing EIG over a frequency grid."""
+        """Select the next measurement point by maximizing EIG over a frequency grid.
+
+        A decaying share of steps instead explores: uniformly over the whole probe window
+        (to find dips the posterior has narrowed away from), or near a dip the data already
+        show (:meth:`SMCMarginalDistribution.dip_candidates`).
+        """
         lo, hi = self._acquisition_bounds()
         if hi <= lo:
             return float(lo)
 
-        # The belief's original (never-narrowed) domain -- used by the exploration branches
-        # below so they can still reach a location resampling has already narrowed away from.
+        # The belief's original (never-narrowed) probe window -- used by the exploration branches
+        # so they can still reach a location resampling has already narrowed away from.
         # `_to_experiment_normalized` normalizes against this same full domain, not
         # `_acquisition_bounds()`, so returning a value outside `lo, hi` here is valid.
-        orig_lo, orig_hi = getattr(self.belief, "_original_physical_x_bounds", (lo, hi))
+        orig_lo, orig_hi = self.belief._original_physical_x_bounds
 
-        # Forced background calibration: sample out-of-span until we have
-        # enough background points to estimate noise for the CRLB early-stop.
-        if self._forced_bg_mode:
-            est = self.belief.estimates()
-            f_hat = est.get("frequency", (lo + hi) / 2.0)
-            lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
-            max_split_hz = _max_dip_cluster_span_hz(self.belief.physical_param_bounds, est)
-            # Must match the classification span in background_noise_std() below, or forced
-            # sampling lands points that its own classifier then rejects as non-background.
-            span = max(NVISION_NOISE_BG_SPAN_FACTOR * abs(lw_hat), max_split_hz or 0.0)
-            # Sample from left or right background region at random
-            left_lo, left_hi = lo, max(lo, f_hat - span)
-            right_lo, right_hi = min(hi, f_hat + span), hi
-            left_width = max(0.0, left_hi - left_lo)
-            right_width = max(0.0, right_hi - right_lo)
-            total_width = left_width + right_width
-            if total_width > 0:
-                if np.random.rand() < left_width / total_width:
-                    return float(np.random.uniform(left_lo, left_hi))
-                else:
-                    return float(np.random.uniform(right_lo, right_hi))
-            # No valid background region — fall through to normal acquisition
-            self._forced_bg_mode = False
-
-        # Mix EIG with dip-observation-biased exploration. The exploration/dip
-        # branches are drawn first so the (much more expensive) EIG grid search
-        # in _eig_acquire() is skipped entirely on steps where it would be
-        # discarded anyway.
-        # The uniform exploration probability decays exponentially to focus on EIG as the scan progresses.
+        # The exploration branches are drawn first so the (much more expensive) EIG grid
+        # search in _eig_acquire() is skipped entirely on steps where it would be discarded.
+        # The uniform exploration probability decays exponentially to focus on EIG as the scan
+        # progresses.
         decay = np.exp(-self.inference_step_count / 25.0)
         rand_val = np.random.rand()
         if rand_val < 0.1 * decay:
-            # Explore globally uniformly to find missing peaks (probability decays over time).
-            # Deliberately uses the ORIGINAL domain, not `lo, hi` -- `_acquisition_bounds()`
-            # reads the belief's *current*, already-narrowed focus window. Once resampling
-            # narrows that window around a wrong mode (e.g. one of two Zeeman dip groups
-            # mistaken for the true center, when the true split is small/near-merged), sampling
-            # only within `lo, hi` can never place a measurement near the missed true location --
-            # this branch's own stated purpose ("find missing peaks") was structurally
-            # impossible for exactly the peaks most likely to be missing.
             return float(np.random.uniform(orig_lo, orig_hi))
-        elif rand_val < 0.2:
-            # Dip-observation biased sampling: find the empirically lowest measured signal values
-            # and draw near one of them. This corrects for a biased posterior that has drifted
-            # away from the true dip location.
-            n_obs = getattr(self.belief, "num_observations", None)
-            if n_obs is None:
-                n_obs = len(getattr(self.belief, "_observations", []))
-            if n_obs >= 5:
-                # Use precomputed/cached dip centers from the belief (calculated only during resampling)
-                # to satisfy "dip detection only upon resampling" and avoid massive sorting overhead.
-                dip_centers = getattr(self.belief, "_dip_centers", None)
-                if dip_centers is None:
-                    # Fallback (e.g. if using a belief type that does not precompute them)
-                    rescale_maps = self.belief._rescale_maps
-                    if "frequency" not in rescale_maps:
-                        raise RuntimeError(
-                            f"{type(self.belief).__name__} is missing _rescale_maps['frequency']. "
-                            "Ensure physical_param_bounds includes 'frequency' at construction."
-                        )
-                    freq_rescale = rescale_maps["frequency"]
-                    # Prefer the incrementally-maintained sorted view (avoids an
-                    # O(n log n) re-sort inside identify_dip_candidates below) when
-                    # the belief type supports it; to_phys() is a strictly increasing
-                    # affine map so sortedness carries over into physical units.
-                    obs_sorted = hasattr(self.belief, "sorted_observation_arrays")
-                    if obs_sorted:
-                        obs_xs_unit, obs_ys = self.belief.sorted_observation_arrays()
-                        obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
-                    elif hasattr(self.belief, "observation_arrays"):
-                        obs_xs_unit, obs_ys = self.belief.observation_arrays()
-                        obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
-                    else:
-                        obs_list = self.belief._observations
-                        obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
-                        obs_ys = np.array([o.signal_value for o in obs_list])
-                    if (
-                        hasattr(self.belief, "estimated_noise_std")
-                        and getattr(self.belief, "noise_model", None) is not None
-                    ):
-                        noise_std = self.belief.estimated_noise_std()
-                        noise_std_unc = self.belief.noise_std_uncertainty(noise_std)
-                    else:
-                        noise_std = self._noise_std
-                        noise_std_unc = 0.0
+        if rand_val < 0.2:
+            # Dip-biased sampling: draw within +/-5 MHz of a dip the observations show. This
+            # corrects a biased posterior that has drifted away from the true dip location.
+            dip_centers = [d.centroid_hz for d in self.belief.dip_candidates if orig_lo <= d.centroid_hz <= orig_hi]
+            if dip_centers:
+                center = float(np.random.choice(dip_centers))
+                return center + float(np.random.uniform(max(-5e6, orig_lo - center), min(5e6, orig_hi - center)))
 
-                    phys_bounds = getattr(
-                        self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {})
-                    )
-                    max_linewidth_hz = _effective_max_linewidth_hz(phys_bounds)
-                    max_split_hz = _max_dip_cluster_span_hz(phys_bounds, self.belief.estimates())
+            # No dip found yet: Thompson sampling of the scanned parameter from the posterior.
+            if self._scan_param in self.belief._param_names:
+                idx = int(np.random.choice(len(self.belief._weights), p=self.belief._weights))
+                p_idx = self.belief._param_names.index(self._scan_param)
+                return self.belief._to_physical(self._scan_param, float(self.belief._particles[idx, p_idx]))
 
-                    per_particle_sigmas = None
-                    particle_weights = None
-                    if hasattr(self.belief, "_weights"):
-                        particle_weights = self.belief._weights
-                        if getattr(self.belief, "_use_rao_blackwell_noise", False):
-                            per_particle_sigmas = np.sqrt(self.belief._noise_betas / (self.belief._noise_alphas + 0.5))
-                        elif hasattr(self.belief, "_param_names") and "noise_sigma" in self.belief._param_names:
-                            idx = self.belief._param_names.index("noise_sigma")
-                            raw_sigmas = self.belief._particles[:, idx]
-                            if (
-                                hasattr(self.belief, "physical_param_bounds")
-                                and "noise_sigma" in self.belief.physical_param_bounds
-                            ):
-                                lo_ns, hi_ns = self.belief.physical_param_bounds["noise_sigma"]
-                                per_particle_sigmas = lo_ns + raw_sigmas * (hi_ns - lo_ns)
-                            else:
-                                per_particle_sigmas = raw_sigmas
-
-                    dip_candidates = identify_dip_candidates(
-                        obs_xs_phys,
-                        obs_ys,
-                        noise_std,
-                        max_linewidth_hz,
-                        noise_std_unc=noise_std_unc,
-                        per_particle_sigmas=per_particle_sigmas,
-                        particle_weights=particle_weights,
-                        max_split_hz=max_split_hz,
-                        assume_sorted=obs_sorted,
-                    )
-                    dip_centers = [c.centroid_hz for c in dip_candidates]
-
-                # Filtered/clamped against the ORIGINAL domain, not the narrowed `lo, hi`: this
-                # branch's whole purpose is correcting a posterior that "has drifted away from
-                # the true dip location" -- exactly the case where the true dip's own empirical
-                # signature (a real, measured low point) sits outside the already-narrowed
-                # window. Confining it to `lo, hi` defeated that purpose the same way the global
-                # exploration branch above did.
-                valid_dip_centers = [c for c in dip_centers if orig_lo <= c <= orig_hi]
-                if valid_dip_centers:
-                    # Pick a random dip centroid and jitter within ±5 MHz around it,
-                    # keeping it strictly within the domain
-                    center = float(np.random.choice(valid_dip_centers))
-                    j_min = max(-5e6, orig_lo - center)
-                    j_max = min(5e6, orig_hi - center)
-                    if j_max >= j_min:
-                        jitter = float(np.random.uniform(j_min, j_max))
-                        val = center + jitter
-                        if not (orig_lo <= val <= orig_hi):
-                            raise ValueError(f"Jittered dip value {val} is outside domain bounds {(orig_lo, orig_hi)}")
-                        return val
-                    else:
-                        if not (orig_lo <= center <= orig_hi):
-                            raise ValueError(f"Dip center {center} is outside domain bounds {(orig_lo, orig_hi)}")
-                        return center
-
-            # Fallback: Thompson sampling from posterior particles
-            if hasattr(self.belief, "_particles") and hasattr(self.belief, "_weights"):
-                weights = self.belief._weights
-                if np.sum(weights) > 0:
-                    idx = int(np.random.choice(len(weights), p=weights))
-                    param_names = getattr(self.belief, "_param_names", [])
-                    scan_param = self._scan_param
-                    if scan_param in param_names:
-                        p_idx = param_names.index(scan_param)
-                        val = float(self.belief._particles[idx, p_idx])
-                        return self.belief._to_physical(scan_param, val)
-
-        if _DUAL_WINDOW_ENABLED:
-            dual = self._dual_window_acquire()
-            if dual is not None:
-                return dual
         return self._eig_acquire()
-
-    def _dual_window_acquire(self) -> float | None:
-        """Explicit dual symmetric-window acquisition for Zeeman-split signals.
-
-        Motivation (project memory ``sbed-voigt-fit-quality-fixes.md``): direct
-        instrumentation showed the catastrophic-tail failure is a *continuous*, biased,
-        unimodal frequency posterior -- not competition between discrete modes (ruled
-        out: gap-based clustering always found exactly 1 cluster). The two prior fixes
-        aimed at mode-competition and both failed their A/Bs. A concrete mechanism that
-        *would* produce exactly this signature: `frequency` and `zeeman_split` trade off
-        along a sloppy ridge whenever one Zeeman flank is measured with much better
-        precision than the other -- the model can equally well explain the well-measured
-        flank's dip with many (frequency, zeeman_split) combinations, as long as the
-        under-measured flank's *implied* position drifts along with the trade-off. EIG
-        alone has no reason to keep the two flanks balanced; it happily piles measurements
-        on whichever flank currently looks more informative.
-
-        This method breaks that ridge directly: define two windows, each `k` linewidths
-        wide, symmetric about the current `frequency` estimate at `+/- zeeman_split`, and
-        force the *next* acquisition into whichever flank has received fewer measurements
-        so far (a hard round-robin-toward-balance policy, not a preference) -- both flanks
-        end up anchored with comparable precision, closing the sloppy direction instead of
-        just searching within it. Within the chosen window, candidates are still ranked by
-        ordinary EIG, so this only changes *which flank* gets the next measurement, not how
-        good a candidate must be within it.
-
-        Falls back to None (caller uses plain EIG) when there is no Zeeman-split axis, the
-        split estimate is not yet meaningfully nonzero, or a window collapses to nothing.
-        """
-        param_names = getattr(self.belief, "_param_names", None)
-        if not param_names or "zeeman_split" not in param_names or "frequency" not in param_names:
-            return None
-        est = self.belief.estimates()
-        center_hat = est.get("frequency")
-        split_hat = est.get("zeeman_split")
-        if center_hat is None or split_hat is None:
-            return None
-        lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
-        lw_hat = abs(lw_hat)
-        # Below this, the two flanks are close enough to be one unresolved feature --
-        # let plain EIG (which already covers the merged region) handle it instead of
-        # forcing an artificial split that may not physically exist yet.
-        if split_hat < 3.0 * lw_hat:
-            return None
-
-        orig_lo, orig_hi = getattr(self.belief, "_original_physical_x_bounds", self._acquisition_bounds())
-        half_width = 3.0 * lw_hat
-        windows = {
-            "left": (
-                max(orig_lo, center_hat - split_hat - half_width),
-                min(orig_hi, center_hat - split_hat + half_width),
-            ),
-            "right": (
-                max(orig_lo, center_hat + split_hat - half_width),
-                min(orig_hi, center_hat + split_hat + half_width),
-            ),
-        }
-
-        target = "left" if self._dual_window_counts["left"] <= self._dual_window_counts["right"] else "right"
-        lo, hi = windows[target]
-        if hi <= lo:
-            # This flank has been pushed outside the domain (e.g. a very large split
-            # estimate); fall back to the other one if it's still valid, else give up.
-            other = "right" if target == "left" else "left"
-            lo, hi = windows[other]
-            if hi <= lo:
-                return None
-            target = other
-
-        # Deliberately NOT routed through belief.select_max_information_gain(): that
-        # method converts physical candidates to unit space via self.physical_x_bounds,
-        # which is the belief's *narrowing* focus window -- if this window sits outside
-        # the currently-narrowed range (e.g. the far flank, while the belief has narrowed
-        # around the near one), the conversion produces out-of-[0,1] unit values. The
-        # balance between flanks is the whole point here, not EIG-optimized placement
-        # within an already-narrow window, so a plain uniform draw sidesteps that risk
-        # entirely rather than threading a second unit-conversion path through it.
-        result = float(np.random.uniform(lo, hi))
-        self._dual_window_counts[target] += 1
-        return result
 
     def _eig_acquire(self) -> float:
         """Maximize EIG over the belief's slope-targeted candidate grid."""
@@ -831,13 +264,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         ):
             candidates = np.append(candidates, self._last_eig_physical_x)
 
-        # Score candidates with the noise of the measurement actually taken: a
-        # k-shot batch with precision σ/√k. Falls back to the constructor prior
-        # until an empirical batch estimate exists.
-        noise_std_for_eig = (
-            self._empirical_batch_noise_std if self._empirical_batch_noise_std is not None else self._noise_std
-        )
-        best = self.belief.select_max_information_gain(candidates, 1, noise_std=noise_std_for_eig)
+        best = self.belief.select_max_information_gain(candidates, 1)
         result = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
         self._last_eig_physical_x = result
         return result
@@ -849,129 +276,72 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         convergence-milestone check a second time — _check_and_resample already
         performs it with a single shared uncertainty pass.
         """
-        if self._forced_bg_mode:
-            self._forced_bg_measurements += 1
-        # Track the running mean of batch-mean noise (s/√k) from multi-shot
-        # batches. This is a direct, model-free estimate of the precision of the
-        # measurements the locator receives, available from the first k≥2 batch.
-        n_shots = int(getattr(obs, "n_shots", 1) or 1)
-        if n_shots >= 2 and obs.noise_std > 0:
-            self._batch_noise_count += 1
-            self._batch_noise_sum += float(obs.noise_std)
-            self._empirical_batch_noise_std = self._batch_noise_sum / self._batch_noise_count
         self.belief.update(obs)
         self.belief.accumulate_fim(obs)
-        self._check_and_resample(check_convergence=True)
+        self._check_and_resample()
 
-    def _check_and_resample(self, check_convergence: bool = True) -> None:
-        if not hasattr(self.belief, "_weights"):
-            return
-        ess = _inverse_sum_squares(self.belief._weights)
-        ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)
-        if ess < ess_threshold and hasattr(self.belief, "_resample"):
-            self.belief._resample()
+    def _check_and_resample(self) -> None:
+        self._resample_if_degenerate()
 
-        if check_convergence:
-            # One uncertainty pass shared by the milestone/plateau/CRLB checks
-            # (each belief.uncertainty() call is a full O(particles x params) pass).
-            # This is the raw (non-robust) value deliberately: milestones, the
-            # plateau check, and the CRLB comparison should all reflect the
-            # belief's actual claimed precision, not a smoothed one -- see
-            # robust_uncertainty's docstring on why it must not become the
-            # general-purpose uncertainty.
-            physical_uncertainties = self.belief.uncertainty()
+        # One uncertainty pass shared by the milestone/plateau/CRLB checks
+        # (each belief.uncertainty() call is a full O(particles x params) pass).
+        # This is the raw (non-robust) value deliberately: milestones, the
+        # plateau check, and the CRLB comparison should all reflect the
+        # belief's actual claimed precision, not a smoothed one -- see
+        # robust_uncertainty's docstring on why it must not become the
+        # general-purpose uncertainty.
+        physical_uncertainties = self.belief.uncertainty()
 
-            # The streak counter below is the one place raw uncertainty causes a
-            # real (not just cosmetic) problem: every SMC resample transiently
-            # inflates it (a decaying fraction of particles redrawn from the
-            # prior), and _target_params_converged failing on that single step
-            # resets the whole streak to 0 -- so a run sitting on the verge of
-            # convergence can lose all its progress purely from the resample
-            # artifact and cost extra measurements waiting to rebuild the streak.
-            # robust_uncertainty() (weighted IQR/1.349) is immune to that: the
-            # transient particles are a small minority of the mass and don't move
-            # the interquartile range.
-            streak_uncertainties = self.belief.robust_uncertainty()
-            if self._target_params_converged(streak_uncertainties):
-                self._convergence_streak += 1
-                if self._convergence_streak >= self._convergence_patience_steps:
-                    self._is_converged = True
-            else:
-                self._convergence_streak = 0
-            self._check_convergence_milestones(physical_uncertainties)
+        # The streak counter below is the one place raw uncertainty causes a
+        # real (not just cosmetic) problem: every SMC resample transiently
+        # inflates it (a decaying fraction of particles redrawn from the
+        # prior), and _target_params_converged failing on that single step
+        # resets the whole streak to 0 -- so a run sitting on the verge of
+        # convergence can lose all its progress purely from the resample
+        # artifact and cost extra measurements waiting to rebuild the streak.
+        # robust_uncertainty() (weighted IQR/1.349) is immune to that: the
+        # transient particles are a small minority of the mass and don't move
+        # the interquartile range.
+        streak_uncertainties = self.belief.robust_uncertainty()
+        if self._target_params_converged(streak_uncertainties):
+            self._convergence_streak += 1
+            if self._convergence_streak >= self._convergence_patience_steps:
+                self._is_converged = True
+        else:
+            self._convergence_streak = 0
+        self._check_convergence_milestones(physical_uncertainties)
 
-            if not self._is_converged:
-                self._check_estimate_plateau(physical_uncertainties)
+        if not self._is_converged:
+            self._check_estimate_plateau(physical_uncertainties)
 
-            # CRLB-based early-stop: evaluated every step for deterministic convergence reporting.
-            # Uses background-scatter noise estimate (robust to signal-region bias).
-            if not self._is_converged:
-                self._check_crlb_early_stop(physical_uncertainties)
-                if self._should_check_focus_confidence():
-                    conf = compute_focus_window_confidence(self.belief, noise_std=self._noise_std)
-                    if conf is not None:
-                        self._focus_window_conf = conf
-                        # Once the detector clears its confidence floor we are in the
-                        # region where `is_stable` can flip, so switch to every-step
-                        # checking from here on -- see _should_check_focus_confidence.
-                        if conf.detector_confidence >= NVISION_DIP_CONFIDENCE:
-                            self._focus_conf_dense = True
-                        if conf.is_stable and self.focus_stable_step is None:
-                            self.focus_stable_step = self.step_count
-                            # The true dip location is now confidently found --
-                            # stop spending epoch candidate budget on domain-wide
-                            # backstop coverage (see use_global_grid docstring).
-                            self.belief.use_global_grid = False
-
-    def _should_check_focus_confidence(self) -> bool:
-        """Whether to run the (expensive) focus-window confidence check this step.
-
-        `compute_focus_window_confidence` re-runs the full empirical dip detector over
-        the whole observation history every call -- the single most expensive per-step
-        check here. It does not gate stopping (that is `_target_params_converged`'s
-        streak and `_check_crlb_early_stop`); it only records `_focus_window_conf` and
-        the `focus_stable_step` milestone.
-
-        So evaluate it on a coarse cadence while the detector is still far from its
-        confidence floor -- nothing can be recorded there anyway -- and switch to every
-        step permanently once the floor is cleared, so the step at which `is_stable`
-        first holds is captured exactly rather than rounded up to the next interval.
-        """
-        if self._focus_conf_dense or self._focus_conf_interval <= 1:
-            return True
-        # Always take the first reading: it is what promotes us to dense mode.
-        if self._focus_window_conf is None:
-            return True
-        return self.step_count % self._focus_conf_interval == 0
+        # CRLB-based early-stop: evaluated every step for deterministic convergence reporting.
+        if not self._is_converged:
+            self._check_crlb_early_stop(physical_uncertainties)
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
-        """Current best-guess focus window (dominant dip-candidate cluster), or None."""
-        if self._focus_window_conf is None:
-            return None
-        return (self._focus_window_conf.left_bound, self._focus_window_conf.right_bound)
+        """Extent of the most significant dip the observations show, or None if there is none yet."""
+        dips = self.belief.dip_candidates
+        return (dips[0].f_min, dips[0].f_max) if dips else None
 
     def per_dip_windows(self) -> list[tuple[float, float]] | None:
-        """All qualifying dip-candidate windows, when more than one is still competing.
+        """Extents of every detected dip, when more than one is still competing.
 
-        None once the detector has settled on a single dominant cluster -- at that
-        point ``bayesian_focus_window()`` is the window to show, matching the sweep
-        locators' convention of using ``per_dip_windows`` only for genuinely multiple
-        regions.
+        None once the detector shows a single dip -- at that point ``bayesian_focus_window()``
+        is the window to show, matching the sweep locators' convention of using
+        ``per_dip_windows`` only for genuinely multiple regions.
         """
-        if self._focus_window_conf is None or len(self._focus_window_conf.all_candidates) < 2:
-            return None
-        return list(self._focus_window_conf.all_candidates)
+        dips = self.belief.dip_candidates
+        return [(d.f_min, d.f_max) for d in dips] if len(dips) >= 2 else None
 
     def focus_window_candidates(self) -> list[tuple[float, float]] | None:
-        """Every currently qualifying dip-candidate window (>=1), for per-step UI animation.
+        """Extent of every detected dip (>=1), for per-step UI animation.
 
-        Unlike ``per_dip_windows()``, this is never gated to "more than one" -- it is
-        read every step (see ``Observer.watch``) to animate the candidates narrowing
-        down to the single settled focus window over the course of a run.
+        Unlike ``per_dip_windows()``, this is never gated to "more than one" -- it is read every
+        step (see ``Observer.watch``) to animate the candidates narrowing down to the single
+        settled focus window over the course of a run.
         """
-        if self._focus_window_conf is None:
-            return None
-        return list(self._focus_window_conf.all_candidates)
+        dips = self.belief.dip_candidates
+        return [(d.f_min, d.f_max) for d in dips] if dips else None
 
     def _acquisition_done(self) -> bool:
         """Extend base stop logic with a permissive theory-step-budget backstop.
@@ -1009,13 +379,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         Requires the uncertainty to be positive and finite before it will fire, so a
         collapsed or degenerate belief cannot trivially satisfy it.
         """
-        if not _PLATEAU_STOP_ENABLED or _PLATEAU_WINDOW <= 0:
+        if _PLATEAU_WINDOW <= 0:
             return
 
         est = self.belief.estimates()
-        target_params = (
-            list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
-        )
+        target_params = list(self.belief.model.parameter_names())
         self._estimate_history.append({p: float(est[p]) for p in target_params if p in est})
         # Only the window endpoints are ever compared; keep the list bounded.
         if len(self._estimate_history) > _PLATEAU_WINDOW + 1:
@@ -1053,56 +421,18 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             self._plateau_streak = 0
 
     def _check_crlb_early_stop(self, physical_uncertainties) -> None:
-        """Background-noise CRLB early-stop check, run on resample events only.
+        """Closed-form CRLB convergence check plus the theoretical step-budget backstop.
 
-        Estimates the noise floor from out-of-span (background) measurements via
-        MAD.  If enough background points exist and every target parameter's
-        uncertainty is within NVISION_FREQ_CRLB_SAFETY_FACTOR × CRLB, marks the
-        run as converged.  Otherwise triggers forced background calibration if
-        the noise estimate is unavailable.
+        The noise level is the belief's conjugate (Inverse-Gamma) estimate -- the only noise
+        estimate in the locator. If every target parameter's uncertainty is within
+        NVISION_FREQ_CRLB_SAFETY_FACTOR x its CRLB for ``_convergence_patience_steps``
+        consecutive checks, marks the run as converged.
         """
-
-        # Get observation arrays
-        if hasattr(self.belief, "observation_arrays"):
-            obs_xs_unit, obs_ys = self.belief.observation_arrays()
-            rescale_maps = getattr(self.belief, "_rescale_maps", None)
-            if rescale_maps and "frequency" in rescale_maps:
-                obs_xs_phys = rescale_maps["frequency"].to_phys(obs_xs_unit)
-            else:
-                obs_xs_phys = obs_xs_unit
-        else:
-            obs_list = getattr(self.belief, "_observations", [])
-            if not obs_list:
-                return
-            obs_xs_phys = np.array([o.x for o in obs_list])
-            obs_ys = np.array([o.signal_value for o in obs_list])
-
-        # Get current frequency and linewidth estimates for background classification
         est = self.belief.estimates()
-        f_hat = est.get("frequency", float(np.mean(obs_xs_phys)))
+        sigma_hat = self.belief.estimated_noise_std()
         lw_hat, c_hat = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
-        max_split_hz = _max_dip_cluster_span_hz(self.belief.physical_param_bounds, est)
 
-        span = max(NVISION_NOISE_BG_SPAN_FACTOR * abs(lw_hat), max_split_hz or 0.0)
-        bg_count = int(np.sum(np.abs(obs_xs_phys - f_hat) > span))
-        sigma_hat = background_noise_std(obs_xs_phys, obs_ys, f_hat, lw_hat, max_dip_cluster_span_hz=max_split_hz)
-
-        if (sigma_hat is None or sigma_hat <= 0) and self._empirical_batch_noise_std is not None:
-            # No background points yet, but multi-shot batches give a direct,
-            # model-free noise estimate (same batch-mean units as the MAD estimate
-            # above), so the CRLB early-stop need not wait for calibration.
-            sigma_hat = self._empirical_batch_noise_std
-
-        if sigma_hat is None or sigma_hat <= 0:
-            # Not enough background points — trigger forced calibration
-            self._forced_bg_mode = True
-            return
-
-        self._bg_noise_std = sigma_hat
-        self._bg_points_used = bg_count
-        self._forced_bg_mode = False
-
-        # Compute permissive theoretical step budget from σ̂ + belief estimates.
+        # Compute permissive theoretical step budget from sigma_hat + belief estimates.
         # n_theory = 4σ̂²·lw·bandwidth / (π·c²·T²) — steps needed for uniform sampling to reach T.
         # SBED is better than uniform. (4, not 2: matches the verified CRLB constant in
         # UnitCubeSMCMarginalDistribution.crlb_frequency — n_theory is that same CRLB_var
@@ -1118,28 +448,15 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
                 )
                 self._theory_step_budget = max(self.max_steps, int(NVISION_SBED_STEPS_THEORY_FACTOR * n_theory) + 1)
 
-        # Build per-param CRLBs scaled to σ̂.
-        # Primary: cumulative FIM accumulated during observations (needs model.gradient).
-        # Fallback: analytical closed-form crlb_frequency() for frequency only.
-        crlbs_stored = self.belief.crlb_per_param() if _FIM_CRLB_STOP_ENABLED else {}
-        scale = sigma_hat / max(self._noise_std, 1e-12)
-
-        if not crlbs_stored:
-            # Model has no analytical gradient → use closed-form frequency CRLB only.
-            # crlb_frequency() is computed at last_obs.noise_std ≈ self._noise_std.
-            # Store the raw value; the `* scale` below converts to σ̂.
-            crlb_fn = getattr(self.belief, "crlb_frequency", None)
-            if crlb_fn is None:
-                return
-            crlb_f_raw = crlb_fn()
-            if not math.isfinite(crlb_f_raw) or crlb_f_raw <= 0:
-                return
-            crlbs_stored = {"frequency": crlb_f_raw}
+        # Closed-form frequency CRLB (computed at the same conjugate noise estimate); the
+        # models define no other analytical Fisher information.
+        crlb_f = self.belief.crlb_frequency()
+        if not math.isfinite(crlb_f) or crlb_f <= 0:
+            return
+        crlbs_stored = {"frequency": crlb_f}
 
         bounds = self.belief.physical_param_bounds
-        target_params = (
-            list(self._convergence_params) if self._convergence_params else list(self.belief.model.parameter_names())
-        )
+        target_params = list(self.belief.model.parameter_names())
 
         from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import (
@@ -1157,16 +474,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             est = self.belief.estimates()
             derived_unc = saturation_voigt_derived_sigmas(est, physical_uncertainties)
             if derived_unc is not None:
-                scaled_crlbs = {p: crlbs_stored.get(p, math.inf) * scale for p in _SATURATION_VOIGT_RAW_PARAMS}
+                scaled_crlbs = {p: crlbs_stored.get(p, math.inf) for p in _SATURATION_VOIGT_RAW_PARAMS}
                 derived_crlbs = saturation_voigt_derived_sigmas(est, scaled_crlbs) or {}
                 bounds = {**bounds, **saturation_voigt_derived_bounds(bounds)}
 
-        # (name, uncertainty, crlb already scaled to sigma-hat) triples to evaluate.
+        # (name, uncertainty, crlb) triples to evaluate.
         eval_items: list[tuple[str, float, float]] = [
             (
                 name,
                 float(physical_uncertainties.get(name, math.inf)),
-                crlbs_stored.get(name, math.inf) * scale,
+                crlbs_stored.get(name, math.inf),
             )
             for name in target_params
             if not (derived_unc is not None and name in _SATURATION_VOIGT_RAW_PARAMS)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 
-from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.models.observation import Observation
 from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
@@ -37,8 +36,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
     Checks Bayesian uncertainty convergence at each step.
     """
 
-    # Tells the executor to inject belief + signal_model automatically,
-    # matching the contract of all other Bayesian locators.
+    # Belief-based locator: takes part in the executor's CRLB feasibility check.
     REQUIRES_BELIEF = True
 
     def __init__(
@@ -48,8 +46,6 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         noise_std: float = 0.02,
-        noise_max_dev: float | None = None,
-        signal_max_span: float | None = None,
         batch_chunk_size: int = SOBOL_BATCH_CHUNK_SIZE,
     ) -> None:
         super().__init__(
@@ -58,11 +54,8 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
             convergence_threshold,
             scan_param,
             noise_std=noise_std,
-            noise_max_dev=noise_max_dev,
-            signal_max_span=signal_max_span,
         )
-        if hasattr(self.belief, "auto_resample"):
-            self.belief.auto_resample = False
+        self.belief.auto_resample = False
         self._is_converged = False
         self._obs_buffer: list[Observation] = []
         self._batch_chunk_size: int = batch_chunk_size
@@ -76,8 +69,6 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         scan_param: str | None = None,
         parameter_bounds=None,
         noise_std: float | None = None,
-        noise_max_dev: float | None = None,
-        signal_max_span: float | None = None,
         **grid_config,
     ):
         if builder is None:
@@ -89,8 +80,6 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
             noise_std=noise_std if noise_std is not None else 0.02,
-            noise_max_dev=noise_max_dev,
-            signal_max_span=signal_max_span,
         )
 
     def _acquire(self) -> float:
@@ -113,13 +102,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         self._check_and_resample(check_convergence=check_convergence)
 
     def _check_and_resample(self, check_convergence: bool = True) -> None:
-        if not hasattr(self.belief, "_weights"):
-            return
-
-        ess = _inverse_sum_squares(self.belief._weights)
-        ess_threshold = getattr(self.belief, "ess_threshold", 0.0) * getattr(self.belief, "num_particles", 0)
-        if ess < ess_threshold and hasattr(self.belief, "_resample"):
-            self.belief._resample()
+        self._resample_if_degenerate()
 
         if check_convergence:
             # One uncertainty pass shared by the milestone and convergence checks

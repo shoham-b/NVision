@@ -1,4 +1,4 @@
-"""Tests for CRLB feasibility gate and SBED background noise estimation."""
+"""Tests for the CRLB feasibility gate, Fisher information and the SBED step-budget backstop."""
 
 from __future__ import annotations
 
@@ -9,12 +9,13 @@ from typing import ClassVar
 import numpy as np
 
 from nvision.models.fisher_information import marginal_crlbs_at_budget
-from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator, background_noise_std
+from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.nv_center import (
     NVCenterLorentzianModel,
     NVCenterVoigtModel,
     NVCenterVoigtSpectrum,
 )
+from tests.noise import gaussian_noise
 
 # ---------------------------------------------------------------------------
 # Minimal synthetic model with analytical gradient (for FIM tests)
@@ -62,64 +63,6 @@ class _SimpleGaussModel:
             "amplitude": float(g),
             "center": float(p.amplitude * z / self._sigma * g),
         }
-
-
-# ---------------------------------------------------------------------------
-# background_noise_std
-# ---------------------------------------------------------------------------
-
-
-def test_background_noise_std_recovers_true_sigma() -> None:
-    rng = np.random.default_rng(42)
-    true_sigma = 0.02
-    f_hat = 2.87e9
-    lw_hat = 2e6
-
-    xs = np.linspace(2.6e9, 3.1e9, 500)
-    ys = rng.normal(0.5, true_sigma, size=len(xs))
-
-    result = background_noise_std(xs, ys, f_hat, lw_hat, k=3.0, min_bg_points=15)
-
-    assert result is not None
-    assert abs(result - true_sigma) / true_sigma < 0.15, f"Expected ~{true_sigma}, got {result}"
-
-
-def test_background_noise_std_ignores_in_span_signal() -> None:
-    """Signal in the dip region must not bias the background estimate."""
-    rng = np.random.default_rng(7)
-    true_sigma = 0.02
-    f_hat = 2.87e9
-    lw_hat = 2e6
-
-    xs = np.linspace(2.6e9, 3.1e9, 500)
-    ys = rng.normal(0.5, true_sigma, size=len(xs))
-
-    # Add a strong artificial dip signal in the centre — should not bias bg estimate
-    in_span = np.abs(xs - f_hat) <= 3 * lw_hat
-    ys[in_span] -= 0.3
-
-    result = background_noise_std(xs, ys, f_hat, lw_hat, k=3.0, min_bg_points=15)
-
-    assert result is not None
-    assert abs(result - true_sigma) / true_sigma < 0.20, (
-        f"In-span signal biased bg estimate: expected ~{true_sigma}, got {result}"
-    )
-
-
-def test_background_noise_std_returns_none_below_min() -> None:
-    """Returns None when background point count is below the minimum."""
-    xs = np.linspace(2.87e9 - 1e6, 2.87e9 + 1e6, 10)  # all in-span for k=3, lw=2e6 → none outside
-    ys = np.random.default_rng(0).normal(0.5, 0.02, len(xs))
-    f_hat = 2.87e9
-    lw_hat = 2e6
-
-    result = background_noise_std(xs, ys, f_hat, lw_hat, k=3.0, min_bg_points=15)
-    assert result is None
-
-
-def test_background_noise_std_returns_none_empty() -> None:
-    result = background_noise_std(np.array([]), np.array([]), 2.87e9, 2e6)
-    assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -434,54 +377,6 @@ def test_oracle_crlb_history_no_gradient_returns_empty_dicts() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SBED forced calibration mode
-# ---------------------------------------------------------------------------
-
-
-def test_sbed_forced_bg_mode_samples_outside_span() -> None:
-    """When forced_bg_mode=True, _acquire() should return out-of-span positions."""
-    from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
-    from nvision.spectra.unit_cube import UnitCubeSignalModel
-
-    model = NVCenterLorentzianModel()
-    phys_bounds = {
-        "frequency": (2.6e9, 3.1e9),
-        "linewidth": (1e6, 5e6),
-        "split": (3e6, 8.5e6),
-        "k_np": (1.0, 5.0),
-        "c_total": (0.05, 0.3),
-    }
-    x_bounds = phys_bounds["frequency"]
-    wrapped_model = UnitCubeSignalModel(model, phys_bounds, x_bounds)
-    param_bounds = {name: (0.0, 1.0) for name in phys_bounds}
-    belief = UnitCubeSMCMarginalDistribution(
-        model=wrapped_model,
-        parameter_bounds=param_bounds,
-        num_particles=50,
-        physical_param_bounds=phys_bounds,
-        physical_x_bounds=x_bounds,
-    )
-
-    locator = SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=50)
-    locator._forced_bg_mode = True
-
-    np.random.seed(0)
-    n_trials = 30
-    f_hat = belief.estimates().get("frequency", 2.87e9)
-    lw_hat = belief.estimates().get("linewidth", 3e6)
-    span = 3.0 * abs(lw_hat)
-
-    in_span_count = 0
-    for _ in range(n_trials):
-        x = locator._acquire()
-        if abs(x - f_hat) <= span:
-            in_span_count += 1
-
-    # Most acquisitions must be out-of-span
-    assert in_span_count < n_trials * 0.3, f"Too many in-span draws: {in_span_count}/{n_trials}"
-
-
-# ---------------------------------------------------------------------------
 # Theory step budget
 # ---------------------------------------------------------------------------
 
@@ -508,43 +403,24 @@ def _make_sbed_locator(max_steps: int = 500):
         num_particles=50,
         physical_param_bounds=phys_bounds,
         physical_x_bounds=x_bounds,
+        noise_model=gaussian_noise(),
     )
     return SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=max_steps)
 
 
 def test_theory_step_budget_computed_after_check() -> None:
-    """_theory_step_budget should be set after _check_crlb_early_stop when σ̂ is available."""
+    """_check_crlb_early_stop sets _theory_step_budget from the conjugate noise estimate."""
+    from nvision.models.observation import Observation
+
     locator = _make_sbed_locator(max_steps=500)
+    for x in np.linspace(0.05, 0.95, 12):
+        locator.belief.update(Observation(x=float(x), signal_value=0.97, noise_std=0.02))
 
-    # Inject a plausible background noise estimate directly so the budget is computed.
-    # We bypass the actual observation flow and set internal state as it would be after
-    # a resample with enough background points.
-    locator._bg_noise_std = 0.02
+    assert locator._theory_step_budget is None
+    locator._check_crlb_early_stop(locator.belief.uncertainty())
 
-    # Manually call with dummy physical_uncertainties (budget computation doesn't need them).
-    # To avoid the full observation array path, pre-populate _theory_step_budget by
-    # calling _check_crlb_early_stop on a locator with observations.
-    # Instead, verify the formula directly via the locator's internals.
-    import math
-
-    from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, NVISION_SBED_STEPS_THEORY_FACTOR
-
-    sigma_hat = 0.02
-    phys_bounds = locator.belief.physical_param_bounds
-    freq_lo, freq_hi = phys_bounds["frequency"]
-    bandwidth = freq_hi - freq_lo
-    lw_hat = 3e6  # mid-range linewidth
-    c_hat = 0.175  # mid-range c_total
-    threshold = NVISION_FREQ_CONVERGENCE_THRESHOLD
-
-    n_theory = (2.0 * sigma_hat**2 * lw_hat * bandwidth) / (math.pi * c_hat**2 * threshold**2)
-    expected_budget = int(NVISION_SBED_STEPS_THEORY_FACTOR * n_theory) + 1
-
-    assert expected_budget > 0
-    assert math.isfinite(n_theory)
-    # With typical NV params the budget should be in the hundreds to tens-of-thousands range
-    # (permissive enough to not interfere with normal runs).
-    assert expected_budget > 10, f"Budget suspiciously small: {expected_budget}"
+    assert locator._theory_step_budget is not None
+    assert locator._theory_step_budget >= locator.max_steps
 
 
 def test_theory_step_budget_stops_acquisition() -> None:
@@ -570,7 +446,7 @@ def test_theory_step_budget_does_not_stop_below_budget() -> None:
 
 
 def test_theory_step_budget_none_does_not_stop() -> None:
-    """When _theory_step_budget is None (no background estimate yet), no early stop."""
+    """When _theory_step_budget is None (not yet computed), no early stop."""
     locator = _make_sbed_locator(max_steps=10_000)
 
     assert locator._theory_step_budget is None

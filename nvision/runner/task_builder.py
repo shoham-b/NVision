@@ -75,8 +75,12 @@ def build_task_list(
         combos: list[Combination] = []
         for gen_name, noise_name, strat_name in config.combination_names:
             combo = grid.resolve(gen_name, noise_name, strat_name)
-            if combo is not None:
-                combos.append(combo)
+            if combo is None:
+                raise ValueError(
+                    f"Unknown combination {gen_name}/{noise_name}/{strat_name}: the generator or strategy "
+                    "is not registered (a typo here would otherwise silently shrink the run)."
+                )
+            combos.append(combo)
     else:
         combos = list(
             grid.iter(

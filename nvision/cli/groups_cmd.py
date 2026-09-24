@@ -64,7 +64,6 @@ def run_single(
 def _run_named_group(
     group_name: str,
     *,
-    all_experiments: bool = False,
     repeats_override: int | None = None,
     no_cache: bool = False,
     purge: bool = False,
@@ -89,8 +88,6 @@ def _run_named_group(
         dry_run=dry_run,
         loc_timeout_s=loc_timeout_s,
         no_progress=no_progress,
-        ignore_cache_strategy=None,
-        all_experiments=all_experiments,
         runners=runners,
         open_browser=open_browser,
         retry_failed=retry_failed,
@@ -160,15 +157,10 @@ def run_preset(
         str,
         typer.Argument(
             ...,
-            help="Preset group (same values as `nvision groups list`, e.g. all, sweep_only).",
+            help="Preset group (same values as `nvision groups list`, e.g. both-sbed).",
         ),
     ],
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    all_experiments: bool = typer.Option(
-        False,
-        "--all",
-        help="Run full combination grid (disables category/strategy filtering)",
-    ),
     no_cache: cli_options.NoCacheOption = False,
     purge: cli_options.PurgeOption = False,
     dry_run: cli_options.DryRunOption = False,
@@ -184,7 +176,6 @@ def run_preset(
     """Run any registered preset group by name (single entry point for all groups)."""
     _run_named_group(
         group_name,
-        all_experiments=all_experiments,
         repeats_override=repeats,
         no_cache=no_cache,
         purge=purge,
@@ -216,12 +207,12 @@ def run_all(
     retry_failed: cli_options.RetryFailedOption = False,
     resume: cli_options.ResumeOption = False,
 ) -> int:
-    """Run all experiments (alias for ``nvision groups run lorentzian-sbed``)."""
+    """Run all experiments (alias for ``nvision groups run both-sbed``)."""
     return run(
         out=ARTIFACTS_ROOT,
         repeats=repeats,
         loc_timeout_s=loc_timeout_s,
-        run_group="lorentzian-sbed",
+        run_group=sim_run_groups.default_run_group().name,
         no_cache=no_cache,
         purge=purge,
         dry_run=dry_run,
@@ -236,358 +227,38 @@ def run_all(
 # --- Shorthand aliases (same as ``groups run <name>``) -------------------------
 
 
-@groups_app.command("lorentzian-sbed")
-def lorentzian_sbed(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run lorentzian-sbed``."""
-    _run_named_group(
-        "lorentzian-sbed",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
+def _register_group_alias(group_name: str) -> None:
+    """Register ``groups <group_name>`` as shorthand for ``groups run <group_name>``."""
+
+    def alias(
+        repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
+        no_cache: cli_options.NoCacheOption = False,
+        purge: cli_options.PurgeOption = False,
+        dry_run: cli_options.DryRunOption = False,
+        runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
+        open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
+        loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
+        no_progress: cli_options.NoProgressOption = False,
+        retry_failed: cli_options.RetryFailedOption = False,
+        resume: cli_options.ResumeOption = False,
+    ) -> None:
+        _run_named_group(
+            group_name,
+            repeats_override=repeats,
+            no_cache=no_cache,
+            purge=purge,
+            dry_run=dry_run,
+            runners=runners,
+            open_browser=open_browser,
+            loc_timeout_s=loc_timeout_s,
+            no_progress=no_progress,
+            retry_failed=retry_failed,
+            resume=resume,
+        )
+
+    alias.__doc__ = f"Alias for ``groups run {group_name}``."
+    groups_app.command(group_name)(alias)
 
 
-@groups_app.command("lorentzian-sweep-only")
-def lorentzian_sweep_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run lorentzian-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
-    _run_named_group(
-        "lorentzian-sweep-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("lorentzian-sbed-only")
-def lorentzian_sbed_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run lorentzian-sbed-only`` (SBED only, no sweep/sobol baselines)."""
-    _run_named_group(
-        "lorentzian-sbed-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("voigt-sbed")
-def voigt_sbed(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run voigt-sbed``."""
-    _run_named_group(
-        "voigt-sbed",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("voigt-sweep-only")
-def voigt_sweep_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run voigt-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
-    _run_named_group(
-        "voigt-sweep-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("voigt-sbed-only")
-def voigt_sbed_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run voigt-sbed-only`` (SBED only, no sweep/sobol baselines)."""
-    _run_named_group(
-        "voigt-sbed-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("lorentzian-plain-sbed")
-def lorentzian_plain_sbed(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run lorentzian-plain-sbed`` (plain Lorentzian, not saturation-Voigt)."""
-    _run_named_group(
-        "lorentzian-plain-sbed",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("lorentzian-plain-sweep-only")
-def lorentzian_plain_sweep_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run lorentzian-plain-sweep-only`` (SimpleSweep only, no SBED/Sobol baselines)."""
-    _run_named_group(
-        "lorentzian-plain-sweep-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("lorentzian-plain-sbed-only")
-def lorentzian_plain_sbed_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run lorentzian-plain-sbed-only`` (SBED only, no sweep/sobol baselines)."""
-    _run_named_group(
-        "lorentzian-plain-sbed-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("both-sbed")
-def both_sbed(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run both-sbed`` (plain Voigt width x contrast x sigma_inhom,
-
-    sigma_inhom=0 = pure Lorentzian limit; Bayesian-SBED/SimpleSobol/SimpleSweep).
-    """
-    _run_named_group(
-        "both-sbed",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("both-sweep-only")
-def both_sweep_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run both-sweep-only`` (plain Voigt width x contrast x sigma_inhom,
-
-    sigma_inhom=0 = pure Lorentzian limit; SimpleSweep only).
-    """
-    _run_named_group(
-        "both-sweep-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
-
-
-@groups_app.command("both-sbed-only")
-def both_sbed_only(
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-) -> None:
-    """Alias for ``groups run both-sbed-only`` (plain Voigt width x contrast x sigma_inhom,
-
-    sigma_inhom=0 = pure Lorentzian limit; SBED only).
-    """
-    _run_named_group(
-        "both-sbed-only",
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-    )
+for _group_name in ("both-sbed", "both-sbed-only", "both-sweep-only"):
+    _register_group_alias(_group_name)

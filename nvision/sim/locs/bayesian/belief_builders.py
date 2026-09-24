@@ -58,10 +58,10 @@ def nv_lineshape_for_model(model: object) -> str:
 def nv_center_smc_belief(
     parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
     *,
+    noise_model: NoiseSignalModel,
     num_particles: int = NVISION_SMC_NUM_PARTICLES,
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD,
     a_param: float = NVISION_SMC_A_PARAM,
-    noise_model: NoiseSignalModel | None = None,
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC,
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR,
     hyperfine: str = "unresolved",
@@ -69,7 +69,6 @@ def nv_center_smc_belief(
     with_zeeman_splitting: bool = True,
     with_fixed_frequency: bool = True,
     lineshape: str = "lorentzian",
-    **_extra: object,
 ) -> UnitCubeSMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
@@ -100,6 +99,12 @@ def nv_center_smc_belief(
       the saturation law) and ``sigma_inhom`` (independent inhomogeneous/Gaussian
       width). Respects ``hyperfine``/``infer_hyperfine``/``with_zeeman_splitting``.
     """
+    if noise_model is None:
+        raise ValueError(
+            "nv_center_smc_belief requires a noise model: the belief always infers the noise level through "
+            "its conjugate prior (experiments without noise cannot be run with a Bayesian belief)."
+        )
+
     from nvision.spectra.nv_center import (
         NVCenterLorentzianModel,
         NVCenterSaturationVoigtModel,
@@ -166,13 +171,12 @@ def nv_center_smc_belief(
         merged_bounds["dip_depth"] = (max(float(d_lo), 0.05), float(d_hi))
 
     # Merge noise parameter bounds
-    if noise_model is not None:
-        noise_spec = noise_model.spec
-        for name in noise_spec.names:
-            if parameter_bounds and name in parameter_bounds:
-                merged_bounds[name] = parameter_bounds[name]
-            else:
-                merged_bounds[name] = noise_spec.bounds[name]
+    noise_spec = noise_model.spec
+    for name in noise_spec.names:
+        if parameter_bounds and name in parameter_bounds:
+            merged_bounds[name] = parameter_bounds[name]
+        else:
+            merged_bounds[name] = noise_spec.bounds[name]
 
     # Extract priors if available
     phys_priors = merged_bounds.pop("_priors", None)

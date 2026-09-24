@@ -36,8 +36,7 @@ prompt:
     few measurements as possible.
 
     You may only edit the code between EVOLVE-BLOCK-START and
-    EVOLVE-BLOCK-END. The three functions (_acquire, _eig_acquire,
-    _dual_window_acquire) are called as unbound methods with `self` bound to
+    EVOLVE-BLOCK-END. The two functions (_acquire, _eig_acquire) are called as unbound methods with `self` bound to
     the live locator instance -- keep their names and signatures unchanged.
 
     Hard constraints (violating these scores 0, not partial credit):

@@ -3,6 +3,7 @@ import numpy as np
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.models.observation import Observation
 from nvision.spectra.nv_center import NVCenterLorentzianModel
+from tests.noise import gaussian_noise
 
 
 def test_smc_stable_update_prevents_uniform_reset():
@@ -30,16 +31,15 @@ def test_smc_stable_update_prevents_uniform_reset():
         parameter_bounds=bounds,
         num_particles=100,
         auto_resample=False,  # Disable auto-resample to inspect weights
+        noise_model=gaussian_noise(1e-4, 2e-4),
     )
 
-    x_obs = 2.75e9
+    x_obs = 2.875e9
 
-    # We observe an intensity of -100.0 (forces massive underflow in raw probabilities)
-    # The true predictions will be ~0.5 to 1.0. Residual will be > 100.
-    # With noise_std = 0.01, residual / sigma = 10000.
-    # log_lik = -0.5 * 10000^2 = -50,000,000.
-    # In raw probabilities, exp(-50,000,000) is exactly 0.0.
-    target_y = -100.0
+    # With a noise prior this tight (sigma ~1.5e-4), an observation that most particles' predictions
+    # (0.77-0.99) miss by ~0.01 is thousands of sigmas off for them: their raw likelihoods are
+    # astronomically small, and only the log-space update keeps the weights finite.
+    target_y = 0.8
 
     obs = Observation(x=x_obs, signal_value=target_y, noise_std=0.01)
     smc.update(obs)

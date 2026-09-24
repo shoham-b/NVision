@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -12,35 +12,20 @@ from nvision.belief.abstract_marginal import ParameterValues
 from nvision.belief.coordinate import RescaleMap
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.models.observation import Observation
-from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
-
-class UnitCubeNoiseSignalModelWrapper(NoiseSignalModel):
-    """Wrap a physical NoiseSignalModel to map unit-cube particles to physical space for likelihood evaluation."""
-
-    def __init__(self, inner: NoiseSignalModel, physical_param_bounds: dict[str, tuple[float, float]]):
-        self.inner = inner
-        self.physical_param_bounds = physical_param_bounds
-
-    @property
-    def spec(self):
-        return self.inner.spec
-
-    def composite_log_likelihood(
-        self,
-        predicted: np.ndarray,
-        residuals: np.ndarray,
-        noise_param_arrays: Sequence[np.ndarray],
-        sigma_epistemic: float,
-    ) -> np.ndarray:
-        phys_arrays = []
-        names = self.inner.spec.names
-        for name, arr in zip(names, noise_param_arrays, strict=True):
-            lo, hi = self.physical_param_bounds[name]
-            phys_arr = lo + arr * (hi - lo)
-            phys_arrays.append(phys_arr)
-        return self.inner.composite_log_likelihood(predicted, residuals, phys_arrays, sigma_epistemic)
+# --- Focus-window narrowing (only active when frequency is a particle dimension) --------------
+# Narrowing waits this many steps so multi-modal hyperfine ambiguity resolves before the window
+# focuses on a (possibly wrong) place.
+NVISION_MIN_STEPS_BEFORE_NARROWING: int = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
+# Each particle's active range is [f - split - k*Omega, f + split + k*Omega]; k is this cover factor.
+NVISION_SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+# The 5th/95th percentiles skip stray low-weight tail particles (e.g. from the min_exploration_frac
+# floor) while barely eating into the true dense clusters (which span ~100s of kHz, so losing 5% of
+# their mass barely moves the boundary).
+_FOCUSING_TAIL_PERCENTILE: float = 5.0
+# A narrowing is only applied when it shrinks the window by at least this fraction.
+_MIN_NARROWING_FRACTION: float = 0.05
 
 
 @dataclass
@@ -58,6 +43,8 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     physical_x_bounds: tuple[float, float] = (0.0, 1.0)
+    # Step of the most recent boundary-escape window expansion (-1: never).
+    _last_expansion_step: int = field(init=False, default=-1, repr=False)
 
     @property
     def physical_param_bounds(self) -> dict[str, tuple[float, float]]:  # type: ignore[override]  # noqa: F811
@@ -111,15 +98,14 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("UnitCubeSMCMarginalDistribution requires a UnitCubeSignalModel")
 
-        if self.noise_model is not None and not isinstance(self.noise_model, UnitCubeNoiseSignalModelWrapper):
-            self.noise_model = UnitCubeNoiseSignalModelWrapper(self.noise_model, self.physical_param_bounds)
+        if self.noise_model is None:
+            raise ValueError("UnitCubeSMCMarginalDistribution requires a noise_model exposing 'noise_sigma'.")
 
         # Ensure all parameters (including noise) are in unit space [0, 1].
         # We must detect noise parameters here because super().__post_init__
         # expects them to be in parameter_bounds before it iterates over _param_names.
         all_names = list(self.model.parameter_names())
-        if self.noise_model is not None:
-            all_names.extend(n for n in self.noise_model.spec.names if n not in all_names)
+        all_names.extend(n for n in self.noise_model.spec.names if n not in all_names)
 
         self.parameter_bounds = {name: (0.0, 1.0) for name in all_names}
         # "frequency" is always the probe/measurement x-axis (needed by the base
@@ -132,11 +118,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         super().__post_init__()
         self._original_physical_x_bounds = self.physical_x_bounds
 
-    def expected_information_gain(self, candidates: np.ndarray, noise_std: float = 0.05) -> np.ndarray:
+    def expected_information_gain(self, candidates: np.ndarray) -> np.ndarray:
         """Override to normalize physical candidates to [0, 1] for the UnitCube model."""
         lo, hi = self.physical_x_bounds
         unit_candidates = (candidates - lo) / (hi - lo)
-        return super().expected_information_gain(unit_candidates, noise_std=noise_std)
+        return super().expected_information_gain(unit_candidates)
 
     def get_candidates(self) -> np.ndarray:
         """Return candidates in **physical** frequency space.
@@ -158,25 +144,11 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
     def estimates(self) -> dict[str, float]:
         raw = super().estimates()
-        return {
-            k: (
-                self._to_physical(k, v)
-                if (k != "noise_sigma" or not getattr(self, "_use_rao_blackwell_noise", False))
-                else v
-            )
-            for k, v in raw.items()
-        }
+        return {k: (self._to_physical(k, v) if k != "noise_sigma" else v) for k, v in raw.items()}
 
     def mode_estimates(self) -> dict[str, float]:
         raw = super().mode_estimates()
-        return {
-            k: (
-                self._to_physical(k, v)
-                if (k != "noise_sigma" or not getattr(self, "_use_rao_blackwell_noise", False))
-                else v
-            )
-            for k, v in raw.items()
-        }
+        return {k: (self._to_physical(k, v) if k != "noise_sigma" else v) for k, v in raw.items()}
 
     def _to_physical(self, name: str, u: float) -> float:
         lo, hi = self.physical_param_bounds[name]
@@ -209,7 +181,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         raw = super()._empirical_uncertainty()
         data = {}
         for name, u in raw.items():
-            if name == "noise_sigma" and getattr(self, "_use_rao_blackwell_noise", False):
+            if name == "noise_sigma":
                 data[name] = u
             elif name in self.physical_param_bounds:
                 data[name] = u * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
@@ -223,7 +195,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         raw = super()._empirical_robust_uncertainty()
         data = {}
         for name, u in raw.items():
-            if name == "noise_sigma" and getattr(self, "_use_rao_blackwell_noise", False):
+            if name == "noise_sigma":
                 data[name] = u
             elif name in self.physical_param_bounds:
                 data[name] = u * (self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0])
@@ -255,12 +227,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         """
         from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterSaturationVoigtModel, NVCenterVoigtModel
 
-        inner = getattr(self.model, "inner", None)
+        inner = self.model.inner
 
         if self._obs_count == 0 or self.last_obs is None:
             return math.inf
 
-        noise_std = float(self.last_obs.noise_std)
+        noise_std = self.estimated_noise_std()
         if noise_std <= 0:
             return math.inf
 
@@ -524,7 +496,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
 
         lo_orig, hi_orig = self._original_physical_x_bounds
         import logging
-        import os
 
         if left_piling and lo_phys > lo_orig:
             expansion = max(cur_width, 10.0 * omega_phys + 2.0 * zeeman_hat_phys)
@@ -566,12 +537,12 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Delay narrowing until we have completed a minimum number of global
         # measurements (default 8 steps) to resolve multi-modal hyperfine peak
         # ambiguity and ensure we never focus on the wrong place.
-        min_narrowing_steps = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
+        min_narrowing_steps = NVISION_MIN_STEPS_BEFORE_NARROWING
         if self._step_count < min_narrowing_steps:
             return
 
         # Also delay narrowing if we recently expanded the bounds to allow exploration
-        last_exp = getattr(self, "_last_expansion_step", -1)
+        last_exp = self._last_expansion_step
         if last_exp >= 0 and (self._step_count - last_exp) < min_narrowing_steps:
             return
 
@@ -634,14 +605,13 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             lo_l, hi_l = self.physical_param_bounds["fwhm_total"]
             linewidth_phys = (lo_l + u_fwhm * (hi_l - lo_l)) / 2.0
         else:
-            linewidth_phys = np.full_like(freq_phys, 2.0e6)
+            raise ValueError(
+                "_resample: no linewidth parameter ('linewidth', 'saturation'+'sigma_inhom', "
+                f"'homogeneous_linewidth' or 'fwhm_total') among {self._param_names}; cannot focus the window."
+            )
 
-        cover_factor = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
-        # The 5th/95th percentiles skip stray low-weight tail particles (e.g. from the
-        # min_exploration_frac floor) while minimally eating into the true dense
-        # clusters (which span ~100s of kHz, so losing 5% of their mass barely moves
-        # the boundary).
-        tail_percentile = 5.0
+        cover_factor = NVISION_SMC_FOCUSING_COVER_FACTOR
+        tail_percentile = _FOCUSING_TAIL_PERCENTILE
 
         # Per particle, the active range is exactly symmetric about freq_i: both dips
         # (or the hyperfine triplet) reach the same offset in either direction. Pool that
@@ -675,9 +645,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if new_hi <= new_lo:
             return
 
-        # Only apply if the window actually shrinks by at least 5%.
-        min_narrowing_fraction = 0.05
-        if (cur_width - (new_hi - new_lo)) / cur_width < min_narrowing_fraction:
+        if (cur_width - (new_hi - new_lo)) / cur_width < _MIN_NARROWING_FRACTION:
             return
 
         self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
@@ -753,7 +721,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             last_obs=self.last_obs,
             noise_model=self.noise_model,
             auto_resample=self.auto_resample,
-            resample_delay=self.resample_delay,
             physical_param_bounds=dict(self.physical_param_bounds),
             physical_x_bounds=self.physical_x_bounds,
             priors=self.priors,
@@ -766,7 +733,6 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Candidates depend only on bounds/particles, which are identical here —
         # share by reference (consumers rebind on narrowing/resample, never
         # mutate in place).
-        dist._use_global_grid = self._use_global_grid
         dist._current_candidates = self._current_candidates
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy(order="K")  # preserve F-order layout
@@ -780,11 +746,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         dist._obs_sort_order = self._obs_sort_order.copy()
         dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
-        dist._use_rao_blackwell_noise = getattr(self, "_use_rao_blackwell_noise", False)
-        if getattr(self, "_use_rao_blackwell_noise", False):
-            dist._noise_alphas = self._noise_alphas.copy()
-            dist._noise_betas = self._noise_betas.copy()
-        if hasattr(self, "_dip_centers"):
-            dist._dip_centers = list(self._dip_centers)
-        dist._use_global_grid = self._use_global_grid
+        dist._noise_alphas = self._noise_alphas.copy()
+        dist._noise_betas = self._noise_betas.copy()
+        dist._dip_candidates = list(self._dip_candidates)
         return dist

@@ -75,9 +75,9 @@ $$\text{expected\_uniform\_points} = \frac{2\,W}{w_{\rm eff}}$$
 - **Merged vs separate:** if the hyperfine dips overlap into one blob, the binding constraint is the whole span; if they are cleanly separated, each narrow dip must be resolved individually, so the total dip width is what matters.
 - **Fallback:** when no dip is resolvable, it falls back to 6·W / s_min (≈ 6 samples across the model's minimum span) or, failing that, `max_steps`.
 
-### 2.4 Full derivation: why the sweep baseline ≈ 2500 steps
+### 2.4 Full derivation: why the sweep baseline ≈ 750 steps
 
-The 2500-step figure for the standard NV scan is not a constant — it is `expected_uniform_points` evaluated on the default signal.  Derived from first principles:
+The 750-step figure for the standard NV scan is not a constant — it is `expected_uniform_points` evaluated on the default signal.  Derived from first principles:
 
 **Step 1 — Sampling principle (≥ 2 points per feature).**  A feature of width w is only resolvable if the uniform spacing δ puts at least two samples inside it (one point can sit anywhere on the dip; two guarantee you bracket it instead of aliasing past it).  This is the Nyquist limit:
 
@@ -105,17 +105,17 @@ The form n = 2W/w is exactly the code's `expected_uniform_points = 2·domain_wid
 
 | Quantity | Value | Source |
 |---|---|---|
-| Band W | 3.1 − 2.6 GHz = 500 MHz | `NVISION_NV_CENTER_FREQ_X_MIN/MAX` |
+| Band W | half window [D, D + Δ], Δ = 150 MHz | `NVISION_NV_CENTER_FREQ_DELTA_HZ` |
 | Linewidth Ω | ≈ 100 kHz (effective narrow dip, HWHM) | true-signal linewidth |
 | Dip width w = 4Ω | ≈ 400 kHz | Step 2 |
 
 **Step 5 — Plug in.**
 
-$$n = \frac{2W}{w} = \frac{2 \times 500\,\text{MHz}}{400\,\text{kHz}} = \frac{10^9}{4\times10^5} = 2500$$
+$$n = \frac{2W}{w} = \frac{2 \times 150\,\text{MHz}}{400\,\text{kHz}} = \frac{3\times10^8}{4\times10^5} = 750$$
 
-equivalently n = W / (2Ω) = 500 MHz / 200 kHz = 2500.
+equivalently n = W / (2Ω) = 150 MHz / 200 kHz = 750.
 
-**Step 6 — Scaling / caveats.**  The whole result reduces to n = W / (2Ω) ∝ W / Ω, so it is **config-dependent**: doubling the band → ≈ 5000; broadening the line to Ω = 1 MHz → ≈ 250.  The 2500 is the value for the default 500 MHz scan with a ~100 kHz line, not a fixed constant.  It surfaces as the sweep's `measurements_done` cap in the UI and as the `max_steps` chosen for sweep-baseline test runs.
+**Step 6 — Scaling / caveats.**  The whole result reduces to n = W / (2Ω) ∝ W / Ω, so it is **config-dependent**: doubling the band → ≈ 1500; broadening the line to Ω = 1 MHz → ≈ 75.  The 750 is the value for the default 150 MHz half-window scan with a ~100 kHz line, not a fixed constant.  It surfaces as the sweep's `measurements_done` cap in the UI and as the `max_steps` chosen for sweep-baseline test runs.
 
 The reported **`sobol_difference`** is
 
@@ -135,7 +135,7 @@ A run's `failure_reason` (`None` = success) is assigned by the first matching ru
 | `None` | Strategy is a sweep/Sobol/mixture baseline (no convergence gate) |
 | `infeasible_crlb` | Stop reason was `infeasible_crlb` |
 | `timeout` | Stop reason was `repeat_timeout` |
-| `theory_budget` | `locator_steps > theory_step_budget` (§3.5 of [sbed_and_smc.md](sbed_and_smc.md)) |
+| `theory_budget` | `locator_steps > theory_step_budget` (§3.4 of [sbed_and_smc.md](sbed_and_smc.md)) |
 | `None` | `locator_steps < max_steps` (stopped early for another reason) |
 | `max_steps` | Otherwise — exhausted the step budget without converging |
 

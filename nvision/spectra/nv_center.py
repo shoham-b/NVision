@@ -188,16 +188,15 @@ NV_SATURATION_C_MAX: float = float(os.getenv("NVISION_SBED_C_MAX", "0.5"))
 # locator needs to discover from scratch.
 NV_ZERO_FIELD_SPLITTING_HZ: float = float(os.getenv("NVISION_NV_ZERO_FIELD_SPLITTING_HZ", "2.87e9"))
 
-# Domain half-width around NV_ZERO_FIELD_SPLITTING_HZ. Only this delta is
-# configurable -- x_min/x_max are always symmetric around the physical center,
-# so the two can never drift out of sync. Sized off MAX_ZEEMAN_SPLIT (the same
-# ~2.1 mT reasonable-experiment field above) rather than an arbitrary round
-# number: 2.5x comfortably clears MAX_ZEEMAN_SPLIT plus hyperfine/linewidth
-# margin, so signal generation never degrades to a single, non-varying
-# center_freq (see NVCenterCoreGenerator).
+# Width of the probe window above NV_ZERO_FIELD_SPLITTING_HZ. The zero-field-centered
+# spectrum is mirror-symmetric (Zeeman dips at +/- zeeman_split, hyperfine lines mirrored),
+# so measuring both sides duplicates information: the window is only the upper half,
+# [D, D + delta], and x_min is always exactly D. Sized off MAX_ZEEMAN_SPLIT (the same
+# ~2.1 mT reasonable-experiment field above) rather than an arbitrary round number: 2.5x
+# comfortably clears MAX_ZEEMAN_SPLIT plus hyperfine/linewidth margin for the upper dips.
 NV_CENTER_FREQ_DELTA_HZ: float = float(os.getenv("NVISION_NV_CENTER_FREQ_DELTA_HZ", str(2.5 * MAX_ZEEMAN_SPLIT)))
 
-DEFAULT_NV_CENTER_FREQ_X_MIN = NV_ZERO_FIELD_SPLITTING_HZ - NV_CENTER_FREQ_DELTA_HZ
+DEFAULT_NV_CENTER_FREQ_X_MIN = NV_ZERO_FIELD_SPLITTING_HZ
 DEFAULT_NV_CENTER_FREQ_X_MAX = NV_ZERO_FIELD_SPLITTING_HZ + NV_CENTER_FREQ_DELTA_HZ
 
 
@@ -227,6 +226,9 @@ def physics_config_fingerprint() -> str:
         # didn't change value, so without this tag artifacts generated under the
         # old (always 3 lines) behavior would still fingerprint as current.
         "hyperfine-structure-v2",
+        # Bumped when the probe window became the upper half [D, D + delta] instead of the
+        # symmetric [D - delta, D + delta]; the constants above kept their values.
+        "half-window-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,
@@ -1920,9 +1922,11 @@ def nv_center_saturation_voigt_bounds_for_domain(
     sigma_inhom_bounds = (0.0, sigma_inhom_hi)
 
     if with_zeeman_splitting:
-        zeeman_margin = MAX_ZEEMAN_SPLIT
-        f_lo = float(x_min) + zeeman_margin
-        f_hi = float(x_max) - zeeman_margin
+        # The probe window is the upper half of the mirror-symmetric spectrum, so the
+        # center may sit anywhere in it -- including on its lower edge, where the lower
+        # Zeeman group is out of range and only the upper one is measured.
+        f_lo = float(x_min)
+        f_hi = float(x_max)
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
         fwhm_total_hi = 2.0 * NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + saturation_bounds[1]) + 2.0 * (
             2.0 * _SATURATION_VOIGT_SQRT2LOG2 * sigma_inhom_hi
@@ -1978,8 +1982,8 @@ def nv_center_lorentzian_bounds_for_domain(
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``.
 
-    ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the frequency
-    range so the two Zeeman dips always land within the domain.
+    ``with_zeeman_splitting=True`` adds ``zeeman_split``; the center frequency may lie
+    anywhere in the (half) window, so the lower Zeeman dip can fall outside it.
     ``infer_hyperfine=False`` (the default) fixes split/k_np to the ``hyperfine``
     isotope's own constants and omits them from the returned dict.
     """
@@ -1997,9 +2001,11 @@ def nv_center_lorentzian_bounds_for_domain(
 
     if with_zeeman_splitting:
         # Center frequency must stay MAX_ZEEMAN_SPLIT inside each edge.
-        zeeman_margin = MAX_ZEEMAN_SPLIT
-        f_lo = float(x_min) + zeeman_margin
-        f_hi = float(x_max) - zeeman_margin
+        # The probe window is the upper half of the mirror-symmetric spectrum, so the
+        # center may sit anywhere in it -- including on its lower edge, where the lower
+        # Zeeman group is out of range and only the upper one is measured.
+        f_lo = float(x_min)
+        f_hi = float(x_max)
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
         max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * linewidth_hi
 
@@ -2221,9 +2227,11 @@ def nv_center_voigt_bounds_for_domain(
         # MHz — below the generated range — which made the true signal unrepresentable for most
         # repeats: curve_fit and the SMC belief pinned split/width at the ceiling and compensated
         # by shifting frequency, a systematic ~3 MHz bias on every voigt fit.
-        zeeman_margin = MAX_ZEEMAN_SPLIT
-        f_lo = float(x_min) + zeeman_margin
-        f_hi = float(x_max) - zeeman_margin
+        # The probe window is the upper half of the mirror-symmetric spectrum, so the
+        # center may sit anywhere in it -- including on its lower edge, where the lower
+        # Zeeman group is out of range and only the upper one is measured.
+        f_lo = float(x_min)
+        f_hi = float(x_max)
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
         max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
