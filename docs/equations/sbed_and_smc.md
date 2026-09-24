@@ -316,7 +316,7 @@ $$N_{\rm budget} = \max(N_{\rm max},\; K_{\rm theory}\cdot n_{\rm theory} + 1)$$
 
 with K_theory = `NVISION_SBED_STEPS_THEORY_FACTOR` = 20, so it only fires when something has genuinely gone wrong — EIG should converge far sooner.
 
-**Default SBED step budget.** Unless overridden, the SBED locator's `max_steps` is `ceil(N_simplesweep × f)` with f = `NVISION_SBED_STEPS_FRACTION` = 0.5 (previously 0.32), so it is capped at half the uniform-sweep budget it is compared against.
+**Default SBED step budget.** Unless overridden, the SBED locator's `max_steps` is `ceil(N_simplesweep × f)` with f = `NVISION_SBED_STEPS_FRACTION` = 1.0 (previously 0.5, and 0.32 before that), so it is capped at the full uniform-sweep budget it is compared against.
 
 ### 3.6 Focus Window Confidence (`FocusWindowConfidence`)
 
