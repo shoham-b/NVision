@@ -870,6 +870,7 @@ def cache_clean(
 
         artifact_combos: list[tuple[str, str, str, int | None, int | None]] = []
         keys_by_backend: dict[int, tuple[Any, list[str]]] = {}
+        repeat_origin_by_backend: dict[int, dict[str, tuple[str, int]]] = {}
 
         for _, cat_cache, key, payload in keys_to_delete:
             backend = cat_cache.backend
@@ -877,10 +878,12 @@ def cache_clean(
             backend_keys.append(key)
             if isinstance(payload, dict) and "config" in payload:
                 cfg = payload["config"]
+                repeat_origin = repeat_origin_by_backend.setdefault(id(backend), {})
                 for i in range(1000):
                     rep_key = RepeatsRepository.make_repeat_key(key, i)
                     backend_keys.append(rep_key)
                     backend_keys.append(rep_key + ":meta")
+                    repeat_origin[rep_key] = (key, i)
 
                 artifact_combos.append(
                     (
@@ -891,6 +894,22 @@ def cache_clean(
                         cfg.get("seed", NVISION_RNG_SEED),
                     )
                 )
+
+        # Blob rows (graph/plot bytes) are keyed by entry type, not guessable from the
+        # repeat index alone -- discover them from each existing repeat's own entries,
+        # same as LocatorResultsRepository.purge_cached_combination. Without this, a
+        # `cache clean` leaves every repeat's graph blobs orphaned in the live store.
+        for backend, backend_keys in keys_by_backend.values():
+            repeat_origin = repeat_origin_by_backend.get(id(backend), {})
+            for rep_key, payload in backend.batch_get(list(repeat_origin)).items():
+                combo_key, idx = repeat_origin[rep_key]
+                try:
+                    entries = json.loads(payload["data"][0]["results"])["entries"]
+                except Exception:
+                    continue
+                for entry in entries:
+                    if entry.get("_blob"):
+                        backend_keys.append(f"blob:{combo_key}:{idx}:{entry.get('type', 'unknown')}")
 
         for backend, backend_keys in keys_by_backend.values():
             backend.delete_many(backend_keys)

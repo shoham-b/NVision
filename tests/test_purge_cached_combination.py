@@ -5,6 +5,7 @@ cache and stalled every ``--no-cache`` runner at once; these tests pin both beha
 absence of any whole-cache iteration.
 """
 
+import base64
 import logging
 
 import polars as pl
@@ -92,6 +93,19 @@ def test_purge_removes_legacy_v8_pointer(repo, store):
     _purge(repo, "a")
 
     assert store.backend.keys_exist_batch([key]) == set()
+
+
+def test_purge_removes_blob_rows(repo, store):
+    """A repeat's graph blobs (RepeatsRepository._extract_blobs) must not outlive the purge."""
+    entries = [{"type": "scan", "content_bin": base64.b85encode(b"plot-bytes").decode("ascii")}]
+    repo.append_cached_repeats(**_ident("a"), new_results=[(entries, {"idx": 0})], start_idx=0)
+    combo_key = stable_config_hash(combination_base_cache_config(**_ident("a")))
+    blob_key = f"blob:{combo_key}:0:scan"
+    assert store.backend.blob_get(blob_key) is not None
+
+    _purge(repo, "a", repeats=1)
+
+    assert store.backend.blob_get(blob_key) is None
 
 
 def test_purge_of_unknown_combination_is_a_noop(repo):

@@ -1293,11 +1293,15 @@ def run(  # noqa: C901
         worker_progress_queue = progress_queue
 
         # Deferred graph generation: runners save results right away and leave each repeat's plot
-        # inputs for graph-worker processes (started lazily, see _GraphWorkers).
-        defer_graphs = cli_defaults.GRAPH_WORKERS > 0 and not dry_run
+        # inputs for graph-worker processes (started lazily, see _GraphWorkers). Sized off this
+        # invocation's own runner count (not a flat default) so a single graph worker doesn't
+        # fall permanently behind several runners producing finished repeats -- see
+        # graph_workers_for's docstring.
+        n_graph_workers = cli_defaults.graph_workers_for(runners)
+        defer_graphs = n_graph_workers > 0 and not dry_run
         graph_workers: _GraphWorkers | None = (
             _GraphWorkers(
-                cli_defaults.GRAPH_WORKERS,
+                n_graph_workers,
                 tree.cache_dir,
                 shard_index_str,
                 log_level_value,

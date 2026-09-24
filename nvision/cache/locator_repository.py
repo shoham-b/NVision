@@ -398,7 +398,7 @@ class LocatorResultsRepository:
         timeout_s: int,
         repeat_offset: int = 0,
     ) -> None:
-        """Purge all cached results (streaming pointer, repeat rows, inline entry) for this combination.
+        """Purge all cached results (streaming pointer, repeat rows, blob rows, inline entry) for this combination.
 
         Cost is independent of the cache size: the combination's keys are computed directly
         (they are hashes of its identity, so they hit the backend's primary-key index) instead
@@ -442,10 +442,29 @@ class LocatorResultsRepository:
         # for archived combinations this also drops the Parquet archive file, so stale archived
         # repeats can no longer show through the live store's archive fallback.
         keys_to_delete: list[str] = []
+        repeat_key_origin: dict[str, tuple[str, int]] = {}
         for k in existing:
             keys_to_delete.append(k)
             for i in range(1000):
                 rep_key = self._repeats.make_repeat_key(k, i)
                 keys_to_delete.append(rep_key)
                 keys_to_delete.append(rep_key + ":meta")
+                repeat_key_origin[rep_key] = (k, i)
+
+        # Blob rows (graph/plot bytes, see RepeatsRepository._extract_blobs) are keyed by
+        # entry type, which isn't guessable from the repeat index alone -- discover them from
+        # each existing repeat's own entries, mirroring archive_combination's blob-key discovery
+        # (nvision/cache/parquet_archive.py). Without this, a purge leaves every prior run's
+        # graph blobs orphaned in the live store forever.
+        repeat_payloads = backend.batch_get(list(repeat_key_origin))
+        for rep_key, payload in repeat_payloads.items():
+            combo_key, idx = repeat_key_origin[rep_key]
+            try:
+                entries = json.loads(payload["data"][0]["results"])["entries"]
+            except Exception:
+                continue
+            for entry in entries:
+                if entry.get("_blob"):
+                    keys_to_delete.append(f"blob:{combo_key}:{idx}:{entry.get('type', 'unknown')}")
+
         backend.delete_many(keys_to_delete)
