@@ -12,6 +12,8 @@ from __future__ import annotations
 import math
 import random
 
+import pytest
+
 from nvision import CoreExperiment, GenericSweepLocator, NVCenterCoreGenerator, run_loop
 from nvision.models.observer import Observer
 from nvision.runner.convert import run_result_to_finalize_record
@@ -40,8 +42,20 @@ def _make_experiment(rng: random.Random) -> CoreExperiment:
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
 
 
+@pytest.mark.timeout(200)
 def test_simplesweep_zero_noise_fit_beats_prior():
-    """A dense zero-noise sweep must localize the dip far below the prior std."""
+    """A dense zero-noise sweep must localize the dip far below the prior std.
+
+    Runs in ~20s standalone (1000-step dense sweep -> multi-start curve_fit),
+    but measured ~105s under the full suite's coverage instrumentation
+    (pyproject.toml's `--cov=nvision` addopts), which disproportionately slows
+    down this kind of call-heavy Python loop -- see
+    test_sweep_fit_asymmetric_triplet_shallow_line_hidden in
+    test_generic_sweep_locator_fit.py for the same root cause. That pushes it
+    past the default 60s pytest-timeout, which on Windows falls back to its
+    "thread" method and hard-kills the whole pytest process rather than just
+    failing this test. 200s keeps headroom under coverage plus real load.
+    """
     rng = random.Random(7)
     exp = _make_experiment(rng)
     truth = float(exp.true_signal.get_param_value("frequency"))
