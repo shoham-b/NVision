@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from nvision.belief.focus_window import clamp_to_domain
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.defaults import NVISION_WINDOW_MIN_PADDING_FRAC, NVISION_WINDOW_PADDING_FRAC
 from nvision.sim.locs.refocus.strategies import detect_dips, infer_dip_widths
@@ -104,8 +105,7 @@ def infer_focus_window(
     hi = mid + window_width / 2.0
 
     # Clamp to domain
-    lo = max(domain_lo, lo)
-    hi = min(domain_hi, hi)
+    lo, hi = clamp_to_domain(lo, hi, domain_lo, domain_hi)
 
     # Ensure the window covers all detected dips plus padding (expand if needed)
     dip_lo = min(lo for lo, _ in dips)
@@ -124,8 +124,7 @@ def infer_focus_window(
         lo = min(lo, deep_lo - padding)
         hi = max(hi, deep_hi + padding)
 
-    lo = max(domain_lo, lo)
-    hi = min(domain_hi, hi)
+    lo, hi = clamp_to_domain(lo, hi, domain_lo, domain_hi)
 
     if lo >= hi:
         raise ValueError(
@@ -307,8 +306,7 @@ def aggregate_window(
     lo = mid - window_width / 2.0
     hi = mid + window_width / 2.0
 
-    lo = max(domain_lo, lo)
-    hi = min(domain_hi, hi)
+    lo, hi = clamp_to_domain(lo, hi, domain_lo, domain_hi)
 
     if lo >= hi:
         return domain_lo, domain_hi

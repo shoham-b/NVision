@@ -10,6 +10,7 @@ import numpy as np
 
 from nvision.belief.abstract_marginal import ParameterValues
 from nvision.belief.coordinate import RescaleMap
+from nvision.belief.focus_window import FocusWindow, clamp_to_domain
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.models.observation import Observation
 from nvision.spectra.unit_cube import UnitCubeSignalModel
@@ -389,8 +390,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
             return
 
         lo_orig, hi_orig = self._original_physical_x_bounds
-        nl = float(max(min(new_lo, new_hi), lo_orig))
-        nh = float(min(max(new_lo, new_hi), hi_orig))
+        nl, nh = clamp_to_domain(new_lo, new_hi, lo_orig, hi_orig)
         if nh <= nl:
             return
 
@@ -634,21 +634,16 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Floor: a single narrowing step must not undershoot the plausible
         # dip span, even if the frequency marginal has already collapsed.
         min_width = 2.0 * offset_q95
-        if (new_hi - new_lo) < min_width:
-            center = 0.5 * (new_hi + new_lo)
-            new_lo = center - min_width / 2.0
-            new_hi = center + min_width / 2.0
 
         lo_orig, hi_orig = self._original_physical_x_bounds
-        new_lo = max(new_lo, lo_orig)
-        new_hi = min(new_hi, hi_orig)
-        if new_hi <= new_lo:
+        current_window = FocusWindow(lo=lo_phys, hi=hi_phys, full_lo=lo_orig, full_hi=hi_orig)
+        proposed = current_window.propose_narrowing(
+            new_lo, new_hi, min_width=min_width, min_narrowing_fraction=_MIN_NARROWING_FRACTION
+        )
+        if proposed is None:
             return
 
-        if (cur_width - (new_hi - new_lo)) / cur_width < _MIN_NARROWING_FRACTION:
-            return
-
-        self.narrow_scan_parameter_physical_bounds(scan_param, new_lo, new_hi)
+        self.narrow_scan_parameter_physical_bounds(scan_param, proposed.lo, proposed.hi)
 
         # Clear unit covariance cache so it's recomputed for the new unit particles.
         self._cached_cov = None

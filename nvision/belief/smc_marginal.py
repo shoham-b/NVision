@@ -14,6 +14,7 @@ from scipy.special import gammaln
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
 from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_hz, find_dips
+from nvision.belief.focus_window import clamp_to_domain
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.noise_model import NoiseSignalModel
@@ -1551,7 +1552,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Shrink physical bounds and clip particles into the new window."""
         if param_name in self.parameter_bounds:
             old_lo, old_hi = self.parameter_bounds[param_name]
-            lo, hi = max(old_lo, new_lo), min(old_hi, new_hi)
+            lo, hi = clamp_to_domain(new_lo, new_hi, old_lo, old_hi)
             self.parameter_bounds[param_name] = (lo, hi)
 
             # Immediately snap particles into the new tighter bounds

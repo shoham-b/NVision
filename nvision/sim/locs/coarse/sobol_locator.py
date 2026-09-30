@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.focus_window import FocusWindow, clamp_to_domain
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.defaults import (
@@ -170,8 +171,12 @@ class Stage2SobolLocator:
         self.domain_hi = domain_hi
         self.history = history
 
-        self.window_lo = window_lo if window_lo is not None else domain_lo
-        self.window_hi = window_hi if window_hi is not None else domain_hi
+        self.window = FocusWindow(
+            lo=window_lo if window_lo is not None else domain_lo,
+            hi=window_hi if window_hi is not None else domain_hi,
+            full_lo=domain_lo,
+            full_hi=domain_hi,
+        )
 
         self._noise_threshold = -float("inf")
         self._done = False
@@ -184,7 +189,7 @@ class Stage2SobolLocator:
         u = next(self._sobol_gen)
         domain_width = self.domain_hi - self.domain_lo
         if domain_width > 0:
-            phys = self.window_lo + u * (self.window_hi - self.window_lo)
+            phys = self.window.lo + u * (self.window.hi - self.window.lo)
             return (phys - self.domain_lo) / domain_width
         return u
 
@@ -221,7 +226,7 @@ class Stage2SobolLocator:
         ys = self.history.ys
 
         # Only consider points that fall inside Stage 2's window
-        in_window = (xs >= self.window_lo) & (xs <= self.window_hi)
+        in_window = (xs >= self.window.lo) & (xs <= self.window.hi)
         if np.sum(in_window) < 10:
             return
 
@@ -278,8 +283,7 @@ class Stage3SobolLocator:
         self.noise_std = noise_std
         self.expected_window_width = expected_window_width
 
-        self.window_lo = domain_lo
-        self.window_hi = domain_hi
+        self.window = FocusWindow(lo=domain_lo, hi=domain_hi, full_lo=domain_lo, full_hi=domain_hi)
         self._done = False
         self._last_checked_count = 0
         self.points_collected = 0
@@ -298,7 +302,7 @@ class Stage3SobolLocator:
         u = next(self._sobol_gen)
         domain_width = self.domain_hi - self.domain_lo
         if domain_width > 0:
-            phys = self.window_lo + u * (self.window_hi - self.window_lo)
+            phys = self.window.lo + u * (self.window.hi - self.window.lo)
             return (phys - self.domain_lo) / domain_width
         return u
 
@@ -312,7 +316,14 @@ class Stage3SobolLocator:
         return self._done
 
     def _infer_bounds(self) -> None:
-        self.window_lo, self.window_hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
+        lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
+        candidate = FocusWindow.from_candidate(lo, hi, full_lo=self.domain_lo, full_hi=self.domain_hi)
+        if candidate is None:
+            raise ValueError(
+                f"_infer_tight_focus_window returned a collapsed window ({lo}, {hi}) "
+                f"for domain [{self.domain_lo}, {self.domain_hi}]"
+            )
+        self.window = candidate
 
     def _check_for_remaining_dips(self) -> None:
         if self.history.count < 6:
@@ -328,13 +339,19 @@ class Stage3SobolLocator:
         )
         # If the inference widened the window, expand our sampling bounds so
         # subsequent Sobol points can reach newly discovered dips.
-        if new_hi - new_lo > self.window_hi - self.window_lo:
-            self.window_lo, self.window_hi = new_lo, new_hi
+        if new_hi - new_lo > self.window.hi - self.window.lo:
+            candidate = FocusWindow.from_candidate(new_lo, new_hi, full_lo=self.domain_lo, full_hi=self.domain_hi)
+            if candidate is None:
+                raise ValueError(
+                    f"_infer_tight_focus_window returned a collapsed window ({new_lo}, {new_hi}) "
+                    f"for domain [{self.domain_lo}, {self.domain_hi}]"
+                )
+            self.window = candidate
 
         # If the inferred window already covers the expected signal span,
         # there is no need to keep measuring — we have a good coarse window.
         if self.expected_window_width is not None:
-            inferred_width = self.window_hi - self.window_lo
+            inferred_width = self.window.hi - self.window.lo
             if inferred_width >= self.expected_window_width * 0.8:
                 self._done = True
                 return
@@ -343,7 +360,7 @@ class Stage3SobolLocator:
         ys = self.history.ys
 
         # Only consider points that fall inside the (possibly expanded) window
-        in_window = (xs >= self.window_lo) & (xs <= self.window_hi)
+        in_window = (xs >= self.window.lo) & (xs <= self.window.hi)
         if np.sum(in_window) < 6:
             return
 
@@ -667,12 +684,11 @@ class StagedSobolSweepLocator(Locator):
                 if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
                     return (lo, hi)
             # Guard against stage3 having been seeded with the full domain
-            lo3, hi3 = self._stage3.window_lo, self._stage3.window_hi
-            domain_width = self.domain_hi - self.domain_lo
-            if hi3 - lo3 < domain_width * (1.0 - 1e-9):
-                return (lo3, hi3)
+            if not self._stage3.window.is_full_domain():
+                return (self._stage3.window.lo, self._stage3.window.hi)
             # stage3 window is full domain; fall back to inference from history
             lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
+            domain_width = self.domain_hi - self.domain_lo
             if hi > lo and (hi - lo) < domain_width:
                 return (lo, hi)
         # Fall back to inference from collected data (set by finalize or observe)
@@ -709,7 +725,7 @@ class StagedSobolSweepLocator(Locator):
         pad = 0.01 * domain_width
         windows: list[tuple[float, float]] = []
         for lo, hi in dips:
-            windows.append((max(self.domain_lo, lo - pad), min(self.domain_hi, hi + pad)))
+            windows.append(clamp_to_domain(lo - pad, hi + pad, self.domain_lo, self.domain_hi))
         return windows
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
@@ -719,9 +735,9 @@ class StagedSobolSweepLocator(Locator):
                 lo, hi = _infer_tight_focus_window(self.history, self.domain_lo, self.domain_hi)
                 if hi > lo and (hi - lo) < (self.domain_hi - self.domain_lo):
                     return (lo, hi)
-            return (self._stage3.window_lo, self._stage3.window_hi)
+            return (self._stage3.window.lo, self._stage3.window.hi)
         if self._stage2 is not None:
-            return (self._stage2.window_lo, self._stage2.window_hi)
+            return (self._stage2.window.lo, self._stage2.window.hi)
         if hasattr(self, "_inferred_lo"):
             return (self._inferred_lo, self._inferred_hi)
         # Infer from history if we have data
