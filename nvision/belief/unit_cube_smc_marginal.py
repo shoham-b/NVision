@@ -651,34 +651,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         # Regenerate the epoch candidates using the updated physical frequency bounds.
         self._generate_epoch_candidates()
 
-    def update(self, obs: Observation) -> None:
-        lo_orig, hi_orig = self._original_physical_x_bounds
-        lo_curr, hi_curr = self.physical_x_bounds
-
-        if (lo_orig != lo_curr) or (hi_orig != hi_curr):
-            x_phys = lo_orig + obs.x * (hi_orig - lo_orig)
-            x_curr_unit = (x_phys - lo_curr) / (hi_curr - lo_curr)
-            from dataclasses import replace
-
-            obs_eval = replace(obs, x=float(x_curr_unit))
-        else:
-            obs_eval = obs
-
-        super().update(obs_eval)
-        # Restore the original-frame x in the history buffer and last_obs
-        # (the rescaled obs_eval.x was recorded by super().update()).
-        idx = self._obs_count - 1
-        self._obs_x_arr[idx] = obs.x
-        # super().update() may have triggered a resample (and thus dip
-        # detection via sorted_observation_arrays()) before this correction --
-        # if so, idx is already placed in _obs_sort_order using the stale
-        # narrowed-frame value. Fix it up; a no-op if that hasn't happened yet.
-        self._resync_sort_position(idx)
-        self.last_obs = obs
-
     def batch_update(self, observations: list[Observation]) -> None:
-        # NOTE: super().batch_update() appends to self._observations; do not
-        # extend here as well or every observation is stored twice.
         lo_orig, hi_orig = self._original_physical_x_bounds
         lo_curr, hi_curr = self.physical_x_bounds
 
@@ -700,7 +673,7 @@ class UnitCubeSMCMarginalDistribution(SMCMarginalDistribution):
         if n_obs:
             start = self._obs_count - n_obs
             self._obs_x_arr[start : self._obs_count] = [o.x for o in observations]
-            # See update()'s comment: fix up any indices dip detection already
+            # Fix up any indices dip detection already
             # sorted using the pre-correction (narrowed-frame) value.
             for idx in range(start, self._obs_count):
                 self._resync_sort_position(idx)

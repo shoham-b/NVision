@@ -529,39 +529,68 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._generate_epoch_candidates()
 
     def update(self, obs: Observation) -> None:
-        self._append_observation(obs.x, obs.signal_value)
-        self.last_obs = obs
+        self.batch_update([obs])
+
+    def batch_update(self, observations: list[Observation]) -> None:
+        """Absorb observations in order: one batched model evaluation, then a sequential
+        weight / noise-posterior recursion per observation, then a single resample check.
+        """
+        if not observations:
+            return
+        for obs in observations:
+            self._append_observation(obs.x, obs.signal_value)
+        self.last_obs = observations[-1]
         self.resampled = False
 
-        # 1. Compute likelihood for all particles (vectorized model evaluation)
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
-        predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
+        all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
+        predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
 
-        # Shot-batch sufficient statistics: n_shots (k) and within-batch
-        # variance s^2. k == 1 reproduces the single-shot update exactly.
+        # Accumulated in the persistent scratch buffer, seeded with the log of the prior weights.
+        log_weights = self._scratch_logw
+        np.maximum(self._weights, 1e-30, out=log_weights)
+        np.log(log_weights, out=log_weights)
+        for obs, predicted in zip(observations, predictions, strict=True):
+            log_weights += self._log_likelihood_and_update_noise(obs, predicted)
+
+        self._step_count += len(observations)
+        self._cov_step = -1
+
+        log_weights -= log_weights.max()
+        raw_weights = np.exp(log_weights, out=log_weights)
+        weight_sum = float(np.sum(raw_weights))
+        # The max was subtracted, so the largest weight is exp(0) == 1: a sum below 1 can only mean NaN/inf.
+        if not math.isfinite(weight_sum) or weight_sum < 1.0 - 1e-6:
+            raise ValueError(f"SMC particle weights are not finite after update (sum={weight_sum}).")
+        self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
+        self._belief_version += 1
+
+        ess = _inverse_sum_squares(self._weights)
+        self.last_ess = float(ess)
+        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
+            self._resample()
+
+    def _log_likelihood_and_update_noise(self, obs: Observation, predicted: np.ndarray) -> np.ndarray:
+        """Per-particle log-likelihood of ``obs`` (noise integrated out), then advance the noise posterior.
+
+        Args:
+            obs: The observation; ``obs.signal_value`` is the mean of ``obs.n_shots`` shots.
+            predicted: Model prediction at ``obs.x`` for every particle. shape: (n_particles,)
+
+        Returns:
+            Tempered log-likelihood. shape: (n_particles,)
+
+        The likelihood is the Rao-Blackwellized Normal-InverseGamma predictive: sigma^2 is
+        analytically *integrated out* of each particle's Inverse-Gamma(alpha, beta) posterior, a
+        (shifted, scaled) Student-t with nu = 2*alpha d.o.f. and scale^2 = beta / (k*alpha) for
+        the k-shot batch mean. Plugging in the point estimate sqrt(beta/alpha) instead would be
+        maximized exactly at sigma == |residual|, so resampling would systematically favor
+        particles whose *current* sigma happens to match one noise draw, and the population's
+        sigma would drift to the prior's lower bound; the fatter Student-t tails don't reward
+        an under-confident sigma for matching one residual.
+        """
         k = obs.n_shots
-        sample_var = obs.sample_var
-
         residuals = obs.signal_value - predicted
-        # Rao-Blackwellized marginal likelihood: sigma^2 is analytically
-        # *integrated out* of its current per-particle Inverse-Gamma(alpha,
-        # beta) posterior rather than plugged in as a point estimate
-        # sqrt(beta/alpha). Plugging in the point estimate is a Gaussian
-        # likelihood that, for a single residual, is maximized exactly at
-        # sigma == |residual| -- so resampling (which selects on this
-        # likelihood) systematically favors whichever particle's *current*
-        # sigma estimate happens to match that step's single noise draw.
-        # Since median(|N(0, sigma)|) ~= 0.6745*sigma, an under-estimating
-        # particle wins more often than not, and nothing thereafter
-        # perturbs the noise state back apart (_resample() reindexes
-        # _noise_alphas/_noise_betas but never nudges them) -- the
-        # population's sigma estimate drifts to the prior's lower bound
-        # over successive resamples. Integrating over the Inverse-Gamma
-        # instead gives the exact Normal-InverseGamma predictive, a
-        # (shifted, scaled) Student-t with nu = 2*alpha d.o.f. and
-        # scale^2 = beta / (k*alpha) for the k-shot batch mean; its
-        # fatter tails don't reward an under-confident sigma for
-        # coincidentally matching one residual.
         alpha = self._noise_alphas
         beta = self._noise_betas
         z_sq = k * residuals**2 / beta
@@ -573,10 +602,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         )
         if self.tempering_factor != 1.0:
             log_liks *= self.tempering_factor
-        # In-place Inverse-Gamma posterior update (residuals are dead after this).
-        # Two orthogonal pieces of evidence about sigma:
-        #   between-batch: the fit residual, rescaled by k since the mean's
-        #                  variance is sigma^2/k, so k*res^2 estimates sigma^2;
+
+        # In-place Inverse-Gamma posterior update (residuals are dead after this). Two orthogonal
+        # pieces of evidence about sigma:
+        #   between-batch: the fit residual, rescaled by k since the mean's variance is sigma^2/k,
+        #                  so k*res^2 estimates sigma^2;
         #   within-batch:  the empirical sample variance s^2 with (k-1) dof.
         self._noise_alphas *= self.noise_discount_factor
         self._noise_betas *= self.noise_discount_factor
@@ -584,106 +614,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         residuals *= 0.5 * k
         self._noise_alphas += 0.5
         self._noise_betas += residuals
-        if k >= 2 and sample_var is not None:
+        if k >= 2 and obs.sample_var is not None:
             self._noise_alphas += 0.5 * (k - 1)
-            self._noise_betas += 0.5 * (k - 1) * float(sample_var)
-
-        # 2. Numerically stable weight update (prevents complete underflow collapse).
-        # Runs in the persistent scratch buffer — no per-step allocations here.
-        log_weights = self._scratch_logw
-        np.maximum(self._weights, 1e-30, out=log_weights)
-        np.log(log_weights, out=log_weights)
-        log_weights += log_liks
-        log_weights -= log_weights.max()
-
-        raw_weights = np.exp(log_weights, out=log_weights)
-        self._step_count += 1
-        self._cov_step = -1
-
-        # 3. Normalize weights safely
-        weight_sum = np.sum(raw_weights)
-        if weight_sum > 1e-30:
-            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
-        else:
-            self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
-        self._belief_version += 1
-
-        # 4. Resample if Effective Sample Size (ESS) is too low [cite: 198, 199]
-        ess = _inverse_sum_squares(self._weights)
-        self.last_ess = float(ess)
-        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
-            self._resample()
-
-    def batch_update(self, observations: list[Observation]) -> None:
-        if not observations:
-            return
-        for obs in observations:
-            self._append_observation(obs.x, obs.signal_value)
-
-        self.last_obs = observations[-1]
-        self.resampled = False
-
-        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
-        log_weights = np.zeros(self.num_particles, dtype=FLOAT_DTYPE)
-
-        # Batch the model evaluation (the expensive part) into one
-        # vectorized matrix call; the Inverse-Gamma posterior recursion
-        # over alphas/betas is inherently sequential but cheap.
-        all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
-        predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
-        for obs_idx, obs in enumerate(observations):
-            predicted = predictions[obs_idx]
-            residuals = obs.signal_value - predicted
-            # Rao-Blackwellized marginal likelihood (see the matching branch
-            # in update() for why the point-estimate plug-in sigma biases
-            # the posterior toward zero): integrate sigma^2 out of its
-            # current Inverse-Gamma(alpha, beta) posterior instead of
-            # substituting sqrt(beta/alpha), giving the Normal-InverseGamma
-            # Student-t predictive with nu = 2*alpha and scale^2 = beta/alpha.
-            alpha = self._noise_alphas
-            beta = self._noise_betas
-            z_sq = residuals**2 / beta
-            log_liks = (
-                gammaln(alpha + 0.5)
-                - gammaln(alpha)
-                - 0.5 * np.log(2.0 * np.pi * beta / alpha)
-                - (alpha + 0.5) * np.log1p(z_sq / (2.0 * alpha))
-            )
-            if self.tempering_factor != 1.0:
-                log_liks *= self.tempering_factor
-            log_weights += log_liks
-            # In-place Inverse-Gamma posterior update (residuals are dead after this)
-            self._noise_alphas *= self.noise_discount_factor
-            self._noise_alphas += 0.5
-            np.square(residuals, out=residuals)
-            residuals *= 0.5
-            self._noise_betas *= self.noise_discount_factor
-            self._noise_betas += residuals
-
-        self._step_count += len(observations)
-
-        # Convert log-weights back to normalized standard weights safely.
-        # The log-prior term is computed in the persistent scratch buffer.
-        log_prior = self._scratch_logw
-        np.maximum(self._weights, 1e-30, out=log_prior)
-        np.log(log_prior, out=log_prior)
-        log_weights += log_prior
-        log_weights -= np.max(log_weights)
-        raw_weights = np.exp(log_weights, out=log_weights)
-        weight_sum = np.sum(raw_weights)
-
-        # Threshold aligned to 1e-30 to match standard update behavior
-        if weight_sum > 1e-30:
-            self._weights = (raw_weights / weight_sum).astype(FLOAT_DTYPE, copy=False)
-        else:
-            self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
-        self._belief_version += 1
-
-        # Evaluate Effective Sample Size (ESS) for resampling
-        ess = _inverse_sum_squares(self._weights)
-        self.last_ess = float(ess)
-        if self.auto_resample and ess < self.ess_threshold * self.num_particles:
-            self._resample()
+            self._noise_betas += 0.5 * (k - 1) * float(obs.sample_var)
+        return log_liks
 
     @property
     def dip_candidates(self) -> list[DipCandidate]:
@@ -1176,16 +1110,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles *= self.a_param
         self._particles += (mean * (1 - self.a_param)).astype(FLOAT_DTYPE, copy=False)
 
-        # 7. Apply Nudge (Multivariate Gaussian) — reuse the cached RNG
-        try:
-            nudges = self._rng.multivariate_normal(
-                np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="cholesky"
-            ).astype(FLOAT_DTYPE, copy=False)
-        except np.linalg.LinAlgError:
-            # Fall back to the highly robust SVD method if Cholesky still fails
-            nudges = self._rng.multivariate_normal(
-                np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="svd"
-            ).astype(FLOAT_DTYPE, copy=False)
+        # 7. Apply Nudge (Multivariate Gaussian) — reuse the cached RNG. nudge_cov was
+        # eigenvalue-floored above, so it is positive definite and Cholesky cannot fail.
+        nudges = self._rng.multivariate_normal(
+            np.zeros(d_dim, dtype=FLOAT_DTYPE), nudge_cov, self.num_particles, method="cholesky"
+        ).astype(FLOAT_DTYPE, copy=False)
         self._particles += nudges
 
         # 8. Clip all particles to bounds
