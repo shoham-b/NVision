@@ -182,16 +182,17 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # The uniform exploration probability decays exponentially to focus on EIG as the scan
         # progresses.
         decay = np.exp(-self.inference_step_count / NVISION_EXPLORATION_DECAY_STEPS)
-        rand_val = np.random.rand()
+        rng = self.belief._rng
+        rand_val = rng.random()
         if rand_val < 0.1 * decay:
-            return float(np.random.uniform(orig_lo, orig_hi))
+            return float(rng.uniform(orig_lo, orig_hi))
         if rand_val < 0.2:
             # Dip-biased sampling: draw within +/-5 MHz of a dip the observations show. This
             # corrects a biased posterior that has drifted away from the true dip location.
             dip_centers = [d.centroid_hz for d in self.belief.dip_candidates if orig_lo <= d.centroid_hz <= orig_hi]
             if dip_centers:
-                center = float(np.random.choice(dip_centers))
-                return center + float(np.random.uniform(max(-5e6, orig_lo - center), min(5e6, orig_hi - center)))
+                center = float(rng.choice(dip_centers))
+                return center + float(rng.uniform(max(-5e6, orig_lo - center), min(5e6, orig_hi - center)))
 
         return self._eig_acquire()
 

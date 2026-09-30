@@ -60,7 +60,7 @@ _EIG_CHUNK_SIZE: int = 64
 
 # Exploration (the variance floor in _resample, the uniform-probe share in SBED's _acquire) decays
 # as exp(-step / this), so the filter can converge once the scan has had time to locate the dips.
-NVISION_EXPLORATION_DECAY_STEPS: float = 25.0
+NVISION_EXPLORATION_DECAY_STEPS: float = float(os.getenv("NVISION_EXPLORATION_DECAY_STEPS", "25.0"))
 
 # Beyond this many standard deviations, scipy's truncnorm loses precision (both
 # CDF endpoints round to the same float), so the far-tail branch of
@@ -91,8 +91,7 @@ def _sample_truncated_normal(
     Truncation is what "a Gaussian prior on a bounded parameter" means; clipping
     is a different (and degenerate) distribution.
 
-    ``rng`` defaults to the legacy global ``np.random`` state so seeding via
-    ``np.random.seed`` keeps working for callers that rely on it.
+    ``rng`` defaults to the legacy global ``np.random`` state; beliefs pass their own.
     """
     if size <= 0:
         return np.empty(0, dtype=float)
@@ -401,6 +400,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     # Without this, every snapshot copy pays 10k x d random draws plus a full
     # epoch-grid (and dip-detection) rebuild that is immediately overwritten.
     skip_state_init: bool = field(default=False, repr=False)
+    # Seed of the belief's own random stream (particle init, resampling, nudges, EIG subsampling).
+    # None draws fresh OS entropy; the runner passes a per-repeat seed so repeats are reproducible.
+    seed: int | None = None
 
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
@@ -466,6 +468,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if not isinstance(self.model, UnitCubeSignalModel):
             raise TypeError("SMCMarginalDistribution requires a UnitCubeSignalModel")
 
+        self._rng = np.random.default_rng(self.seed)
         self._param_names = list(self.model.parameter_names())
         # The full probe domain, never narrowed: observation ``x`` is always a unit coordinate of it.
         self._original_physical_x_bounds = self.physical_x_bounds
@@ -500,20 +503,21 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     f_min, f_max = self.physical_param_bounds[name]
                     sampled = []
                     while len(sampled) < self.num_particles:
-                        candidates = np.random.uniform(f_min, f_max, self.num_particles)
+                        candidates = self._rng.uniform(f_min, f_max, self.num_particles)
                         probs = np.sin(k * (candidates - f_min)) ** 2
-                        u = np.random.uniform(0.0, 1.0, self.num_particles)
+                        u = self._rng.uniform(0.0, 1.0, self.num_particles)
                         sampled.extend(candidates[u < probs])
                     self._particles[:, i] = (np.array(sampled[: self.num_particles]) - f_min) / (f_max - f_min)
                 else:
                     mean, std = prior_val
-                    self._particles[:, i] = _sample_truncated_normal(mean, std, lo, hi, self.num_particles)
+                    self._particles[:, i] = _sample_truncated_normal(
+                        mean, std, lo, hi, self.num_particles, rng=self._rng
+                    )
             else:
-                self._particles[:, i] = np.random.uniform(lo, hi, self.num_particles)
+                self._particles[:, i] = self._rng.uniform(lo, hi, self.num_particles)
 
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
         self._step_count = 0
-        self._rng = np.random.default_rng()
         self._obs_x_arr = np.empty(256, dtype=np.float64)
         self._obs_y_arr = np.empty(256, dtype=np.float64)
         self._obs_sort_order = np.empty(256, dtype=np.int64)
@@ -994,7 +998,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 1. Systematic Resampling
         # Map systematic positions to indices along non-decreasing cumulative_sum
-        positions = (np.arange(self.num_particles) + np.random.random()) / self.num_particles
+        positions = (np.arange(self.num_particles) + self._rng.random()) / self.num_particles
         new_indices = _systematic_resample_indices(np.cumsum(self._weights), positions)
 
         # 2. Compute covariance from the pre-resample distribution for nudging.
@@ -1297,6 +1301,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # share by reference (consumers rebind on narrowing/resample, never
         # mutate in place).
         dist._current_candidates = self._current_candidates
+        dist._rng = self._rng  # snapshots never draw; share rather than re-seed
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy(order="K")  # preserve F-order layout
         dist._weights = self._weights.copy()
@@ -1315,7 +1320,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return dist
 
     def sample(self, n: int) -> ParameterValues[np.ndarray]:
-        indices = np.random.choice(self.num_particles, size=n, p=self._weights)
+        indices = self._rng.choice(self.num_particles, size=n, p=self._weights)
         samples = self._particles[indices]
         data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, data)
@@ -1350,7 +1355,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         probs = np.exp(shifted_scores)
         probs /= np.sum(probs)
 
-        best_chunk_order = np.random.choice(
+        best_chunk_order = self._rng.choice(
             len(winner_indices), size=min(n, len(winner_indices)), replace=False, p=probs
         )
         best_chunk_order = best_chunk_order[np.argsort(winner_scores[best_chunk_order])][::-1]
@@ -1423,7 +1428,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 # gives broad posterior coverage.
                 w_norm = self._weights / (self._weights.sum() + 1e-30)
                 cdf = np.cumsum(w_norm).astype(np.float32)
-                u = np.random.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
+                u = self._rng.uniform(0.0, 1.0 / n_eig, size=n_eig).astype(np.float32)
                 positions = u + np.arange(n_eig, dtype=np.float32) / n_eig
                 sub_idx = _systematic_resample_indices(cdf, positions)
                 part_cols = [self._particles[sub_idx, j] for j in range(self._d_signal)]

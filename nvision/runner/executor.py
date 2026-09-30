@@ -126,6 +126,12 @@ def run_loop(
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.model)
 
+    if issubclass(locator_class, SequentialBayesianLocator):
+        # Seeds the belief's own random stream from (but without consuming) the repeat's rng.
+        seed_rng = random.Random()
+        seed_rng.setstate(rng.getstate())
+        locator_config.setdefault("seed", seed_rng.getrandbits(32))
+
     locator = locator_class.create(**locator_config)
 
     # Check if we can use cached sweep for Bayesian locators or sweep locators

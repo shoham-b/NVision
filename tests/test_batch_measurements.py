@@ -112,6 +112,7 @@ def _make_rb_belief(seed: int = 0):
         model,
         bounds,
         cls=_NoCandidateSMC,
+        seed=seed,
         num_particles=500,
         noise_model=noise_model,
         auto_resample=False,

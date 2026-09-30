@@ -440,18 +440,9 @@ class SequentialBayesianLocator(Locator):
         true_total = float(sum(hi - lo for lo, hi in segments) * domain_width)
         true_span = float((segments[-1][1] - segments[0][0]) * domain_width)
 
+        # Every segment spans >= 3 samples, so both widths are strictly positive.
         effective_width = true_span if merged else true_total
-
-        if effective_width > 0:
-            return float(2.0 * domain_width / effective_width)
-
-        # Fallback to model min_span
-        min_span = None
-        min_span = true_signal.model.signal_min_span(domain_width)
-        if min_span is not None and min_span > 0:
-            return float(6.0 * domain_width / min_span)
-
-        return float(self.max_steps)
+        return float(2.0 * domain_width / effective_width)
 
     def _acquisition_bounds(self) -> tuple[float, float]:
         """Physical bounds where :meth:`_acquire` searches."""
