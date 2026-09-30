@@ -10,10 +10,6 @@ from typing import TypeVar
 
 import numpy as np
 
-from nvision.models.fisher_information import (
-    fisher_information_matrix,
-    single_shot_marginal_stds_from_fim,
-)
 from nvision.models.observation import Observation
 from nvision.spectra.signal import SignalModel
 
@@ -103,7 +99,7 @@ class AbstractMarginalDistribution(ABC):
 
         Uses :meth:`_empirical_uncertainty` (grid PMFs, weighted particles, etc.)
         so reported values match the represented posterior. For a separate local
-        Fisher diagnostic at the last probe only, see :meth:`single_shot_information_std`.
+        Fisher information lives in :mod:`nvision.models.fisher_information`.
         """
         return self._empirical_uncertainty()
 
@@ -136,25 +132,6 @@ class AbstractMarginalDistribution(ABC):
         Matches :meth:`uncertainty` directly.
         """
         return self.uncertainty()
-
-    def single_shot_information_std(self) -> ParameterValues[float]:
-        """Local Fisher diagonal scale at :attr:`last_obs` — **not** posterior uncertainty.
-
-        Uses :func:`~nvision.models.observation.single_shot_marginal_stds_from_fim` with
-        :meth:`fisher_information` at the
-        most recent probe (Moore-Penrose inverse, no separate singular branch). That
-        is a single-shot sensitivity snapshot; it does **not** equal marginal
-        posterior std after many updates (use :meth:`uncertainty` for that).
-
-        If there is no last observation, no gradients, or the Fisher matrix shape
-        does not match the model parameters, every entry is ``nan``.
-        """
-        obs = self.last_obs
-        names = tuple(self.model.parameter_names())
-        fim = self.fisher_information(obs.x) if obs is not None else None
-        stds = single_shot_marginal_stds_from_fim(fim, len(names))
-        data = {names[i]: float(stds[i]) for i in range(len(names))}
-        return ParameterValues.from_mapping(list(names), data)
 
     @abstractmethod
     def _empirical_uncertainty(self) -> ParameterValues[float]:
@@ -231,74 +208,12 @@ class AbstractMarginalDistribution(ABC):
         typed = self.model.spec.unpack_params([est[n] for n in names])
         return self.model.compute_from_params(x, typed)
 
-    def fisher_information(self, x: float) -> np.ndarray | None:
-        """Delegate to :func:`~nvision.models.fisher_information.fisher_information_matrix`.
-
-        Gaussian sigma comes from :attr:`last_obs` via :func:`~nvision.models.observation.gaussian_likelihood_std`.
-
-        Returns None if the underlying SignalModel does not support analytical gradients.
-        """
-        names = self.model.parameter_names()
-        est = self.estimates()
-        typed = self.model.spec.unpack_params([est[n] for n in names])
-        return fisher_information_matrix(
-            x=x,
-            model=self.model,
-            parameters=typed,
-            last_obs=self.last_obs,
-        )
-
-    def accumulate_fim(self, obs: Observation) -> None:
-        """Add the single-observation Fisher information at ``obs.x`` to the running total.
-
-        Uses the current posterior mean as the parameter point for gradient evaluation,
-        and ``obs`` directly for the noise sigma (not ``self.last_obs``), so the method
-        is correct even when called for observations that are not yet the most recent one
-        (e.g. when flushing a Sobol buffer after a batch update).
-        """
-        names = self.model.parameter_names()
-        est = self._fim_param_values()
-        typed = self.model.spec.unpack_params([est[n] for n in names])
-        fim_i = fisher_information_matrix(
-            x=obs.x,
-            model=self.model,
-            parameters=typed,
-            last_obs=obs,
-            param_bounds=getattr(self, "parameter_bounds", None),
-        )
-        if fim_i is None:
-            return
-        cum: np.ndarray | None = getattr(self, "_cum_fim", None)
-        if cum is None:
-            cum = np.zeros((len(names), len(names)))
-        self._cum_fim: np.ndarray = cum + fim_i
-
-    def _fim_param_values(self) -> dict[str, float]:
-        """Parameter point for FIM gradients, in ``self.model``'s own coordinates.
-
-        ``obs.x`` and ``self.model`` must agree on the coordinate system, so this
-        deliberately is *not* ``estimates()`` for every subclass: a unit-cube
-        belief reports physical estimates but wraps a model whose ``compute``
-        takes unit-cube parameters, and mixing the two silently produces a
-        meaningless FIM (or trips the wrapper's own bounds check). Subclasses
-        that rescale ``estimates()`` override this to undo the rescaling.
-        """
-        return self.estimates()
+    def accumulate_fim(self, obs: Observation) -> None:  # noqa: B027
+        """Fold ``obs`` into the belief's cumulative Fisher information (no-op unless the belief tracks one)."""
 
     def crlb_per_param(self) -> dict[str, float]:
-        """Return the marginal CRLB (std, in ``self.model``'s coordinates) per model parameter.
-
-        Computed as ``sqrt(diag(pinv(cumulative_FIM)))``.  Returns an empty dict
-        before any observations or when no gradient could be obtained.
-        Subclasses whose model is in rescaled coordinates override this to
-        return physical units (see :class:`UnitCubeSMCMarginalDistribution`).
-        """
-        cum: np.ndarray | None = getattr(self, "_cum_fim", None)
-        if cum is None:
-            return {}
-        names = list(self.model.parameter_names())
-        stds = single_shot_marginal_stds_from_fim(cum, len(names))
-        return {names[i]: float(stds[i]) for i in range(len(names))}
+        """Marginal CRLB per parameter in physical units; empty unless the belief tracks a Fisher information."""
+        return {}
 
     @abstractmethod
     def marginal_cdf(self, param_name: str, x: np.ndarray) -> np.ndarray:

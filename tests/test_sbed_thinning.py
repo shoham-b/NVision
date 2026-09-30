@@ -49,9 +49,9 @@ def test_sbed_candidate_thinning():
 
     belief.select_max_information_gain = mock_select
 
-    # Seed so the acquisition takes the EIG path (first rand() = 0.3745 >= 0.2),
+    # Seed the belief's stream so the acquisition takes the EIG path (first random() = 0.637 >= 0.2),
     # not the exploration/dip branches that skip the EIG grid search entirely.
-    np.random.seed(42)
+    belief._rng = np.random.default_rng(0)
 
     # Run locator._acquire()
     locator.next()

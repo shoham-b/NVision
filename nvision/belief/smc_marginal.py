@@ -14,6 +14,7 @@ from scipy.special import gammaln
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
 from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_hz, find_dips
+from nvision.models.fisher_information import CumulativeFisher, frequency_crlb, typed_parameters
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.noise_model import NoiseSignalModel
@@ -469,6 +470,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             raise TypeError("SMCMarginalDistribution requires a UnitCubeSignalModel")
 
         self._rng = np.random.default_rng(self.seed)
+        self._fisher = CumulativeFisher(self.model.inner, self.physical_param_bounds)
         self._param_names = list(self.model.parameter_names())
         # The full probe domain, never narrowed: observation ``x`` is always a unit coordinate of it.
         self._original_physical_x_bounds = self.physical_x_bounds
@@ -1302,6 +1304,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # mutate in place).
         dist._current_candidates = self._current_candidates
         dist._rng = self._rng  # snapshots never draw; share rather than re-seed
+        dist._fisher = self._fisher.copy()
         dist._param_names = self._param_names.copy()
         dist._particles = self._particles.copy(order="K")  # preserve F-order layout
         dist._weights = self._weights.copy()
@@ -1471,28 +1474,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 maps[name] = RescaleMap(lo=float(lo), hi=float(hi))
         return maps
 
-    def _fim_param_values(self) -> dict[str, float]:
-        """Unit-cube estimates — ``self.model`` is the unit-cube wrapper (see base docstring)."""
-        return self._estimates_unit()
+    def accumulate_fim(self, obs: Observation) -> None:
+        """Add ``obs``'s Fisher information, evaluated at the current posterior mean, to the running total.
+
+        ``obs.x`` is a unit coordinate of the original probe window; the Fisher model is the physical one.
+        """
+        lo, hi = self._original_physical_x_bounds
+        x_phys = lo + obs.x * (hi - lo)
+        self._fisher.add(x_phys, typed_parameters(self._fisher.model, self.estimates()), obs)
 
     def crlb_per_param(self) -> dict[str, float]:
-        """Marginal CRLB per parameter in **physical** units.
-
-        The cumulative FIM is accumulated in unit-cube coordinates (that is the
-        space ``self.model`` and ``obs.x`` live in), so its CRLBs come out as
-        unit-cube stds and are rescaled by each parameter's physical range here
-        — the same conversion :meth:`_empirical_uncertainty` applies, so the two
-        are directly comparable by callers such as the CRLB early-stop.
-        """
-        raw = super().crlb_per_param()
-        out: dict[str, float] = {}
-        for name, std in raw.items():
-            if name in self.physical_param_bounds:
-                lo, hi = self.physical_param_bounds[name]
-                out[name] = std * (hi - lo)
-            else:
-                out[name] = std
-        return out
+        """Marginal CRLB per model parameter in **physical** units; ``{}`` before any information."""
+        return self._fisher.marginal_crlbs()
 
     def uncertainty(self) -> ParameterValues[float]:
         return self._empirical_uncertainty()
@@ -1501,110 +1494,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return self._empirical_robust_uncertainty()
 
     def crlb_frequency(self) -> float:
-        """Analytical CRLB for frequency (physical Hz) for the NV Lorentzian/Voigt models.
-
-        Uses the closed-form Fisher result for uniform sampling of a single
-        population-normalized dip of height-normalized shape ``V`` (peak 1) and
-        amplitude ``a``:
-        ``I(f) = (ρ/σ²)·a²·J``, ``CRLB_f = sqrt(σ² / (ρ·a²·J))``
-        where σ = noise std, ρ = n_obs / bandwidth (measurements per Hz), and
-        ``J = ∫(V'(x))² dx`` depends only on the lineshape.
-
-        For a Lorentzian of HWHM Ω, ``J = π/(4Ω)`` — verified by direct numerical
-        integration of ``(∂S/∂f)²`` against the coded ``nv_center_lorentzian_eval``
-        (confirms the ``4`` in the denominator here, not ``2``).
-
-        Returns ``math.inf`` for unsupported models or before any observations.
-        """
-        from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterSaturationVoigtModel, NVCenterVoigtModel
-
-        inner = self.model.inner
-
-        if self._obs_count == 0 or self.last_obs is None:
+        """Closed-form frequency CRLB (physical Hz) at the current estimates; ``inf`` before any data."""
+        if self._obs_count == 0:
             return math.inf
-
-        noise_std = self.estimated_noise_std()
-        if noise_std <= 0:
-            return math.inf
-
         lo, hi = self._original_physical_x_bounds
-        bandwidth = hi - lo
-        if bandwidth <= 0:
-            return math.inf
-
-        rho = self._obs_count / bandwidth  # measurements per Hz
-
-        if isinstance(inner, NVCenterLorentzianModel):
-            ests = self.estimates()  # physical-space values
-            linewidth = ests.get("linewidth")
-            c_total = ests.get("c_total")
-            if linewidth is None or c_total is None or c_total <= 0 or linewidth <= 0:
-                return math.inf
-            variance = (4.0 * noise_std**2 * linewidth) / (math.pi * c_total**2 * rho)
-            return math.sqrt(max(variance, 0.0))
-
-        if isinstance(inner, NVCenterSaturationVoigtModel):
-            from nvision.spectra.numba_kernels import _pv_factors
-            from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
-
-            ests = self.estimates()  # physical-space values
-            saturation = ests.get("saturation")
-            sigma_inhom = ests.get("sigma_inhom")
-            if saturation is None or sigma_inhom is None:
-                return math.inf
-
-            fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam_scalar(
-                saturation, sigma_inhom, NV_SATURATION_C_MAX
-            )
-            if fwhm_total <= 0 or c_total <= 0:
-                return math.inf
-
-            elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
-            # J = ∫(V')²dx for the height-normalized pseudo-Voigt V, dropping the
-            # Lorentzian x Gaussian cross-term (single-dip approximation, matching
-            # the Lorentzian branch above). This underestimates J for genuinely
-            # mixed lineshapes, i.e. is a conservative (larger) CRLB — verified
-            # numerically to be exact in the sigma_inhom -> 0 (pure Lorentzian) limit.
-            j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
-            j_gauss = (egf**2) * math.sqrt(-math.pi * nhs / 2.0) if has_sigma and nhs < 0 else 0.0
-            j_total = j_lorentz + j_gauss
-            if j_total <= 0:
-                return math.inf
-
-            variance = noise_std**2 / (rho * c_total**2 * j_total)
-            return math.sqrt(max(variance, 0.0))
-
-        if isinstance(inner, NVCenterVoigtModel):
-            from nvision.spectra.numba_kernels import _pv_factors
-            from nvision.spectra.nv_center import _voigt_reparam_scalar
-
-            ests = self.estimates()  # physical-space values
-            homogeneous_linewidth = ests.get("homogeneous_linewidth")
-            sigma_inhom = ests.get("sigma_inhom")
-            c_total = ests.get("c_total")
-            if homogeneous_linewidth is None or sigma_inhom is None or c_total is None:
-                return math.inf
-            if homogeneous_linewidth <= 0 or c_total <= 0:
-                return math.inf
-
-            fwhm_total, lorentz_frac = _voigt_reparam_scalar(homogeneous_linewidth, sigma_inhom)
-            if fwhm_total <= 0:
-                return math.inf
-
-            elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
-            # Same J = ∫(V')²dx single-dip approximation as the saturation-Voigt branch
-            # above (shared pseudo-Voigt shape function and now the same c_total
-            # amplitude convention too).
-            j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
-            j_gauss = (egf**2) * math.sqrt(-math.pi * nhs / 2.0) if has_sigma and nhs < 0 else 0.0
-            j_total = j_lorentz + j_gauss
-            if j_total <= 0:
-                return math.inf
-
-            variance = noise_std**2 / (rho * c_total**2 * j_total)
-            return math.sqrt(max(variance, 0.0))
-
-        return math.inf
+        return frequency_crlb(self.model.inner, self.estimates(), self.estimated_noise_std(), self._obs_count, hi - lo)
 
     def reported_uncertainty(self) -> ParameterValues[float]:
         """Physical uncertainty, floored so it never claims impossible precision.

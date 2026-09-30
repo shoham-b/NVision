@@ -39,8 +39,6 @@ log = logging.getLogger("nvision")
 metrics_app = typer.Typer(help="Metric utilities.", pretty_exceptions_show_locals=False)
 app.add_typer(metrics_app, name="metrics")
 
-# NV center sweep bandwidth used in CRLB formula (matches executor x_min/x_max).
-_CRLB_BANDWIDTH: float = DEFAULT_NV_CENTER_FREQ_X_MAX - DEFAULT_NV_CENTER_FREQ_X_MIN
 
 # All scalar metric keys carried from main_result_row → scan entry.
 _METRIC_KEYS: tuple[str, ...] = (

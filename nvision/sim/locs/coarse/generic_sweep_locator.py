@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.models.fisher_information import lorentzian_frequency_crlb
 from nvision.sim.defaults import NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.spectra.signal import SignalModel
@@ -67,22 +68,6 @@ NVISION_SWEEP_FIT_FLOAT32: bool = os.getenv("NVISION_SWEEP_FIT_FLOAT32", "0") no
 # output rounds back to the same float32 value and the Jacobian column goes to
 # zero. A step well above the float32 noise floor keeps the gradient nonzero.
 _FIT_FLOAT32_DIFF_STEP: float = float(os.getenv("NVISION_SWEEP_FIT_FLOAT32_DIFF_STEP", "1e-4"))
-
-
-def _expected_frequency_crlb(linewidth: float, c_total: float, noise_std: float, n_obs: int, bandwidth: float) -> float:
-    """Closed-form Cramér-Rao lower bound for frequency (physical Hz), uniform sweep.
-
-    ``CRLB_f = sqrt(2 σ² Ω / (π a² ρ))`` with σ = noise std, Ω = linewidth,
-    a = contrast (c_total), ρ = n_obs / bandwidth (measurements per Hz).  This is
-    the same closed form the SMC belief exposes as ``crlb_frequency`` for the NV
-    Lorentzian; duplicated here because the sweep fits a raw physical model with no
-    belief to query.  Returns ``inf`` when inputs are degenerate.
-    """
-    if linewidth <= 0 or c_total <= 0 or noise_std <= 0 or bandwidth <= 0 or n_obs <= 0:
-        return float("inf")
-    rho = n_obs / bandwidth
-    variance = (2.0 * noise_std**2 * linewidth) / (np.pi * c_total**2 * rho)
-    return float(np.sqrt(max(variance, 0.0)))
 
 
 class GenericSweepLocator(SweepingLocator):
@@ -958,7 +943,7 @@ class GenericSweepLocator(SweepingLocator):
         (CRLB × frac) Hz corresponds to a scaled tolerance of
         (CRLB × frac) / domain_width.
         """
-        crlb_f = _expected_frequency_crlb(lw_guess, dip_depth, float(self._noise_std), n_pts, domain_width)
+        crlb_f = lorentzian_frequency_crlb(lw_guess, dip_depth, float(self._noise_std), n_pts, domain_width)
         if np.isfinite(crlb_f) and crlb_f > 0 and domain_width > 0:
             return float(np.clip(_FIT_CRLB_TOL_FRAC * crlb_f / domain_width, _FIT_XTOL_MIN, _FIT_XTOL_MAX))
         return 1e-8  # curve_fit default when the CRLB is unavailable
@@ -1077,7 +1062,7 @@ class GenericSweepLocator(SweepingLocator):
             (self._fit_params_phys[n] for n in ("c_total", "c_max") if n in self._fit_params_phys),
             dip_depth,
         )
-        crlb_at_fit = _expected_frequency_crlb(
+        crlb_at_fit = lorentzian_frequency_crlb(
             self._fit_params_phys.get("linewidth", lw_guess),
             contrast_fit,
             float(self._noise_std),

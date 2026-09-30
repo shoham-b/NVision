@@ -243,7 +243,7 @@ $$\int\left(\frac{\partial}{\partial x}\frac{{\rm elf}}{x^2+\gamma_{\rm hom}^2}\
 
 $$J = {\rm elf}^2\frac{\pi}{4\gamma_{\rm hom}^5} + {\rm egf}^2\frac{\sqrt{\pi}}{2\sigma_{\rm inhom}}, \qquad \text{Var}^{\rm CRLB}(f) = \frac{\sigma^2}{\rho\, c_{\rm total}^2\, J}$$
 
-where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `crlb_frequency()`'s plain-Voigt branch (`smc_marginal.py`) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
+where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `frequency_crlb()`'s plain-Voigt branch (`models/fisher_information.py`, the single home of all Fisher/CRLB code; the belief's `crlb_frequency()` delegates to it) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
 
 ### 2.4 Focus-Window Narrowing (at each resample)
 

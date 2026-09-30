@@ -66,18 +66,6 @@ _MAX_VIZ_SNAPSHOTS = 1000
 # wastes hundreds of MB on large filters.
 _MAX_VIZ_PARTICLES = 60
 
-# A direction whose (normalized) cumulative FIM diagonal sits at or below this
-# floor has accumulated no real information yet -- single_shot_marginal_stds_from_fim's
-# sqrt(1/ridge) floor (ridge=1e-6) is then the only thing setting its "std", not the
-# data. In unit-normalized scale a direction with real information runs ~1e4-1e7 (see
-# that function's docstring), so anything within a few orders of the ridge is a
-# numerical artifact, not a measurement. Left in physical units (after *= ranges**2,
-# which can be ~1e12 for Hz-scale params) that artifact turns into a spurious ~1e9+
-# spike that dominates a linear-scale plot's autorange and flattens every real value
-# to zero -- so _compute_fisher_history reports NaN for those points instead,
-# leaving a gap in the CRLB overlay rather than a fake number.
-_DEGENERATE_FIM_DIAG_FLOOR = 1e-3
-
 
 def _viz_particle_subsample(weights: np.ndarray, max_particles: int = _MAX_VIZ_PARTICLES):
     """Weighted random subsample indices for posterior visualization.
@@ -332,165 +320,6 @@ def _initial_sweep_steps_from_strategy(strat_obj: Any) -> int:
     return 0
 
 
-def _compute_fisher_history(
-    bayesian_snapshots: list[Any],
-    estimates_hist: list[dict[str, float]],
-    param_names: list[str],
-    physical_bounds: dict[str, tuple[float, float]],
-) -> tuple[list[np.ndarray], list[dict[str, float]], bool]:
-    """Per-step cumulative Fisher info: (fisher_hist, fisher_bounds_hist, fim_is_degenerate).
-
-    ``fisher_hist`` is the cumulative FIM at each step, in physical units (matching
-    ``write_fisher_data``'s expected input). ``fisher_bounds_hist`` is
-    ``[{param: sqrt(diag(inv(FIM)))} ...]`` per step, in physical units -- NOT the raw
-    ``np.ndarray`` :func:`~nvision.models.fisher_information.single_shot_marginal_stds_from_fim`
-    returns; ``write_fisher_data`` calls ``.items()`` on each element and crashes (silently
-    swallowed by the caller's bare ``except Exception``, along with every other Bayesian
-    auxiliary entry for that repeat -- posterior, convergence, covariance ellipses, jitter --
-    since they all share one try block) if handed that ndarray directly.
-
-    Also normalizes each step's gradient by the parameter's own physical range before
-    accumulating into the FIM (undone before returning): Hz-scale widths (~1e6) and a
-    dimensionless contrast (~0.1) differ by ~7 orders of magnitude, so an unnormalized FIM
-    lets ``single_shot_marginal_stds_from_fim``'s ridge dominate every Hz-scale direction and
-    its CRLB silently saturate at a constant ``sqrt(1/ridge)`` regardless of the data -- see
-    that function's docstring, and :func:`~nvision.models.fisher_information.
-    marginal_crlbs_at_budget`'s identical normalization for the other Fisher call site.
-    """
-    from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
-
-    n_params = len(param_names)
-    ranges = np.array(
-        [(physical_bounds[p][1] - physical_bounds[p][0]) if p in physical_bounds else 1.0 for p in param_names]
-    )
-    ranges[ranges <= 0] = 1.0
-    range_outer = np.outer(ranges, ranges)
-
-    fisher_hist: list[np.ndarray] = []
-    fisher_bounds_hist: list[dict[str, float]] = []
-    cum_fim_normalized = np.zeros((n_params, n_params))
-    for i, s in enumerate(bayesian_snapshots):
-        # bayesian_snapshots' beliefs are UnitCubeSMCMarginalDistribution, whose
-        # .model is always a UnitCubeSignalModel wrapper operating on [0, 1]
-        # particle-space parameters -- but estimates_hist[i] (belief.estimates())
-        # and s.obs.x are both physical (that's the whole point of the wrapper:
-        # everything outside the belief's own particles is physical). Unwrap to
-        # the inner physical model, which matches both directly; feeding physical
-        # values through the wrapper instead re-interprets them as [0, 1]
-        # fractions and rescales by the physical bound width *again* (e.g. a 1 MHz
-        # linewidth becomes ~1e13 Hz), so every gradient call raised out-of-bounds
-        # inside a broad except-and-return-None and the cumulative FIM silently
-        # stayed zero for the entire run.
-        model = s.belief.model
-        inner_model = getattr(model, "inner", model)
-        # estimates_hist[i] is belief.estimates()'s plain dict[str, float]; both
-        # inner_model.gradient() and the numerical_gradient_vector() fallback need
-        # the model's own typed params object instead (attribute access, not dict
-        # lookup) -- same conversion abstract_marginal.py's own fisher_information()
-        # and accumulate_fim() already do (for the non-unit-cube belief case).
-        typed_params = inner_model.spec.unpack_params(
-            [estimates_hist[i][name] for name in inner_model.parameter_names()]
-        )
-        fim_i = fisher_information_matrix(
-            x=s.obs.x,
-            model=inner_model,
-            parameters=typed_params,
-            last_obs=s.obs,
-            param_bounds=physical_bounds,
-        )
-        if fim_i is not None:
-            # fim_i = outer(grad, grad) / sigma^2, so scaling each gradient component by
-            # ranges[k] scales the (i, j) entry by ranges[i] * ranges[j] -- no need to
-            # re-derive the gradient vector itself.
-            cum_fim_normalized = cum_fim_normalized + fim_i * range_outer
-
-        fisher_hist.append(cum_fim_normalized / range_outer)  # back to physical units
-        stds_normalized = single_shot_marginal_stds_from_fim(cum_fim_normalized, n_params)
-        fim_diag = np.diag(cum_fim_normalized)
-        bounds_this_step: dict[str, float] = {}
-        for j, name in enumerate(param_names):
-            if fim_diag[j] > _DEGENERATE_FIM_DIAG_FLOOR:
-                bounds_this_step[name] = float(stds_normalized[j] * ranges[j])
-            else:
-                bounds_this_step[name] = float("nan")
-        fisher_bounds_hist.append(bounds_this_step)
-
-    fim_is_degenerate = not np.any(cum_fim_normalized != 0)
-    return fisher_hist, fisher_bounds_hist, fim_is_degenerate
-
-
-def _compute_oracle_crlb_history(
-    n_steps: int,
-    inner_model: Any,
-    true_typed_params: Any,
-    x_lo: float,
-    x_hi: float,
-    representative_noise_std: float,
-    param_names: list[str],
-    physical_bounds: dict[str, tuple[float, float]],
-    n_grid: int = 64,
-) -> list[dict[str, float]]:
-    """Best-achievable CRLB per step: ``step + 1`` ideal (uniformly-placed)
-    measurements at the *true* parameters, independent of where the locator
-    actually measured or what it currently estimates.
-
-    Complements ``_compute_fisher_history``'s data-driven curve: that one shows
-    how close the *actual* acquisition got to the information limit; this one
-    is the hard floor no acquisition strategy (not even an oracle one) could
-    beat with the same number of measurements. Since CRLB scales as
-    ``1 / sqrt(N)``, the mean single-measurement Fisher information (averaged
-    over a uniform x-grid at the true parameters) is computed once and simply
-    scaled by ``step + 1`` -- no need to re-derive the grid gradient per step.
-    """
-    from nvision.models.fisher_information import fisher_information_matrix, single_shot_marginal_stds_from_fim
-    from nvision.models.observation import Observation
-
-    n_params = len(param_names)
-    ranges = np.array(
-        [(physical_bounds[p][1] - physical_bounds[p][0]) if p in physical_bounds else 1.0 for p in param_names]
-    )
-    ranges[ranges <= 0] = 1.0
-    range_outer = np.outer(ranges, ranges)
-
-    # Only .noise_std is read off this (via gaussian_likelihood_std) -- x and
-    # signal_value are unused by fisher_information_matrix, which takes the
-    # probe position as its own explicit `x` argument.
-    probe_obs = Observation(x=0.0, signal_value=0.0, noise_std=representative_noise_std)
-
-    mean_fim_normalized = np.zeros((n_params, n_params))
-    valid = 0
-    for xi in np.linspace(x_lo, x_hi, n_grid):
-        fim_i = fisher_information_matrix(
-            x=float(xi),
-            model=inner_model,
-            parameters=true_typed_params,
-            last_obs=probe_obs,
-            param_bounds=physical_bounds,
-        )
-        if fim_i is not None:
-            mean_fim_normalized = mean_fim_normalized + fim_i * range_outer
-            valid += 1
-
-    if valid == 0:
-        return [{} for _ in range(n_steps)]
-    mean_fim_normalized /= valid
-
-    history: list[dict[str, float]] = []
-    for step in range(n_steps):
-        fim_at_step = mean_fim_normalized * (step + 1)
-        fim_diag = np.diag(fim_at_step)
-        stds_normalized = single_shot_marginal_stds_from_fim(fim_at_step, n_params)
-        history.append(
-            {
-                name: (
-                    float(stds_normalized[j] * ranges[j]) if fim_diag[j] > _DEGENERATE_FIM_DIAG_FLOOR else float("nan")
-                )
-                for j, name in enumerate(param_names)
-            }
-        )
-    return history
-
-
 def _bayesian_auxiliary_entries(
     viz: Viz,
     entry_base: dict[str, Any],
@@ -741,6 +570,7 @@ def _bayesian_auxiliary_entries(
 
     # Fisher information bounds vs actual uncertainty for SMC beliefs
     from nvision.belief.smc_marginal import SMCMarginalDistribution
+    from nvision.models.fisher_information import fisher_history, oracle_crlb_history
 
     if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
         param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
@@ -749,7 +579,7 @@ def _bayesian_auxiliary_entries(
         # re-deriving them from the particle population (each estimates()/uncertainty() call
         # is a full O(N x d) pass).
         actual_uncertainty_hist = param_hist  # Actual SMC uncertainty (already computed)
-        fisher_hist, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
+        fisher_hist, fisher_bounds_hist, fim_is_degenerate = fisher_history(
             bayesian_snapshots, estimates_hist, param_names, physical_bounds
         )
 
@@ -761,15 +591,14 @@ def _bayesian_auxiliary_entries(
         # possibly do" next to "how good did this one actually do".
         oracle_crlb_hist: list[dict[str, float]] = []
         with suppress(Exception):
-            oracle_crlb_hist = _compute_oracle_crlb_history(
+            oracle_crlb_hist = oracle_crlb_history(
                 n_steps=len(bayesian_snapshots),
-                inner_model=run_result.true_signal.model,
+                model=run_result.true_signal.model,
                 true_typed_params=run_result.true_signal.typed_parameters,
                 x_lo=float(experiment.x_min),
                 x_hi=float(experiment.x_max),
-                representative_noise_std=float(bayesian_snapshots[0].obs.noise_std),
-                param_names=param_names,
-                physical_bounds=physical_bounds,
+                noise_std=float(bayesian_snapshots[0].obs.noise_std),
+                bounds=physical_bounds,
             )
 
         if fisher_hist and len(param_names) >= 2 and not fim_is_degenerate:

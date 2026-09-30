@@ -161,13 +161,13 @@ def test_marginal_crlbs_empty_for_no_gradient() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _compute_fisher_history (nvision.runner.plots) -- the per-step Fisher history
+# fisher_history (nvision.models.fisher_information) -- the per-step Fisher history
 # feeding the UI's CRLB overlay, as opposed to marginal_crlbs_at_budget's
 # upfront feasibility estimate above.
 # ---------------------------------------------------------------------------
 
 
-def test_compute_fisher_history_bounds_are_dicts_not_ndarrays() -> None:
+def testfisher_history_bounds_are_dicts_not_ndarrays() -> None:
     """Regression test.
 
     write_fisher_data's fisher_bounds_hist parameter is documented as
@@ -183,8 +183,8 @@ def test_compute_fisher_history_bounds_are_dicts_not_ndarrays() -> None:
     """
     from types import SimpleNamespace
 
+    from nvision.models.fisher_information import fisher_history
     from nvision.models.observation import Observation
-    from nvision.runner.plots import _compute_fisher_history
     from nvision.runner.plots_data import write_fisher_data
 
     model = _SimpleGaussModel()
@@ -199,11 +199,11 @@ def test_compute_fisher_history_bounds_are_dicts_not_ndarrays() -> None:
         for x in xs
     ]
     # estimates_hist is belief.estimates()'s contract: dict[str, float], not the
-    # model's typed params object -- _compute_fisher_history converts internally.
+    # model's typed params object -- fisher_history converts internally.
     estimates_hist = [dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in xs]
     physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
 
-    fisher_hist, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
+    fisher_hist, fisher_bounds_hist, fim_is_degenerate = fisher_history(
         snapshots, estimates_hist, param_names, physical_bounds
     )
 
@@ -219,7 +219,7 @@ def test_compute_fisher_history_bounds_are_dicts_not_ndarrays() -> None:
     assert data is not None
 
 
-def test_compute_fisher_history_normalizes_across_wildly_different_scales() -> None:
+def testfisher_history_normalizes_across_wildly_different_scales() -> None:
     """Without per-parameter range normalization, single_shot_marginal_stds_from_fim's
     ridge dominates any Hz-scale direction and its CRLB saturates at a constant
     sqrt(1/ridge) regardless of the data (see that function's docstring). Uses
@@ -229,8 +229,8 @@ def test_compute_fisher_history_normalizes_across_wildly_different_scales() -> N
     """
     from types import SimpleNamespace
 
+    from nvision.models.fisher_information import fisher_history
     from nvision.models.observation import Observation
-    from nvision.runner.plots import _compute_fisher_history
 
     model = NVCenterLorentzianModel()
     param_names = model.parameter_names()
@@ -255,9 +255,9 @@ def test_compute_fisher_history_normalizes_across_wildly_different_scales() -> N
             for x in xs
         ]
         # estimates_hist is belief.estimates()'s contract: dict[str, float], not the
-        # model's typed params object -- _compute_fisher_history converts internally.
+        # model's typed params object -- fisher_history converts internally.
         estimates_hist = [dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in xs]
-        _, fisher_bounds_hist, fim_is_degenerate = _compute_fisher_history(
+        _, fisher_bounds_hist, fim_is_degenerate = fisher_history(
             snapshots, estimates_hist, param_names, physical_bounds
         )
         assert not fim_is_degenerate
@@ -276,30 +276,29 @@ def test_compute_fisher_history_normalizes_across_wildly_different_scales() -> N
 
 
 # ---------------------------------------------------------------------------
-# _compute_oracle_crlb_history (nvision.runner.plots) -- the "best any ideal
-# acquisition could do" reference curve, as distinct from _compute_fisher_history's
+# oracle_crlb_history (nvision.models.fisher_information) -- the "best any ideal
+# acquisition could do" reference curve, as distinct from fisher_history's
 # data-driven "how well did THIS run's actual measurements do" curve above.
 # ---------------------------------------------------------------------------
 
 
 def test_oracle_crlb_history_decreases_as_one_over_sqrt_n() -> None:
     """CRLB ~ 1/sqrt(N): step k's oracle bound should equal step 0's divided by sqrt(k+1)."""
-    from nvision.runner.plots import _compute_oracle_crlb_history
+    from nvision.models.fisher_information import oracle_crlb_history
 
     model = _SimpleGaussModel()
     param_names = model.parameter_names()
     true_params = _GaussParams(amplitude=0.5, center=0.5)
     physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
 
-    history = _compute_oracle_crlb_history(
+    history = oracle_crlb_history(
         n_steps=9,
-        inner_model=model,
+        model=model,
         true_typed_params=true_params,
         x_lo=0.0,
         x_hi=1.0,
-        representative_noise_std=0.01,
-        param_names=param_names,
-        physical_bounds=physical_bounds,
+        noise_std=0.01,
+        bounds=physical_bounds,
     )
 
     assert len(history) == 9
@@ -314,32 +313,30 @@ def test_oracle_crlb_history_decreases_as_one_over_sqrt_n() -> None:
 
 def test_oracle_crlb_history_scales_with_noise() -> None:
     """Doubling the noise std should double every oracle CRLB value (linear in sigma)."""
-    from nvision.runner.plots import _compute_oracle_crlb_history
+    from nvision.models.fisher_information import oracle_crlb_history
 
     model = _SimpleGaussModel()
     param_names = model.parameter_names()
     true_params = _GaussParams(amplitude=0.5, center=0.5)
     physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
 
-    low = _compute_oracle_crlb_history(
+    low = oracle_crlb_history(
         n_steps=3,
-        inner_model=model,
+        model=model,
         true_typed_params=true_params,
         x_lo=0.0,
         x_hi=1.0,
-        representative_noise_std=0.01,
-        param_names=param_names,
-        physical_bounds=physical_bounds,
+        noise_std=0.01,
+        bounds=physical_bounds,
     )
-    high = _compute_oracle_crlb_history(
+    high = oracle_crlb_history(
         n_steps=3,
-        inner_model=model,
+        model=model,
         true_typed_params=true_params,
         x_lo=0.0,
         x_hi=1.0,
-        representative_noise_std=0.02,
-        param_names=param_names,
-        physical_bounds=physical_bounds,
+        noise_std=0.02,
+        bounds=physical_bounds,
     )
     for name in param_names:
         assert math.isclose(high[0][name], 2.0 * low[0][name], rel_tol=1e-6)
@@ -349,9 +346,9 @@ def test_oracle_crlb_history_no_gradient_returns_empty_dicts() -> None:
     """A model with no analytical gradient and a degenerate numerical fallback
 
     (pack_params raising, here) should degrade to empty per-step dicts rather
-    than crashing -- mirrors _compute_fisher_history's fim_i is None handling.
+    than crashing -- mirrors fisher_history's fim_i is None handling.
     """
-    from nvision.runner.plots import _compute_oracle_crlb_history
+    from nvision.models.fisher_information import oracle_crlb_history
 
     class _NoGradSpec:
         def pack_params(self, p):
@@ -363,15 +360,14 @@ def test_oracle_crlb_history_no_gradient_returns_empty_dicts() -> None:
         def parameter_names(self):
             return ["amplitude", "center"]
 
-    history = _compute_oracle_crlb_history(
+    history = oracle_crlb_history(
         n_steps=2,
-        inner_model=_NoGradModel(),
+        model=_NoGradModel(),
         true_typed_params=object(),
         x_lo=0.0,
         x_hi=1.0,
-        representative_noise_std=0.01,
-        param_names=["amplitude", "center"],
-        physical_bounds={"amplitude": (0.0, 1.0), "center": (0.0, 1.0)},
+        noise_std=0.01,
+        bounds={"amplitude": (0.0, 1.0), "center": (0.0, 1.0)},
     )
     assert history == [{}, {}]
 

@@ -8,7 +8,7 @@ from tests.noise import gaussian_noise
 
 def test_select_max_information_gain_diversity():
     """Test that the locator doesn't get stuck at a single point for a flat/sampled prior."""
-    np.random.seed(42)
+    np.random.seed(42)  # the acquisition's own Boltzmann draws
     # Setup a standard NV center model. with_fixed_frequency=False: this test
     # specifically checks that acquisition doesn't collapse to a single candidate
     # point, which requires frequency to actually be a free particle dimension --
@@ -33,6 +33,7 @@ def test_select_max_information_gain_diversity():
         model=wrapped_model,
         parameter_bounds=param_bounds,
         num_particles=1000,
+        seed=42,
         physical_param_bounds=phys_bounds,
         physical_x_bounds=x_bounds,
         noise_model=gaussian_noise(),

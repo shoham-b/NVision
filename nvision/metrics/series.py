@@ -21,6 +21,7 @@ focus-window playback animation (see ``static/plotly-utils.js``).
 from __future__ import annotations
 
 import math
+from contextlib import suppress
 from typing import Any
 
 from nvision.models.observer import RunResult
@@ -124,19 +125,11 @@ def extract_step_series(
         errs.append(abs(float(est) - true_value) if est is not None and math.isfinite(est) else None)
         uncerts.append(float(unc) if unc is not None and math.isfinite(unc) else None)
         crlb_val = None
-        try:
-            crlb_fn = getattr(snapshot.belief, "crlb_frequency", None)
-            if crlb_fn is not None:
-                val = crlb_fn()
-                if val is not None and math.isfinite(val) and val > 0:
-                    crlb_val = float(val)
-            if crlb_val is None:
-                per_param = snapshot.belief.crlb_per_param()
-                val = per_param.get(param)
-                if val is not None and math.isfinite(val) and val > 0:
-                    crlb_val = float(val)
-        except Exception:
-            pass
+        with suppress(Exception):
+            belief = snapshot.belief
+            val = belief.crlb_frequency() if param == "frequency" else belief.crlb_per_param().get(param)
+            if val is not None and math.isfinite(val) and val > 0:
+                crlb_val = float(val)
         crlbs.append(crlb_val)
         windows.append(getattr(snapshot, "focus_window_candidates", None))
 

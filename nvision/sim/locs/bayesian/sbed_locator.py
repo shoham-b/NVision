@@ -9,6 +9,7 @@ import numpy as np
 from numba import njit
 
 from nvision.belief.smc_marginal import NVISION_EXPLORATION_DECAY_STEPS
+from nvision.models.fisher_information import uniform_steps_for_frequency_crlb
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
@@ -387,18 +388,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         lw_hat, c_hat = _effective_linewidth_and_contrast_estimate(est)
 
         # Compute permissive theoretical step budget from sigma_hat + belief estimates.
-        # n_theory = 4σ̂²·lw·bandwidth / (π·c²·T²) — steps needed for uniform sampling to reach T.
-        # SBED is better than uniform. (4, not 2: matches the verified CRLB constant in
-        # UnitCubeSMCMarginalDistribution.crlb_frequency — n_theory is that same CRLB_var
-        # solved for n at rho = n/bandwidth, evaluated at the convergence threshold T.)
+        # n_theory: uniform probes needed for the closed-form frequency CRLB to reach the convergence
+        # threshold T (see nvision.models.fisher_information). SBED is better than uniform.
         if c_hat is not None and c_hat > 0 and lw_hat > 0:
             freq_lo, freq_hi = self.belief.physical_param_bounds.get("frequency", (0.0, 1.0))
             bandwidth = freq_hi - freq_lo
             if bandwidth > 0:
                 from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, NVISION_SBED_STEPS_THEORY_FACTOR
 
-                n_theory = (4.0 * sigma_hat**2 * lw_hat * bandwidth) / (
-                    math.pi * c_hat**2 * NVISION_FREQ_CONVERGENCE_THRESHOLD**2
+                n_theory = uniform_steps_for_frequency_crlb(
+                    lw_hat, c_hat, sigma_hat, bandwidth, NVISION_FREQ_CONVERGENCE_THRESHOLD
                 )
                 self._theory_step_budget = max(self.max_steps, int(NVISION_SBED_STEPS_THEORY_FACTOR * n_theory) + 1)
 

@@ -9,12 +9,10 @@ from tests.unit_cube_belief_factory import make_smc
 def test_smc_stable_update_prevents_uniform_reset():
     """Test that a highly unlikely observation doesn't cause raw weights to underflow to 0
     and reset to uniform, but instead properly re-weights using log-likelihoods."""
-    # Particle initialization draws from the legacy global np.random state
-    # (see SMCMarginalDistribution.__post_init__), so seed it for a deterministic
-    # particle layout — otherwise an unlucky draw can leave too few particles
+    # Particle initialization draws from the belief's own seeded stream (``seed=0`` below), giving a
+    # deterministic particle layout — otherwise an unlucky draw can leave too few particles
     # near the extreme-outlier observation to produce a dominant weight, flaking
     # this test without any underlying bug.
-    np.random.seed(0)
 
     model = NVCenterLorentzianModel()
     bounds = {
@@ -30,6 +28,7 @@ def test_smc_stable_update_prevents_uniform_reset():
         model,
         bounds,
         num_particles=100,
+        seed=0,
         auto_resample=False,  # Disable auto-resample to inspect weights
         noise_model=gaussian_noise(1e-4, 2e-4),
     )
