@@ -1392,6 +1392,26 @@ def saturation_voigt_effective_hwhm_and_unc(
     return omega, sigma_omega
 
 
+def effective_hwhm(params):
+    """Effective dip HWHM (Hz) implied by the linewidth parameter(s) in ``params`` (physical units).
+
+    Lineshape-agnostic: Lorentzian ``linewidth``; plain Voigt ``homogeneous_linewidth`` plus the
+    Gaussian HWHM ``sqrt(2 ln2)*sigma_inhom``; saturation-Voigt ``gamma0*sqrt(1+s)`` plus the same
+    Gaussian term. Values may be scalars or arrays (e.g. one entry per particle).
+    """
+    if "linewidth" in params:
+        return params["linewidth"]
+    if "saturation" in params and "sigma_inhom" in params:
+        s = np.maximum(params["saturation"], 0.0)
+        return NV_NATURAL_HWHM_HZ * np.sqrt(1.0 + s) + _SATURATION_VOIGT_SQRT2LOG2 * params["sigma_inhom"]
+    if "homogeneous_linewidth" in params:
+        return params["homogeneous_linewidth"] + _SATURATION_VOIGT_SQRT2LOG2 * params.get("sigma_inhom", 0.0)
+    raise ValueError(
+        "effective_hwhm: no linewidth parameter ('linewidth', 'homogeneous_linewidth' or "
+        f"'saturation'+'sigma_inhom') in {sorted(params)}"
+    )
+
+
 def saturation_voigt_realized_contrast_and_unc(
     saturation: float,
     c_max: float,

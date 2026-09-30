@@ -1,4 +1,4 @@
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import locator_combination_cache_config
 from nvision.cache.locator_repository import LocatorResultsRepository
@@ -96,10 +96,10 @@ __all__ = [
     # Peak specs
     "PeakSpec",
     "RunResult",
+    # Belief
+    "SMCMarginalDistribution",
     "StagedSobolSweepLocator",
     "TrueSignal",
-    # Belief
-    "UnitCubeSMCMarginalDistribution",
     "UnitCubeSignalModel",
     "VoigtZeemanModel",
     "app",

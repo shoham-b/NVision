@@ -69,6 +69,9 @@ class AbstractMarginalDistribution(ABC):
         The stateless signal model defining the shape.
     last_obs : Observation | None
         Most recent observation for history tracking.
+
+    Subclasses also expose ``physical_param_bounds`` (``dict[str, tuple[float, float]]``, the physical
+    range of each parameter) as a dataclass field or a property.
     """
 
     model: SignalModel
@@ -332,12 +335,6 @@ class AbstractMarginalDistribution(ABC):
         """
         lo, hi = self.physical_param_bounds[self.model.parameter_names()[0]]
         return np.linspace(lo, hi, 100)
-
-    @property
-    @abstractmethod
-    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
-        """Physical bounds for each parameter (same as ``parameter_bounds`` for non-unit-cube beliefs)."""
-        pass
 
     def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:  # noqa: B027
         """Shrink physical bounds for ``param_name`` after a coarse sweep.

@@ -144,7 +144,7 @@ def test_sorted_observation_arrays_lazy_incremental_across_calls():
 
 
 def test_resync_sort_position_after_stale_insertion():
-    # Reproduces the UnitCubeSMCMarginalDistribution coordinate-frame case:
+    # Reproduces the SMCMarginalDistribution coordinate-frame case:
     # dip detection (via sorted_observation_arrays()) runs mid-update using a
     # provisional value, then the caller overwrites _obs_x_arr with the real
     # one afterwards. _resync_sort_position must restore global sortedness.
@@ -180,7 +180,7 @@ def test_unit_cube_belief_narrowing_dip_detection_stays_consistent():
     # End-to-end: force narrowing + resampling (which triggers dip detection
     # via _generate_epoch_candidates -> sorted_observation_arrays) across many
     # updates, so _resync_sort_position is actually exercised through the real
-    # UnitCubeSMCMarginalDistribution.update() path, not just called directly.
+    # SMCMarginalDistribution.update() path, not just called directly.
     from nvision.models.observation import Observation
     from nvision.spectra.noise_model import GaussianNoiseSignalModel
 

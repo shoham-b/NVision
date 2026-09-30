@@ -54,22 +54,9 @@ def effective_max_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -
     two low points can be and still belong to the same dip. Uses the prior bounds, never an
     inferred estimate.
     """
-    if "linewidth" in phys_bounds:
-        return phys_bounds["linewidth"][1]
-    if "saturation" in phys_bounds and "sigma_inhom" in phys_bounds:
-        from nvision.spectra.nv_center import NV_NATURAL_HWHM_HZ
+    from nvision.spectra.nv_center import effective_hwhm
 
-        gamma_hom_hi = NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + phys_bounds["saturation"][1])
-        return gamma_hom_hi + math.sqrt(2.0 * math.log(2.0)) * phys_bounds["sigma_inhom"][1]
-    if "homogeneous_linewidth" in phys_bounds:
-        sigma_inhom_hi = phys_bounds["sigma_inhom"][1] if "sigma_inhom" in phys_bounds else 0.0
-        return phys_bounds["homogeneous_linewidth"][1] + math.sqrt(2.0 * math.log(2.0)) * sigma_inhom_hi
-    if "fwhm_total" in phys_bounds:
-        return phys_bounds["fwhm_total"][1] / 2.0
-    raise ValueError(
-        "effective_max_linewidth_hz: bounds define no linewidth parameter "
-        f"('linewidth', 'homogeneous_linewidth', 'saturation'+'sigma_inhom' or 'fwhm_total'); got {sorted(phys_bounds)}"
-    )
+    return float(effective_hwhm({name: hi for name, (_, hi) in phys_bounds.items()}))
 
 
 def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:

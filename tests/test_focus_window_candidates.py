@@ -10,7 +10,7 @@ candidates narrowing down to a single settled focus window
 from __future__ import annotations
 
 from nvision.belief.dip_detection import DipCandidate
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
@@ -30,7 +30,7 @@ def _make_locator() -> SequentialBayesianExperimentDesignLocator:
     x_bounds = phys_bounds["frequency"]
     wrapped_model = UnitCubeSignalModel(model, phys_bounds, x_bounds)
     param_bounds = {name: (0.0, 1.0) for name in phys_bounds}
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         model=wrapped_model,
         parameter_bounds=param_bounds,
         num_particles=50,

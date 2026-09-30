@@ -29,7 +29,7 @@ A critical design feature of the inference engine is the strict separation betwe
 
 - **Unit Normalized Parameters (`[0, 1]`)**: The core SMC engine and likelihood algorithms operate strictly on the unit-cube `[0, 1]`. This ensures uniform convergence thresholds, prevents scale imbalances during multidimensional acquisition optimizations, and makes the core algorithms completely agnostic to the underlying physical dimensions.
 - **Physically Scaled Parameters**: The physical bounds and scaling logic are abstracted away from the core particle math.
-- **`UnitCubeSMCMarginalDistribution`**: This critical wrapper acts as the bridge. It encapsulates the raw unit-cube SMC engine, intercepting requests for public summaries like `.estimates()`, `.uncertainty()`, and covariance matrices to transparently denormalize the `[0, 1]` values back into their true physical scales for the CLI monitors and UI plots.
+- **`SMCMarginalDistribution`**: Particles and likelihoods live on the unit cube, while the public summaries (`.estimates()`, `.uncertainty()`, covariance matrices, `.get_candidates()`) transparently denormalize back into physical scales for the CLI monitors and UI plots. The probe window is fixed by default (frequency is a known constant). `FreeFrequencySMCMarginalDistribution` is the special case for `with_fixed_frequency=False`: it infers the centre frequency and expands/narrows its probe window after each resample.
 
 ### 4. Sequential Bayesian Experiment Design (SBED)
 

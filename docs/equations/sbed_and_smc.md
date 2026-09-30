@@ -1,6 +1,6 @@
 # SBED + SMC — Equations and Approximations
 
-The SMC belief, its unit-cube extension, the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
+The SMC belief (unit-cube particles, with a free-frequency variant), the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
 
 > Scope: only the additive Gaussian measurement-noise path. The noise level is always inferred through its conjugate prior — a per-particle Inverse-Gamma state that is integrated out (§1.1a) — and that posterior is the only source of a noise σ anywhere in the stack. Poisson likelihoods and non-SBED locators are out of scope.
 >
@@ -175,7 +175,7 @@ decays smoothly, instead of being flat out to an arbitrary window boundary.
 
 ---
 
-## 2. Unit-Cube Extension (`unit_cube_smc_marginal.py`)
+## 2. Unit-Cube Coordinates and the Free-Frequency Variant (`smc_marginal.py`, `free_frequency_smc.py`)
 
 Particles live in unit space [0, 1]ᵈ; physical values are recovered by affine rescaling.
 
@@ -243,7 +243,7 @@ $$\int\left(\frac{\partial}{\partial x}\frac{{\rm elf}}{x^2+\gamma_{\rm hom}^2}\
 
 $$J = {\rm elf}^2\frac{\pi}{4\gamma_{\rm hom}^5} + {\rm egf}^2\frac{\sqrt{\pi}}{2\sigma_{\rm inhom}}, \qquad \text{Var}^{\rm CRLB}(f) = \frac{\sigma^2}{\rho\, c_{\rm total}^2\, J}$$
 
-where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `crlb_frequency()`'s plain-Voigt branch (`unit_cube_smc_marginal.py`) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
+where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `crlb_frequency()`'s plain-Voigt branch (`smc_marginal.py`) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
 
 ### 2.4 Focus-Window Narrowing (at each resample)
 
@@ -359,7 +359,7 @@ Steps are clamped into the bounds and the realized (possibly one-sided) denomina
 a parameter sitting on a bound still yields a valid derivative instead of `NaN`.
 
 **Coordinate system.** `obs.x` and `model.compute` must agree on the coordinate system the
-gradient is taken in. For `UnitCubeSMCMarginalDistribution`, `estimates()` reports *physical*
+gradient is taken in. For `SMCMarginalDistribution`, `estimates()` reports *physical*
 values but `self.model` is the unit-cube wrapper, so the FIM point is taken from
 `_fim_param_values()` (unit-cube coordinates there) rather than `estimates()` directly — using
 the wrong one silently produces a meaningless FIM. The resulting cumulative FIM is therefore in

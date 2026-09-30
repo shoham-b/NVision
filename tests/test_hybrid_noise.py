@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.models.observation import Observation
 from nvision.spectra.noise_model import (
     CompositeNoiseSignalModel,
@@ -70,7 +70,7 @@ def test_smc_joint_parameter_tracking():
     # Unit cube wrapper
     wrapped = UnitCubeSignalModel(sig_model, bounds, x_bounds_phys=(2.8e9, 2.9e9))
 
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         model=wrapped,
         noise_model=noise_model,
         parameter_bounds={name: (0.0, 1.0) for name in bounds},

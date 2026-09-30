@@ -19,14 +19,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from nvision.belief.free_frequency_smc import FreeFrequencySMCMarginalDistribution
 from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
     NVISION_SMC_MIN_EXPLORATION_FRAC,
     NVISION_SMC_NUM_PARTICLES,
     NVISION_SMC_TEMPERING_FACTOR,
+    SMCMarginalDistribution,
 )
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.sim.gen.nv_center_generator import (
     DEFAULT_NV_CENTER_FREQ_X_MAX,
     DEFAULT_NV_CENTER_FREQ_X_MIN,
@@ -69,7 +70,7 @@ def nv_center_smc_belief(
     with_zeeman_splitting: bool = True,
     with_fixed_frequency: bool = True,
     lineshape: str = "lorentzian",
-) -> UnitCubeSMCMarginalDistribution:
+) -> SMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
     By default uses Zeeman splitting (two dips) with the hyperfine structure
@@ -165,11 +166,6 @@ def nv_center_smc_belief(
         if "_priors" in parameter_bounds:
             merged_bounds["_priors"] = parameter_bounds["_priors"]
 
-    # Enforce dip_depth floor so the posterior cannot collapse to "flat signal".
-    if "dip_depth" in merged_bounds:
-        d_lo, d_hi = merged_bounds["dip_depth"]
-        merged_bounds["dip_depth"] = (max(float(d_lo), 0.05), float(d_hi))
-
     # Merge noise parameter bounds
     noise_spec = noise_model.spec
     for name in noise_spec.names:
@@ -197,7 +193,8 @@ def nv_center_smc_belief(
     x_phys = merged_bounds["frequency"]
     wrapped = UnitCubeSignalModel(model, merged_bounds, x_phys)
 
-    return UnitCubeSMCMarginalDistribution(
+    belief_cls = SMCMarginalDistribution if with_fixed_frequency else FreeFrequencySMCMarginalDistribution
+    return belief_cls(
         model=wrapped,
         parameter_bounds={name: (0.0, 1.0) for name in merged_bounds},
         num_particles=num_particles,

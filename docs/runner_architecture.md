@@ -16,7 +16,7 @@ Instead of running a single long simulation, the runner breaks down tasks into *
 For every **Bayesian** strategy being tested (e.g., `SequentialBayesianExperimentDesignLocator`), the runner automatically performs a "Sobol Baseline" measurement first.
 
 - **Purpose**: To provide a ground-truth benchmark of how a completely uniform, un-targeted random sequence (a van der Corput Sobol sequence) would converge given the same amount of time/noise. It calculates the expected uniform points needed.
-- **Isolation**: The baseline is completely decoupled from the actual strategy execution. It instantiates a fresh `SimpleSobolBayesianLocator` and a fresh `UnitCubeSMCMarginalDistribution` (belief). 
+- **Isolation**: The baseline is completely decoupled from the actual strategy execution. It instantiates a fresh `SimpleSobolBayesianLocator` and a fresh `SMCMarginalDistribution` (belief). 
 - **Decoupling**: Non-Bayesian locators (like `StagedSobolSweepLocator` in `coarse/sobol_locator.py`) might still track a "belief" internally to observe data, but the executor explicitly avoids running the 10,000-step Bayesian baseline on them to prevent heavy inference algorithms from throttling coarse, fast sweep strategies.
 
 ### 3. The Main Locator Phase

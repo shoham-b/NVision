@@ -11,8 +11,8 @@ from nvision import (
     CoreExperiment,
     NVCenterCoreGenerator,
     Observer,
+    SMCMarginalDistribution,
     UnitCubeSignalModel,
-    UnitCubeSMCMarginalDistribution,
     nv_center_smc_belief,
     run_loop,
 )
@@ -56,7 +56,7 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
 
 def test_narrow_scan_parameter_physical_bounds_smc():
     b = nv_center_smc_belief(num_particles=200, with_fixed_frequency=False, noise_model=gaussian_noise())
-    assert isinstance(b, UnitCubeSMCMarginalDistribution)
+    assert isinstance(b, SMCMarginalDistribution)
     old_lo, old_hi = b.physical_param_bounds["frequency"]
     mid = 0.5 * (old_lo + old_hi)
     quarter = 0.25 * (old_hi - old_lo)
@@ -71,10 +71,10 @@ def test_narrow_scan_parameter_physical_bounds_smc():
 def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
     # Test 1: Narrowing delay safeguard
     # Set the environment variable to 8 steps
-    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 8)
+    monkeypatch.setattr("nvision.belief.free_frequency_smc.NVISION_MIN_STEPS_BEFORE_NARROWING", 8)
 
     b = nv_center_smc_belief(num_particles=100, with_fixed_frequency=False, noise_model=gaussian_noise())
-    assert isinstance(b, UnitCubeSMCMarginalDistribution)
+    assert isinstance(b, SMCMarginalDistribution)
 
     # Capture original bounds
     orig_lo, orig_hi = b._original_physical_x_bounds
@@ -158,7 +158,7 @@ def test_smc_narrowing_delay_and_boundary_escape(monkeypatch):
 
 def test_smc_exact_active_range_union_narrowing(monkeypatch):
     # Set step count > min_narrowing_steps so narrowing runs
-    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 5)
+    monkeypatch.setattr("nvision.belief.free_frequency_smc.NVISION_MIN_STEPS_BEFORE_NARROWING", 5)
 
     # Mock the base class _resample to be a no-op so it doesn't resample, shrink,
     # or nudge our manually controlled particles.
@@ -174,7 +174,7 @@ def test_smc_exact_active_range_union_narrowing(monkeypatch):
         with_fixed_frequency=False,
         noise_model=gaussian_noise(),
     )
-    assert isinstance(b, UnitCubeSMCMarginalDistribution)
+    assert isinstance(b, SMCMarginalDistribution)
     b._step_count = 10  # > 5, narrowing runs
 
     # Let's inspect parameter names and map indices

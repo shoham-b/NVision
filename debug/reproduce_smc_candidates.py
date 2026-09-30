@@ -1,12 +1,12 @@
 """Reproduction script for checking SMC candidate values in UnitCube.
 
-Verifies if UnitCubeSMCMarginalDistribution incorrectly re-normalizes unit-space
+Verifies if SMCMarginalDistribution incorrectly re-normalizes unit-space
 candidates, leading to collapsed grids.
 """
 
 import numpy as np
 
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
@@ -27,7 +27,7 @@ def test_candidate_normalization():
     param_names = model.parameter_names()
     parameter_bounds = {name: (0.0, 1.0) for name in param_names}
 
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         model=model,
         num_particles=100,
         parameter_bounds=parameter_bounds,

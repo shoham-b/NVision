@@ -1,6 +1,6 @@
 import numpy as np
 
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.spectra.nv_center import NVCenterLorentzianModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from tests.noise import gaussian_noise
@@ -29,7 +29,7 @@ def test_select_max_information_gain_diversity():
 
     # Create a flat prior SMC belief
     param_bounds = {name: (0.0, 1.0) for name in phys_bounds}
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         model=wrapped_model,
         parameter_bounds=param_bounds,
         num_particles=1000,

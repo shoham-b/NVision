@@ -5,7 +5,7 @@ Covers:
 - robust_uncertainty() (weighted IQR/1.349) staying tight when a small minority
   of particles sit far from the bulk of the cloud, unlike uncertainty() (raw
   weighted std), which is quadratic in distance and gets inflated by them.
-- UnitCubeSMCMarginalDistribution's unit -> physical rescaling of the robust value.
+- SMCMarginalDistribution's unit -> physical rescaling of the robust value.
 - The default AbstractMarginalDistribution.robust_uncertainty() falling back to
   uncertainty() for belief types with no override.
 - SequentialBayesianExperimentDesignLocator._check_and_resample not resetting
@@ -23,7 +23,6 @@ import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.smc_marginal import SMCMarginalDistribution
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from tests.noise import gaussian_noise
 
@@ -76,15 +75,7 @@ def _fill_particles(belief: SMCMarginalDistribution, num_particles: int) -> None
 
 
 def _make_belief(num_particles: int = 200) -> SMCMarginalDistribution:
-    belief = SMCMarginalDistribution(
-        model=_SimpleModel(),
-        parameter_bounds={"amplitude": (0.0, 1.0), "center": (0.0, 1.0)},
-        num_particles=num_particles,
-        skip_state_init=True,
-        noise_model=gaussian_noise(),
-    )
-    _fill_particles(belief, num_particles)
-    return belief
+    return _make_unit_cube_belief({"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}, num_particles)
 
 
 def _set_particles_with_outliers(belief: SMCMarginalDistribution, n_outliers: int, outlier_value: float = 0.95) -> None:
@@ -166,9 +157,9 @@ class TestRobustUncertaintyDegenerateCases:
         assert math.isnan(result["center"])
 
 
-def _make_unit_cube_belief(phys_bounds: dict, num_particles: int = 200) -> UnitCubeSMCMarginalDistribution:
+def _make_unit_cube_belief(phys_bounds: dict, num_particles: int = 200) -> SMCMarginalDistribution:
     wrapped = UnitCubeSignalModel(_SimpleModel(), phys_bounds, phys_bounds["center"])
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         model=wrapped,
         parameter_bounds={"amplitude": (0.0, 1.0), "center": (0.0, 1.0)},
         num_particles=num_particles,
@@ -269,7 +260,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
             "c_total": (0.05, 0.3),
         }
         wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["frequency"])
-        belief = UnitCubeSMCMarginalDistribution(
+        belief = SMCMarginalDistribution(
             model=wrapped,
             parameter_bounds={name: (0.0, 1.0) for name in phys_bounds},
             num_particles=200,

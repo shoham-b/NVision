@@ -14,10 +14,10 @@ from scipy.special import gammaln
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
 from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_hz, find_dips
-from nvision.belief.focus_window import clamp_to_domain
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.noise_model import NoiseSignalModel
+from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 # --- Environment-driven defaults ---------------------------------------------
 
@@ -355,9 +355,15 @@ def _quantile_place_candidates(
 
 @dataclass
 class SMCMarginalDistribution(AbstractMarginalDistribution):
-    """Belief distribution using Sequential Monte Carlo (Particle Filter).
+    """Belief distribution using Sequential Monte Carlo (Particle Filter) on the unit cube.
 
-    Maintains a joint posterior over parameters using a set of weighted particles.
+    Maintains a joint posterior over parameters using a set of weighted particles. Particles
+    and uncertainties live in normalized ``[0, 1]`` space (``model`` must be a
+    :class:`UnitCubeSignalModel` mapping unit coordinates to the inner physical model) so
+    acquisition and convergence thresholds apply uniformly across parameters; the public
+    summaries (:meth:`estimates`, :meth:`uncertainty`, :meth:`get_candidates`, ...) are in
+    **physical** units.
+
     Resampling uses systematic resampling (low variance) followed by nudging with a
     multivariate Gaussian kernel and Liu-West shrinkage (contraction) to maintain
     diversity and preserve distribution moments.
@@ -373,6 +379,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     """
 
     parameter_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
+    physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
+    physical_x_bounds: tuple[float, float] = (0.0, 1.0)
     num_particles: int = NVISION_SMC_NUM_PARTICLES
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD
     a_param: float = NVISION_SMC_A_PARAM
@@ -450,7 +458,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 f"SMC belief noise_model must expose exactly ['noise_sigma'], got {list(self.noise_model.spec.names)}"
             )
 
+        if not isinstance(self.model, UnitCubeSignalModel):
+            raise TypeError("SMCMarginalDistribution requires a UnitCubeSignalModel")
+
         self._param_names = list(self.model.parameter_names())
+        # The full probe domain, never narrowed: observation ``x`` is always a unit coordinate of it.
+        self._original_physical_x_bounds = self.physical_x_bounds
+
+        # Every parameter (and the noise parameter) lives on [0, 1]. "frequency" is always the
+        # probe/measurement x-axis even when it is fixed and so not a particle dimension
+        # (_param_names comes from the model, not from this dict's keys).
+        self.parameter_bounds = {name: (0.0, 1.0) for name in (*self._param_names, *self.noise_model.spec.names)}
+        if "frequency" in self.physical_param_bounds:
+            self.parameter_bounds["frequency"] = (0.0, 1.0)
 
         # Initialize particles uniformly within bounds.
         # Column-major (Fortran) layout: per-parameter columns are the access
@@ -470,28 +490,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             if self.priors and name in self.priors:
                 prior_val = self.priors[name]
                 if isinstance(prior_val, tuple) and len(prior_val) >= 2 and prior_val[0] == "sin^2":
+                    # Rejection sampling of p(f) ~ sin^2(k (f - f_min)) in physical space, mapped to the unit cube.
                     k = prior_val[1]
-                    phys_bounds = getattr(self, "physical_param_bounds", None)
-                    if phys_bounds and name in phys_bounds:
-                        f_min, f_max = phys_bounds[name]
-                    else:
-                        f_min, f_max = lo, hi
-
-                    # Rejection sampling in physical space
+                    f_min, f_max = self.physical_param_bounds[name]
                     sampled = []
                     while len(sampled) < self.num_particles:
                         candidates = np.random.uniform(f_min, f_max, self.num_particles)
                         probs = np.sin(k * (candidates - f_min)) ** 2
                         u = np.random.uniform(0.0, 1.0, self.num_particles)
-                        accepted = candidates[u < probs]
-                        sampled.extend(accepted)
-                    sampled = np.array(sampled[: self.num_particles])
-
-                    # Map back to unit space if in UnitCubeSMCMarginalDistribution
-                    if phys_bounds and name in phys_bounds:
-                        self._particles[:, i] = (sampled - f_min) / (f_max - f_min)
-                    else:
-                        self._particles[:, i] = sampled
+                        sampled.extend(candidates[u < probs])
+                    self._particles[:, i] = (np.array(sampled[: self.num_particles]) - f_min) / (f_max - f_min)
                 else:
                     mean, std = prior_val
                     self._particles[:, i] = _sample_truncated_normal(mean, std, lo, hi, self.num_particles)
@@ -629,8 +637,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return list(self._dip_candidates)
 
     def get_candidates(self) -> np.ndarray:
-        """Return the current epoch's slope-targeted candidate grid."""
-        return self._current_candidates
+        """Return the current epoch's slope-targeted candidate grid in **physical** frequency units.
+
+        Internally the grid is stored on the unit cube (like the particles); the locator and
+        :meth:`expected_information_gain` both operate in physical space.
+        """
+        lo, hi = self.physical_x_bounds
+        return lo + self._current_candidates.astype(np.float64) * (hi - lo)
 
     def observation_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(x, signal_value)`` of all observations as flat float arrays.
@@ -1147,8 +1160,24 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return dict(res)
 
     def estimates(self) -> dict[str, float]:
-        """Return parameter estimates (weighted mean)."""
-        return self._estimates_unit()
+        """Return parameter estimates (weighted mean) in **physical** units."""
+        return self._unit_to_physical_values(self._estimates_unit())
+
+    def _unit_to_physical_values(self, unit_values: dict[str, float]) -> dict[str, float]:
+        """Map per-parameter positions from the unit cube to physical values (``noise_sigma`` is already physical)."""
+        return {k: (v if k == "noise_sigma" else self._to_physical(k, v)) for k, v in unit_values.items()}
+
+    def _to_physical(self, name: str, u: float) -> float:
+        lo, hi = self.physical_param_bounds[name]
+        return lo + float(u) * (hi - lo)
+
+    def particles_phys(self) -> dict[str, np.ndarray]:
+        """Particle positions in physical units, by parameter name. Each array shape: (n_particles,)"""
+        out = {}
+        for j, name in enumerate(self._param_names):
+            lo, hi = self.physical_param_bounds[name]
+            out[name] = lo + self._particles[:, j].astype(np.float64) * (hi - lo)
+        return out
 
     def mode_estimates(self) -> dict[str, float]:
         """Return the highest-weight particle's joint state (posterior mode).
@@ -1160,7 +1189,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         idx = int(np.argmax(self._weights))
         res = {name: float(self._particles[idx, i]) for i, name in enumerate(self._param_names)}
         res["noise_sigma"] = float(np.sqrt(self._noise_betas[idx] / self._noise_alphas[idx]))
-        return res
+        return self._unit_to_physical_values(res)
 
     def _uncertainty_unit(self) -> ParameterValues[float]:
         """Return parameter uncertainties (std dev) in internal unit/belief space.
@@ -1205,8 +1234,19 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._uncertainty_cache_version = self._belief_version
         return result
 
+    def _unit_to_physical_spread(self, raw: ParameterValues[float]) -> ParameterValues[float]:
+        """Rescale unit-cube spreads by each parameter's physical range (``noise_sigma`` is already physical)."""
+        data = {}
+        for name, u in raw.items():
+            if name == "noise_sigma":
+                data[name] = u
+            else:
+                lo, hi = self.physical_param_bounds[name]
+                data[name] = u * (hi - lo)
+        return ParameterValues.from_mapping(list(data.keys()), data)
+
     def _empirical_uncertainty(self) -> ParameterValues[float]:
-        return self._uncertainty_unit()
+        return self._unit_to_physical_spread(self._uncertainty_unit())
 
     def _robust_uncertainty_unit(self) -> ParameterValues[float]:
         """Outlier-insensitive marginal spread (weighted IQR / 1.349) in unit space.
@@ -1264,7 +1304,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return ParameterValues.from_mapping(list(stds.keys()), stds)
 
     def _empirical_robust_uncertainty(self) -> ParameterValues[float]:
-        return self._robust_uncertainty_unit()
+        # The IQR-based spread is linear-scale like std, so the same bound-width multiply applies.
+        return self._unit_to_physical_spread(self._robust_uncertainty_unit())
 
     def entropy(self) -> float:
         # Simple Kozachenko-Leonenko nearest-neighbor entropy estimator could go here.
@@ -1299,20 +1340,23 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return cov
 
     def covariance_matrix(self) -> np.ndarray:
-        """Return full covariance matrix of particle distribution.
-
-        Returns a (d, d) array where d is the number of parameters.
-        """
-        # Return cached covariance if available for the current step.
-        return self._cached_covariance()
+        """Return the physical-scale covariance matrix of the particles. shape: (d, d), d = n parameters."""
+        ranges = np.array(
+            [self.physical_param_bounds[name][1] - self.physical_param_bounds[name][0] for name in self._param_names]
+        )
+        return self._cached_covariance() * np.outer(ranges, ranges)
 
     def converged(self, threshold: float) -> bool:
-        return all(u < threshold for u in self.uncertainty().values())
+        # Checked in unit [0, 1] space. Not used by the SBED/Sobol locators (they gate on
+        # _target_params_converged), but kept consistent for any belief-level convergence query.
+        return all(u < threshold for u in self._uncertainty_unit().values())
 
     def copy(self) -> SMCMarginalDistribution:
-        dist = SMCMarginalDistribution(
+        dist = type(self)(
             model=self.model,
             parameter_bounds=self.parameter_bounds.copy(),
+            physical_param_bounds=dict(self.physical_param_bounds),
+            physical_x_bounds=self.physical_x_bounds,
             num_particles=self.num_particles,
             ess_threshold=self.ess_threshold,
             a_param=self.a_param,
@@ -1336,6 +1380,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._step_count = self._step_count
         dist.resampled = self.resampled
         dist.last_ess = self.last_ess
+        dist._original_physical_x_bounds = self._original_physical_x_bounds
         dist._obs_x_arr = self._obs_x_arr.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()
         dist._obs_sort_order = self._obs_sort_order.copy()
@@ -1393,6 +1438,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def expected_information_gain(self, candidates: np.ndarray) -> np.ndarray:
         """Compute the approximate expected information gain for candidate locations.
 
+        ``candidates`` are physical frequencies; shape: (n_candidates,).
+
         Uses the approximation:
         EIG(d) ≈ 1/2 * ln(1 + sigma_theta^2 / sigma_eta^2)
         where sigma_theta^2 is the prediction variance (disagreement for that frequency across particles)
@@ -1407,7 +1454,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         quality loss.  This is critical at large particle counts (e.g. N=10 000
         produces an 80 MB matrix at 2000 candidates; subsampling to 500 gives 4 MB).
         """
-        var_pred = self._eig_variance_cached(candidates, self._particles.shape[0], NVISION_SMC_EIG_PARTICLES)
+        lo, hi = self.physical_x_bounds
+        unit_candidates = (candidates - lo) / (hi - lo)
+        var_pred = self._eig_variance_cached(unit_candidates, self._particles.shape[0], NVISION_SMC_EIG_PARTICLES)
 
         est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
         noise_var = max(float(np.sum(self._weights * est_variances)), 1e-12)
@@ -1477,48 +1526,203 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         np.maximum(var_pred, 0.0, out=var_pred)
         return var_pred
 
-    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:
-        """Shrink physical bounds and clip particles into the new window."""
-        if param_name in self.parameter_bounds:
-            old_lo, old_hi = self.parameter_bounds[param_name]
-            lo, hi = clamp_to_domain(new_lo, new_hi, old_lo, old_hi)
-            self.parameter_bounds[param_name] = (lo, hi)
-
-            # Immediately snap particles into the new tighter bounds
-            if param_name in self._param_names:
-                idx = self._param_names.index(param_name)
-                self._particles[:, idx] = np.clip(self._particles[:, idx], lo, hi)
-                self._belief_version += 1
-
-            # If the scan parameter was narrowed, rebuild the candidate density mixture
-            # against the new (tighter) domain bounds.
-            if param_name == "frequency":
-                self._generate_epoch_candidates()
-
     @property
     def _rescale_maps(self) -> dict[str, RescaleMap]:
-        """Return a ``RescaleMap`` per parameter derived from ``parameter_bounds``.
+        """A ``RescaleMap`` (unit <-> physical) per parameter.
 
-        For the base ``SMCMarginalDistribution`` particles live in physical
-        space, so ``parameter_bounds`` *is* the physical range and each map is
-        the identity rescaling for that parameter.
-
-        ``UnitCubeSMCMarginalDistribution`` overrides this to build maps from
-        ``physical_param_bounds`` (and ``_original_physical_x_bounds`` for
-        frequency) so that the unit-cube↔physical conversion is always correct
-        even after the focus window has narrowed.
+        The frequency map always spans the *original* probe domain so that
+        ``_rescale_maps["frequency"].to_phys(obs_x)`` converts the stored ``[0, 1]`` observation
+        coordinate correctly even after a focus window has narrowed ``physical_param_bounds``.
+        "frequency" is the probe axis whether or not it is also a particle dimension.
         """
-        if "frequency" not in self.parameter_bounds:
-            raise RuntimeError(
-                f"{type(self).__name__} is missing 'frequency' in parameter_bounds. "
-                "All beliefs must declare physical frequency bounds at construction."
-            )
-        return {name: RescaleMap(lo=float(lo), hi=float(hi)) for name, (lo, hi) in self.parameter_bounds.items()}
+        lo, hi = self._original_physical_x_bounds
+        maps: dict[str, RescaleMap] = {"frequency": RescaleMap(lo=float(lo), hi=float(hi))}
+        for name in self._param_names:
+            if name != "frequency":
+                lo, hi = self.physical_param_bounds[name]
+                maps[name] = RescaleMap(lo=float(lo), hi=float(hi))
+        return maps
 
-    @property
-    def physical_param_bounds(self) -> dict[str, tuple[float, float]]:
-        """Physical bounds for each parameter (same as parameter_bounds)."""
-        return self.parameter_bounds
+    def _fim_param_values(self) -> dict[str, float]:
+        """Unit-cube estimates — ``self.model`` is the unit-cube wrapper (see base docstring)."""
+        return self._estimates_unit()
+
+    def crlb_per_param(self) -> dict[str, float]:
+        """Marginal CRLB per parameter in **physical** units.
+
+        The cumulative FIM is accumulated in unit-cube coordinates (that is the
+        space ``self.model`` and ``obs.x`` live in), so its CRLBs come out as
+        unit-cube stds and are rescaled by each parameter's physical range here
+        — the same conversion :meth:`_empirical_uncertainty` applies, so the two
+        are directly comparable by callers such as the CRLB early-stop.
+        """
+        raw = super().crlb_per_param()
+        out: dict[str, float] = {}
+        for name, std in raw.items():
+            if name in self.physical_param_bounds:
+                lo, hi = self.physical_param_bounds[name]
+                out[name] = std * (hi - lo)
+            else:
+                out[name] = std
+        return out
+
+    def uncertainty(self) -> ParameterValues[float]:
+        return self._empirical_uncertainty()
+
+    def robust_uncertainty(self) -> ParameterValues[float]:
+        return self._empirical_robust_uncertainty()
+
+    def crlb_frequency(self) -> float:
+        """Analytical CRLB for frequency (physical Hz) for the NV Lorentzian/Voigt models.
+
+        Uses the closed-form Fisher result for uniform sampling of a single
+        population-normalized dip of height-normalized shape ``V`` (peak 1) and
+        amplitude ``a``:
+        ``I(f) = (ρ/σ²)·a²·J``, ``CRLB_f = sqrt(σ² / (ρ·a²·J))``
+        where σ = noise std, ρ = n_obs / bandwidth (measurements per Hz), and
+        ``J = ∫(V'(x))² dx`` depends only on the lineshape.
+
+        For a Lorentzian of HWHM Ω, ``J = π/(4Ω)`` — verified by direct numerical
+        integration of ``(∂S/∂f)²`` against the coded ``nv_center_lorentzian_eval``
+        (confirms the ``4`` in the denominator here, not ``2``).
+
+        Returns ``math.inf`` for unsupported models or before any observations.
+        """
+        from nvision.spectra.nv_center import NVCenterLorentzianModel, NVCenterSaturationVoigtModel, NVCenterVoigtModel
+
+        inner = self.model.inner
+
+        if self._obs_count == 0 or self.last_obs is None:
+            return math.inf
+
+        noise_std = self.estimated_noise_std()
+        if noise_std <= 0:
+            return math.inf
+
+        lo, hi = self._original_physical_x_bounds
+        bandwidth = hi - lo
+        if bandwidth <= 0:
+            return math.inf
+
+        rho = self._obs_count / bandwidth  # measurements per Hz
+
+        if isinstance(inner, NVCenterLorentzianModel):
+            ests = self.estimates()  # physical-space values
+            linewidth = ests.get("linewidth")
+            c_total = ests.get("c_total")
+            if linewidth is None or c_total is None or c_total <= 0 or linewidth <= 0:
+                return math.inf
+            variance = (4.0 * noise_std**2 * linewidth) / (math.pi * c_total**2 * rho)
+            return math.sqrt(max(variance, 0.0))
+
+        if isinstance(inner, NVCenterSaturationVoigtModel):
+            from nvision.spectra.numba_kernels import _pv_factors
+            from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
+
+            ests = self.estimates()  # physical-space values
+            saturation = ests.get("saturation")
+            sigma_inhom = ests.get("sigma_inhom")
+            if saturation is None or sigma_inhom is None:
+                return math.inf
+
+            fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam_scalar(
+                saturation, sigma_inhom, NV_SATURATION_C_MAX
+            )
+            if fwhm_total <= 0 or c_total <= 0:
+                return math.inf
+
+            elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
+            # J = ∫(V')²dx for the height-normalized pseudo-Voigt V, dropping the
+            # Lorentzian x Gaussian cross-term (single-dip approximation, matching
+            # the Lorentzian branch above). This underestimates J for genuinely
+            # mixed lineshapes, i.e. is a conservative (larger) CRLB — verified
+            # numerically to be exact in the sigma_inhom -> 0 (pure Lorentzian) limit.
+            j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
+            j_gauss = (egf**2) * math.sqrt(-math.pi * nhs / 2.0) if has_sigma and nhs < 0 else 0.0
+            j_total = j_lorentz + j_gauss
+            if j_total <= 0:
+                return math.inf
+
+            variance = noise_std**2 / (rho * c_total**2 * j_total)
+            return math.sqrt(max(variance, 0.0))
+
+        if isinstance(inner, NVCenterVoigtModel):
+            from nvision.spectra.numba_kernels import _pv_factors
+            from nvision.spectra.nv_center import _voigt_reparam_scalar
+
+            ests = self.estimates()  # physical-space values
+            homogeneous_linewidth = ests.get("homogeneous_linewidth")
+            sigma_inhom = ests.get("sigma_inhom")
+            c_total = ests.get("c_total")
+            if homogeneous_linewidth is None or sigma_inhom is None or c_total is None:
+                return math.inf
+            if homogeneous_linewidth <= 0 or c_total <= 0:
+                return math.inf
+
+            fwhm_total, lorentz_frac = _voigt_reparam_scalar(homogeneous_linewidth, sigma_inhom)
+            if fwhm_total <= 0:
+                return math.inf
+
+            elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
+            # Same J = ∫(V')²dx single-dip approximation as the saturation-Voigt branch
+            # above (shared pseudo-Voigt shape function and now the same c_total
+            # amplitude convention too).
+            j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
+            j_gauss = (egf**2) * math.sqrt(-math.pi * nhs / 2.0) if has_sigma and nhs < 0 else 0.0
+            j_total = j_lorentz + j_gauss
+            if j_total <= 0:
+                return math.inf
+
+            variance = noise_std**2 / (rho * c_total**2 * j_total)
+            return math.sqrt(max(variance, 0.0))
+
+        return math.inf
+
+    def reported_uncertainty(self) -> ParameterValues[float]:
+        """Physical uncertainty, floored so it never claims impossible precision.
+
+        Two floors, both applied at 1× (no safety factor on either — see below):
+
+        * ``frequency`` — the closed-form ``crlb_frequency()``.
+        * every other parameter — its own **marginal** CRLB from the cumulative
+          FIM (``crlb_per_param()``, i.e. ``sqrt(diag(pinv(FIM)))``, so nuisance
+          parameters are profiled out rather than held fixed).
+
+        ``NVISION_FREQ_CRLB_SAFETY_FACTOR`` (used by the locator's
+        ``_check_crlb_early_stop`` to gate *when to stop*) does not apply here —
+        that factor governs a stopping decision, not what uncertainty value is
+        reported once stopped. Applying it to this floor would inflate the
+        reported number past what the CRLB actually requires.
+
+        The per-parameter floor exists because the particle spread alone
+        understates the uncertainty exactly where it matters most. When two
+        parameters trade off along a near-flat ridge — ``zeeman_split`` against
+        the width pair below the dip-resolution threshold is the standard case —
+        the SMC posterior can be narrow and *wrong*, while the marginal CRLB
+        correctly blows up because the FIM is near-singular in that direction.
+        Measured over 120 mixed repeats (56 deliberately degenerate), flooring
+        moves the median ``error / reported σ`` for ``zeeman_split`` from 1.21 to
+        0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; ``c_total`` goes
+        1.61 -> 0.96 and 18.3% -> 3.3%. The width pair becomes ~2-3× conservative
+        (medians 1.03/1.38 -> 0.36/0.49) because both sit *in* the degenerate
+        direction even though their sum stays well determined -- an accepted
+        trade: overstating precision is the dangerous direction.
+
+        No safety factor is applied to either floor deliberately: the CRLB is
+        already a hard lower bound on any unbiased estimator's variance, so 1×
+        is the principled choice, and 4× (``NVISION_FREQ_CRLB_SAFETY_FACTOR``)
+        over-corrects badly (medians drop to 0.09-0.25). Control-flow paths must
+        use :meth:`uncertainty` instead.
+        """
+        data = dict(self.uncertainty().items())
+        crlb = self.crlb_frequency()
+        if math.isfinite(crlb) and "frequency" in data:
+            data["frequency"] = max(data["frequency"], crlb)
+
+        for name, floor in self.crlb_per_param().items():
+            if name != "frequency" and name in data and math.isfinite(floor) and floor > 0:
+                data[name] = max(data[name], floor)
+        return ParameterValues.from_mapping(list(data.keys()), data)
 
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import gaussian_kde, norm

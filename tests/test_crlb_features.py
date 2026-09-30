@@ -383,7 +383,7 @@ def test_oracle_crlb_history_no_gradient_returns_empty_dicts() -> None:
 
 def _make_sbed_locator(max_steps: int = 500):
     """Return a minimal SBED locator over a standard NV-center belief."""
-    from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+    from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.spectra.unit_cube import UnitCubeSignalModel
 
     model = NVCenterLorentzianModel()
@@ -397,7 +397,7 @@ def _make_sbed_locator(max_steps: int = 500):
     x_bounds = phys_bounds["frequency"]
     wrapped_model = UnitCubeSignalModel(model, phys_bounds, x_bounds)
     param_bounds = {name: (0.0, 1.0) for name in phys_bounds}
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         model=wrapped_model,
         parameter_bounds=param_bounds,
         num_particles=50,

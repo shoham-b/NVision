@@ -1,6 +1,6 @@
 import numpy as np
 
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
@@ -37,7 +37,7 @@ def test_generic_sweep_classic_fit():
         x_bounds_phys=(2860.0, 2880.0),
     )
 
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         unit_model,
         num_particles=100,
         physical_param_bounds=unit_model.param_bounds_phys,

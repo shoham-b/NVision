@@ -10,7 +10,7 @@ proves each of those four call sites actually calls the shared function rather
 than a copy of its arithmetic.
 
 ``FocusWindow.propose_narrowing`` (the floor + clamp + minimum-shrink-fraction
-decision) has exactly **one** caller: ``UnitCubeSMCMarginalDistribution._resample``.
+decision) has exactly **one** caller: ``SMCMarginalDistribution._resample``.
 The sweep locators' ``StagedSobolSweepLocator``/``Stage3SobolLocator`` window
 updates go through ``FocusWindow.from_candidate`` instead, which only clamps
 and rejects a collapsed window -- it does not know about a width floor or a
@@ -21,7 +21,7 @@ than actually exists.
 ``TestProposeNarrowingAgainstOracle`` and ``TestIsFullDomainAgainstOracle``
 fuzz the shared functions against reference implementations that are literal
 transcriptions of the pre-refactor inline code in
-``UnitCubeSMCMarginalDistribution._resample`` (see git history), asserting
+``SMCMarginalDistribution._resample`` (see git history), asserting
 *exact* equality -- the refactor was meant to move code, not change any
 formula.
 """
@@ -140,7 +140,7 @@ class TestIsFullDomain:
 
 # ---------------------------------------------------------------------------
 # Oracle tests: reference implementations transcribed from the pre-refactor
-# inline code in UnitCubeSMCMarginalDistribution._resample.
+# inline code in SMCMarginalDistribution._resample.
 # ---------------------------------------------------------------------------
 
 
@@ -301,39 +301,8 @@ class TestIsFullDomainAgainstOracle:
 
 
 class TestClampToDomainRouting:
-    def test_base_smc_narrow_scan_parameter_physical_bounds_routes_through_clamp(self, monkeypatch):
-        import nvision.belief.smc_marginal as smc_marginal_mod
-        from nvision.belief.smc_marginal import SMCMarginalDistribution
-        from nvision.spectra.nv_center import NVCenterLorentzianModel
-        from tests.noise import gaussian_noise
-
-        calls: list[tuple] = []
-        real_clamp = smc_marginal_mod.clamp_to_domain
-
-        def spy(lo, hi, domain_lo, domain_hi):
-            calls.append((lo, hi, domain_lo, domain_hi))
-            return real_clamp(lo, hi, domain_lo, domain_hi)
-
-        monkeypatch.setattr(smc_marginal_mod, "clamp_to_domain", spy)
-
-        bounds = {
-            "frequency": (2.7e9, 2.8e9),
-            "linewidth": (0.0, 1.0),
-            "split": (4e6, 6e6),
-            "k_np": (1.0, 5.0),
-            "c_total": (0.1, 0.9),
-        }
-        belief = SMCMarginalDistribution(
-            model=NVCenterLorentzianModel(),
-            parameter_bounds=bounds,
-            num_particles=50,
-            noise_model=gaussian_noise(),
-        )
-        belief.narrow_scan_parameter_physical_bounds("linewidth", 0.2, 0.8)
-        assert calls == [(0.2, 0.8, 0.0, 1.0)]
-
-    def test_unit_cube_smc_narrow_scan_parameter_physical_bounds_routes_through_clamp(self, monkeypatch):
-        import nvision.belief.unit_cube_smc_marginal as ucsm_mod
+    def test_free_frequency_smc_narrow_scan_parameter_physical_bounds_routes_through_clamp(self, monkeypatch):
+        import nvision.belief.free_frequency_smc as ucsm_mod
         from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
         from tests.noise import gaussian_noise
 

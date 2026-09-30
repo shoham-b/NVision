@@ -90,6 +90,7 @@ def _make_rb_belief(seed: int = 0):
     from nvision.belief.smc_marginal import SMCMarginalDistribution
     from nvision.spectra.gaussian import GaussianModel
     from nvision.spectra.noise_model import GaussianNoiseSignalModel
+    from tests.unit_cube_belief_factory import make_smc
 
     class _NoCandidateSMC(SMCMarginalDistribution):
         # The base epoch-grid needs a 'linewidth' estimate the GaussianModel
@@ -107,9 +108,10 @@ def _make_rb_belief(seed: int = 0):
         "background": (0.0, 1.0),
     }
     np.random.seed(seed)
-    belief = _NoCandidateSMC(
-        model=model,
-        parameter_bounds=bounds,
+    belief = make_smc(
+        model,
+        bounds,
+        cls=_NoCandidateSMC,
         num_particles=500,
         noise_model=noise_model,
         auto_resample=False,
@@ -122,8 +124,8 @@ def test_rb_batch_tightens_noise_posterior():
     """A k-shot batch updates the Inverse-Gamma posterior more than a single shot."""
     ys = np.array([0.40, 0.50, 0.60, 0.55, 0.45])
     k = len(ys)
-    batch = aggregate_shots(2.75e9, ys, prior_noise_std=0.05)
-    single = Observation(x=2.75e9, signal_value=float(np.mean(ys)), noise_std=0.05)
+    batch = aggregate_shots(0.5, ys, prior_noise_std=0.05)
+    single = Observation(x=0.5, signal_value=float(np.mean(ys)), noise_std=0.05)
 
     b_batch = _make_rb_belief()
     b_single = _make_rb_belief()
@@ -145,8 +147,8 @@ def test_rb_batch_tightens_noise_posterior():
 
 def test_rb_single_shot_update_unchanged():
     """n_shots=1 (or absent) leaves the RB update numerically identical to before."""
-    plain = Observation(x=2.75e9, signal_value=0.42, noise_std=0.05)
-    with_default = Observation(x=2.75e9, signal_value=0.42, noise_std=0.05, n_shots=1)
+    plain = Observation(x=0.5, signal_value=0.42, noise_std=0.05)
+    with_default = Observation(x=0.5, signal_value=0.42, noise_std=0.05, n_shots=1)
 
     b_plain = _make_rb_belief()
     b_default = _make_rb_belief()

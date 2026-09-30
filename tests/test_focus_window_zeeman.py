@@ -1,7 +1,7 @@
 """Focus window must be Zeeman-symmetry aware.
 
 The default NV model is Zeeman-split: two identical dips at
-``frequency ± zeeman_split``. ``UnitCubeSMCMarginalDistribution._resample()``
+``frequency ± zeeman_split``. ``SMCMarginalDistribution._resample()``
 computes the auto-narrowed frequency envelope from per-particle predicted dip
 extents; before this fix ``zeeman_split`` was omitted from that math, so the
 narrowed envelope (and the measurement x-axis, via ``sync_x``) could exclude
@@ -33,7 +33,7 @@ from tests.noise import gaussian_noise
 
 @pytest.fixture(autouse=True)
 def _no_narrowing_delay(monkeypatch):
-    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 0)
+    monkeypatch.setattr("nvision.belief.free_frequency_smc.NVISION_MIN_STEPS_BEFORE_NARROWING", 0)
 
 
 def _concentrate_and_resample(smc, f0: float, delta0: float | None, *, seed: int, n: int):

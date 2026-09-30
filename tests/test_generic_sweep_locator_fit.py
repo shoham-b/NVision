@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from numpy.random import default_rng
 
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.models.observation import Observation
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.spectra.nv_center import (
@@ -39,7 +39,7 @@ def _build_locator(domain_lo=2.82, domain_hi=2.92, n_steps=100) -> GenericSweepL
         param_bounds_phys=dict(_BOUNDS) | {"frequency": (domain_lo, domain_hi)},
         x_bounds_phys=(domain_lo, domain_hi),
     )
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         unit_model,
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,
@@ -97,7 +97,7 @@ def _inject_sweep_data(
 def _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=100, noise_std=0.003) -> GenericSweepLocator:
     """Model-agnostic locator builder (Zeeman / Zeeman+hyperfine variants)."""
     unit_model = UnitCubeSignalModel(model, param_bounds_phys=bounds, x_bounds_phys=(domain_lo, domain_hi))
-    belief = UnitCubeSMCMarginalDistribution(
+    belief = SMCMarginalDistribution(
         unit_model,
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from nvision.belief.unit_cube_smc_marginal import UnitCubeSMCMarginalDistribution
+from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from tests.noise import gaussian_noise
 
@@ -9,15 +9,15 @@ from tests.noise import gaussian_noise
 @pytest.fixture(autouse=True)
 def isolate_focus_window_logic(monkeypatch):
     """Narrow immediately, and skip the (expensive, irrelevant here) epoch candidate generation."""
-    monkeypatch.setattr("nvision.belief.unit_cube_smc_marginal.NVISION_MIN_STEPS_BEFORE_NARROWING", 0)
+    monkeypatch.setattr("nvision.belief.free_frequency_smc.NVISION_MIN_STEPS_BEFORE_NARROWING", 0)
 
     def no_op_candidates(self) -> None:
         self._current_candidates = np.linspace(0.0, 1.0, 10).astype(np.float32)
 
-    monkeypatch.setattr(UnitCubeSMCMarginalDistribution, "_generate_epoch_candidates", no_op_candidates)
+    monkeypatch.setattr(SMCMarginalDistribution, "_generate_epoch_candidates", no_op_candidates)
 
 
-def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> UnitCubeSMCMarginalDistribution:
+def _make_smc(freq_lo: float = 2.7e9, freq_hi: float = 2.8e9) -> SMCMarginalDistribution:
     """A free-frequency NV-Lorentzian belief whose probe window is ``[freq_lo, freq_hi]``."""
     smc = nv_center_smc_belief(
         {"frequency": (freq_lo, freq_hi)},
