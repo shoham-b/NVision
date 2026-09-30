@@ -229,6 +229,10 @@ def physics_config_fingerprint() -> str:
         # Bumped when the probe window became the upper half [D, D + delta] instead of the
         # symmetric [D - delta, D + delta]; the constants above kept their values.
         "half-window-v1",
+        # Bumped when the SMC epoch candidate grid started placing slope/dip targets at the
+        # *physical* estimated linewidth/split (it had used unit-estimate x range, dropping each
+        # bound's lower edge) and plain-Voigt slopes started including the Gaussian width.
+        "epoch-slope-physical-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,

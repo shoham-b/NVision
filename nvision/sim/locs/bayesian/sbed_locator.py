@@ -8,7 +8,7 @@ import os
 import numpy as np
 from numba import njit
 
-from nvision.belief.dip_detection import effective_max_linewidth_hz
+from nvision.belief.smc_marginal import NVISION_EXPLORATION_DECAY_STEPS
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
@@ -16,77 +16,36 @@ from nvision.sim.defaults import (
     NVISION_SMC_CANDIDATE_STEP_HZ,
 )
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.spectra.nv_center import effective_hwhm
 
 # Minimum number of consecutive converged checks before declaring convergence.
 # Prevents false early stops on the first measurement, especially with no noise.
 NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
 
-# Adaptive plateau stop: give up when the *estimate itself* stops moving, rather than
-# when some derived quantity claims the information limit has been reached.
-#
-# Motivated by the measured error-vs-steps curve on the NV voigt grid (120 repeats,
-# median |error| on `zeeman_split`): 1.483 MHz at step 10 -> 0.237 at 25 -> 0.059 at 50
-# -> 0.022 at 100 -> 0.016 at 450. The knee is around step 100; the last 350 steps of a
-# 450-step budget buy ~1.3x while costing 4.5x the measurements. So there IS a real
-# early-stop win here -- roughly 3-4x fewer measurements for a few percent of accuracy --
-# but a FIM-CRLB-driven stop (evaluated and rejected) cannot capture it: it fired at median step 24, i.e. just
-# *before* the steepest part of the curve, where the estimate is still 14x worse than it
-# will be. Tracking movement of the estimate measures diminishing returns directly, so it
-# fires where the curve actually flattens and adapts per-run instead of encoding a budget.
-#
-# Movement is normalized by each parameter's own current uncertainty, so the test reads
-# "the estimate has drifted less than a fraction of its own error bar over the last
-# WINDOW steps" -- scale-free across parameters that differ by orders of magnitude.
-#
-# SIGMA_FRAC was calibrated by replaying the criterion inside full-budget runs (so the
-# stop step and the budget estimate come from the SAME run, no cross-arm confound) over
-# 120 repeats, then confirmed with a live A/B of the shipped rule (120 configs/arm):
-#
-#            ordinary configs                  degenerate configs
-#   frac  fires  med step  saving          fires  med step  saving
-#   0.10   41%      367     1.2x            79%      284     1.6x   <- unreliable
-#   0.15   83%      330     1.4x            98%      201     2.2x
-#   0.25  100%      197     2.3x           100%      124     3.6x   <- default
-#   0.40  100%      132     3.4x           100%       86     5.2x
-#
-# Live A/B at 0.25 (median steps 450 -> 220 ordinary, 450 -> 124 degenerate):
-# ordinary `zeeman_split` error 0.0211 -> 0.0233 MHz, `homogeneous_linewidth` 0.165 ->
-# 0.154 (better), `sigma_inhom` 0.136 -> 0.164, `c_total` 0.0025 -> 0.0032. Degenerate:
-# `zeeman_split` 0.406 -> 0.604, widths slightly better. Both beat the sqrt(n) rule of
-# thumb -- a 2-3.6x cut in measurements costs well under the sqrt(2)-sqrt(3.6) error
-# increase it would naively imply.
-#
-# Cost to be aware of when tuning: on the degenerate configs the catastrophic rate
-# (`zeeman_split` error > 1 MHz) went 7.1% -> 12.5% (4 -> 7 of 56, small counts). Drop
-# SIGMA_FRAC to 0.15 to keep most of that margin at a 2.2x rather than 3.6x saving.
+# Adaptive plateau stop: give up when the *estimate itself* stops moving, rather than when a derived
+# quantity (e.g. a FIM-CRLB) claims the information limit has been reached -- those fired before the
+# error-vs-steps curve flattened. Movement is normalized by each parameter's own current uncertainty
+# ("drifted less than a fraction of its own error bar over the last WINDOW steps"), so one threshold is
+# scale-free across parameters. SIGMA_FRAC was calibrated by replaying the rule inside full-budget runs
+# (120 repeats) and confirmed by a live A/B: at 0.25 the median stop falls from 450 to ~220 steps
+# (ordinary configs) for a few percent of accuracy; 0.15 keeps more margin on degenerate configs
+# (fewer catastrophic fits) at a smaller saving.
 _PLATEAU_WINDOW: int = int(os.getenv("NVISION_SBED_PLATEAU_WINDOW", "30"))
 _PLATEAU_SIGMA_FRAC: float = float(os.getenv("NVISION_SBED_PLATEAU_SIGMA_FRAC", "0.25"))
 
 
-def _effective_linewidth_and_contrast_estimate(est: dict, phys_bounds: dict) -> tuple[float, float | None]:
+def _effective_linewidth_and_contrast_estimate(est: dict) -> tuple[float, float | None]:
     """Return (effective HWHM Hz estimate, realized contrast estimate), lineshape-agnostic.
 
-    Falls back to the bound's max effective linewidth when the current
-    estimate is unavailable, mirroring the pre-existing ``lw_bounds[1]``
-    fallback. Contrast is ``None`` when the model has no population-style
-    amplitude estimate.
+    Contrast is ``None`` when the model has no population-style amplitude estimate.
     """
-    if "linewidth" in est:
-        lw_bounds = phys_bounds.get("linewidth", (0.0, 1e6))
-        return est.get("linewidth", lw_bounds[1]), est.get("c_total")
+    lw = float(effective_hwhm(est))
     if "saturation" in est and "sigma_inhom" in est:
         from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
 
-        saturation = est.get("saturation")
-        sigma_inhom = est.get("sigma_inhom")
-        if saturation is None or sigma_inhom is None:
-            return effective_max_linewidth_hz(phys_bounds), None
-        fwhm_total, _, c_total = _saturation_voigt_reparam_scalar(saturation, sigma_inhom, NV_SATURATION_C_MAX)
-        return fwhm_total / 2.0, c_total
-    if "homogeneous_linewidth" in est:
-        hl_bounds = phys_bounds.get("homogeneous_linewidth", (0.0, 2e6))
-        return est.get("homogeneous_linewidth", hl_bounds[1]), est.get("c_total")
-    return effective_max_linewidth_hz(phys_bounds), None
+        _, _, c_total = _saturation_voigt_reparam_scalar(est["saturation"], est["sigma_inhom"], NV_SATURATION_C_MAX)
+        return lw, c_total
+    return lw, est.get("c_total")
 
 
 @njit(cache=True)
@@ -204,9 +163,9 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     def _acquire(self) -> float:
         """Select the next measurement point by maximizing EIG over a frequency grid.
 
-        A decaying share of steps instead explores: uniformly over the whole probe window
-        (to find dips the posterior has narrowed away from), or near a dip the data already
-        show (:meth:`SMCMarginalDistribution.dip_candidates`).
+        A share of steps instead explores: uniformly over the whole probe window (decaying with
+        the step count, to find dips the posterior has narrowed away from), or near a dip the
+        data already show (:meth:`SMCMarginalDistribution.dip_candidates`).
         """
         lo, hi = self._acquisition_bounds()
         if hi <= lo:
@@ -222,7 +181,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # search in _eig_acquire() is skipped entirely on steps where it would be discarded.
         # The uniform exploration probability decays exponentially to focus on EIG as the scan
         # progresses.
-        decay = np.exp(-self.inference_step_count / 25.0)
+        decay = np.exp(-self.inference_step_count / NVISION_EXPLORATION_DECAY_STEPS)
         rand_val = np.random.rand()
         if rand_val < 0.1 * decay:
             return float(np.random.uniform(orig_lo, orig_hi))
@@ -233,12 +192,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             if dip_centers:
                 center = float(np.random.choice(dip_centers))
                 return center + float(np.random.uniform(max(-5e6, orig_lo - center), min(5e6, orig_hi - center)))
-
-            # No dip found yet: Thompson sampling of the scanned parameter from the posterior.
-            if self._scan_param in self.belief._param_names:
-                idx = int(np.random.choice(len(self.belief._weights), p=self.belief._weights))
-                p_idx = self.belief._param_names.index(self._scan_param)
-                return self.belief._to_physical(self._scan_param, float(self.belief._particles[idx, p_idx]))
 
         return self._eig_acquire()
 
@@ -430,7 +383,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         """
         est = self.belief.estimates()
         sigma_hat = self.belief.estimated_noise_std()
-        lw_hat, c_hat = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
+        lw_hat, c_hat = _effective_linewidth_and_contrast_estimate(est)
 
         # Compute permissive theoretical step budget from sigma_hat + belief estimates.
         # n_theory = 4σ̂²·lw·bandwidth / (π·c²·T²) — steps needed for uniform sampling to reach T.

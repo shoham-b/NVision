@@ -17,6 +17,7 @@ from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_h
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.noise_model import NoiseSignalModel
+from nvision.spectra.nv_center import effective_hwhm
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 # --- Environment-driven defaults ---------------------------------------------
@@ -56,6 +57,10 @@ NVISION_SMC_DIP_WINDOW_MIN_HZ: float = float(os.getenv("NVISION_SMC_DIP_WINDOW_M
 NVISION_SMC_EPOCH_CANDIDATE_BUDGET: int = 800
 
 _EIG_CHUNK_SIZE: int = 64
+
+# Exploration (the variance floor in _resample, the uniform-probe share in SBED's _acquire) decays
+# as exp(-step / this), so the filter can converge once the scan has had time to locate the dips.
+NVISION_EXPLORATION_DECAY_STEPS: float = 25.0
 
 # Beyond this many standard deviations, scipy's truncnorm loses precision (both
 # CDF endpoints round to the same float), so the far-tail branch of
@@ -819,7 +824,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Targets the steepest slopes (center ± linewidth) of the hyperfine dips
         and (once enough observations exist) empirically-detected dip centroids.
         Kernel bandwidths and window sizes scale with posterior uncertainty. See
-        the "5. Build the unified candidate-density mixture" comment below for
+        the "4. Build the unified candidate-density mixture" comment below for
         the full construction.
         """
         # New epoch: candidates and particles have changed, so the EIG
@@ -827,112 +832,33 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._eig_epoch += 1
         self._eig_cache = None
         self._dip_candidates = []
-        # Use unit-space estimates and uncertainties to avoid physical-unit mismatch in subclasses
-        estimates = self._estimates_unit()
-        uncertainties = self._uncertainty_unit()
-
-        # All targeting arithmetic (f_b - df_hf) must be done in physical space,
-        # because the parameters have different bounds/spans and cannot be
-        # algebraically combined in unit space.
         phys_bounds = self.physical_param_bounds
+        est = self.estimates()
+        unc = self.uncertainty()
 
-        # "frequency" may be fixed (not a particle dimension, e.g.
-        # NVCenterVoigtModel(with_fixed_frequency=True)) and therefore absent from
-        # estimates/uncertainties above. Slope-targeting still needs a center and
-        # a (zero) uncertainty for it, so pull the fixed value from the model spec
-        # and synthesize both entries -- exact center, no spread.
-        if "frequency" not in estimates and "frequency" in phys_bounds:
-            inner = getattr(self.model, "inner", None)
-            fixed_vals = getattr(getattr(inner, "spec", None), "fixed_values", None) or {}
-            if "frequency" not in fixed_vals:
-                raise RuntimeError(
-                    "_generate_epoch_candidates: 'frequency' is not a particle dimension and "
-                    "not in the model spec's fixed_values -- cannot determine its value."
-                )
-            lo, hi = phys_bounds["frequency"]
-            estimates = {**estimates, "frequency": (fixed_vals["frequency"] - lo) / (hi - lo) if hi != lo else 0.5}
-            uncertainties = {**uncertainties, "frequency": 0.0}
-
-        def _to_phys(name: str, unit_val: float) -> float:
-            if name not in phys_bounds:
-                raise RuntimeError(
-                    f"_generate_epoch_candidates: parameter '{name}' is missing from "
-                    f"physical_param_bounds — all parameters must be declared at construction."
-                )
-            lo, hi = phys_bounds[name]
-            return lo + unit_val * (hi - lo)
-
-        def _to_phys_delta(name: str, unit_delta: float) -> float:
-            if name not in phys_bounds:
-                raise RuntimeError(
-                    f"_generate_epoch_candidates: parameter '{name}' is missing from "
-                    f"physical_param_bounds — all parameters must be declared at construction."
-                )
-            lo, hi = phys_bounds[name]
-            return unit_delta * (hi - lo)
-
-        def _to_unit_freq(phys_freq: np.ndarray) -> np.ndarray:
-            if "frequency" not in phys_bounds:
-                raise RuntimeError(
-                    "_generate_epoch_candidates: 'frequency' is missing from "
-                    "physical_param_bounds — all beliefs must declare frequency bounds at construction."
-                )
-            lo, hi = phys_bounds["frequency"]
-            if hi == lo:
-                return np.full_like(phys_freq, 0.5)
-            return (phys_freq - lo) / (hi - lo)
-
-        f_b_phys = _to_phys("frequency", estimates["frequency"])
-        df_hf_phys = _to_phys_delta("split", estimates["split"]) if "split" in estimates else 0.0
-        df_zeeman_phys = (
-            _to_phys_delta("zeeman_split", estimates["zeeman_split"]) if "zeeman_split" in estimates else 0.0
-        )
-
-        # 1. Determine linewidth Omega (HWHM) in physical space
-        is_saturation_voigt = "saturation" in estimates and "sigma_inhom" in estimates
-        if is_saturation_voigt:
-            from nvision.spectra.nv_center import saturation_voigt_effective_hwhm_and_unc
-
-            saturation_phys = _to_phys("saturation", estimates["saturation"])
-            sigma_inhom_phys = _to_phys("sigma_inhom", estimates["sigma_inhom"])
-            omega_phys, _ = saturation_voigt_effective_hwhm_and_unc(saturation_phys, sigma_inhom_phys)
-        elif "linewidth" in estimates:
-            omega_phys = _to_phys_delta("linewidth", estimates["linewidth"])
-        elif "homogeneous_linewidth" in estimates:
-            omega_phys = _to_phys_delta("homogeneous_linewidth", estimates["homogeneous_linewidth"])
-        elif "fwhm_total" in estimates:
-            omega_phys = _to_phys_delta("fwhm_total", estimates["fwhm_total"] / 2.0)
+        # Slope targeting needs a centre frequency and its uncertainty. "frequency" is either a
+        # particle dimension or a known instrument constant (exact centre, no spread).
+        if "frequency" in est:
+            f_b_phys = est["frequency"]
+            sigma_f_phys = unc["frequency"]
         else:
-            raise KeyError(
-                "Linewidth parameter ('linewidth', 'homogeneous_linewidth', or 'fwhm_total') not found in estimates"
-            )
+            f_b_phys = self.model.inner.spec.fixed_values["frequency"]
+            sigma_f_phys = 0.0
+        df_hf_phys = est.get("split", 0.0)
+        df_zeeman_phys = est.get("zeeman_split", 0.0)
 
-        # 2. Extract uncertainties in physical space
-        sigma_f_phys = _to_phys_delta("frequency", uncertainties["frequency"])
-        if is_saturation_voigt:
-            sigma_s_phys = _to_phys_delta("saturation", uncertainties["saturation"])
-            sigma_sigma_inhom_phys = _to_phys_delta("sigma_inhom", uncertainties["sigma_inhom"])
-            _, sigma_omega_phys = saturation_voigt_effective_hwhm_and_unc(
-                saturation_phys, sigma_inhom_phys, sigma_s_phys, sigma_sigma_inhom_phys
-            )
-        elif "linewidth" in uncertainties:
-            sigma_omega_phys = _to_phys_delta("linewidth", uncertainties["linewidth"])
-        elif "homogeneous_linewidth" in uncertainties:
-            sigma_omega_phys = _to_phys_delta("homogeneous_linewidth", uncertainties["homogeneous_linewidth"])
-        elif "fwhm_total" in uncertainties:
-            sigma_omega_phys = _to_phys_delta("fwhm_total", uncertainties["fwhm_total"] / 2.0)
-        else:
-            raise KeyError(
-                "Linewidth uncertainty ('linewidth', 'homogeneous_linewidth', or "
-                "'fwhm_total') not found in uncertainties"
-            )
+        # 1. Linewidth Omega (HWHM, physical) and its spread over the posterior
+        omega_phys = float(effective_hwhm(est))
+        hwhm_particles = effective_hwhm(self.particles_phys())
+        hwhm_mean = float(self._weights @ hwhm_particles)
+        sigma_omega_phys = float(np.sqrt(self._weights @ (hwhm_particles - hwhm_mean) ** 2))
 
-        # 3. Compute effective uncertainty in physical space -- the bandwidth of
-        # each slope-targeting Gaussian kernel below.
+        # 2. Effective uncertainty in physical space -- the bandwidth of each slope-targeting
+        # Gaussian kernel below.
         sigma_eff_phys = np.sqrt(sigma_f_phys**2 + sigma_omega_phys**2)
         min_step_physical = NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ
 
-        # 4. Slope Targeting: centers for all Zeeman groups × HF sub-peaks (deduplicated)
+        # 3. Slope Targeting: centers for all Zeeman groups × HF sub-peaks (deduplicated)
         zeeman_offsets = [-df_zeeman_phys, df_zeeman_phys] if df_zeeman_phys > 0 else [0.0]
         hf_offsets = [-df_hf_phys, 0.0, df_hf_phys] if df_hf_phys > 0 else [0.0]
         centers_seen: set[int] = set()
@@ -944,11 +870,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 if c_key not in centers_seen:
                     centers_seen.add(c_key)
                     centers_phys.append(c)
-        if "frequency" not in phys_bounds:
-            raise RuntimeError(
-                "_generate_epoch_candidates: 'frequency' is missing from "
-                "physical_param_bounds — all beliefs must declare frequency bounds at construction."
-            )
         phys_f_lo, phys_f_hi = phys_bounds["frequency"]
         if not (phys_f_hi > phys_f_lo):
             raise ValueError(f"_generate_epoch_candidates: degenerate frequency domain [{phys_f_lo}, {phys_f_hi}].")
@@ -964,7 +885,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                         s = mirror
                 slopes_phys.append(s)
 
-        # 5. Build the unified candidate-density mixture.
+        # 4. Build the unified candidate-density mixture.
         #
         # Replaces the old three independently-sized grids (global coarse grid +
         # per-slope uniform windows + a separately-budgeted dip grid) with one
@@ -989,7 +910,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 "slopes_phys must always contain at least one dip's ±omega points."
             )
 
-        # 5b. Observation-driven dip focusing.
+        # 4b. Observation-driven dip focusing.
         # Use empirically measured low-signal values to add dense candidates directly
         # at the true dip locations, correcting for posterior bias when belief is wrong.
         if self._obs_count >= 5:
@@ -1015,7 +936,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     dip_bw_phys = max(window_phys / 3.0, min_step_physical)
                     kernels.append((candidate.centroid_hz, dip_bw_phys, frac * dip_family_weight))
 
-        # 6. Optional flat baseline term for domain-wide backstop coverage, gated
+        # 5. Flat baseline term for domain-wide backstop coverage, gated
         # by use_global_grid. Scaled relative to the local (slope + dip) mass so
         # its share stays roughly constant whether or not dips have been detected.
         local_weight_total = sum(w for _, _, w in kernels)
@@ -1044,7 +965,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if min_step_physical > 0:
             candidates_phys = np.round(candidates_phys / min_step_physical) * min_step_physical
         candidates_phys = np.clip(candidates_phys, phys_f_lo, phys_f_hi)
-        merged = np.clip(_to_unit_freq(candidates_phys), f_lo_unit, f_hi_unit).astype(np.float32, copy=False)
+        merged = np.clip((candidates_phys - phys_f_lo) / (phys_f_hi - phys_f_lo), f_lo_unit, f_hi_unit).astype(
+            np.float32, copy=False
+        )
         # Quantile placement returns an ascending sequence, so this is already
         # (near-)sorted -- a stable (timsort) sort is near-linear here, unlike
         # np.unique's full introsort. Dedup with a neighbor mask.
@@ -1092,7 +1015,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # We apply this to the total covariance before nudging, so the steady
         # state variance can properly shrink down to this minimum without exploding.
         # Decay the exploration floor over time so it can converge.
-        decay_factor = np.exp(-self._step_count / 25.0)
+        decay_factor = np.exp(-self._step_count / NVISION_EXPLORATION_DECAY_STEPS)
         curr_min_exploration_frac = self.min_exploration_frac * decay_factor
         for j, name in enumerate(self._param_names):
             lo, hi = self.parameter_bounds[name]
