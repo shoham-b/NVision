@@ -63,6 +63,16 @@ _EIG_CHUNK_SIZE: int = 64
 # as exp(-step / this), so the filter can converge once the scan has had time to locate the dips.
 NVISION_EXPLORATION_DECAY_STEPS: float = float(os.getenv("NVISION_EXPLORATION_DECAY_STEPS", "25.0"))
 
+# Chunk-winner selection strategy for select_max_information_gain: "softmax"
+# (Boltzmann sampling at temperature 0.01, avoids lock-on to a single numerical
+# noise spike) or "hardmax" (deterministic top-n by score, no RNG). Exposed for
+# A/B comparison between the two acquisition-selection strategies.
+NVISION_SMC_EIG_SELECTION_MODE: str = os.getenv("NVISION_SMC_EIG_SELECTION_MODE", "softmax").lower()
+if NVISION_SMC_EIG_SELECTION_MODE not in ("softmax", "hardmax"):
+    raise ValueError(
+        f"NVISION_SMC_EIG_SELECTION_MODE must be 'softmax' or 'hardmax', got {NVISION_SMC_EIG_SELECTION_MODE!r}"
+    )
+
 # Beyond this many standard deviations, scipy's truncnorm loses precision (both
 # CDF endpoints round to the same float), so the far-tail branch of
 # _sample_truncated_normal takes over.
@@ -1349,19 +1359,24 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Evaluate EIG over all candidates in one vectorized call.
         eig_scores = self.expected_information_gain(candidates).astype(FLOAT_DTYPE)
 
-        # Boltzmann sampling over chunk winners to avoid getting stuck at a
-        # single numerical noise peak (same logic, now over the full grid).
         winner_indices = _chunk_argmax(eig_scores, _EIG_CHUNK_SIZE)
-        temp = 0.01
         winner_scores = eig_scores[winner_indices]
-        shifted_scores = (winner_scores - np.max(winner_scores)) / temp
-        probs = np.exp(shifted_scores)
-        probs /= np.sum(probs)
+        n = min(n, len(winner_indices))
 
-        best_chunk_order = self._rng.choice(
-            len(winner_indices), size=min(n, len(winner_indices)), replace=False, p=probs
-        )
-        best_chunk_order = best_chunk_order[np.argsort(winner_scores[best_chunk_order])][::-1]
+        if NVISION_SMC_EIG_SELECTION_MODE == "hardmax":
+            # Deterministic top-n by score, no RNG.
+            best_chunk_order = np.argsort(winner_scores)[::-1][:n]
+        else:
+            # Boltzmann sampling over chunk winners to avoid getting stuck at a
+            # single numerical noise peak (same logic, now over the full grid).
+            temp = 0.01
+            shifted_scores = (winner_scores - np.max(winner_scores)) / temp
+            probs = np.exp(shifted_scores)
+            probs /= np.sum(probs)
+
+            best_chunk_order = self._rng.choice(len(winner_indices), size=n, replace=False, p=probs)
+            best_chunk_order = best_chunk_order[np.argsort(winner_scores[best_chunk_order])][::-1]
+
         best_indices = winner_indices[best_chunk_order]
 
         return candidates[best_indices]
