@@ -51,7 +51,7 @@ def _acquire(self) -> float:
 
     # The belief's original (never-narrowed) domain -- used by the exploration branches
     # below so they can still reach a location resampling has already narrowed away from.
-    orig_lo, orig_hi = getattr(self.belief, "_original_physical_x_bounds", (lo, hi))
+    orig_lo, orig_hi = self.belief.physical_x_bounds
 
     # Forced background calibration: sample out-of-span until we have
     # enough background points to estimate noise for the CRLB early-stop.
@@ -218,7 +218,7 @@ def _dual_window_acquire(self) -> float | None:
     if split_hat < 3.0 * lw_hat:
         return None
 
-    orig_lo, orig_hi = getattr(self.belief, "_original_physical_x_bounds", self._acquisition_bounds())
+    orig_lo, orig_hi = self.belief.physical_x_bounds
     half_width = 3.0 * lw_hat
     windows = {
         "left": (

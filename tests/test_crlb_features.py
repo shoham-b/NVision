@@ -404,49 +404,59 @@ def _make_sbed_locator(max_steps: int = 500):
     return SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=max_steps)
 
 
-def test_theory_step_budget_computed_after_check() -> None:
-    """_check_crlb_early_stop sets _theory_step_budget from the conjugate noise estimate."""
+def _locator_with_primary_crlb(crlb: float | None):
+    """SBED locator whose primary parameter's marginal CRLB is pinned to ``crlb`` (None: no FIM yet)."""
+    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+
+    belief = nv_center_smc_belief(noise_model=gaussian_noise(), num_particles=50, seed=0)
+    locator = SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=500)
+    primary = locator._primary_param
+    assert primary == "zeeman_split"
+    locator.belief.crlb_per_param = lambda: {} if crlb is None else {primary: crlb}
+    return locator, primary
+
+
+def test_primary_crlb_done_requires_tight_crlb_and_matching_uncertainty() -> None:
+    """Stop only when unc < K x CRLB AND the CRLB itself is below the parameter's threshold."""
+    from nvision.sim.defaults import NVISION_FREQ_CRLB_SAFETY_FACTOR
+
+    locator, primary = _locator_with_primary_crlb(5e4)
+    threshold = locator._effective_primary_threshold()
+    assert threshold > 5e4
+    assert locator._primary_crlb_done({primary: 5e4}, 1.0)
+    # Uncertainty still wider than the information limit allows.
+    assert not locator._primary_crlb_done({primary: NVISION_FREQ_CRLB_SAFETY_FACTOR * 5e4 * 1.01}, 1.0)
+
+    # Near-singular FIM: the CRLB is inflated past the threshold, so unc < K x CRLB must NOT pass.
+    inflated, primary = _locator_with_primary_crlb(threshold * 10)
+    assert not inflated._primary_crlb_done({primary: threshold}, 1.0)
+
+
+def test_primary_crlb_done_false_without_fim_or_uncertainty() -> None:
+    locator, primary = _locator_with_primary_crlb(None)
+    assert not locator._primary_crlb_done({primary: 1.0}, 1.0)
+    locator, primary = _locator_with_primary_crlb(5e4)
+    assert not locator._primary_crlb_done({}, 1.0)
+
+
+def test_crlb_stop_needs_consecutive_primary_passes() -> None:
+    """_is_converged is set only after `patience` consecutive passes; a failure resets the streak."""
     from nvision.models.observation import Observation
 
-    locator = _make_sbed_locator(max_steps=500)
+    locator = _make_sbed_locator()
     for x in np.linspace(0.05, 0.95, 12):
         locator.belief.update(Observation(x=float(x), signal_value=0.97, noise_std=0.02))
+    patience = locator._convergence_patience_steps
 
-    assert locator._theory_step_budget is None
+    verdicts = iter([True] * (patience - 1) + [False] + [True] * patience)
+    locator._primary_crlb_done = lambda *_: next(verdicts)
+    for _ in range(patience - 1):
+        locator._check_crlb_early_stop(locator.belief.uncertainty())
+    assert not locator._is_converged
+    locator._check_crlb_early_stop(locator.belief.uncertainty())  # the failing check
+    assert locator._crlb_convergence_streak == 0
+    for _ in range(patience - 1):
+        locator._check_crlb_early_stop(locator.belief.uncertainty())
+        assert not locator._is_converged
     locator._check_crlb_early_stop(locator.belief.uncertainty())
-
-    assert locator._theory_step_budget is not None
-    assert locator._theory_step_budget >= locator.max_steps
-
-
-def test_theory_step_budget_stops_acquisition() -> None:
-    """_acquisition_done() returns True when inference_step_count exceeds theory budget."""
-    locator = _make_sbed_locator(max_steps=10_000)
-
-    # Manually set a small theory budget (simulating a run that has blown past it).
-    locator._theory_step_budget = 50
-    locator.inference_step_count = 51
-
-    assert locator._acquisition_done() is True
-
-
-def test_theory_step_budget_does_not_stop_below_budget() -> None:
-    """_acquisition_done() keeps running when inference_step_count is within budget."""
-    locator = _make_sbed_locator(max_steps=10_000)
-
-    locator._theory_step_budget = 200
-    locator.inference_step_count = 199
-
-    # max_steps (10000) not reached, not converged, budget not exceeded → not done
-    assert locator._acquisition_done() is False
-
-
-def test_theory_step_budget_none_does_not_stop() -> None:
-    """When _theory_step_budget is None (not yet computed), no early stop."""
-    locator = _make_sbed_locator(max_steps=10_000)
-
-    assert locator._theory_step_budget is None
-    locator.inference_step_count = 9999  # well below max_steps=10000
-
-    # Theory budget check must not trigger when budget is not yet computed.
-    assert locator._acquisition_done() is False
+    assert locator._is_converged

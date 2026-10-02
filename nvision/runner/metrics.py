@@ -156,7 +156,6 @@ def generate_attempt_metrics(  # noqa: C901
 
     splitting_converged_step: int | None = None
     all_converged_step: int | None = None
-    theory_step_budget: int | None = None
     if not finalize_row.is_empty():
         if "splitting_converged_step" in finalize_row.columns:
             val = finalize_row.get_column("splitting_converged_step")[0]
@@ -166,10 +165,6 @@ def generate_attempt_metrics(  # noqa: C901
             val = finalize_row.get_column("all_converged_step")[0]
             if val is not None:
                 all_converged_step = int(val)
-        if "theory_step_budget" in finalize_row.columns:
-            val = finalize_row.get_column("theory_step_budget")[0]
-            if val is not None:
-                theory_step_budget = int(val)
 
     # All-converged milestone metrics -- error/uncertainty of the primary (split)
     # parameter at all_converged_step, mirroring the fb-milestone fields above but
@@ -203,8 +198,6 @@ def generate_attempt_metrics(  # noqa: C901
         failure_reason = "infeasible_crlb"
     elif _stop_reason == "repeat_timeout":
         failure_reason = "timeout"
-    elif theory_step_budget is not None and locator_steps is not None and locator_steps > theory_step_budget:
-        failure_reason = "theory_budget"
     elif locator_steps is not None and max_steps is not None and locator_steps < max_steps:
         failure_reason = None
     else:
@@ -298,7 +291,6 @@ def generate_attempt_metrics(  # noqa: C901
     # silently skipping that metric.
     metrics_serialized["splitting_converged_step"] = splitting_converged_step
     metrics_serialized["all_converged_step"] = all_converged_step
-    metrics_serialized["theory_step_budget"] = theory_step_budget
 
     main_result_row: dict[str, Any] = {
         "generator": gen_name,
@@ -341,7 +333,6 @@ def generate_attempt_metrics(  # noqa: C901
         "uncert_fb_at_all_converged": metrics_serialized.get("uncert_fb_at_all_converged"),
         "splitting_converged_step": splitting_converged_step,
         "all_converged_step": all_converged_step,
-        "theory_step_budget": theory_step_budget,
         "failure_reason": failure_reason,
         "metrics": metrics_serialized,
     }

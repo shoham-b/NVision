@@ -426,7 +426,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     last_ess: float = field(init=False, default=float("nan"), repr=False)
 
     # Belief-state version: bumped on every mutation of _particles/_weights
-    # (update, batch_update, _resample, narrow_scan_parameter_physical_bounds).
+    # (update, batch_update, _resample).
     # estimates()/uncertainty() are pure functions of that state and get called
     # many times per step (convergence gates, noise estimation, dip detection,
     # milestones) — memoizing on this counter turns N recomputes/step into 1.
@@ -482,8 +482,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._rng = np.random.default_rng(self.seed)
         self._fisher = CumulativeFisher(self.model.inner, self.physical_param_bounds)
         self._param_names = list(self.model.parameter_names())
-        # The full probe domain, never narrowed: observation ``x`` is always a unit coordinate of it.
-        self._original_physical_x_bounds = self.physical_x_bounds
+        # ``physical_x_bounds`` is the full probe axis and never changes: observation ``x`` is always a
+        # unit coordinate of it. Narrowing which part of it is scanned is the locator's job (its focus).
 
         # Every parameter (and the noise parameter) lives on [0, 1]. "frequency" is always the
         # probe/measurement x-axis even when it is fixed and so not a particle dimension
@@ -686,14 +686,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         paying O(n log n) to re-sort the full history from scratch on every
         call (e.g. once per SMC resample epoch, for dip detection).
 
-        Resolving lazily (reading each index's *current* ``_obs_x_arr`` value
-        at insertion time, not at append time) is required for correctness:
-        ``UnitCubeSMCMarginalDistribution`` writes a provisional narrowed-frame
-        x into ``_obs_x_arr`` via ``_append_observation`` and then overwrites it
-        with the original-frame value afterwards (see its ``update``/
-        ``batch_update``) — see ``_resync_sort_position`` for the case where
-        that overwrite happens *after* this method already consumed the index.
-
         Returns freshly-gathered arrays (not views), safe for callers to hold
         onto even as more observations are appended.
         """
@@ -708,32 +700,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         order = order[:n]
         return self._obs_x_arr[order], self._obs_y_arr[order]
 
-    def _resync_sort_position(self, idx: int) -> None:
-        """Fix up ``_obs_sort_order`` after ``_obs_x_arr[idx]`` was mutated directly.
-
-        Only ``UnitCubeSMCMarginalDistribution`` needs this: it overwrites the
-        narrowed-frame x that ``_append_observation`` stored for the newest
-        observation(s) with the original-frame value, after ``super().update()``/
-        ``super().batch_update()`` returns. If ``sorted_observation_arrays()``
-        never ran in between, ``idx`` hasn't been incorporated into the sort
-        order yet and the next call will naturally pick up the corrected value
-        (no-op here). If it *did* run — dip detection can trigger mid-``update()``
-        via resampling, before this correction — ``idx`` is already placed in
-        ``_obs_sort_order`` at a position based on the stale value; this removes
-        it and re-inserts it using the corrected one, preserving sortedness for
-        ``[0, _obs_sort_valid_count)`` without needing a full re-sort.
-        """
-        valid = self._obs_sort_valid_count
-        if idx >= valid:
-            return
-        order = self._obs_sort_order
-        cur_pos = int(np.where(order[:valid] == idx)[0][0])
-        order[cur_pos : valid - 1] = order[cur_pos + 1 : valid]
-        sorted_xs = self._obs_x_arr[order[: valid - 1]]
-        new_pos = int(np.searchsorted(sorted_xs, self._obs_x_arr[idx], side="right"))
-        order[new_pos + 1 : valid] = order[new_pos : valid - 1]
-        order[new_pos] = idx
-
     @property
     def num_observations(self) -> int:
         """Number of observations recorded so far."""
@@ -743,8 +709,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Record one observation into the flat history buffers (amortized growth).
 
         Does not touch ``_obs_sort_order`` — that's maintained lazily by
-        ``sorted_observation_arrays()`` (see its docstring for why: subclasses
-        may still mutate ``_obs_x_arr[n]`` after this call returns).
+        ``sorted_observation_arrays()``.
         """
         n = self._obs_count
         if n >= self._obs_x_arr.shape[0]:
@@ -1069,10 +1034,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         ).astype(FLOAT_DTYPE, copy=False)
         self._particles += nudges
 
-        # 8. Clip all particles to bounds
-        for j, name in enumerate(self._param_names):
-            lo, hi = self.parameter_bounds[name]
-            self._particles[:, j] = np.clip(self._particles[:, j], lo, hi)
+        # 8. Reflect particles that the nudge pushed outside the unit cube back inside (a fold, so no
+        # probability mass piles up on a bound the way it would with a clip).
+        outside = (self._particles < 0.0) | (self._particles > 1.0)
+        self._particles[outside] = 1.0 - np.abs(np.mod(self._particles[outside], 2.0) - 1.0)
 
         # 9. Update cached candidate grid for the next epoch
         self._generate_epoch_candidates()
@@ -1190,14 +1155,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def _robust_uncertainty_unit(self) -> ParameterValues[float]:
         """Outlier-insensitive marginal spread (weighted IQR / 1.349) in unit space.
 
-        Every resample injects a decaying fraction of particles redrawn from the
-        prior (see ``_resample``). They vanish by the next likelihood update, but
-        standard deviation is quadratic in distance, so even a couple of them
+        Standard deviation is quadratic in distance, so even a couple of particles
         sitting far from the bulk of the cloud inflate ``_uncertainty_unit`` several-
-        fold for exactly one step -- a rendering/consumer-visible sawtooth that
-        reads as the belief repeatedly widening and re-narrowing when nothing of
-        the sort happened. The interquartile range only depends on the *bulk* of
-        the (weighted) particle mass, so those transient particles don't move it;
+        fold. The interquartile range only depends on the *bulk* of the (weighted)
+        particle mass, so such outliers don't move it;
         dividing by 1.349 rescales it to a Gaussian-equivalent sigma so it's
         directly comparable to ``_uncertainty_unit``'s output.
 
@@ -1321,7 +1282,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._step_count = self._step_count
         dist.resampled = self.resampled
         dist.last_ess = self.last_ess
-        dist._original_physical_x_bounds = self._original_physical_x_bounds
         dist._obs_x_arr = self._obs_x_arr.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()
         dist._obs_sort_order = self._obs_sort_order.copy()
@@ -1341,9 +1301,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def select_max_information_gain(self, candidates: np.ndarray, n: int) -> np.ndarray:
         """Select the top-n candidate locations by expected information gain.
 
-        Evaluates EIG across ``candidates`` in chunks of :data:`_EIG_CHUNK_SIZE`
-        using :meth:`expected_information_gain`, then uses a Numba parallel
-        ``prange`` helper to find each chunk's best candidate.
+        Evaluates EIG across ``candidates`` in one vectorized call, then takes the argmax
+        within each chunk of :data:`_EIG_CHUNK_SIZE` candidates and picks among the chunk
+        winners (softmax or hardmax, see ``NVISION_SMC_EIG_SELECTION_MODE``).
 
         Args:
             candidates: 1D array of candidate measurement locations.
@@ -1354,7 +1314,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             (highest first).
         """
         if len(candidates) == 0:
-            return candidates[:0]
+            raise ValueError("select_max_information_gain: no candidates to choose from.")
 
         # Evaluate EIG over all candidates in one vectorized call.
         eig_scores = self.expected_information_gain(candidates).astype(FLOAT_DTYPE)
@@ -1476,12 +1436,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def _rescale_maps(self) -> dict[str, RescaleMap]:
         """A ``RescaleMap`` (unit <-> physical) per parameter.
 
-        The frequency map always spans the *original* probe domain so that
-        ``_rescale_maps["frequency"].to_phys(obs_x)`` converts the stored ``[0, 1]`` observation
-        coordinate correctly even after a focus window has narrowed ``physical_param_bounds``.
-        "frequency" is the probe axis whether or not it is also a particle dimension.
+        The "frequency" map spans the full probe axis, so ``_rescale_maps["frequency"].to_phys(obs_x)``
+        converts the stored ``[0, 1]`` observation coordinate. "frequency" is the probe axis whether or
+        not the dip centre ``center_freq`` is also a particle dimension.
         """
-        lo, hi = self._original_physical_x_bounds
+        lo, hi = self.physical_x_bounds
         maps: dict[str, RescaleMap] = {"frequency": RescaleMap(lo=float(lo), hi=float(hi))}
         for name in self._param_names:
             if name != "frequency":
@@ -1494,7 +1453,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         ``obs.x`` is a unit coordinate of the original probe window; the Fisher model is the physical one.
         """
-        lo, hi = self._original_physical_x_bounds
+        lo, hi = self.physical_x_bounds
         x_phys = lo + obs.x * (hi - lo)
         self._fisher.add(x_phys, typed_parameters(self._fisher.model, self.estimates()), obs)
 
@@ -1512,7 +1471,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Closed-form frequency CRLB (physical Hz) at the current estimates; ``inf`` before any data."""
         if self._obs_count == 0:
             return math.inf
-        lo, hi = self._original_physical_x_bounds
+        lo, hi = self.physical_x_bounds
         return frequency_crlb(self.model.inner, self.estimates(), self.estimated_noise_std(), self._obs_count, hi - lo)
 
     def reported_uncertainty(self) -> ParameterValues[float]:

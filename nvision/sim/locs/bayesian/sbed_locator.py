@@ -8,8 +8,8 @@ import os
 import numpy as np
 from numba import njit
 
+from nvision.belief.focus_window import NVISION_SMC_FOCUSING_COVER_FACTOR, next_focus_window
 from nvision.belief.smc_marginal import NVISION_EXPLORATION_DECAY_STEPS
-from nvision.models.fisher_information import uniform_steps_for_frequency_crlb
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
@@ -35,20 +35,6 @@ _PLATEAU_WINDOW: int = int(os.getenv("NVISION_SBED_PLATEAU_WINDOW", "30"))
 _PLATEAU_SIGMA_FRAC: float = float(os.getenv("NVISION_SBED_PLATEAU_SIGMA_FRAC", "0.25"))
 
 
-def _effective_linewidth_and_contrast_estimate(est: dict) -> tuple[float, float | None]:
-    """Return (effective HWHM Hz estimate, realized contrast estimate), lineshape-agnostic.
-
-    Contrast is ``None`` when the model has no population-style amplitude estimate.
-    """
-    lw = float(effective_hwhm(est))
-    if "saturation" in est and "sigma_inhom" in est:
-        from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
-
-        _, _, c_total = _saturation_voigt_reparam_scalar(est["saturation"], est["sigma_inhom"], NV_SATURATION_C_MAX)
-        return lw, c_total
-    return lw, est.get("c_total")
-
-
 @njit(cache=True)
 def _thin_by_step_indices(candidates: np.ndarray, step: float) -> np.ndarray:
     """Indices of a greedy minimum-spacing subset of sorted *candidates*.
@@ -72,9 +58,9 @@ def _thin_by_step_indices(candidates: np.ndarray, step: float) -> np.ndarray:
 class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     """Sequential Bayesian Experiment Design acquisition.
 
-    Uses Expected Information Gain (prediction variance disagreement) to select
-    the next measurement point from a fine frequency grid. No JAX gradient ascent
-    is performed — the chunked EIG search on the belief is sufficient.
+    Each step measures the candidate x (inside the focus) with the highest Expected Information
+    Gain (prediction variance disagreement across particles), except for a uniform probe over the
+    whole probe axis with probability ``0.1 * exp(-step / NVISION_EXPLORATION_DECAY_STEPS)``.
     """
 
     REQUIRES_BELIEF = True
@@ -86,7 +72,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
-        noise_std: float = 0.02,
         candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
     ) -> None:
@@ -95,7 +80,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             max_steps,
             convergence_threshold,
             scan_param,
-            noise_std=noise_std,
             convergence_patience_steps=convergence_patience_steps,
         )
         self.candidate_step_hz: float = (
@@ -106,7 +90,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self.belief.auto_resample = False
         self._is_converged = False
         # Own streak, separate from `_convergence_streak` (which gates `_target_params_converged`):
-        # `_check_crlb_early_stop`'s `all_crlb_done` is an independent single-snapshot signal and
+        # `_check_crlb_early_stop`'s primary-parameter test is an independent single-snapshot signal and
         # must not be allowed to set `_is_converged` on one lucky reading.
         self._crlb_convergence_streak: int = 0
         # Rolling history of parameter estimates, for the plateau stop (see
@@ -114,13 +98,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self._estimate_history: list[dict[str, float]] = []
         self._plateau_streak: int = 0
         self.plateau_stop_step: int | None = None
-        # Physical frequency of the most recent EIG selection, re-injected into
-        # the candidate grid so a second batch there is a legitimate EIG outcome
-        # rather than being dropped by minimum-spacing thinning.
-        self._last_eig_physical_x: float | None = None
-        # Theoretical step budget: K_theory × n_theory, computed from the conjugate noise
-        # estimate and belief estimates. None until the first check has run.
-        self._theory_step_budget: int | None = None
+        # Step of the most recent focus expansion (-1: never); see _update_focus_window.
+        self._last_focus_expansion_step: int = -1
 
     @classmethod
     def create(
@@ -130,7 +109,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         parameter_bounds=None,
-        noise_std: float | None = None,
         candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
         **grid_config,
@@ -143,7 +121,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
-            noise_std=noise_std,
             candidate_step_hz=candidate_step_hz,
             convergence_patience_steps=convergence_patience_steps,
         )
@@ -162,67 +139,26 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         return candidates[kept]
 
     def _acquire(self) -> float:
-        """Select the next measurement point by maximizing EIG over a frequency grid.
-
-        A share of steps instead explores: uniformly over the whole probe window (decaying with
-        the step count, to find dips the posterior has narrowed away from), or near a dip the
-        data already show (:meth:`SMCMarginalDistribution.dip_candidates`).
-        """
-        lo, hi = self._acquisition_bounds()
-        if hi <= lo:
-            return float(lo)
-
-        # The belief's original (never-narrowed) probe window -- used by the exploration branches
-        # so they can still reach a location resampling has already narrowed away from.
-        # `_to_experiment_normalized` normalizes against this same full domain, not
-        # `_acquisition_bounds()`, so returning a value outside `lo, hi` here is valid.
-        orig_lo, orig_hi = self.belief._original_physical_x_bounds
-
-        # The exploration branches are drawn first so the (much more expensive) EIG grid
-        # search in _eig_acquire() is skipped entirely on steps where it would be discarded.
-        # The uniform exploration probability decays exponentially to focus on EIG as the scan
-        # progresses.
-        decay = np.exp(-self.inference_step_count / NVISION_EXPLORATION_DECAY_STEPS)
+        """Next measurement x (physical Hz): a decaying-probability uniform probe, else the EIG maximiser."""
+        # Drawn first so the (much more expensive) EIG search is skipped on explore steps. The probe is
+        # uniform over the *full* probe axis so it can still reach a location the focus has narrowed away
+        # from; `_to_experiment_normalized` normalizes against that same full axis.
         rng = self.belief._rng
-        rand_val = rng.random()
-        if rand_val < 0.1 * decay:
-            return float(rng.uniform(orig_lo, orig_hi))
-        if rand_val < 0.2:
-            # Dip-biased sampling: draw within +/-5 MHz of a dip the observations show. This
-            # corrects a biased posterior that has drifted away from the true dip location.
-            dip_centers = [d.centroid_hz for d in self.belief.dip_candidates if orig_lo <= d.centroid_hz <= orig_hi]
-            if dip_centers:
-                center = float(rng.choice(dip_centers))
-                return center + float(rng.uniform(max(-5e6, orig_lo - center), min(5e6, orig_hi - center)))
-
+        explore_probability = 0.1 * np.exp(-self.inference_step_count / NVISION_EXPLORATION_DECAY_STEPS)
+        if rng.random() < explore_probability:
+            probe_lo, probe_hi = self.belief.physical_x_bounds
+            return float(rng.uniform(probe_lo, probe_hi))
         return self._eig_acquire()
 
     def _eig_acquire(self) -> float:
-        """Maximize EIG over the belief's slope-targeted candidate grid."""
-        # Retrieve candidates directly from the belief (slope-targeted epoch grid)
+        """The EIG-maximising candidate among the belief's epoch candidates inside the focus."""
         candidates = self.belief.get_candidates()
-
-        # Thin candidates to minimum physical step spacing.
-        # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
-        # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
+        focus_lo, focus_hi = self._acquisition_bounds()
+        candidates = candidates[(candidates >= focus_lo) & (candidates <= focus_hi)]
+        if candidates.size == 0:
+            raise ValueError(f"No epoch candidate lies inside the focus [{focus_lo}, {focus_hi}] Hz.")
         candidates = self._thin_candidates_by_step(candidates)
-
-        # Keep the most recently EIG-selected frequency in the candidate set so a
-        # second batch there is a legitimate EIG outcome rather than being dropped
-        # by minimum-spacing thinning. EIG's diminishing returns decide when
-        # re-batching stops paying off (no explicit repeat counter needed).
-        lo, hi = self._acquisition_bounds()
-        if (
-            self._last_eig_physical_x is not None
-            and lo <= self._last_eig_physical_x <= hi
-            and not np.any(np.isclose(candidates, self._last_eig_physical_x))
-        ):
-            candidates = np.append(candidates, self._last_eig_physical_x)
-
-        best = self.belief.select_max_information_gain(candidates, 1)
-        result = float(best[0]) if len(best) > 0 else float(candidates[len(candidates) // 2])
-        self._last_eig_physical_x = result
-        return result
+        return float(self.belief.select_max_information_gain(candidates, 1)[0])
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks.
@@ -235,8 +171,38 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self.belief.accumulate_fim(obs)
         self._check_and_resample()
 
+    def _update_focus_window(self) -> None:
+        """Re-decide the probe-axis focus from the posterior over ``center_freq`` (right after a resample).
+
+        Only meaningful when ``center_freq`` is inferred (a particle dimension); with the default fixed
+        ``center_freq`` the focus stays the full probe axis. Changes only which candidates may be scanned.
+        """
+        belief = self.belief
+        if "frequency" not in belief.model.parameter_names():
+            return
+        particles = belief.particles_phys()
+        est = belief.estimates()
+        half_span = (
+            particles.get("zeeman_split", 0.0)
+            + particles.get("split", 0.0)
+            + NVISION_SMC_FOCUSING_COVER_FACTOR * effective_hwhm(particles)
+        )
+        half_span = np.broadcast_to(half_span, particles["frequency"].shape)
+        self._focus, expanded = next_focus_window(
+            self._focus,
+            center_freq_particles_phys=particles["frequency"],
+            active_half_span_particles_phys=half_span,
+            omega_phys=float(effective_hwhm(est)),
+            zeeman_split_phys=float(est.get("zeeman_split", 0.0)),
+            step=belief._step_count,
+            last_expansion_step=self._last_focus_expansion_step,
+        )
+        if expanded:
+            self._last_focus_expansion_step = belief._step_count
+
     def _check_and_resample(self) -> None:
-        self._resample_if_degenerate()
+        if self._resample_if_degenerate():
+            self._update_focus_window()
 
         # One uncertainty pass shared by the milestone/plateau/CRLB checks
         # (each belief.uncertainty() call is a full O(particles x params) pass).
@@ -247,16 +213,9 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # general-purpose uncertainty.
         physical_uncertainties = self.belief.uncertainty()
 
-        # The streak counter below is the one place raw uncertainty causes a
-        # real (not just cosmetic) problem: every SMC resample transiently
-        # inflates it (a decaying fraction of particles redrawn from the
-        # prior), and _target_params_converged failing on that single step
-        # resets the whole streak to 0 -- so a run sitting on the verge of
-        # convergence can lose all its progress purely from the resample
-        # artifact and cost extra measurements waiting to rebuild the streak.
-        # robust_uncertainty() (weighted IQR/1.349) is immune to that: the
-        # transient particles are a small minority of the mass and don't move
-        # the interquartile range.
+        # The streak is gated on the robust spread (weighted IQR/1.349), not the raw std: a few outlier
+        # particles inflate the std for a step, and _target_params_converged failing on that single step
+        # resets the whole streak to 0, while they barely move the interquartile range.
         streak_uncertainties = self.belief.robust_uncertainty()
         if self._target_params_converged(streak_uncertainties):
             self._convergence_streak += 1
@@ -297,18 +256,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         """
         dips = self.belief.dip_candidates
         return [(d.f_min, d.f_max) for d in dips] if dips else None
-
-    def _acquisition_done(self) -> bool:
-        """Extend base stop logic with a permissive theory-step-budget backstop.
-
-        When enough background points exist to estimate σ̂, computes the theoretical
-        minimum step count for uniform sampling to reach the convergence threshold
-        and stops if ``inference_step_count`` exceeds ``K_theory × n_theory``.
-        This only fires when something has gone wrong — EIG should converge much sooner.
-        """
-        if super()._acquisition_done():
-            return True
-        return self._theory_step_budget is not None and self.inference_step_count > self._theory_step_budget
 
     def _check_estimate_plateau(self, physical_uncertainties) -> None:
         """Stop once the estimate has stopped moving relative to its own error bar.
@@ -375,32 +322,42 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         else:
             self._plateau_streak = 0
 
+    def _primary_crlb_done(self, physical_uncertainties, crlb_f: float) -> bool:
+        """Whether the primary parameter has reached its information limit, tightly enough to stop.
+
+        True when both hold for ``self._primary_param`` (physical units, scalars):
+
+        * ``uncertainty < NVISION_FREQ_CRLB_SAFETY_FACTOR x CRLB`` -- the posterior is no wider
+          than the information limit allows, so more measurements cannot shrink it much; and
+        * ``CRLB < the parameter's convergence threshold`` -- the limit itself is tight enough.
+
+        The second condition is what keeps this from passing trivially. At a near-degenerate
+        point (e.g. ``zeeman_split`` against the widths below the dip-resolution threshold) the
+        cumulative FIM is near-singular, so the marginal CRLB is hugely inflated (11.8 MHz where
+        the achieved error was 1.3 MHz) and the first condition alone holds from the first steps,
+        exactly when the problem is hardest. An inflated CRLB fails the second condition.
+
+        The CRLB is the closed-form frequency CRLB when the primary parameter is ``frequency``,
+        otherwise its marginal CRLB from the belief's cumulative FIM (``crlb_per_param``). It is
+        absent until a FIM exists, in which case the parameter is not done.
+        """
+        primary = self._primary_param
+        if primary is None:
+            return False
+        crlb = crlb_f if primary == "frequency" else self.belief.crlb_per_param().get(primary, math.nan)
+        unc = float(physical_uncertainties.get(primary, math.nan))
+        if not (math.isfinite(crlb) and crlb > 0 and math.isfinite(unc)):
+            return False
+        return unc < NVISION_FREQ_CRLB_SAFETY_FACTOR * crlb and crlb < self._effective_primary_threshold()
+
     def _check_crlb_early_stop(self, physical_uncertainties) -> None:
-        """Closed-form CRLB convergence check plus the theoretical step-budget backstop.
+        """CRLB convergence check on the primary parameter.
 
         The noise level is the belief's conjugate (Inverse-Gamma) estimate -- the only noise
-        estimate in the locator. If every target parameter's uncertainty is within
-        NVISION_FREQ_CRLB_SAFETY_FACTOR x its CRLB for ``_convergence_patience_steps``
-        consecutive checks, marks the run as converged.
+        estimate in the locator. The run is marked converged once the primary parameter
+        (``zeeman_split``/``split``, else ``frequency``; see ``resolve_primary_param``) passes
+        :meth:`_primary_crlb_done` for ``_convergence_patience_steps`` consecutive checks.
         """
-        est = self.belief.estimates()
-        sigma_hat = self.belief.estimated_noise_std()
-        lw_hat, c_hat = _effective_linewidth_and_contrast_estimate(est)
-
-        # Compute permissive theoretical step budget from sigma_hat + belief estimates.
-        # n_theory: uniform probes needed for the closed-form frequency CRLB to reach the convergence
-        # threshold T (see nvision.models.fisher_information). SBED is better than uniform.
-        if c_hat is not None and c_hat > 0 and lw_hat > 0:
-            freq_lo, freq_hi = self.belief.physical_param_bounds.get("frequency", (0.0, 1.0))
-            bandwidth = freq_hi - freq_lo
-            if bandwidth > 0:
-                from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, NVISION_SBED_STEPS_THEORY_FACTOR
-
-                n_theory = uniform_steps_for_frequency_crlb(
-                    lw_hat, c_hat, sigma_hat, bandwidth, NVISION_FREQ_CONVERGENCE_THRESHOLD
-                )
-                self._theory_step_budget = max(self.max_steps, int(NVISION_SBED_STEPS_THEORY_FACTOR * n_theory) + 1)
-
         # Closed-form frequency CRLB (computed at the same conjugate noise estimate); the
         # models define no other analytical Fisher information.
         crlb_f = self.belief.crlb_frequency()
@@ -450,9 +407,10 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # Stop conditions:
         #   all_converged_step       : ALL checked params are done (abs or crlb)
         #   splitting_converged_step : self._primary_param is done (abs or crlb)
-        #   _is_converged             : ALL checked params hit strict CRLB floor
+        #   _is_converged             : primary param passes _primary_crlb_done (streak-gated, below)
+        # The milestone `crlb_scaled` is only the closed-form frequency CRLB (inf for every other
+        # parameter), so the milestones for non-frequency params are decided by the absolute threshold.
         checked = 0
-        all_crlb_done = True
         all_milestone_done = True
         splitting_milestone_done = False
 
@@ -474,9 +432,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
             checked += 1
 
-            if not crlb_done:
-                all_crlb_done = False
-
             if not (crlb_done or abs_done):
                 all_milestone_done = False
 
@@ -486,7 +441,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         if checked == 0:
             return
 
-        # `all_crlb_done` is a single-snapshot read of the current (possibly still
+        # The primary-parameter CRLB test is a single-snapshot read of the current (possibly still
         # locally-plausible-but-wrong-mode) belief state -- require it to hold for
         # `_convergence_patience_steps` consecutive checks before trusting it enough
         # to stop, same bar `_target_params_converged` already has to clear via
@@ -495,7 +450,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         # chance to discriminate between candidate modes) locks in a confidently
         # wrong answer -- empirically ~1-2% of Bayesian-SBED/Voigt repeats stopped
         # at exactly step 9-11 with >1 MHz final error before this gate existed.
-        if all_crlb_done:
+        if self._primary_crlb_done(physical_uncertainties, crlb_f):
             self._crlb_convergence_streak += 1
             if self._crlb_convergence_streak >= self._convergence_patience_steps:
                 self._is_converged = True

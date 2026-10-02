@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.focus_window import FocusWindow
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.locator import Locator
@@ -122,7 +123,6 @@ class SequentialBayesianLocator(Locator):
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         scan_param: str | None = None,
         convergence_patience_steps: int = 8,
-        noise_std: float | None = None,
     ) -> None:
         super().__init__(belief)
         self.max_steps = int(max_steps)
@@ -150,14 +150,19 @@ class SequentialBayesianLocator(Locator):
         self.all_converged_step: int | None = None
         self._is_converged: bool = False
 
-        if noise_std is None or float(noise_std) <= 0:
-            raise ValueError(f"noise_std must be a positive float; got {noise_std!r}")
-        self._noise_std: float = float(noise_std)
         self._true_signal = None
 
         # Set domain bounds for acquisition.
         self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._scan_param]
         self._full_domain_lo, self._full_domain_hi = float(self._scan_lo), float(self._scan_hi)
+        # Which part of the probe axis candidates may be drawn from. Owned here (never by the belief):
+        # narrowing it changes only where we scan, not the belief's parameter bounds or particles.
+        self._focus = FocusWindow(
+            lo=self._full_domain_lo,
+            hi=self._full_domain_hi,
+            full_lo=self._full_domain_lo,
+            full_hi=self._full_domain_hi,
+        )
 
     @classmethod
     def create(
@@ -168,7 +173,6 @@ class SequentialBayesianLocator(Locator):
         scan_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         convergence_patience_steps: int = 8,
-        noise_std: float | None = None,
         **grid_config: object,
     ) -> SequentialBayesianLocator:
         """Generic factory for model-agnostic Bayesian locators.
@@ -187,7 +191,6 @@ class SequentialBayesianLocator(Locator):
             convergence_threshold=convergence_threshold,
             scan_param=scan_param,
             convergence_patience_steps=convergence_patience_steps,
-            noise_std=noise_std,
         )
 
     # ------------------------------------------------------------------
@@ -445,15 +448,16 @@ class SequentialBayesianLocator(Locator):
         return float(2.0 * domain_width / effective_width)
 
     def _acquisition_bounds(self) -> tuple[float, float]:
-        """Physical bounds where :meth:`_acquire` searches."""
-        lo, hi = self.belief.physical_param_bounds[self._scan_param]
-        return (min(lo, hi), max(lo, hi))
+        """Probe-axis interval ``(lo_phys, hi_phys)`` (Hz) that candidate x positions may come from: the focus."""
+        return (self._focus.lo, self._focus.hi)
 
-    def _resample_if_degenerate(self) -> None:
-        """Resample when the effective sample size has fallen below the belief's threshold."""
+    def _resample_if_degenerate(self) -> bool:
+        """Resample when the effective sample size has fallen below the belief's threshold; True if it did."""
         belief = self.belief
         if _inverse_sum_squares(belief._weights) < belief.ess_threshold * belief.num_particles:
             belief._resample()
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Utility helpers available to all acquisition implementations

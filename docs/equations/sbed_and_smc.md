@@ -68,6 +68,8 @@ $$C_{jj} \leftarrow \max\!\left(C_{jj},\, \left[(h_j - l_j) \cdot f_{\rm expl} \
 
 with f_expl = `min_exploration_frac` = 0.01, t = `_step_count`, and [l_j, h_j] the bound of parameter j.  An eigenvalue decomposition then regularises C (minimum eigenvalue clamped to max(1e−11, 1e−6·λ_max)) to restore positive-definiteness before the Cholesky draw.
 
+After the nudge, any particle pushed outside the unit cube is **reflected** back in (a fold, u → 1 − |(u mod 2) − 1|), not clipped, so no probability mass piles up on a bound.
+
 **No particle rejuvenation:** Earlier versions replaced a fraction f_rejuv = 0.05·e^(−t/25) of particles with fresh prior draws at each resample (plus a joint dip-informed variant for (frequency, zeeman_split)). Both were removed: an A/B on the danger-zone Lorentzian configs (zeeman_split/linewidth < 1.5, n=60 per arm, paired) showed no measurable accuracy or calibration benefit. Diversity after resampling comes only from the nudge covariance C above, including its `NVISION_SMC_MIN_EXPLORATION_FRAC` floor.
 
 ### 1.5 Weighted Statistics
@@ -175,7 +177,7 @@ decays smoothly, instead of being flat out to an arbitrary window boundary.
 
 ---
 
-## 2. Unit-Cube Coordinates and the Free-Frequency Variant (`smc_marginal.py`, `free_frequency_smc.py`)
+## 2. Unit-Cube Coordinates and the Probe-Axis Focus (`smc_marginal.py`, `focus_window.py`)
 
 Particles live in unit space [0, 1]ᵈ; physical values are recovered by affine rescaling.
 
@@ -185,11 +187,11 @@ For parameter j with physical bounds [l_j, h_j]:
 
 $$\theta^{\rm phys}_j = l_j + u_j \cdot (h_j - l_j)$$
 
-The frequency axis additionally keeps `_original_physical_x_bounds` = the full domain at construction, which never narrows, so the stored unit observation coordinate o.x always converts correctly:
+The probe axis `physical_x_bounds` is the full domain and **never changes**, and neither do the parameter bounds, the particles' unit frame, or the model's x-range. The stored unit observation coordinate o.x therefore always converts the same way:
 
-$$f^{\rm phys} = l_{\rm orig} + o.x \cdot (h_{\rm orig} - l_{\rm orig})$$
+$$x^{\rm phys} = l_x + o.x \cdot (h_x - l_x)$$
 
-even after the search window has been narrowed.
+Narrowing which part of the probe axis is *scanned* is the locator's job (§2.4), not the belief's.
 
 ### 2.2 Physical Uncertainty
 
@@ -203,8 +205,8 @@ $$\sigma^{\rm phys}_j = \sigma^u_j \cdot (h_j - l_j)$$
 unconditionally, at 1× (no safety factor): frequency uses the closed-form `crlb_frequency()`
 (§2.3); every other parameter uses its marginal CRLB from the cumulative FIM (§4.3's
 `crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
-profiling out the other parameters rather than holding them fixed). This floor is independent of the stop rule in §5.5, which uses only the closed-form frequency
-CRLB and never the FIM-based marginal CRLBs:
+profiling out the other parameters rather than holding them fixed). This floor is independent of the stop rule in §5.5, which gates only the primary parameter
+(its marginal CRLB, additionally required to be below that parameter's convergence threshold):
 
 $$\sigma^{\rm reported}_j = \max\!\left(\sigma^{\rm phys}_j,\; \text{CRLB}_j\right), \qquad \forall j$$
 
@@ -245,17 +247,21 @@ $$J = {\rm elf}^2\frac{\pi}{4\gamma_{\rm hom}^5} + {\rm egf}^2\frac{\sqrt{\pi}}{
 
 where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `frequency_crlb()`'s plain-Voigt branch (`models/fisher_information.py`, the single home of all Fisher/CRLB code; the belief's `crlb_frequency()` delegates to it) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
 
-### 2.4 Focus-Window Narrowing (at each resample)
+### 2.4 Probe-Axis Focus (locator-owned, at each resample)
 
-Applies only when frequency is a particle dimension (`with_fixed_frequency=False`); with the default fixed frequency there is no frequency posterior to narrow and `_resample` returns after §1.3–1.4.
+The **focus** is a sub-interval of the probe axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusWindow`). It limits only *which candidate x positions may be scanned*: `_acquisition_bounds()` returns it and `_eig_acquire` drops every epoch candidate outside it (an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full probe axis.
 
-The search window narrows to the union of particle-predicted active regions.  Each particle i covers
+It is updated by the pure function `next_focus_window` (`focus_window.py`) right after a resample (weights uniform), and only when `center_freq` is a particle dimension (`with_fixed_frequency=False`); with the default fixed `center_freq` the focus stays the full probe axis.
 
-$$[f_i - \Delta f_{\rm hf,i} - k\Omega_i,\quad f_i + \Delta f_{\rm hf,i} + k\Omega_i]$$
+The focus narrows to the union of particle-predicted active regions. Each particle i covers
 
-with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0.  The new bounds are the p-th / (1−p)-th percentiles of the left/right edges, with p = 5 % (a fixed constant, `_FOCUSING_TAIL_PERCENTILE`); a narrowing is applied only if it shrinks the window by at least 5 %, and only after `NVISION_MIN_STEPS_BEFORE_NARROWING` = 8 steps.
+$$[f_i - \Delta f_{\rm zeeman,i} - \Delta f_{\rm hf,i} - k\Omega_i,\quad f_i + \Delta f_{\rm zeeman,i} + \Delta f_{\rm hf,i} + k\Omega_i]$$
 
-When particles pile up at a unit boundary (> 15 % within 5 % of the edge), the window is instead expanded by max(cur_width, 10·Ω) in that direction.
+with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0. The new bounds are the 5th / 95th percentiles of the `center_freq` particles widened by the 95th percentile of that half-span (`_FOCUSING_TAIL_PERCENTILE`); a narrowing is applied only if it shrinks the focus by at least 5 %, and only after `NVISION_MIN_STEPS_BEFORE_NARROWING` = 8 steps (and 8 steps after any expansion).
+
+When more than 15 % of the `center_freq` particles lie within 5 % of a focus edge *or beyond it*, the focus is instead expanded by max(width, 10·Ω + 2·zeeman) in that direction, never past the full probe axis.
+
+Because the belief's unit cube is the full probe axis, the `min_exploration_frac` variance floor in §1.4 is a fraction of the *full* axis for `center_freq` (previously a fraction of the narrowed window), so it is larger in physical Hz for free-`center_freq` runs.
 
 ---
 
@@ -275,35 +281,24 @@ $$P(\text{chunk } c) \propto \exp\!\left(\frac{\text{EIG}_c - \max_{c'}\text{EIG
 
 which avoids locking onto a single numerical-noise peak.
 
-### 3.2 Exploration / Dip-Bias / EIG Mix
+### 3.2 Exploration / EIG Mix
 
 At each acquisition step a single uniform draw u selects the branch:
 
 | Condition | Action | Notes |
 |-----------|--------|-------|
-| u < 0.1·e^(−t/25) | Uniform global sample | Decaying exploration probability |
-| u < 0.20 | Sample near a dip the data show (`belief.dip_candidates`, §3.5) ± 5 MHz jitter | Corrects posterior bias |
-| otherwise | Full EIG maximisation | Main path |
+| u < 0.1·e^(−t/25) | Uniform sample over the full probe axis | Decaying exploration probability |
+| otherwise | Full EIG maximisation over the candidates inside the focus (§2.4) | Main path |
 
-with t = `inference_step_count`.  The factor e^(−t/25) makes global exploration decay exponentially so steps concentrate on EIG as the scan progresses.
+with t = `inference_step_count`.  The factor e^(−t/25) makes global exploration decay exponentially so steps concentrate on EIG as the scan progresses. There is no other acquisition branch: the dips the data show (§3.5) shape the EIG candidate set (§1.8) but are never probed directly.
 
 ### 3.3 Noise Estimation (conjugate prior)
 
-The locator has exactly one noise estimate: the belief's Inverse-Gamma posterior (§1.1a). `estimated_noise_std()` is the weighted 90th percentile over particles of each particle's posterior-mode σ = √(β_i / (α_i + ½)), and `noise_std_uncertainty()` its delta-method uncertainty. It feeds the EIG noise variance (§1.6), the closed-form CRLB (§2.3), the theoretical step budget (§3.4) and the dip detector (§3.5). There is no background-scatter (MAD) estimate and no forced background calibration: every measurement, dip or not, informs σ through the residual it leaves against each particle's prediction.
+The locator has exactly one noise estimate: the belief's Inverse-Gamma posterior (§1.1a). `estimated_noise_std()` is the weighted 90th percentile over particles of each particle's posterior-mode σ = √(β_i / (α_i + ½)), and `noise_std_uncertainty()` its delta-method uncertainty. It feeds the EIG noise variance (§1.6), the closed-form CRLB (§2.3) and the dip detector (§3.5). There is no background-scatter (MAD) estimate and no forced background calibration: every measurement, dip or not, informs σ through the residual it leaves against each particle's prediction.
 
-### 3.4 Theoretical Step Budget (backstop)
+### 3.4 Step Budget
 
-Once the belief's noise estimate σ̂ (§3.3) is available and contrast ĉ > 0, a permissive backstop budget is computed from the uniform-sampling CRLB of §2.3:
-
-$$n_{\rm theory} = \frac{4\hat\sigma^2\, \hat\Omega\, W}{\pi \hat{c}^2 T^2}$$
-
-where T = `NVISION_FREQ_CONVERGENCE_THRESHOLD` = 100 kHz and W = bandwidth.  (This is exactly n such that Var^CRLB(f), evaluated at ρ = n/W, equals T².)  The applied limit is
-
-$$N_{\rm budget} = \max(N_{\rm max},\; K_{\rm theory}\cdot n_{\rm theory} + 1)$$
-
-with K_theory = `NVISION_SBED_STEPS_THEORY_FACTOR` = 20, so it only fires when something has genuinely gone wrong — EIG should converge far sooner.
-
-**Default SBED step budget.** Unless overridden, the SBED locator's `max_steps` is `ceil(N_simplesweep × f)` with f = `NVISION_SBED_STEPS_FRACTION` = 1.0 (previously 0.5, and 0.32 before that), so it is capped at the full uniform-sweep budget it is compared against.
+**Default SBED step budget.** Unless overridden, the SBED locator's `max_steps` is `ceil(N_simplesweep × f)` with f = `NVISION_SBED_STEPS_FRACTION` = 1.0 (previously 0.5, and 0.32 before that), so it is capped at the full uniform-sweep budget it is compared against. (An earlier "theoretical step budget" backstop, `max(max_steps, K·n_theory)`, was removed: it was never below `max_steps`, so it could not fire.)
 
 ### 3.5 Dip Detection (`find_dips`, `belief/dip_detection.py`)
 
@@ -317,7 +312,7 @@ Deterministic, classic dip finding from the measured scan alone — it never rea
 
 When σ̂'s relative uncertainty is ≥ `NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD` = 0.15 the noise level is too poorly known to threshold against and no dips are reported.
 
-The belief runs the detector at each resample once ≥5 observations exist; the result is `belief.dip_candidates`. It supplies the dip kernels of §1.8, the dip-biased exploration of §3.2, and the focus windows the UI animates (`bayesian_focus_window`, `per_dip_windows`, `focus_window_candidates` are the extents [f_min, f_max] of the detected dips).
+The belief runs the detector at each resample once ≥5 observations exist; the result is `belief.dip_candidates`. It supplies the dip kernels of §1.8 and the focus windows the UI animates (`bayesian_focus_window`, `per_dip_windows`, `focus_window_candidates` are the extents [f_min, f_max] of the detected dips).
 
 **Sorted observations.** Detection needs the observations ordered by x. `SMCMarginalDistribution.sorted_observation_arrays()` keeps them sorted incrementally (one `searchsorted` insertion per new observation, lazily applied) so `find_dips(..., assume_sorted=True)` can use binary search instead of re-sorting the full history on every call.
 
@@ -344,7 +339,7 @@ $$\text{CRLB}_j = \sqrt{\left[(\mathbf{I}_{\rm cum} + \epsilon \mathbf{I})^+\rig
 `fisher_information_matrix` needs `∇_θ S`; none of the NV-center models (`NVCenterVoigtModel`,
 `NVCenterLorentzianModel`, `NVCenterSaturationVoigtModel`) define an analytical `gradient`, so
 until this fallback existed `crlb_per_param()` always returned `{}` for every NV-center run and
-the cumulative FIM was never built — `_check_crlb_early_stop`'s per-parameter path (§5.5) and
+the cumulative FIM was never built — the primary-parameter CRLB stop (§5.5) and
 `reported_uncertainty`'s CRLB floor (§2.2) were both dead code.
 
 When no analytical gradient is available, `fisher_information_matrix` falls back to a central
@@ -445,23 +440,39 @@ with K_safety = `NVISION_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
 
 ### 5.5 CRLB Early-Stop in SBED (`_check_crlb_early_stop`)
 
-The only analytical CRLB the locator uses is the closed-form frequency CRLB of §2.3, evaluated at the belief's conjugate noise estimate σ̂ (§3.3). Convergence is declared per parameter against the safety-factored CRLB:
+The stop gates the **primary parameter** only (`zeeman_split`/`split` when present, else `frequency`;
+`resolve_primary_param` in `nvision/metrics/milestones.py`). Its CRLB is the closed-form frequency CRLB of
+§2.3 when the primary parameter is `frequency`, otherwise its marginal CRLB from the cumulative FIM
+(§4.2/§4.3, `crlb_per_param()`), both at the belief's conjugate noise estimate σ̂ (§3.3). `_primary_crlb_done`
+passes when **both** hold:
 
-$$\sigma_j < K_{\rm safety}\cdot \text{CRLB}_j$$
+$$\sigma_p < K_{\rm safety}\cdot \text{CRLB}_p \qquad\text{and}\qquad \text{CRLB}_p < T_p$$
 
-- All target parameters pass the CRLB gate for `patience` consecutive checks → sets `_is_converged = True`. With the default fixed frequency `frequency` is not a target parameter, so this gate never fires; it is live for free-frequency beliefs.
-- The primary parameter (`zeeman_split`/`split` when present, else `frequency` -- see
-  `resolve_primary_param` in `nvision/metrics/milestones.py`) passes (CRLB **or** absolute
-  threshold) → records `splitting_converged_step`.
-- All parameters pass (CRLB **or** absolute threshold each) → records `all_converged_step`.
+($T_p$ = the parameter's absolute convergence threshold, e.g. `NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD`.)
+Passing for `patience` consecutive checks sets `_is_converged = True` (its own streak,
+`_crlb_convergence_streak`). The primary parameter's CRLB is absent until a cumulative FIM exists, in which
+case the check does not pass.
 
-The FIM-derived marginal CRLBs (§4.3) are not used to stop a run. A FIM-driven stop was tested and rejected: it improved the reported numbers (median run length 450→24 steps, catastrophic rate on known-degenerate configs 67%→12%) only as an artifact. At a near-degenerate point the marginal CRLB is inflated by a near-singular FIM (e.g. 11.8 MHz on `zeeman_split` where the achieved error was 1.3 MHz), so the test passes from the first steps, exactly when the problem is hardest; and generators draw each repeat's prior mean as `gauss(true_value, sigma)`, so stopping early scores well precisely because it reports a truth-centred prior it never had to earn.
+The second condition is what keeps the test from passing trivially. A FIM-driven stop *without* it was tested
+and rejected: it improved the reported numbers (median run length 450→24 steps, catastrophic rate on
+known-degenerate configs 67%→12%) only as an artifact. At a near-degenerate point the marginal CRLB is inflated
+by a near-singular FIM (e.g. 11.8 MHz on `zeeman_split` where the achieved error was 1.3 MHz), so
+$\sigma < K\,\text{CRLB}$ holds from the first steps, exactly when the problem is hardest; and generators draw
+each repeat's prior mean as `gauss(true_value, sigma)`, so stopping early scores well precisely because it
+reports a truth-centred prior it never had to earn. An inflated CRLB fails $\text{CRLB}_p < T_p$.
+The guarded rule has only been checked on a small counterfactual sample (n=12: fires in half the runs, median
+stop step 32 vs 81, median error at the stop ≈ 2× the run's final error) — treat it as unvalidated until an A/B
+with real power exists.
+
+The milestones (`splitting_converged_step`, `all_converged_step`) are separate bookkeeping: they use the
+closed-form frequency CRLB (infinite for every other parameter) or the absolute threshold, so for
+non-frequency parameters they are decided by the absolute threshold alone.
 
 ### 5.6 Adaptive Plateau Stop (`_check_estimate_plateau`, default-on)
 
 Stops once the *estimate itself* has stopped moving relative to its own error bar, rather than
 waiting on a derived quantity's claim that the information limit has been reached — the
-replacement for what §5.5's FIM gate was meant to provide.
+complement to §5.5's CRLB gate, which only declares convergence on the primary parameter.
 
 For each target parameter, the current estimate is compared against the one from
 `NVISION_SBED_PLATEAU_WINDOW` = 30 convergence checks ago, expressed in units of that
@@ -520,7 +531,6 @@ that margin at a 2.2× rather than 3.6× saving.
 | — | `NVISION_SMC_EPOCH_CANDIDATE_BUDGET` | 800 | — (fixed, not env-configurable) |
 | T_f | `NVISION_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
 | K_safety | `NVISION_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
-| K_theory | `NVISION_SBED_STEPS_THEORY_FACTOR` | 20 | — |
 | patience | `NVISION_CONVERGENCE_PATIENCE` | 8 | steps |
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
 | p_conf | `NVISION_DIP_CONFIDENCE` | 0.99 | — |

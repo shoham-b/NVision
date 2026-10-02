@@ -67,9 +67,8 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         x_bounds_phys: tuple[float, float],
     ) -> None:
         self.inner = inner
-        # Copy: narrow_physical_interval_for_param mutates this dict in place;
-        # the caller's dict must not be silently narrowed along with it (it is
-        # often shared across locators/repeats as the pristine full-domain bounds).
+        # Copy: the caller's dict is often shared across locators/repeats as the pristine
+        # full-domain bounds and must not be aliased by the model.
         self.param_bounds_phys = dict(param_bounds_phys)
         self.x_bounds_phys = x_bounds_phys
 
@@ -253,27 +252,3 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         if res is None:
             return None
         return res / phys_width
-
-    def narrow_physical_interval_for_param(
-        self,
-        param_name: str,
-        new_lo: float,
-        new_hi: float,
-        *,
-        update_x_axis: bool = True,
-    ) -> tuple[float, float]:
-        """Clip ``(new_lo, new_hi)`` to current bounds and update physical ranges in place.
-
-        Used after a coarse sweep to restrict the scan axis and matching parameter
-        interval without rebuilding the model. When ``update_x_axis`` is true, probe
-        position maps to the same narrowed physical interval as ``param_name``.
-        """
-        nl = float(min(new_lo, new_hi))
-        nh = float(max(new_lo, new_hi))
-        if nh <= nl:
-            return self.param_bounds_phys[param_name]
-
-        self.param_bounds_phys[param_name] = (nl, nh)
-        if update_x_axis:
-            self.x_bounds_phys = (nl, nh)
-        return (nl, nh)

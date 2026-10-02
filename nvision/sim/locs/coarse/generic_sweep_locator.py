@@ -1077,14 +1077,10 @@ class GenericSweepLocator(SweepingLocator):
     def finalize(self) -> None:
         """Fit the physical model to the sweep and report the center frequency.
 
-        Order matters: the fit must run BEFORE the belief flush. The SMC
-        belief's batch update can resample and auto-narrow the frequency
-        bounds *in place* on the shared ``signal_model.param_bounds_phys``
-        (see ``UnitCubeSMCMarginalDistribution.narrow_scan_parameter_physical_bounds``)
-        — and a batch-updated belief is collapsed, so it narrows to the wrong
-        window using the global RNG. Fitting first keeps the fit anchored to
-        the original physical bounds; the flush only exists so visualizations
-        can show a belief.
+        Order matters: the fit runs BEFORE the belief flush so it never depends on the
+        (collapsed, batch-updated) belief; the flush only exists so visualizations can show
+        a belief. (The belief no longer rewrites any parameter bounds, so the fit's bounds
+        are the original physical ones either way.)
 
         Raises if the fit fails — see ``_fit_model``.
 

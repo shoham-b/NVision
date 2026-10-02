@@ -1,39 +1,21 @@
-"""Focus window must be Zeeman-symmetry aware.
+"""Acquisition candidates must be Zeeman-symmetry aware.
 
 The default NV model is Zeeman-split: two identical dips at
-``frequency ± zeeman_split``. ``SMCMarginalDistribution._resample()``
-computes the auto-narrowed frequency envelope from per-particle predicted dip
-extents; before this fix ``zeeman_split`` was omitted from that math, so the
-narrowed envelope (and the measurement x-axis, via ``sync_x``) could exclude
-the actual dip locations at ``f ± Δ`` entirely.
+``center_freq +/- zeeman_split``. High-EIG acquisition candidates must concentrate near *both* real dip
+locations and avoid the empty gap between them -- verified by ranking ``expected_information_gain``
+over ``get_candidates()``, not by raw candidate density (the baseline term deliberately keeps a
+sparse, uniform background of low-value candidates everywhere, as a hedge against a wrong belief;
+EIG-argmax selection is what actually determines where the locator measures).
 
-These tests check:
-
-1. The narrowed envelope always contains both predicted dip locations
-   (containment), for both the Lorentzian and saturation-Voigt lineshapes.
-2. The single-dip (no Zeeman splitting) case is unaffected (regression).
-3. High-EIG acquisition candidates concentrate near *both* real dip
-   locations and avoid the empty gap between them — verified by ranking
-   ``expected_information_gain`` over ``get_candidates()``, not by raw
-   candidate density (the envelope-wide "global grid" deliberately keeps a
-   sparse, uniform background of low-value fallback candidates everywhere,
-   as a hedge against a wrong belief; EIG-argmax selection is what actually
-   determines where the locator measures, and that's what must avoid the
-   gap).
+(That the *focus* contains both dips is covered in ``tests/test_focus_policy.py``.)
 """
 
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from tests.noise import gaussian_noise
-
-
-@pytest.fixture(autouse=True)
-def _no_narrowing_delay(monkeypatch):
-    monkeypatch.setattr("nvision.belief.free_frequency_smc.NVISION_MIN_STEPS_BEFORE_NARROWING", 0)
 
 
 def _concentrate_and_resample(smc, f0: float, delta0: float | None, *, seed: int, n: int):
@@ -46,75 +28,6 @@ def _concentrate_and_resample(smc, f0: float, delta0: float | None, *, seed: int
         j_z = smc._param_names.index("zeeman_split")
         smc._particles[:, j_z] = np.clip(rng.normal(loc=(delta0 - z_lo) / (z_hi - z_lo), scale=1e-4, size=n), 0.0, 1.0)
     smc._resample()
-
-
-class TestZeemanEnvelopeContainment:
-    def test_lorentzian_envelope_contains_both_dips(self):
-        smc = nv_center_smc_belief(
-            num_particles=1000,
-            with_zeeman_splitting=True,
-            hyperfine="unresolved",
-            with_fixed_frequency=False,
-            noise_model=gaussian_noise(),
-        )
-        f_lo, f_hi = smc.physical_param_bounds["frequency"]
-        f0 = 0.5 * (f_lo + f_hi)
-        delta0 = 40e6
-        old_lo, old_hi = f_lo, f_hi
-
-        _concentrate_and_resample(smc, f0, delta0, seed=0, n=1000)
-
-        new_lo, new_hi = smc.physical_param_bounds["frequency"]
-        assert new_lo <= f0 - delta0, "narrowed window must reach the left dip"
-        assert new_hi >= f0 + delta0, "narrowed window must reach the right dip"
-        assert (new_hi - new_lo) < (old_hi - old_lo), "window must have actually narrowed"
-
-        x_lo, x_hi = smc.physical_x_bounds
-        assert x_lo <= f0 - delta0, "measurement x-axis must also reach the left dip (sync_x)"
-        assert x_hi >= f0 + delta0, "measurement x-axis must also reach the right dip (sync_x)"
-
-    def test_saturation_voigt_envelope_contains_both_dips(self):
-        smc = nv_center_smc_belief(
-            num_particles=1000,
-            with_zeeman_splitting=True,
-            hyperfine="unresolved",
-            with_fixed_frequency=False,
-            lineshape="saturation_voigt",
-            noise_model=gaussian_noise(),
-        )
-        f_lo, f_hi = smc.physical_param_bounds["frequency"]
-        f0 = 0.5 * (f_lo + f_hi)
-        delta0 = 30e6
-        old_lo, old_hi = f_lo, f_hi
-
-        _concentrate_and_resample(smc, f0, delta0, seed=1, n=1000)
-
-        new_lo, new_hi = smc.physical_param_bounds["frequency"]
-        assert new_lo <= f0 - delta0
-        assert new_hi >= f0 + delta0
-        assert (new_hi - new_lo) < (old_hi - old_lo)
-
-
-class TestNoZeemanRegression:
-    def test_single_dip_narrowing_unaffected(self):
-        """Without zeeman_split in the model, narrowing behaves as before (hull around one dip)."""
-        smc = nv_center_smc_belief(
-            num_particles=1000,
-            with_zeeman_splitting=False,
-            hyperfine="unresolved",
-            with_fixed_frequency=False,
-            noise_model=gaussian_noise(),
-        )
-        assert "zeeman_split" not in smc._param_names
-        f_lo, f_hi = smc.physical_param_bounds["frequency"]
-        f0 = 0.5 * (f_lo + f_hi)
-        old_lo, old_hi = f_lo, f_hi
-
-        _concentrate_and_resample(smc, f0, None, seed=2, n=1000)
-
-        new_lo, new_hi = smc.physical_param_bounds["frequency"]
-        assert (new_hi - new_lo) < 0.5 * (old_hi - old_lo), "should narrow well below 50% of domain"
-        assert new_lo <= f0 <= new_hi, "dip centre must remain inside the window"
 
 
 class TestGapAwareAcquisition:

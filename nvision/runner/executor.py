@@ -1092,7 +1092,6 @@ class _TaskRunner:
         rid: int,
         experiment: CoreExperiment,
         locator_config: dict[str, Any],
-        noise_std: float,
     ) -> dict[str, Any]:
         """Simulate the SimpleSobolBayesianLocator until convergence and return detailed stats."""
         import math
@@ -1123,7 +1122,6 @@ class _TaskRunner:
         locator = SimpleSobolBayesianLocator(
             belief=belief,
             max_steps=_sobol_max_steps,
-            noise_std=noise_std,
         )
         # The parameter these "sobol_freq_*" stats are actually about -- zeeman_split
         # (or split) once frequency is fixed by default, else frequency itself for
@@ -1469,7 +1467,7 @@ class _TaskRunner:
                 experiment, self.task.seed, self.generator_name, self.noise_name, rid
             )
             if sobol_data is None:
-                sobol_data = self._run_sobol_baseline(rid, experiment, locator_config, noise_std)
+                sobol_data = self._run_sobol_baseline(rid, experiment, locator_config)
                 self._sweep_cache.put_sobol_baseline(
                     experiment, self.task.seed, self.generator_name, self.noise_name, rid, sobol_data
                 )
@@ -1500,11 +1498,10 @@ class _TaskRunner:
         # Fixed hardware batch size (shots per frequency), configured per-strategy
         # via locator_config["n_shots"]. Not a locator constructor arg — popped out
         # here and threaded to run_loop()/experiment.measure() directly. Each
-        # acquisition step is a batch of n_shots with precision noise_std/sqrt(n_shots);
-        # the locator's noise_std prior (used for EIG/likelihood before any empirical
-        # batch estimate exists) is seeded at that precision instead of the raw
-        # single-shot noise_std, which the un-batched baselines (Sobol/SimpleSweep,
-        # built directly above) intentionally keep as their single-shot reference.
+        # acquisition step is a batch of n_shots with precision noise_std/sqrt(n_shots).
+        # Sweep locators (which take a noise_std hint) get that batch precision; Bayesian locators
+        # take no noise_std (their belief infers the noise level), and the un-batched baselines
+        # (Sobol/SimpleSweep, built directly above) keep the single-shot noise_std as their reference.
         n_shots = int(locator_config.get("n_shots", 1))
         batch_noise_std = noise_std / math.sqrt(n_shots)
 
@@ -1513,11 +1510,11 @@ class _TaskRunner:
             **{k: v for k, v in locator_config.items() if k != "n_shots"},
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
-            "noise_std": batch_noise_std,
         }
         if requires_belief:
             cfg["noise_model"] = experiment.true_signal.noise_model
         if not is_bayesian:
+            cfg["noise_std"] = batch_noise_std
             # Sweep locators use the noise/signal-span hints and are handed a belief + signal model;
             # Bayesian locators infer everything through their own belief.
             if noise_max_dev is not None:
@@ -1706,12 +1703,10 @@ class _TaskRunner:
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
         if last_loc is not None and isinstance(last_loc, SequentialBayesianExperimentDesignLocator):
-            finalize_record["theory_step_budget"] = getattr(last_loc, "_theory_step_budget", None)
             # The belief's conjugate (Inverse-Gamma) noise estimate -- the only noise sigma the
             # locator uses. Compare with true_noise_std below to see how well it was recovered.
             finalize_record["estimated_noise_std"] = float(last_loc.belief.estimated_noise_std())
         else:
-            finalize_record["theory_step_budget"] = None
             finalize_record["estimated_noise_std"] = None
         # Ground truth: the configured noise preset's raw combined std, read directly off
         # over_frequency_noise (bypasses estimated_noise_std()'s unknown/negligible-noise

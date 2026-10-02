@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from nvision.belief.free_frequency_smc import FreeFrequencySMCMarginalDistribution
 from nvision.belief.smc_marginal import (
     NVISION_SMC_A_PARAM,
     NVISION_SMC_ESS_THRESHOLD,
@@ -194,8 +193,7 @@ def nv_center_smc_belief(
     x_phys = merged_bounds["frequency"]
     wrapped = UnitCubeSignalModel(model, merged_bounds, x_phys)
 
-    belief_cls = SMCMarginalDistribution if with_fixed_frequency else FreeFrequencySMCMarginalDistribution
-    return belief_cls(
+    return SMCMarginalDistribution(
         model=wrapped,
         parameter_bounds={name: (0.0, 1.0) for name in merged_bounds},
         num_particles=num_particles,

@@ -42,7 +42,7 @@ prompt:
     Hard constraints (violating these scores 0, not partial credit):
       - Every returned frequency must be a physical Hz float strictly within
         the locator's domain bounds (see self._acquisition_bounds() and
-        self.belief._original_physical_x_bounds).
+        self.belief.physical_x_bounds).
       - Never silently clamp or fall back on invalid/degenerate state --
         raise instead (this codebase's own convention: fail fast, no silent
         algorithmic fallbacks).

@@ -90,7 +90,6 @@ def _overall_bayesian_ms(
                 max_steps=max_steps,
                 builder=builder,
                 parameter_bounds=None,
-                noise_std=0.02,
                 **extra,
             )
         )
@@ -136,7 +135,6 @@ class TestSBEDAcquireBottleneck:
             max_steps=12,
             num_particles=1024,
             parameter_bounds=None,
-            noise_std=0.02,
         )
 
         # Warmup

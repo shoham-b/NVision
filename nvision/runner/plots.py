@@ -770,7 +770,6 @@ def get_or_run_sobol_baseline(
     locator = SimpleSobolBayesianLocator(
         belief=belief,
         max_steps=10000,
-        noise_std=noise_std,
     )
     # See nvision/runner/executor.py's identical Sobol-baseline block: field names
     # keep their historical "freq" spelling, only the tracked parameter changes.

@@ -50,7 +50,7 @@ def _acquire(self) -> float:
     # so they can still reach a location resampling has already narrowed away from.
     # `_to_experiment_normalized` normalizes against this same full domain, not
     # `_acquisition_bounds()`, so returning a value outside `lo, hi` here is valid.
-    orig_lo, orig_hi = self.belief._original_physical_x_bounds
+    orig_lo, orig_hi = self.belief.physical_x_bounds
 
     # The exploration branches are drawn first so the (much more expensive) EIG grid
     # search in _eig_acquire() is skipped entirely on steps where it would be discarded.

@@ -135,7 +135,6 @@ A run's `failure_reason` (`None` = success) is assigned by the first matching ru
 | `None` | Strategy is a sweep/Sobol/mixture baseline (no convergence gate) |
 | `infeasible_crlb` | Stop reason was `infeasible_crlb` |
 | `timeout` | Stop reason was `repeat_timeout` |
-| `theory_budget` | `locator_steps > theory_step_budget` (§3.4 of [sbed_and_smc.md](sbed_and_smc.md)) |
 | `None` | `locator_steps < max_steps` (stopped early for another reason) |
 | `max_steps` | Otherwise — exhausted the step budget without converging |
 

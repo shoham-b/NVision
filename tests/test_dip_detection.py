@@ -143,77 +143,27 @@ def test_sorted_observation_arrays_lazy_incremental_across_calls():
         assert np.array_equal(xs_sorted, xs_sorted_again)
 
 
-def test_resync_sort_position_after_stale_insertion():
-    # Reproduces the SMCMarginalDistribution coordinate-frame case:
-    # dip detection (via sorted_observation_arrays()) runs mid-update using a
-    # provisional value, then the caller overwrites _obs_x_arr with the real
-    # one afterwards. _resync_sort_position must restore global sortedness.
-    b = nv_center_smc_belief(num_particles=50, noise_model=gaussian_noise())
-    for x in (0.1, 0.5, 0.9):
-        b._append_observation(x, 1.0)
-    b.sorted_observation_arrays()  # finalizes _obs_sort_valid_count == 3
-
-    b._append_observation(0.99, 1.0)  # stale/provisional value, e.g. narrowed-frame
-    b.sorted_observation_arrays()  # incorporates it at the (wrong) high end
-
-    b._obs_x_arr[3] = 0.2  # caller's post-hoc correction to the real value
-    b._resync_sort_position(3)
-
-    xs_sorted, _ = b.sorted_observation_arrays()
-    assert np.array_equal(xs_sorted, np.array([0.1, 0.2, 0.5, 0.9]))
-
-
-def test_resync_sort_position_noop_before_first_read():
-    # If sorted_observation_arrays() never ran, the newly-appended index isn't
-    # in the sort order yet -- resync must be a no-op, not raise or corrupt state.
-    b = nv_center_smc_belief(num_particles=50, noise_model=gaussian_noise())
-    b._append_observation(0.5, 1.0)
-    b._append_observation(0.99, 1.0)
-    b._obs_x_arr[1] = 0.1  # correct before it was ever read
-    b._resync_sort_position(1)  # no-op: valid_count is still 0
-
-    xs_sorted, _ = b.sorted_observation_arrays()
-    assert np.array_equal(xs_sorted, np.array([0.1, 0.5]))
-
-
-def test_unit_cube_belief_narrowing_dip_detection_stays_consistent():
-    # End-to-end: force narrowing + resampling (which triggers dip detection
-    # via _generate_epoch_candidates -> sorted_observation_arrays) across many
-    # updates, so _resync_sort_position is actually exercised through the real
-    # SMCMarginalDistribution.update() path, not just called directly.
+def test_belief_sorted_observations_stay_consistent_across_updates_and_resamples():
+    # End-to-end: many updates with forced resamples (each triggers dip detection via
+    # _generate_epoch_candidates -> sorted_observation_arrays with assume_sorted=True),
+    # so the fail-fast "not ascending" ValueError would surface if sorting ever drifted.
     from nvision.models.observation import Observation
     from nvision.spectra.noise_model import GaussianNoiseSignalModel
 
-    # frequency must be a free particle dimension for _resample() to narrow it
-    # (narrow_scan_parameter_physical_bounds requires it in _param_names) --
-    # nv_center_smc_belief defaults to with_fixed_frequency=True, which skips
-    # narrowing entirely, so no coordinate-frame divergence would ever occur.
     noise_model = GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (0.01, 0.05)})
     b = nv_center_smc_belief(num_particles=100, noise_model=noise_model, with_fixed_frequency=False)
-    initial_width = b.physical_x_bounds[1] - b.physical_x_bounds[0]
+    axis_before = (b.physical_x_bounds, dict(b.physical_param_bounds))
 
     rng = np.random.default_rng(123)
     for i in range(60):
-        # Draw from the CURRENT (possibly already-narrowed) window each time,
-        # matching how a real locator only ever probes inside its live bounds.
-        lo, hi = b.physical_x_bounds
-        x = float(rng.uniform(lo, hi))
-        b.update(Observation(x=x, signal_value=float(rng.uniform(0.5, 1.0))))
-        if i == 20:
-            # One explicit narrowing partway through -- this is exactly what
-            # makes update()'s post-hoc x-correction diverge from the value
-            # _append_observation saw (_resync_sort_position's reason to exist).
-            lo0, hi0 = b.physical_x_bounds
-            b.narrow_scan_parameter_physical_bounds("frequency", lo0 + 0.1 * (hi0 - lo0), hi0 - 0.1 * (hi0 - lo0))
+        b.update(Observation(x=float(rng.uniform(0.0, 1.0)), signal_value=float(rng.uniform(0.5, 1.0))))
+        if i % 10 == 9:
+            b._resample()
 
-    final_width = b.physical_x_bounds[1] - b.physical_x_bounds[0]
-    assert final_width < initial_width, "test didn't actually exercise narrowing -- strengthen the setup"
-
+    assert (b.physical_x_bounds, dict(b.physical_param_bounds)) == axis_before
     xs_sorted, _ = b.sorted_observation_arrays()
     xs_raw, _ = b.observation_arrays()
     assert np.array_equal(xs_sorted, np.sort(xs_raw))
-    # Also confirms the belief's own dip-detection call site (assume_sorted=True)
-    # never hit the fail-fast ValueError across this whole run.
 
 
 def test_belief_requires_a_noise_model():

@@ -370,6 +370,7 @@ def _matlab_run_one(
     infer_frequency: bool,
 ) -> _MatlabRunSummary:
     """Run the SBED locator on a single ESR .mat file (the body of ``matlab-run``)."""
+    from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
     from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
     from nvision.tools.matlab_loader import MatlabDataFile
@@ -425,7 +426,9 @@ def _matlab_run_one(
     locator = SequentialBayesianExperimentDesignLocator.create(
         builder=nv_center_smc_belief,
         parameter_bounds=locator_bounds,
-        noise_std=data.noise_std,
+        # The belief always infers the noise level through its conjugate prior; its prior window is
+        # centred on the noise measured from (or overridden for) this recording.
+        noise_model=OverFrequencyGaussianNoise(std=data.noise_std).to_noise_signal_model(),
         max_steps=max_steps,
         with_fixed_frequency=not infer_frequency,
         num_particles=particles,

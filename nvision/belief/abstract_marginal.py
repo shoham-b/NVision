@@ -251,14 +251,6 @@ class AbstractMarginalDistribution(ABC):
         lo, hi = self.physical_param_bounds[self.model.parameter_names()[0]]
         return np.linspace(lo, hi, 100)
 
-    def narrow_scan_parameter_physical_bounds(self, param_name: str, new_lo: float, new_hi: float) -> None:  # noqa: B027
-        """Shrink physical bounds for ``param_name`` after a coarse sweep.
-
-        Default is a no-op for beliefs that operate directly in physical space.
-        Unit-cube beliefs override to remap their internal normalized coordinates.
-        """
-        pass
-
     def _to_physical(self, param_name: str, val: float) -> float:
         """Convert an internal coordinate back to physical space.
 

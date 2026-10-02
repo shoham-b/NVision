@@ -3,14 +3,14 @@
 What's actually unified, and what isn't
 ----------------------------------------
 ``clamp_to_domain`` is the one piece of arithmetic genuinely shared by every
-narrowing site: the Bayesian SMC belief's ``narrow_scan_parameter_physical_bounds``
-(base and unit-cube), the sweep locators' ``nvision.sim.locs.refocus.window``,
-and ``StagedSobolSweepLocator.per_dip_windows``. ``TestClampToDomainRouting``
-proves each of those four call sites actually calls the shared function rather
-than a copy of its arithmetic.
+narrowing site: the Bayesian locator's probe-axis focus
+(``nvision.belief.focus_window.next_focus_window``), the sweep locators'
+``nvision.sim.locs.refocus.window``, and ``StagedSobolSweepLocator.per_dip_windows``.
+``TestClampToDomainRouting`` proves each of those call sites actually calls the
+shared function rather than a copy of its arithmetic.
 
 ``FocusWindow.propose_narrowing`` (the floor + clamp + minimum-shrink-fraction
-decision) has exactly **one** caller: ``SMCMarginalDistribution._resample``.
+decision) has exactly **one** caller: ``next_focus_window``.
 The sweep locators' ``StagedSobolSweepLocator``/``Stage3SobolLocator`` window
 updates go through ``FocusWindow.from_candidate`` instead, which only clamps
 and rejects a collapsed window -- it does not know about a width floor or a
@@ -114,7 +114,7 @@ class TestFromCandidate:
         """Pins the boundary of what's shared: from_candidate (used by the
         sweep locators) only clamps and rejects collapse. It has no min_width
         or min_narrowing_fraction knobs -- those live only on
-        propose_narrowing, whose only caller is the SMC belief. If this test
+        propose_narrowing, whose only caller is next_focus_window. If this test
         starts failing because someone added those parameters, the module
         docstring's claim about what's NOT unified needs updating too.
         """
@@ -301,27 +301,31 @@ class TestIsFullDomainAgainstOracle:
 
 
 class TestClampToDomainRouting:
-    def test_free_frequency_smc_narrow_scan_parameter_physical_bounds_routes_through_clamp(self, monkeypatch):
-        import nvision.belief.free_frequency_smc as ucsm_mod
-        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-        from tests.noise import gaussian_noise
+    def test_next_focus_window_routes_through_clamp(self, monkeypatch):
+        import numpy as np
+
+        import nvision.belief.focus_window as fw_mod
 
         calls: list[tuple] = []
-        real_clamp = ucsm_mod.clamp_to_domain
+        real_clamp = fw_mod.clamp_to_domain
 
         def spy(lo, hi, domain_lo, domain_hi):
             calls.append((lo, hi, domain_lo, domain_hi))
             return real_clamp(lo, hi, domain_lo, domain_hi)
 
-        monkeypatch.setattr(ucsm_mod, "clamp_to_domain", spy)
+        monkeypatch.setattr(fw_mod, "clamp_to_domain", spy)
 
-        b = nv_center_smc_belief(num_particles=20, with_fixed_frequency=False, noise_model=gaussian_noise())
-        orig_lo, orig_hi = b._original_physical_x_bounds
-        mid = 0.5 * (orig_lo + orig_hi)
-        quarter = 0.25 * (orig_hi - orig_lo)
-
-        b.narrow_scan_parameter_physical_bounds("frequency", mid - quarter, mid + quarter)
-        assert calls == [(mid - quarter, mid + quarter, orig_lo, orig_hi)]
+        focus = FocusWindow(lo=0.0, hi=100.0, full_lo=0.0, full_hi=100.0)
+        fw_mod.next_focus_window(
+            focus,
+            center_freq_particles_phys=np.full(50, 50.0),
+            active_half_span_particles_phys=np.full(50, 5.0),
+            omega_phys=1.0,
+            zeeman_split_phys=0.0,
+            step=100,
+            last_expansion_step=-1,
+        )
+        assert calls == [(45.0, 55.0, 0.0, 100.0)]
 
     def test_refocus_window_infer_focus_window_routes_through_clamp(self, monkeypatch):
         import nvision.sim.locs.refocus.window as refocus_window_mod

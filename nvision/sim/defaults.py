@@ -150,11 +150,6 @@ NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
 # 1.0 = require CRLB strictly below threshold; increase to allow slight infeasibility.
 NVISION_CRLB_FEASIBILITY_MARGIN: float = float(os.getenv("NVISION_CRLB_FEASIBILITY_MARGIN", "1.0"))
 
-# Permissive multiplier on the theoretical step count n_theory for SBED's backstop limit.
-# n_theory = 2σ̂²·lw·bandwidth / (π·c²·T²); stops when inference_step_count > K × n_theory.
-# Large value (20) so this only fires when something has genuinely gone wrong.
-NVISION_SBED_STEPS_THEORY_FACTOR: float = float(os.getenv("NVISION_SBED_STEPS_THEORY_FACTOR", "20"))
-
 
 def _optional_env_float(name: str) -> float | None:
     raw = os.getenv(name)

@@ -233,6 +233,10 @@ def physics_config_fingerprint() -> str:
         # *physical* estimated linewidth/split (it had used unit-estimate x range, dropping each
         # bound's lower edge) and plain-Voigt slopes started including the Gaussian width.
         "epoch-slope-physical-v1",
+        # Bumped when SBED's acquisition became a single path (decaying uniform probe, else EIG over the
+        # candidates inside a locator-owned focus): the dip-biased probe, last-pick re-injection and
+        # belief-side window narrowing were removed and out-of-cube particles are reflected, not clipped.
+        "sbed-single-path-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,

@@ -44,7 +44,6 @@ def run_simulation(
     true_signal = gen.generate(random.Random(seed))
     x_min, x_max = true_signal.get_param_bounds("frequency")
 
-    noise_std = 0.05
     exp = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
 
     pb = {name: true_signal.get_param_bounds(name) for name in true_signal.parameter_names}
@@ -59,7 +58,6 @@ def run_simulation(
         "max_steps": steps,
         "convergence_threshold": 0.001,
         "parameter_bounds": pb,
-        "noise_std": noise_std,
         "builder": nv_center_smc_belief,
         "num_particles": num_particles,
         "n_candidates": n_candidates,

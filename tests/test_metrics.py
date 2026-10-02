@@ -130,7 +130,7 @@ def test_sequential_bayesian_locator_expected_uniform_points():
         def _acquire(self):
             return 0.5
 
-    locator = TestLocator(belief=belief, noise_std=0.01)
+    locator = TestLocator(belief=belief)
     locator._true_signal = true_signal
 
     res = locator.result()

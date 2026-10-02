@@ -271,7 +271,6 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
         loc = SequentialBayesianExperimentDesignLocator(
             belief=belief,
             max_steps=200,
-            noise_std=0.01,
             convergence_threshold=0.5,  # loose, so a tight (non-outlier) cloud passes
             convergence_patience_steps=5,
         )
