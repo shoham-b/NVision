@@ -31,8 +31,8 @@ metric that actually gets optimized.
 from __future__ import annotations
 
 import numpy as np
-
 from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
+
 from nvision.sim.locs.bayesian.sbed_locator import (
     _DUAL_WINDOW_ENABLED,
     _effective_linewidth_and_contrast_estimate,
