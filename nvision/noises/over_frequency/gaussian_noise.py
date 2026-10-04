@@ -75,10 +75,13 @@ class OverFrequencyGaussianNoise(OverFrequencyNoise):
 
     def to_noise_signal_model(self) -> NoiseSignalModel:
         """Create the Bayesian counterpart with latent parameter priors."""
+        from nvision.models.noise import _NEGLIGIBLE_NOISE_STD_FLOOR
         from nvision.spectra.noise_model import GaussianNoiseSignalModel
 
-        # Uncertainty window around the nominal sigma (±5x)
-        sigma = self.noise_std()
+        # Uncertainty window around the nominal sigma (±5x). A configured sigma of 0 (Gauss(0.0))
+        # would give the degenerate window (0, 0) -> zero Inverse-Gamma beta -> NaN likelihood, so
+        # the window is built on the same negligible-noise floor as estimated_noise_std().
+        sigma = max(self.noise_std(), _NEGLIGIBLE_NOISE_STD_FLOOR)
         prior_lo = sigma * 0.2
         prior_hi = sigma * 5.0
         return GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (prior_lo, prior_hi)})
