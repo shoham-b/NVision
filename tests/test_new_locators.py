@@ -25,13 +25,13 @@ def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperim
 
     model = GaussianModel()
     typed_params = GaussianSpectrum(
-        frequency=center,
+        center_freq=center,
         sigma=sigma,
         dip_depth=1.0,
         background=0.0,
     )
     bounds = {
-        "frequency": (0.0, 1.0),
+        "center_freq": (0.0, 1.0),
         "sigma": (0.01, 0.3),
         "dip_depth": (0.0, 1.5),
         "background": (0.0, 0.5),

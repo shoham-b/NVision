@@ -63,7 +63,7 @@ def _fill_particles(belief: SMCMarginalDistribution, num_particles: int) -> None
 
     Mirrors SMCMarginalDistribution.copy()'s own pattern for the same flag:
     skip_state_init bypasses __post_init__'s NV-center-specific epoch-candidate-
-    grid construction (which needs a "frequency" bound/fixed value this test's
+    grid construction (which needs a "center_freq" bound/fixed value this test's
     generic model has no use for), on the understanding that the caller fills
     in real particle state right after construction.
     """
@@ -253,19 +253,19 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
 
         model = NVCenterLorentzianModel()
         phys_bounds = {
-            "frequency": (2.6e9, 3.1e9),
+            "center_freq": (2.6e9, 3.1e9),
             "linewidth": (1e6, 5e6),
             "split": (3e6, 8.5e6),
             "k_np": (1.0, 5.0),
             "c_total": (0.05, 0.3),
         }
-        wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["frequency"])
+        wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["center_freq"])
         belief = SMCMarginalDistribution(
             model=wrapped,
             parameter_bounds={name: (0.0, 1.0) for name in phys_bounds},
             num_particles=200,
             physical_param_bounds=phys_bounds,
-            physical_x_bounds=phys_bounds["frequency"],
+            physical_x_bounds=phys_bounds["center_freq"],
             noise_model=gaussian_noise(),
         )
         loc = SequentialBayesianExperimentDesignLocator(
@@ -279,7 +279,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
     def test_streak_not_reset_by_a_transient_raw_spike(self) -> None:
         loc = self._make_locator()
         belief = loc.belief
-        # Plain NVCenterLorentzianModel() (no Zeeman/hyperfine, fixed frequency
+        # Plain NVCenterLorentzianModel() (no Zeeman/hyperfine, fixed-center_freq
         # by default) only infers linewidth and c_total.
         assert list(belief._param_names) == ["linewidth", "c_total"]
         target_idx = belief._param_names.index("linewidth")

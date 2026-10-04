@@ -49,3 +49,17 @@ def test_combo_key_differs_between_schema_versions():
     a = _combo_key({**_BASE, "physics_fingerprint": "x", "schema_version": 10})
     b = _combo_key({**_BASE, "physics_fingerprint": "x", "schema_version": 11})
     assert a != b
+
+
+def test_drop_unviewable_combos_hides_pre_rename_schemas(caplog):
+    """Entries written before the center_freq rename are hidden loudly, never half-rendered."""
+    from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION
+    from nvision.cli.api_server import _drop_unviewable_combos
+
+    old = {**_BASE, "schema_version": MIN_VIEWABLE_CACHE_SCHEMA_VERSION - 1}
+    legacy = {**_BASE, "schema_version": None}
+    current = {**_BASE, "schema_version": MIN_VIEWABLE_CACHE_SCHEMA_VERSION}
+    with caplog.at_level("WARNING", logger="nvision.api_server"):
+        kept = _drop_unviewable_combos([old, legacy, current])
+    assert kept == [current]
+    assert "Re-run" in caplog.text

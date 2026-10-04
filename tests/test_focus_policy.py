@@ -131,7 +131,7 @@ def test_narrowing_routes_through_the_shared_clamp(monkeypatch):
 
 def _free_center_locator(**belief_kwargs):
     belief = nv_center_smc_belief(
-        noise_model=gaussian_noise(), num_particles=500, with_fixed_frequency=False, seed=0, **belief_kwargs
+        noise_model=gaussian_noise(), num_particles=500, with_fixed_center_freq=False, seed=0, **belief_kwargs
     )
     return SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=100)
 
@@ -147,8 +147,8 @@ def _belief_geometry(belief):
 
 def _concentrate(belief, center: float, zeeman: float | None, n: int) -> None:
     rng = np.random.default_rng(0)
-    f_lo, f_hi = belief.physical_param_bounds["frequency"]
-    j = belief._param_names.index("frequency")
+    f_lo, f_hi = belief.physical_param_bounds["center_freq"]
+    j = belief._param_names.index("center_freq")
     belief._particles[:, j] = np.clip(rng.normal((center - f_lo) / (f_hi - f_lo), 1e-4, n), 0.0, 1.0)
     if zeeman is not None:
         z_lo, z_hi = belief.physical_param_bounds["zeeman_split"]
@@ -160,19 +160,19 @@ def test_focus_change_leaves_belief_geometry_untouched():
     loc = _free_center_locator(with_zeeman_splitting=True, hyperfine="unresolved")
     belief = loc.belief
     before = _belief_geometry(belief)
-    f_lo, f_hi = belief.physical_param_bounds["frequency"]
+    f_lo, f_hi = belief.physical_param_bounds["center_freq"]
     _concentrate(belief, 0.5 * (f_lo + f_hi), 40e6, belief.num_particles)
-    freq_before = belief.particles_phys()["frequency"].copy()
+    freq_before = belief.particles_phys()["center_freq"].copy()
     belief._step_count = NARROW_STEP
     belief._resample()
-    freq_after_resample = belief.particles_phys()["frequency"].copy()
+    freq_after_resample = belief.particles_phys()["center_freq"].copy()
 
     loc._update_focus_window()
 
     assert loc._focus.hi - loc._focus.lo < f_hi - f_lo, "focus should have narrowed"
     assert _belief_geometry(belief) == before
     # The focus update itself moves no particle (only the resample's own nudge did).
-    assert np.array_equal(belief.particles_phys()["frequency"], freq_after_resample)
+    assert np.array_equal(belief.particles_phys()["center_freq"], freq_after_resample)
     assert not np.array_equal(freq_before, freq_after_resample)
 
 
@@ -180,7 +180,7 @@ def test_focus_change_leaves_belief_geometry_untouched():
 def test_focus_contains_both_zeeman_dips(lineshape):
     loc = _free_center_locator(with_zeeman_splitting=True, hyperfine="unresolved", lineshape=lineshape)
     belief = loc.belief
-    f_lo, f_hi = belief.physical_param_bounds["frequency"]
+    f_lo, f_hi = belief.physical_param_bounds["center_freq"]
     f0, delta0 = 0.5 * (f_lo + f_hi), 35e6
     _concentrate(belief, f0, delta0, belief.num_particles)
     belief._step_count = NARROW_STEP
@@ -197,7 +197,7 @@ def test_single_dip_focus_narrows_well_below_half_the_axis():
     loc = _free_center_locator(with_zeeman_splitting=False, hyperfine="unresolved")
     belief = loc.belief
     assert "zeeman_split" not in belief._param_names
-    f_lo, f_hi = belief.physical_param_bounds["frequency"]
+    f_lo, f_hi = belief.physical_param_bounds["center_freq"]
     f0 = 0.5 * (f_lo + f_hi)
     _concentrate(belief, f0, None, belief.num_particles)
     belief._step_count = NARROW_STEP
@@ -212,7 +212,7 @@ def test_single_dip_focus_narrows_well_below_half_the_axis():
 def test_eig_pick_lies_inside_the_focus():
     loc = _free_center_locator(with_zeeman_splitting=True, hyperfine="unresolved")
     belief = loc.belief
-    f_lo, f_hi = belief.physical_param_bounds["frequency"]
+    f_lo, f_hi = belief.physical_param_bounds["center_freq"]
     f0 = 0.5 * (f_lo + f_hi)
     _concentrate(belief, f0, 40e6, belief.num_particles)
     belief._step_count = NARROW_STEP
@@ -227,7 +227,7 @@ def test_eig_pick_lies_inside_the_focus():
 
 def test_empty_focus_fails_loudly():
     loc = _free_center_locator(with_zeeman_splitting=True, hyperfine="unresolved")
-    cands = np.sort(loc.belief.get_candidates())
+    cands = np.sort(loc.belief.get_candidate_x_phys())
     i = int(np.argmax(np.diff(cands)))
     mid = 0.5 * (cands[i] + cands[i + 1])
     loc._focus = FocusWindow(lo=mid - 0.1, hi=mid + 0.1, full_lo=FULL[0], full_hi=FULL[1])
@@ -237,7 +237,7 @@ def test_empty_focus_fails_loudly():
 
 def test_fixed_center_freq_keeps_the_full_probe_axis_focus():
     belief = nv_center_smc_belief(noise_model=gaussian_noise(), num_particles=200, seed=0)
-    assert "frequency" not in belief.model.parameter_names()
+    assert "center_freq" not in belief.model.parameter_names()
     loc = SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=50)
     full = loc._acquisition_bounds()
     belief._step_count = NARROW_STEP

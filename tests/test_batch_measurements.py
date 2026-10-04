@@ -1,4 +1,4 @@
-"""Tests for multi-shot (batch) measurements per frequency.
+"""Tests for multi-shot (batch) measurements per-probe-point.
 
 Covers the sufficient-statistic aggregation (``aggregate_shots``), the batched
 ``CoreExperiment.measure`` path, the Rao-Blackwell noise-posterior update that
@@ -95,14 +95,14 @@ def _make_rb_belief(seed: int = 0):
     class _NoCandidateSMC(SMCMarginalDistribution):
         # The base epoch-grid needs a 'linewidth' estimate the GaussianModel
         # doesn't expose; a no-op keeps construction cheap for the update test.
-        def _generate_epoch_candidates(self) -> None:
-            self._current_candidates = np.linspace(0.0, 1.0, 10).astype(np.float32)
+        def _generate_epoch_candidate_x(self) -> None:
+            self._candidate_x_unit = np.linspace(0.0, 1.0, 10).astype(np.float32)
 
     model = GaussianModel()
     model.signal_min_span = lambda w: 1e5
     noise_model = GaussianNoiseSignalModel({"noise_sigma": (0.01, 0.2)})
     bounds = {
-        "frequency": (2.7e9, 2.8e9),
+        "center_freq": (2.7e9, 2.8e9),
         "sigma": (1e6, 10e6),
         "dip_depth": (0.0, 1.0),
         "background": (0.0, 1.0),

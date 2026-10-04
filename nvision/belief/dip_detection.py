@@ -38,7 +38,7 @@ from nvision.sim.defaults import (
 class DipCandidate:
     """A qualified resonance dip: a cluster of low observations that noise cannot explain."""
 
-    centroid_hz: float  # depth-weighted mean frequency of the cluster
+    centroid_hz: float  # depth-weighted mean probe-axis position of the cluster
     significance: float  # number of below-threshold observations in the cluster
     n_points: int
     f_min: float  # left extent of the cluster (Hz)

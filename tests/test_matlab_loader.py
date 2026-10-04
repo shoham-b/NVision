@@ -24,12 +24,12 @@ from nvision.tools.matlab_loader import (
 # ---------------------------------------------------------------------------
 
 
-def _make_mat(freq_mhz, signal_3d, curr_iter=None):
+def _make_mat(probe_axis_mhz, signal_3d, curr_iter=None):
     """Build a mock mat dict that mimics scipy.io.loadmat output."""
     if curr_iter is None:
         curr_iter = signal_3d.shape[2]
     esr = SimpleNamespace()
-    esr.frequency = np.asarray(freq_mhz, dtype=np.float64)
+    esr.frequency = np.asarray(probe_axis_mhz, dtype=np.float64)
     esr.signal = signal_3d.astype(np.float64)
     esr.currIter = curr_iter
     top = SimpleNamespace()
@@ -37,14 +37,14 @@ def _make_mat(freq_mhz, signal_3d, curr_iter=None):
     return {"myStruct": top}
 
 
-def _flat_signal(n_freqs, n_shots, value=1.0, dip_idx=None, dip_value=0.95):
-    """Return a (2, n_freqs, n_shots) signal array with flat baseline and optional dip.
+def _flat_signal(n_probe_points, n_shots, value=1.0, dip_idx=None, dip_value=0.95):
+    """Return a (2, n_probe_points, n_shots) signal array with flat baseline and optional dip.
 
     The loader's ratio is baseline / with_freq, so producing a *ratio* of `value` (and
     `dip_value` at `dip_idx`) means scaling with_freq *up* by the reciprocal, not down.
     """
-    baseline = np.full((n_freqs, n_shots), 130.0)
-    with_freq = np.full((n_freqs, n_shots), 130.0 / value)
+    baseline = np.full((n_probe_points, n_shots), 130.0)
+    with_freq = np.full((n_probe_points, n_shots), 130.0 / value)
     if dip_idx is not None:
         with_freq[dip_idx, :] = 130.0 / dip_value
     return np.stack([baseline, with_freq], axis=0)
@@ -134,9 +134,9 @@ def test_resolve_mat_path_bare_name_missing_returns_as_is(tmp_path, monkeypatch)
 @pytest.fixture
 def simple_mat():
     """5-frequency, 10-shot flat signal with a 4% dip at index 2."""
-    freq_mhz = np.linspace(2770.0, 2970.0, 5)
+    probe_axis_mhz = np.linspace(2770.0, 2970.0, 5)
     signal_3d = _flat_signal(5, 10, value=1.0, dip_idx=2, dip_value=0.96)
-    return _make_mat(freq_mhz, signal_3d, curr_iter=10)
+    return _make_mat(probe_axis_mhz, signal_3d, curr_iter=10)
 
 
 def test_load_freq_hz(simple_mat, tmp_path):
@@ -144,9 +144,9 @@ def test_load_freq_hz(simple_mat, tmp_path):
     mat_file.touch()
     with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=simple_mat):
         data = MatlabDataFile.load(mat_file)
-    assert data.freq_hz[0] == pytest.approx(2770e6)
-    assert data.freq_hz[-1] == pytest.approx(2970e6)
-    assert len(data.freq_hz) == 5
+    assert data.probe_axis_phys[0] == pytest.approx(2770e6)
+    assert data.probe_axis_phys[-1] == pytest.approx(2970e6)
+    assert len(data.probe_axis_phys) == 5
 
 
 def test_load_signal_ratio(simple_mat, tmp_path):
@@ -160,9 +160,9 @@ def test_load_signal_ratio(simple_mat, tmp_path):
 
 
 def test_load_n_valid_shots_from_curr_iter(tmp_path):
-    freq_mhz = np.linspace(2800.0, 2900.0, 4)
+    probe_axis_mhz = np.linspace(2800.0, 2900.0, 4)
     signal_3d = _flat_signal(4, 20, value=1.0)
-    mat = _make_mat(freq_mhz, signal_3d, curr_iter=8)
+    mat = _make_mat(probe_axis_mhz, signal_3d, curr_iter=8)
     mat_file = tmp_path / "esr.mat"
     mat_file.touch()
     with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
@@ -171,9 +171,9 @@ def test_load_n_valid_shots_from_curr_iter(tmp_path):
 
 
 def test_load_valid_shots_override(tmp_path):
-    freq_mhz = np.linspace(2800.0, 2900.0, 4)
+    probe_axis_mhz = np.linspace(2800.0, 2900.0, 4)
     signal_3d = _flat_signal(4, 20, value=1.0)
-    mat = _make_mat(freq_mhz, signal_3d, curr_iter=20)
+    mat = _make_mat(probe_axis_mhz, signal_3d, curr_iter=20)
     mat_file = tmp_path / "esr.mat"
     mat_file.touch()
     with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
@@ -191,12 +191,12 @@ def test_load_noise_std_override(simple_mat, tmp_path):
 
 def test_load_signal_clipped_to_range(tmp_path):
     """Signal values outside [1e-6, 2.0] should be clipped."""
-    freq_mhz = np.array([2800.0, 2850.0, 2900.0])
+    probe_axis_mhz = np.array([2800.0, 2850.0, 2900.0])
     baseline = np.full((3, 5), 100.0)
     # Ratio is baseline / with_freq: 100/200, 100/100, 100/40 -> 0.5, 1.0, 2.5
     with_freq = np.array([[200.0] * 5, [100.0] * 5, [40.0] * 5])
     signal_3d = np.stack([baseline, with_freq], axis=0)
-    mat = _make_mat(freq_mhz, signal_3d, curr_iter=5)
+    mat = _make_mat(probe_axis_mhz, signal_3d, curr_iter=5)
     mat_file = tmp_path / "esr.mat"
     mat_file.touch()
     with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
@@ -207,13 +207,13 @@ def test_load_signal_clipped_to_range(tmp_path):
 
 def test_load_nan_bins_filled(tmp_path):
     """Frequency bins where all shots are NaN should be filled with nearest valid."""
-    freq_mhz = np.array([2800.0, 2850.0, 2900.0])
+    probe_axis_mhz = np.array([2800.0, 2850.0, 2900.0])
     baseline = np.full((3, 5), 100.0)
     with_freq = np.full((3, 5), 100.0)
     # Make the middle bin's baseline zero so ratio becomes NaN
     baseline[1, :] = 0.0
     signal_3d = np.stack([baseline, with_freq], axis=0)
-    mat = _make_mat(freq_mhz, signal_3d, curr_iter=5)
+    mat = _make_mat(probe_axis_mhz, signal_3d, curr_iter=5)
     mat_file = tmp_path / "esr.mat"
     mat_file.touch()
     with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
@@ -274,7 +274,7 @@ def test_load_freq_length_mismatch_raises(tmp_path):
     mat_file.touch()
     with (
         patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat),
-        pytest.raises(ValueError, match="Frequency array length"),
+        pytest.raises(ValueError, match="Probe axis length"),
     ):
         MatlabDataFile.load(mat_file)
 
@@ -285,9 +285,9 @@ def test_load_file_not_found():
 
 
 def test_load_zero_valid_shots_raises(tmp_path):
-    freq_mhz = np.array([2800.0, 2850.0])
+    probe_axis_mhz = np.array([2800.0, 2850.0])
     signal_3d = _flat_signal(2, 10, value=1.0)
-    mat = _make_mat(freq_mhz, signal_3d, curr_iter=0)
+    mat = _make_mat(probe_axis_mhz, signal_3d, curr_iter=0)
     mat_file = tmp_path / "esr.mat"
     mat_file.touch()
     with (
@@ -299,11 +299,11 @@ def test_load_zero_valid_shots_raises(tmp_path):
 
 def test_load_implausible_noise_falls_back_to_default(tmp_path):
     """All-identical shots give zero shot-to-shot std — should fall back to default."""
-    freq_mhz = np.linspace(2800.0, 2900.0, 5)
+    probe_axis_mhz = np.linspace(2800.0, 2900.0, 5)
     baseline = np.full((5, 10), 100.0)
     with_freq = np.full((5, 10), 100.0)  # identical shots → std = 0
     signal_3d = np.stack([baseline, with_freq], axis=0)
-    mat = _make_mat(freq_mhz, signal_3d, curr_iter=10)
+    mat = _make_mat(probe_axis_mhz, signal_3d, curr_iter=10)
     mat_file = tmp_path / "esr.mat"
     mat_file.touch()
     with patch("nvision.tools.matlab_loader._load_mat_v5", return_value=mat):
@@ -319,14 +319,14 @@ def test_load_implausible_noise_falls_back_to_default(tmp_path):
 @pytest.fixture
 def simple_data():
     """A 5-frequency MatlabDataFile with a dip at index 2."""
-    freq_hz = np.array([2770e6, 2820e6, 2870e6, 2920e6, 2970e6])
+    probe_axis_phys = np.array([2770e6, 2820e6, 2870e6, 2920e6, 2970e6])
     signal = np.array([1.0, 1.0, 0.96, 1.0, 1.0])
-    return MatlabDataFile(freq_hz=freq_hz, signal=signal, noise_std=0.01, n_valid_shots=8)
+    return MatlabDataFile(probe_axis_phys=probe_axis_phys, signal=signal, noise_std=0.01, n_valid_shots=8)
 
 
 def test_measure_returns_observation(simple_data):
-    freq_lo, freq_hi = 2770e6, 2970e6
-    obs = simple_data.measure(0.5, freq_lo, freq_hi)
+    probe_lo_phys, probe_hi_phys = 2770e6, 2970e6
+    obs = simple_data.measure(0.5, probe_lo_phys, probe_hi_phys)
     assert isinstance(obs, Observation)
 
 
@@ -337,15 +337,15 @@ def test_measure_x_reports_the_bin_actually_measured(simple_data):
     requested 0.3 would tell the locator the returned signal was measured 10 MHz away
     from where it really was.
     """
-    freq_lo, freq_hi = 2770e6, 2970e6
-    obs = simple_data.measure(0.3, freq_lo, freq_hi)
+    probe_lo_phys, probe_hi_phys = 2770e6, 2970e6
+    obs = simple_data.measure(0.3, probe_lo_phys, probe_hi_phys)
     assert obs.x == pytest.approx(0.25)
 
 
 def test_measure_snaps_to_nearest_grid_point(simple_data):
     """x_unit=0.5 maps to 2870 MHz (index 2), which has signal=0.96."""
-    freq_lo, freq_hi = 2770e6, 2970e6
-    obs = simple_data.measure(0.5, freq_lo, freq_hi)
+    probe_lo_phys, probe_hi_phys = 2770e6, 2970e6
+    obs = simple_data.measure(0.5, probe_lo_phys, probe_hi_phys)
     assert obs.signal_value == pytest.approx(0.96)
 
 
@@ -356,25 +356,25 @@ def test_measure_noise_std_from_data(simple_data):
 
 def test_measure_boundary_low(simple_data):
     """x_unit=0.0 should snap to the first grid point."""
-    freq_lo, freq_hi = 2770e6, 2970e6
-    obs = simple_data.measure(0.0, freq_lo, freq_hi)
+    probe_lo_phys, probe_hi_phys = 2770e6, 2970e6
+    obs = simple_data.measure(0.0, probe_lo_phys, probe_hi_phys)
     assert obs.signal_value == pytest.approx(1.0)
 
 
 def test_measure_boundary_high(simple_data):
     """x_unit=1.0 should snap to the last grid point."""
-    freq_lo, freq_hi = 2770e6, 2970e6
-    obs = simple_data.measure(1.0, freq_lo, freq_hi)
+    probe_lo_phys, probe_hi_phys = 2770e6, 2970e6
+    obs = simple_data.measure(1.0, probe_lo_phys, probe_hi_phys)
     assert obs.signal_value == pytest.approx(1.0)
 
 
 @pytest.fixture
 def shot_data():
     """3 frequencies x 4 recorded shots, each shot's value encoding its (bin, column)."""
-    freq_hz = np.array([2770e6, 2870e6, 2970e6])
+    probe_axis_phys = np.array([2770e6, 2870e6, 2970e6])
     shot_ratios = np.array([[0.10, 0.11, 0.12, 0.13], [0.20, 0.21, 0.22, 0.23], [0.30, 0.31, 0.32, 0.33]])
     return MatlabDataFile(
-        freq_hz=freq_hz,
+        probe_axis_phys=probe_axis_phys,
         signal=shot_ratios.mean(axis=1),
         noise_std=0.01,
         n_valid_shots=4,
@@ -421,12 +421,12 @@ def test_visited_mask_tracks_measured_bins(shot_data):
 
 def test_measure_round_trip_unit_conversion(simple_data):
     """Converting any x_unit back to Hz and snapping must land within one grid step."""
-    freq_lo, freq_hi = 2770e6, 2970e6
-    grid_step = (freq_hi - freq_lo) / (len(simple_data.freq_hz) - 1)
+    probe_lo_phys, probe_hi_phys = 2770e6, 2970e6
+    grid_step = (probe_hi_phys - probe_lo_phys) / (len(simple_data.probe_axis_phys) - 1)
     for x_unit in np.linspace(0.0, 1.0, 11):
-        simple_data.measure(x_unit, freq_lo, freq_hi)
-        phys_hz = freq_lo + x_unit * (freq_hi - freq_lo)
-        nearest = simple_data.freq_hz[np.argmin(np.abs(simple_data.freq_hz - phys_hz))]
+        simple_data.measure(x_unit, probe_lo_phys, probe_hi_phys)
+        phys_hz = probe_lo_phys + x_unit * (probe_hi_phys - probe_lo_phys)
+        nearest = simple_data.probe_axis_phys[np.argmin(np.abs(simple_data.probe_axis_phys - phys_hz))]
         assert abs(phys_hz - nearest) <= grid_step / 2 + 1e-3
 
 
@@ -440,15 +440,15 @@ def test_matlab_signal_proxy_parameter_values():
 
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
     vals = proxy.parameter_values()
-    assert "frequency" in vals
-    assert math.isnan(vals["frequency"])
+    assert "center_freq" in vals
+    assert math.isnan(vals["center_freq"])
 
 
 def test_matlab_signal_proxy_get_param_value():
     from nvision.cli.matlab_cmd import _MatlabSignalProxy
 
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
-    assert math.isnan(proxy.get_param_value("frequency"))
+    assert math.isnan(proxy.get_param_value("center_freq"))
     assert math.isnan(proxy.get_param_value("linewidth"))
 
 
@@ -457,7 +457,7 @@ def test_matlab_signal_proxy_all_bounds():
 
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
     bounds = proxy.all_bounds()
-    assert bounds["frequency"] == (2770e6, 2970e6)
+    assert bounds["center_freq"] == (2770e6, 2970e6)
 
 
 def test_matlab_signal_proxy_callable_returns_nan():
@@ -470,9 +470,9 @@ def test_matlab_signal_proxy_callable_returns_nan():
 def test_matlab_experiment_x_bounds():
     from nvision.cli.matlab_cmd import _MatlabExperiment, _MatlabSignalProxy
 
-    freq_hz = np.array([2770e6, 2870e6, 2970e6])
+    probe_axis_phys = np.array([2770e6, 2870e6, 2970e6])
     signal = np.array([1.0, 0.96, 1.0])
-    data = MatlabDataFile(freq_hz=freq_hz, signal=signal, noise_std=0.01, n_valid_shots=8)
+    data = MatlabDataFile(probe_axis_phys=probe_axis_phys, signal=signal, noise_std=0.01, n_valid_shots=8)
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
     exp = _MatlabExperiment(data, proxy, 2770e6, 2970e6)
 
@@ -483,9 +483,9 @@ def test_matlab_experiment_x_bounds():
 def test_matlab_experiment_measure_delegates():
     from nvision.cli.matlab_cmd import _MatlabExperiment, _MatlabSignalProxy
 
-    freq_hz = np.array([2770e6, 2870e6, 2970e6])
+    probe_axis_phys = np.array([2770e6, 2870e6, 2970e6])
     signal = np.array([1.0, 0.96, 1.0])
-    data = MatlabDataFile(freq_hz=freq_hz, signal=signal, noise_std=0.01, n_valid_shots=8)
+    data = MatlabDataFile(probe_axis_phys=probe_axis_phys, signal=signal, noise_std=0.01, n_valid_shots=8)
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
     exp = _MatlabExperiment(data, proxy, 2770e6, 2970e6)
 
@@ -503,9 +503,9 @@ def test_convergence_breakdown_counts_and_labels(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=12, all_converged_step=20, total_steps=20),
-        _MatlabRunSummary(file_name="b.mat", splitting_converged_step=30, all_converged_step=None, total_steps=300),
-        _MatlabRunSummary(file_name="c.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300),
+        _MatlabRunSummary(file_name="a.mat", primary_converged_step=12, all_converged_step=20, total_steps=20),
+        _MatlabRunSummary(file_name="b.mat", primary_converged_step=30, all_converged_step=None, total_steps=300),
+        _MatlabRunSummary(file_name="c.mat", primary_converged_step=None, all_converged_step=None, total_steps=300),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -524,8 +524,8 @@ def test_convergence_breakdown_all_converged(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=5, all_converged_step=9, total_steps=9),
-        _MatlabRunSummary(file_name="b.mat", splitting_converged_step=7, all_converged_step=11, total_steps=11),
+        _MatlabRunSummary(file_name="a.mat", primary_converged_step=5, all_converged_step=9, total_steps=9),
+        _MatlabRunSummary(file_name="b.mat", primary_converged_step=7, all_converged_step=11, total_steps=11),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -540,7 +540,7 @@ def test_convergence_breakdown_none_converged(capsys):
     from nvision.cli.matlab_cmd import _echo_convergence_breakdown, _MatlabRunSummary
 
     summaries = [
-        _MatlabRunSummary(file_name="a.mat", splitting_converged_step=None, all_converged_step=None, total_steps=300),
+        _MatlabRunSummary(file_name="a.mat", primary_converged_step=None, all_converged_step=None, total_steps=300),
     ]
 
     _echo_convergence_breakdown(summaries)
@@ -564,10 +564,10 @@ def test_matlab_run_all_prints_convergence_breakdown(tmp_path, monkeypatch):
 
     summaries = {
         "a.mat": matlab_cmd._MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=10, all_converged_step=20, total_steps=20
+            file_name="a.mat", primary_converged_step=10, all_converged_step=20, total_steps=20
         ),
         "b.mat": matlab_cmd._MatlabRunSummary(
-            file_name="b.mat", splitting_converged_step=15, all_converged_step=None, total_steps=300
+            file_name="b.mat", primary_converged_step=15, all_converged_step=None, total_steps=300
         ),
     }
 
@@ -599,7 +599,7 @@ def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, 
         if Path(matlab_file).name == "b.mat":
             raise RuntimeError("boom")
         return matlab_cmd._MatlabRunSummary(
-            file_name="a.mat", splitting_converged_step=10, all_converged_step=None, total_steps=300
+            file_name="a.mat", primary_converged_step=10, all_converged_step=None, total_steps=300
         )
 
     monkeypatch.setattr(matlab_cmd, "_matlab_run_one", fake_run_one)

@@ -15,7 +15,7 @@ def test_candidate_normalization():
     # 1. Setup
     inner_model = NVCenterLorentzianModel()
     phys_bounds = {
-        "frequency": (2.86e9, 2.88e9),
+        "center_freq": (2.86e9, 2.88e9),
         "linewidth": (1e3, 10e6),
         "split": (0.1e6, 10e6),
         "k_np": (2.0, 4.0),
@@ -36,8 +36,8 @@ def test_candidate_normalization():
     )
 
     # 2. Inspect candidates
-    # __post_init__ already called _generate_epoch_candidates
-    candidates = belief.get_candidates()
+    # __post_init__ already called _generate_epoch_candidate_x
+    candidates = belief.get_candidate_x_phys()
     print(f"Number of candidates: {len(candidates)}")
     if len(candidates) > 0:
         unique = np.unique(candidates)

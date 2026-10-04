@@ -96,7 +96,7 @@ class Locator(ABC):
         Returns
         -------
         dict[str, float]
-            Final parameter estimates (e.g., {'frequency': 2.87e9, ...})
+            Final parameter estimates (e.g., {'center_freq': 2.87e9, ...})
         """
         pass
 

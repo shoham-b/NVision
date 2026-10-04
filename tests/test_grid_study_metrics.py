@@ -1,7 +1,7 @@
 """Metrics updates for the parameter-grid execution approach.
 
 Covers: derived-quantity helpers (Jacobian propagation), derived convergence gating,
-parse_gauss_sigma, milestone fc_param selection, and grid-study summary plots
+parse_gauss_sigma, milestone split_param selection, and grid-study summary plots
 (censored aggregation + convergence rates).
 """
 
@@ -70,9 +70,9 @@ def test_realized_contrast_law_and_unc():
 # Derived convergence gating
 # ---------------------------------------------------------------------------
 
-_EST = {"frequency": 2.8e9, "saturation": 5.0, "sigma_inhom": 3e5, "c_max": 0.1, "zeeman_split": 1e7}
+_EST = {"center_freq": 2.8e9, "saturation": 5.0, "sigma_inhom": 3e5, "c_max": 0.1, "zeeman_split": 1e7}
 _BOUNDS = {
-    "frequency": (2.6e9, 3.1e9),
+    "center_freq": (2.6e9, 3.1e9),
     "saturation": (0.02, 30.0),
     "sigma_inhom": (0.0, 1.2e6),
     "c_max": (0.1, 0.4),
@@ -90,7 +90,7 @@ def test_derived_sigmas_present_for_saturation_voigt():
 
 
 def test_derived_sigmas_none_for_lorentzian_params():
-    assert saturation_voigt_derived_sigmas({"frequency": 1.0, "linewidth": 1e6}, {"linewidth": 1e4}) is None
+    assert saturation_voigt_derived_sigmas({"center_freq": 1.0, "linewidth": 1e6}, {"linewidth": 1e4}) is None
     assert saturation_voigt_derived_sigmas(_EST, {"linewidth": 1e4}) is None  # sigmas lack raw params
 
 
@@ -147,10 +147,10 @@ def _make_locator(uncertainties):
 
 
 def test_target_params_converged_uses_derived_gating():
-    # Tight frequency + tight derived quantities -> converged, even though the RAW
+    # Tight center_freq + tight derived quantities -> converged, even though the RAW
     # saturation uncertainty (0.25) is large in absolute s-units.
     unc = {
-        "frequency": 1e4,  # << 100 kHz threshold
+        "center_freq": 1e4,  # << 100 kHz threshold
         "saturation": 0.25,  # raw 1%-of-bound gate would need < 0.2998 — borderline
         "sigma_inhom": 1e3,
         "c_max": 1e-4,
@@ -162,7 +162,7 @@ def test_target_params_converged_uses_derived_gating():
 def test_target_params_converged_fails_on_wide_derived_width():
     # Huge sigma_inhom uncertainty -> derived effective-HWHM unc dominates -> not converged.
     unc = {
-        "frequency": 1e4,
+        "center_freq": 1e4,
         "saturation": 0.25,
         "sigma_inhom": 5e5,  # sqrt(2ln2)*5e5 ~ 590 kHz >> 1% of the ~2.1 MHz effective range
         "c_max": 1e-4,
@@ -174,14 +174,14 @@ def test_target_params_converged_fails_on_wide_derived_width():
 def test_target_params_converged_lorentzian_path_unchanged():
     class _LorModel:
         def parameter_names(self):
-            return ["frequency", "linewidth", "c_total"]
+            return ["center_freq", "linewidth", "c_total"]
 
     from typing import ClassVar
 
     class _LorBelief:
         model = _LorModel()
         physical_param_bounds: ClassVar[dict[str, tuple[float, float]]] = {
-            "frequency": (2.6e9, 3.1e9),
+            "center_freq": (2.6e9, 3.1e9),
             "linewidth": (2e5, 5e6),
             "c_total": (0.1, 0.4),
         }
@@ -198,7 +198,7 @@ def test_target_params_converged_lorentzian_path_unchanged():
     from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
     loc = SequentialBayesianLocator.__new__(SequentialBayesianLocator)
-    unc = {"frequency": 1e4, "linewidth": 1e4, "c_total": 1e-4}
+    unc = {"center_freq": 1e4, "linewidth": 1e4, "c_total": 1e-4}
     loc.belief = _LorBelief(unc)
     loc.convergence_threshold = 0.01
     assert loc._target_params_converged(unc) is True
@@ -224,12 +224,12 @@ def test_parse_gauss_sigma_non_gauss():
 
 
 # ---------------------------------------------------------------------------
-# Milestone fc_param selection
+# Milestone split_param selection
 # ---------------------------------------------------------------------------
 
 
-def test_default_fc_param_prefers_zeeman_split():
-    from nvision.metrics.milestones import default_fc_param
+def test_default_split_param_prefers_zeeman_split():
+    from nvision.metrics.milestones import default_split_param
 
     class _Sig:
         def __init__(self, params):
@@ -242,9 +242,9 @@ def test_default_fc_param_prefers_zeeman_split():
         def __init__(self, params):
             self.true_signal = _Sig(params)
 
-    assert default_fc_param(_RR({"frequency": 1.0, "zeeman_split": 2.0})) == "zeeman_split"
-    assert default_fc_param(_RR({"frequency": 1.0, "split": 2.0})) == "split"
-    assert default_fc_param(_RR({"frequency": 1.0})) == "split"
+    assert default_split_param(_RR({"center_freq": 1.0, "zeeman_split": 2.0})) == "zeeman_split"
+    assert default_split_param(_RR({"center_freq": 1.0, "split": 2.0})) == "split"
+    assert default_split_param(_RR({"center_freq": 1.0})) == "split"
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +270,7 @@ def _grid_rows():
                             "grid_saturation": s,
                             "grid_sigma_inhom": si,
                             "noise_sigma": ns,
-                            "splitting_converged_step": (40 + rep * 10) if converged else None,
+                            "primary_converged_step": (40 + rep * 10) if converged else None,
                             "failure_reason": None
                             if converged
                             else ("infeasible_crlb" if infeasible_cell else "max_steps"),
@@ -339,7 +339,7 @@ def test_grid_study_noop_without_grid_columns(tmp_path: Path):
             "generator": ["NVCenter-lorentzian"],
             "noise": ["Gauss(0.01)"],
             "strategy": ["SimpleSweep"],
-            "splitting_converged_step": [10],
+            "primary_converged_step": [10],
         }
     )
     assert Viz(tmp_path).plot_grid_study(df) == []

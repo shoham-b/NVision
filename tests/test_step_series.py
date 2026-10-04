@@ -15,10 +15,10 @@ from nvision.spectra.spec import BasicParamSpec
 class MockSignalModel(SignalModel):
     @property
     def spec(self):
-        return BasicParamSpec(names=["frequency"], bounds={"frequency": (0.0, 1.0)})
+        return BasicParamSpec(names=["center_freq"], bounds={"center_freq": (0.0, 1.0)})
 
     def parameter_names(self):
-        return ["frequency"]
+        return ["center_freq"]
 
     def compute(self, x, params):
         return 1.0
@@ -33,12 +33,12 @@ class MockSignalModel(SignalModel):
 def _make_mock_belief(model, est, uncert, crlb=None):
     class MockBelief(GridMarginalDistribution):
         def estimates(self):
-            return {"frequency": est}
+            return {"center_freq": est}
 
         def uncertainty(self):
-            return {"frequency": uncert}
+            return {"center_freq": uncert}
 
-        def crlb_frequency(self):
+        def crlb_center_freq(self):
             return crlb if crlb is not None else float("inf")
 
         def copy(self):
@@ -46,10 +46,10 @@ def _make_mock_belief(model, est, uncert, crlb=None):
 
         @property
         def physical_param_bounds(self):
-            return {"frequency": (0.0, 1.0)}
+            return {"center_freq": (0.0, 1.0)}
 
     param = GridParameter(
-        name="frequency",
+        name="center_freq",
         bounds=(0.0, 1.0),
         grid=np.linspace(0.0, 1.0, 10),
         posterior=np.ones(10) / 10,
@@ -59,7 +59,7 @@ def _make_mock_belief(model, est, uncert, crlb=None):
 
 def _make_run(n_steps=10, true_value=0.5, with_crlb=False, focus_windows=None):
     model = MockSignalModel()
-    true_signal = TrueSignal(model=model, typed_parameters=(true_value,), bounds={"frequency": (0.0, 1.0)})
+    true_signal = TrueSignal(model=model, typed_parameters=(true_value,), bounds={"center_freq": (0.0, 1.0)})
     snapshots = []
     for i in range(n_steps):
         est = true_value + 0.1 / (i + 1)
@@ -74,7 +74,7 @@ def _make_run(n_steps=10, true_value=0.5, with_crlb=False, focus_windows=None):
 
 def test_extract_step_series_basic():
     run = _make_run(n_steps=10)
-    series = extract_step_series(run, param="frequency")
+    series = extract_step_series(run, param="center_freq")
 
     assert series is not None
     assert series["s"] == list(range(1, 11))
@@ -84,7 +84,7 @@ def test_extract_step_series_basic():
     assert abs(series["e"][0] - 0.1) < 1e-9
     assert series["e"][-1] < series["e"][0]
     assert series["u"][-1] < series["u"][0]
-    # tau is present (absolute frequency threshold or relative fallback)
+    # tau is present (absolute center_freq threshold or relative fallback)
     assert series.get("tau") is not None
     assert series["tau"] > 0
     # No CRLB when belief does not report finite crlb
@@ -93,7 +93,7 @@ def test_extract_step_series_basic():
 
 def test_extract_step_series_with_crlb():
     run = _make_run(n_steps=10, with_crlb=True)
-    series = extract_step_series(run, param="frequency")
+    series = extract_step_series(run, param="center_freq")
 
     assert series is not None
     assert "c" in series
@@ -105,7 +105,7 @@ def test_extract_step_series_with_crlb():
 
 def test_extract_step_series_downsamples_long_runs():
     run = _make_run(n_steps=500)
-    series = extract_step_series(run, param="frequency", max_points=80)
+    series = extract_step_series(run, param="center_freq", max_points=80)
 
     assert len(series["s"]) <= 80
     # First and last steps always retained
@@ -117,7 +117,7 @@ def test_extract_step_series_downsamples_long_runs():
 
 def test_extract_step_series_omits_w_when_no_locator_supplies_windows():
     run = _make_run(n_steps=5)
-    series = extract_step_series(run, param="frequency")
+    series = extract_step_series(run, param="center_freq")
     assert "w" not in series
 
 
@@ -133,7 +133,7 @@ def test_extract_step_series_includes_w_narrowing_to_one_candidate():
         [dominant],
     ]
     run = _make_run(n_steps=5, focus_windows=focus_windows)
-    series = extract_step_series(run, param="frequency")
+    series = extract_step_series(run, param="center_freq")
 
     assert series is not None
     assert "w" in series
@@ -146,14 +146,14 @@ def test_extract_step_series_includes_w_narrowing_to_one_candidate():
 
 def test_extract_step_series_handles_empty_run():
     model = MockSignalModel()
-    true_signal = TrueSignal(model=model, typed_parameters=(0.5,), bounds={"frequency": (0.0, 1.0)})
+    true_signal = TrueSignal(model=model, typed_parameters=(0.5,), bounds={"center_freq": (0.0, 1.0)})
     run = RunResult(snapshots=[], true_signal=true_signal)
     assert extract_step_series(run) is None
     assert extract_step_series(None) is None
 
 
 class MockZeemanSignalModel(SignalModel):
-    """A signal model where 'frequency' is fixed and 'zeeman_split' is the free parameter."""
+    """A signal model where 'center_freq' is fixed and 'zeeman_split' is the free parameter."""
 
     @property
     def spec(self):
@@ -197,7 +197,7 @@ def _make_mock_zeeman_belief(model, est, uncert):
 
 
 def _make_fixed_frequency_run(n_steps=10, true_value=0.5):
-    """A run where the belief only tracks 'zeeman_split' -- 'frequency' is fixed."""
+    """A run where the belief only tracks 'zeeman_split' -- 'center_freq' is fixed."""
     model = MockZeemanSignalModel()
     true_signal = TrueSignal(
         model=model,
@@ -215,11 +215,11 @@ def _make_fixed_frequency_run(n_steps=10, true_value=0.5):
 
 
 def test_extract_step_series_falls_back_when_frequency_is_fixed():
-    """When 'frequency' isn't a free parameter (belief never estimates it), the
+    """When 'center_freq' isn't a free parameter (belief never estimates it), the
     series should fall back to the model's splitting parameter instead of
     silently returning None for every repeat."""
     run = _make_fixed_frequency_run(n_steps=10)
-    series = extract_step_series(run, param="frequency")
+    series = extract_step_series(run, param="center_freq")
 
     assert series is not None
     assert series["s"] == list(range(1, 11))

@@ -22,7 +22,16 @@ from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 # density mixture, Rao-Blackwellized noise likelihood, no particle rejuvenation,
 # noise-floor fix, prior-mean widening). The viewer (`nv serve`) still opens
 # older entries via their stored schema_version (see api_server._combo_key).
-CACHE_SCHEMA_VERSION = 11
+# v12: the dip-centre model parameter was renamed ``center_freq`` -> ``center_freq`` and the
+# milestone metrics fb/fc/splitting_converged -> primary/split/primary_converged. Stored
+# true_params, bounds, scan entries and metric columns carry the old names, which the viewer
+# (static/) no longer understands, so unlike v11 and earlier these entries are NOT viewable:
+# ``nv serve`` skips anything older than MIN_VIEWABLE_CACHE_SCHEMA_VERSION with a warning.
+# Re-run (not just ``nv render``) to regenerate them.
+CACHE_SCHEMA_VERSION = 12
+
+# Oldest cache schema the current viewer can still read (see v12 above).
+MIN_VIEWABLE_CACHE_SCHEMA_VERSION = 12
 
 # PHYSICS_CONFIG_FINGERPRINT (nvision/spectra/nv_center.py) is folded into every cache
 # config below instead of relying on a manual CACHE_SCHEMA_VERSION bump: a generator's

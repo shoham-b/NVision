@@ -32,9 +32,9 @@ function main() {
     // the first time the Bayesian tab bar is built (see there for why).
     let pendingHashBayesTab = null;
     // Splitting (zeeman_split) convergence is the primary milestone; 'full'/'all_converged'
-    // are verification only. Default to splitting_converged (falls back to 'full' when a
+    // are verification only. Default to primary_converged (falls back to 'full' when a
     // loaded run has no splitting milestone — see updateStoppingCriteriaVisibility).
-    let currentStoppingCriteria = 'splitting_converged'; // 'full' | 'splitting_converged' | 'all_converged'
+    let currentStoppingCriteria = 'primary_converged'; // 'full' | 'primary_converged' | 'all_converged'
     try {
         plots = window.MANIFEST;
         if (!Array.isArray(plots)) {
@@ -85,10 +85,10 @@ function main() {
     });
 
     const scanPlots = plots.filter((p) => p.type === 'scan');
-    // Real (MATLAB) runs only: per-frequency mean/std/min/max of every recorded
+    // Real (MATLAB) runs only: per-probe-point mean/std/min/max of every recorded
     // shot, overlaid as candle-like whiskers on top of the sampled-measurements
-    // scan plot (see _getFreqStatsOverlayTraces) rather than shown as its own panel.
-    const matlabFreqStatsPlots = plots.filter((p) => p.type === 'matlab_freq_stats');
+    // scan plot (see _getProbeStatsOverlayTraces) rather than shown as its own panel.
+    const matlabProbeStatsPlots = plots.filter((p) => p.type === 'matlab_probe_stats');
     const bayesSection = document.getElementById('bayes-section-container');
     const bayesImage = document.getElementById('bayes-image');
     const bayesPlots = plots.filter((p) => p.type === 'bayesian');
@@ -198,8 +198,8 @@ function main() {
     function getStoppingFrameLimit() {
         if (!currentPlot || currentStoppingCriteria === 'full') return null;
         const m = currentPlot.metrics || {};
-        if (currentStoppingCriteria === 'splitting_converged' && m.splitting_converged_step != null)
-            return Math.max(0, m.splitting_converged_step);
+        if (currentStoppingCriteria === 'primary_converged' && m.primary_converged_step != null)
+            return Math.max(0, m.primary_converged_step);
         if (currentStoppingCriteria === 'all_converged' && m.all_converged_step != null)
             return Math.max(0, m.all_converged_step);
         return null;
@@ -253,7 +253,7 @@ function main() {
     }
 
     // Maps a real step value (as reported in a plot's metrics, e.g.
-    // splitting_converged_step) to the closest global timeline frame index —
+    // primary_converged_step) to the closest global timeline frame index —
     // globalStepValues may be a subsampled, non-contiguous list of real step
     // numbers for long runs (see _subsample_snapshots in plots.py), so the exact
     // value isn't always present.
@@ -277,7 +277,7 @@ function main() {
         // own step. A range input's thumb position is (value/max), so setting .value
         // right after — even to the correct frame — would render at 100% of that
         // now-shrunk track, i.e. visually at the far right, no matter which milestone
-        // (splitting_converged/all_converged/full) was clicked. The milestone dots
+        // (primary_converged/all_converged/full) was clicked. The milestone dots
         // themselves are positioned against the fixed globalTotalFrames, so the thumb
         // has to render against that same fixed scale to land where the dot is.
         globalSlider.max = globalTotalFrames - 1;
@@ -300,9 +300,9 @@ function main() {
 
         const d = _phaseData(currentPlot);
         const milestones = [];
-        const splitStep = _mv(d, 'splitting_converged_step', 'steps_to_fb');
+        const splitStep = _mv(d, 'primary_converged_step', 'steps_to_primary');
         if (splitStep != null) {
-            milestones.push({ value: 'splitting_converged', label: 'Splitting converged', step: splitStep, cls: 'milestone-split' });
+            milestones.push({ value: 'primary_converged', label: 'Splitting converged', step: splitStep, cls: 'milestone-split' });
         }
         const allStep = _mv(d, 'all_converged_step');
         if (allStep != null) {
@@ -971,8 +971,8 @@ function main() {
     function renderSweepMetricsPanel(container, metrics) {
         if (!container) return;
         container.innerHTML = '';
-        if (metrics.sobol_baseline_steps != null && metrics.sobol_freq_steps != null && metrics.sobol_conv_diff == null) {
-            metrics.sobol_conv_diff = metrics.sobol_baseline_steps - metrics.sobol_freq_steps;
+        if (metrics.sobol_baseline_steps != null && metrics.sobol_primary_steps != null && metrics.sobol_conv_diff == null) {
+            metrics.sobol_conv_diff = metrics.sobol_baseline_steps - metrics.sobol_primary_steps;
         }
         // Build a displayable focus_window string from acquisition bounds,
         // but only for sweep locators that support focus (indicated by
@@ -989,10 +989,10 @@ function main() {
             { key: 'measurements_done', label: 'Measurements done', tip: 'Actual measurements taken before stopping or hitting the step limit.', fmt: formatCount },
             { key: 'dips_detected', label: 'Dips detected', tip: 'Dips found in the initial sweep after noise filtering. When the sweep is too sparse to detect dips, falls back to the true ground-truth dip count.', fmt: formatCount },
             { key: 'dips_merged', label: 'Dips merged', tip: 'Whether detected dips are close enough to be treated as one combined range.', fmt: function (v) { return v ? 'Yes' : 'No'; } },
-            { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatFrequency },
-            { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatFrequency },
+            { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatHz },
+            { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatHz },
             { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
-            { key: 'focus_window', label: 'Focus window', tip: 'Inferred frequency window the locator narrowed onto after detecting dips.', fmt: function (v) { return v; } },
+            { key: 'focus_window', label: 'Focus window', tip: 'Inferred probe window the locator narrowed onto after detecting dips.', fmt: function (v) { return v; } },
         ];
         let any = false;
         for (const it of items) {
@@ -1207,7 +1207,7 @@ function main() {
     }
 
 
-    // Fold a scan figure at the true center frequency: every trace is clipped to its
+    // Fold a scan figure at the true center_freq: every trace is clipped to its
     // right half (x >= center), and the true-signal curve's left half is reflected
     // (x -> 2*center - x) and re-plotted as a dotted overlay on that same right-half
     // range, so Zeeman/hyperfine symmetry can be checked visually with the halves
@@ -1237,7 +1237,7 @@ function main() {
             }
             const pick = (arr) => (Array.isArray(arr) && arr.length === t.x.length) ? idx.map((i) => arr[i]) : arr;
             const out = Object.assign({}, t, { x: idx.map((i) => t.x[i]), y: pick(t.y), customdata: pick(t.customdata) });
-            // error_y.array/arrayminus (the per-frequency stats overlay's asymmetric
+            // error_y.array/arrayminus (the per-probe-point stats overlay's asymmetric
             // whiskers) are nested per-point fields parallel to x -- filter them the
             // same way so lengths stay in sync, or Plotly misaligns them post-filter.
             if (t.error_y && (t.error_y.array || t.error_y.arrayminus)) {
@@ -1278,7 +1278,7 @@ function main() {
     // Window one trace's points to [lo, hi] and, if mirrorAbout is given, reflect
     // x -> 2*mirrorAbout - x (re-sorted by x) so a mirrored trace reads in the same
     // left-to-right orientation as its un-mirrored counterpart. Also carries along
-    // error_y.array/arrayminus (the per-frequency stats overlay's whiskers) --
+    // error_y.array/arrayminus (the per-probe-point stats overlay's whiskers) --
     // a nested field parallel to x/y that would otherwise desync from it.
     function _windowAndMirrorTrace(t, lo, hi, mirrorAbout) {
         if (!t.x || !t.x.length) return null;
@@ -1330,7 +1330,7 @@ function main() {
         const bottomData = [];
         for (const t of figData) {
             // Skip metrics-row traces (entropy/uncertainty vs. step) -- not meaningful
-            // windowed against a frequency range, and would collide with the x2/y2
+            // windowed against a probe-axis range, and would collide with the x2/y2
             // axes reused below for the second Zeeman-group panel.
             if (t.xaxis === 'x2' || t.yaxis === 'y2') continue;
 
@@ -1352,12 +1352,12 @@ function main() {
             grid: { rows: 2, columns: 1, pattern: 'independent' },
             xaxis: Object.assign({}, figLayout && figLayout.xaxis, {
                 domain: [0, 1], anchor: 'y', range: [c2 - hw, c2 + hw],
-                title: { text: 'frequency — Zeeman group @ f0+' + formatFrequency(Math.abs(zeemanSplit)) },
+                title: { text: 'frequency — Zeeman group @ f0+' + formatHz(Math.abs(zeemanSplit)) },
             }),
             yaxis: Object.assign({}, figLayout && figLayout.yaxis, { domain: [0.55, 1], anchor: 'x' }),
             xaxis2: {
                 domain: [0, 1], anchor: 'y2', range: [c1 - hw, c1 + hw],
-                title: { text: 'frequency — Zeeman group @ f0-' + formatFrequency(Math.abs(zeemanSplit)) + ' (mirrored)' },
+                title: { text: 'frequency — Zeeman group @ f0-' + formatHz(Math.abs(zeemanSplit)) + ' (mirrored)' },
                 tickformat: figLayout && figLayout.xaxis && figLayout.xaxis.tickformat,
             },
             yaxis2: Object.assign({}, figLayout && figLayout.yaxis, { domain: [0, 0.45], anchor: 'x2' }),
@@ -1372,7 +1372,7 @@ function main() {
     //
     // Folds about the *found* center and split (the locator's reported final estimates),
     // falling back per parameter to the true value only when the locator didn't estimate
-    // it -- e.g. the center under the simulated grid's fixed-frequency default, where the
+    // it -- e.g. the center under the simulated grid's fixed-center_freq default, where the
     // true value is exactly what the model assumed. Real measurements have no true value
     // at all, and their center sits ~1-2 MHz off the window midpoint the fold used to
     // default to.
@@ -1382,7 +1382,7 @@ function main() {
         const fp = meta.found_params || {};
         const tp = (meta.true_params && meta.true_params.params) || {};
         const pick = (name) => Number.isFinite(fp[name]) ? fp[name] : (Number.isFinite(tp[name]) ? tp[name] : null);
-        const center = pick('frequency');
+        const center = pick('center_freq');
         const zeemanSplit = pick('zeeman_split');
         if (center !== null && zeemanSplit !== null && Math.abs(zeemanSplit) > 1e-9) {
             return _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanSplit);
@@ -1454,7 +1454,7 @@ function main() {
                 figData = built.data;
                 figLayout = Object.assign({}, built.layout, { autosize: true });
                 if (isScanFigure) {
-                    const withOverlay = await _withFreqStatsOverlay(figData, figLayout, plotAtStart, !!plain.has_metrics);
+                    const withOverlay = await _withProbeStatsOverlay(figData, figLayout, plotAtStart, !!plain.has_metrics);
                     if (container._renderToken !== renderToken) return;
                     figData = withOverlay.data;
                     figLayout = withOverlay.layout;
@@ -1527,7 +1527,7 @@ function main() {
 
     // Re-renders the scan measurements plot with only the points recorded at or
     // before `realStep` (an inference-step number, same units as the measurement
-    // `step`/`fine_step` fields and as splitting_converged_step/all_converged_step).
+    // `step`/`fine_step` fields and as primary_converged_step/all_converged_step).
     // Pass null/undefined to show every measurement. Used by both the global
     // play/scrub timeline (per-frame) and the "View at" convergence selector (default cap).
     async function applyScanStepCap(realStep) {
@@ -1543,9 +1543,9 @@ function main() {
             const built = await buildFigureFromData(filtered);
             let figData = built.data;
             let figLayout = Object.assign({}, built.layout, { autosize: true });
-            // The per-frequency stats overlay covers every recorded shot regardless of
+            // The per-probe-point stats overlay covers every recorded shot regardless of
             // inference step, so it's exempt from the step cap -- re-added at full extent.
-            const withOverlay = await _withFreqStatsOverlay(figData, figLayout, currentPlot, !!raw.has_metrics);
+            const withOverlay = await _withProbeStatsOverlay(figData, figLayout, currentPlot, !!raw.has_metrics);
             figData = withOverlay.data;
             figLayout = withOverlay.layout;
             if (scanFlipViewEnabled) {
@@ -1595,7 +1595,7 @@ function main() {
         registerTimelineAdapter(scanTimelineAdapter);
     }
 
-    // Builds the "actual averages per frequency" overlay traces for a MATLAB run
+    // Builds the "actual averages per-probe-point" overlay traces for a MATLAB run
     // -- the per-bin mean/std/min/max of every shot recorded in the .mat file
     // (independent of which bins the adaptive locator actually visited). Drawn
     // as candle-like error-bar pairs rather than Plotly's own `candlestick`
@@ -1606,8 +1606,8 @@ function main() {
     // spans the true min-max range, and a thicker, shorter marker+error-bar pair
     // centered exactly on the mean spans ±std with an explicit horizontal tick
     // at the mean itself.
-    function _buildFreqStatsOverlayTraces(data) {
-        const freq = Array.from(data.freq_hz);
+    function _buildProbeStatsOverlayTraces(data) {
+        const probeX = Array.from(data.probe_axis_phys);
         const mean = Array.from(data.mean);
         const std = Array.from(data.std);
         const traces = [];
@@ -1618,7 +1618,7 @@ function main() {
             traces.push({
                 type: 'scatter',
                 mode: 'markers',
-                x: freq,
+                x: probeX,
                 y: mean,
                 marker: { size: 0, color: 'rgba(180,83,9,0.9)' },
                 error_y: {
@@ -1631,16 +1631,16 @@ function main() {
                     color: 'rgba(180,83,9,0.9)',
                 },
                 customdata: min.map((m, i) => [m, max[i]]),
-                hovertemplate: 'frequency=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
+                hovertemplate: 'probe axis=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
                 name: 'Extremes (min–max)',
-                legendgroup: 'matlab-freq-stats',
+                legendgroup: 'matlab-probe-stats',
                 showlegend: true,
             });
         }
         traces.push({
             type: 'scatter',
             mode: 'markers',
-            x: freq,
+            x: probeX,
             y: mean,
             // Amber, not blue: this now shares a chart with the blue "recorded mean
             // signal" line (a related but distinct statistic -- ratio-of-means vs.
@@ -1652,41 +1652,41 @@ function main() {
                 thickness: 5, width: 0, color: 'rgba(217,119,6,0.55)',
             },
             customdata: std,
-            hovertemplate: 'frequency=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
-            name: 'Actual averages per frequency (mean ± std)',
-            legendgroup: 'matlab-freq-stats',
+            hovertemplate: 'probe axis=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
+            name: 'Actual averages per probe point (mean ± std)',
+            legendgroup: 'matlab-probe-stats',
             showlegend: true,
         });
         return traces;
     }
 
     // Fetches (and caches on the manifest entry, mirroring ensureRepeatMeta) the
-    // matlab_freq_stats companion data for the given scan plot and builds it into
+    // matlab_probe_stats companion data for the given scan plot and builds it into
     // overlay traces -- present only for MATLAB (real-data) generators, which
-    // have a matching matlab_freq_stats entry. Resolves null when there is none.
-    function _getFreqStatsOverlayTraces(plot) {
-        const statsPlot = plot ? matlabFreqStatsPlots.find((p) => _matchesSelected(p, plot)) : null;
+    // have a matching matlab_probe_stats entry. Resolves null when there is none.
+    function _getProbeStatsOverlayTraces(plot) {
+        const statsPlot = plot ? matlabProbeStatsPlots.find((p) => _matchesSelected(p, plot)) : null;
         if (!statsPlot) return Promise.resolve(null);
         if (!statsPlot._overlayTracesPromise) {
             statsPlot._overlayTracesPromise = _fetchJson(statsPlot.path).then((data) => {
-                if (data.schema !== 'matlab_freq_stats_v1' || !data.freq_hz) return null;
-                return _buildFreqStatsOverlayTraces(data);
+                if (data.schema !== 'matlab_probe_stats_v1' || !data.probe_axis_phys) return null;
+                return _buildProbeStatsOverlayTraces(data);
             }).catch((e) => {
-                console.warn('Failed to load per-frequency stats overlay', e);
+                console.warn('Failed to load per-probe-point stats overlay', e);
                 return null;
             });
         }
         return statsPlot._overlayTracesPromise;
     }
 
-    // Appends the per-frequency mean/std/min/max overlay (if any exists for
+    // Appends the per-probe-point mean/std/min/max overlay (if any exists for
     // `plot`) on top of a scan figure's traces -- last in `data` so it draws over
     // the sampled-measurements markers rather than under them. `legend.groupclick:
     // 'togglegroup'` makes clicking either of the two overlay legend entries (they
-    // share legendgroup 'matlab-freq-stats') hide/show both together, since they're
+    // share legendgroup 'matlab-probe-stats') hide/show both together, since they're
     // two halves of one statistic rather than independent series.
-    async function _withFreqStatsOverlay(figData, figLayout, plot, hasMetrics) {
-        const overlayTraces = await _getFreqStatsOverlayTraces(plot);
+    async function _withProbeStatsOverlay(figData, figLayout, plot, hasMetrics) {
+        const overlayTraces = await _getProbeStatsOverlayTraces(plot);
         if (!overlayTraces || !overlayTraces.length) return { data: figData, layout: figLayout };
         const traces = hasMetrics
             ? overlayTraces.map((t) => Object.assign({}, t, { xaxis: 'x', yaxis: 'y' }))
@@ -2275,7 +2275,7 @@ function main() {
     // Pure client-side exploration of already-run repeats (no new simulation runs).
     // Mirrors the censored aggregation in nvision/viz/grid_study.py's _cell_stats /
     // _plot_grid_vs_noise: group by the chosen scan axis, compute median/IQR of
-    // splitting_converged_step over converged repeats only, plus convergence_rate.
+    // primary_converged_step over converged repeats only, plus convergence_rate.
 
     function updateGridStatsButton(generator) {
         const btn = document.getElementById('scan-view-grid-stats-btn');
@@ -2318,7 +2318,7 @@ function main() {
 
     // Censored aggregation over already-run repeats: filters scanPlots to the given
     // strategy and every fixed axis value, groups the rest by the scan axis, and
-    // computes n_total/n_converged/median/q25/q75(splitting_converged_step among converged)
+    // computes n_total/n_converged/median/q25/q75(primary_converged_step among converged)
     // plus convergence_rate — exactly mirroring grid_study.py's _cell_stats.
     function computeGridStatsSeries(info, strategy, scanAxisKey, fixedValues) {
         const memberByName = new Map(info.familyGroup.members.map((m) => [m.name, m]));
@@ -2345,7 +2345,7 @@ function main() {
             const scanValue = axisValueOf(scanAxisKey, p);
             if (scanValue === null || scanValue === undefined) continue;
             if (!groups.has(scanValue)) groups.set(scanValue, []);
-            groups.get(scanValue).push(p.splitting_converged_step);
+            groups.get(scanValue).push(p.primary_converged_step);
         }
 
         const sortedKeys = [...groups.keys()].sort((a, b) => a - b);
@@ -2497,9 +2497,9 @@ function main() {
         const scanAxisMeta = axes.find((a) => a.key === gridStatsScanAxisKey);
         const payload = {
             _graph_type: 'chart',
-            title: `Steps to freq. convergence vs ${scanAxisMeta.label} (${strategy})`,
+            title: `Steps to primary-parameter convergence vs ${scanAxisMeta.label} (${strategy})`,
             xaxis_title: scanAxisMeta.label,
-            yaxis_title: 'Median steps to freq. convergence (converged repeats)',
+            yaxis_title: 'Median steps to primary-parameter convergence (converged repeats)',
             mode: 'lines+markers',
             series: [{
                 name: 'median (IQR band)',
@@ -2893,8 +2893,8 @@ function main() {
                 `γ = γ₀·√(1+${L('saturation')}), &nbsp; ${L('c_total')} = ${L('c_max')}·${frac(L('saturation'), `1+${L('saturation')}`)} ` +
                 `&nbsp; (γ₀, ${L('c_max')} fixed constants, not fitted)<br>` +
                 `S(f) = 1 − hyperfine multiplet of V(f; ${g},${s},c) terms centered at ` +
-                `${L('frequency')}±${L('split')}, ${L('frequency')}`;
-            params = ['saturation', 'sigma_inhom', 'frequency'];
+                `${L('center_freq')}±${L('split')}, ${L('center_freq')}`;
+            params = ['saturation', 'sigma_inhom', 'center_freq'];
         } else if (n.includes('voigt')) {
             title = 'Voigt NV dip';
             const g = L('homogeneous_linewidth'), s = L('sigma_inhom');
@@ -2902,20 +2902,20 @@ function main() {
                 `Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
                 `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · ` +
                 bracket(
-                    `${frac('1', L('k_np'))}·V(f; ${g},${s},${L('frequency')}−${L('split')}) + w·V(f; ${g},${s},${L('frequency')}) ` +
-                    `+ ${L('k_np')}·V(f; ${g},${s},${L('frequency')}+${L('split')})`
+                    `${frac('1', L('k_np'))}·V(f; ${g},${s},${L('center_freq')}−${L('split')}) + w·V(f; ${g},${s},${L('center_freq')}) ` +
+                    `+ ${L('k_np')}·V(f; ${g},${s},${L('center_freq')}+${L('split')})`
                 );
-            params = ['frequency', 'homogeneous_linewidth', 'sigma_inhom', 'split', 'k_np', 'c_total'];
+            params = ['center_freq', 'homogeneous_linewidth', 'sigma_inhom', 'split', 'k_np', 'c_total'];
         } else if (n.includes('lorentzian')) {
             title = 'Lorentzian NV dip';
             formula =
-                `f' = ${frac(`f−${L('frequency')}`, L('linewidth'))}, &nbsp; α = ${frac(L('split'), L('linewidth'))}, ` +
+                `f' = ${frac(`f−${L('center_freq')}`, L('linewidth'))}, &nbsp; α = ${frac(L('split'), L('linewidth'))}, ` +
                 `&nbsp; Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
                 `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · ` +
                 bracket(
                     `${frac('1', `${L('k_np')}·((f'+α)²+1)`)} + ${frac('w', "f'²+1")} + ${frac(L('k_np'), "(f'−α)²+1")}`
                 );
-            params = ['frequency', 'linewidth', 'split', 'k_np', 'c_total'];
+            params = ['center_freq', 'linewidth', 'split', 'k_np', 'c_total'];
         } else {
             return null;
         }
@@ -2954,7 +2954,7 @@ function main() {
         let zeemanNote = '';
         if (n.includes('zeeman')) {
             zeemanNote = `<div class="signal-equation-note">With Zeeman splitting: this pattern appears twice, ` +
-                `centered at ${L('frequency')} − ${L('zeeman_split')} and ${L('frequency')} + ${L('zeeman_split')} ` +
+                `centered at ${L('center_freq')} − ${L('zeeman_split')} and ${L('center_freq')} + ${L('zeeman_split')} ` +
                 `(one hyperfine group each).</div>`;
             params = params.concat(['zeeman_split']);
         }
@@ -3142,12 +3142,12 @@ function main() {
                         : String(plot.repeat);
                     // For sweep-only runs, phaseData.measurements is the authoritative total.
                     const fullMeasurements = phaseData.measurements != null ? phaseData.measurements : totalMeasurements;
-                    const splittingConvergedStep = phaseData.splitting_converged_step != null ? phaseData.splitting_converged_step : (phaseData.metrics && phaseData.metrics.splitting_converged_step != null ? phaseData.metrics.splitting_converged_step : null);
+                    const splittingConvergedStep = phaseData.primary_converged_step != null ? phaseData.primary_converged_step : (phaseData.metrics && phaseData.metrics.primary_converged_step != null ? phaseData.metrics.primary_converged_step : null);
                     const allConvergedStep = phaseData.all_converged_step != null ? phaseData.all_converged_step : (phaseData.metrics && phaseData.metrics.all_converged_step != null ? phaseData.metrics.all_converged_step : null);
-                    const splitConvResolved = splittingConvergedStep != null ? splittingConvergedStep : phaseData.steps_to_fb;
+                    const splitConvResolved = splittingConvergedStep != null ? splittingConvergedStep : phaseData.steps_to_primary;
 
                     let phaseMeasurements = fullMeasurements;
-                    if (currentStoppingCriteria === 'splitting_converged' && splittingConvergedStep != null) {
+                    if (currentStoppingCriteria === 'primary_converged' && splittingConvergedStep != null) {
                         phaseMeasurements = splittingConvergedStep;
                     } else if (currentStoppingCriteria === 'all_converged' && allConvergedStep != null) {
                         phaseMeasurements = allConvergedStep;
@@ -3182,11 +3182,11 @@ function main() {
                         items.push({ label: 'Last run', val: formatTimestamp(phaseData.last_run), tip: 'Timestamp when this repeat was executed.' });
                     }
 
-                    const phaseAbsErr = _mv(phaseData, 'abs_err_x', 'final_err_fc', 'pair_rmse');
-                    const errFbAtSplit = phaseData.err_fb_at_milestone;
-                    const uncertFbAtSplit = phaseData.uncert_fb_at_milestone;
-                    const errFbAtAll = _mv(phaseData, 'err_fb_at_all_converged');
-                    const uncertFbAtAll = _mv(phaseData, 'uncert_fb_at_all_converged');
+                    const phaseAbsErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
+                    const errPrimaryAtSplit = phaseData.err_primary_at_milestone;
+                    const uncertPrimaryAtSplit = phaseData.uncert_primary_at_milestone;
+                    const errPrimaryAtAll = _mv(phaseData, 'err_primary_at_all_converged');
+                    const uncertPrimaryAtAll = _mv(phaseData, 'uncert_primary_at_all_converged');
                     const errRows = [];
                     // Red when |error| > uncert, deep red when |error| > 2·uncert.
                     const errRow = (label, err, unc) => {
@@ -3197,15 +3197,15 @@ function main() {
                             else if (absErr > unc) rowClass = 'err-medium-row';
                         }
                         return { label: label, rowClass: rowClass, vals: [
-                            err != null ? formatFrequency(err) : '–',
-                            unc != null ? formatFrequency(unc) : '–',
+                            err != null ? formatHz(err) : '–',
+                            unc != null ? formatHz(unc) : '–',
                         ] };
                     };
-                    if (errFbAtSplit != null || uncertFbAtSplit != null) {
-                        errRows.push(errRow('split', errFbAtSplit, uncertFbAtSplit));
+                    if (errPrimaryAtSplit != null || uncertPrimaryAtSplit != null) {
+                        errRows.push(errRow('split', errPrimaryAtSplit, uncertPrimaryAtSplit));
                     }
-                    if (errFbAtAll != null || uncertFbAtAll != null) {
-                        errRows.push(errRow('all', errFbAtAll, uncertFbAtAll));
+                    if (errPrimaryAtAll != null || uncertPrimaryAtAll != null) {
+                        errRows.push(errRow('all', errPrimaryAtAll, uncertPrimaryAtAll));
                     }
                     if (phaseAbsErr != null || phaseData.uncert != null) {
                         errRows.push(errRow('full', phaseAbsErr, phaseData.uncert));
@@ -3222,42 +3222,42 @@ function main() {
 
 
 
-                function buildFreqConvergenceRows(phaseData) {
+                function buildPrimaryConvergenceRows(phaseData) {
                     if (!phaseData) return [];
                     const metrics = phaseData.metrics || {};
-                    const sobolFreqSteps = phaseData.sobol_freq_steps != null ? phaseData.sobol_freq_steps : metrics.sobol_freq_steps;
-                    const stepsToFb = phaseData.steps_to_fb != null ? phaseData.steps_to_fb : metrics.steps_to_fb;
-                    const uncertFb = phaseData.uncert_fb_at_milestone != null ? phaseData.uncert_fb_at_milestone : metrics.uncert_fb_at_milestone;
-                    const errFb = phaseData.err_fb_at_milestone != null ? phaseData.err_fb_at_milestone : metrics.err_fb_at_milestone;
-                    const sobolFreqUncert = phaseData.sobol_freq_uncert_at_conv != null ? phaseData.sobol_freq_uncert_at_conv : metrics.sobol_freq_uncert_at_conv;
-                    const sobolFreqErr = phaseData.sobol_freq_err_at_conv != null ? phaseData.sobol_freq_err_at_conv : metrics.sobol_freq_err_at_conv;
+                    const sobolPrimarySteps = phaseData.sobol_primary_steps != null ? phaseData.sobol_primary_steps : metrics.sobol_primary_steps;
+                    const stepsToPrimary = phaseData.steps_to_primary != null ? phaseData.steps_to_primary : metrics.steps_to_primary;
+                    const uncertPrimary = phaseData.uncert_primary_at_milestone != null ? phaseData.uncert_primary_at_milestone : metrics.uncert_primary_at_milestone;
+                    const errPrimary = phaseData.err_primary_at_milestone != null ? phaseData.err_primary_at_milestone : metrics.err_primary_at_milestone;
+                    const sobolPrimaryUncert = phaseData.sobol_primary_uncert_at_conv != null ? phaseData.sobol_primary_uncert_at_conv : metrics.sobol_primary_uncert_at_conv;
+                    const sobolPrimaryErr = phaseData.sobol_primary_err_at_conv != null ? phaseData.sobol_primary_err_at_conv : metrics.sobol_primary_err_at_conv;
                     const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
-                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_fc', 'pair_rmse');
+                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
 
-                    const freqStepsExpected = (sobolFreqSteps != null && stepsToFb != null && stepsToFb < sobolFreqSteps);
-                    const sbedFreqErrExpected = (errFb != null && uncertFb != null && errFb < uncertFb);
-                    const sobolFreqErrExpected = (sobolFreqErr != null && sobolFreqUncert != null && sobolFreqErr < sobolFreqUncert);
-                    const uncertFbDiffExpected = (uncertFb != null && uncert != null && uncertFb - uncert > 0);
-                    const errFbDiffExpected = (errFb != null && absErr != null && errFb - absErr > 0);
+                    const primaryStepsExpected = (sobolPrimarySteps != null && stepsToPrimary != null && stepsToPrimary < sobolPrimarySteps);
+                    const sbedPrimaryErrExpected = (errPrimary != null && uncertPrimary != null && errPrimary < uncertPrimary);
+                    const sobolPrimaryErrExpected = (sobolPrimaryErr != null && sobolPrimaryUncert != null && sobolPrimaryErr < sobolPrimaryUncert);
+                    const uncertPrimaryDiffExpected = (uncertPrimary != null && uncert != null && uncertPrimary - uncert > 0);
+                    const errPrimaryDiffExpected = (errPrimary != null && absErr != null && errPrimary - absErr > 0);
 
                     return [
                         // Row 1: Steps — sobol - sbed
                         [
-                            { label: 'Sobol splitting convergence', val: sobolFreqSteps != null ? formatCount(sobolFreqSteps) : 'N/A', tip: 'Steps needed for simple Sobol splitting uncertainty to drop below threshold.', cardClass: freqStepsExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed splitting uncertainty to drop below threshold.', cardClass: freqStepsExpected ? 'expected-card' : '' },
-                            { label: 'Splitting convergence savings', val: (sobolFreqSteps != null && stepsToFb != null) ? formatCount(sobolFreqSteps - stepsToFb) : 'N/A', tip: 'Difference in steps needed for splitting convergence (positive = Sbed was faster).', cardClass: freqStepsExpected ? 'expected-card' : '' }
+                            { label: 'Sobol splitting convergence', val: sobolPrimarySteps != null ? formatCount(sobolPrimarySteps) : 'N/A', tip: 'Steps needed for simple Sobol splitting uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
+                            { label: 'Sbed splitting convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed splitting uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
+                            { label: 'Splitting convergence savings', val: (sobolPrimarySteps != null && stepsToPrimary != null) ? formatCount(sobolPrimarySteps - stepsToPrimary) : 'N/A', tip: 'Difference in steps needed for splitting convergence (positive = Sbed was faster).', cardClass: primaryStepsExpected ? 'expected-card' : '' }
                         ],
                         // Row 2: Uncertainty — splitting - overall
                         [
-                            { label: 'Sobol splitting uncertainty', val: sobolFreqUncert != null ? formatFrequency(sobolFreqUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol splitting estimate at the moment of convergence.', cardClass: sobolFreqErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed splitting estimate at the moment of convergence.', cardClass: sbedFreqErrExpected ? 'expected-card' : '' },
-                            { label: 'Splitting uncert difference', val: (uncertFb != null && uncert != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Reduction in Sbed splitting uncertainty from convergence milestone to final (positive = uncertainty decreased).', cardClass: uncertFbDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol splitting uncertainty', val: sobolPrimaryUncert != null ? formatHz(sobolPrimaryUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol splitting estimate at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed splitting uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed splitting estimate at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Splitting uncert difference', val: (uncertPrimary != null && uncert != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Reduction in Sbed splitting uncertainty from convergence milestone to final (positive = uncertainty decreased).', cardClass: uncertPrimaryDiffExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error — splitting - overall
                         [
-                            { label: 'Sobol splitting error', val: sobolFreqErr != null ? formatFrequency(sobolFreqErr) : 'N/A', tip: 'Absolute error of Sobol splitting estimate vs ground truth at the moment of convergence.', cardClass: sobolFreqErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute error of Sbed splitting estimate vs ground truth at the moment of convergence.', cardClass: sbedFreqErrExpected ? 'expected-card' : '' },
-                            { label: 'Splitting error difference', val: (errFb != null && absErr != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Change in Sbed absolute splitting error from convergence milestone to final (positive = error decreased, negative = error increased).', cardClass: errFbDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol splitting error', val: sobolPrimaryErr != null ? formatHz(sobolPrimaryErr) : 'N/A', tip: 'Absolute error of Sobol splitting estimate vs ground truth at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed splitting error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute error of Sbed splitting estimate vs ground truth at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Splitting error difference', val: (errPrimary != null && absErr != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Change in Sbed absolute splitting error from convergence milestone to final (positive = error decreased, negative = error increased).', cardClass: errPrimaryDiffExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -3269,12 +3269,12 @@ function main() {
                     const measurements = phaseData.measurements != null ? phaseData.measurements : metrics.measurements;
 
                     const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
-                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_fc', 'pair_rmse');
+                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
 
                     // Sobol baseline final uncertainty and error
                     const sobolPlot = findSobolBaselineForPlot(plotContext);
-                    const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (phaseData.sobol_freq_uncert_at_conv || metrics.sobol_freq_uncert_at_conv);
-                    const sobolOverallErr = sobolPlot ? _mv(sobolPlot, 'abs_err_x', 'final_err_fc', 'pair_rmse') : (phaseData.sobol_freq_err_at_conv || metrics.sobol_freq_err_at_conv);
+                    const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (phaseData.sobol_primary_uncert_at_conv || metrics.sobol_primary_uncert_at_conv);
+                    const sobolOverallErr = sobolPlot ? _mv(sobolPlot, 'abs_err_x', 'final_err_split', 'pair_rmse') : (phaseData.sobol_primary_err_at_conv || metrics.sobol_primary_err_at_conv);
 
                     const overallStepsExpected = (sobolBaseline != null && measurements != null && measurements < sobolBaseline);
                     const sbedOverallErrExpected = (absErr != null && uncert != null && absErr < uncert);
@@ -3291,15 +3291,15 @@ function main() {
                         ],
                         // Row 2: Uncertainty
                         [
-                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatFrequency(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline splitting estimate.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed splitting estimate.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatFrequency(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final splitting estimate uncertainty (positive = SBED was more confident).', cardClass: overallUncertDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatHz(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline splitting estimate.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed splitting estimate.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatHz(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final splitting estimate uncertainty (positive = SBED was more confident).', cardClass: overallUncertDiffExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error
                         [
-                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatFrequency(sobolOverallErr) : 'N/A', tip: 'Final absolute splitting error of Sobol baseline.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed overall error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute splitting error of Sbed.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatFrequency(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute splitting error (positive = SBED was more accurate).', cardClass: overallErrDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatHz(sobolOverallErr) : 'N/A', tip: 'Final absolute splitting error of Sobol baseline.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed overall error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute splitting error of Sbed.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatHz(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute splitting error (positive = SBED was more accurate).', cardClass: overallErrDiffExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -3309,36 +3309,36 @@ function main() {
                     const metrics = phaseData.metrics || {};
                     
                     const measurements = phaseData.measurements != null ? phaseData.measurements : metrics.measurements;
-                    const stepsToFb = phaseData.steps_to_fb != null ? phaseData.steps_to_fb : metrics.steps_to_fb;
+                    const stepsToPrimary = phaseData.steps_to_primary != null ? phaseData.steps_to_primary : metrics.steps_to_primary;
                     
                     const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
-                    const uncertFb = phaseData.uncert_fb_at_milestone != null ? phaseData.uncert_fb_at_milestone : metrics.uncert_fb_at_milestone;
+                    const uncertPrimary = phaseData.uncert_primary_at_milestone != null ? phaseData.uncert_primary_at_milestone : metrics.uncert_primary_at_milestone;
                     
-                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_fc', 'pair_rmse');
-                    const errFb = phaseData.err_fb_at_milestone != null ? phaseData.err_fb_at_milestone : metrics.err_fb_at_milestone;
+                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
+                    const errPrimary = phaseData.err_primary_at_milestone != null ? phaseData.err_primary_at_milestone : metrics.err_primary_at_milestone;
 
-                    const earlyStopStepsExpected = (measurements != null && stepsToFb != null && stepsToFb < measurements);
-                    const earlyStopUncertExpected = (uncert != null && uncertFb != null && uncert < uncertFb);
-                    const earlyStopErrExpected = (absErr != null && errFb != null && absErr < errFb);
+                    const earlyStopStepsExpected = (measurements != null && stepsToPrimary != null && stepsToPrimary < measurements);
+                    const earlyStopUncertExpected = (uncert != null && uncertPrimary != null && uncert < uncertPrimary);
+                    const earlyStopErrExpected = (absErr != null && errPrimary != null && absErr < errPrimary);
 
                     return [
                         // Row 1: Steps
                         [
                             { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting convergence', val: stepsToFb != null ? formatCount(stepsToFb) : 'N/A', tip: 'Steps needed for Sbed splitting uncertainty to drop below threshold.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
-                            { label: 'Early stopping savings', val: (measurements != null && stepsToFb != null) ? formatCount(measurements - stepsToFb) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after splitting converges.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' }
+                            { label: 'Sbed splitting convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed splitting uncertainty to drop below threshold.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
+                            { label: 'Early stopping savings', val: (measurements != null && stepsToPrimary != null) ? formatCount(measurements - stepsToPrimary) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after splitting converges.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' }
                         ],
                         // Row 2: Uncertainty
                         [
-                            { label: 'Sbed final uncertainty', val: uncert != null ? formatFrequency(uncert) : 'N/A', tip: 'Final splitting estimate uncertainty (standard deviation) at locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting uncertainty', val: uncertFb != null ? formatFrequency(uncertFb) : 'N/A', tip: 'Splitting estimate uncertainty (standard deviation) at the moment splitting converged.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
-                            { label: 'Milestone to final uncert diff', val: (uncert != null && uncertFb != null) ? formatFrequency(uncertFb - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from the splitting-convergence milestone until locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' }
+                            { label: 'Sbed final uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final splitting estimate uncertainty (standard deviation) at locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Sbed splitting uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Splitting estimate uncertainty (standard deviation) at the moment splitting converged.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Milestone to final uncert diff', val: (uncert != null && uncertPrimary != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from the splitting-convergence milestone until locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error
                         [
-                            { label: 'Sbed final error', val: absErr != null ? formatFrequency(absErr) : 'N/A', tip: 'Final absolute splitting error vs ground truth at locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting error', val: errFb != null ? formatFrequency(errFb) : 'N/A', tip: 'Absolute splitting error vs ground truth at the moment splitting converged.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
-                            { label: 'Milestone to final error diff', val: (absErr != null && errFb != null) ? formatFrequency(errFb - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from the splitting-convergence milestone until locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' }
+                            { label: 'Sbed final error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute splitting error vs ground truth at locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed splitting error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute splitting error vs ground truth at the moment splitting converged.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Milestone to final error diff', val: (absErr != null && errPrimary != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from the splitting-convergence milestone until locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -3451,7 +3451,7 @@ function main() {
         const params = trueData.params || {};
         const bounds = trueData.bounds || {};
         // Preferred order for common parameters
-        const preferred = ['frequency', 'linewidth', 'homogeneous_linewidth', 'sigma_inhom', 'fwhm_total', 'split', 'c_total', 'dip_depth', 'k_np', 'lorentz_frac'];
+        const preferred = ['center_freq', 'linewidth', 'homogeneous_linewidth', 'sigma_inhom', 'fwhm_total', 'split', 'c_total', 'dip_depth', 'k_np', 'lorentz_frac'];
         const keys = Object.keys(params).sort((a, b) => {
             const ia = preferred.indexOf(a);
             const ib = preferred.indexOf(b);
@@ -3474,14 +3474,14 @@ function main() {
             let fmtHi = b ? b[1] : null;
 
             const lowName = name.toLowerCase();
-            const isFreqLike = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total' || lowName === 'sigma_inhom';
+            const isHzParam = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total' || lowName === 'sigma_inhom';
 
             if (typeof val === 'number') {
-                if (isFreqLike) {
-                    formatted = formatFrequency(val);
+                if (isHzParam) {
+                    formatted = formatHz(val);
                     if (b) {
-                        fmtLo = formatFrequency(b[0]);
-                        fmtHi = formatFrequency(b[1]);
+                        fmtLo = formatHz(b[0]);
+                        fmtHi = formatHz(b[1]);
                     }
                 } else if (lowName === 'dip_depth' || lowName === 'k_np' || lowName === 'lorentz_frac') {
                     formatted = val.toFixed(3);
@@ -3498,15 +3498,15 @@ function main() {
                 }
             }
 
-            // Extract final estimate and milestone fb if available
+            // Extract final estimate and primary-parameter milestone if available
             let finalEst = null;
             if (plot && plot.metrics) {
                 finalEst = plot.metrics["final_est_" + name];
             }
 
             let fbAtMilestone = null;
-            if (plot && plot.metrics && name === 'frequency') {
-                fbAtMilestone = plot.metrics["fb_at_milestone"];
+            if (plot && plot.metrics && name === 'center_freq') {
+                fbAtMilestone = plot.metrics["primary_at_milestone"];
             }
 
             items.push({
@@ -4241,7 +4241,7 @@ function main() {
                     let threshVal = null;
                     if (data.absolute_thresholds && data.absolute_thresholds[param] != null) {
                         threshVal = data.absolute_thresholds[param];
-                    } else if (param === 'frequency') {
+                    } else if (param === 'center_freq') {
                         threshVal = 100000.0 / 1e9; // 100 KHz in GHz
                     } else if (data.convergence_threshold != null && bounds) {
                         threshVal = data.convergence_threshold * (bounds[1] - bounds[0]);
@@ -4584,7 +4584,7 @@ function main() {
             // long-standing frequency special-case) can be drawn accurately; a fractional
             // threshold would need bound width, which isn't available here.
             let threshVal = absolute_thresholds ? absolute_thresholds[param] : null;
-            if (threshVal == null && param === 'frequency') threshVal = 100000.0;
+            if (threshVal == null && param === 'center_freq') threshVal = 100000.0;
             if (threshVal != null) {
                 traces.push({
                     type: 'scatter', x: [xs[0], xs[xs.length - 1]], y: [threshVal, threshVal],
@@ -5032,7 +5032,7 @@ function main() {
 
                 if (isAbs) {
                     threshVal = data.absolute_thresholds ? data.absolute_thresholds[param] : null;
-                    if (threshVal === null && param === 'frequency') {
+                    if (threshVal === null && param === 'center_freq') {
                         threshVal = 100000.0;
                     }
                     thresholdLabel = `${formatNum(threshVal / 1000)} KHz threshold`;
@@ -5486,14 +5486,14 @@ function main() {
 
                 if (typeof it.finalEst === 'number' && Number.isFinite(it.finalEst)) {
                     const finalPct = Math.min(100, Math.max(0, (it.finalEst - lo) / (hi - lo) * 100));
-                    const formattedFinal = it.name && (it.name.toLowerCase().includes('freq') || it.name.toLowerCase().includes('linewidth') || it.name.toLowerCase().includes('split') || it.name === 'fwhm_total' || it.name === 'sigma_inhom') ? formatFrequency(it.finalEst) : it.finalEst.toFixed(3);
+                    const formattedFinal = it.name && (it.name.toLowerCase().includes('freq') || it.name.toLowerCase().includes('linewidth') || it.name.toLowerCase().includes('split') || it.name === 'fwhm_total' || it.name === 'sigma_inhom') ? formatHz(it.finalEst) : it.finalEst.toFixed(3);
                     markersHtml += '<div class="param-range-marker" title="Final Inferred: ' + formattedFinal + '" style="left: ' + finalPct + '%; background-color: #ef4444; width: 8px; height: 8px; z-index: 9;"></div>';
                 }
 
                 if (typeof it.fbAtMilestone === 'number' && Number.isFinite(it.fbAtMilestone)) {
                     const fbPct = Math.min(100, Math.max(0, (it.fbAtMilestone - lo) / (hi - lo) * 100));
-                    const formattedFb = formatFrequency(it.fbAtMilestone);
-                    markersHtml += '<div class="param-range-marker" title="Milestone Conv Freq: ' + formattedFb + '" style="left: ' + fbPct + '%; background-color: #f59e0b; width: 8px; height: 8px; z-index: 8;"></div>';
+                    const formattedPrimary = formatHz(it.fbAtMilestone);
+                    markersHtml += '<div class="param-range-marker" title="Milestone (primary) estimate: ' + formattedPrimary + '" style="left: ' + fbPct + '%; background-color: #f59e0b; width: 8px; height: 8px; z-index: 8;"></div>';
                 }
 
                 valueHtml =
@@ -5560,7 +5560,7 @@ function main() {
         }
 
         if (!entityB || !currentPlot) return;
-        const baseId = entityB.id.replace(/_freq$|_conv$/, '');
+        const baseId = entityB.id.replace(/_primary$|_conv$/, '');
         const bStrategy = strategyIdMap.get(baseId);
         if (!bStrategy || bStrategy === currentPlot.strategy) return;
 
@@ -5674,21 +5674,21 @@ function main() {
             const base = {
                 id, label,
                 steps: [], uncert: [], err: [],
-                steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                steps_to_primary: [], uncert_at_primary: [], err_at_primary: [],
                 f_spans: [], repeats: [],
                 stepsType: 'measurements',
             };
-            const freqConv = {
-                id: id + '_freq', label: label + ' splitting converged',
+            const primaryConv = {
+                id: id + '_primary', label: label + ' splitting converged',
                 steps: [], uncert: [], err: [],
-                steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                steps_to_primary: [], uncert_at_primary: [], err_at_primary: [],
                 f_spans: [], repeats: [],
                 stepsType: 'steps',
             };
             const allConv = {
                 id: id + '_conv', label: label + ' converged',
                 steps: [], uncert: [], err: [],
-                steps_to_fb: [], uncert_at_fb: [], err_at_fb: [],
+                steps_to_primary: [], uncert_at_primary: [], err_at_primary: [],
                 f_spans: [], repeats: [],
                 stepsType: 'steps',
             };
@@ -5702,10 +5702,10 @@ function main() {
                     const lw = params.linewidth;
                     const split = params.split || 0.0;
                     let domain_width = 5.0e8;
-                    if (p.true_params.bounds && p.true_params.bounds.frequency) {
-                        const freq_bounds = p.true_params.bounds.frequency;
-                        if (freq_bounds.length === 2 && freq_bounds[1] > freq_bounds[0]) {
-                            domain_width = freq_bounds[1] - freq_bounds[0];
+                    if (p.true_params.bounds && p.true_params.bounds.center_freq) {
+                        const center_freq_bounds = p.true_params.bounds.center_freq;
+                        if (center_freq_bounds.length === 2 && center_freq_bounds[1] > center_freq_bounds[0]) {
+                            domain_width = center_freq_bounds[1] - center_freq_bounds[0];
                         }
                     }
                     if (lw && lw > 0) {
@@ -5719,36 +5719,36 @@ function main() {
                 if (base_step != null) {
                     base.steps.push(base_step);
                     base.uncert.push(_mv(item, 'uncert'));
-                    base.err.push(_mv(item, 'abs_err_x', 'final_err_fc', 'pair_rmse'));
-                    base.steps_to_fb.push(_mv(item, 'steps_to_fb', 'splitting_converged_step'));
-                    base.uncert_at_fb.push(_mv(item, 'uncert_fb_at_milestone'));
-                    base.err_at_fb.push(_mv(item, 'err_fb_at_milestone'));
+                    base.err.push(_mv(item, 'abs_err_x', 'final_err_split', 'pair_rmse'));
+                    base.steps_to_primary.push(_mv(item, 'steps_to_primary', 'primary_converged_step'));
+                    base.uncert_at_primary.push(_mv(item, 'uncert_primary_at_milestone'));
+                    base.err_at_primary.push(_mv(item, 'err_primary_at_milestone'));
                     base.f_spans.push(f_span);
                     base.repeats.push(rep);
                 }
 
-                const freq_step = _mv(item, 'splitting_converged_step', 'steps_to_fb');
-                if (freq_step != null) {
-                    freqConv.steps.push(freq_step);
-                    freqConv.uncert.push(_mv(item, 'uncert_fb_at_milestone'));
-                    freqConv.uncert_at_fb.push(_mv(item, 'uncert_fb_at_milestone'));
-                    freqConv.err.push(_mv(item, 'err_fb_at_milestone'));
-                    freqConv.f_spans.push(f_span);
-                    freqConv.repeats.push(rep);
+                const primary_step = _mv(item, 'primary_converged_step', 'steps_to_primary');
+                if (primary_step != null) {
+                    primaryConv.steps.push(primary_step);
+                    primaryConv.uncert.push(_mv(item, 'uncert_primary_at_milestone'));
+                    primaryConv.uncert_at_primary.push(_mv(item, 'uncert_primary_at_milestone'));
+                    primaryConv.err.push(_mv(item, 'err_primary_at_milestone'));
+                    primaryConv.f_spans.push(f_span);
+                    primaryConv.repeats.push(rep);
                 }
 
                 const all_step = _mv(item, 'all_converged_step');
                 if (all_step != null) {
                     allConv.steps.push(all_step);
                     allConv.uncert.push(_mv(item, 'uncert'));
-                    allConv.err.push(_mv(item, 'abs_err_x', 'final_err_fc', 'pair_rmse'));
+                    allConv.err.push(_mv(item, 'abs_err_x', 'final_err_split', 'pair_rmse'));
                     allConv.f_spans.push(f_span);
                     allConv.repeats.push(rep);
                 }
             }
             const results = [];
             if (base.steps.length) results.push(base);
-            if (freqConv.steps.length) results.push(freqConv);
+            if (primaryConv.steps.length) results.push(primaryConv);
             if (allConv.steps.length) results.push(allConv);
             return results;
         } else {
@@ -5756,22 +5756,22 @@ function main() {
                 id, label,
                 steps:        _mv(d, 'measurements'),
                 uncert:       _mv(d, 'uncert'),
-                err:          _mv(d, 'abs_err_x', 'final_err_fc', 'pair_rmse'),
-                steps_to_fb:  _mv(d, 'steps_to_fb', 'splitting_converged_step'),
-                uncert_at_fb: _mv(d, 'uncert_fb_at_milestone'),
-                err_at_fb:    _mv(d, 'err_fb_at_milestone'),
+                err:          _mv(d, 'abs_err_x', 'final_err_split', 'pair_rmse'),
+                steps_to_primary:  _mv(d, 'steps_to_primary', 'primary_converged_step'),
+                uncert_at_primary: _mv(d, 'uncert_primary_at_milestone'),
+                err_at_primary:    _mv(d, 'err_primary_at_milestone'),
                 stepsType: 'measurements',
             };
-            const freqStep = _mv(d, 'splitting_converged_step', 'steps_to_fb');
+            const primaryStep = _mv(d, 'primary_converged_step', 'steps_to_primary');
             const allStep  = _mv(d, 'all_converged_step');
             const results = [base];
-            if (freqStep != null) {
+            if (primaryStep != null) {
                 results.push({
-                    id: id + '_freq', label: label + ' splitting converged',
-                    steps: freqStep,
-                    uncert: _mv(d, 'uncert_fb_at_milestone'),
-                    err:    _mv(d, 'err_fb_at_milestone'),
-                    steps_to_fb: null, uncert_at_fb: null, err_at_fb: null,
+                    id: id + '_primary', label: label + ' splitting converged',
+                    steps: primaryStep,
+                    uncert: _mv(d, 'uncert_primary_at_milestone'),
+                    err:    _mv(d, 'err_primary_at_milestone'),
+                    steps_to_primary: null, uncert_at_primary: null, err_at_primary: null,
                     stepsType: 'steps',
                 });
             }
@@ -5780,8 +5780,8 @@ function main() {
                     id: id + '_conv', label: label + ' converged',
                     steps: allStep,
                     uncert: _mv(d, 'uncert'),
-                    err:    _mv(d, 'abs_err_x', 'final_err_fc', 'pair_rmse'),
-                    steps_to_fb: null, uncert_at_fb: null, err_at_fb: null,
+                    err:    _mv(d, 'abs_err_x', 'final_err_split', 'pair_rmse'),
+                    steps_to_primary: null, uncert_at_primary: null, err_at_primary: null,
                     stepsType: 'steps',
                 });
             }
@@ -5839,29 +5839,30 @@ function main() {
         addRow('Steps to completion',       eA.steps,        eB.steps,        '#f472b6','#60a5fa','#22c55e', eA.stepsType || 'measurements');
         addRow('Final splitting uncertainty',eA.uncert,       eB.uncert,       '#a78bfa','#34d399','#f59e0b','frequency');
         addRow('Final splitting error',      eA.err,          eB.err,          '#c084fc','#10b981','#6366f1','frequency');
-        addRow('Steps to splitting convergence', eA.steps_to_fb,  eB.steps_to_fb,  '#fb923c','#38bdf8','#a3e635','steps');
-        addRow('Uncertainty @ splitting conv.',  eA.uncert_at_fb, eB.uncert_at_fb, '#818cf8','#2dd4bf','#fbbf24','frequency');
-        addRow('Error @ splitting conv.',        eA.err_at_fb,    eB.err_at_fb,    '#d946ef','#4ade80','#f43f5e','frequency');
+        addRow('Steps to splitting convergence', eA.steps_to_primary,  eB.steps_to_primary,  '#fb923c','#38bdf8','#a3e635','steps');
+        addRow('Uncertainty @ splitting conv.',  eA.uncert_at_primary, eB.uncert_at_primary, '#818cf8','#2dd4bf','#fbbf24','frequency');
+        addRow('Error @ splitting conv.',        eA.err_at_primary,    eB.err_at_primary,    '#d946ef','#4ade80','#f43f5e','frequency');
         return rows;
     }
 
     // ── Shared selector + card renderer ──────────────────────────────────────
     function entityCriterion(id) {
-        // Entity ids end in '_freq' (freq converged) or '_conv' (all converged);
+        // Entity ids end in '_primary' (primary parameter converged) or '_conv' (all converged);
         // no suffix means the full run.
-        if (id.endsWith('_freq')) return 'freq';
+        if (id.endsWith('_primary')) return 'primary';
         if (id.endsWith('_conv')) return 'conv';
         return 'full';
     }
 
     function criterionLabel(id) {
-        if (id.endsWith('_freq')) return 'Splitting converged';
+        if (id.endsWith('_primary')) return 'Primary converged';
         if (id.endsWith('_conv')) return 'Converged';
         return 'Full run';
     }
 
     function baseLocatorId(id) {
-        if (id.endsWith('_freq') || id.endsWith('_conv')) return id.slice(0, -5);
+        if (id.endsWith('_primary')) return id.slice(0, -'_primary'.length);
+        if (id.endsWith('_conv')) return id.slice(0, -'_conv'.length);
         return id;
     }
 
@@ -5873,10 +5874,10 @@ function main() {
 
     const SPEED_METRICS = [
         { key: 'steps',       label: 'Steps to completion',        type: 'measurements', color: '#f472b6', deltaColor: '#22c55e' },
-        { key: 'steps_to_fb', label: 'Steps to splitting convergence', type: 'steps',        color: '#fb923c', deltaColor: '#a3e635' },
+        { key: 'steps_to_primary', label: 'Steps to splitting convergence', type: 'steps',        color: '#fb923c', deltaColor: '#a3e635' },
     ];
     const ACCURACY_METRICS = [
-        { key: 'uncert_at_fb', label: 'Claimed σ @ splitting conv.', type: 'frequency', color: '#818cf8', deltaColor: '#fbbf24' },
+        { key: 'uncert_at_primary', label: 'Claimed σ @ splitting conv.', type: 'frequency', color: '#818cf8', deltaColor: '#fbbf24' },
         { key: 'uncert',       label: 'Claimed σ (final)',        type: 'frequency', color: '#a78bfa', deltaColor: '#f59e0b' },
     ];
     // Full set kept for backward compat (buildPairwiseRows single-scan view)
@@ -5884,7 +5885,7 @@ function main() {
         ...SPEED_METRICS,
         ...ACCURACY_METRICS,
         { key: 'err',      label: 'Final splitting error',     type: 'frequency', color: '#c084fc', deltaColor: '#6366f1' },
-        { key: 'err_at_fb', label: 'Error @ splitting conv.',  type: 'frequency', color: '#d946ef', deltaColor: '#f43f5e' },
+        { key: 'err_at_primary', label: 'Error @ splitting conv.',  type: 'frequency', color: '#d946ef', deltaColor: '#f43f5e' },
     ];
 
     // Renders a group of entities (all criteria for one base locator) as a
@@ -5954,7 +5955,7 @@ function main() {
                 } else {
                     const vEl = document.createElement('div');
                     vEl.className = 'entity-metric-scalar';
-                    if (type === 'frequency') vEl.textContent = formatFrequency(val);
+                    if (type === 'frequency') vEl.textContent = formatHz(val);
                     else vEl.textContent = formatCount(val);
                     cell.appendChild(vEl);
                 }
@@ -6030,7 +6031,7 @@ function main() {
                                     const n = Math.min(aVal.length, bVal.length);
                                     ratioE[m.key] = Array.from({length: n}, (_, idx) => aVal[idx] > 0 ? bVal[idx] / aVal[idx] : null).filter(v => v !== null);
                                 } else {
-                                    // Sweep has no data for this metric (e.g. uncert_at_fb) —
+                                    // Sweep has no data for this metric (e.g. uncert_at_primary) —
                                     // fall back to adaptive / sweep.uncert so the ratio is still meaningful
                                     const aFallback = eSweep['uncert'];
                                     if (Array.isArray(aFallback)) {
@@ -6150,7 +6151,7 @@ function main() {
                     valEl.className = 'metric-value';
                     const v = card.data;
                     if (v == null) { valEl.textContent = 'N/A'; valEl.style.color = '#94a3b8'; }
-                    else if (card.type === 'frequency') valEl.textContent = formatFrequency(v);
+                    else if (card.type === 'frequency') valEl.textContent = formatHz(v);
                     else valEl.textContent = formatCount(v);
                     cardDiv.appendChild(valEl);
                 }
@@ -6186,8 +6187,8 @@ function main() {
         }
         let step = null;
         let label = '';
-        if (currentStoppingCriteria === 'splitting_converged') {
-            step = _mv(d, 'splitting_converged_step', 'steps_to_fb');
+        if (currentStoppingCriteria === 'primary_converged') {
+            step = _mv(d, 'primary_converged_step', 'steps_to_primary');
             label = 'Splitting converged';
         } else if (currentStoppingCriteria === 'all_converged') {
             step = _mv(d, 'all_converged_step');
@@ -6209,18 +6210,18 @@ function main() {
         const row = document.getElementById('stopping-criteria-row');
         if (!row) return;
         const summaryPlots = plots.filter(p => p.type === 'summary' && p.generator === generator);
-        const hasFreq = summaryPlots.some(p => p.metric === 'splitting_converged_step');
+        const hasPrimary = summaryPlots.some(p => p.metric === 'primary_converged_step');
         const hasAll  = summaryPlots.some(p => p.metric === 'all_converged_step');
-        row.style.display = (hasFreq || hasAll) ? '' : 'none';
+        row.style.display = (hasPrimary || hasAll) ? '' : 'none';
         const btns = row.querySelectorAll('button[data-value]');
         for (const btn of btns) {
             const v = btn.dataset.value;
-            if (v === 'splitting_converged') btn.disabled = !hasFreq;
+            if (v === 'primary_converged') btn.disabled = !hasPrimary;
             else if (v === 'all_converged') btn.disabled = !hasAll;
             else btn.disabled = false;
         }
         // If current criteria is unavailable for this generator, reset to 'full'
-        if ((currentStoppingCriteria === 'splitting_converged' && !hasFreq) ||
+        if ((currentStoppingCriteria === 'primary_converged' && !hasPrimary) ||
             (currentStoppingCriteria === 'all_converged' && !hasAll)) {
             setStoppingCriteria('full');
         }
@@ -6262,7 +6263,7 @@ function main() {
         let defaultAId = entities[0].id;
         let defaultBId = entities[1].id;
         if (currentId) {
-            const suffix = currentStoppingCriteria === 'splitting_converged' ? '_freq'
+            const suffix = currentStoppingCriteria === 'primary_converged' ? '_primary'
                          : currentStoppingCriteria === 'all_converged'  ? '_conv'
                          : '';
             const preferred = currentId + suffix;
@@ -6518,7 +6519,7 @@ function main() {
     const HL_NOMINAL_3S = 0.997;
     const HL_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#14b8a6'];
     let hlTauMult = 1;
-    let hlSpeedCriteria = 'freq';  // 'freq' | 'all'
+    let hlSpeedCriteria = 'primary';  // 'primary' | 'all'
     let hlLastArgs = null;
 
     function isSweepBaseline(strategy) {
@@ -6718,14 +6719,14 @@ function main() {
         const zeeman = params.zeeman_split || 0.0;
         const split = (params.split || 0.0) + zeeman * 2.0;
         let domainWidth = 5.0e8;
-        const fb = tp.bounds && tp.bounds.frequency;
+        const fb = tp.bounds && tp.bounds.center_freq;
         if (fb && fb.length === 2 && fb[1] > fb[0]) domainWidth = fb[1] - fb[0];
         return (lw && lw > 0) ? Math.max(2.0 * lw, split + lw) / domainWidth : null;
     }
     function hlConvStep(p, mult) {
         // 'u' (primary-parameter uncertainty, i.e. splitting) and 'tau' (its threshold)
         // in the series are the SAME quantities behind the backend's
-        // splitting_converged_step. At the
+        // primary_converged_step. At the
         // standard threshold the milestone is exact and full-resolution — use it
         // directly, and treat null as "did not converge" rather than falling
         // through to the downsampled series (whose finalize-overridden endpoint
@@ -6735,7 +6736,7 @@ function main() {
         // Limitation: because exact data exists only at 1×, a τ slightly above 1×
         // (looser) can land on a later downsampled grid point than the exact 1×
         // step. Accepted tradeoff — the 1× false-positive is what we eliminate.
-        if (mult === 1) return p.splitting_converged_step ?? null;
+        if (mult === 1) return p.primary_converged_step ?? null;
         const ser = p.series;
         if (ser && ser.u && ser.tau != null) return hlFirstStepBelow(ser, 'u', ser.tau * mult);
         return null;
@@ -7091,13 +7092,13 @@ function main() {
             tbl.style.cssText = 'overflow-x:auto; margin-bottom:1.4em;';
             const th = s => `<th style="padding:4px 10px; text-align:left; border-bottom:2px solid #e2e8f0; white-space:nowrap;">${s}</th>`;
             const td = (s, extra = '') => `<td style="padding:3px 10px; border-bottom:1px solid #f1f5f9; white-space:nowrap; ${extra}">${s}</td>`;
-            const criterionLabel = hlSpeedCriteria === 'all' ? 'All params converged' : `Freq converged — τ×${hlTauMult}`;
+            const criterionLabel = hlSpeedCriteria === 'all' ? 'All params converged' : `Primary converged — τ×${hlTauMult}`;
             const btnStyle = (active) =>
                 `cursor:pointer; border:1px solid #cbd5e1; border-radius:3px; padding:1px 7px; font-size:0.78em;` +
                 (active ? 'background:#1e40af;color:#fff;' : 'background:#f8fafc;color:#475569;');
             let html = `<div style="display:flex;align-items:center;gap:8px;font-size:0.8em;color:#64748b;margin-bottom:0.4em;flex-wrap:wrap;">`;
             html += `<span>Median speedup vs ${_shortStratLabel(sweepName)} (median of paired step ratios)</span>`;
-            html += `<button data-speed-crit="freq" style="${btnStyle(hlSpeedCriteria==='freq')}">Freq</button>`;
+            html += `<button data-speed-crit="primary" style="${btnStyle(hlSpeedCriteria==='primary')}">Primary</button>`;
             html += `<button data-speed-crit="all"  style="${btnStyle(hlSpeedCriteria==='all')}">All params</button>`;
             html += `<span style="color:#94a3b8">${criterionLabel}</span></div>`;
             html += `<table style="border-collapse:collapse; font-size:0.85em;"><thead><tr>${th('Noise')}${adaptive.map(s => th(_shortStratLabel(s) + ' — median k×')).join('')}</tr></thead><tbody>`;
@@ -7505,10 +7506,10 @@ function main() {
             for (const strat of strategies) {
                 const runs = cell.get(strat) || [];
                 if (!runs.length) continue;
-                const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
-                const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') <= p.uncert).length;
+                const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+                const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length;
                 const uncerts = runs.map(p => p.uncert).filter(v => v != null && v > 0);
-                const errors = runs.map(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse')).filter(v => v != null);
+                const errors = runs.map(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse')).filter(v => v != null);
                 cellStats.set(`${strat}|${noise}`, {
                     cal: covPairs.length ? k1 / covPairs.length : null,
                     calK: k1, calN: covPairs.length,
@@ -7554,7 +7555,7 @@ function main() {
         {
             const plotDiv = dashPanelDiv(container,
                 'Median absolute error vs noise',
-                'Median absolute frequency error at end of run. Lower is more accurate.',
+                'Median absolute primary-parameter error at end of run. Lower is more accurate.',
                 Math.max(240, 140 + 20 * strategies.length));
             const traces = strategies.map(strat => {
                 const color = hlStratColor(strategies, strat);
@@ -7619,7 +7620,7 @@ function main() {
             const xs = [], ys = [];
             for (const p of scanPlots) {
                 if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
-                const pErr = _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse');
+                const pErr = _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse');
                 if (pErr == null || p.uncert == null || p.uncert <= 0) continue;
                 const fSpan = hlFSpan(p);
                 if (fSpan == null) continue;
@@ -7650,8 +7651,8 @@ function main() {
         const sigma = noiseSigma(p.noise) || (p.metrics && p.metrics.noise_sigma) || 0.01;
         if (sigma <= 0) return null;
         let bandwidth = 1e8;
-        if (p.true_params && p.true_params.bounds && p.true_params.bounds.frequency) {
-            const b = p.true_params.bounds.frequency;
+        if (p.true_params && p.true_params.bounds && p.true_params.bounds.center_freq) {
+            const b = p.true_params.bounds.center_freq;
             if (b[1] > b[0]) bandwidth = b[1] - b[0];
         }
         const tp = p.true_params && p.true_params.params;
@@ -7734,10 +7735,10 @@ function main() {
         }
         const layout = hlBaseLayout();
         layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
-        layout.yaxis = { ...layout.yaxis, title: { text: 'Median |frequency error| (Hz)', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Median |primary-parameter error| (Hz)', font: { size: 11 } }, type: 'log' };
         // Sweep-quality target: the practical accuracy delivered by the full sweep.
         const sweepRuns = sweepName ? byStrategy.get(sweepName) : [];
-        const sweepFinalMed = sweepRuns && sweepRuns.length ? hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse'))) : null;
+        const sweepFinalMed = sweepRuns && sweepRuns.length ? hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse'))) : null;
         if (sweepFinalMed != null && sweepFinalMed > 0) {
             // On log axes Plotly shapes take raw data values, annotations log10
             layout.shapes = [{
@@ -7812,12 +7813,12 @@ function main() {
         if (!div) return;
         const labels = [], c1 = [], c1err = [], c2 = [], c2err = [], c3 = [], c3err = [], colors1 = [], colors2 = [], colors3 = [], hover1 = [], hover2 = [], hover3 = [];
         for (const strat of strategies) {
-            const pairs = byStrategy.get(strat).filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+            const pairs = byStrategy.get(strat).filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
             const n = pairs.length;
             if (!n) continue;
-            const k1 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') <= p.uncert).length;
-            const k2 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') <= 2 * p.uncert).length;
-            const k3 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') <= 3 * p.uncert).length;
+            const k1 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length;
+            const k2 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= 2 * p.uncert).length;
+            const k3 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= 3 * p.uncert).length;
             const w1 = hlWilson(k1, n), w2 = hlWilson(k2, n), w3 = hlWilson(k3, n);
             labels.push(_shortStratLabel(strat));
             c1.push(w1.p); c2.push(w2.p); c3.push(w3.p);
@@ -8034,7 +8035,7 @@ function main() {
             return;
         }
         const sweepRuns = byStrategy.get(sweepName);
-        const sweepFinalMed = hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse')));
+        const sweepFinalMed = hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse')));
         const sweepMeasMed = hlMedian(sweepRuns.map(p => hlRunSteps(p)));
         if (sweepFinalMed == null || sweepMeasMed == null) {
             card('Sweep baseline present but missing final error/measurement data.', '#94a3b8');
@@ -8046,8 +8047,8 @@ function main() {
             const seriesRuns = runs.filter(p => p.series && p.series.e);
             const color = hlStratColor(strategies, strat);
             const crossStep = hlCrossStep(seriesRuns, sweepFinalMed);
-            const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
-            const w = covPairs.length ? hlWilson(covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') <= p.uncert).length, covPairs.length) : null;
+            const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+            const w = covPairs.length ? hlWilson(covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length, covPairs.length) : null;
             const covText = w ? `1σ coverage: ${(w.p * 100).toFixed(0)}% [${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}%] (n=${covPairs.length})` : 'coverage unavailable';
             let main;
             if (!seriesRuns.length) {
@@ -8304,8 +8305,8 @@ function main() {
                 for (const strat of strategies) {
                     const runs = cell.get(strat) || [];
                     if (!runs.length) continue;
-                    const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
-                    const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse') <= p.uncert).length;
+                    const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+                    const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length;
                     const uncerts = runs.map(p => p.uncert).filter(v => v != null && v > 0);
                     cellUncert.set(`${strat}|${noise}`, {
                         cal: covPairs.length ? k1 / covPairs.length : null,
@@ -8388,7 +8389,7 @@ function main() {
                 const xs = [], ys = [];
                 for (const p of scanPlots) {
                     if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
-                    const pErr = _mv(p, 'abs_err_x', 'final_err_fc', 'pair_rmse');
+                    const pErr = _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse');
                     if (pErr == null || p.uncert == null || p.uncert <= 0) continue;
                     const fSpan = hlFSpan(p);
                     if (fSpan == null) continue;

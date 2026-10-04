@@ -106,11 +106,11 @@ def test_drifting_measure_evaluates_the_truth_at_that_shot():
     base = exp.true_signal.typed_parameters
     for shot in (0, 50):
         truth = exp.drift.apply(base, shot)
-        x = (truth.frequency - truth.zeeman_split - 2.6e9) / 0.5e9  # on the moving left dip
+        x = (truth.center_freq - truth.zeeman_split - 2.6e9) / 0.5e9  # on the moving left dip
         obs = exp.measure(x, random.Random(0), shot_index=shot)
         assert obs.signal_value == pytest.approx(exp.true_signal.model.compute(2.6e9 + x * 0.5e9, truth))
     moved = exp.drift.apply(base, 50)
-    assert moved.frequency == pytest.approx(base.frequency + 20.0 * NV_D_TEMPERATURE_COEFF_HZ_PER_K, rel=1e-6)
+    assert moved.center_freq == pytest.approx(base.center_freq + 20.0 * NV_D_TEMPERATURE_COEFF_HZ_PER_K, rel=1e-6)
     assert moved.zeeman_split == pytest.approx(base.zeeman_split + 300.0 * NV_GYROMAGNETIC_HZ_PER_MG, rel=1e-6)
 
 
@@ -118,7 +118,7 @@ def test_shots_in_a_batch_are_taken_at_successive_times():
     spec = DriftSpec(label="w", shot_duration_s=1.0, field_mg=DriftProcess(warmup_amplitude=500.0, warmup_tau_s=2.0))
     exp = attach_drift_for_repeat(_experiment(presets.gauss_with_drift(0.0, spec)), 1, "g", 0)
     base = exp.true_signal.typed_parameters
-    x_phys = base.frequency - base.zeeman_split
+    x_phys = base.center_freq - base.zeeman_split
     x = (x_phys - 2.6e9) / 0.5e9
     batch = exp.measure(x, random.Random(0), n_shots=3, shot_index=4)
     singles = [exp.measure(x, random.Random(0), shot_index=4 + i).signal_value for i in range(3)]
@@ -144,10 +144,10 @@ def test_truth_summary_reports_end_and_mean():
     exp = attach_drift_for_repeat(_experiment(presets.gauss_with_drift(0.0, spec)), 1, "g", 0)
     base = exp.true_signal.typed_parameters
     summary = exp.drift.truth_summary(base, 10)
-    path = [base.frequency + exp.drift.center_offset_hz(i) for i in range(10)]
-    assert summary["drift_true_frequency_start"] == base.frequency
-    assert summary["drift_true_frequency_end"] == pytest.approx(path[-1])
-    assert summary["drift_true_frequency_mean"] == pytest.approx(np.mean(path))
+    path = [base.center_freq + exp.drift.center_offset_hz(i) for i in range(10)]
+    assert summary["drift_true_center_freq_start"] == base.center_freq
+    assert summary["drift_true_center_freq_end"] == pytest.approx(path[-1])
+    assert summary["drift_true_center_freq_mean"] == pytest.approx(np.mean(path))
     assert "drift_true_zeeman_split_end" not in summary
 
 

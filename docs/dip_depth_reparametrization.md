@@ -92,7 +92,7 @@ by construction, so no separate combined-depth formula is needed).
 
 | Parameter      | Symbol     | Role                                         | Identifiable? |
 |----------------|------------|----------------------------------------------|:---:|
-| `frequency`    | $f_B$      | Center of the main dip (location)            | ✓ |
+| `center_freq`    | $f_B$      | Center of the main dip (location)            | ✓ |
 | `linewidth` / `homogeneous_linewidth` | $\omega$ | Half-width at half-maximum of each dip | ✓ |
 | `split`        | $\Delta$   | Hyperfine splitting (dip separation)         | ✓ |
 | `k_np`         | $k_{np}$   | Asymmetry ratio between left/right peaks     | ✓ |
@@ -125,9 +125,9 @@ ridge.
 
 ```python
 @njit(cache=True)
-def nv_center_lorentzian_eval(x, freq, linewidth, split, k_np, w_center, c_total, background):
+def nv_center_lorentzian_eval(x, center_freq, linewidth, split, k_np, w_center, c_total, background):
     omega = linewidth if linewidth > 1e-10 else 1e-10
-    x_dim = (x - freq) / omega
+    x_dim = (x - center_freq) / omega
     alpha = split / omega
 
     p_l, p_0, p_r = nv_population_weights(k_np, c_total, w_center)
@@ -151,7 +151,7 @@ pseudo-Voigt profile of `_pv_factors`/`_pv_norm`.
 ```python
 @dataclass(frozen=True)
 class NVCenterLorentzianSpectrum:
-    frequency: float
+    center_freq: float
     linewidth: float
     split: float
     k_np: float

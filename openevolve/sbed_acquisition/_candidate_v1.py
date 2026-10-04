@@ -24,7 +24,7 @@ raises on any repeat as a hard failure (score 0), not a partial credit.
 
 See ``openevolve/sbed_acquisition/README.md`` for how to run the search and
 interpret results, and ``.claude/skills/locator-evaluation`` for why
-``splitting_converged_step`` (not the locator's own stop reason) is the
+``primary_converged_step`` (not the locator's own stop reason) is the
 metric that actually gets optimized.
 """
 
@@ -44,7 +44,7 @@ from nvision.sim.locs.bayesian.sbed_locator import (
 
 
 def _acquire(self) -> float:
-    """Select the next measurement point by maximizing EIG over a frequency grid."""
+    """Select the next measurement point by maximizing EIG over a probe-axis grid."""
     lo, hi = self._acquisition_bounds()
     if hi <= lo:
         return float(lo)
@@ -57,7 +57,7 @@ def _acquire(self) -> float:
     # enough background points to estimate noise for the CRLB early-stop.
     if self._forced_bg_mode:
         est = self.belief.estimates()
-        f_hat = est.get("frequency", (lo + hi) / 2.0)
+        f_hat = est.get("center_freq", (lo + hi) / 2.0)
         lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
         max_split_hz = _max_dip_cluster_span_hz(self.belief.physical_param_bounds, est)
         from nvision.sim.defaults import NVISION_NOISE_BG_SPAN_FACTOR
@@ -95,12 +95,12 @@ def _acquire(self) -> float:
             dip_centers = getattr(self.belief, "_dip_centers", None)
             if dip_centers is None:
                 rescale_maps = self.belief._rescale_maps
-                if "frequency" not in rescale_maps:
+                if "center_freq" not in rescale_maps:
                     raise RuntimeError(
-                        f"{type(self.belief).__name__} is missing _rescale_maps['frequency']. "
-                        "Ensure physical_param_bounds includes 'frequency' at construction."
+                        f"{type(self.belief).__name__} is missing _rescale_maps['center_freq']. "
+                        "Ensure physical_param_bounds includes 'center_freq' at construction."
                     )
-                freq_rescale = rescale_maps["frequency"]
+                freq_rescale = rescale_maps["center_freq"]
                 if hasattr(self.belief, "observation_arrays"):
                     obs_xs_unit, obs_ys = self.belief.observation_arrays()
                     obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
@@ -182,11 +182,11 @@ def _acquire(self) -> float:
             if np.sum(weights) > 0:
                 idx = int(np.random.choice(len(weights), p=weights))
                 param_names = getattr(self.belief, "_param_names", [])
-                scan_param = self._scan_param
-                if scan_param in param_names:
-                    p_idx = param_names.index(scan_param)
+                probe_axis_param = self._probe_axis_param
+                if probe_axis_param in param_names:
+                    p_idx = param_names.index(probe_axis_param)
                     val = float(self.belief._particles[idx, p_idx])
-                    return self.belief._to_physical(scan_param, val)
+                    return self.belief._to_physical(probe_axis_param, val)
 
     if _DUAL_WINDOW_ENABLED:
         dual = self._dual_window_acquire()
@@ -206,10 +206,10 @@ def _dual_window_acquire(self) -> float | None:
     collapses to nothing.
     """
     param_names = getattr(self.belief, "_param_names", None)
-    if not param_names or "zeeman_split" not in param_names or "frequency" not in param_names:
+    if not param_names or "zeeman_split" not in param_names or "center_freq" not in param_names:
         return None
     est = self.belief.estimates()
-    center_hat = est.get("frequency")
+    center_hat = est.get("center_freq")
     split_hat = est.get("zeeman_split")
     if center_hat is None or split_hat is None:
         return None
@@ -247,8 +247,8 @@ def _dual_window_acquire(self) -> float | None:
 
 def _eig_acquire(self) -> float:
     """Maximize EIG over the belief's slope-targeted candidate grid."""
-    candidates = self.belief.get_candidates()
-    candidates = self._thin_candidates_by_step(candidates)
+    candidates = self.belief.get_candidate_x_phys()
+    candidates = self._thin_candidate_x_by_step(candidates)
 
     lo, hi = self._acquisition_bounds()
     if (

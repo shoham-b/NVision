@@ -50,21 +50,21 @@ class _FakeBelief:
 
 
 def _make_experiment(
-    rng: random.Random, x_min: float = 2.6e9, x_max: float = 3.1e9, *, free_frequency: bool = False
+    rng: random.Random, x_min: float = 2.6e9, x_max: float = 3.1e9, *, free_center_freq: bool = False
 ) -> CoreExperiment:
     gen = NVCenterCoreGenerator(x_min=x_min, x_max=x_max, variant="lorentzian")
     true_signal = gen.generate(rng)
-    if free_frequency:
-        # NVCenterCoreGenerator always fixes frequency (a known instrument constant,
+    if free_center_freq:
+        # NVCenterCoreGenerator always fixes center_freq (a known instrument constant,
         # not inferred -- see its docstring). Callers that specifically check
-        # frequency-estimate convergence need it free instead -- swap in an
+        # center_freq-estimate convergence need it free instead -- swap in an
         # otherwise-identical model; typed_parameters/bounds (and hence the
         # randomized draw) are unaffected.
         true_signal.model = NVCenterLorentzianModel(
             hyperfine=gen.hyperfine,
             infer_hyperfine=gen.infer_hyperfine,
             with_zeeman_splitting=gen.with_zeeman_splitting,
-            with_fixed_frequency=False,
+            with_fixed_center_freq=False,
         )
     # noise=None -> zero measurement noise (mirrors test_simplesweep_finalize.py)
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
@@ -205,8 +205,8 @@ def test_sobol_converges_with_batched_updates():
     test_simplesweep_finalize.py's equivalent check for GenericSweepLocator.
     """
     rng = random.Random(3)
-    exp = _make_experiment(rng, free_frequency=True)
-    truth = float(exp.true_signal.get_param_value("frequency"))
+    exp = _make_experiment(rng, free_center_freq=True)
+    truth = float(exp.true_signal.get_param_value("center_freq"))
     prior_std = (exp.x_max - exp.x_min) / math.sqrt(12)
 
     parameter_bounds = {k: v for k, v in exp.true_signal.bounds.items() if not k.startswith("_")}
@@ -214,7 +214,7 @@ def test_sobol_converges_with_batched_updates():
         parameter_bounds,
         num_particles=300,
         lineshape=nv_lineshape_for_model(exp.true_signal.model),
-        with_fixed_frequency=False,
+        with_fixed_center_freq=False,
         noise_model=gaussian_noise(),
     )
 
@@ -235,10 +235,10 @@ def test_sobol_converges_with_batched_updates():
     assert locator is not None
     locator.finalize()
 
-    estimate = locator.belief.estimates().get("frequency")
+    estimate = locator.belief.estimates().get("center_freq")
     assert estimate is not None
     assert abs(estimate - truth) < 0.2 * prior_std, (
-        f"final frequency estimate {estimate:.4e} Hz is not well below the prior std "
+        f"final center_freq estimate {estimate:.4e} Hz is not well below the prior std "
         f"{prior_std:.4e} Hz around truth {truth:.4e} Hz -- batched updates may have "
         "dropped or misapplied observations"
     )

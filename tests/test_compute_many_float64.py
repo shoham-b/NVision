@@ -20,7 +20,7 @@ def test_voigt_compute_many_float64_matches_scalar_loop(gen_name: str):
     signal = combo.generator.generate(random.Random(3))
     model = signal.model
     params = signal.typed_parameters
-    lo, hi = signal.get_param_bounds("frequency")
+    lo, hi = signal.get_param_bounds("center_freq")
     xs = np.linspace(lo, hi, 65)  # shape (n_x,), physical Hz
 
     got = model.compute_many_float64(xs, params)

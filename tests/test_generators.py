@@ -9,7 +9,7 @@ from nvision import (
 
 
 def test_nv_center_lorentzian_default_has_zeeman_parameters():
-    """Default generator uses Zeeman splitting (3 free params; frequency is fixed
+    """Default generator uses Zeeman splitting (3 free params; center_freq is fixed
     -- see NVCenterCoreGenerator's docstring -- so it's not in parameter_names)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
@@ -21,7 +21,7 @@ def test_nv_center_lorentzian_default_has_zeeman_parameters():
 
 def test_nv_center_lorentzian_no_zeeman_has_three_parameters():
     """Explicit with_zeeman_splitting=False gives single-dip 2-free-param model
-    (frequency is fixed, not in parameter_names)."""
+    (center_freq is fixed, not in parameter_names)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
     sig = gen.generate(rng)
@@ -31,7 +31,7 @@ def test_nv_center_lorentzian_no_zeeman_has_three_parameters():
 
 
 def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
-    """Hyperfine-only (no Zeeman) gives 4-free-param model (frequency is fixed,
+    """Hyperfine-only (no Zeeman) gives 4-free-param model (center_freq is fixed,
     not in parameter_names)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(
@@ -49,7 +49,7 @@ def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
 
 
 def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
-    """Zeeman + hyperfine gives 5-free-param model (frequency is fixed, not in
+    """Zeeman + hyperfine gives 5-free-param model (center_freq is fixed, not in
     parameter_names)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(
@@ -88,7 +88,7 @@ def test_nv_center_saturation_voigt_default_has_zeeman_parameters():
     """Default generator uses Zeeman splitting: saturation, sigma_inhom, zeeman_split.
 
     c_max is not a parameter -- it's a fixed constant (NV_SATURATION_C_MAX), not
-    inferred/drawn per repeat. frequency is also fixed (not inferred, per
+    inferred/drawn per repeat. center_freq is also fixed (not inferred, per
     NVCenterCoreGenerator's docstring) and so isn't in parameter_names either.
     """
     rng = random.Random(11)
@@ -117,7 +117,7 @@ def test_nv_center_saturation_voigt_unset_values_still_randomized():
 
 def _dip_cluster_extent(variant: str, params: dict) -> tuple[float, float]:
     """Worst-case (outer_lo, outer_hi) of the full dip cluster for one drawn signal."""
-    f = params["frequency"]
+    f = params["center_freq"]
     zeeman = params.get("zeeman_split", 0.0)
     split = params.get("split", 0.0)
     if variant == "saturation_voigt":
@@ -148,10 +148,10 @@ def test_dip_cluster_stays_within_domain_for_all_variants():
         gen = NVCenterCoreGenerator(x_min=x_min, x_max=x_max, variant=variant, **kwargs)
         for seed in range(100):
             sig = gen.generate(random.Random(seed))
-            # frequency is fixed (not inferred) by generator design, so it's absent
+            # center_freq is fixed (not inferred) by generator design, so it's absent
             # from parameter_values() -- fetch it via get_param_value's fixed-value
             # fallback instead, and merge it into the params dict _dip_cluster_extent expects.
-            params = {**sig.parameter_values(), "frequency": sig.get_param_value("frequency")}
+            params = {**sig.parameter_values(), "center_freq": sig.get_param_value("center_freq")}
             outer_lo, outer_hi = _dip_cluster_extent(variant, params)
             assert outer_lo >= x_min, (variant, kwargs, seed, outer_lo)
             assert outer_hi <= x_max, (variant, kwargs, seed, outer_hi)

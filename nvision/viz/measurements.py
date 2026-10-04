@@ -471,7 +471,7 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
         "y": [_json_safe_float(y) for y in ys_s],
         "step": steps,
     }
-    # Real acquisitions (e.g. MATLAB replay) scan every frequency once per sweep, then
+    # Real acquisitions (e.g. MATLAB replay) scan every probe point once per sweep, then
     # scan them all again — so which *sweep* a shot came from is the real time axis, and a
     # better color choice than the locator's own adaptive visit order (`step` above), which
     # can revisit a bin many sweeps apart. Only include it when every point has one: a

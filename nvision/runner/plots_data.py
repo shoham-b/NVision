@@ -20,7 +20,7 @@ import numpy as np
 from nvision.viz._f32_json import dump_gz
 
 _PARAM_SCALES: dict[str, float] = {
-    "frequency": 1e9,
+    "center_freq": 1e9,
     "linewidth": 1e6,
     "homogeneous_linewidth": 1e6,
     "sigma_inhom": 1e6,
@@ -32,7 +32,7 @@ _PARAM_SCALES: dict[str, float] = {
 }
 
 _PARAM_UNITS: dict[str, str] = {
-    "frequency": "GHz",
+    "center_freq": "GHz",
     "linewidth": "MHz",
     "homogeneous_linewidth": "MHz",
     "sigma_inhom": "MHz",
@@ -377,26 +377,26 @@ def write_fisher_data(
     return dump_gz(payload, out_path)
 
 
-def write_matlab_freq_stats_data(
-    freq_hz: np.ndarray,
+def write_matlab_probe_stats_data(
+    probe_axis_phys: np.ndarray,
     mean: np.ndarray,
     std: np.ndarray,
     min_vals: np.ndarray | None = None,
     max_vals: np.ndarray | None = None,
     out_path: Path | None = None,
 ) -> bytes | None:
-    """Write per-frequency shot mean/std/min/max for a MATLAB run's "actual
-    averages per frequency" view — an alternative to the sampled-measurements
+    """Write per-probe-point shot mean/std/min/max for a MATLAB run's "actual
+    averages per-probe-point" view — an alternative to the sampled-measurements
     scatter, showing every recorded shot's per-bin average, spread, and extremes
     rather than just the subset the locator happened to visit. min_vals/max_vals
     are optional so older callers (and cached files) without them still decode.
     """
-    if freq_hz is None or len(freq_hz) == 0:
+    if probe_axis_phys is None or len(probe_axis_phys) == 0:
         return None
 
     payload = {
-        "schema": "matlab_freq_stats_v1",
-        "freq_hz": np.asarray(freq_hz, dtype=np.float64),
+        "schema": "matlab_probe_stats_v1",
+        "probe_axis_phys": np.asarray(probe_axis_phys, dtype=np.float64),
         "mean": np.asarray(mean, dtype=np.float64),
         "std": np.asarray(std, dtype=np.float64),
     }

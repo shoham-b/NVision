@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 def _truth_positions(experiment: CoreExperiment) -> list[float]:
     """Extract ground truth peak positions from a CoreExperiment."""
     values = experiment.true_signal.parameter_values()
-    return [value for name, value in values.items() if "frequency" in name or "position" in name]
+    return [value for name, value in values.items() if "center_freq" in name or "position" in name]
 
 
 def generate_attempt_metrics(  # noqa: C901
@@ -97,7 +97,7 @@ def generate_attempt_metrics(  # noqa: C901
         "acquisition_lo",
         "acquisition_hi",
         "sobol_baseline_steps",
-        "sobol_freq_steps",
+        "sobol_primary_steps",
         "sobol_conv_diff",
     ):
         if _sweep_key in estimate:
@@ -110,19 +110,19 @@ def generate_attempt_metrics(  # noqa: C901
 
     # Milestone metrics
     if run_result:
-        primary_param = resolve_primary_param(run_result.true_signal.parameter_values().keys()) or "frequency"
-        milestone_data = calculate_zeeman_metrics(run_result, fb_param=primary_param)
+        primary_param = resolve_primary_param(run_result.true_signal.parameter_values().keys()) or "center_freq"
+        milestone_data = calculate_zeeman_metrics(run_result, primary_param=primary_param)
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
 
     # Initialise Sobol convergence variables before they are populated from finalize_row
-    sobol_freq_uncert_at_conv: float | None = None
-    sobol_freq_err_at_conv: float | None = None
+    sobol_primary_uncert_at_conv: float | None = None
+    sobol_primary_err_at_conv: float | None = None
 
     sweep_steps: int | None = None
     locator_steps: int | None = None
     sobol_baseline_steps: int | None = None
-    sobol_freq_steps: int | None = None
+    sobol_primary_steps: int | None = None
     sobol_conv_diff: int | None = None
     if not finalize_row.is_empty():
         if "sweep_steps" in finalize_row.columns:
@@ -137,43 +137,43 @@ def generate_attempt_metrics(  # noqa: C901
             val = finalize_row.get_column("sobol_baseline_steps")[0]
             if val is not None:
                 sobol_baseline_steps = int(val)
-        if "sobol_freq_steps" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_freq_steps")[0]
+        if "sobol_primary_steps" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_primary_steps")[0]
             if val is not None:
-                sobol_freq_steps = int(val)
+                sobol_primary_steps = int(val)
         if "sobol_conv_diff" in finalize_row.columns:
             val = finalize_row.get_column("sobol_conv_diff")[0]
             if val is not None:
                 sobol_conv_diff = int(val)
-        if "sobol_freq_uncert_at_conv" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_freq_uncert_at_conv")[0]
+        if "sobol_primary_uncert_at_conv" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_primary_uncert_at_conv")[0]
             if val is not None:
-                sobol_freq_uncert_at_conv = float(val)
-        if "sobol_freq_err_at_conv" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_freq_err_at_conv")[0]
+                sobol_primary_uncert_at_conv = float(val)
+        if "sobol_primary_err_at_conv" in finalize_row.columns:
+            val = finalize_row.get_column("sobol_primary_err_at_conv")[0]
             if val is not None:
-                sobol_freq_err_at_conv = float(val)
+                sobol_primary_err_at_conv = float(val)
 
-    splitting_converged_step: int | None = None
+    primary_converged_step: int | None = None
     all_converged_step: int | None = None
     if not finalize_row.is_empty():
-        if "splitting_converged_step" in finalize_row.columns:
-            val = finalize_row.get_column("splitting_converged_step")[0]
+        if "primary_converged_step" in finalize_row.columns:
+            val = finalize_row.get_column("primary_converged_step")[0]
             if val is not None:
-                splitting_converged_step = int(val)
+                primary_converged_step = int(val)
         if "all_converged_step" in finalize_row.columns:
             val = finalize_row.get_column("all_converged_step")[0]
             if val is not None:
                 all_converged_step = int(val)
 
     # All-converged milestone metrics -- error/uncertainty of the primary (split)
-    # parameter at all_converged_step, mirroring the fb-milestone fields above but
+    # parameter at all_converged_step, mirroring the primary-milestone fields above but
     # keyed off the externally tracked step instead of re-detecting it (see
     # calculate_all_converged_metrics docstring).
     if run_result and all_converged_step is not None:
         from nvision.metrics.milestones import calculate_all_converged_metrics
 
-        ac_metrics = calculate_all_converged_metrics(run_result, all_converged_step, fb_param=primary_param)
+        ac_metrics = calculate_all_converged_metrics(run_result, all_converged_step, primary_param=primary_param)
         for k, v in ac_metrics.items():
             metrics_serialized[k] = _maybe_finite(v)
 
@@ -184,7 +184,7 @@ def generate_attempt_metrics(  # noqa: C901
             is_converged = bool(val)
 
     _stop_reason = repeat_stop_reasons[attempt_idx_in_combo]
-    if splitting_converged_step is not None or is_converged:
+    if primary_converged_step is not None or is_converged:
         failure_reason: str | None = None
     elif strat_name in (
         "SimpleSweep",
@@ -203,18 +203,18 @@ def generate_attempt_metrics(  # noqa: C901
     else:
         failure_reason = "max_steps"
 
-    if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_freq_steps is not None:
-        sobol_conv_diff = sobol_baseline_steps - sobol_freq_steps
+    if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_primary_steps is not None:
+        sobol_conv_diff = sobol_baseline_steps - sobol_primary_steps
 
     # Forward Sobol freq uncertainty/error to metrics (for UI fallback via metrics.*)
-    if sobol_freq_uncert_at_conv is not None:
-        metrics_serialized["sobol_freq_uncert_at_conv"] = sobol_freq_uncert_at_conv
-    if sobol_freq_err_at_conv is not None:
-        metrics_serialized["sobol_freq_err_at_conv"] = sobol_freq_err_at_conv
+    if sobol_primary_uncert_at_conv is not None:
+        metrics_serialized["sobol_primary_uncert_at_conv"] = sobol_primary_uncert_at_conv
+    if sobol_primary_err_at_conv is not None:
+        metrics_serialized["sobol_primary_err_at_conv"] = sobol_primary_err_at_conv
 
     # Copy final estimates for parameters
     for param_name in (
-        "frequency",
+        "center_freq",
         "linewidth",
         "homogeneous_linewidth",
         "split",
@@ -270,7 +270,7 @@ def generate_attempt_metrics(  # noqa: C901
 
     metrics_serialized["noise_sigma"] = parse_gauss_sigma(noise_name)
 
-    # Ground-truth signal parameters for this repeat. frequency/zeeman_split vary per
+    # Ground-truth signal parameters for this repeat. center_freq/zeeman_split vary per
     # repeat (fixed params equal their grid_ columns) — recording them lets analysis
     # de-confound repeat variance by the randomized parameters.
     try:
@@ -286,10 +286,10 @@ def generate_attempt_metrics(  # noqa: C901
     # Convergence step milestones — pre-existing gap: these were computed above and
     # forwarded to entry_base (plot-manifest rows) but never to main_result_row, so
     # locator_results.parquet never had them and every summary plot that checks for
-    # "splitting_converged_step"/"all_converged_step" (plot_experiment_summary,
+    # "primary_converged_step"/"all_converged_step" (plot_experiment_summary,
     # plot_savings_vs_span_per_noise, plot_model_comparisons, plot_grid_study) was
     # silently skipping that metric.
-    metrics_serialized["splitting_converged_step"] = splitting_converged_step
+    metrics_serialized["primary_converged_step"] = primary_converged_step
     metrics_serialized["all_converged_step"] = all_converged_step
 
     main_result_row: dict[str, Any] = {
@@ -322,16 +322,16 @@ def generate_attempt_metrics(  # noqa: C901
         "sweep_steps": sweep_steps,
         "locator_steps": locator_steps,
         "sobol_baseline_steps": sobol_baseline_steps,
-        "sobol_freq_steps": sobol_freq_steps,
+        "sobol_primary_steps": sobol_primary_steps,
         "sobol_conv_diff": sobol_conv_diff,
-        "sobol_freq_uncert_at_conv": _maybe_finite(sobol_freq_uncert_at_conv),
-        "sobol_freq_err_at_conv": _maybe_finite(sobol_freq_err_at_conv),
-        "steps_to_fb": metrics_serialized.get("steps_to_fb"),
-        "err_fb_at_milestone": metrics_serialized.get("err_fb_at_milestone"),
-        "uncert_fb_at_milestone": metrics_serialized.get("uncert_fb_at_milestone"),
-        "err_fb_at_all_converged": metrics_serialized.get("err_fb_at_all_converged"),
-        "uncert_fb_at_all_converged": metrics_serialized.get("uncert_fb_at_all_converged"),
-        "splitting_converged_step": splitting_converged_step,
+        "sobol_primary_uncert_at_conv": _maybe_finite(sobol_primary_uncert_at_conv),
+        "sobol_primary_err_at_conv": _maybe_finite(sobol_primary_err_at_conv),
+        "steps_to_primary": metrics_serialized.get("steps_to_primary"),
+        "err_primary_at_milestone": metrics_serialized.get("err_primary_at_milestone"),
+        "uncert_primary_at_milestone": metrics_serialized.get("uncert_primary_at_milestone"),
+        "err_primary_at_all_converged": metrics_serialized.get("err_primary_at_all_converged"),
+        "uncert_primary_at_all_converged": metrics_serialized.get("uncert_primary_at_all_converged"),
+        "primary_converged_step": primary_converged_step,
         "all_converged_step": all_converged_step,
         "failure_reason": failure_reason,
         "metrics": metrics_serialized,
@@ -345,7 +345,7 @@ def _scan_attempt_metrics(truth_positions: Sequence[float], estimate: dict[str, 
     truth = [float(pos) for pos in truth_positions]
 
     if len(truth) == 1:
-        x_hat = _first_finite(estimate, ("x1_hat", "x_hat", "peak_x", "frequency"))
+        x_hat = _first_finite(estimate, ("x1_hat", "x_hat", "peak_x", "center_freq"))
         if x_hat is not None:
             metrics["abs_err_x"] = abs(x_hat - truth[0])
     elif len(truth) == 2:

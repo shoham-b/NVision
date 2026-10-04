@@ -2,7 +2,7 @@
 
 Single-observation Fisher information (aligned with ``likelihood.py``), cumulative FIMs in
 unit-normalized coordinates (:class:`CumulativeFisher`), the per-run history and oracle curves the
-plots read, the feasibility-gate budget CRLBs, and the closed-form NV frequency CRLB.
+plots read, the feasibility-gate budget CRLBs, and the closed-form NV center_freq CRLB.
 """
 
 from __future__ import annotations
@@ -375,7 +375,7 @@ def oracle_crlb_history(
 
 
 # ---------------------------------------------------------------------------
-# Closed-form frequency CRLB for uniform sampling of NV dips.
+# Closed-form center_freq CRLB for uniform sampling of NV dips.
 #
 # For uniformly spaced probes (rho = n_obs / bandwidth measurements per Hz) of a single
 # population-normalized dip of amplitude a and height-normalized shape V (peak 1):
@@ -385,10 +385,10 @@ def oracle_crlb_history(
 # ---------------------------------------------------------------------------
 
 
-def lorentzian_frequency_crlb(
+def lorentzian_center_freq_crlb(
     linewidth: float, c_total: float, noise_std: float, n_obs: int, bandwidth: float
 ) -> float:
-    """Closed-form frequency CRLB (Hz) for ``n_obs`` uniform probes of a Lorentzian dip; ``inf`` if degenerate."""
+    """Closed-form center_freq CRLB (Hz) for ``n_obs`` uniform probes of a Lorentzian dip; ``inf`` if degenerate."""
     if linewidth <= 0 or c_total <= 0 or noise_std <= 0 or bandwidth <= 0 or n_obs <= 0:
         return math.inf
     rho = n_obs / bandwidth
@@ -396,17 +396,17 @@ def lorentzian_frequency_crlb(
     return math.sqrt(max(variance, 0.0))
 
 
-def uniform_steps_for_frequency_crlb(
+def uniform_steps_for_center_freq_crlb(
     linewidth: float, c_total: float, noise_std: float, bandwidth: float, target_std: float
 ) -> float:
-    """Uniform probes a Lorentzian dip needs for :func:`lorentzian_frequency_crlb` to reach ``target_std`` (Hz)."""
+    """Uniform probes a Lorentzian dip needs for :func:`lorentzian_center_freq_crlb` to reach ``target_std`` (Hz)."""
     return (4.0 * noise_std**2 * linewidth * bandwidth) / (math.pi * c_total**2 * target_std**2)
 
 
-def frequency_crlb(
+def center_freq_crlb(
     inner_model: Any, estimates: dict[str, float], noise_std: float, n_obs: int, bandwidth: float
 ) -> float:
-    """Closed-form frequency CRLB (Hz) at the physical ``estimates`` for the NV Lorentzian/Voigt models.
+    """Closed-form center_freq CRLB (Hz) at the physical ``estimates`` for the NV Lorentzian/Voigt models.
 
     Voigt-type lineshapes use the single-dip pseudo-Voigt ``J = int (V')^2 dx`` without the
     Lorentzian x Gaussian cross-term -- a conservative (larger) CRLB, exact as ``sigma_inhom -> 0``.
@@ -426,7 +426,7 @@ def frequency_crlb(
         return math.inf
 
     if isinstance(inner_model, NVCenterLorentzianModel):
-        return lorentzian_frequency_crlb(
+        return lorentzian_center_freq_crlb(
             estimates.get("linewidth", 0.0), estimates.get("c_total", 0.0), noise_std, n_obs, bandwidth
         )
 

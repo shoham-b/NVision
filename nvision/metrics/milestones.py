@@ -20,7 +20,7 @@ def detect_milestone(
 
     Args:
         run_result: Full trajectory of the run.
-        param: Parameter name (e.g., 'frequency').
+        param: Parameter name (e.g., 'center_freq').
         threshold: Uncertainty threshold.
         relative: If True, threshold is relative to initial parameter range.
 
@@ -47,11 +47,11 @@ def detect_milestone(
     return None
 
 
-def default_fc_param(run_result: RunResult) -> str:
-    """Splitting parameter for the fc milestone: ``zeeman_split`` when the model has it, else ``split``.
+def default_split_param(run_result: RunResult) -> str:
+    """Splitting parameter for the split-error metrics: ``zeeman_split`` when the model has it, else ``split``.
 
     The default NV model is Zeeman-split (parameter ``zeeman_split``); hyperfine models
-    expose ``split``. Hardcoding ``split`` silently yields all-NaN fc metrics for Zeeman runs.
+    expose ``split``. Hardcoding ``split`` silently yields all-NaN split metrics for Zeeman runs.
     """
     try:
         params = run_result.true_signal.parameter_values()
@@ -60,16 +60,16 @@ def default_fc_param(run_result: RunResult) -> str:
     return "zeeman_split" if "zeeman_split" in params else "split"
 
 
-_PRIMARY_PARAM_PREFERENCE = ("zeeman_split", "split", "frequency")
+_PRIMARY_PARAM_PREFERENCE = ("zeeman_split", "split", "center_freq")
 
 
 def resolve_primary_param(available_params: Iterable[str]) -> str | None:
     """The parameter whose convergence defines the locator's primary milestone.
 
     Prefers the model's splitting parameter (the actual free/scientific-interest
-    quantity once frequency is fixed by default -- see ``with_fixed_frequency`` in
-    nvision/spectra/nv_center.py), falling back to ``"frequency"`` itself for legacy
-    free-frequency configurations. ``None`` if the model has neither (milestone
+    quantity once center_freq is fixed by default -- see ``with_fixed_center_freq`` in
+    nvision/spectra/nv_center.py), falling back to ``"center_freq"`` itself for legacy
+    free-center_freq configurations. ``None`` if the model has neither (milestone
     tracking stays permanently unset, matching historical behavior for such models).
     """
     available = set(available_params)
@@ -82,14 +82,14 @@ def resolve_primary_param(available_params: Iterable[str]) -> str | None:
 def extract_milestone_metrics(
     run_result: RunResult,
     step_idx: int,
-    fb_param: str = "frequency",
-    fc_param: str = "split",
+    primary_param: str = "center_freq",
+    split_param: str = "split",
     override_estimates: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Extract estimates and errors at a specific step milestone.
 
     ``override_estimates``, when given, is merged on top of the belief's raw
-    estimates before ``fb_param``/``fc_param`` are read. Pass
+    estimates before ``primary_param``/``split_param`` are read. Pass
     ``run_result.fit_mode_estimates`` here for the final-state milestone: sweep
     locators (``GenericSweepLocator``) defer their belief update to a batch flush
     that can collapse to a garbage marginal (see ``executor.py``), so the actual
@@ -107,22 +107,22 @@ def extract_milestone_metrics(
     uncertainties = snapshot.belief.reported_uncertainty()
 
     param_values = run_result.true_signal.parameter_values()
-    true_fb = param_values.get(fb_param, math.nan)
-    true_fc = param_values.get(fc_param, math.nan)
+    true_primary = param_values.get(primary_param, math.nan)
+    true_split = param_values.get(split_param, math.nan)
 
-    est_fb = estimates.get(fb_param, math.nan)
-    est_fc = estimates.get(fc_param, math.nan)
+    est_primary = estimates.get(primary_param, math.nan)
+    est_split = estimates.get(split_param, math.nan)
 
     # Calculate overall uncertainty (mean of all parameters)
     overall_uncert = float(sum(uncertainties.values()) / len(uncertainties)) if uncertainties else math.nan
 
     return {
         "step": step_idx + 1,  # 1-indexed for display
-        "est_fb": est_fb,
-        "est_fc": est_fc,
-        "err_fb": abs(est_fb - true_fb) if not math.isnan(est_fb) else math.nan,
-        "err_fc": abs(est_fc - true_fc) if not math.isnan(est_fc) else math.nan,
-        "uncert_fb": uncertainties.get(fb_param, math.nan),
+        "est_primary": est_primary,
+        "est_split": est_split,
+        "err_primary": abs(est_primary - true_primary) if not math.isnan(est_primary) else math.nan,
+        "err_split": abs(est_split - true_split) if not math.isnan(est_split) else math.nan,
+        "uncert_primary": uncertainties.get(primary_param, math.nan),
         "overall_uncert": overall_uncert,
     }
 
@@ -130,76 +130,76 @@ def extract_milestone_metrics(
 def calculate_all_converged_metrics(
     run_result: RunResult,
     all_converged_step: int | None,
-    fb_param: str = "frequency",
-    fc_param: str | None = None,
+    primary_param: str = "center_freq",
+    split_param: str | None = None,
 ) -> dict[str, Any]:
-    """Error/uncertainty of the primary (fb) parameter at the all-converged milestone.
+    """Error/uncertainty of the primary parameter at the all-converged milestone.
 
     ``all_converged_step`` is tracked live by the locator (1-indexed measurement
     count, see ``SequentialBayesianLocator._check_convergence_milestones``) rather
     than re-detected here, since "all converged" depends on every tracked
-    parameter's uncertainty, not just ``fb_param`` -- unlike the fb milestone in
+    parameter's uncertainty, not just ``primary_param`` -- unlike the primary milestone in
     ``calculate_zeeman_metrics``, which re-derives its own step via
     ``detect_milestone``.
     """
-    if fc_param is None:
-        fc_param = default_fc_param(run_result)
+    if split_param is None:
+        split_param = default_split_param(run_result)
 
     step_idx = all_converged_step - 1 if all_converged_step is not None else -1
     if step_idx < 0 or step_idx >= len(run_result.snapshots):
         return {
-            "err_fb_at_all_converged": None,
-            "uncert_fb_at_all_converged": None,
+            "err_primary_at_all_converged": None,
+            "uncert_primary_at_all_converged": None,
         }
 
-    ms = extract_milestone_metrics(run_result, step_idx, fb_param, fc_param)
+    ms = extract_milestone_metrics(run_result, step_idx, primary_param, split_param)
     return {
-        "err_fb_at_all_converged": ms["err_fb"],
-        "uncert_fb_at_all_converged": ms["uncert_fb"],
+        "err_primary_at_all_converged": ms["err_primary"],
+        "uncert_primary_at_all_converged": ms["uncert_primary"],
     }
 
 
 def calculate_zeeman_metrics(
     run_result: RunResult,
     threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-    fb_param: str = "frequency",
-    fc_param: str | None = None,
+    primary_param: str = "center_freq",
+    split_param: str | None = None,
 ) -> dict[str, Any]:
-    """Compare the fb milestone to the final state.
+    """Compare the primary-parameter milestone to the final state.
 
-    ``fc_param`` defaults to the model's splitting parameter (``zeeman_split`` when
+    ``split_param`` defaults to the model's splitting parameter (``zeeman_split`` when
     present, else ``split``). Returns aggregated metrics for the repeat.
     """
-    if fc_param is None:
-        fc_param = default_fc_param(run_result)
+    if split_param is None:
+        split_param = default_split_param(run_result)
 
-    # 1. FB Milestone
-    fb_idx = detect_milestone(run_result, fb_param, threshold)
+    # 1. Primary-parameter milestone
+    primary_idx = detect_milestone(run_result, primary_param, threshold)
 
     metrics: dict[str, Any] = {}
 
-    if fb_idx is not None:
-        ms = extract_milestone_metrics(run_result, fb_idx, fb_param, fc_param)
+    if primary_idx is not None:
+        ms = extract_milestone_metrics(run_result, primary_idx, primary_param, split_param)
         metrics.update(
             {
-                "steps_to_fb": ms["step"],
-                "err_fb_at_milestone": ms["err_fb"],
-                "err_fc_at_milestone": ms["err_fc"],
-                "fb_at_milestone": ms["est_fb"],
-                "fc_at_milestone": ms["est_fc"],
-                "uncert_fb_at_milestone": ms["uncert_fb"],
+                "steps_to_primary": ms["step"],
+                "err_primary_at_milestone": ms["err_primary"],
+                "err_split_at_milestone": ms["err_split"],
+                "primary_at_milestone": ms["est_primary"],
+                "split_at_milestone": ms["est_split"],
+                "uncert_primary_at_milestone": ms["uncert_primary"],
                 "overall_uncert_at_milestone": ms["overall_uncert"],
             }
         )
     else:
         metrics.update(
             {
-                "steps_to_fb": None,
-                "err_fb_at_milestone": None,
-                "err_fc_at_milestone": None,
-                "fb_at_milestone": None,
-                "fc_at_milestone": None,
-                "uncert_fb_at_milestone": None,
+                "steps_to_primary": None,
+                "err_primary_at_milestone": None,
+                "err_split_at_milestone": None,
+                "primary_at_milestone": None,
+                "split_at_milestone": None,
+                "uncert_primary_at_milestone": None,
                 "overall_uncert_at_milestone": None,
             }
         )
@@ -208,20 +208,20 @@ def calculate_zeeman_metrics(
     final_idx = len(run_result.snapshots) - 1
     if final_idx >= 0:
         fs = extract_milestone_metrics(
-            run_result, final_idx, fb_param, fc_param, override_estimates=run_result.fit_mode_estimates
+            run_result, final_idx, primary_param, split_param, override_estimates=run_result.fit_mode_estimates
         )
         metrics.update(
             {
-                "final_err_fb": fs["err_fb"],
-                "final_err_fc": fs["err_fc"],
+                "final_err_primary": fs["err_primary"],
+                "final_err_split": fs["err_split"],
                 "final_overall_uncert": fs["overall_uncert"],
                 "final_steps": fs["step"],
             }
         )
 
         # 3. Deltas
-        if fb_idx is not None:
-            metrics["err_fb_diff"] = metrics["err_fb_at_milestone"] - fs["err_fb"]
-            metrics["err_fc_diff"] = metrics["err_fc_at_milestone"] - fs["err_fc"]
+        if primary_idx is not None:
+            metrics["err_primary_diff"] = metrics["err_primary_at_milestone"] - fs["err_primary"]
+            metrics["err_split_diff"] = metrics["err_split_at_milestone"] - fs["err_split"]
 
     return metrics

@@ -416,7 +416,7 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
     reads it directly and inconsistently: most call sites check the top-level
     field first and fall back to ``plot.metrics.X`` (safe either way), but at
     least one (``getStoppingFrameLimit`` in app.js) reads ``currentPlot.metrics
-    .splitting_converged_step`` with no top-level fallback at all. A prior version
+    .primary_converged_step`` with no top-level fallback at all. A prior version
     of this function dropped ``metrics`` wholesale (silently blanking
     measurements/duration/efficiency cards); deduplicating it against
     top-level fields is tempting but wrong for the same reason — it would
@@ -442,11 +442,11 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
 
     # Zeeman-split generators never populate top-level abs_err_x --
     # _truth_positions() (nvision/runner/metrics.py) only matches parameter
-    # names containing "frequency"/"position", so a fixed-frequency Zeeman
+    # names containing "center_freq"/"position", so a fixed-center_freq Zeeman
     # signal (whose free parameter is named "zeeman_split") is treated as a
     # single-truth-position case with no matching x_hat-style estimate key,
     # and abs_err_x/abs_err_x1/abs_err_x2/pair_rmse all stay None. The real,
-    # populated final-state error for these runs is final_err_fc (final
+    # populated final-state error for these runs is final_err_split (final
     # splitting error) from calculate_zeeman_metrics (nvision/metrics/
     # milestones.py), nested under entry["metrics"]. Promote it (and
     # pair_rmse, for any future generator where that branch does fire) to
@@ -455,8 +455,8 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
     # per-repeat round-trip.
     metrics = out.get("metrics")
     if isinstance(metrics, dict):
-        if out.get("final_err_fc") is None and metrics.get("final_err_fc") is not None:
-            out["final_err_fc"] = metrics["final_err_fc"]
+        if out.get("final_err_split") is None and metrics.get("final_err_split") is not None:
+            out["final_err_split"] = metrics["final_err_split"]
         if out.get("pair_rmse") is None and metrics.get("pair_rmse") is not None:
             out["pair_rmse"] = metrics["pair_rmse"]
 

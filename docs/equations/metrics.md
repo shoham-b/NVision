@@ -12,7 +12,7 @@ Single-peak case:
 
 $$\text{abs\_err\_x} = |\hat{f} - f_{\rm true}|$$
 
-where f̂ is the posterior-mean frequency estimate and f_true is the ground-truth peak position.
+where f̂ is the posterior-mean `center_freq` estimate and f_true is the ground-truth peak position (`center_freq`).
 
 Two-peak case (peaks sorted before pairing, so estimate k is compared to truth k):
 
@@ -22,7 +22,7 @@ $$\text{abs\_err\_x}_k = |\hat{f}_k - f_{{\rm true},k}|, \qquad \text{pair\_rmse
 
 ## 2. Uniform-Sampling Baseline (and why the sweep step count is what it is)
 
-A uniform / Sobol sweep places points evenly across the whole frequency band.  Its step count is set by one principle: **a dip can only be found if enough sample points land inside it.**  If the narrowest feature is width w and the band is W wide, uniform points spaced W/n apart fall inside that feature only if the spacing is smaller than the feature — and to actually *resolve* it (not just clip an edge) you need several points across it.  That gives the master relation used everywhere below:
+A uniform / Sobol sweep places points evenly across the whole probe axis.  Its step count is set by one principle: **a dip can only be found if enough sample points land inside it.**  If the narrowest feature is width w and the band is W wide, uniform points spaced W/n apart fall inside that feature only if the spacing is smaller than the feature — and to actually *resolve* it (not just clip an edge) you need several points across it.  That gives the master relation used everywhere below:
 
 $$n = \frac{W}{w} \times (\text{samples per feature})$$
 
@@ -105,7 +105,7 @@ The form n = 2W/w is exactly the code's `expected_uniform_points = 2·domain_wid
 
 | Quantity | Value | Source |
 |---|---|---|
-| Band W | half window [D, D + Δ], Δ = 150 MHz | `NVISION_NV_CENTER_FREQ_DELTA_HZ` |
+| Band W | half window [D, D + Δ], Δ = 150 MHz | `NVISION_NV_PROBE_DELTA_HZ` |
 | Linewidth Ω | ≈ 100 kHz (effective narrow dip, HWHM) | true-signal linewidth |
 | Dip width w = 4Ω | ≈ 400 kHz | Step 2 |
 
@@ -131,7 +131,7 @@ A run's `failure_reason` (`None` = success) is assigned by the first matching ru
 
 | `failure_reason` | Condition |
 |---|---|
-| `None` (success) | `splitting_converged_step` is set, **or** the converged flag is True |
+| `None` (success) | `primary_converged_step` is set, **or** the converged flag is True |
 | `None` | Strategy is a sweep/Sobol/mixture baseline (no convergence gate) |
 | `infeasible_crlb` | Stop reason was `infeasible_crlb` |
 | `timeout` | Stop reason was `repeat_timeout` |
@@ -145,9 +145,9 @@ A run's `failure_reason` (`None` = success) is assigned by the first matching ru
 Computed elsewhere and passed through `metrics.py` for reporting:
 
 - **`measurements`** — total observations recorded for the repeat.
-- **`final_est_<param>`** — final posterior-mean estimate for each parameter (`frequency`, `linewidth`/`homogeneous_linewidth`, `split`, `sigma_inhom`, `c_total`, `k_np`), populated dynamically off whatever `parameter_names()` the model returns rather than a hardcoded list.
-- **`uncert`** — reported frequency uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at 1× CRLB_f, no safety factor).
+- **`final_est_<param>`** — final posterior-mean estimate for each parameter (`center_freq`, `linewidth`/`homogeneous_linewidth`, `split`, `sigma_inhom`, `c_total`, `k_np`), populated dynamically off whatever `parameter_names()` the model returns rather than a hardcoded list.
+- **`uncert`** — reported center_freq uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at 1× CRLB_f, no safety factor).
 - **Oracle CRLB** (plot overlay only, not a stored metric) — `_compute_oracle_crlb_history` in `runner/plots.py`: the best-achievable CRLB after `step + 1` ideal, uniformly placed measurements at the *true* parameters.  It is the hard floor no acquisition strategy could beat with the same number of measurements, and complements the data-driven CRLB curve, which shows how close the actual acquisition got to the information limit.  Because CRLB scales as 1/√N, the mean single-measurement Fisher information over a uniform x-grid is computed once and scaled by `step + 1`.
-- **`splitting_converged_step` / `all_converged_step`** — first step at which the primary parameter (`zeeman_split`/`split` when present, else `frequency`) / all target parameters converged.
+- **`primary_converged_step` / `all_converged_step`** — first step at which the primary parameter (`zeeman_split`/`split` when present, else `center_freq`) / all target parameters converged.
 - **`duration_ms`** — wall-clock runtime of the repeat.
-- **Milestone metrics** (`steps_to_fb`, `err_fb_at_milestone`, `uncert_fb_at_milestone`) — from `calculate_zeeman_metrics`, now called with the same primary-parameter resolution (`resolve_primary_param`) so `fb` means splitting once frequency is fixed, rather than always being vacuous.
+- **Milestone metrics** (`steps_to_primary`, `err_primary_at_milestone`, `uncert_primary_at_milestone`) — from `calculate_zeeman_metrics`, now called with the same primary-parameter resolution (`resolve_primary_param`) so the primary parameter is the splitting once `center_freq` is fixed, rather than always being vacuous.

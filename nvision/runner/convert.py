@@ -90,10 +90,10 @@ def extract_peak_estimates(
         else:
             estimates[key] = value
 
-    # Seed peak_x/x1_hat from the locator's own frequency fit when present;
+    # Seed peak_x/x1_hat from the locator's own center_freq fit when present;
     # the belief value is only a fallback (it may still be the prior for
     # locators that don't drive their belief, e.g. sweep locators).
-    freq_phys = estimates.get("frequency", belief_estimates.get("frequency"))
+    freq_phys = estimates.get("center_freq", belief_estimates.get("center_freq"))
     if freq_phys is not None:
         estimates.setdefault("peak_x", freq_phys)
         estimates.setdefault("x1_hat", freq_phys)
@@ -138,7 +138,7 @@ def run_result_to_finalize_record(
         # fit_mode_estimates over the belief mode (see
         # nvision/runner/executor.py). Every final_est_<param> column below
         # was silently reading the collapsed belief instead of the actual
-        # least-squares fit for every parameter except frequency (which
+        # least-squares fit for every parameter except center_freq (which
         # extract_peak_estimates seeds from locator_result); apply the same
         # preference here.
         belief_estimates = {**belief_estimates, **result.fit_mode_estimates}

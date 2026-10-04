@@ -23,8 +23,8 @@ from nvision.runner.signal_cache import clear_signal_experiment_cache, get_share
 from nvision.sim.batch import DataBatch
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    DEFAULT_NV_PROBE_X_MAX,
+    DEFAULT_NV_PROBE_X_MIN,
     GAUSSIAN,
     LORENTZIAN,
     NVCenterCoreGenerator,
@@ -68,8 +68,8 @@ def install_rich_tracebacks() -> None:
 # The CLI entrypoints will call it as needed.
 
 __all__ = [
-    "DEFAULT_NV_CENTER_FREQ_X_MAX",
-    "DEFAULT_NV_CENTER_FREQ_X_MIN",
+    "DEFAULT_NV_PROBE_X_MAX",
+    "DEFAULT_NV_PROBE_X_MIN",
     "EXPONENTIAL",
     "GAUSSIAN",
     "LORENTZIAN",

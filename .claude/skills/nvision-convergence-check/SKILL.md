@@ -71,8 +71,8 @@ wrong (e.g. locked onto the wrong Zeeman dip).
   "Known historical traps": its `uncert`/`abs_err_x` only reflect the *final* least-squares fit,
   fixed 2026-06-12, so post-fix numbers are meaningful but the measurement-count signal is the
   more robust one for sweep specifically).
-- **Cross-reference `final_est_zeeman_split` / `final_est_frequency` against `true_zeeman_split`
-  / `true_frequency`** (both are in the CSV) for flagged repeats — a locator that's locked onto
+- **Cross-reference `final_est_zeeman_split` / `final_est_center_freq` against `true_zeeman_split`
+  / `true_center_freq`** (both are in the CSV) for flagged repeats — a locator that's locked onto
   the wrong Zeeman-split solution will show a badly wrong split estimate alongside the tiny
   claimed uncertainty. This is the single most common concrete cause of a bad ratio: a low-`n`
   SMC/particle posterior converges and resamples around a plausible-but-wrong mode before ever

@@ -8,7 +8,7 @@ cache writes -- mirrors the ``nv run-single --dry-run`` verification pattern
 from AGENTS.md), and scores candidates on splitting-convergence sample
 efficiency.
 
-Per ``.claude/skills/locator-evaluation``, ``splitting_converged_step`` (not
+Per ``.claude/skills/locator-evaluation``, ``primary_converged_step`` (not
 the locator's own stop reason) is the metric that matters, and a speed
 metric alone is a documented trap in this codebase's history (see project
 memory ``sbed-voigt-fit-quality-fixes.md`` and the CRLB early-stop comments
@@ -159,8 +159,8 @@ def _score(rows: list[dict]) -> dict[str, float]:
     converged_steps: list[int] = []
     catastrophic = 0
     for row in rows:
-        step = row.get("splitting_converged_step")
-        err = row.get("final_err_fc")
+        step = row.get("primary_converged_step")
+        err = row.get("final_err_split")
         if step is not None:
             converged_steps.append(step)
         if err is not None and err > CATASTROPHIC_THRESHOLD_HZ:

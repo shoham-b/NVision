@@ -100,23 +100,23 @@ def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) 
     return [snapshots[i] for i in indices]
 
 
-def _resolve_scan_param(strat_obj: Any, run_result: RunResult) -> str:
+def _resolve_probe_axis_param(strat_obj: Any, run_result: RunResult) -> str:
     """Parameter used for 1D posterior animation (matches BayesianLocator scan axis)."""
     if isinstance(strat_obj, dict):
         cfg = strat_obj.get("config") or {}
-        sp = cfg.get("scan_param")
+        sp = cfg.get("probe_axis_param")
         if isinstance(sp, str) and sp.strip():
             return sp.strip()
     if run_result.snapshots:
         names = run_result.snapshots[0].belief.model.parameter_names()
         if names:
             return names[0]
-    return "frequency"
+    return "center_freq"
 
 
 def _posterior_animation_inputs(
     run_result: RunResult,
-    scan_param: str,
+    probe_axis_param: str,
     start_idx: int = 0,
 ) -> tuple[list[np.ndarray], np.ndarray] | None:
     """Build (posterior_history, freq_grid) for ``plot_posterior_animation``.
@@ -125,7 +125,7 @@ def _posterior_animation_inputs(
     ----------
     run_result : RunResult
         Full result with snapshots
-    scan_param : str
+    probe_axis_param : str
         Parameter to extract posterior for
     start_idx : int
         Starting index to slice snapshots (used to exclude initial sweep stages)
@@ -142,19 +142,19 @@ def _posterior_animation_inputs(
 
     b0 = snapshots[0].belief
     if isinstance(b0, GridMarginalDistribution):
-        grid = b0.get_grid_param(scan_param).grid
-        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in snapshots]
+        grid = b0.get_grid_param(probe_axis_param).grid
+        hist = [s.belief.get_grid_param(probe_axis_param).posterior.copy() for s in snapshots]
         return hist, grid
 
     if isinstance(b0, SMCMarginalDistribution):
-        idx = b0._param_names.index(scan_param)
+        idx = b0._param_names.index(probe_axis_param)
         hist: list[np.ndarray] = []
 
         is_unit_cube = False
         lo, hi = 0.0, 1.0
         if hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel):
             is_unit_cube = True
-            lo, hi = b0.model.param_bounds_phys[scan_param]
+            lo, hi = b0.model.param_bounds_phys[probe_axis_param]
 
         frame_memo: dict[int, np.ndarray] = {}
         for s in snapshots:
@@ -218,10 +218,10 @@ def _posterior_animation_inputs_all_params(
 def _extract_grid_posterior(snapshots: list, names: list[str]) -> dict[str, tuple[list[np.ndarray], np.ndarray]]:
     out: dict[str, tuple[list[np.ndarray], np.ndarray]] = {}
     b0 = snapshots[0].belief
-    for scan_param in names:
-        grid = b0.get_grid_param(scan_param).grid
-        hist = [s.belief.get_grid_param(scan_param).posterior.copy() for s in snapshots]
-        out[scan_param] = (hist, grid)
+    for param_name in names:
+        grid = b0.get_grid_param(param_name).grid
+        hist = [s.belief.get_grid_param(param_name).posterior.copy() for s in snapshots]
+        out[param_name] = (hist, grid)
     return out
 
 
@@ -235,13 +235,13 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     use_rb = getattr(b0, "noise_model", None) is not None
 
     # Resolve particle column indices once; physical bounds are resolved
-    # per snapshot because the frequency window can narrow during a run.
+    # per snapshot because the probe window can narrow during a run.
     param_idx = {
-        scan_param: (None if (scan_param == "noise_sigma" and use_rb) else b0._param_names.index(scan_param))
-        for scan_param in names
+        param_name: (None if (param_name == "noise_sigma" and use_rb) else b0._param_names.index(param_name))
+        for param_name in names
     }
 
-    hists: dict[str, list[np.ndarray]] = {scan_param: [] for scan_param in names}
+    hists: dict[str, list[np.ndarray]] = {param_name: [] for param_name in names}
     # Snapshots from buffered locators share belief objects between batch
     # flushes (observer dedup): extract once per unique belief and reuse the
     # frame arrays for the repeated steps.
@@ -255,8 +255,8 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
             # so memory stays O(max_particles) instead of O(num_particles).
             sub_idx, sub_w = _viz_particle_subsample(b._weights)
             frames = {}
-            for scan_param in names:
-                idx = param_idx[scan_param]
+            for param_name in names:
+                idx = param_idx[param_name]
                 if idx is None:
                     col = np.sqrt(b._noise_betas / b._noise_alphas)
                     if sub_idx is not None:
@@ -265,20 +265,20 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
                     col = b._particles[sub_idx, idx] if sub_idx is not None else b._particles[:, idx].copy()
 
                     lo, hi = 0.0, 1.0
-                    if hasattr(b, "physical_param_bounds") and scan_param in b.physical_param_bounds:
-                        lo, hi = b.physical_param_bounds[scan_param]
+                    if hasattr(b, "physical_param_bounds") and param_name in b.physical_param_bounds:
+                        lo, hi = b.physical_param_bounds[param_name]
                     elif is_unit_cube and hasattr(b, "model") and hasattr(b.model, "param_bounds_phys"):
-                        lo, hi = b.model.param_bounds_phys[scan_param]
+                        lo, hi = b.model.param_bounds_phys[param_name]
 
                     if lo != 0.0 or hi != 1.0:
                         col = lo + col * (hi - lo)
 
-                frames[scan_param] = np.column_stack([col, sub_w])
+                frames[param_name] = np.column_stack([col, sub_w])
             frames_memo[id(b)] = frames
-        for scan_param in names:
-            hists[scan_param].append(frames[scan_param])
+        for param_name in names:
+            hists[param_name].append(frames[param_name])
 
-    return {scan_param: (hists[scan_param], stub_grid) for scan_param in names}
+    return {param_name: (hists[param_name], stub_grid) for param_name in names}
 
 
 def _is_bayesian_run(strat_name: str, strat_obj: Any) -> bool:
@@ -336,7 +336,7 @@ def _bayesian_auxiliary_entries(
     before manifests are written) rather than written to disk.
     """
     extra: list[dict[str, Any]] = []
-    scan_param = _resolve_scan_param(strat_obj, run_result)
+    probe_axis_param = _resolve_probe_axis_param(strat_obj, run_result)
     true_params = run_result.true_signal.parameter_values()
     if experiment is not None and experiment.noise is not None:
         with suppress(Exception):
@@ -435,10 +435,10 @@ def _bayesian_auxiliary_entries(
             extra.append(ie)
     else:
         # Fallback for non-SMC/grid beliefs: single-param posterior animation
-        anim_inputs = _posterior_animation_inputs(viz_run_result, scan_param, start_idx=sweep_steps)
+        anim_inputs = _posterior_animation_inputs(viz_run_result, probe_axis_param, start_idx=sweep_steps)
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
-            anim_single = {scan_param: (posterior_history, freq_grid)}
+            anim_single = {probe_axis_param: (posterior_history, freq_grid)}
             physical_bounds = (
                 getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
             )
@@ -491,15 +491,15 @@ def _bayesian_auxiliary_entries(
         pairs = []
         try:
             priority_pairs = [
-                ("frequency", "split"),
-                ("frequency", "linewidth"),
+                ("center_freq", "split"),
+                ("center_freq", "linewidth"),
                 ("split", "linewidth"),
-                ("frequency", "dip_depth"),
+                ("center_freq", "dip_depth"),
                 ("dip_depth", "linewidth"),
-                ("frequency", "c_total"),
+                ("center_freq", "c_total"),
                 ("c_total", "linewidth"),
-                ("frequency", "homogeneous_linewidth"),
-                ("frequency", "sigma_inhom"),
+                ("center_freq", "homogeneous_linewidth"),
+                ("center_freq", "sigma_inhom"),
                 ("homogeneous_linewidth", "sigma_inhom"),
                 ("c_total", "homogeneous_linewidth"),
             ]
@@ -773,17 +773,17 @@ def get_or_run_sobol_baseline(
     )
     # See nvision/runner/executor.py's identical Sobol-baseline block: field names
     # keep their historical "freq" spelling, only the tracked parameter changes.
-    primary_param = locator._primary_param or "frequency"
+    primary_param = locator._primary_param or "center_freq"
 
     key = measurement_repeat_key(seed, generator_name, "sobol_baseline", noise_name, repeat_idx)
     sobol_rng = random.Random(repeat_seed_int(key))
 
     sobol_xs = []
     sobol_ys = []
-    sobol_freq_steps = None
-    sobol_freq_uncert_at_conv = None
-    sobol_freq_err_at_conv = None
-    true_freq = experiment.true_signal.get_param_value(primary_param)
+    sobol_primary_steps = None
+    sobol_primary_uncert_at_conv = None
+    sobol_primary_err_at_conv = None
+    true_primary = experiment.true_signal.get_param_value(primary_param)
 
     while not locator.done():
         x_current = locator.next()
@@ -793,23 +793,23 @@ def get_or_run_sobol_baseline(
         sobol_ys.append(float(obs.signal_value))
 
         # Record metrics at the exact moment of primary-parameter convergence
-        if sobol_freq_steps is None and locator.splitting_converged_step is not None:
-            sobol_freq_steps = locator.splitting_converged_step
-            sobol_freq_uncert_at_conv = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
+        if sobol_primary_steps is None and locator.primary_converged_step is not None:
+            sobol_primary_steps = locator.primary_converged_step
+            sobol_primary_uncert_at_conv = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
             est_f = float(locator.belief.estimates().get(primary_param, math.nan))
-            sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
+            sobol_primary_err_at_conv = abs(est_f - true_primary) if not math.isnan(est_f) else math.nan
 
     sobol_mode_estimates = belief_mode_estimates(locator.belief)
 
     sobol_final_uncert = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
     est_f_final = float(locator.belief.estimates().get(primary_param, math.nan))
-    sobol_final_err = abs(est_f_final - true_freq) if not math.isnan(est_f_final) else math.nan
+    sobol_final_err = abs(est_f_final - true_primary) if not math.isnan(est_f_final) else math.nan
 
     new_sobol_data = {
         "sobol_baseline_steps": locator.step_count,
-        "sobol_freq_steps": sobol_freq_steps,
-        "sobol_freq_uncert_at_conv": sobol_freq_uncert_at_conv,
-        "sobol_freq_err_at_conv": sobol_freq_err_at_conv,
+        "sobol_primary_steps": sobol_primary_steps,
+        "sobol_primary_uncert_at_conv": sobol_primary_uncert_at_conv,
+        "sobol_primary_err_at_conv": sobol_primary_err_at_conv,
         "sobol_baseline_uncert": sobol_final_uncert,
         "sobol_baseline_err": sobol_final_err,
         "sobol_xs": sobol_xs,
@@ -887,8 +887,7 @@ def get_or_run_simplesweep_baseline(
         bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
     )
 
-    f_lo, f_hi = bounds.get("frequency", (experiment.x_min, experiment.x_max))
-    f_domain_width = float(f_hi - f_lo)
+    f_domain_width = float(experiment.x_max - experiment.x_min)  # full probe axis width, Hz
     min_linewidth = min_linewidth_hz(bounds)
     max_steps = max(30, math.ceil(f_domain_width / min_linewidth))
 
@@ -994,17 +993,17 @@ def generate_attempt_plots(
 
     focus_window = run_result.focus_window if run_result is not None else None
     # Fallback to narrowed_param_bounds only when they are genuinely tighter than
-    # the full domain.  Prefer a frequency-like scan parameter, otherwise skip.
+    # the full domain.  Prefer a probe-axis-like parameter, otherwise skip.
     if focus_window is None and run_result is not None and run_result.narrowed_param_bounds:
         nb = run_result.narrowed_param_bounds
-        scan_param_name = None
+        probe_axis_param_name = None
         for name in nb:
-            if "freq" in name.lower() or name in ("x", "frequency"):
-                scan_param_name = name
+            if "freq" in name.lower() or name in ("x", "center_freq"):
+                probe_axis_param_name = name
                 break
-        if scan_param_name is None:
-            scan_param_name = next(iter(nb))
-        lo, hi = nb[scan_param_name]
+        if probe_axis_param_name is None:
+            probe_axis_param_name = next(iter(nb))
+        lo, hi = nb[probe_axis_param_name]
         domain_width = current_scan.x_max - current_scan.x_min
         if hi - lo < domain_width * (1.0 - 1e-9):
             focus_window = (lo, hi)
@@ -1170,17 +1169,17 @@ def generate_attempt_plots(
                 "uncert": scan_entry.get("uncert"),
                 "duration_ms": scan_entry.get("duration_ms"),
                 "last_run": scan_entry.get("last_run"),
-                "steps_to_fb": scan_entry.get("steps_to_fb"),
-                "sobol_freq_steps": scan_entry.get("sobol_freq_steps"),
+                "steps_to_primary": scan_entry.get("steps_to_primary"),
+                "sobol_primary_steps": scan_entry.get("sobol_primary_steps"),
                 "sobol_baseline_steps": scan_entry.get("sobol_baseline_steps"),
-                "sobol_freq_uncert_at_conv": scan_entry.get("sobol_freq_uncert_at_conv"),
-                "sobol_freq_err_at_conv": scan_entry.get("sobol_freq_err_at_conv"),
-                "uncert_fb_at_milestone": scan_entry.get("uncert_fb_at_milestone"),
-                "err_fb_at_milestone": scan_entry.get("err_fb_at_milestone"),
-                "err_fc_at_milestone": scan_entry.get("err_fc_at_milestone"),
-                "err_fc_diff": scan_entry.get("err_fc_diff"),
-                "err_fb_at_all_converged": scan_entry.get("err_fb_at_all_converged"),
-                "uncert_fb_at_all_converged": scan_entry.get("uncert_fb_at_all_converged"),
+                "sobol_primary_uncert_at_conv": scan_entry.get("sobol_primary_uncert_at_conv"),
+                "sobol_primary_err_at_conv": scan_entry.get("sobol_primary_err_at_conv"),
+                "uncert_primary_at_milestone": scan_entry.get("uncert_primary_at_milestone"),
+                "err_primary_at_milestone": scan_entry.get("err_primary_at_milestone"),
+                "err_split_at_milestone": scan_entry.get("err_split_at_milestone"),
+                "err_split_diff": scan_entry.get("err_split_diff"),
+                "err_primary_at_all_converged": scan_entry.get("err_primary_at_all_converged"),
+                "uncert_primary_at_all_converged": scan_entry.get("uncert_primary_at_all_converged"),
             }
 
         # true_params is now embedded in fig.layout.meta; keep here for backward compat

@@ -22,7 +22,7 @@ from nvision.spectra.spec import GenericParamSpec
 
 @dataclass(frozen=True)
 class VoigtZeemanSpectrum:
-    frequency: float
+    center_freq: float
     fwhm_total: float
     lorentz_frac: float
     zeeman_split: float
@@ -34,7 +34,7 @@ class VoigtZeemanSpectrum:
 
 @dataclass(frozen=True)
 class VoigtZeemanSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     fwhm_total: np.ndarray
     lorentz_frac: np.ndarray
     zeeman_split: np.ndarray
@@ -46,7 +46,7 @@ class VoigtZeemanSpectrumSamples:
 
 @dataclass(frozen=True)
 class VoigtZeemanSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     fwhm_total: float
     lorentz_frac: float
     zeeman_split: float
@@ -89,8 +89,8 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
 
     Parameters
     ----------
-    frequency : float
-        Central (zero-field) frequency (f_B)
+    center_freq : float
+        Zero-field dip centre ``center_freq`` (f_B)
     fwhm_total : float
         Total effective linewidth (Lorentzian + Gaussian)
     lorentz_frac : float
@@ -117,7 +117,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     def compute_voigt_zeeman_model(
         self,
         x: float,
-        frequency: float,
+        center_freq: float,
         fwhm_total: float,
         lorentz_frac: float,
         zeeman_split: float,
@@ -129,7 +129,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         """Zeeman + hyperfine pseudo-Voigt NV model; parameter order matches :meth:`parameter_names`."""
         return nv_center_zeeman_pseudo_voigt_eval(
             float(x),
-            float(frequency),
+            float(center_freq),
             float(fwhm_total),
             float(lorentz_frac),
             float(zeeman_split),
@@ -156,7 +156,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     def compute(self, x: float, params: VoigtZeemanSpectrum) -> float:
         return self.compute_voigt_zeeman_model(
             float(x),
-            params.frequency,
+            params.center_freq,
             params.fwhm_total,
             params.lorentz_frac,
             params.zeeman_split,
@@ -167,12 +167,12 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         )
 
     def compute_vectorized_samples(self, x: float, samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         out = np.empty(n, dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
             float(x),
-            freq,
+            center_freq,
             np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
             np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
@@ -186,18 +186,18 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         return out
 
     def compute_vectorized_many(self, x_array: Sequence[float], samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
-        if not hasattr(samples, "frequency"):
+        if not hasattr(samples, "center_freq"):
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
 
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        out = np.empty((xs.shape[0], center_freq.shape[0]), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many(
             xs,
-            freq,
+            center_freq,
             np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
             np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
@@ -212,15 +212,15 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
 
     def compute_vectorized_many_fast(self, x_array: Sequence[float], samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
         """Acquisition-only fast variant: uses the fastmath Zeeman pseudo-Voigt kernel."""
-        if not hasattr(samples, "frequency"):
+        if not hasattr(samples, "center_freq"):
             return super().compute_vectorized_many_fast(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        out = np.empty((xs.shape[0], freq.shape[0]), dtype=FLOAT_DTYPE)
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        out = np.empty((xs.shape[0], center_freq.shape[0]), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
             xs,
-            freq,
+            center_freq,
             np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
             np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
@@ -237,7 +237,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         """Sample parameters that keep the signal within [0, 1].
 
         ``zeeman_split`` is drawn strictly larger than ``split`` (as ``split + gap``) so the two
-        hyperfine sub-triplets never interleave past the shared center frequency. ``fwhm_total``
+        hyperfine sub-triplets never interleave past the shared ``center_freq``. ``fwhm_total``
         is then drawn as a multiple of ``2 * zeeman_split`` (the group-to-group separation), so
         the ratio between linewidth and group separation is what varies — spanning cleanly
         separated groups (ratio << 1), groups that visibly overlap but are still two distinct
@@ -252,15 +252,15 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         fwhm_total = max(fwhm_ratio * 2.0 * zeeman_split, 0.03)
         k_np = rng.uniform(2.0, 4.0)
         margin = zeeman_split + split + 0.08
-        frequency = rng.uniform(margin, 1.0 - margin)
+        center_freq = rng.uniform(margin, 1.0 - margin)
         background = 1.0
 
         # Estimate c_total (population-normalized amplitude) using a coarse grid.
         # We use compute_vectorized_many with background=0 and c_total=1.
         # The max dip depth is then 1.0 / max_dip_observed.
-        xs = np.linspace(frequency - margin, frequency + margin, 400)
+        xs = np.linspace(center_freq - margin, center_freq + margin, 400)
         samples = VoigtZeemanSpectrumSamples(
-            frequency=np.array([frequency], dtype=FLOAT_DTYPE),
+            center_freq=np.array([center_freq], dtype=FLOAT_DTYPE),
             fwhm_total=np.array([fwhm_total], dtype=FLOAT_DTYPE),
             lorentz_frac=np.array([lorentz_frac], dtype=FLOAT_DTYPE),
             zeeman_split=np.array([zeeman_split], dtype=FLOAT_DTYPE),
@@ -276,7 +276,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         c_total = 1.0 / max_dip if max_dip > 1e-6 else 1.0
 
         return VoigtZeemanSpectrum(
-            frequency=frequency,
+            center_freq=center_freq,
             fwhm_total=fwhm_total,
             lorentz_frac=lorentz_frac,
             zeeman_split=zeeman_split,

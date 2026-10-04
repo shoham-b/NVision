@@ -9,22 +9,22 @@ from tests.noise import gaussian_noise
 def test_select_max_information_gain_diversity():
     """Test that the locator doesn't get stuck at a single point for a flat/sampled prior."""
     np.random.seed(42)  # the acquisition's own Boltzmann draws
-    # Setup a standard NV center model. with_fixed_frequency=False: this test
+    # Setup a standard NV center model. with_fixed_center_freq=False: this test
     # specifically checks that acquisition doesn't collapse to a single candidate
-    # point, which requires frequency to actually be a free particle dimension --
-    # with the model's own with_fixed_frequency=True default, every particle
-    # predicts the same fixed dip location regardless of its "frequency" unit
+    # point, which requires center_freq to actually be a free particle dimension --
+    # with the model's own with_fixed_center_freq=True default, every particle
+    # predicts the same fixed dip location regardless of its "center_freq" unit
     # value, collapsing exactly the diversity this test is checking for.
-    model = NVCenterLorentzianModel(with_fixed_frequency=False)
+    model = NVCenterLorentzianModel(with_fixed_center_freq=False)
     phys_bounds = {
-        "frequency": (2.86e9, 2.88e9),
+        "center_freq": (2.86e9, 2.88e9),
         "linewidth": (5e6, 15e6),
         "split": (1e6, 5e6),
         "k_np": (0.5, 1.5),
         "c_total": (0.05, 0.2),
         "background": (0.0, 0.1),
     }
-    x_bounds = phys_bounds["frequency"]
+    x_bounds = phys_bounds["center_freq"]
     wrapped_model = UnitCubeSignalModel(model, phys_bounds, x_bounds)
 
     # Create a flat prior SMC belief

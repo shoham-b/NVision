@@ -9,8 +9,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from nvision.spectra.nv_center import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    DEFAULT_NV_PROBE_X_MAX,
+    DEFAULT_NV_PROBE_X_MIN,
     MAX_K_NP,
     MAX_LINEWIDTH,
     MAX_SPLIT,
@@ -73,13 +73,13 @@ class NVCenterCoreGenerator:
     ``split``/``k_np`` per repeat and exposes them as free parameters instead of
     pinning them to the isotope's physical coupling.
 
-    ``frequency`` (the zero-field center) is fixed at the midpoint of the safe
+    ``center_freq`` (the zero-field center) is fixed at the midpoint of the safe
     range for every draw -- like a known, calibrated instrument constant -- so
     only zeeman_split/hyperfine/linewidth/contrast vary between repeats.
     """
 
-    x_min: float = DEFAULT_NV_CENTER_FREQ_X_MIN  # 2.6 GHz
-    x_max: float = DEFAULT_NV_CENTER_FREQ_X_MAX  # 3.1 GHz
+    x_min: float = DEFAULT_NV_PROBE_X_MIN  # 2.6 GHz
+    x_max: float = DEFAULT_NV_PROBE_X_MAX  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian", "voigt", or "saturation_voigt"
     hyperfine: str = "unresolved"  # resolved hyperfine structure: "unresolved" (default) / "n14" / "n15"
     infer_hyperfine: bool = False  # randomize + infer split/k_np instead of using the isotope constant
@@ -126,7 +126,7 @@ class NVCenterCoreGenerator:
         # The zero-field center is a fixed, known reference (like a calibrated instrument
         # constant) -- only zeeman_split/hyperfine/linewidth/contrast vary between draws.
         # The probe window is the upper half [D, D + delta] of the mirror-symmetric spectrum
-        # (see DEFAULT_NV_CENTER_FREQ_X_MIN), so the center is D itself, on its lower edge.
+        # (see DEFAULT_NV_PROBE_X_MIN), so the center is D itself, on its lower edge.
         center_freq = NV_ZERO_FIELD_SPLITTING_HZ
 
         if self.variant == "lorentzian":
@@ -142,7 +142,7 @@ class NVCenterCoreGenerator:
                 from nvision.spectra.nv_center import NVCenterLorentzianZeemanHyperfineSpectrum
 
                 typed_params = NVCenterLorentzianZeemanHyperfineSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     linewidth=linewidth,
                     zeeman_split=zeeman_split,
                     split=split,
@@ -161,12 +161,12 @@ class NVCenterCoreGenerator:
                     "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
                     "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.with_zeeman_splitting:
                 model = NVCenterLorentzianModel(with_zeeman_splitting=True, hyperfine=self.hyperfine)
                 typed_params = NVCenterLorentzianZeemanSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     linewidth=linewidth,
                     zeeman_split=zeeman_split,
                     c_total=c_total,
@@ -179,13 +179,13 @@ class NVCenterCoreGenerator:
                     "zeeman_split": (_widened_prior_mean(rng, zeeman_split, zeeman_std), zeeman_std),
                     "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 model = NVCenterLorentzianModel(hyperfine=self.hyperfine, infer_hyperfine=True)
                 typed_params = NVCenterLorentzianSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     linewidth=linewidth,
                     split=split,
                     k_np=k_np,
@@ -201,12 +201,12 @@ class NVCenterCoreGenerator:
                     "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
                     "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             else:
                 model = NVCenterLorentzianModel(hyperfine=self.hyperfine)
                 typed_params = NVCenterLorentzianSingleDipSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     linewidth=linewidth,
                     c_total=c_total,
                 )
@@ -214,7 +214,7 @@ class NVCenterCoreGenerator:
                 bounds["_priors"] = {
                     "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
         elif self.variant == "saturation_voigt":
             sv_bounds = nv_center_saturation_voigt_bounds_for_domain(
@@ -241,13 +241,13 @@ class NVCenterCoreGenerator:
             priors = {
                 "saturation": (_widened_prior_mean(rng, saturation, saturation_std), saturation_std),
                 "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
-                "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
             }
 
             if self.with_zeeman_splitting and self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 typed_params = NVCenterSaturationVoigtZeemanHyperfineSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     saturation=saturation,
                     sigma_inhom=sigma_inhom,
                     zeeman_split=zeeman_split,
@@ -262,7 +262,7 @@ class NVCenterCoreGenerator:
                 priors["k_np"] = (_widened_prior_mean(rng, k_np, k_np_std), k_np_std)
             elif self.with_zeeman_splitting:
                 typed_params = NVCenterSaturationVoigtZeemanSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     saturation=saturation,
                     sigma_inhom=sigma_inhom,
                     zeeman_split=zeeman_split,
@@ -272,7 +272,7 @@ class NVCenterCoreGenerator:
             elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 typed_params = NVCenterSaturationVoigtSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     saturation=saturation,
                     sigma_inhom=sigma_inhom,
                     split=split,
@@ -284,7 +284,7 @@ class NVCenterCoreGenerator:
                 priors["k_np"] = (_widened_prior_mean(rng, k_np, k_np_std), k_np_std)
             else:
                 typed_params = NVCenterSaturationVoigtSingleDipSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     saturation=saturation,
                     sigma_inhom=sigma_inhom,
                 )
@@ -320,7 +320,7 @@ class NVCenterCoreGenerator:
                 from nvision.spectra.nv_center import NVCenterVoigtZeemanHyperfineSpectrum
 
                 typed_params = NVCenterVoigtZeemanHyperfineSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     homogeneous_linewidth=homogeneous_linewidth,
                     sigma_inhom=sigma_inhom,
                     zeeman_split=zeeman_split,
@@ -344,12 +344,12 @@ class NVCenterCoreGenerator:
                     "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
                     "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.with_zeeman_splitting:
                 model = NVCenterVoigtModel(with_zeeman_splitting=True, hyperfine=self.hyperfine)
                 typed_params = NVCenterVoigtZeemanSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     homogeneous_linewidth=homogeneous_linewidth,
                     sigma_inhom=sigma_inhom,
                     zeeman_split=zeeman_split,
@@ -367,13 +367,13 @@ class NVCenterCoreGenerator:
                     ),
                     "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 model = NVCenterVoigtModel(hyperfine=self.hyperfine, infer_hyperfine=True)
                 typed_params = NVCenterVoigtSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     homogeneous_linewidth=homogeneous_linewidth,
                     sigma_inhom=sigma_inhom,
                     split=split,
@@ -394,12 +394,12 @@ class NVCenterCoreGenerator:
                     "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
                     "k_np": (_widened_prior_mean(rng, k_np, k_np_std), k_np_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
             else:
                 model = NVCenterVoigtModel(hyperfine=self.hyperfine)
                 typed_params = NVCenterVoigtSingleDipSpectrum(
-                    frequency=center_freq,
+                    center_freq=center_freq,
                     homogeneous_linewidth=homogeneous_linewidth,
                     sigma_inhom=sigma_inhom,
                     c_total=c_total,
@@ -412,7 +412,7 @@ class NVCenterCoreGenerator:
                     ),
                     "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, sigma_inhom_std), sigma_inhom_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
-                    "frequency": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+                    "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)

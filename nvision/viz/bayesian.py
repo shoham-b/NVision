@@ -378,7 +378,7 @@ class BayesianMixin:
         return go.Figure(
             data=initial_data,
             layout=go.Layout(
-                xaxis=dict(title="Frequency / Parameter"),
+                xaxis=dict(title="Parameter"),
                 yaxis=yaxis_layout,
                 margin=dict(l=80, r=40, t=80, b=80),
                 title="Posterior Evolution",

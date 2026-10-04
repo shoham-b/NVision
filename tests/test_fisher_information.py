@@ -55,12 +55,12 @@ def test_gaussian_fisher_matrix_type_handling() -> None:
     np.testing.assert_allclose(result, expected)
 
 
-def test_uniform_steps_inverts_lorentzian_frequency_crlb() -> None:
+def test_uniform_steps_inverts_lorentzian_center_freq_crlb() -> None:
     """One closed form: the steps needed for a target CRLB reproduce that CRLB."""
-    from nvision.models.fisher_information import lorentzian_frequency_crlb, uniform_steps_for_frequency_crlb
+    from nvision.models.fisher_information import lorentzian_center_freq_crlb, uniform_steps_for_center_freq_crlb
 
-    n = uniform_steps_for_frequency_crlb(2e6, 0.25, 0.02, 1.5e8, 5e4)
-    assert np.isclose(lorentzian_frequency_crlb(2e6, 0.25, 0.02, n, 1.5e8), 5e4, rtol=1e-9)
+    n = uniform_steps_for_center_freq_crlb(2e6, 0.25, 0.02, 1.5e8, 5e4)
+    assert np.isclose(lorentzian_center_freq_crlb(2e6, 0.25, 0.02, n, 1.5e8), 5e4, rtol=1e-9)
 
 
 def test_belief_and_history_share_one_cumulative_fisher() -> None:

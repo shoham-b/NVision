@@ -1,4 +1,4 @@
-"""Tests for Gaussian parameter priors and sine-squared frequency prior."""
+"""Tests for Gaussian parameter priors and sine-squared center_freq prior."""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ def test_generator_adds_gaussian_and_sin2_priors():
     assert "_priors" in signal_lor.bounds
     priors_lor = signal_lor.bounds["_priors"]
 
-    # Verify frequency prior
-    assert "frequency" in priors_lor
+    # Verify center_freq prior
+    assert "center_freq" in priors_lor
     expected_k = np.pi / (2.0 * MIN_LINEWIDTH)
-    assert priors_lor["frequency"] == ("sin^2", expected_k)
+    assert priors_lor["center_freq"] == ("sin^2", expected_k)
 
     # Verify other parameter priors are Gaussian (val, std) — default: no split/k_np
     for name in ("linewidth", "c_total"):
@@ -55,9 +55,9 @@ def test_generator_adds_gaussian_and_sin2_priors():
     assert "_priors" in signal_voigt.bounds
     priors_voigt = signal_voigt.bounds["_priors"]
 
-    # Verify frequency prior
-    assert "frequency" in priors_voigt
-    assert priors_voigt["frequency"] == ("sin^2", expected_k)
+    # Verify center_freq prior
+    assert "center_freq" in priors_voigt
+    assert priors_voigt["center_freq"] == ("sin^2", expected_k)
 
     # Verify other parameter priors are Gaussian (val, std)
     for name in ("homogeneous_linewidth", "sigma_inhom", "c_total"):
@@ -82,24 +82,24 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     gen = NVCenterCoreGenerator(variant="lorentzian")
     signal = gen.generate(rng)
 
-    # Build SMC belief with generator priors. with_fixed_frequency=False: this test
-    # specifically exercises the sin^2 prior on the frequency dimension, which
-    # requires frequency to be a free particle dimension (it's fixed by default --
+    # Build SMC belief with generator priors. with_fixed_center_freq=False: this test
+    # specifically exercises the sin^2 prior on the center_freq dimension, which
+    # requires center_freq to be a free particle dimension (it's fixed by default --
     # see NVCenterCoreGenerator's docstring -- so nv_center_smc_belief's own default
     # would otherwise leave it out of belief._param_names entirely).
     belief = nv_center_smc_belief(
-        signal.bounds, num_particles=1000, with_fixed_frequency=False, noise_model=gaussian_noise()
+        signal.bounds, num_particles=1000, with_fixed_center_freq=False, noise_model=gaussian_noise()
     )
 
-    # Verify particles for frequency follow sin^2(k f) prior
-    f_idx = belief._param_names.index("frequency")
+    # Verify particles for center_freq follow sin^2(k f) prior
+    f_idx = belief._param_names.index("center_freq")
     freq_particles_unit = belief._particles[:, f_idx]
 
     # In UnitCube, particles are in [0, 1]
     assert np.all((freq_particles_unit >= 0.0) & (freq_particles_unit <= 1.0))
 
-    # Convert frequency particles to physical space
-    f_lo, f_hi = belief.physical_param_bounds["frequency"]
+    # Convert center_freq particles to physical space
+    f_lo, f_hi = belief.physical_param_bounds["center_freq"]
     freq_particles_phys = f_lo + freq_particles_unit * (f_hi - f_lo)
 
     # Verify rejection sampling shape: evaluate sin^2(k f)
@@ -151,7 +151,7 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
 def test_prior_mean_offset_from_truth_is_widened_by_prior_mean_offset_sigmas():
     """The generator's prior *mean* is drawn as gauss(true_value, std *
     PRIOR_MEAN_OFFSET_SIGMAS), not gauss(true_value, std) -- otherwise the SBED
-    locator's starting belief for every non-frequency parameter is suspiciously
+    locator's starting belief for every non-center_freq parameter is suspiciously
     close to the true value before a single measurement (see nv_center_generator's
     PRIOR_MEAN_OFFSET_SIGMAS import). At the default multiplier (3.0), the
     *typical* offset should be a couple of prior-sigmas, not the ~0.8 sigma a

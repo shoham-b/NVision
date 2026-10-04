@@ -178,7 +178,7 @@ class CoreExperiment:
     def truth_positions(self) -> list[float]:
         """Ground truth peak positions extracted from TrueSignal parameters."""
         values = self.true_signal.parameter_values()
-        return [value for name, value in values.items() if "frequency" in name or "position" in name]
+        return [value for name, value in values.items() if "center_freq" in name or "position" in name]
 
     def denormalize_x(self, x_normalized: float) -> float:
         """Convert normalized x to physical domain."""

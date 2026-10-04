@@ -216,8 +216,8 @@ class Observer:
                     copied_belief = belief.copy()
 
                     # Strip heavy cached arrays from the snapshot copy to drastically lower memory footprint
-                    if hasattr(copied_belief, "_current_candidates"):
-                        copied_belief._current_candidates = np.array([], dtype=np.float32)
+                    if hasattr(copied_belief, "_candidate_x_unit"):
+                        copied_belief._candidate_x_unit = np.array([], dtype=np.float32)
 
                     last_belief_key = belief_key
                     last_copied_belief = copied_belief

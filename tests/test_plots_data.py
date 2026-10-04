@@ -71,45 +71,45 @@ class TestWritePosteriorData:
         rng = np.random.default_rng(0)
         n_steps, n_particles = 4, 300
         anim_all = {
-            "frequency": _particle_history(rng, n_steps, n_particles, lo=2.86e9, hi=2.88e9),
+            "center_freq": _particle_history(rng, n_steps, n_particles, lo=2.86e9, hi=2.88e9),
             "linewidth": _particle_history(rng, n_steps, n_particles, lo=5e6, hi=15e6),
         }
         out = tmp_path / "posterior.json"
         assert write_posterior_data(anim_all, out)
         data = _load(out)
         assert data["schema"] == "posterior_v1"
-        assert data["param_names"] == ["frequency", "linewidth"]
+        assert data["param_names"] == ["center_freq", "linewidth"]
         assert len(data["steps"]) == n_steps
 
     def test_particle_subsampling_capped_at_n_particles(self, tmp_path):
         rng = np.random.default_rng(1)
         n_particles = 1000
         n_display = 150
-        anim_all = {"frequency": _particle_history(rng, 3, n_particles, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 3, n_particles, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(anim_all, out, n_particles=n_display)
         data = _load(out)
         for step in data["steps"]:
-            assert len(step["frequency"]["values"]) <= n_display
+            assert len(step["center_freq"]["values"]) <= n_display
 
     def test_particle_subsampling_not_truncated_when_fewer_than_limit(self, tmp_path):
         rng = np.random.default_rng(2)
         n_particles = 50
-        anim_all = {"frequency": _particle_history(rng, 2, n_particles, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 2, n_particles, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(anim_all, out, n_particles=200)
         data = _load(out)
         for step in data["steps"]:
-            assert len(step["frequency"]["values"]) == n_particles
+            assert len(step["center_freq"]["values"]) == n_particles
 
     def test_weights_sum_to_one_per_step(self, tmp_path):
         rng = np.random.default_rng(3)
-        anim_all = {"frequency": _particle_history(rng, 5, 300, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 5, 300, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(anim_all, out)
         data = _load(out)
         for step in data["steps"]:
-            w_sum = sum(step["frequency"]["weights"])
+            w_sum = sum(step["center_freq"]["weights"])
             # dump_gz opportunistically float16-encodes arrays (including these
             # weights) whenever the round-trip error stays within its own
             # documented tolerance (_VALUE_REL_TOL = 2e-3 relative-to-span, see
@@ -123,11 +123,11 @@ class TestWritePosteriorData:
         vals = np.full(100, 2.87e9, dtype=np.float32)
         raw_w = np.ones(100, dtype=np.float32) / 100
         history = [np.column_stack([vals, raw_w])]
-        anim_all = {"frequency": (history, np.linspace(0.0, 1.0, 2))}
+        anim_all = {"center_freq": (history, np.linspace(0.0, 1.0, 2))}
         out = tmp_path / "posterior.json"
         write_posterior_data(anim_all, out)
         data = _load(out)
-        mean_val = sum(data["steps"][0]["frequency"]["values"]) / len(data["steps"][0]["frequency"]["values"])
+        mean_val = sum(data["steps"][0]["center_freq"]["values"]) / len(data["steps"][0]["center_freq"]["values"])
         assert abs(mean_val - 2.87) < 0.01, f"Expected ~2.87 GHz, got {mean_val}"
 
     def test_linewidth_scaled_to_mhz(self, tmp_path):
@@ -143,15 +143,15 @@ class TestWritePosteriorData:
 
     def test_true_params_scaled(self, tmp_path):
         rng = np.random.default_rng(6)
-        anim_all = {"frequency": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
-        write_posterior_data(anim_all, out, true_params={"frequency": 2.871e9})
+        write_posterior_data(anim_all, out, true_params={"center_freq": 2.871e9})
         data = _load(out)
-        assert abs(data["true_params"]["frequency"] - 2.871) < 1e-6
+        assert abs(data["true_params"]["center_freq"] - 2.871) < 1e-6
 
     def test_resampled_steps_preserved(self, tmp_path):
         rng = np.random.default_rng(7)
-        anim_all = {"frequency": _particle_history(rng, 5, 50, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 5, 50, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(anim_all, out, resampled_steps=[1, 3])
         data = _load(out)
@@ -165,7 +165,7 @@ class TestWritePosteriorData:
         never dip below ess_threshold * num_particles.
         """
         rng = np.random.default_rng(70)
-        anim_all = {"frequency": _particle_history(rng, 4, 50, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 4, 50, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(
             anim_all,
@@ -205,11 +205,11 @@ class TestWritePosteriorData:
 
         stub_grid = np.linspace(0.0, 1.0, 2)
         out = tmp_path / "posterior.json"
-        write_posterior_data({"frequency": ([clean, spiked], stub_grid)}, out)
+        write_posterior_data({"center_freq": ([clean, spiked], stub_grid)}, out)
         data = _load(out)
 
-        r0 = data["steps"][0]["frequency"]["uncertainty_robust"]
-        r1 = data["steps"][1]["frequency"]["uncertainty_robust"]
+        r0 = data["steps"][0]["center_freq"]["uncertainty_robust"]
+        r1 = data["steps"][1]["center_freq"]["uncertainty_robust"]
         assert r0 == pytest.approx(r1, rel=0.1), "robust spread must ignore the outliers"
 
         # The plain weighted std, by contrast, blows up -- the behaviour the robust
@@ -222,26 +222,26 @@ class TestWritePosteriorData:
 
     def test_physical_bounds_scaled(self, tmp_path):
         rng = np.random.default_rng(8)
-        anim_all = {"frequency": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(
             anim_all,
             out,
-            physical_bounds={"frequency": (2.86e9, 2.88e9)},
+            physical_bounds={"center_freq": (2.86e9, 2.88e9)},
         )
         data = _load(out)
-        lo, hi = data["physical_bounds"]["frequency"]
+        lo, hi = data["physical_bounds"]["center_freq"]
         assert abs(lo - 2.86) < 1e-9
         assert abs(hi - 2.88) < 1e-9
 
     def test_grid_belief_format(self, tmp_path):
         rng = np.random.default_rng(9)
         history, grid = _grid_history(rng, 3, 64)
-        anim_all = {"frequency": (history, grid)}
+        anim_all = {"center_freq": (history, grid)}
         out = tmp_path / "posterior.json"
         write_posterior_data(anim_all, out)
         data = _load(out)
-        step = data["steps"][0]["frequency"]
+        step = data["steps"][0]["center_freq"]
         assert step["type"] == "grid"
         assert "axis" in step
         assert "posterior" in step
@@ -256,14 +256,14 @@ class TestWritePosteriorData:
     def test_creates_parent_directory(self, tmp_path):
         out = tmp_path / "nested" / "deep" / "posterior.json"
         rng = np.random.default_rng(10)
-        anim_all = {"frequency": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 1, 50, lo=2.86e9, hi=2.88e9)}
         write_posterior_data(anim_all, out)
         assert out.exists()
 
     def test_output_is_valid_json_with_no_numpy_types(self, tmp_path):
         rng = np.random.default_rng(11)
         anim_all = {
-            "frequency": _particle_history(rng, 3, 100, lo=2.86e9, hi=2.88e9),
+            "center_freq": _particle_history(rng, 3, 100, lo=2.86e9, hi=2.88e9),
             "split": _particle_history(rng, 3, 100, lo=1e6, hi=5e6),
         }
         out = tmp_path / "posterior.json"
@@ -280,12 +280,12 @@ class TestWritePosteriorData:
 
 class TestWriteCovarianceData:
     def _make_inputs(self, rng, n_steps=4, d=3):
-        param_names = ["frequency", "linewidth", "split"][:d]
+        param_names = ["center_freq", "linewidth", "split"][:d]
         cov_hist = []
         for _ in range(n_steps):
             a = rng.random((d, d))
             cov_hist.append(a @ a.T)
-        means_hist = [{"frequency": 2.87e9, "linewidth": 8e6, "split": 2e6} for _ in range(n_steps)]
+        means_hist = [{"center_freq": 2.87e9, "linewidth": 8e6, "split": 2e6} for _ in range(n_steps)]
         pairs = [(0, 1), (0, 2)]
         return param_names, cov_hist, means_hist, pairs
 
@@ -324,18 +324,18 @@ class TestWriteCovarianceData:
         write_covariance_data(cov_hist, param_names, pairs, means_hist, out)
         data = _load(out)
         means = data["steps"][0]["means"]
-        assert abs(means["frequency"] - 2.87) < 1e-6
+        assert abs(means["center_freq"] - 2.87) < 1e-6
         assert abs(means["linewidth"] - 8.0) < 1e-6
 
     def test_covariance_scaled_to_display_units(self, tmp_path):
         d = 2
-        param_names = ["frequency", "linewidth"]
+        param_names = ["center_freq", "linewidth"]
         # Identity covariance in physical units
         cov_phys = np.eye(d)
         cov_phys[0, 0] = (1e9) ** 2  # freq variance: (1 GHz)^2
         cov_phys[1, 1] = (1e6) ** 2  # linewidth variance: (1 MHz)^2
         cov_hist = [cov_phys]
-        means_hist = [{"frequency": 2.87e9, "linewidth": 8e6}]
+        means_hist = [{"center_freq": 2.87e9, "linewidth": 8e6}]
         out = tmp_path / "cov.json"
         write_covariance_data(cov_hist, param_names, [(0, 1)], means_hist, out)
         data = _load(out)
@@ -350,10 +350,10 @@ class TestWriteCovarianceData:
         param_names, cov_hist, means_hist, pairs = self._make_inputs(rng, n_steps=1)
         out = tmp_path / "cov.json"
         write_covariance_data(
-            cov_hist, param_names, pairs, means_hist, out, true_params={"frequency": 2.871e9, "linewidth": 9e6}
+            cov_hist, param_names, pairs, means_hist, out, true_params={"center_freq": 2.871e9, "linewidth": 9e6}
         )
         data = _load(out)
-        assert abs(data["true_params"]["frequency"] - 2.871) < 1e-6
+        assert abs(data["true_params"]["center_freq"] - 2.871) < 1e-6
         assert abs(data["true_params"]["linewidth"] - 9.0) < 1e-6
 
     def test_empty_pairs_returns_false(self, tmp_path):
@@ -366,7 +366,7 @@ class TestWriteCovarianceData:
 
     def test_empty_cov_hist_returns_false(self, tmp_path):
         out = tmp_path / "cov.json"
-        result = write_covariance_data([], ["frequency"], [(0, 1)], [], out)
+        result = write_covariance_data([], ["center_freq"], [(0, 1)], [], out)
         assert result is None
 
 
@@ -378,9 +378,9 @@ class TestWriteCovarianceData:
 class TestWriteParameterConvergenceData:
     def _make_inputs(self, rng, n_steps=6):
         param_hist = [
-            {"frequency": float(rng.random() * 1e6), "linewidth": float(rng.random() * 1e5)} for _ in range(n_steps)
+            {"center_freq": float(rng.random() * 1e6), "linewidth": float(rng.random() * 1e5)} for _ in range(n_steps)
         ]
-        estimates_hist = [{"frequency": 2.87e9, "linewidth": 8e6} for _ in range(n_steps)]
+        estimates_hist = [{"center_freq": 2.87e9, "linewidth": 8e6} for _ in range(n_steps)]
         return param_hist, estimates_hist
 
     def test_schema_and_step_count(self, tmp_path):
@@ -393,40 +393,40 @@ class TestWriteParameterConvergenceData:
         assert len(data["steps"]) == 7
 
     def test_uncertainties_scaled(self, tmp_path):
-        param_hist = [{"frequency": 2e6, "linewidth": 3e6}]
-        estimates_hist = [{"frequency": 2.87e9, "linewidth": 8e6}]
+        param_hist = [{"center_freq": 2e6, "linewidth": 3e6}]
+        estimates_hist = [{"center_freq": 2.87e9, "linewidth": 8e6}]
         out = tmp_path / "conv.json"
         write_parameter_convergence_data(param_hist, estimates_hist, out)
         data = _load(out)
         unc = data["steps"][0]["uncertainties"]
         # frequency scale is 1e9 (GHz): 2e6 Hz → 0.002 GHz
-        assert abs(unc["frequency"] - 2e6 / 1e9) < 1e-12
+        assert abs(unc["center_freq"] - 2e6 / 1e9) < 1e-12
         # linewidth scale is 1e6 (MHz): 3e6 Hz → 3.0 MHz
         assert abs(unc["linewidth"] - 3.0) < 1e-9
 
     def test_estimates_scaled(self, tmp_path):
-        param_hist = [{"frequency": 1e6}]
-        estimates_hist = [{"frequency": 2.87e9}]
+        param_hist = [{"center_freq": 1e6}]
+        estimates_hist = [{"center_freq": 2.87e9}]
         out = tmp_path / "conv.json"
         write_parameter_convergence_data(param_hist, estimates_hist, out)
         data = _load(out)
-        assert abs(data["steps"][0]["estimates"]["frequency"] - 2.87) < 1e-6
+        assert abs(data["steps"][0]["estimates"]["center_freq"] - 2.87) < 1e-6
 
     def test_true_params_scaled(self, tmp_path):
         rng = np.random.default_rng(33)
         param_hist, estimates_hist = self._make_inputs(rng, n_steps=1)
         out = tmp_path / "conv.json"
-        write_parameter_convergence_data(param_hist, estimates_hist, out, true_params={"frequency": 2.871e9})
+        write_parameter_convergence_data(param_hist, estimates_hist, out, true_params={"center_freq": 2.871e9})
         data = _load(out)
-        assert abs(data["true_params"]["frequency"] - 2.871) < 1e-6
+        assert abs(data["true_params"]["center_freq"] - 2.871) < 1e-6
 
     def test_param_names_match_input_keys(self, tmp_path):
-        param_hist = [{"frequency": 1e6, "split": 5e5}]
-        estimates_hist = [{"frequency": 2.87e9, "split": 2e6}]
+        param_hist = [{"center_freq": 1e6, "split": 5e5}]
+        estimates_hist = [{"center_freq": 2.87e9, "split": 2e6}]
         out = tmp_path / "conv.json"
         write_parameter_convergence_data(param_hist, estimates_hist, out)
         data = _load(out)
-        assert set(data["param_names"]) == {"frequency", "split"}
+        assert set(data["param_names"]) == {"center_freq", "split"}
 
     def test_empty_input_returns_false(self, tmp_path):
         out = tmp_path / "conv.json"
@@ -460,8 +460,8 @@ class TestWriteConvergenceMetricsData:
             metrics.append(
                 {
                     "step": i,
-                    "uncertainties": {"frequency": 0.1 / max(i, 1), "linewidth": 0.2 / max(i, 1)},
-                    "converged_params": {"frequency": all_conv, "linewidth": all_conv},
+                    "uncertainties": {"center_freq": 0.1 / max(i, 1), "linewidth": 0.2 / max(i, 1)},
+                    "converged_params": {"center_freq": all_conv, "linewidth": all_conv},
                     "all_converged": all_conv,
                     "convergence_streak": streak,
                     "convergence_achieved": streak >= 3,
@@ -472,7 +472,7 @@ class TestWriteConvergenceMetricsData:
     def test_schema_and_step_count(self, tmp_path):
         conv_metrics = self._make_conv_metrics(n_steps=6)
         out = tmp_path / "conv_metrics.json"
-        assert write_convergence_metrics_data(conv_metrics, ["frequency", "linewidth"], 0.01, 8, out)
+        assert write_convergence_metrics_data(conv_metrics, ["center_freq", "linewidth"], 0.01, 8, out)
         data = _load(out)
         assert data["schema"] == "convergence_metrics_v1"
         assert len(data["steps"]) == 6
@@ -480,7 +480,7 @@ class TestWriteConvergenceMetricsData:
     def test_threshold_and_patience_stored(self, tmp_path):
         conv_metrics = self._make_conv_metrics()
         out = tmp_path / "conv_metrics.json"
-        write_convergence_metrics_data(conv_metrics, ["frequency"], 0.005, 12, out)
+        write_convergence_metrics_data(conv_metrics, ["center_freq"], 0.005, 12, out)
         data = _load(out)
         assert data["convergence_threshold"] == pytest.approx(0.005)
         assert data["convergence_patience"] == 12
@@ -488,7 +488,7 @@ class TestWriteConvergenceMetricsData:
     def test_steps_content_preserved(self, tmp_path):
         conv_metrics = self._make_conv_metrics(n_steps=5)
         out = tmp_path / "conv_metrics.json"
-        write_convergence_metrics_data(conv_metrics, ["frequency", "linewidth"], 0.01, 8, out)
+        write_convergence_metrics_data(conv_metrics, ["center_freq", "linewidth"], 0.01, 8, out)
         data = _load(out)
         assert data["steps"][0]["step"] == 0
         assert data["steps"][2]["step"] == 2
@@ -500,32 +500,32 @@ class TestWriteConvergenceMetricsData:
         out = tmp_path / "conv_metrics.json"
         write_convergence_metrics_data(
             conv_metrics,
-            ["frequency", "linewidth"],
+            ["center_freq", "linewidth"],
             0.01,
             8,
             out,
-            param_bounds={"frequency": (2.6e9, 3.1e9), "linewidth": (1e6, 20e6)},
+            param_bounds={"center_freq": (2.6e9, 3.1e9), "linewidth": (1e6, 20e6)},
         )
         data = _load(out)
-        freq_lo, freq_hi = data["param_bounds"]["frequency"]
-        assert abs(freq_lo - 2.6) < 1e-9
-        assert abs(freq_hi - 3.1) < 1e-9
+        probe_lo_phys, probe_hi_phys = data["param_bounds"]["center_freq"]
+        assert abs(probe_lo_phys - 2.6) < 1e-9
+        assert abs(probe_hi_phys - 3.1) < 1e-9
         lw_lo, lw_hi = data["param_bounds"]["linewidth"]
         assert abs(lw_lo - 1.0) < 1e-9
         assert abs(lw_hi - 20.0) < 1e-9
 
     def test_empty_metrics_returns_false(self, tmp_path):
         out = tmp_path / "conv_metrics.json"
-        result = write_convergence_metrics_data([], ["frequency"], 0.01, 8, out)
+        result = write_convergence_metrics_data([], ["center_freq"], 0.01, 8, out)
         assert result is None
         assert not out.exists()
 
     def test_param_names_stored(self, tmp_path):
         conv_metrics = self._make_conv_metrics(n_steps=2)
         out = tmp_path / "conv_metrics.json"
-        write_convergence_metrics_data(conv_metrics, ["frequency", "split"], 0.01, 8, out)
+        write_convergence_metrics_data(conv_metrics, ["center_freq", "split"], 0.01, 8, out)
         data = _load(out)
-        assert data["param_names"] == ["frequency", "split"]
+        assert data["param_names"] == ["center_freq", "split"]
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +535,7 @@ class TestWriteConvergenceMetricsData:
 
 class TestWriteFisherData:
     def _make_inputs(self, rng, n_steps=5, n_params=3):
-        param_names = ["frequency", "linewidth", "split"][:n_params]
+        param_names = ["center_freq", "linewidth", "split"][:n_params]
         fisher_bounds_hist = [{p: float(rng.random() * 1e6) for p in param_names} for _ in range(n_steps)]
         actual_uncertainty_hist = [{p: float(rng.random() * 2e6) for p in param_names} for _ in range(n_steps)]
         fisher_hist = []
@@ -554,27 +554,27 @@ class TestWriteFisherData:
         assert len(data["steps"]) == 6
 
     def test_fisher_bounds_scaled(self, tmp_path):
-        param_names = ["frequency", "linewidth"]
-        fisher_bounds = [{"frequency": 2e6, "linewidth": 3e6}]
-        actual_unc = [{"frequency": 4e6, "linewidth": 5e6}]
+        param_names = ["center_freq", "linewidth"]
+        fisher_bounds = [{"center_freq": 2e6, "linewidth": 3e6}]
+        actual_unc = [{"center_freq": 4e6, "linewidth": 5e6}]
         fim = [np.eye(2)]
         out = tmp_path / "fisher.json"
         write_fisher_data(fisher_bounds, actual_unc, fim, param_names, out)
         data = _load(out)
         fb = data["steps"][0]["fisher_bounds"]
-        assert abs(fb["frequency"] - 2e6 / 1e9) < 1e-12
+        assert abs(fb["center_freq"] - 2e6 / 1e9) < 1e-12
         assert abs(fb["linewidth"] - 3.0) < 1e-9
 
     def test_actual_uncertainty_scaled(self, tmp_path):
-        param_names = ["frequency", "linewidth"]
-        fisher_bounds = [{"frequency": 1e6, "linewidth": 1e6}]
-        actual_unc = [{"frequency": 5e6, "linewidth": 8e6}]
+        param_names = ["center_freq", "linewidth"]
+        fisher_bounds = [{"center_freq": 1e6, "linewidth": 1e6}]
+        actual_unc = [{"center_freq": 5e6, "linewidth": 8e6}]
         fim = [np.eye(2)]
         out = tmp_path / "fisher.json"
         write_fisher_data(fisher_bounds, actual_unc, fim, param_names, out)
         data = _load(out)
         au = data["steps"][0]["actual_uncertainty"]
-        assert abs(au["frequency"] - 5e6 / 1e9) < 1e-12
+        assert abs(au["center_freq"] - 5e6 / 1e9) < 1e-12
         assert abs(au["linewidth"] - 8.0) < 1e-9
 
     def test_fim_matrix_shape_preserved(self, tmp_path):
@@ -592,10 +592,10 @@ class TestWriteFisherData:
     def test_fim_scaled_to_display_units(self, tmp_path):
         # FIM element [i,j] should be scaled by scale_i * scale_j
         # For frequency (scale=1e9): FIM[0,0] * 1e9 * 1e9
-        param_names = ["frequency", "linewidth"]
+        param_names = ["center_freq", "linewidth"]
         fim_phys = np.array([[1.0, 0.0], [0.0, 1.0]])  # identity FIM in physical units
-        fisher_bounds = [{"frequency": 1e6, "linewidth": 1e6}]
-        actual_unc = [{"frequency": 1e6, "linewidth": 1e6}]
+        fisher_bounds = [{"center_freq": 1e6, "linewidth": 1e6}]
+        actual_unc = [{"center_freq": 1e6, "linewidth": 1e6}]
         out = tmp_path / "fisher.json"
         write_fisher_data(fisher_bounds, actual_unc, [fim_phys], param_names, out)
         data = _load(out)
@@ -609,14 +609,14 @@ class TestWriteFisherData:
         rng = np.random.default_rng(43)
         param_names, fb, au, fh = self._make_inputs(rng, n_steps=1)
         out = tmp_path / "fisher.json"
-        write_fisher_data(fb, au, fh, param_names, out, true_params={"frequency": 2.871e9, "linewidth": 9e6})
+        write_fisher_data(fb, au, fh, param_names, out, true_params={"center_freq": 2.871e9, "linewidth": 9e6})
         data = _load(out)
-        assert abs(data["true_params"]["frequency"] - 2.871) < 1e-6
+        assert abs(data["true_params"]["center_freq"] - 2.871) < 1e-6
         assert abs(data["true_params"]["linewidth"] - 9.0) < 1e-6
 
     def test_empty_hist_returns_false(self, tmp_path):
         out = tmp_path / "fisher.json"
-        result = write_fisher_data([], [], [], ["frequency"], out)
+        result = write_fisher_data([], [], [], ["center_freq"], out)
         assert result is None
         assert not out.exists()
 
@@ -630,16 +630,16 @@ class TestWriteFisherData:
         assert isinstance(data, dict)
 
     def test_oracle_crlb_included_and_scaled(self, tmp_path):
-        param_names = ["frequency", "linewidth"]
-        fisher_bounds = [{"frequency": 2e6, "linewidth": 3e6}]
-        actual_unc = [{"frequency": 4e6, "linewidth": 5e6}]
-        oracle_crlb = [{"frequency": 1e6, "linewidth": 2e6}]
+        param_names = ["center_freq", "linewidth"]
+        fisher_bounds = [{"center_freq": 2e6, "linewidth": 3e6}]
+        actual_unc = [{"center_freq": 4e6, "linewidth": 5e6}]
+        oracle_crlb = [{"center_freq": 1e6, "linewidth": 2e6}]
         fim = [np.eye(2)]
         out = tmp_path / "fisher.json"
         write_fisher_data(fisher_bounds, actual_unc, fim, param_names, out, oracle_crlb_hist=oracle_crlb)
         data = _load(out)
         oc = data["steps"][0]["oracle_crlb"]
-        assert abs(oc["frequency"] - 1e6 / 1e9) < 1e-12
+        assert abs(oc["center_freq"] - 1e6 / 1e9) < 1e-12
         assert abs(oc["linewidth"] - 2.0) < 1e-9
 
     def test_oracle_crlb_absent_when_not_passed(self, tmp_path):
@@ -655,7 +655,7 @@ class TestWriteFisherData:
         param_names, fb, au, fh = self._make_inputs(rng, n_steps=3, n_params=2)
         out = tmp_path / "fisher.json"
         # Wrong length (2 vs 3 steps) must be dropped rather than zipped-and-truncated silently.
-        write_fisher_data(fb, au, fh, param_names, out, oracle_crlb_hist=[{"frequency": 1.0}, {"frequency": 2.0}])
+        write_fisher_data(fb, au, fh, param_names, out, oracle_crlb_hist=[{"center_freq": 1.0}, {"center_freq": 2.0}])
         data = _load(out)
         assert len(data["steps"]) == 3
         assert "oracle_crlb" not in data["steps"][0]
@@ -671,7 +671,7 @@ class TestNoNumpyLeaks:
 
     def test_posterior_numpy_float32_particles(self, tmp_path):
         rng = np.random.default_rng(50)
-        anim_all = {"frequency": _particle_history(rng, 2, 100, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, 2, 100, lo=2.86e9, hi=2.88e9)}
         out = tmp_path / "posterior.json"
         write_posterior_data(anim_all, out)
         _load(out)  # would raise on numpy types
@@ -681,18 +681,18 @@ class TestNoNumpyLeaks:
         n = 3
 
         # posterior
-        anim_all = {"frequency": _particle_history(rng, n, 50, lo=2.86e9, hi=2.88e9)}
+        anim_all = {"center_freq": _particle_history(rng, n, 50, lo=2.86e9, hi=2.88e9)}
         write_posterior_data(anim_all, tmp_path / "p.json")
 
         # covariance
         d = 2
         cov_hist = [np.eye(d) for _ in range(n)]
-        means = [{"frequency": 2.87e9, "linewidth": 8e6} for _ in range(n)]
-        write_covariance_data(cov_hist, ["frequency", "linewidth"], [(0, 1)], means, tmp_path / "c.json")
+        means = [{"center_freq": 2.87e9, "linewidth": 8e6} for _ in range(n)]
+        write_covariance_data(cov_hist, ["center_freq", "linewidth"], [(0, 1)], means, tmp_path / "c.json")
 
         # parameter convergence
-        ph = [{"frequency": float(rng.random() * 1e6)} for _ in range(n)]
-        eh = [{"frequency": 2.87e9} for _ in range(n)]
+        ph = [{"center_freq": float(rng.random() * 1e6)} for _ in range(n)]
+        eh = [{"center_freq": 2.87e9} for _ in range(n)]
         write_parameter_convergence_data(ph, eh, tmp_path / "pc.json")
 
         for f in (tmp_path / "p.json", tmp_path / "c.json", tmp_path / "pc.json"):
