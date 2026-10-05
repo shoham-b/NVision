@@ -15,7 +15,7 @@ from nvision.spectra.spec import GenericParamSpec
 
 @dataclass(frozen=True)
 class GaussianSpectrum:
-    frequency: float
+    center_freq: float
     sigma: float
     dip_depth: float
     background: float
@@ -23,7 +23,7 @@ class GaussianSpectrum:
 
 @dataclass(frozen=True)
 class GaussianSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     sigma: np.ndarray
     dip_depth: np.ndarray
     background: np.ndarray
@@ -31,7 +31,7 @@ class GaussianSpectrumSamples:
 
 @dataclass(frozen=True)
 class GaussianSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     sigma: float
     dip_depth: float
     background: float
@@ -47,11 +47,11 @@ class GaussianModel(SignalModel[GaussianSpectrum, GaussianSpectrumSamples, Gauss
     """Single Gaussian peak model.
 
     Signal form:
-        f(x) = background + dip_depth * exp(-0.5 * ((x - frequency) / sigma)^2)
+        f(x) = background + dip_depth * exp(-0.5 * ((x - center_freq) / sigma)^2)
 
     Parameters
     ----------
-    frequency : float
+    center_freq : float
         Peak center
     sigma : float
         Standard deviation
@@ -74,7 +74,7 @@ class GaussianModel(SignalModel[GaussianSpectrum, GaussianSpectrumSamples, Gauss
         return float(
             gaussian_peak_value(
                 x,
-                params.frequency,
+                params.center_freq,
                 params.sigma,
                 params.dip_depth,
                 params.background,
@@ -83,24 +83,24 @@ class GaussianModel(SignalModel[GaussianSpectrum, GaussianSpectrumSamples, Gauss
 
     def compute_vectorized_samples(self, x: float, samples: GaussianSpectrumSamples) -> np.ndarray:
         x_f = float(x)
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
         sig = np.asarray(samples.sigma, dtype=FLOAT_DTYPE)
         amp = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
         bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
-        z = (x_f - freq) / sig
+        z = (x_f - center_freq) / sig
         return (bg + amp * np.exp(-0.5 * z * z)).astype(FLOAT_DTYPE, copy=False)
 
     def compute_vectorized_many(self, x_array: Sequence[float], samples: GaussianSpectrumSamples) -> np.ndarray:
-        if not hasattr(samples, "frequency"):
+        if not hasattr(samples, "center_freq"):
             # Accept raw arrays / sample containers via the generic base fallback.
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
         sig = np.asarray(samples.sigma, dtype=FLOAT_DTYPE)
         amp = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
         bg = np.asarray(samples.background, dtype=FLOAT_DTYPE)
-        z = (xs[:, None] - freq[None, :]) / sig[None, :]
+        z = (xs[:, None] - center_freq[None, :]) / sig[None, :]
         return (bg[None, :] + amp[None, :] * np.exp(-0.5 * z * z)).astype(FLOAT_DTYPE, copy=False)

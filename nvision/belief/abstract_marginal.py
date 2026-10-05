@@ -118,8 +118,8 @@ class AbstractMarginalDistribution(ABC):
         """
         return self._empirical_robust_uncertainty()
 
-    def crlb_frequency(self) -> float:
-        """Analytical Cramér-Rao lower bound for frequency in physical Hz.
+    def crlb_center_freq(self) -> float:
+        """Analytical Cramér-Rao lower bound for center_freq in physical Hz.
 
         Returns ``math.inf`` unless overridden by a subclass that knows the
         physical signal model (e.g. NV-center Lorentzian).
@@ -241,7 +241,7 @@ class AbstractMarginalDistribution(ABC):
         for obs in observations:
             self.update(obs)
 
-    def get_candidates(self) -> np.ndarray:
+    def get_candidate_x_phys(self) -> np.ndarray:
         """Return candidate measurement positions for acquisition selection.
 
         Subclasses override this to implement custom grid generation logic (e.g.

@@ -8,14 +8,14 @@ Two orthogonal transforms operate on measurement data:
     Owned by the belief.  All parameters carry one.
 
 ``FocusWindow`` (see ``nvision.belief.focus_window``)
-    Physical [lo, hi] sub-interval of the frequency axis that the locator
+    Physical [lo, hi] sub-interval of the probe axis that the locator
     currently probes.  Can narrow during a run (always returns a new
     instance).  Owned by the locator.  Carries immutable ``full_lo``/
     ``full_hi`` so ``CoreExperiment.measure()`` normalisation is always
     relative to the original full domain.
 
 These two are **orthogonal**.  Conflating them -- e.g. using
-``physical_param_bounds["frequency"]`` for both rescaling and acquisition
+``physical_param_bounds["center_freq"]`` for both rescaling and acquisition
 bounds -- is the root coordinate-system defect this module fixes.
 """
 

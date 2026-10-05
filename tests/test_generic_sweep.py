@@ -15,10 +15,10 @@ def test_generic_sweep_classic_fit():
     # Using k_np=1.5: freq+split dip is 1.5x deeper than the other two,
     # which matches the actual physical constraint (k_np in [1, 5]).
     true_freq = 2871.23
-    phys_model = NVCenterLorentzianModel(with_fixed_frequency=False)
+    phys_model = NVCenterLorentzianModel(with_fixed_center_freq=False)
 
     true_params = {
-        "frequency": true_freq,
+        "center_freq": true_freq,
         "linewidth": 2.0,
         "split": 1.0,
         "k_np": 1.5,
@@ -28,7 +28,7 @@ def test_generic_sweep_classic_fit():
     unit_model = UnitCubeSignalModel(
         phys_model,
         param_bounds_phys={
-            "frequency": (2860.0, 2880.0),
+            "center_freq": (2860.0, 2880.0),
             "linewidth": (1.0, 5.0),
             "split": (0.0, 5.0),
             "k_np": (1.0, 5.0),
@@ -73,7 +73,7 @@ def test_generic_sweep_classic_fit():
     locator.finalize()
     res = locator.result()
 
-    est_freq = res["frequency"]
+    est_freq = res["center_freq"]
     err = abs(est_freq - true_freq)
     print(f"True freq: {true_freq}, Est: {est_freq}, Err: {err}")
     # Tolerance: 1 MHz (= one sweep step for a 20-step / 20 MHz grid).

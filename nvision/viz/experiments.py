@@ -6,7 +6,7 @@ from typing import Any
 import plotly.graph_objects as go
 import polars as pl
 
-from nvision.spectra.nv_center import DEFAULT_NV_CENTER_FREQ_X_MAX, DEFAULT_NV_CENTER_FREQ_X_MIN
+from nvision.spectra.nv_center import DEFAULT_NV_PROBE_X_MAX, DEFAULT_NV_PROBE_X_MIN
 
 
 class ExperimentsMixin:
@@ -46,14 +46,14 @@ class ExperimentsMixin:
             if "measurements" in sub.columns:
                 metrics_to_plot.append(("measurements", "Average Steps to Converge"))
 
-            if "splitting_converged_step" in sub.columns and sub["splitting_converged_step"].drop_nulls().len() > 0:
-                metrics_to_plot.append(("splitting_converged_step", "Splitting Converged @ Step"))
+            if "primary_converged_step" in sub.columns and sub["primary_converged_step"].drop_nulls().len() > 0:
+                metrics_to_plot.append(("primary_converged_step", "Splitting Converged @ Step"))
 
             if "all_converged_step" in sub.columns and sub["all_converged_step"].drop_nulls().len() > 0:
                 metrics_to_plot.append(("all_converged_step", "All Converged @ Step"))
 
-            if "err_fb_at_milestone" in sub.columns and sub["err_fb_at_milestone"].drop_nulls().len() > 0:
-                metrics_to_plot.append(("err_fb_at_milestone", "Error @ Freq. Convergence"))
+            if "err_primary_at_milestone" in sub.columns and sub["err_primary_at_milestone"].drop_nulls().len() > 0:
+                metrics_to_plot.append(("err_primary_at_milestone", "Error @ Primary Convergence"))
 
             for metric, ylabel in metrics_to_plot:
                 agg = sub.group_by(["noise", "strategy"]).agg(pl.col(metric).mean())
@@ -127,7 +127,7 @@ class ExperimentsMixin:
 
             # Savings for convergence-step metrics vs sweep measurements
             for conv_metric, sav_suffix, sav_label in [
-                ("splitting_converged_step", "savings_freq_converged", "Steps Saved to Splitting Convergence"),
+                ("primary_converged_step", "savings_primary_converged", "Steps Saved to Splitting Convergence"),
                 ("all_converged_step", "savings_all_converged", "Steps Saved to Full Convergence"),
             ]:
                 if conv_metric not in sub.columns or "measurements" not in sub.columns:
@@ -272,11 +272,11 @@ class ExperimentsMixin:
             hi_val = sweep_rows.get_column("acquisition_hi").drop_nulls().mean()
             lo_val = sweep_rows.get_column("acquisition_lo").drop_nulls().mean()
         else:
-            hi_val, lo_val = DEFAULT_NV_CENTER_FREQ_X_MAX, DEFAULT_NV_CENTER_FREQ_X_MIN
+            hi_val, lo_val = DEFAULT_NV_PROBE_X_MAX, DEFAULT_NV_PROBE_X_MIN
         domain_width = (
             hi_val - lo_val
             if hi_val is not None and lo_val is not None and hi_val > lo_val
-            else DEFAULT_NV_CENTER_FREQ_X_MAX - DEFAULT_NV_CENTER_FREQ_X_MIN
+            else DEFAULT_NV_PROBE_X_MAX - DEFAULT_NV_PROBE_X_MIN
         )
 
         # Lineshape-agnostic width source: prefer the derived effective-HWHM column
@@ -539,13 +539,13 @@ class ExperimentsMixin:
     def plot_milestone_analysis(self, df: pl.DataFrame) -> list[dict]:
         """Create plots for milestone-based convergence analysis."""
         milestone_cols = [
-            "steps_to_fb",
-            "err_fb_at_milestone",
-            "err_fc_at_milestone",
-            "final_err_fb",
-            "final_err_fc",
-            "err_fb_diff",
-            "err_fc_diff",
+            "steps_to_primary",
+            "err_primary_at_milestone",
+            "err_split_at_milestone",
+            "final_err_primary",
+            "final_err_split",
+            "err_primary_diff",
+            "err_split_diff",
         ]
 
         # Check if any milestone metrics exist
@@ -555,31 +555,31 @@ class ExperimentsMixin:
         entries = []
         partitions = df.partition_by("strategy", as_dict=True)
 
-        # 1. Distribution of steps to fb convergence
-        if "steps_to_fb" in df.columns:
+        # 1. Distribution of steps to primary-parameter convergence
+        if "steps_to_primary" in df.columns:
             fig = go.Figure()
             # Histogram of steps per strategy
             for (strat,), sub in partitions.items():
-                steps = sub.get_column("steps_to_fb").drop_nans().drop_nulls()
+                steps = sub.get_column("steps_to_primary").drop_nans().drop_nulls()
                 if not steps.is_empty():
                     fig.add_trace(go.Histogram(x=steps.to_list(), name=strat, opacity=0.75))
 
             fig.update_layout(
-                title="Steps to Center Frequency (fb) Convergence",
+                title="Steps to Primary-Parameter Convergence",
                 xaxis_title="Steps",
                 yaxis_title="Count",
                 barmode="overlay",
                 template="plotly_white",
             )
-            out_path = self._emit(fig, "milestone_steps_to_fb.json.gz", is_figure=True)
-            entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Steps to fb Convergence"})
+            out_path = self._emit(fig, "milestone_steps_to_primary.json.gz", is_figure=True)
+            entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Steps to Primary Convergence"})
 
         # 2. Error comparison (Milestone vs Final)
-        if "err_fc_at_milestone" in df.columns and "final_err_fc" in df.columns:
+        if "err_split_at_milestone" in df.columns and "final_err_split" in df.columns:
             fig = go.Figure()
             for (strat,), sub in partitions.items():
-                m_err = sub.get_column("err_fc_at_milestone").drop_nans().drop_nulls()
-                f_err = sub.get_column("final_err_fc").drop_nans().drop_nulls()
+                m_err = sub.get_column("err_split_at_milestone").drop_nans().drop_nulls()
+                f_err = sub.get_column("final_err_split").drop_nans().drop_nulls()
 
                 if not m_err.is_empty():
                     fig.add_trace(go.Box(y=m_err.to_list(), name=f"{strat} (Milestone)"))
@@ -587,27 +587,27 @@ class ExperimentsMixin:
                     fig.add_trace(go.Box(y=f_err.to_list(), name=f"{strat} (Final)"))
 
             fig.update_layout(
-                title="Splitting (fc) Absolute Error: Milestone vs Final",
+                title="Splitting Absolute Error: Milestone vs Final",
                 yaxis_title="Absolute Error (Hz)",
                 template="plotly_white",
             )
-            out_path = self._emit(fig, "milestone_error_comparison_fc.json.gz", is_figure=True)
+            out_path = self._emit(fig, "milestone_error_comparison_split.json.gz", is_figure=True)
             entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Splitting Error Comparison"})
 
         # 3. Zeeman resolution sufficiency (Error Delta)
-        if "err_fc_diff" in df.columns:
+        if "err_split_diff" in df.columns:
             fig = go.Figure()
             for (strat,), sub in partitions.items():
-                err_diff = sub.get_column("err_fc_diff").drop_nans().drop_nulls()
+                err_diff = sub.get_column("err_split_diff").drop_nans().drop_nulls()
                 if not err_diff.is_empty():
                     fig.add_trace(go.Box(y=err_diff.to_list(), name=strat))
 
             fig.update_layout(
-                title="Error Reduction after fb Convergence (fc)",
+                title="Error Reduction after Primary Convergence (split)",
                 yaxis_title="Error Reduction (Hz)",
                 template="plotly_white",
             )
-            out_path = self._emit(fig, "milestone_error_delta_fc.json.gz", is_figure=True)
+            out_path = self._emit(fig, "milestone_error_delta_split.json.gz", is_figure=True)
             entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Zeeman Resolution Gain"})
 
         return entries

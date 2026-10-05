@@ -11,7 +11,7 @@ from nvision.spectra.noise_model import NoiseSignalModel
 
 @dataclass
 class OverFrequencyGaussianNoise(OverFrequencyNoise):
-    """Additive Gaussian noise applied over the frequency axis.
+    """Additive Gaussian noise applied over the probe axis.
 
     The noise is drawn from N(0, std) and added to the signal, which has a
     baseline of 1.0. This means the signal remains centred at 1 and `std`

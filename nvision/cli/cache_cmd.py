@@ -19,8 +19,8 @@ from nvision.cache.data_store import CategoryDataStore
 from nvision.cli.app_instance import app
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen.nv_center_generator import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    DEFAULT_NV_PROBE_X_MAX,
+    DEFAULT_NV_PROBE_X_MIN,
 )
 from nvision.sim.grid_enums import GeneratorName, NoiseName, StrategyFilter
 from nvision.tools.utils import NVISION_RNG_SEED
@@ -1092,7 +1092,7 @@ def recalculate_metrics(
                 # Reconstruct experiment
                 rng = random.Random(seed)
                 true_signal = combo.generator.generate(rng)
-                x_min, x_max = DEFAULT_NV_CENTER_FREQ_X_MIN, DEFAULT_NV_CENTER_FREQ_X_MAX  # Matches _TaskRunner
+                x_min, x_max = DEFAULT_NV_PROBE_X_MIN, DEFAULT_NV_PROBE_X_MAX  # Matches _TaskRunner
                 experiment = CoreExperiment(true_signal=true_signal, noise=combo.noise, x_min=x_min, x_max=x_max)
 
                 # Load results

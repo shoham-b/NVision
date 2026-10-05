@@ -109,7 +109,7 @@ def run_loop(
     ``sweep_cache`` for pre-computed observations to avoid redundant measurements.
 
     ``n_shots`` is the fixed hardware batch size: each measurement takes
-    ``n_shots`` shots at the chosen frequency and collapses them into one
+    ``n_shots`` shots at the chosen probe point and collapses them into one
     sufficient-statistic ``Observation`` (batch mean + empirical variance) via
     ``CoreExperiment.measure``. Defaults to 1 (single-shot, unchanged behavior).
     """
@@ -1107,8 +1107,7 @@ class _TaskRunner:
 
         from nvision.sim.defaults import NVISION_SOBOL_STEPS_FRACTION
 
-        _f_lo, _f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
-        _domain = float(_f_hi - _f_lo)
+        _domain = float(experiment.x_max - experiment.x_min)  # full probe axis width, Hz
         _min_lw = min_linewidth_hz(parameter_bounds)
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
 
@@ -1123,20 +1122,17 @@ class _TaskRunner:
             belief=belief,
             max_steps=_sobol_max_steps,
         )
-        # The parameter these "sobol_freq_*" stats are actually about -- zeeman_split
-        # (or split) once frequency is fixed by default, else frequency itself for
-        # legacy free-frequency configs. Field names keep their historical "freq"
-        # spelling (secondary/repointed-only fields, not renamed -- see the
-        # "Repoint Freq. converged milestone" plan), only the tracked parameter changes.
-        primary_param = locator._primary_param or "frequency"
+        # The parameter these "sobol_primary_*" stats are about -- zeeman_split (or split) once
+        # center_freq is fixed by default, else center_freq itself for free-center_freq configs.
+        primary_param = locator._primary_param or "center_freq"
 
         step = 0
         sobol_xs = []
         sobol_ys = []
-        sobol_freq_steps = None
-        sobol_freq_uncert_at_conv = None
-        sobol_freq_err_at_conv = None
-        true_freq = experiment.true_signal.get_param_value(primary_param)
+        sobol_primary_steps = None
+        sobol_primary_uncert_at_conv = None
+        sobol_primary_err_at_conv = None
+        true_primary = experiment.true_signal.get_param_value(primary_param)
 
         while not locator.done():
             _check_memory_limit()
@@ -1148,11 +1144,11 @@ class _TaskRunner:
             sobol_ys.append(float(obs.signal_value))
 
             # Record metrics at the exact moment of primary-parameter convergence
-            if sobol_freq_steps is None and locator.splitting_converged_step is not None:
-                sobol_freq_steps = locator.splitting_converged_step
-                sobol_freq_uncert_at_conv = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
+            if sobol_primary_steps is None and locator.primary_converged_step is not None:
+                sobol_primary_steps = locator.primary_converged_step
+                sobol_primary_uncert_at_conv = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
                 est_f = float(locator.belief.estimates().get(primary_param, math.nan))
-                sobol_freq_err_at_conv = abs(est_f - true_freq) if not math.isnan(est_f) else math.nan
+                sobol_primary_err_at_conv = abs(est_f - true_primary) if not math.isnan(est_f) else math.nan
 
         sobol_mode_estimates = belief_mode_estimates(locator.belief)
 
@@ -1161,13 +1157,13 @@ class _TaskRunner:
         # way to compare Sobol's final uncertainty/error against another locator's.
         sobol_final_uncert = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
         est_f_final = float(locator.belief.estimates().get(primary_param, math.nan))
-        sobol_final_err = abs(est_f_final - true_freq) if not math.isnan(est_f_final) else math.nan
+        sobol_final_err = abs(est_f_final - true_primary) if not math.isnan(est_f_final) else math.nan
 
         return {
             "sobol_baseline_steps": locator.step_count,
-            "sobol_freq_steps": sobol_freq_steps,
-            "sobol_freq_uncert_at_conv": sobol_freq_uncert_at_conv,
-            "sobol_freq_err_at_conv": sobol_freq_err_at_conv,
+            "sobol_primary_steps": sobol_primary_steps,
+            "sobol_primary_uncert_at_conv": sobol_primary_uncert_at_conv,
+            "sobol_primary_err_at_conv": sobol_primary_err_at_conv,
             "sobol_baseline_uncert": sobol_final_uncert,
             "sobol_baseline_err": sobol_final_err,
             "sobol_xs": sobol_xs,
@@ -1198,8 +1194,7 @@ class _TaskRunner:
             lineshape=nv_lineshape_for_model(experiment.true_signal.model),
         )
 
-        f_lo, f_hi = parameter_bounds.get("frequency", (experiment.x_min, experiment.x_max))
-        domain_width = float(f_hi - f_lo)
+        domain_width = float(experiment.x_max - experiment.x_min)  # full probe axis width, Hz
         min_linewidth = min_linewidth_hz(parameter_bounds)
         max_steps = max(30, math.ceil(domain_width / min_linewidth))
 
@@ -1253,7 +1248,7 @@ class _TaskRunner:
         if x_min is None or x_max is None:
             x_min, x_max = self._domain_from_generator(self.task.generator)
         if x_min is None or x_max is None:
-            raise ValueError("TrueSignal must expose x_min/x_max parameters or frequency bounds")
+            raise ValueError("TrueSignal must expose x_min/x_max parameters or center_freq bounds")
         return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
 
     def _attach_task_noise(self, experiment: CoreExperiment) -> CoreExperiment:
@@ -1288,7 +1283,7 @@ class _TaskRunner:
         """Infer scan domain from signal parameters."""
         x_min: float | None = None
         x_max: float | None = None
-        freq_like_bounds: list[tuple[float, float]] = []
+        probe_like_bounds: list[tuple[float, float]] = []
 
         values = true_signal.parameter_values()
         for name, value in values.items():
@@ -1302,28 +1297,27 @@ class _TaskRunner:
                 lo, hi = true_signal.get_param_bounds(name)
             except KeyError:
                 continue
-            if hi > lo and "frequency" in name:
-                freq_like_bounds.append((lo, hi))
-                if name == "frequency" and x_min is None:
+            if hi > lo and "center_freq" in name:
+                probe_like_bounds.append((lo, hi))
+                if name == "center_freq" and x_min is None:
                     x_min, x_max = lo, hi
 
-        # "frequency" may be fixed (not a free/inferred parameter, e.g.
-        # NVCenterVoigtModel(with_fixed_frequency=True)) and therefore absent
-        # from parameter_values() above -- it's still the probe x-axis and its
-        # bounds are always present on true_signal.bounds regardless of
-        # free/fixed status, so check it directly rather than only via the
-        # free-parameter scan.
+        # "center_freq" may be fixed (not a free/inferred parameter, e.g.
+        # NVCenterVoigtModel(with_fixed_center_freq=True)) and therefore absent
+        # from parameter_values() above. Its bounds are always present on true_signal.bounds
+        # and, by construction of the NV bound builders, span exactly the probe axis, so check
+        # them directly rather than only via the free-parameter scan.
         if x_min is None or x_max is None:
             try:
-                lo, hi = true_signal.get_param_bounds("frequency")
+                lo, hi = true_signal.get_param_bounds("center_freq")
             except KeyError:
                 lo = hi = None
             if lo is not None and hi > lo:
                 x_min, x_max = lo, hi
 
-        if (x_min is None or x_max is None) and freq_like_bounds:
-            x_min = min(lo for lo, _ in freq_like_bounds)
-            x_max = max(hi for _, hi in freq_like_bounds)
+        if (x_min is None or x_max is None) and probe_like_bounds:
+            x_min = min(lo for lo, _ in probe_like_bounds)
+            x_max = max(hi for _, hi in probe_like_bounds)
         return x_min, x_max
 
     @staticmethod
@@ -1348,8 +1342,7 @@ class _TaskRunner:
         which applies coverage-factor and env-var caps.
         """
         bounds = self._injected_parameter_bounds(experiment)
-        f_lo, f_hi = bounds["frequency"]
-        domain_width = f_hi - f_lo
+        domain_width = experiment.x_max - experiment.x_min  # full probe axis width, Hz
         min_linewidth = min_linewidth_hz(bounds)
         import numpy as np
 
@@ -1457,7 +1450,7 @@ class _TaskRunner:
             signal_max_span = model.signal_max_span(domain_width)
         # Run Sobol Sweep baseline for this signal repeat — skip when we ARE the Sobol baseline
         sobol_baseline_steps: int | None = None
-        sobol_freq_steps: int | None = None
+        sobol_primary_steps: int | None = None
         sobol_data: dict[str, Any] | None = None
 
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
@@ -1473,7 +1466,7 @@ class _TaskRunner:
                 )
             if sobol_data is not None:
                 sobol_baseline_steps = sobol_data.get("sobol_baseline_steps")
-                sobol_freq_steps = sobol_data.get("sobol_freq_steps")
+                sobol_primary_steps = sobol_data.get("sobol_primary_steps")
 
             # Run SimpleSweep baseline for visualization (cached only, no manifest metrics)
             if (
@@ -1495,7 +1488,7 @@ class _TaskRunner:
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
         max_steps = self._resolve_sweep_max_steps(experiment)
 
-        # Fixed hardware batch size (shots per frequency), configured per-strategy
+        # Fixed hardware batch size (shots per-probe-point), configured per-strategy
         # via locator_config["n_shots"]. Not a locator constructor arg — popped out
         # here and threaded to run_loop()/experiment.measure() directly. Each
         # acquisition step is a batch of n_shots with precision noise_std/sqrt(n_shots).
@@ -1627,7 +1620,7 @@ class _TaskRunner:
         # and chunked/buffered Bayesian locators like SimpleSobol via a final
         # flush inside done() once the step budget is exhausted -- can mutate
         # locator_instance.belief *after* Observer.watch() already copied the
-        # last snapshot. Re-sync so downstream metrics (final_err_fb, the
+        # last snapshot. Re-sync so downstream metrics (final_err_primary, the
         # freq milestone, etc.) read the same posterior that result() reports
         # instead of a stale pre-flush copy. This is a no-op for locators that
         # update their belief every step (e.g. SBED), since the two already
@@ -1647,7 +1640,7 @@ class _TaskRunner:
         # sigma_inhom/split/k_np/c_total/zeeman_split/...) into the estimate dict so the generic
         # final_est_<param> metrics (and the True Signal Parameters UI panel) show a
         # true-vs-converged value for SimpleSweep the same way they already do for
-        # Bayesian locators -- result() on its own only reports frequency/uncert.
+        # Bayesian locators -- result() on its own only reports center_freq/uncert.
         # The locator's own result() values win on key conflicts.
         from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
@@ -1669,7 +1662,7 @@ class _TaskRunner:
             drift_truth = experiment.drift.truth_summary(
                 experiment.true_signal.typed_parameters, len(result.snapshots) * n_shots
             )
-            for param in ("frequency", "zeeman_split"):
+            for param in ("center_freq", "zeeman_split"):
                 estimate = finalize_record.get(param)
                 for which in ("end", "mean"):
                     truth = drift_truth.get(f"drift_true_{param}_{which}")
@@ -1690,12 +1683,12 @@ class _TaskRunner:
                 eff_sweep_steps = step_count
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
-            finalize_record["splitting_converged_step"] = getattr(last_loc, "splitting_converged_step", None)
+            finalize_record["primary_converged_step"] = getattr(last_loc, "primary_converged_step", None)
             finalize_record["all_converged_step"] = getattr(last_loc, "all_converged_step", None)
         else:
             finalize_record["sweep_steps"] = None
             finalize_record["locator_steps"] = None
-            finalize_record["splitting_converged_step"] = None
+            finalize_record["primary_converged_step"] = None
             finalize_record["all_converged_step"] = None
         finalize_record["infeasible_crlb_params"] = infeasible_crlb_params if infeasible_crlb_params else None
 
@@ -1721,20 +1714,20 @@ class _TaskRunner:
         finalize_record["true_noise_std"] = true_noise_std
 
         finalize_record["sobol_baseline_steps"] = sobol_baseline_steps
-        finalize_record["sobol_freq_steps"] = sobol_freq_steps
-        if sobol_baseline_steps is not None and sobol_freq_steps is not None:
-            finalize_record["sobol_conv_diff"] = sobol_baseline_steps - sobol_freq_steps
+        finalize_record["sobol_primary_steps"] = sobol_primary_steps
+        if sobol_baseline_steps is not None and sobol_primary_steps is not None:
+            finalize_record["sobol_conv_diff"] = sobol_baseline_steps - sobol_primary_steps
         else:
             finalize_record["sobol_conv_diff"] = None
 
         if self.strategy_name != "SimpleSobol" and sobol_data is not None:
-            finalize_record["sobol_freq_uncert_at_conv"] = sobol_data.get("sobol_freq_uncert_at_conv")
-            finalize_record["sobol_freq_err_at_conv"] = sobol_data.get("sobol_freq_err_at_conv")
+            finalize_record["sobol_primary_uncert_at_conv"] = sobol_data.get("sobol_primary_uncert_at_conv")
+            finalize_record["sobol_primary_err_at_conv"] = sobol_data.get("sobol_primary_err_at_conv")
             finalize_record["sobol_baseline_uncert"] = sobol_data.get("sobol_baseline_uncert")
             finalize_record["sobol_baseline_err"] = sobol_data.get("sobol_baseline_err")
         else:
-            finalize_record["sobol_freq_uncert_at_conv"] = None
-            finalize_record["sobol_freq_err_at_conv"] = None
+            finalize_record["sobol_primary_uncert_at_conv"] = None
+            finalize_record["sobol_primary_err_at_conv"] = None
             finalize_record["sobol_baseline_uncert"] = None
             finalize_record["sobol_baseline_err"] = None
 

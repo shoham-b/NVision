@@ -462,21 +462,21 @@ class StagedSobolSweepLocator(Locator):
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         **kwargs: Any,
     ) -> StagedSobolSweepLocator:
         if parameter_bounds is not None:
-            # "frequency" is always the probe x-axis for NV-center models even
+            # "center_freq" is always the probe x-axis for NV-center models even
             # when fixed (not inferred) and therefore absent from
             # signal_model.parameter_names() -- same landmine as
             # GenericSweepLocator.create()'s own domain resolution.
-            if scan_param:
-                param_name = scan_param
-            elif "frequency" in parameter_bounds:
-                param_name = "frequency"
+            if probe_axis_param:
+                param_name = probe_axis_param
+            elif "center_freq" in parameter_bounds:
+                param_name = "center_freq"
             else:
                 param_name = signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
             if param_name in parameter_bounds:
@@ -491,7 +491,7 @@ class StagedSobolSweepLocator(Locator):
             noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
-            scan_param=scan_param,
+            probe_axis_param=probe_axis_param,
         )
 
     def __init__(
@@ -505,7 +505,7 @@ class StagedSobolSweepLocator(Locator):
         noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
     ):
         super().__init__(belief)
         self.signal_model = signal_model
@@ -515,7 +515,7 @@ class StagedSobolSweepLocator(Locator):
         self.noise_std = noise_std
         self.noise_max_dev = noise_max_dev
         self.signal_max_span = signal_max_span
-        self.scan_param = scan_param
+        self.probe_axis_param = probe_axis_param
 
         self.step_count = 0
         self.history = ObservationHistory(self.max_steps)

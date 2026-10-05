@@ -34,7 +34,7 @@ class _MatlabRunSummary:
     """Per-file convergence outcome, used by ``--all`` to report a per-criterion breakdown."""
 
     file_name: str
-    splitting_converged_step: int | None
+    primary_converged_step: int | None
     all_converged_step: int | None
     total_steps: int
 
@@ -42,9 +42,9 @@ class _MatlabRunSummary:
 def _echo_convergence_breakdown(summaries: list[_MatlabRunSummary]) -> None:
     """Print how many files converged under each criterion, and at what step.
 
-    "Split converged" (``splitting_converged_step``) is the primary milestone -- the
+    "Split converged" (``primary_converged_step``) is the primary milestone -- the
     locator has resolved the Zeeman doublet -- while "All converged" (``all_converged_step``)
-    additionally requires every other parameter (frequency, linewidth, c_total) to have
+    additionally requires every other parameter (center_freq, linewidth, c_total) to have
     narrowed too, so it's strictly harder to hit and frequently stays None even on files
     that split-converged fine. Reporting both separately (rather than only "did it finish")
     mirrors the results UI's stopping-criteria toggle so a batch run's summary means the
@@ -52,7 +52,7 @@ def _echo_convergence_breakdown(summaries: list[_MatlabRunSummary]) -> None:
     """
     n = len(summaries)
     typer.echo("\nConvergence breakdown:")
-    for label, field in (("Split converged", "splitting_converged_step"), ("All converged", "all_converged_step")):
+    for label, field in (("Split converged", "primary_converged_step"), ("All converged", "all_converged_step")):
         steps = [getattr(s, field) for s in summaries]
         n_converged = sum(1 for step in steps if step is not None)
         typer.echo(f"  {label}: {n_converged}/{n}")
@@ -79,14 +79,14 @@ class _MatlabSignalProxy:
 
     model = None  # needed by some code paths that check hasattr(true_signal, 'model')
 
-    def __init__(self, freq_lo: float, freq_hi: float, data: Any = None) -> None:
-        self._freq_lo = freq_lo
-        self._freq_hi = freq_hi
-        self._interp_freq: np.ndarray | None = None
+    def __init__(self, probe_lo_phys: float, probe_hi_phys: float, data: Any = None) -> None:
+        self._probe_lo_phys = probe_lo_phys
+        self._probe_hi_phys = probe_hi_phys
+        self._interp_probe_axis_phys: np.ndarray | None = None
         self._interp_signal: np.ndarray | None = None
         if data is not None:
-            order = np.argsort(data.freq_hz)
-            self._interp_freq = np.asarray(data.freq_hz, dtype=float)[order]
+            order = np.argsort(data.probe_axis_phys)
+            self._interp_probe_axis_phys = np.asarray(data.probe_axis_phys, dtype=float)[order]
             signal = np.asarray(data.signal, dtype=float)[order]
             # NaN out any bin this run never actually measured. The file can hold a real
             # recorded mean for every bin, but a given run may have converged early or
@@ -97,34 +97,34 @@ class _MatlabSignalProxy:
             self._interp_signal = np.where(visited, signal, np.nan)
 
     def __call__(self, x: float) -> float:
-        if self._interp_freq is None or self._interp_signal is None:
+        if self._interp_probe_axis_phys is None or self._interp_signal is None:
             return float("nan")
-        return float(np.interp(x, self._interp_freq, self._interp_signal))
+        return float(np.interp(x, self._interp_probe_axis_phys, self._interp_signal))
 
     def parameter_values(self) -> dict[str, float]:
-        return {"frequency": float("nan")}
+        return {"center_freq": float("nan")}
 
     def get_param_value(self, name: str) -> float:
         return float("nan")
 
     def all_bounds(self) -> dict[str, tuple[float, float]]:
-        return {"frequency": (self._freq_lo, self._freq_hi)}
+        return {"center_freq": (self._probe_lo_phys, self._probe_hi_phys)}
 
 
 class _MatlabExperiment:
     """Minimal CoreExperiment duck-type backed by a MatlabDataFile."""
 
-    def __init__(self, data: Any, true_signal: _MatlabSignalProxy, freq_lo: float, freq_hi: float) -> None:
+    def __init__(self, data: Any, true_signal: _MatlabSignalProxy, probe_lo_phys: float, probe_hi_phys: float) -> None:
         self.true_signal = true_signal
         self.noise = None  # real measurements: no CompositeNoise model, mirrors CoreExperiment.noise
-        self.x_min = freq_lo
-        self.x_max = freq_hi
+        self.x_min = probe_lo_phys
+        self.x_max = probe_hi_phys
         self._data = data
-        self._freq_lo = freq_lo
-        self._freq_hi = freq_hi
+        self._probe_lo_phys = probe_lo_phys
+        self._probe_hi_phys = probe_hi_phys
 
     def measure(self, x_unit: float, rng: Any = None):
-        return self._data.measure(x_unit, self._freq_lo, self._freq_hi)
+        return self._data.measure(x_unit, self._probe_lo_phys, self._probe_hi_phys)
 
     @property
     def signal(self):
@@ -140,8 +140,8 @@ class _MatlabExperiment:
 def _matlab_loop(
     locator: Locator,
     data: Any,
-    freq_lo: float,
-    freq_hi: float,
+    probe_lo_phys: float,
+    probe_hi_phys: float,
     no_progress: bool,
 ) -> Generator[Locator]:
     """Adaptive measurement loop — yields locator state after each observation.
@@ -152,15 +152,15 @@ def _matlab_loop(
     """
     while not locator.done():
         x_unit = locator.next()
-        obs = data.measure(x_unit, freq_lo, freq_hi)
+        obs = data.measure(x_unit, probe_lo_phys, probe_hi_phys)
         locator.observe(obs)
 
         if not no_progress:
-            phys_mhz = (freq_lo + x_unit * (freq_hi - freq_lo)) / 1e6
+            phys_mhz = (probe_lo_phys + x_unit * (probe_hi_phys - probe_lo_phys)) / 1e6
             est = locator.belief.estimates()
             unc = locator.belief.uncertainty()
-            freq_est_mhz = est.get("frequency", float("nan")) / 1e6
-            freq_unc_mhz = unc.get("frequency", float("nan")) / 1e6
+            freq_est_mhz = est.get("center_freq", float("nan")) / 1e6
+            freq_unc_mhz = unc.get("center_freq", float("nan")) / 1e6
             typer.echo(
                 f"Step {locator.step_count:3d}: {phys_mhz:7.2f} MHz -> "
                 f"signal={obs.signal_value:.4f}  "
@@ -225,10 +225,10 @@ def matlab_run(
         int,
         typer.Option("--particles", help="SMC particle count (default 10x the simulation default)."),
     ] = 10000,
-    infer_frequency: Annotated[
+    infer_center_freq: Annotated[
         bool,
         typer.Option(
-            "--infer-frequency/--no-infer-frequency",
+            "--infer-center-freq/--no-infer-center-freq",
             help=(
                 "Fit the NV zero-field-splitting center instead of fixing it to the "
                 "textbook 2.87 GHz. Real samples run 1-2 MHz off that value from strain/"
@@ -242,7 +242,7 @@ def matlab_run(
     """Run the SBED locator on real ESR measurements from a MATLAB file.
 
     Loads a .mat file recorded by the NVision lab instrument, then adaptively
-    selects measurement frequencies using the Bayesian SBED strategy. Results
+    selects candidate_x points using the Bayesian SBED strategy. Results
     are written to the artifact store so they appear in the ``nvision serve`` UI.
 
     With ``--all``, runs this same procedure over every ``.mat`` file in
@@ -275,7 +275,7 @@ def matlab_run(
                         no_progress=no_progress,
                         no_ui=no_ui,
                         particles=particles,
-                        infer_frequency=infer_frequency,
+                        infer_center_freq=infer_center_freq,
                     )
                 )
             except Exception as exc:
@@ -309,7 +309,7 @@ def matlab_run(
         no_progress=no_progress,
         no_ui=no_ui,
         particles=particles,
-        infer_frequency=infer_frequency,
+        infer_center_freq=infer_center_freq,
     )
 
 
@@ -336,14 +336,14 @@ def _real_data_c_total_threshold() -> Generator[None]:
     """
     from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
     from nvision.spectra.nv_center import (
-        DEFAULT_NV_CENTER_FREQ_X_MAX,
-        DEFAULT_NV_CENTER_FREQ_X_MIN,
+        DEFAULT_NV_PROBE_X_MAX,
+        DEFAULT_NV_PROBE_X_MIN,
         nv_center_lorentzian_bounds_for_domain,
     )
 
     sim_lo, sim_hi = nv_center_lorentzian_bounds_for_domain(
-        DEFAULT_NV_CENTER_FREQ_X_MIN,
-        DEFAULT_NV_CENTER_FREQ_X_MAX,
+        DEFAULT_NV_PROBE_X_MIN,
+        DEFAULT_NV_PROBE_X_MAX,
         hyperfine="unresolved",
         with_zeeman_splitting=True,
     )["c_total"]
@@ -367,7 +367,7 @@ def _matlab_run_one(
     no_progress: bool,
     no_ui: bool,
     particles: int,
-    infer_frequency: bool,
+    infer_center_freq: bool,
 ) -> _MatlabRunSummary:
     """Run the SBED locator on a single ESR .mat file (the body of ``matlab-run``)."""
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
@@ -379,12 +379,12 @@ def _matlab_run_one(
     typer.echo(f"Loading: {matlab_file}")
     data = MatlabDataFile.load(matlab_file, valid_shots=valid_shots, noise_std_override=noise_std)
 
-    freq_lo = float(data.freq_hz.min())
-    freq_hi = float(data.freq_hz.max())
-    n_freqs = len(data.freq_hz)
+    probe_lo_phys = float(data.probe_axis_phys.min())
+    probe_hi_phys = float(data.probe_axis_phys.max())
+    n_probe_points = len(data.probe_axis_phys)
 
     typer.echo(
-        f"Loaded {n_freqs} frequencies: {freq_lo / 1e6:.1f} to {freq_hi / 1e6:.1f} MHz  |  "
+        f"Loaded {n_probe_points} frequencies: {probe_lo_phys / 1e6:.1f} to {probe_hi_phys / 1e6:.1f} MHz  |  "
         f"valid shots: {data.n_valid_shots}  |  noise_std: {data.noise_std:.4f}"
     )
 
@@ -396,7 +396,7 @@ def _matlab_run_one(
     # positive-only sign applies directly — but the magnitude cap doesn't; see
     # _REAL_DATA_C_TOTAL_BOUNDS.
     #
-    # frequency is inferred (--infer-frequency), not pinned to the simulated grid's 2870 MHz:
+    # center_freq is inferred (--infer-center-freq), not pinned to the simulated grid's 2870 MHz:
     # both files' sweeps are centered on 2870 MHz, but their doublets sit at 2871.62 and
     # 2871.13 MHz, and pinning drops R^2 from 0.976 to 0.824 on the narrower file.
     #
@@ -406,12 +406,12 @@ def _matlab_run_one(
     # "explain" only the half it can see — which is what the narrower file did: center
     # 2840 MHz, split 51.7 MHz, lower peak at 2789 MHz against data starting at 2830 MHz.
     # A quarter of the span keeps the doublet inside a sweep that was deliberately
-    # recorded around it. Note this cannot be done by narrowing the "frequency" bound
+    # recorded around it. Note this cannot be done by narrowing the "center_freq" bound
     # instead: nv_center_smc_belief reuses that same entry as the probe x-domain, so
     # tightening it would stop the locator from ever measuring the wings.
-    span = freq_hi - freq_lo
+    span = probe_hi_phys - probe_lo_phys
     locator_bounds = {
-        "frequency": (freq_lo, freq_hi),
+        "center_freq": (probe_lo_phys, probe_hi_phys),
         "zeeman_split": (0.0, span / 4.0),
         "c_total": _REAL_DATA_C_TOTAL_BOUNDS,
     }
@@ -430,7 +430,7 @@ def _matlab_run_one(
         # centred on the noise measured from (or overridden for) this recording.
         noise_model=OverFrequencyGaussianNoise(std=data.noise_std).to_noise_signal_model(),
         max_steps=max_steps,
-        with_fixed_frequency=not infer_frequency,
+        with_fixed_center_freq=not infer_center_freq,
         num_particles=particles,
         min_exploration_frac=0.05,
     )
@@ -442,10 +442,10 @@ def _matlab_run_one(
     ts_str = datetime.now(UTC).isoformat()
 
     if not no_ui:
-        run_result = _run_with_observer(locator, data, freq_lo, freq_hi, no_progress)
+        run_result = _run_with_observer(locator, data, probe_lo_phys, probe_hi_phys, no_progress)
     else:
         # Plain loop — no artifact tracking
-        for _ in _matlab_loop(locator, data, freq_lo, freq_hi, no_progress):
+        for _ in _matlab_loop(locator, data, probe_lo_phys, probe_hi_phys, no_progress):
             pass
         run_result = None
 
@@ -453,8 +453,8 @@ def _matlab_run_one(
 
     # --- Final report ---
     typer.echo("")
-    if locator.splitting_converged_step is not None:
-        typer.echo(f"Converged at step {locator.splitting_converged_step}.")
+    if locator.primary_converged_step is not None:
+        typer.echo(f"Converged at step {locator.primary_converged_step}.")
     else:
         typer.echo("Did not converge within the step budget.")
 
@@ -469,7 +469,7 @@ def _matlab_run_one(
     typer.echo("Final parameter estimates:")
     for param, val in final_est.items():
         unc_val = final_unc.get(param, float("nan"))
-        unit = "MHz" if "frequency" in param or "split" in param or "linewidth" in param else ""
+        unit = "MHz" if "center_freq" in param or "split" in param or "linewidth" in param else ""
         scale = 1e-6 if unit == "MHz" else 1.0
         typer.echo(f"  {param:20s}: {val * scale:.4f} +/- {unc_val * scale:.4f} {unit}".rstrip())
 
@@ -480,8 +480,8 @@ def _matlab_run_one(
             run_result=run_result,
             data=data,
             matlab_file=matlab_file,
-            freq_lo=freq_lo,
-            freq_hi=freq_hi,
+            probe_lo_phys=probe_lo_phys,
+            probe_hi_phys=probe_hi_phys,
             max_steps=max_steps,
             elapsed=elapsed,
             ts_str=ts_str,
@@ -500,14 +500,14 @@ def _matlab_run_one(
     if out is not None:
         result = {
             "file": str(matlab_file),
-            "n_freqs": n_freqs,
-            "freq_lo_mhz": freq_lo / 1e6,
-            "freq_hi_mhz": freq_hi / 1e6,
+            "n_probe_points": n_probe_points,
+            "probe_lo_mhz": probe_lo_phys / 1e6,
+            "probe_hi_mhz": probe_hi_phys / 1e6,
             "n_valid_shots": data.n_valid_shots,
             "noise_std": data.noise_std,
             "max_steps": max_steps,
             "total_steps": locator.step_count,
-            "splitting_converged_step": locator.splitting_converged_step,
+            "primary_converged_step": locator.primary_converged_step,
             "all_converged_step": locator.all_converged_step,
             "elapsed_s": round(elapsed, 2),
             "estimates": {k: float(v) for k, v in final_est.items()},
@@ -519,7 +519,7 @@ def _matlab_run_one(
 
     return _MatlabRunSummary(
         file_name=Path(matlab_file).name,
-        splitting_converged_step=locator.splitting_converged_step,
+        primary_converged_step=locator.primary_converged_step,
         all_converged_step=locator.all_converged_step,
         total_steps=locator.step_count,
     )
@@ -528,16 +528,16 @@ def _matlab_run_one(
 def _run_with_observer(
     locator: Locator,
     data: Any,
-    freq_lo: float,
-    freq_hi: float,
+    probe_lo_phys: float,
+    probe_hi_phys: float,
     no_progress: bool,
 ) -> Any:
     """Run the measurement loop with Observer tracking; return RunResult."""
     from nvision.models.observer import Observer
 
-    proxy = _MatlabSignalProxy(freq_lo, freq_hi)
-    observer = Observer(true_signal=proxy, x_min=freq_lo, x_max=freq_hi)
-    return observer.watch(_matlab_loop(locator, data, freq_lo, freq_hi, no_progress))
+    proxy = _MatlabSignalProxy(probe_lo_phys, probe_hi_phys)
+    observer = Observer(true_signal=proxy, x_min=probe_lo_phys, x_max=probe_hi_phys)
+    return observer.watch(_matlab_loop(locator, data, probe_lo_phys, probe_hi_phys, no_progress))
 
 
 def _write_artifacts(
@@ -546,8 +546,8 @@ def _write_artifacts(
     run_result: Any,
     data: Any,
     matlab_file: Path,
-    freq_lo: float,
-    freq_hi: float,
+    probe_lo_phys: float,
+    probe_hi_phys: float,
     max_steps: int,
     elapsed: float,
     ts_str: str,
@@ -585,21 +585,21 @@ def _write_artifacts(
     strat_name = "Bayesian-SBED"
     repeat_id = 0
 
-    proxy = _MatlabSignalProxy(freq_lo, freq_hi, data=data)
-    experiment = _MatlabExperiment(data, proxy, freq_lo, freq_hi)
+    proxy = _MatlabSignalProxy(probe_lo_phys, probe_hi_phys, data=data)
+    experiment = _MatlabExperiment(data, proxy, probe_lo_phys, probe_hi_phys)
 
     # Build DataFrames from the RunResult
-    history_df = run_result_to_history_df(run_result, repeat_id, freq_lo, freq_hi)
+    history_df = run_result_to_history_df(run_result, repeat_id, probe_lo_phys, probe_hi_phys)
 
     locator_result = locator.result()
-    finalize_record = run_result_to_finalize_record(run_result, locator_result, repeat_id, freq_lo, freq_hi)
-    finalize_record["splitting_converged_step"] = locator.splitting_converged_step
+    finalize_record = run_result_to_finalize_record(run_result, locator_result, repeat_id, probe_lo_phys, probe_hi_phys)
+    finalize_record["primary_converged_step"] = locator.primary_converged_step
     finalize_record["all_converged_step"] = locator.all_converged_step
     finalize_record["locator_steps"] = locator.step_count
     finalize_record["duration_ms"] = elapsed * 1000
     finalize_df = pl.DataFrame([finalize_record])
 
-    stop_reason = "converged" if locator.splitting_converged_step is not None else "max_steps"
+    stop_reason = "converged" if locator.primary_converged_step is not None else "max_steps"
 
     entry_base, main_result_row, current_history_df = generate_attempt_metrics(
         n_repeats=1,
@@ -636,19 +636,19 @@ def _write_artifacts(
         run_result=run_result,
     )
 
-    # Alternative "actual averages per frequency" view — the per-bin mean/std/min/max
+    # Alternative "actual averages per-probe-point" view — the per-bin mean/std/min/max
     # of every shot recorded in the .mat file, independent of which bins the locator
     # actually visited (contrast with the sampled-measurements scan plot above).
     if data.signal_mean is not None and data.signal_std is not None:
-        from nvision.runner.plots_data import write_matlab_freq_stats_data
+        from nvision.runner.plots_data import write_matlab_probe_stats_data
 
-        stats_path = tree.scans_dir / f"{slug}_freq_stats.json.gz"
-        stats_bytes = write_matlab_freq_stats_data(
-            data.freq_hz, data.signal_mean, data.signal_std, data.signal_min, data.signal_max
+        stats_path = tree.scans_dir / f"{slug}_probe_stats.json.gz"
+        stats_bytes = write_matlab_probe_stats_data(
+            data.probe_axis_phys, data.signal_mean, data.signal_std, data.signal_min, data.signal_max
         )
         if stats_bytes is not None:
             stats_entry = entry_base.copy()
-            stats_entry["type"] = "matlab_freq_stats"
+            stats_entry["type"] = "matlab_probe_stats"
             stats_entry["path"] = str(stats_path.relative_to(out_dir))
             stats_entry["_bytes"] = stats_bytes
             plot_manifest.append(stats_entry)

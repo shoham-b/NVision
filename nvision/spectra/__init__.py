@@ -4,8 +4,8 @@ from nvision.spectra.composite import CompositePeakModel
 from nvision.spectra.gaussian import GaussianModel
 from nvision.spectra.lorentzian import LorentzianModel
 from nvision.spectra.nv_center import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    DEFAULT_NV_PROBE_X_MAX,
+    DEFAULT_NV_PROBE_X_MIN,
     MAX_K_NP,
     MAX_ZEEMAN_SPLIT,
     MIN_K_NP,

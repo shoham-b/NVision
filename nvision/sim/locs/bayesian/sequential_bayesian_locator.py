@@ -111,7 +111,7 @@ class SequentialBayesianLocator(Locator):
     convergence_threshold : float
         Relative uncertainty threshold (fraction of bound width) below which
         we consider parameters converged and stop early.  Default ``0.01`` = 1 %.
-    scan_param : str | None
+    probe_axis_param : str | None
         The parameter we are proposing measurements along. Defaults to the
         first parameter in the belief.
     """
@@ -121,7 +121,7 @@ class SequentialBayesianLocator(Locator):
         belief: AbstractMarginalDistribution,
         max_steps: int = 450,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
         convergence_patience_steps: int = 8,
     ) -> None:
         super().__init__(belief)
@@ -133,27 +133,27 @@ class SequentialBayesianLocator(Locator):
         self.step_count: int = 0
         # Bayesian acquisition count
         self.inference_step_count: int = 0
-        # "frequency" is always the probe x-axis even when it's a fixed (not
+        # "center_freq" is always the probe x-axis even when it's a fixed (not
         # inferred) model parameter and therefore absent from parameter_names().
-        self._scan_param = scan_param or (
-            "frequency" if "frequency" in belief.physical_param_bounds else belief.model.parameter_names()[0]
+        self._probe_axis_param = probe_axis_param or (
+            "center_freq" if "center_freq" in belief.physical_param_bounds else belief.model.parameter_names()[0]
         )
         self._convergence_patience_steps = max(1, int(convergence_patience_steps))
         self._convergence_streak = 0
         # The parameter whose convergence defines the "primary milestone"
-        # (splitting_converged_step) -- zeeman_split/split when the model has
-        # one (the actual free/scientific-interest quantity once frequency is
-        # fixed by default), else frequency itself for legacy free-frequency
+        # (primary_converged_step) -- zeeman_split/split when the model has
+        # one (the actual free/scientific-interest quantity once center_freq is
+        # fixed by default), else center_freq itself for legacy free-center_freq
         # configs. See resolve_primary_param.
         self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
-        self.splitting_converged_step: int | None = None
+        self.primary_converged_step: int | None = None
         self.all_converged_step: int | None = None
         self._is_converged: bool = False
 
         self._true_signal = None
 
         # Set domain bounds for acquisition.
-        self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._scan_param]
+        self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._probe_axis_param]
         self._full_domain_lo, self._full_domain_hi = float(self._scan_lo), float(self._scan_hi)
         # Which part of the probe axis candidates may be drawn from. Owned here (never by the belief):
         # narrowing it changes only where we scan, not the belief's parameter bounds or particles.
@@ -170,7 +170,7 @@ class SequentialBayesianLocator(Locator):
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         convergence_patience_steps: int = 8,
         **grid_config: object,
@@ -189,7 +189,7 @@ class SequentialBayesianLocator(Locator):
             belief,
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
-            scan_param=scan_param,
+            probe_axis_param=probe_axis_param,
             convergence_patience_steps=convergence_patience_steps,
         )
 
@@ -218,13 +218,13 @@ class SequentialBayesianLocator(Locator):
         if physical_uncertainties is None:
             physical_uncertainties = self.belief.uncertainty()
         if (
-            self.splitting_converged_step is None
+            self.primary_converged_step is None
             and self._primary_param is not None
             and self._primary_param in physical_uncertainties
         ):
             primary_threshold = self._effective_primary_threshold()
             if float(physical_uncertainties[self._primary_param]) < primary_threshold:
-                self.splitting_converged_step = self.step_count
+                self.primary_converged_step = self.step_count
 
         if self.all_converged_step is None and self._target_params_converged(physical_uncertainties):
             self.all_converged_step = self.step_count
@@ -245,20 +245,20 @@ class SequentialBayesianLocator(Locator):
         2. The absolute ``max_steps`` budget is exhausted.
 
         This used to also stop early whenever a dynamic budget estimate
-        (``n_req = step_count * (crlb_frequency()/threshold)**2``, scaled by
-        ``NVISION_FREQ_CRLB_SAFETY_FACTOR``) said the target precision was
+        (``n_req = step_count * (crlb_center_freq()/threshold)**2``, scaled by
+        ``NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR``) said the target precision was
         unreachable, or already reached, within budget. Both the "unreachable"
         and "reached early" branches trusted a single-step snapshot of
-        ``crlb_frequency()`` -- which is derived from the belief's *current*
+        ``crlb_center_freq()`` -- which is derived from the belief's *current*
         (possibly still-wrong, possibly still-degenerate) parameter estimates,
         not the true signal. Verified two concrete failure modes against a
         width-degenerate Voigt signal (homogeneous_linewidth/sigma_inhom don't
         converge on their own): (a) a pessimistic snapshot early on quit after a
-        single measurement even though frequency kept improving for the entire
+        single measurement even though center_freq kept improving for the entire
         step budget when forced to keep running; (b) the belief locked onto a
         wrong mode whose *own* narrow-looking CRLB snapshot satisfied the
         "budget reached" branch at a fraction of max_steps, reporting a
-        confidently wrong frequency tens of MHz off. Both are the same
+        confidently wrong center_freq tens of MHz off. Both are the same
         underlying risk the convergence-patience streak and
         `_check_crlb_early_stop` already guard against for the "declare
         converged" path -- removing this second, snapshot-only stopping path
@@ -286,11 +286,11 @@ class SequentialBayesianLocator(Locator):
         """Stop when converged or step budget is exhausted."""
         return self._acquisition_done()
 
-    def _effective_freq_threshold(self) -> float:
-        """Absolute frequency-uncertainty ceiling for convergence (physical Hz)."""
-        from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD
+    def _effective_center_freq_threshold(self) -> float:
+        """Absolute center_freq-uncertainty ceiling for convergence (physical Hz)."""
+        from nvision.sim.defaults import NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD
 
-        return NVISION_FREQ_CONVERGENCE_THRESHOLD
+        return NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD
 
     def _effective_primary_threshold(self) -> float:
         """Absolute uncertainty ceiling for ``self._primary_param`` (physical units).
@@ -298,14 +298,17 @@ class SequentialBayesianLocator(Locator):
         Resolves via PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS, which naturally lands on
         NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD when the primary param is
         zeeman_split (already tuned to actually bind, unlike the generic bound-width
-        fallback -- see nvision/sim/defaults.py), or the frequency threshold
-        unchanged for legacy free-frequency configs.
+        fallback -- see nvision/sim/defaults.py), or the center_freq threshold
+        unchanged for legacy free-center_freq configs.
         """
-        from nvision.sim.defaults import NVISION_FREQ_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+        from nvision.sim.defaults import (
+            NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD,
+            PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
+        )
 
         if self._primary_param is None:
-            return NVISION_FREQ_CONVERGENCE_THRESHOLD
-        return PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(self._primary_param, NVISION_FREQ_CONVERGENCE_THRESHOLD)
+            return NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD
+        return PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(self._primary_param, NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD)
 
     def _target_params_converged(self, physical_uncertainties=None) -> bool:
         """Check convergence on configured target parameters.
@@ -314,7 +317,7 @@ class SequentialBayesianLocator(Locator):
         below ``convergence_threshold`` as a fraction of its physical bound
         width (e.g. ``0.01`` = 1 %).  Parameters listed in
         ``PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS`` (from env, e.g.
-        ``NVISION_FREQ_CONVERGENCE_THRESHOLD``) use an absolute uncertainty
+        ``NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD``) use an absolute uncertainty
         ceiling instead.  The overall (RMS) relative uncertainty across all
         target parameters must also be below the same threshold.
 
@@ -346,10 +349,10 @@ class SequentialBayesianLocator(Locator):
 
         relative_uncertainties: dict[str, float] = {}
         for name, unc in check_items:
-            if name == "frequency":
+            if name == "center_freq":
                 # CRLB-aware ceiling: bound_width chosen so that
-                # unc / bound_width < threshold  ⟺  unc < effective_freq_threshold.
-                bound_width = self._effective_freq_threshold() / self.convergence_threshold
+                # unc / bound_width < threshold  ⟺  unc < effective_center_freq_threshold.
+                bound_width = self._effective_center_freq_threshold() / self.convergence_threshold
             else:
                 bound_width = param_convergence_bound_width(name, self.convergence_threshold, bounds)
             if bound_width <= 0:
@@ -385,7 +388,7 @@ class SequentialBayesianLocator(Locator):
         if true_signal is None:
             return 0.0
 
-        lo_phys, hi_phys = self.belief.physical_param_bounds[self._scan_param]
+        lo_phys, hi_phys = self.belief.physical_param_bounds[self._probe_axis_param]
         domain_width = hi_phys - lo_phys
         if domain_width <= 0:
             return 0.0

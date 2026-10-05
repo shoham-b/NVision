@@ -44,14 +44,14 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         belief,
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
         batch_chunk_size: int = SOBOL_BATCH_CHUNK_SIZE,
     ) -> None:
         super().__init__(
             belief,
             max_steps,
             convergence_threshold,
-            scan_param,
+            probe_axis_param,
         )
         self.belief.auto_resample = False
         self._is_converged = False
@@ -64,7 +64,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         builder=None,
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
         parameter_bounds=None,
         **grid_config,
     ):
@@ -75,7 +75,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
             belief,
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
-            scan_param=scan_param,
+            probe_axis_param=probe_axis_param,
         )
 
     def _acquire(self) -> float:

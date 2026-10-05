@@ -16,7 +16,7 @@ def _curve_fn(xs: np.ndarray, a: float) -> np.ndarray:
 
 
 def _make_p0(freq, _half, _hf) -> list[float]:
-    return [float(freq)]  # the "frequency" candidate component is the slope start
+    return [float(freq)]  # the "center_freq" candidate component is the slope start
 
 
 def _run(candidates, monkeypatch, **kwargs):
@@ -64,19 +64,19 @@ def test_physical_priors_come_from_parameter_bounds_priors():
         "_priors": {
             "homogeneous_linewidth": (5e5, 2e5),
             "sigma_inhom": (4e5, 1e5),
-            "frequency": ("sin^2", 1.0),  # coarse non-Gaussian shape: never a Gaussian prior
+            "center_freq": ("sin^2", 1.0),  # coarse non-Gaussian shape: never a Gaussian prior
             "k_np": (2.0, 0.5),
         },
     }
     bounds = {"homogeneous_linewidth": (1e5, 3e6), "sigma_inhom": (0.0, 1.2e6), "k_np": (1.0, 5.0)}
-    names = ["frequency", "homogeneous_linewidth", "sigma_inhom", "k_np"]
+    names = ["center_freq", "homogeneous_linewidth", "sigma_inhom", "k_np"]
 
-    map_priors = loc._resolve_physical_priors(names, "frequency", bounds)
+    map_priors = loc._resolve_physical_priors(names, "center_freq", bounds)
     assert map_priors == {"homogeneous_linewidth": (5e5, 2e5), "sigma_inhom": (4e5, 1e5)}
 
-    all_priors = loc._resolve_physical_priors(names, "frequency", bounds, names=frozenset(names))
+    all_priors = loc._resolve_physical_priors(names, "center_freq", bounds, names=frozenset(names))
     assert all_priors["k_np"] == (2.0, 0.5)
-    assert "frequency" not in all_priors
+    assert "center_freq" not in all_priors
 
 
 def test_early_stop_does_not_trigger_above_floor(monkeypatch):

@@ -9,7 +9,7 @@ The UI is a single-page application with no build step. All files are served dir
 | `index.html` | — | HTML shell and `<script>` load order |
 | `styles.css` | — | All CSS |
 | `bootstrap.js` | ~100 | Loads `manifest.js` / `settings.js` from disk; populates `window.MANIFEST`, `window.SETTINGS`, `window.NVISION_ASSET_PREFIX` |
-| `format-utils.js` | ~70 | Pure formatting helpers (`formatFrequency`, `escapeHtml`, `formatMetricValue`, etc.) — no DOM or Plotly deps |
+| `format-utils.js` | ~70 | Pure formatting helpers (`formatHz`, `escapeHtml`, `formatMetricValue`, etc.) — no DOM or Plotly deps |
 | `plotly-utils.js` | ~80 | Plotly CDN loading, JSON/gz fetch, array decode (`_fetchJson`, `_decodePlotlyFigure`, `resolveAssetPath`, etc.) |
 | `run-status.js` | ~115 | Run status banner polling + help-toggle accordion buttons |
 | `app.js` | ~3950 | `main()` — all scan/Bayesian/comparison UI logic |
@@ -48,7 +48,7 @@ All files write to `window` globals (no modules, no bundler).
 | `ensurePlotly` | `plotly-utils.js` | `app.js` |
 | `_fetchJson` | `plotly-utils.js` | `app.js` |
 | `_decodePlotlyFigure` | `plotly-utils.js` | `app.js` |
-| `formatFrequency` etc. | `format-utils.js` | `app.js` |
+| `formatHz` etc. | `format-utils.js` | `app.js` |
 | `renderRunStatusBanner` etc. | `run-status.js` | `app.js` (`initRunStatusBanner`) |
 | `main` | `app.js` | `reload.js` |
 | `window.NVISION_ALL_GENERATORS` | `bootstrap.js` (live mode only) | `app.js` (generator/study picker) |

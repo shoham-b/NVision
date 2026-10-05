@@ -14,9 +14,9 @@ def make_smc(
 ) -> SMCMarginalDistribution:
     """SMC belief whose particles live on the unit cube of ``physical_bounds``.
 
-    ``physical_bounds["frequency"]`` (if present) is the probe axis; otherwise the probe axis is ``[0, 1]``.
+    ``physical_bounds["center_freq"]`` (if present) is the probe axis; otherwise the probe axis is ``[0, 1]``.
     """
-    x_bounds = physical_bounds.get("frequency", (0.0, 1.0))
+    x_bounds = physical_bounds.get("center_freq", (0.0, 1.0))
     return cls(
         model=UnitCubeSignalModel(model, dict(physical_bounds), x_bounds),
         physical_param_bounds=dict(physical_bounds),

@@ -3,7 +3,7 @@
 Evolves the acquisition-point-selection logic of the `Bayesian-SBED` locator
 (`nvision/sim/locs/bayesian/sbed_locator.py`), scored on how few measurements
 it needs to reach a converged Zeeman-splitting estimate. See
-`.claude/skills/locator-evaluation` for why `splitting_converged_step` is the
+`.claude/skills/locator-evaluation` for why `primary_converged_step` is the
 right metric here, not the locator's own stop reason.
 
 ## Files

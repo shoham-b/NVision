@@ -32,7 +32,7 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
     x_min_gen, x_max_gen = 2.63e9, 2.65e9
     gen = NVCenterCoreGenerator(x_min=x_min_gen, x_max=x_max_gen, variant="lorentzian")
     true_signal = gen.generate(rng)
-    x_min, x_max = true_signal.get_param_bounds("frequency")
+    x_min, x_max = true_signal.get_param_bounds("center_freq")
 
     # 0.05 is a typical noise level in tests
     noise_std = 0.05
@@ -64,7 +64,7 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
     console.print(
         f"[bold blue]Starting Debug Run[/bold blue] (seed={seed}, sweep={initial_sweep_steps}, type={locator_type})"
     )
-    console.print(f"True Frequency: [green]{true_params['frequency']:.4e}[/green]")
+    console.print(f"True Frequency: [green]{true_params['center_freq']:.4e}[/green]")
 
     table = Table(title=f"{locator_type.upper()} Step-by-Step Report")
     table.add_column("Step", justify="right")
@@ -110,8 +110,8 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
         est = belief.estimates()
         unc = belief.uncertainty()
 
-        f_mean = est.get("frequency", 0.0)
-        f_std = unc.get("frequency", 0.0)
+        f_mean = est.get("center_freq", 0.0)
+        f_std = unc.get("center_freq", 0.0)
         d_mean = est.get("dip_depth", 0.0)
         b_mean = est.get("background", 1.0)
 
@@ -151,7 +151,7 @@ def debug_run(seed: int = 42, initial_sweep_steps: int = 0, locator_type: str = 
 
     # Final check
     est = locator.belief.estimates()
-    error = abs(est["frequency"] - true_params["frequency"])
+    error = abs(est["center_freq"] - true_params["center_freq"])
     console.print(f"\nFinal Frequency Error: [bold red]{error:.4e}[/bold red]")
     if error > 1e7:  # 10MHz error is large for a converged run
         console.print("[bold reverse red]FAILED TO CONVERGE TO TRUE VALUE[/bold reverse red]")

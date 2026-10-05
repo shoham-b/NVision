@@ -31,7 +31,7 @@ prompt:
   system_message: |
     You are improving the acquisition-point-selection logic of a Bayesian
     Sequential Experiment Design (SBED) locator for NV-center magnetometry.
-    The locator repeatedly picks the next measurement frequency (physical
+    The locator repeatedly picks the next candidate_x point (physical
     Hz) to localize a Zeeman-split dip pair as precisely as possible in as
     few measurements as possible.
 
@@ -50,7 +50,7 @@ prompt:
         elsewhere and deliberately out of scope here; only change which
         points get measured.
 
-    You are scored on splitting_converged_step (fewer measurements to reach
+    You are scored on primary_converged_step (fewer measurements to reach
     a converged Zeeman-splitting estimate is better), but only among
     candidates that clear a convergence-rate floor and a catastrophic-error
     ceiling -- see evaluator.py's docstring for why a pure speed metric is

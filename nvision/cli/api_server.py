@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 
 from nvision.cache import CacheBridge
 from nvision.cache.hashing import stable_config_hash
-from nvision.cache.locator_keys import combination_base_cache_config
+from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import CombinationGrid
@@ -89,6 +89,26 @@ def _dedupe_latest_combos(combos: list[dict]) -> list[dict]:
         if current is None or combo.get("updated_at", "") >= current.get("updated_at", ""):
             latest[key] = combo
     return list(latest.values())
+
+
+def _drop_unviewable_combos(combos: list[dict]) -> list[dict]:
+    """Drop combos stored under a cache schema the current viewer cannot read, loudly.
+
+    Entries older than MIN_VIEWABLE_CACHE_SCHEMA_VERSION (v8-era entries with no stored schema
+    included) carry pre-rename names (``frequency``, ``err_fb_*``, ...) that the UI no longer
+    understands; opening them would half-render with empty panels instead of failing. They are
+    left on disk untouched -- only hidden from the viewer -- and need a full re-run, not ``nv render``.
+    """
+    viewable = [c for c in combos if (c.get("schema_version") or 0) >= MIN_VIEWABLE_CACHE_SCHEMA_VERSION]
+    n_dropped = len(combos) - len(viewable)
+    if n_dropped:
+        log.warning(
+            "Hiding %d cached combination(s) written under cache schema < %d (pre center_freq rename): "
+            "their names are incompatible with the current UI. Re-run them (a full `nv run`, not `nv render`).",
+            n_dropped,
+            MIN_VIEWABLE_CACHE_SCHEMA_VERSION,
+        )
+    return viewable
 
 
 def _build_aggregate_entries(result_rows: list[dict]) -> tuple[list[dict], dict[str, bytes]]:
@@ -216,7 +236,7 @@ def _scan_field_row(combo: dict, repeat_entries: list[dict] | None, main_row: di
         "repeat": main_row.get("attempt"),
         "failure_reason": main_row.get("failure_reason"),
         "measurements": main_row.get("measurements"),
-        "splitting_converged_step": main_row.get("splitting_converged_step"),
+        "primary_converged_step": main_row.get("primary_converged_step"),
         "series": scan_entry.get("series"),
         "true_params": scan_entry.get("true_params"),
     }
@@ -313,7 +333,9 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             if cache["combos"] is None:
                 bridge = _bridge()
                 try:
-                    cache["combos"] = _dedupe_latest_combos(bridge.list_combinations_with_updated_at())
+                    cache["combos"] = _dedupe_latest_combos(
+                        _drop_unviewable_combos(bridge.list_combinations_with_updated_at())
+                    )
                 finally:
                     bridge.close()
             return cache["combos"]

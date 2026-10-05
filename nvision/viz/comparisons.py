@@ -51,7 +51,7 @@ class ComparisonsMixin:
                     gen,
                     noise,
                     metric="abs_err_x",
-                    title_metric="Absolute Frequency Error",
+                    title_metric="Absolute Primary-Parameter Error",
                     y_axis_title="Error (Hz)",
                     manifest_entries=manifest_entries,
                 )
@@ -93,14 +93,14 @@ class ComparisonsMixin:
                 )
 
             # Metric 5: Splitting convergence step
-            if "splitting_converged_step" in sub_df.columns:
-                conv_df = sub_df.filter(pl.col("splitting_converged_step").is_not_null())
+            if "primary_converged_step" in sub_df.columns:
+                conv_df = sub_df.filter(pl.col("primary_converged_step").is_not_null())
                 if not conv_df.is_empty():
                     self._create_comparison_plot(
                         conv_df,
                         gen,
                         noise,
-                        metric="splitting_converged_step",
+                        metric="primary_converged_step",
                         title_metric="Splitting Convergence Step",
                         y_axis_title="Step #",
                         manifest_entries=manifest_entries,

@@ -43,7 +43,7 @@ def _promote_uncert(estimate: dict[str, object], metrics: dict[str, float]) -> N
 
     preferred_uncert = _first_finite(
         estimate,
-        ("uncert_frequency", "uncert_position", "uncert_x1", "uncert_peak_x"),
+        ("uncert_center_freq", "uncert_position", "uncert_x1", "uncert_peak_x"),
     )
     if preferred_uncert is not None:
         metrics["uncert"] = preferred_uncert

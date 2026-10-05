@@ -42,7 +42,7 @@ def run_simulation(
     x_min_gen, x_max_gen = 2.63e9, 2.65e9
     gen = NVCenterCoreGenerator(x_min=x_min_gen, x_max=x_max_gen, variant="lorentzian")
     true_signal = gen.generate(random.Random(seed))
-    x_min, x_max = true_signal.get_param_bounds("frequency")
+    x_min, x_max = true_signal.get_param_bounds("center_freq")
 
     exp = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
 
@@ -84,7 +84,7 @@ def run_simulation(
         step_times_next.append(t_next)
 
         # Keep track of active candidate count
-        candidates = locator.belief.get_candidates()
+        candidates = locator.belief.get_candidate_x_phys()
         candidate_counts.append(len(candidates))
 
         # Time observation / particle update

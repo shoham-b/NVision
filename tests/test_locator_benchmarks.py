@@ -33,10 +33,10 @@ from tests.noise import gaussian_noise
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
     true_signal = generator.generate(rng)
-    # "frequency" is always in true_signal.bounds (the domain the signal was
+    # "center_freq" is always in true_signal.bounds (the domain the signal was
     # generated over), even though it's fixed (not inferred, not in
     # parameter_names) by NVCenterCoreGenerator's default -- see its docstring.
-    x_min, x_max = true_signal.get_param_bounds("frequency")
+    x_min, x_max = true_signal.get_param_bounds("center_freq")
     assert x_min is not None
     return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)
 

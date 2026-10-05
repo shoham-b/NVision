@@ -10,7 +10,7 @@ def main():
     # We can look up NVCenter defaults or use some representative values.
     # For NVCenter, the domain width for frequency is ~100 MHz, target is usually ~1e5 Hz (0.1 MHz).
     target_uncertainties = {
-        "frequency": 2e5,  # 200 kHz
+        "center_freq": 2e5,  # 200 kHz
         "linewidth": 5e5,  # 500 kHz
         "dip_depth": 0.05,
         "k_np": 0.05,

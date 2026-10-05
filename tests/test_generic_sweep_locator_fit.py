@@ -1,4 +1,4 @@
-"""Tests that GenericSweepLocator.finalize() produces accurate frequency estimates.
+"""Tests that GenericSweepLocator.finalize() produces accurate center_freq estimates.
 
 The locator uses a full model fit (scipy curve_fit) rather than centroid heuristics.
 These tests verify accuracy in physically realistic regimes.
@@ -21,7 +21,7 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 from tests.noise import gaussian_noise
 
 _BOUNDS = {
-    "frequency": (2.82, 2.92),
+    "center_freq": (2.82, 2.92),
     "linewidth": (1e-4, 0.02),
     "split": (0.001, 0.015),
     "k_np": (1.0, 5.0),
@@ -33,10 +33,10 @@ def _build_locator(domain_lo=2.82, domain_hi=2.92, n_steps=100) -> GenericSweepL
     # A resolved N-14 triplet with split/k_np inferred: _BOUNDS carries both, and
     # these tests assert on recovering them. (This used to be the model's default;
     # the default is now hyperfine="unresolved", so it has to be asked for.)
-    phys_model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_frequency=False)
+    phys_model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_center_freq=False)
     unit_model = UnitCubeSignalModel(
         phys_model,
-        param_bounds_phys=dict(_BOUNDS) | {"frequency": (domain_lo, domain_hi)},
+        param_bounds_phys=dict(_BOUNDS) | {"center_freq": (domain_lo, domain_hi)},
         x_bounds_phys=(domain_lo, domain_hi),
     )
     belief = SMCMarginalDistribution(
@@ -70,9 +70,9 @@ def _inject_sweep_data(
     # Must match _build_locator's model: a resolved N-14 triplet with split/k_np
     # free. With the default hyperfine="unresolved" the model ignores the
     # true_params split/k_np below and emits a single dip instead.
-    phys_model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_frequency=False)
+    phys_model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_center_freq=False)
     true_params = NVCenterLorentzianSpectrum(
-        frequency=true_freq,
+        center_freq=true_freq,
         linewidth=true_lw,
         split=true_split,
         k_np=true_k_np,
@@ -142,7 +142,7 @@ def _inject_sweep_data_for(locator, model, true_params, noise_std, seed=1) -> No
     ],
 )
 def test_sweep_fit_frequency_accuracy(k_np, desc):
-    """Model fit should locate center frequency within 0.1% of domain width."""
+    """Model fit should locate ``center_freq`` within 0.1% of domain width."""
     domain_lo, domain_hi = 2.82, 2.92
     true_freq = 2.87
 
@@ -154,13 +154,13 @@ def test_sweep_fit_frequency_accuracy(k_np, desc):
     locator.finalize()
 
     res = locator.result()
-    assert "frequency" in res, f"No frequency in result for {desc}"
+    assert "center_freq" in res, f"No center_freq in result for {desc}"
     assert "uncert" in res, f"No uncert in result for {desc}"
 
-    err = abs(res["frequency"] - true_freq)
+    err = abs(res["center_freq"] - true_freq)
     tol = 0.005 * (domain_hi - domain_lo)  # 0.5% of domain = 500 kHz for 100 MHz window
     assert err < tol, (
-        f"{desc}: freq error {err:.6f} GHz > tol {tol:.6f} GHz (est={res['frequency']:.6f}, true={true_freq})"
+        f"{desc}: freq error {err:.6f} GHz > tol {tol:.6f} GHz (est={res['center_freq']:.6f}, true={true_freq})"
     )
 
 
@@ -175,12 +175,12 @@ def test_sweep_fit_narrow_dip():
     locator.finalize()
 
     res = locator.result()
-    err = abs(res["frequency"] - true_freq)
+    err = abs(res["center_freq"] - true_freq)
     assert err < 0.003, f"Narrow-dip fit error {err:.4f} GHz"
 
 
 def test_sweep_fit_acquisition_window_contains_true_freq():
-    """Acquisition window should bracket the true frequency after finalize()."""
+    """Acquisition window should bracket the true center_freq after finalize()."""
     domain_lo, domain_hi = 2.82, 2.92
     true_freq = 2.87
 
@@ -206,21 +206,21 @@ def test_sweep_fit_via_run_loop():
     from nvision.spectra.signal import TrueSignal
 
     true_params = NVCenterLorentzianSpectrum(
-        frequency=2.85,
+        center_freq=2.85,
         linewidth=0.003,
         c_total=0.3,
         k_np=3.4,
         split=0.003,
     )
     bounds = {
-        "frequency": (2.8, 2.9),
+        "center_freq": (2.8, 2.9),
         "linewidth": (0.001, 0.02),
         "c_total": (0.0, 0.5),
         "k_np": (1.0, 5.0),
         "split": (0.001, 0.01),
     }
     true_signal = TrueSignal(
-        model=NVCenterLorentzianModel(with_fixed_frequency=False),
+        model=NVCenterLorentzianModel(with_fixed_center_freq=False),
         typed_parameters=true_params,
         bounds=bounds,
     )
@@ -246,16 +246,16 @@ def test_sweep_fit_via_run_loop():
 
     locator.finalize()
     res = locator.result()
-    assert "frequency" in res
-    err = abs(res["frequency"] - 2.85)
-    assert err < 0.001, f"run_loop fit error {err:.5f} GHz (est={res['frequency']:.5f})"
+    assert "center_freq" in res
+    err = abs(res["center_freq"] - 2.85)
+    assert err < 0.001, f"run_loop fit error {err:.5f} GHz (est={res['center_freq']:.5f})"
 
 
-# --- Full-parameter accuracy tests (not just frequency) ---
+# --- Full-parameter accuracy tests (not just center_freq) ---
 
 
 def test_sweep_fit_full_parameter_recovery():
-    """Every fitted physical parameter, not just frequency, should be close to truth."""
+    """Every fitted physical parameter, not just center_freq, should be close to truth."""
     domain_lo, domain_hi = 2.82, 2.92
     true_freq, true_lw, true_split, true_k_np, true_c_total = 2.87, 0.003, 0.003, 2.0, 0.3
 
@@ -266,7 +266,7 @@ def test_sweep_fit_full_parameter_recovery():
 
     fit = locator.fit_mode_estimates()
     assert fit is not None, "finalize() must populate fit_mode_estimates()"
-    assert abs(fit["frequency"] - true_freq) < 0.0005, f"frequency: {fit['frequency']} vs {true_freq}"
+    assert abs(fit["center_freq"] - true_freq) < 0.0005, f"center_freq: {fit['center_freq']} vs {true_freq}"
     assert abs(fit["linewidth"] - true_lw) < 0.0005, f"linewidth: {fit['linewidth']} vs {true_lw}"
     assert abs(fit["split"] - true_split) < 0.0005, f"split: {fit['split']} vs {true_split}"
     assert abs(fit["k_np"] - true_k_np) < 0.5, f"k_np: {fit['k_np']} vs {true_k_np}"
@@ -274,12 +274,12 @@ def test_sweep_fit_full_parameter_recovery():
 
 
 def test_sweep_fit_zeeman_only():
-    """Zeeman-split (2-dip) spectrum: frequency and zeeman_split recovered accurately."""
+    """Zeeman-split (2-dip) spectrum: center_freq and zeeman_split recovered accurately."""
     domain_lo, domain_hi = 2.7, 3.0
-    model = NVCenterLorentzianModel(hyperfine="unresolved", with_zeeman_splitting=True, with_fixed_frequency=False)
-    true_params = NVCenterLorentzianZeemanSpectrum(frequency=2.85, linewidth=0.0015, zeeman_split=0.03, c_total=0.3)
+    model = NVCenterLorentzianModel(hyperfine="unresolved", with_zeeman_splitting=True, with_fixed_center_freq=False)
+    true_params = NVCenterLorentzianZeemanSpectrum(center_freq=2.85, linewidth=0.0015, zeeman_split=0.03, c_total=0.3)
     bounds = {
-        "frequency": (2.75, 2.95),
+        "center_freq": (2.75, 2.95),
         "linewidth": (1e-4, 0.01),
         "zeeman_split": (0.0, 0.05),
         "c_total": (0.05, 0.5),
@@ -292,7 +292,7 @@ def test_sweep_fit_zeeman_only():
 
     fit = locator.fit_mode_estimates()
     assert fit is not None
-    assert abs(fit["frequency"] - 2.85) < 0.001, f"frequency: {fit['frequency']}"
+    assert abs(fit["center_freq"] - 2.85) < 0.001, f"center_freq: {fit['center_freq']}"
     assert abs(fit["zeeman_split"] - 0.03) < 0.003, f"zeeman_split: {fit['zeeman_split']}"
 
 
@@ -311,7 +311,7 @@ def test_sweep_fit_zeeman_only_narrow_linewidth_resolves_fixed_hyperfine():
     (bounded by the model's declared count of 2) kept only the 2 most
     prominent detected peaks — often two hyperfine sub-lines from the *same*
     Zeeman group — seeding ``zeeman_split`` tens of MHz off from the true
-    value with no way for curve_fit to recover (frequency ended up tens of
+    value with no way for curve_fit to recover (center_freq ended up tens of
     MHz off too). Uses a large step count to isolate this seeding/cap bug from
     the separate, coarser-grained sampling-density limit documented in
     [[sweep-fit-bounds-aliasing]].
@@ -319,10 +319,10 @@ def test_sweep_fit_zeeman_only_narrow_linewidth_resolves_fixed_hyperfine():
     domain_lo, domain_hi = 2.78e9, 2.96e9
     model = NVCenterLorentzianModel(hyperfine="unresolved", with_zeeman_splitting=True)
     true_params = NVCenterLorentzianZeemanSpectrum(
-        frequency=2.87e9, linewidth=0.5e6, zeeman_split=53.29e6, c_total=0.25
+        center_freq=2.87e9, linewidth=0.5e6, zeeman_split=53.29e6, c_total=0.25
     )
     bounds = {
-        "frequency": (domain_lo, domain_hi),
+        "center_freq": (domain_lo, domain_hi),
         "linewidth": (0.2e6, 15.0e6),
         "zeeman_split": (0.0, 60e6),
         "c_total": (0.1, 0.4),
@@ -339,26 +339,26 @@ def test_sweep_fit_zeeman_only_narrow_linewidth_resolves_fixed_hyperfine():
 
     fit = locator.fit_mode_estimates()
     assert fit is not None
-    assert abs(fit["frequency"] - 2.87e9) < 1e6, f"frequency: {fit['frequency'] / 1e6:.2f} MHz (true 2870.0)"
+    assert abs(fit["center_freq"] - 2.87e9) < 1e6, f"center_freq: {fit['center_freq'] / 1e6:.2f} MHz (true 2870.0)"
     assert abs(fit["zeeman_split"] - 53.29e6) < 2e6, f"zeeman_split: {fit['zeeman_split'] / 1e6:.2f} MHz (true 53.29)"
 
 
 def test_sweep_fit_zeeman_and_hyperfine_six_dip():
-    """Combined Zeeman + hyperfine (6-dip) spectrum: frequency and both splits recovered.
+    """Combined Zeeman + hyperfine (6-dip) spectrum: center_freq and both splits recovered.
 
-    This is the case ``_seed_frequency_and_splits`` exists for: 2 Zeeman groups
+    This is the case ``_seed_center_freq_and_splits`` exists for: 2 Zeeman groups
     of 3 hyperfine lines each, where a naive argmin/centroid init is
     systematically wrong (see NVCenterLorentzianModel.expected_dip_count()).
     """
     domain_lo, domain_hi = 2.7, 3.0
     model = NVCenterLorentzianModel(
-        hyperfine="n14", infer_hyperfine=True, with_zeeman_splitting=True, with_fixed_frequency=False
+        hyperfine="n14", infer_hyperfine=True, with_zeeman_splitting=True, with_fixed_center_freq=False
     )
     true_params = NVCenterLorentzianZeemanHyperfineSpectrum(
-        frequency=2.85, linewidth=0.0015, zeeman_split=0.03, split=0.004, k_np=2.0, c_total=0.3
+        center_freq=2.85, linewidth=0.0015, zeeman_split=0.03, split=0.004, k_np=2.0, c_total=0.3
     )
     bounds = {
-        "frequency": (2.75, 2.95),
+        "center_freq": (2.75, 2.95),
         "linewidth": (1e-4, 0.01),
         "zeeman_split": (0.0, 0.05),
         "split": (0.001, 0.01),
@@ -373,7 +373,7 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
 
     fit = locator.fit_mode_estimates()
     assert fit is not None
-    assert abs(fit["frequency"] - 2.85) < 0.001, f"frequency: {fit['frequency']}"
+    assert abs(fit["center_freq"] - 2.85) < 0.001, f"center_freq: {fit['center_freq']}"
     assert abs(fit["zeeman_split"] - 0.03) < 0.003, f"zeeman_split: {fit['zeeman_split']}"
     assert abs(fit["split"] - 0.004) < 0.001, f"split: {fit['split']}"
 
@@ -397,26 +397,26 @@ def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
 
     Regression guard for two coupled seeding bugs (found from a production
     sweep where the fit tracked only the deepest dips): with only 2 of 3
-    triplet lines detected, the old seed placed frequency on the *right* peak
+    triplet lines detected, the old seed placed center_freq on the *right* peak
     with split = gap/2, which is exactly a wrong local minimum (model's outer
     dips on the data's center+deepest dips, own center dip hidden by maxing
     k_np); and the sample-count-scaled smoothing window (n//30) smeared the
     whole triplet into one blob on dense sweeps, so even 1500 points converged
-    to that wrong minimum with frequency ~4 MHz (split/2) off.  Real physical
+    to that wrong minimum with center_freq ~4 MHz (split/2) off.  Real physical
     scales (Hz) on purpose — the toy-GHz tests never hit this regime.
     """
     domain_lo, domain_hi = 2.8e9, 3.3e9
     true_freq, true_split, true_k_np = 3.057e9, 8.5e6, 4.5
     bounds = {
-        "frequency": (domain_lo, domain_hi),
+        "center_freq": (domain_lo, domain_hi),
         "linewidth": (0.2e6, 5.0e6),
         "split": (2.0e6, 8.5e6),
         "k_np": (1.0, 5.0),
         "c_total": (0.1, 0.7),
     }
-    model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_frequency=False)
+    model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_center_freq=False)
     true_params = NVCenterLorentzianSpectrum(
-        frequency=true_freq, linewidth=0.8e6, split=true_split, k_np=true_k_np, c_total=0.55
+        center_freq=true_freq, linewidth=0.8e6, split=true_split, k_np=true_k_np, c_total=0.55
     )
 
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=500, noise_std=0.01)
@@ -426,8 +426,8 @@ def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
 
     fit = locator.fit_mode_estimates()
     assert fit is not None
-    assert abs(fit["frequency"] - true_freq) < 0.5e6, (
-        f"frequency off by {abs(fit['frequency'] - true_freq) / 1e6:.2f} MHz"
+    assert abs(fit["center_freq"] - true_freq) < 0.5e6, (
+        f"center_freq off by {abs(fit['center_freq'] - true_freq) / 1e6:.2f} MHz"
     )
     assert abs(fit["split"] - true_split) < 0.5e6, f"split: {fit['split'] / 1e6:.2f} MHz (true 8.5)"
     assert abs(fit["k_np"] - true_k_np) < 1.0, f"k_np: {fit['k_np']:.2f} (true 4.5)"
@@ -450,17 +450,17 @@ def test_sweep_fit_raises_when_bounds_incomplete():
     from nvision.models.noise import CompositeNoise
     from nvision.spectra.signal import TrueSignal
 
-    true_params = NVCenterLorentzianSpectrum(frequency=2.85, linewidth=0.003, c_total=0.3, k_np=3.4, split=0.003)
+    true_params = NVCenterLorentzianSpectrum(center_freq=2.85, linewidth=0.003, c_total=0.3, k_np=3.4, split=0.003)
     true_signal = TrueSignal(
         model=NVCenterLorentzianModel(),
         typed_parameters=true_params,
-        bounds={"frequency": (2.8, 2.9)},
+        bounds={"center_freq": (2.8, 2.9)},
     )
     exp = CoreExperiment(true_signal=true_signal, noise=CompositeNoise(), x_min=2.8, x_max=2.9)
 
     rng = random.Random(42)
     locator = None
-    # Deliberately incomplete: only frequency bounds, so the fit has nowhere
+    # Deliberately incomplete: only center_freq bounds, so the fit has nowhere
     # to look for linewidth/split/k_np/c_total.
     for loc in run_loop(
         GenericSweepLocator,
@@ -469,7 +469,7 @@ def test_sweep_fit_raises_when_bounds_incomplete():
         max_steps=50,
         domain_lo=exp.x_min,
         domain_hi=exp.x_max,
-        parameter_bounds={"frequency": (exp.x_min, exp.x_max)},
+        parameter_bounds={"center_freq": (exp.x_min, exp.x_max)},
     ):
         locator = loc
 
@@ -484,12 +484,12 @@ def test_sweep_fit_raises_when_bounds_incomplete():
 def test_sweep_then_fit_finds_good_fit_at_low_snr(seed):
     """Actually sweep (locator.next()/observe(), not manual history injection)
     a narrow, noisy dip and confirm the model fit still recovers the true
-    frequency, across several seeds.
+    center_freq, across several seeds.
 
     Regression guard for the known weak spot in ``_smooth_for_peak_detection``:
     its smoothing window is a fixed fraction of the domain (~domain_width/30),
     independent of the true linewidth, so a linewidth much narrower than that
-    window distorts the ``c_total``/frequency seed.  This case (linewidth
+    window distorts the ``c_total``/center_freq seed.  This case (linewidth
     ~33x narrower than the smoothing window, noise_std=0.02 against a
     contrast of 0.3) is deliberately harder than ``test_sweep_fit_narrow_dip``
     (which uses noise-free data), while staying in a regime verified stable
@@ -519,14 +519,14 @@ def test_sweep_then_fit_finds_good_fit_at_low_snr(seed):
     true_freq = 2.85
     noise_std = 0.02
     bounds = {
-        "frequency": (domain_lo, domain_hi),
+        "center_freq": (domain_lo, domain_hi),
         "linewidth": (1e-4, 0.02),
         "split": (0.0005, 0.005),
         "k_np": (1.0, 5.0),
         "c_total": (0.05, 0.5),
     }
-    model = NVCenterLorentzianModel(with_fixed_frequency=False)
-    true_params = NVCenterLorentzianSpectrum(frequency=true_freq, linewidth=0.001, split=0.002, k_np=2.0, c_total=0.3)
+    model = NVCenterLorentzianModel(with_fixed_center_freq=False)
+    true_params = NVCenterLorentzianSpectrum(center_freq=true_freq, linewidth=0.001, split=0.002, k_np=2.0, c_total=0.3)
 
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=250, noise_std=noise_std)
     rng = default_rng(seed)
@@ -540,8 +540,8 @@ def test_sweep_then_fit_finds_good_fit_at_low_snr(seed):
 
     locator.finalize()
     res = locator.result()
-    err = abs(res["frequency"] - true_freq)
-    assert err < 0.01, f"low-SNR sweep+fit error {err:.5f} GHz (est={res['frequency']:.5f}, true={true_freq})"
+    err = abs(res["center_freq"] - true_freq)
+    assert err < 0.01, f"low-SNR sweep+fit error {err:.5f} GHz (est={res['center_freq']:.5f}, true={true_freq})"
 
 
 def test_sweep_fit_zeeman_hyperfine_no_spurious_dips():
@@ -549,7 +549,7 @@ def test_sweep_fit_zeeman_hyperfine_no_spurious_dips():
 
     Regression guard for a production bug: when each Zeeman group's 3
     hyperfine lines are asymmetric (k_np != 1) and only 2 of the 3 resolve
-    above the peak-detection floor, `_seed_frequency_and_splits` used to seed
+    above the peak-detection floor, `_seed_center_freq_and_splits` used to seed
     a single (wrong) within-group split guess, and the old peak cap (bounded
     by the model's *declared* `expected_dip_count()`, which some model
     families under-report for zeeman+hyperfine — see
@@ -571,13 +571,13 @@ def test_sweep_fit_zeeman_hyperfine_no_spurious_dips():
 
     domain_lo, domain_hi = 2.7e9, 3.0e9
     model = NVCenterSaturationVoigtModel(
-        hyperfine="n14", infer_hyperfine=True, with_zeeman_splitting=True, with_fixed_frequency=False
+        hyperfine="n14", infer_hyperfine=True, with_zeeman_splitting=True, with_fixed_center_freq=False
     )
     true_params = NVCenterSaturationVoigtZeemanHyperfineSpectrum(
-        frequency=2.85e9, saturation=2.0, sigma_inhom=0.3e6, zeeman_split=30e6, split=4e6, k_np=2.0
+        center_freq=2.85e9, saturation=2.0, sigma_inhom=0.3e6, zeeman_split=30e6, split=4e6, k_np=2.0
     )
     bounds = {
-        "frequency": (domain_lo, domain_hi),
+        "center_freq": (domain_lo, domain_hi),
         "saturation": (0.02, 30.0),
         "sigma_inhom": (0.0, 3.0e6),
         "zeeman_split": (0.0, 100e6),
@@ -652,7 +652,7 @@ def test_sweep_fit_linewidth_not_blind_seeded():
     domain_lo, domain_hi = 2.6e9, 3.1e9
     model = NVCenterLorentzianModel(hyperfine="unresolved", with_zeeman_splitting=True)
     true_params = NVCenterLorentzianZeemanSpectrum(
-        frequency=2.87e9, linewidth=2.0e6, zeeman_split=42925601.76703225, c_total=0.2529513412260511
+        center_freq=2.87e9, linewidth=2.0e6, zeeman_split=42925601.76703225, c_total=0.2529513412260511
     )
     bounds = nv_center_lorentzian_bounds_for_domain(
         domain_lo, domain_hi, hyperfine="unresolved", with_zeeman_splitting=True

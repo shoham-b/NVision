@@ -114,7 +114,7 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         return False
 
     def signal_min_span(self, domain_width: float) -> float | None:
-        """Minimum possible frequency span of this signal in physical units.
+        """Minimum possible center_freq span of this signal in physical units.
 
         Determines the maximum sweep step count: the sweep must be dense enough
         to guarantee hits even when the signal is at its narrowest.
@@ -123,7 +123,7 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         return None
 
     def signal_max_span(self, domain_width: float) -> float | None:
-        """Maximum possible frequency span of this signal in physical units.
+        """Maximum possible center_freq span of this signal in physical units.
 
         Used to size the mid-sweep refocus window so all dips (including outer
         Zeeman-split dips) fall inside the focus band.
@@ -217,8 +217,8 @@ class TrueSignal[ParamsT]:
         values = self.parameter_values()
         if name in values:
             return float(values[name])
-        # Not a free/inferred parameter (e.g. a fixed value like frequency under
-        # with_fixed_frequency=True) -- fall back to the concrete value still
+        # Not a free/inferred parameter (e.g. a fixed value like center_freq under
+        # with_fixed_center_freq=True) -- fall back to the concrete value still
         # present on typed_parameters, since it's fully populated regardless.
         if hasattr(self.typed_parameters, name):
             return float(getattr(self.typed_parameters, name))

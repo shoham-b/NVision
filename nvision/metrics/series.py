@@ -60,7 +60,7 @@ def _downsample_indices(n: int, max_points: int) -> list[int]:
 
 def effective_convergence_threshold(
     run_result: RunResult,
-    param: str = "frequency",
+    param: str = "center_freq",
     relative_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
 ) -> float | None:
     """Absolute threshold used for ``param`` convergence (mirrors detect_milestone)."""
@@ -78,10 +78,10 @@ def effective_convergence_threshold(
 def _resolve_series_param(run_result: RunResult, param: str) -> str:
     """Fall back to the model's splitting parameter when ``param`` isn't actually free.
 
-    ``frequency`` is fixed by default (``NVCenterVoigtModel(with_fixed_frequency=True)``
+    ``center_freq`` is fixed by default (``NVCenterVoigtModel(with_fixed_center_freq=True)``
     and friends), so it never appears in a snapshot's belief estimates -- the Zeeman/
     hyperfine split is what's actually being localized in that case. Mirrors
-    ``milestones.default_fc_param``, which the per-repeat metrics already use for the
+    ``milestones.default_split_param``, which the per-repeat metrics already use for the
     same reason.
     """
     try:
@@ -89,14 +89,14 @@ def _resolve_series_param(run_result: RunResult, param: str) -> str:
             return param
     except Exception:
         pass
-    from nvision.metrics.milestones import default_fc_param
+    from nvision.metrics.milestones import default_split_param
 
-    return default_fc_param(run_result)
+    return default_split_param(run_result)
 
 
 def extract_step_series(
     run_result: RunResult | None,
-    param: str = "frequency",
+    param: str = "center_freq",
     max_points: int = MAX_SERIES_POINTS,
 ) -> dict[str, Any] | None:
     """Build the compact per-step series for one run, or None when unavailable."""
@@ -127,7 +127,7 @@ def extract_step_series(
         crlb_val = None
         with suppress(Exception):
             belief = snapshot.belief
-            val = belief.crlb_frequency() if param == "frequency" else belief.crlb_per_param().get(param)
+            val = belief.crlb_center_freq() if param == "center_freq" else belief.crlb_per_param().get(param)
             if val is not None and math.isfinite(val) and val > 0:
                 crlb_val = float(val)
         crlbs.append(crlb_val)

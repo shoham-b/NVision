@@ -22,12 +22,12 @@ from nvision import (
 
 def _minimal_scan() -> CoreExperiment:
     bounds = {
-        "frequency": (0.0, 1.0),
+        "center_freq": (0.0, 1.0),
         "sigma": (0.01, 0.3),
         "dip_depth": (0.0, 1.5),
         "background": (0.0, 0.5),
     }
-    typed = GaussianSpectrum(frequency=0.5, sigma=0.1, dip_depth=1.0, background=0.0)
+    typed = GaussianSpectrum(center_freq=0.5, sigma=0.1, dip_depth=1.0, background=0.0)
     true_signal = TrueSignal.from_typed(model=GaussianModel(), params=typed, bounds=bounds)
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=0.0, x_max=1.0)
 
@@ -57,13 +57,13 @@ def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
     """MAP overlay uses the inference model when ground-truth parameter names differ."""
     x_min, x_max = 2.6e9, 3.1e9
     lorentz_bounds = {
-        "frequency": (x_min, x_max),
+        "center_freq": (x_min, x_max),
         "linewidth": (5e6, 100e6),
         "dip_depth": (1e-6, 1.0),
         "background": (0.5, 1.2),
     }
     typed = LorentzianSpectrum(
-        frequency=2.85e9,
+        center_freq=2.85e9,
         linewidth=30e6,
         dip_depth=0.01,
         background=1.0,
@@ -76,14 +76,14 @@ def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
     scan = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
 
     phys = {
-        "frequency": (x_min, x_max),
+        "center_freq": (x_min, x_max),
         "sigma": (5e6, 100e6),
         "dip_depth": (0.1, 1.4),
         "background": (0.0, 0.5),
     }
     belief_uc = UnitCubeSignalModel(GaussianModel(), phys, (x_min, x_max))
     mode_estimates = {
-        "frequency": 2.85e9,
+        "center_freq": 2.85e9,
         "sigma": 30e6,
         "dip_depth": 1.0,
         "background": 0.0,

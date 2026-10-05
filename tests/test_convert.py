@@ -86,7 +86,7 @@ def test_extract_peak_estimates_non_position():
 def test_extract_peak_estimates_belief_fallback():
     """Test that belief_estimates are used as fallbacks."""
     belief_estimates = {
-        "frequency": 150.0,
+        "center_freq": 150.0,
         "split": 10.0,
     }
     locator_result = {}
@@ -105,7 +105,7 @@ def test_extract_peak_estimates_belief_fallback():
 def test_extract_peak_estimates_priority():
     """Test that locator_result keys prioritize over belief_estimates."""
     belief_estimates = {
-        "frequency": 150.0,
+        "center_freq": 150.0,
     }
     locator_result = {
         "peak_x": 180.0,

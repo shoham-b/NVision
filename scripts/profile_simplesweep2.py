@@ -22,7 +22,7 @@ def make_experiment(seed: int) -> CoreExperiment:
     true_signal = gen.generate(rng)
     x_min, x_max = None, None
     for name in true_signal.parameter_names:
-        if "frequency" in name:
+        if "center_freq" in name:
             x_min, x_max = true_signal.get_param_bounds(name)
             break
     return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)

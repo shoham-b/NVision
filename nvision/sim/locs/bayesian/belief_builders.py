@@ -28,8 +28,8 @@ from nvision.belief.smc_marginal import (
     SMCMarginalDistribution,
 )
 from nvision.sim.gen.nv_center_generator import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    DEFAULT_NV_PROBE_X_MAX,
+    DEFAULT_NV_PROBE_X_MIN,
 )
 from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
@@ -67,7 +67,7 @@ def nv_center_smc_belief(
     hyperfine: str = "unresolved",
     infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = True,
-    with_fixed_frequency: bool = True,
+    with_fixed_center_freq: bool = True,
     lineshape: str = "lorentzian",
     seed: int | None = None,
 ) -> SMCMarginalDistribution:
@@ -81,10 +81,10 @@ def nv_center_smc_belief(
     peaks the data never showed. Set ``hyperfine="n14"``/``"n15"`` when the lines
     really are resolved, and ``infer_hyperfine=True`` to additionally infer
     ``split`` and ``k_np`` rather than fixing them to the isotope's coupling.
-    ``with_fixed_frequency`` (default ``True``, matching every ``NVCenter*Model``'s own
-    default) treats the zero-field center frequency as a known instrument constant
+    ``with_fixed_center_freq`` (default ``True``, matching every ``NVCenter*Model``'s own
+    default) treats the zero-field ``center_freq`` as a known instrument constant
     rather than a free particle dimension -- pass ``False`` to infer it instead (e.g.
-    for tests/locators that specifically exercise frequency estimation).
+    for tests/locators that specifically exercise center_freq estimation).
 
     ``lineshape`` selects the signal model:
 
@@ -120,11 +120,11 @@ def nv_center_smc_belief(
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_frequency=with_fixed_frequency,
+            with_fixed_center_freq=with_fixed_center_freq,
         )
         merged_bounds = nv_center_saturation_voigt_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN,
-            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            DEFAULT_NV_PROBE_X_MIN,
+            DEFAULT_NV_PROBE_X_MAX,
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
@@ -134,11 +134,11 @@ def nv_center_smc_belief(
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_frequency=with_fixed_frequency,
+            with_fixed_center_freq=with_fixed_center_freq,
         )
         merged_bounds = nv_center_voigt_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN,
-            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            DEFAULT_NV_PROBE_X_MIN,
+            DEFAULT_NV_PROBE_X_MAX,
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
@@ -148,11 +148,11 @@ def nv_center_smc_belief(
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_frequency=with_fixed_frequency,
+            with_fixed_center_freq=with_fixed_center_freq,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_CENTER_FREQ_X_MIN,
-            DEFAULT_NV_CENTER_FREQ_X_MAX,
+            DEFAULT_NV_PROBE_X_MIN,
+            DEFAULT_NV_PROBE_X_MAX,
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
@@ -190,8 +190,9 @@ def nv_center_smc_belief(
                     unit_std = std / (hi - lo)
                     unit_priors[name] = (float(unit_mu), float(unit_std))
 
-    x_phys = merged_bounds["frequency"]
-    wrapped = UnitCubeSignalModel(model, merged_bounds, x_phys)
+    # The NV bound builders make the center_freq prior range span exactly the probe axis.
+    probe_x_phys = merged_bounds["center_freq"]
+    wrapped = UnitCubeSignalModel(model, merged_bounds, probe_x_phys)
 
     return SMCMarginalDistribution(
         model=wrapped,
@@ -201,7 +202,7 @@ def nv_center_smc_belief(
         a_param=a_param,
         noise_model=noise_model,
         physical_param_bounds=merged_bounds,
-        physical_x_bounds=x_phys,
+        physical_x_bounds=probe_x_phys,
         priors=unit_priors,
         min_exploration_frac=min_exploration_frac,
         tempering_factor=tempering_factor,

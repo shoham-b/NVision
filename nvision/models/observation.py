@@ -52,8 +52,8 @@ class Observation:
     sweep_index : int | None
         Which repeated pass over the full measurement domain this shot came
         from, when the source data has that structure (e.g. a MATLAB file
-        where every frequency is scanned once, then all scanned again, etc.
-        — shot column *j* is sweep *j* for every frequency). ``None`` when the
+        where every probe point is scanned once, then all scanned again, etc.
+        — shot column *j* is sweep *j* for every probe point). ``None`` when the
         source has no such notion (e.g. the simulated generators, which draw
         a fresh sample on demand with no fixed sweep order).
     """
@@ -73,7 +73,7 @@ def aggregate_shots(
     prior_noise_std: float,
     frequency_noise_model: tuple[dict[str, Any], ...] | None = None,
 ) -> Observation:
-    """Collapse a batch of repeated shots at one frequency into a sufficient-statistic Observation.
+    """Collapse a batch of repeated shots at one probe point into a sufficient-statistic Observation.
 
     For k i.i.d. shots ``ys`` at position ``x``, the batch mean ȳ is the signal
     estimate with precision σ/√k, and the within-batch std ``s`` (ddof=1) is a

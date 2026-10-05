@@ -15,7 +15,7 @@ function escapeHtml(text) {
     });
 }
 
-function formatFrequency(value) {
+function formatHz(value) {
     if (typeof value === 'number' && Number.isFinite(value)) {
         const absVal = Math.abs(value);
         if (absVal >= 1e9) {
@@ -71,10 +71,10 @@ function formatBoundValue(v) {
     return v.toPrecision(4);
 }
 
-function isFrequencyVariable(name) {
+function isHzVariable(name) {
     if (typeof name !== 'string') return false;
     const n = name.toLowerCase();
-    return n.includes('frequency') || n.includes('linewidth') || n.includes('split') || n.includes('span');
+    return n.includes('center_freq') || n.includes('linewidth') || n.includes('split') || n.includes('span');
 }
 
 // Canonical single-symbol labels for signal-model parameters (see nvision/spectra/
@@ -82,7 +82,7 @@ function isFrequencyVariable(name) {
 // Used in the signal equation panel and wherever else a parameter name is shown in
 // the UI, so the same parameter always reads with the same symbol everywhere.
 const PARAM_LETTERS = {
-    frequency: 'f_B',
+    center_freq: 'f_B',
     linewidth: 'w',
     dip_depth: 'A',
     background: 'B',
@@ -111,7 +111,7 @@ function paramLetterSuffix(param) {
 
 function formatHzValue(name, v) {
     if (typeof v !== 'number' || !Number.isFinite(v)) return '?';
-    if (!isFrequencyVariable(name)) {
+    if (!isHzVariable(name)) {
         return formatBoundValue(v);
     }
     let unit = ' Hz';

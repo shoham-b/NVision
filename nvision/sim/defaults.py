@@ -11,9 +11,12 @@ from collections.abc import Mapping
 
 from dotenv import load_dotenv
 
+from nvision.tools.renamed_env import reject_renamed_env_vars
+
 # Load environment variables from .env so they're available
 # regardless of where this module is imported from.
 load_dotenv()
+reject_renamed_env_vars()
 
 # --- Core Locator Defaults -------------------------------------------------
 
@@ -115,9 +118,9 @@ NVISION_MIN_LINEWIDTH: float = float(os.getenv("NVISION_MIN_LINEWIDTH", "200e3")
 NVISION_MAX_LINEWIDTH: float = float(os.getenv("NVISION_MAX_LINEWIDTH", "5.0e6"))
 NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "2.0e6"))
 NVISION_MAX_SPLIT: float = float(os.getenv("NVISION_MAX_SPLIT", "8.5e6"))
-# NV center frequency domain is configured via NVISION_NV_ZERO_FIELD_SPLITTING_HZ /
-# NVISION_NV_CENTER_FREQ_DELTA_HZ, read directly in nvision/spectra/nv_center.py
-# (DEFAULT_NV_CENTER_FREQ_X_MIN/MAX): the window is the upper half [D, D + delta] of the
+# NV center probe-axis domain is configured via NVISION_NV_ZERO_FIELD_SPLITTING_HZ /
+# NVISION_NV_PROBE_DELTA_HZ, read directly in nvision/spectra/nv_center.py
+# (DEFAULT_NV_PROBE_X_MIN/MAX): the window is the upper half [D, D + delta] of the
 # mirror-symmetric spectrum around the physical zero-field center D.
 # --- Convergence Defaults ----------------------------------------------------
 
@@ -126,21 +129,23 @@ NVISION_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_CONVERGENCE_THRE
 
 # Absolute convergence ceilings for specific parameters (physical units).
 # Unset optional vars fall back to relative NVISION_CONVERGENCE_THRESHOLD × bound width.
-NVISION_FREQ_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_FREQ_CONVERGENCE_THRESHOLD", "100000.0"))
+NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD", "100000.0")
+)
 
 # Safety factor K applied as a measurement budget multiplier.
 # If the Cramér–Rao Lower Bound (CRLB) dictates that N measurements are
-# theoretically required to reach the frequency convergence threshold, the locator
+# theoretically required to reach the center_freq convergence threshold, the locator
 # allocates a maximum budget of K × N measurements to account for non-ideal
 # sampling and SMC inefficiencies before failing fast.
-NVISION_FREQ_CRLB_SAFETY_FACTOR: float = float(os.getenv("NVISION_FREQ_CRLB_SAFETY_FACTOR", "4.0"))
+NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR: float = float(os.getenv("NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR", "4.0"))
 
 # Minimum physical step (Hz) between consecutive EIG-evaluated candidates.
 # Candidate count from the epoch grid ≈ 6·σ_f / NVISION_SMC_CANDIDATE_STEP_HZ,
 # so the budget shrinks automatically as the posterior tightens.
-# Defaults to NVISION_FREQ_CONVERGENCE_THRESHOLD (100 kHz).
+# Defaults to NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD (100 kHz).
 NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
-    os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_FREQ_CONVERGENCE_THRESHOLD))
+    os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD))
 )
 
 
@@ -263,7 +268,7 @@ NVISION_DRIFT_GAUSS_SIGMA: float = float(os.getenv("NVISION_DRIFT_GAUSS_SIGMA", 
 # uncertainty and never gated anything.
 #
 # The widths and contrast are therefore loosened to values they can actually reach, and
-# `zeeman_split` is made the binding constraint at the same 100 kHz used for frequency.
+# `zeeman_split` is made the binding constraint at the same 100 kHz used for center_freq.
 # `max_steps` remains the backstop for signals where even that is unreachable (the
 # genuinely degenerate ones), which is the correct outcome rather than a convergence claim.
 NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD: float = float(
@@ -275,7 +280,7 @@ NVISION_C_TOTAL_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_C_TOTAL_
 
 def _param_absolute_convergence_thresholds() -> dict[str, float]:
     thresholds: dict[str, float] = {
-        "frequency": NVISION_FREQ_CONVERGENCE_THRESHOLD,
+        "center_freq": NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD,
         "zeeman_split": NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD,
         "homogeneous_linewidth": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
         "sigma_inhom": NVISION_WIDTH_CONVERGENCE_THRESHOLD,

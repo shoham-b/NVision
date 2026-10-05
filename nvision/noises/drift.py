@@ -2,7 +2,7 @@
 
 Two physical drivers, each a :class:`DriftProcess` that starts at 0 when the run starts:
 
-* sample temperature (kelvin) shifts the zero-field center ``frequency`` by
+* sample temperature (kelvin) shifts the zero-field ``center_freq`` by
   :data:`NV_D_TEMPERATURE_COEFF_HZ_PER_K`, and a permanent magnet's field (so
   ``zeeman_split``) by ``magnet_tempco_per_k`` of its starting value;
 * the field along the NV axis (milligauss) shifts ``zeeman_split`` by
@@ -168,9 +168,9 @@ class DriftTrajectory:
         """Return ``typed_parameters`` as they truly are at ``shot_index``."""
         changes: dict[str, float] = {}
         if self.spec.moves_center:
-            if not hasattr(typed_parameters, "frequency"):
-                raise ValueError(f"Drift {self.spec.label!r} moves the center but the signal has no frequency")
-            changes["frequency"] = float(typed_parameters.frequency) + self.center_offset_hz(shot_index)
+            if not hasattr(typed_parameters, "center_freq"):
+                raise ValueError(f"Drift {self.spec.label!r} moves the center but the signal has no center_freq")
+            changes["center_freq"] = float(typed_parameters.center_freq) + self.center_offset_hz(shot_index)
         if self.spec.moves_split:
             if not hasattr(typed_parameters, "zeeman_split"):
                 raise ValueError(f"Drift {self.spec.label!r} moves the splitting but the signal has no zeeman_split")
@@ -184,7 +184,7 @@ class DriftTrajectory:
             return {}
         out: dict[str, float] = {f"{prefix}shots": float(n_shots)}
         for name, moves, offset in (
-            ("frequency", self.spec.moves_center, self.center_offset_hz),
+            ("center_freq", self.spec.moves_center, self.center_offset_hz),
             ("zeeman_split", self.spec.moves_split, self.split_offset_hz),
         ):
             if not moves or not hasattr(typed_parameters, name):

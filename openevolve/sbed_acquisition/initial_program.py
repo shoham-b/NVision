@@ -24,7 +24,7 @@ raises on any repeat as a hard failure (score 0), not a partial credit.
 
 See ``openevolve/sbed_acquisition/README.md`` for how to run the search and
 interpret results, and ``.claude/skills/locator-evaluation`` for why
-``splitting_converged_step`` (not the locator's own stop reason) is the
+``primary_converged_step`` (not the locator's own stop reason) is the
 metric that actually gets optimized.
 """
 
@@ -36,7 +36,7 @@ import numpy as np
 
 
 def _acquire(self) -> float:
-    """Select the next measurement point by maximizing EIG over a frequency grid.
+    """Select the next measurement point by maximizing EIG over a probe-axis grid.
 
     A decaying share of steps instead explores: uniformly over the whole probe window
     (to find dips the posterior has narrowed away from), or near a dip the data already
@@ -69,10 +69,10 @@ def _acquire(self) -> float:
             return center + float(np.random.uniform(max(-5e6, orig_lo - center), min(5e6, orig_hi - center)))
 
         # No dip found yet: Thompson sampling of the scanned parameter from the posterior.
-        if self._scan_param in self.belief._param_names:
+        if self._probe_axis_param in self.belief._param_names:
             idx = int(np.random.choice(len(self.belief._weights), p=self.belief._weights))
-            p_idx = self.belief._param_names.index(self._scan_param)
-            return self.belief._to_physical(self._scan_param, float(self.belief._particles[idx, p_idx]))
+            p_idx = self.belief._param_names.index(self._probe_axis_param)
+            return self.belief._to_physical(self._probe_axis_param, float(self.belief._particles[idx, p_idx]))
 
     return self._eig_acquire()
 
@@ -80,12 +80,12 @@ def _acquire(self) -> float:
 def _eig_acquire(self) -> float:
     """Maximize EIG over the belief's slope-targeted candidate grid."""
     # Retrieve candidates directly from the belief (slope-targeted epoch grid)
-    candidates = self.belief.get_candidates()
+    candidates = self.belief.get_candidate_x_phys()
 
     # Thin candidates to minimum physical step spacing.
     # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
     # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
-    candidates = self._thin_candidates_by_step(candidates)
+    candidates = self._thin_candidate_x_by_step(candidates)
 
     # Keep the most recently EIG-selected frequency in the candidate set so a
     # second batch there is a legitimate EIG outcome rather than being dropped

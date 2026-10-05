@@ -112,7 +112,7 @@ next to simulated runs, so they show up in `nv serve` — see
 - `--dir`: directory to scan for `.mat` files with `--all` (default: `data/matlab/`).
 - `--noise-std`: override the auto-estimated measurement noise std instead of deriving it from the file's own shot spread.
 - `--max-steps`: maximum SBED measurement steps (default: 300).
-- `--infer-frequency` / `--no-infer-frequency`: fit the NV zero-field-splitting center instead of fixing it to 2.87 GHz (default: infer — real samples run 1-2 MHz off the textbook value from strain/temperature).
+- `--infer-center-freq` / `--no-infer-center-freq`: fit the NV zero-field-splitting center instead of fixing it to 2.87 GHz (default: infer — real samples run 1-2 MHz off the textbook value from strain/temperature).
 - `--particles`: SMC particle count (default: 10000, 10x the simulation default).
 - `--out`: write a JSON result summary to this path.
 - `--no-ui`: skip artifact writing (no `nv serve` integration) — useful for a quick numeric check.

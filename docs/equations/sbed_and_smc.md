@@ -1,10 +1,10 @@
 # SBED + SMC — Equations and Approximations
 
-The SMC belief (unit-cube particles, with a free-frequency variant), the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
+The SMC belief (unit-cube particles, with a free-center_freq variant), the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
 
 > Scope: only the additive Gaussian measurement-noise path. The noise level is always inferred through its conjugate prior — a per-particle Inverse-Gamma state that is integrated out (§1.1a) — and that posterior is the only source of a noise σ anywhere in the stack. Poisson likelihoods and non-SBED locators are out of scope.
 >
-> Probe window: the NV spectrum is mirror-symmetric about the zero-field splitting D, so measuring both sides duplicates information. The probe window is the upper half `[D, D + Δ]` (`DEFAULT_NV_CENTER_FREQ_X_MIN/MAX`, `nv_center.py`) and generated signals are centred on D, on the window's lower edge.
+> Probe window: the NV spectrum is mirror-symmetric about the zero-field splitting D, so measuring both sides duplicates information. The probe window is the upper half `[D, D + Δ]` (`DEFAULT_NV_PROBE_X_MIN/MAX`, `nv_center.py`) and generated signals are centred on D, on the window's lower edge.
 
 ---
 
@@ -70,7 +70,7 @@ with f_expl = `min_exploration_frac` = 0.01, t = `_step_count`, and [l_j, h_j] t
 
 After the nudge, any particle pushed outside the unit cube is **reflected** back in (a fold, u → 1 − |(u mod 2) − 1|), not clipped, so no probability mass piles up on a bound.
 
-**No particle rejuvenation:** Earlier versions replaced a fraction f_rejuv = 0.05·e^(−t/25) of particles with fresh prior draws at each resample (plus a joint dip-informed variant for (frequency, zeeman_split)). Both were removed: an A/B on the danger-zone Lorentzian configs (zeeman_split/linewidth < 1.5, n=60 per arm, paired) showed no measurable accuracy or calibration benefit. Diversity after resampling comes only from the nudge covariance C above, including its `NVISION_SMC_MIN_EXPLORATION_FRAC` floor.
+**No particle rejuvenation:** Earlier versions replaced a fraction f_rejuv = 0.05·e^(−t/25) of particles with fresh prior draws at each resample (plus a joint dip-informed variant for (center_freq, zeeman_split)). Both were removed: an A/B on the danger-zone Lorentzian configs (zeeman_split/linewidth < 1.5, n=60 per arm, paired) showed no measurable accuracy or calibration benefit. Diversity after resampling comes only from the nudge covariance C above, including its `NVISION_SMC_MIN_EXPLORATION_FRAC` floor.
 
 ### 1.5 Weighted Statistics
 
@@ -123,9 +123,9 @@ where d is the number of parameters.  The log-determinant is computed via `slogd
 ### 1.8 Epoch Candidate Grid
 
 After each resample, the candidate grid is rebuilt as a single deterministic
-**quantile placement** against a continuous density mixture over the frequency
+**quantile placement** against a continuous density mixture over the probe axis
 domain `[f_lo, f_hi]`, rather than the union of several independently-sized
-uniform grids. `_generate_epoch_candidates()` (`smc_marginal.py`) builds three
+uniform grids. `_generate_epoch_candidate_x()` (`smc_marginal.py`) builds three
 kinds of Gaussian-kernel-weight `(center, bandwidth, weight)` mixture
 components, plus an optional flat baseline term:
 
@@ -134,7 +134,7 @@ components, plus an optional flat baseline term:
 
   $$\text{slope points} = \{f_B \pm \Delta f_{\rm hf}\} \pm \Omega_{\rm hw}$$
 
-  where f_B = posterior mean frequency (the fixed zero-field D when frequency is not
+  where f_B = posterior mean center_freq (the fixed zero-field D when center_freq is not
   inferred), Δf_hf = posterior mean split, Ω_hw = posterior mean linewidth (HWHM). A slope
   point that falls outside the probe window is measured at its mirror image about f_B
   (`2 f_B − s`) when that lies inside it, so the lower Zeeman group's slopes land on the
@@ -161,7 +161,7 @@ components, plus an optional flat baseline term:
 mixture's evenly-spaced CDF quantiles: the density is evaluated on an adaptive
 scaffold grid (locally dense around each kernel, coarse elsewhere), its CDF
 built by trapezoidal integration, and quantile positions read off by linear
-interpolation (`_quantile_place_candidates`). This is deterministic —
+interpolation (`_quantile_place_candidate_x`). This is deterministic —
 evenly-spaced quantile levels, not a random draw — so it does not touch
 `NVISION_RNG_SEED`-based reproducibility. The result is snapped to Δ_min,
 clipped to `[f_lo, f_hi]`, and deduplicated, which may reduce the final count
@@ -201,8 +201,8 @@ $$\sigma^{\rm phys}_j = \sigma^u_j \cdot (h_j - l_j)$$
 
 #### Per-parameter CRLB floor (`reported_uncertainty`)
 
-`reported_uncertainty()` floors every parameter — including frequency — at its own CRLB,
-unconditionally, at 1× (no safety factor): frequency uses the closed-form `crlb_frequency()`
+`reported_uncertainty()` floors every parameter — including center_freq — at its own CRLB,
+unconditionally, at 1× (no safety factor): center_freq uses the closed-form `crlb_center_freq()`
 (§2.3); every other parameter uses its marginal CRLB from the cumulative FIM (§4.3's
 `crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
 profiling out the other parameters rather than holding them fixed). This floor is independent of the stop rule in §5.5, which gates only the primary parameter
@@ -225,9 +225,9 @@ variance, so 1× is the principled choice — a 4× factor was measured to over-
 declares a run converged* — it is a stopping-decision margin, not a property of the CRLB itself,
 so it must not scale a value this method reports.
 
-### 2.3 Analytical CRLB for Frequency (Lorentzian, Gaussian noise)
+### 2.3 Analytical CRLB for center_freq (Lorentzian, Gaussian noise)
 
-For a Lorentzian signal measured under Gaussian noise with uniform measurement density ρ = N/W (measurements per Hz, W = bandwidth), the closed-form Cramér-Rao lower bound on frequency variance is:
+For a Lorentzian signal measured under Gaussian noise with uniform measurement density ρ = N/W (measurements per Hz, W = bandwidth), the closed-form Cramér-Rao lower bound on center_freq variance is:
 
 $$\text{Var}^{\rm CRLB}(f) = \frac{4\sigma^2 \Omega}{\pi c^2 \rho}, \qquad \text{CRLB}_f = \sqrt{\text{Var}^{\rm CRLB}(f)}$$
 
@@ -237,7 +237,7 @@ where σ = noise std, Ω = `linewidth` (Hz, **HWHM** — the code's `omega` deno
 
 $$\int_{-\infty}^{\infty}\left(\frac{\partial L}{\partial f}\right)^2 dx = \frac{\pi}{4\Omega},$$
 
-(verified by direct numerical integration against the coded kernel), so integrating over the uniform density ρ gives I(f) = (ρ/σ²)·c²·(π/4Ω) = π·c²·ρ / (4σ²Ω), hence Var^CRLB = 1/I(f). An earlier version of this derivation used Ω to mean FWHM (HWHM = Ω/2) while the code's `linewidth` is the HWHM directly — that unit mismatch produced a Var^CRLB two times too small; both `crlb_frequency()` and the SBED `n_theory` backstop have been corrected to the `4σ²Ω` form above.
+(verified by direct numerical integration against the coded kernel), so integrating over the uniform density ρ gives I(f) = (ρ/σ²)·c²·(π/4Ω) = π·c²·ρ / (4σ²Ω), hence Var^CRLB = 1/I(f). An earlier version of this derivation used Ω to mean FWHM (HWHM = Ω/2) while the code's `linewidth` is the HWHM directly — that unit mismatch produced a Var^CRLB two times too small; both `crlb_center_freq()` and the SBED `n_theory` backstop have been corrected to the `4σ²Ω` form above.
 
 For any pseudo-Voigt lineshape — plain Voigt or the saturation-coupled variant (§7) — Ω is replaced by the general lineshape integral J = ∫(V′)²dx of the height-normalized pseudo-Voigt profile V = elf/(x²+γ_hom²) + egf·exp(−x²/2σ_inhom²) (the same `elf`, `egf` unit-height factors the pseudo-Voigt kernels use, from `_pv_factors(fwhm_total, lorentz_frac)`). Integrating each term independently (cross-term dropped — a single-dip approximation that is conservative, i.e. Var^CRLB is an overestimate for genuinely mixed lineshapes) gives closed forms for each piece:
 
@@ -245,13 +245,13 @@ $$\int\left(\frac{\partial}{\partial x}\frac{{\rm elf}}{x^2+\gamma_{\rm hom}^2}\
 
 $$J = {\rm elf}^2\frac{\pi}{4\gamma_{\rm hom}^5} + {\rm egf}^2\frac{\sqrt{\pi}}{2\sigma_{\rm inhom}}, \qquad \text{Var}^{\rm CRLB}(f) = \frac{\sigma^2}{\rho\, c_{\rm total}^2\, J}$$
 
-where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `frequency_crlb()`'s plain-Voigt branch (`models/fisher_information.py`, the single home of all Fisher/CRLB code; the belief's `crlb_frequency()` delegates to it) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
+where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `center_freq_crlb()`'s plain-Voigt branch (`models/fisher_information.py`, the single home of all Fisher/CRLB code; the belief's `crlb_center_freq()` delegates to it) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
 
 ### 2.4 Probe-Axis Focus (locator-owned, at each resample)
 
 The **focus** is a sub-interval of the probe axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusWindow`). It limits only *which candidate x positions may be scanned*: `_acquisition_bounds()` returns it and `_eig_acquire` drops every epoch candidate outside it (an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full probe axis.
 
-It is updated by the pure function `next_focus_window` (`focus_window.py`) right after a resample (weights uniform), and only when `center_freq` is a particle dimension (`with_fixed_frequency=False`); with the default fixed `center_freq` the focus stays the full probe axis.
+It is updated by the pure function `next_focus_window` (`focus_window.py`) right after a resample (weights uniform), and only when `center_freq` is a particle dimension (`with_fixed_center_freq=False`); with the default fixed `center_freq` the focus stays the full probe axis.
 
 The focus narrows to the union of particle-predicted active regions. Each particle i covers
 
@@ -273,7 +273,7 @@ The locator calls `belief.select_max_information_gain(candidates)`, which maximi
 
 $$x^* = \arg\max_x \frac{1}{2}\ln\!\left(1 + \frac{\sigma^2_{\rm pred}(x)}{\sigma^2_{\rm noise}}\right)$$
 
-Candidates come from the belief's slope-targeted epoch grid and are thinned to a minimum physical spacing of `candidate_step_hz` (default = 100 kHz = the frequency convergence threshold).
+Candidates come from the belief's slope-targeted epoch grid and are thinned to a minimum physical spacing of `candidate_step_hz` (default = 100 kHz = the center_freq convergence threshold).
 
 **Boltzmann chunk selection:** EIG scores are split into chunks of 64; each chunk's argmax competes via a softmax with temperature τ = 0.01,
 
@@ -308,7 +308,7 @@ Deterministic, classic dip finding from the measured scan alone — it never rea
 2. A *dip point* is an observation with b − y > n_σ·σ̂ (n_σ = `NVISION_DIP_N_SIGMA` = 3.0) and b − y > 1% of b.
 3. Consecutive dip points closer than 3·Ω_max form one cluster; clusters with fewer than `NVISION_DIP_MIN_CLUSTER` = 2 points are dropped.
 4. **Binomial test.** A cluster of k dip points with n_local observations within [f_min − 3Ω_max, f_max + 3Ω_max] is accepted when P(Binom(n_local, Φ(−n_σ)) ≤ k−1) ≥ `NVISION_DIP_CONFIDENCE` = 0.99, i.e. that many low points among the nearby ones cannot plausibly be noise.
-5. Centroid = depth-weighted mean frequency; significance = k; candidates are returned most-significant first.
+5. Centroid = depth-weighted mean probe-axis position; significance = k; candidates are returned most-significant first.
 
 When σ̂'s relative uncertainty is ≥ `NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD` = 0.15 the noise level is too poorly known to threshold against and no dips are reported.
 
@@ -377,7 +377,7 @@ before it could be revived safely.
 
 ### 5.1 Per-Parameter Convergence
 
-**Frequency** (absolute ceiling):
+**center_freq** (absolute ceiling):
 
 $$\sigma_f < T_f = 100\,\text{kHz} \quad (\texttt{NVISION\_FREQ\_CONVERGENCE\_THRESHOLD})$$
 
@@ -413,7 +413,7 @@ comparable.
 
 Even when every individual parameter passes, an overall RMS check is also required:
 
-$$u_j = \frac{\sigma_j}{B_j}, \qquad B_j = \begin{cases} T_f / \text{threshold} & j = \text{frequency} \\ h_j - l_j & \text{otherwise} \end{cases}$$
+$$u_j = \frac{\sigma_j}{B_j}, \qquad B_j = \begin{cases} T_f / \text{threshold} & j = \text{center\_freq} \\ h_j - l_j & \text{otherwise} \end{cases}$$
 
 $$\text{RMS} = \sqrt{\frac{1}{d}\sum_j u_j^2} < \text{threshold}$$
 
@@ -436,13 +436,13 @@ $$n_{\rm req} = t \cdot \left(\frac{\text{CRLB}_f}{T_f}\right)^2$$
 - If n_req > N_max·K_safety: stop immediately (infeasible).
 - Otherwise the dynamic budget is N_dyn = min(N_max, K_safety·n_req + 1); stop when `inference_step_count` ≥ N_dyn.
 
-with K_safety = `NVISION_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
+with K_safety = `NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
 
 ### 5.5 CRLB Early-Stop in SBED (`_check_crlb_early_stop`)
 
-The stop gates the **primary parameter** only (`zeeman_split`/`split` when present, else `frequency`;
-`resolve_primary_param` in `nvision/metrics/milestones.py`). Its CRLB is the closed-form frequency CRLB of
-§2.3 when the primary parameter is `frequency`, otherwise its marginal CRLB from the cumulative FIM
+The stop gates the **primary parameter** only (`zeeman_split`/`split` when present, else `center_freq`;
+`resolve_primary_param` in `nvision/metrics/milestones.py`). Its CRLB is the closed-form center_freq CRLB of
+§2.3 when the primary parameter is `center_freq`, otherwise its marginal CRLB from the cumulative FIM
 (§4.2/§4.3, `crlb_per_param()`), both at the belief's conjugate noise estimate σ̂ (§3.3). `_primary_crlb_done`
 passes when **both** hold:
 
@@ -464,9 +464,9 @@ The guarded rule has only been checked on a small counterfactual sample (n=12: f
 stop step 32 vs 81, median error at the stop ≈ 2× the run's final error) — treat it as unvalidated until an A/B
 with real power exists.
 
-The milestones (`splitting_converged_step`, `all_converged_step`) are separate bookkeeping: they use the
-closed-form frequency CRLB (infinite for every other parameter) or the absolute threshold, so for
-non-frequency parameters they are decided by the absolute threshold alone.
+The milestones (`primary_converged_step`, `all_converged_step`) are separate bookkeeping: they use the
+closed-form center_freq CRLB (infinite for every other parameter) or the absolute threshold, so for
+non-center_freq parameters they are decided by the absolute threshold alone.
 
 ### 5.6 Adaptive Plateau Stop (`_check_estimate_plateau`, default-on)
 
@@ -529,8 +529,8 @@ that margin at a 2.2× rather than 3.6× saving.
 | Δ_min | `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ` | 10 000 | Hz |
 | — | `NVISION_SMC_DIP_WINDOW_MIN_HZ` | 5 000 000 | Hz |
 | — | `NVISION_SMC_EPOCH_CANDIDATE_BUDGET` | 800 | — (fixed, not env-configurable) |
-| T_f | `NVISION_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
-| K_safety | `NVISION_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
+| T_f | `NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
+| K_safety | `NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
 | patience | `NVISION_CONVERGENCE_PATIENCE` | 8 | steps |
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
 | p_conf | `NVISION_DIP_CONFIDENCE` | 0.99 | — |
@@ -547,14 +547,14 @@ that margin at a 2.2× rather than 3.6× saving.
 
 | Parameter | Physical origin |
 |---|---|
-| `frequency` | Zero-field splitting D ≈ 2.87 GHz between the ms=0 and ms=±1 levels |
+| `center_freq` | Zero-field splitting D ≈ 2.87 GHz between the ms=0 and ms=±1 levels |
 | `zeeman_split` | External B-field along the NV axis (γ_NV ≈ 28 MHz/mT) splits ms=+1 from ms=−1 |
 | `split` | ¹⁴N (nuclear spin I=1) hyperfine coupling, A∥ ≈ 2.16 MHz (`NV_N14_HYPERFINE_SPLIT_HZ`, `nv_center.py:49`) — splits each Zeeman line into a triplet (mI = −1, 0, +1). A ¹⁵N (I=½) sample would give a doublet instead. |
 | `k_np` | Nuclear-spin-polarization asymmetry: population/depth ratio between the mI=−1 and mI=+1 hyperfine lines (`k_np=1` ⇒ unpolarized) |
 | `homogeneous_linewidth`, `sigma_inhom` (plain Voigt) or `saturation`, `sigma_inhom` (Saturation-Voigt) | Combined homogeneous + inhomogeneous linewidth, reparametrized to the kernel-native `fwhm_total`/`lorentz_frac` — see §7.2 |
 | `c_total` | ODMR contrast, set by microwave/optical saturation — population-normalized, shared by Lorentzian, Voigt, and Saturation-Voigt (see [`dip_depth_reparametrization.md`](../dip_depth_reparametrization.md)) |
 
-Both Zeeman groups share the same `(split, k_np)` — the spectrum is exactly symmetric about `frequency` by construction (`_zeeman_pv_pred`, `numba_kernels.py:1295`, uses one `(p_l, p_0, p_r)` population triple for both groups).
+Both Zeeman groups share the same `(split, k_np)` — the spectrum is exactly symmetric about `center_freq` by construction (`_zeeman_pv_pred`, `numba_kernels.py:1295`, uses one `(p_l, p_0, p_r)` population triple for both groups).
 
 ### 7.2 Homogeneous vs. Inhomogeneous Broadening
 
@@ -618,7 +618,7 @@ Rows 2-3 are the "physically present but unidentifiable" reading this section or
 
 Concretely, the previous `with_hyperfine_splitting=False` was row 2 while *reporting* row 1 — `expected_dip_count()` said 2 dips while the kernels drew 6 — so consumers that trusted the dip count (e.g. `GenericSweepLocator`'s peak-detection cap) had to hard-code corrections. `expected_dip_count()` is now truthful for every row.
 
-- **Signal models**: `NVCenterLorentzianModel(with_zeeman_splitting=True)` → `NVCenterLorentzianZeemanSpectrum(frequency, linewidth, zeeman_split, c_total)`; `NVCenterSaturationVoigtModel(with_zeeman_splitting=True)` → `NVCenterSaturationVoigtZeemanSpectrum(frequency, saturation, sigma_inhom, zeeman_split)` (contrast fixed to `NV_SATURATION_C_MAX`, not a free parameter for this model); `NVCenterVoigtModel(with_zeeman_splitting=True)` → `NVCenterVoigtZeemanSpectrum(frequency, homogeneous_linewidth, sigma_inhom, zeeman_split, c_total)` (c_total free, unlike Saturation-Voigt). The parameter tuples are the same for any `hyperfine=` in rows 1-3 — only the predicted lineshape differs.
+- **Signal models**: `NVCenterLorentzianModel(with_zeeman_splitting=True)` → `NVCenterLorentzianZeemanSpectrum(center_freq, linewidth, zeeman_split, c_total)`; `NVCenterSaturationVoigtModel(with_zeeman_splitting=True)` → `NVCenterSaturationVoigtZeemanSpectrum(center_freq, saturation, sigma_inhom, zeeman_split)` (contrast fixed to `NV_SATURATION_C_MAX`, not a free parameter for this model); `NVCenterVoigtModel(with_zeeman_splitting=True)` → `NVCenterVoigtZeemanSpectrum(frequency, homogeneous_linewidth, sigma_inhom, zeeman_split, c_total)` (c_total free, unlike Saturation-Voigt). The parameter tuples are the same for any `hyperfine=` in rows 1-3 — only the predicted lineshape differs.
 - **Belief builder**: `with_zeeman_splitting=True, hyperfine="unresolved", infer_hyperfine=False` are the *defaults* of `nv_center_smc_belief()`.
 - **Generator**: `NVCenterCoreGenerator` defaults the same way. The belief's `hyperfine` must match the generator's, or the locator models a different number of lines than the signal has.
 - **Task wiring**: `combinations.py` switches `lineshape="saturation_voigt"` automatically when the generator name starts with `NVCenter-saturation_voigt`; it also sets `hyperfine="n14"`/`infer_hyperfine=True` for the `NVCenter-voigt-w…` grid, whose generators explicitly draw a resolved triplet.

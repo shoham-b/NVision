@@ -34,13 +34,16 @@ from nvision.spectra.numba_kernels import (
 )
 from nvision.spectra.signal import SignalModel
 from nvision.spectra.spec import GenericParamSpec
+from nvision.tools.renamed_env import reject_renamed_env_vars
+
+reject_renamed_env_vars()
 
 MIN_K_NP: float = 1.0  # Captures reverse polarization regimes
 MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
 
 # Zeeman splitting bounds (half-separation between the two main dips).
 # At γ_NV ≈ 28 GHz/T, 60 MHz ≈ 2.1 mT — a common weak-field lab range. Kept small
-# relative to the (narrow) NV center frequency domain below so the two Zeeman
+# relative to the (narrow) NV center probe-axis domain below so the two Zeeman
 # groups stay a visually significant fraction of the plotted domain rather than
 # being lost in a much wider empty range.
 MIN_ZEEMAN_SPLIT: float = 0.0  # dips fully overlap at zero field
@@ -137,7 +140,7 @@ MAX_SPLIT: float = 8.5e6  # 8.5 MHz — maximum split generated / searched
 # MAX_LINEWIDTH and the Gaussian share up to lorentz_frac=0.55 in the registered
 # presets (ratio ~0.82), i.e. ~2*5MHz*1.82 = 18.2 MHz worst case. 4x MAX_LINEWIDTH
 # gives that headroom. (An earlier hardcoded 2.8e6 here silently made 4 of the 5
-# width-grid rows unrepresentable, biasing every voigt frequency fit by ~3 MHz.)
+# width-grid rows unrepresentable, biasing every voigt center_freq fit by ~3 MHz.)
 VOIGT_FWHM_TOTAL_HI: float = 4.0 * MAX_LINEWIDTH
 
 # Natural (zero-power) homogeneous HWHM for the saturation-coupled Voigt model.
@@ -161,7 +164,7 @@ PRIOR_STD_FRACTION: float = float(os.getenv("NVISION_PRIOR_STD_FRACTION", "0.1")
 # (E[|offset|]/std = sqrt(2/pi) ~ 0.8 for a standard-normal draw), so the
 # Bayesian locator's starting belief was suspiciously close to the answer before
 # a single measurement -- effectively pre-solving the problem for every
-# non-frequency parameter and making genuine active inference on them
+# non-center_freq parameter and making genuine active inference on them
 # unobservable in outcomes like "steps to convergence". At 3.0, the *typical*
 # offset is E[|offset|]/std = 3.0*sqrt(2/pi) ~ 2.4 prior-sigmas (and P(offset >=
 # 2 sigma) ~ 50%, P(offset >= 3 sigma) ~ 32%), simulating a real experimentalist
@@ -194,10 +197,10 @@ NV_ZERO_FIELD_SPLITTING_HZ: float = float(os.getenv("NVISION_NV_ZERO_FIELD_SPLIT
 # [D, D + delta], and x_min is always exactly D. Sized off MAX_ZEEMAN_SPLIT (the same
 # ~2.1 mT reasonable-experiment field above) rather than an arbitrary round number: 2.5x
 # comfortably clears MAX_ZEEMAN_SPLIT plus hyperfine/linewidth margin for the upper dips.
-NV_CENTER_FREQ_DELTA_HZ: float = float(os.getenv("NVISION_NV_CENTER_FREQ_DELTA_HZ", str(2.5 * MAX_ZEEMAN_SPLIT)))
+NV_PROBE_DELTA_HZ: float = float(os.getenv("NVISION_NV_PROBE_DELTA_HZ", str(2.5 * MAX_ZEEMAN_SPLIT)))
 
-DEFAULT_NV_CENTER_FREQ_X_MIN = NV_ZERO_FIELD_SPLITTING_HZ
-DEFAULT_NV_CENTER_FREQ_X_MAX = NV_ZERO_FIELD_SPLITTING_HZ + NV_CENTER_FREQ_DELTA_HZ
+DEFAULT_NV_PROBE_X_MIN = NV_ZERO_FIELD_SPLITTING_HZ
+DEFAULT_NV_PROBE_X_MAX = NV_ZERO_FIELD_SPLITTING_HZ + NV_PROBE_DELTA_HZ
 
 
 def physics_config_fingerprint() -> str:
@@ -237,6 +240,10 @@ def physics_config_fingerprint() -> str:
         # candidates inside a locator-owned focus): the dip-biased probe, last-pick re-injection and
         # belief-side window narrowing were removed and out-of-cube particles are reflected, not clipped.
         "sbed-single-path-v1",
+        # Bumped when the dip-centre model parameter was renamed ``center_freq`` -> ``center_freq``
+        # (and the milestone/metric names fb/fc/splitting_converged -> primary/split/primary_converged):
+        # every cached combination's stored params, bounds and metric columns carry the old names.
+        "center-center_freq-rename-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,
@@ -244,7 +251,7 @@ def physics_config_fingerprint() -> str:
         NV_NATURAL_HWHM_HZ,
         PRIOR_STD_FRACTION,
         NV_ZERO_FIELD_SPLITTING_HZ,
-        NV_CENTER_FREQ_DELTA_HZ,
+        NV_PROBE_DELTA_HZ,
     )
     digest = hashlib.sha256(repr(values).encode()).hexdigest()
     return digest[:12]
@@ -255,7 +262,7 @@ PHYSICS_CONFIG_FINGERPRINT: str = physics_config_fingerprint()
 
 @dataclass(frozen=True)
 class NVCenterLorentzianSpectrum:
-    frequency: float
+    center_freq: float
     linewidth: float
     split: float
     k_np: float
@@ -269,7 +276,7 @@ class NVCenterLorentzianSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterLorentzianSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     linewidth: np.ndarray
     split: np.ndarray
     k_np: np.ndarray
@@ -278,7 +285,7 @@ class NVCenterLorentzianSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterLorentzianSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     linewidth: float
     split: float
     k_np: float
@@ -305,21 +312,21 @@ class _NVCenterLorentzianSpec(
 
 @dataclass(frozen=True)
 class NVCenterLorentzianSingleDipSpectrum:
-    frequency: float
+    center_freq: float
     linewidth: float
     c_total: float
 
 
 @dataclass(frozen=True)
 class NVCenterLorentzianSingleDipSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     linewidth: np.ndarray
     c_total: np.ndarray
 
 
 @dataclass(frozen=True)
 class NVCenterLorentzianSingleDipSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     linewidth: float
     c_total: float
 
@@ -344,7 +351,7 @@ class _NVCenterLorentzianSingleDipSpec(
 
 @dataclass(frozen=True)
 class NVCenterLorentzianZeemanSpectrum:
-    frequency: float
+    center_freq: float
     linewidth: float
     zeeman_split: float
     c_total: float
@@ -352,7 +359,7 @@ class NVCenterLorentzianZeemanSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterLorentzianZeemanSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     linewidth: np.ndarray
     zeeman_split: np.ndarray
     c_total: np.ndarray
@@ -360,7 +367,7 @@ class NVCenterLorentzianZeemanSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterLorentzianZeemanSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     linewidth: float
     zeeman_split: float
     c_total: float
@@ -386,7 +393,7 @@ class _NVCenterLorentzianZeemanSpec(
 
 @dataclass(frozen=True)
 class NVCenterLorentzianZeemanHyperfineSpectrum:
-    frequency: float
+    center_freq: float
     linewidth: float
     zeeman_split: float
     split: float
@@ -396,7 +403,7 @@ class NVCenterLorentzianZeemanHyperfineSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterLorentzianZeemanHyperfineSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     linewidth: np.ndarray
     zeeman_split: np.ndarray
     split: np.ndarray
@@ -406,7 +413,7 @@ class NVCenterLorentzianZeemanHyperfineSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterLorentzianZeemanHyperfineSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     linewidth: float
     zeeman_split: float
     split: float
@@ -559,7 +566,7 @@ class NVCenterLorentzianModel(
 
     For the triplet case:
         S(f) = 1 - L_left - L_center - L_right
-    where the outer peaks are displaced by ±split from the centre frequency. The
+    where the outer peaks are displaced by ±split from the ``center_freq``. The
     line weights always sum to ``c_total``, so total contrast is the same for
     every isotope.
     """
@@ -568,11 +575,15 @@ class NVCenterLorentzianModel(
     _SPEC_SINGLE = _NVCenterLorentzianSingleDipSpec()
     _SPEC_ZEEMAN = _NVCenterLorentzianZeemanSpec()
     _SPEC_ZEEMAN_HF = _NVCenterLorentzianZeemanHyperfineSpec()
-    _SPEC_FULL_FIXED_FREQ = _NVCenterLorentzianSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_SINGLE_FIXED_FREQ = _NVCenterLorentzianSingleDipSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterLorentzianZeemanSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_ZEEMAN_HF_FIXED_FREQ = _NVCenterLorentzianZeemanHyperfineSpec(
-        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    _SPEC_FULL_FIXED_CENTER_FREQ = _NVCenterLorentzianSpec(fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_SINGLE_FIXED_CENTER_FREQ = _NVCenterLorentzianSingleDipSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
+    _SPEC_ZEEMAN_FIXED_CENTER_FREQ = _NVCenterLorentzianZeemanSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
+    _SPEC_ZEEMAN_HF_FIXED_CENTER_FREQ = _NVCenterLorentzianZeemanHyperfineSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
     )
 
     def __init__(
@@ -580,18 +591,18 @@ class NVCenterLorentzianModel(
         hyperfine: str = "unresolved",
         infer_hyperfine: bool = False,
         with_zeeman_splitting: bool = False,
-        with_fixed_frequency: bool = True,
+        with_fixed_center_freq: bool = True,
     ) -> None:
         self._hf_offset, self._w_center, self._hf_lines = _check_hyperfine(hyperfine, infer_hyperfine)
         self._hyperfine = hyperfine
         self._infer_hyperfine = infer_hyperfine
         self._with_zeeman_splitting = with_zeeman_splitting
-        self._with_fixed_frequency = with_fixed_frequency
+        self._with_fixed_center_freq = with_fixed_center_freq
 
     @staticmethod
     def compute_nvcenter_lorentzian_model(
         x: float,
-        frequency: float,
+        center_freq: float,
         linewidth: float,
         split: float,
         k_np: float,
@@ -606,7 +617,7 @@ class NVCenterLorentzianModel(
         """
         return nv_center_lorentzian_eval(
             float(x),
-            float(frequency),
+            float(center_freq),
             float(linewidth),
             float(split),
             float(k_np),
@@ -619,24 +630,26 @@ class NVCenterLorentzianModel(
     def spec(self):
         if self._with_zeeman_splitting:
             base = self._SPEC_ZEEMAN_HF if self._infer_hyperfine else self._SPEC_ZEEMAN
-            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_FREQ
+            fixed = (
+                self._SPEC_ZEEMAN_HF_FIXED_CENTER_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_CENTER_FREQ
+            )
         else:
             base = self._SPEC_FULL if self._infer_hyperfine else self._SPEC_SINGLE
-            fixed = self._SPEC_FULL_FIXED_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_FREQ
-        return fixed if self._with_fixed_frequency else base
+            fixed = self._SPEC_FULL_FIXED_CENTER_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_CENTER_FREQ
+        return fixed if self._with_fixed_center_freq else base
 
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("linewidth", "c_total")
 
     def parameter_weights(self) -> dict[str, float]:
-        freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
+        center_freq_w = {} if self._with_fixed_center_freq else {"center_freq": 2.0}
         if self._with_zeeman_splitting and self._infer_hyperfine:
-            return {**freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
+            return {**center_freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
         if self._with_zeeman_splitting:
-            return {**freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "c_total": 1.0}
+            return {**center_freq_w, "linewidth": 1.0, "zeeman_split": 1.5, "c_total": 1.0}
         if self._infer_hyperfine:
-            return {**freq_w, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
-        return {**freq_w, "linewidth": 1.0, "c_total": 1.0}
+            return {**center_freq_w, "linewidth": 1.0, "split": 1.0, "k_np": 1.0, "c_total": 1.0}
+        return {**center_freq_w, "linewidth": 1.0, "c_total": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         return 4.0 * domain_width * 0.0001
@@ -672,7 +685,7 @@ class NVCenterLorentzianModel(
         if self._with_zeeman_splitting:
             return nv_center_zeeman_lorentzian_eval(
                 float(x),
-                params.frequency,
+                params.center_freq,
                 params.linewidth,
                 params.zeeman_split,
                 hf_split,
@@ -682,7 +695,7 @@ class NVCenterLorentzianModel(
                 1.0,
             )
         return self.compute_nvcenter_lorentzian_model(
-            float(x), params.frequency, params.linewidth, hf_split, k_np, params.c_total, self._w_center
+            float(x), params.center_freq, params.linewidth, hf_split, k_np, params.c_total, self._w_center
         )
 
     def gradient(self, x: float, params) -> dict[str, float]:
@@ -696,12 +709,12 @@ class NVCenterLorentzianModel(
         referenced in project memory for the Lorentzian gradient rollout.
 
         Only includes entries for parameters that are actually free
-        (``self.parameter_names()``); fixed frequency / disabled hyperfine or
+        (``self.parameter_names()``); fixed-center_freq / disabled hyperfine or
         Zeeman splitting are simply omitted, matching ``fisher_information_matrix``'s
         lookup by name.
         """
         xf = float(x)
-        freq = float(params.frequency)
+        center_freq = float(params.center_freq)
         linewidth = float(params.linewidth)
         omega = linewidth if linewidth > 1e-10 else 1e-10
         hf_split = float(params.split) if self._infer_hyperfine else self._hf_offset
@@ -725,19 +738,19 @@ class NVCenterLorentzianModel(
             dp0h_dk, dplh_dk, dprh_dk = 0.5 * dp0_dk, 0.5 * dpl_dk, 0.5 * dpr_dk
             dp0h_dc, dplh_dc, dprh_dc = 0.5 * dp0_dc, 0.5 * dpl_dc, 0.5 * dpr_dc
 
-            # "left" group centered at freq - zeeman_split, weights (wp=p_L, wz=p_0, wm=p_R)
+            # "left" group centered at center_freq - zeeman_split, weights (wp=p_L, wz=p_0, wm=p_R)
             _g_a, dga_dc_, dga_do, dga_ds, dga_dwp, dga_dwz, dga_dwm = _lorentzian_group_grad(
-                xf, freq - zeeman, omega, hf_split, plh, p0h, prh
+                xf, center_freq - zeeman, omega, hf_split, plh, p0h, prh
             )
-            # "right" group centered at freq + zeeman_split, weights swapped (wp=p_R, wz=p_0, wm=p_L)
+            # "right" group centered at center_freq + zeeman_split, weights swapped (wp=p_R, wz=p_0, wm=p_L)
             _g_b, dgb_dc_, dgb_do, dgb_ds, dgb_dwp, dgb_dwz, dgb_dwm = _lorentzian_group_grad(
-                xf, freq + zeeman, omega, hf_split, prh, p0h, plh
+                xf, center_freq + zeeman, omega, hf_split, prh, p0h, plh
             )
 
-            if not self._with_fixed_frequency:
-                grads["frequency"] = -(dga_dc_ + dgb_dc_)
+            if not self._with_fixed_center_freq:
+                grads["center_freq"] = -(dga_dc_ + dgb_dc_)
             grads["linewidth"] = -(dga_do + dgb_do)
-            # d(freq-zeeman)/dzeeman = -1, d(freq+zeeman)/dzeeman = +1
+            # d(center_freq-zeeman)/dzeeman = -1, d(center_freq+zeeman)/dzeeman = +1
             grads["zeeman_split"] = dga_dc_ - dgb_dc_
             if self._infer_hyperfine:
                 grads["split"] = -(dga_ds + dgb_ds)
@@ -749,10 +762,10 @@ class NVCenterLorentzianModel(
             grads["c_total"] = -(dga_dc + dgb_dc)
         else:
             _g, dg_dcenter, dg_domega, dg_dsplit, dg_dwp, dg_dwz, dg_dwm = _lorentzian_group_grad(
-                xf, freq, omega, hf_split, p_l, p0, p_r
+                xf, center_freq, omega, hf_split, p_l, p0, p_r
             )
-            if not self._with_fixed_frequency:
-                grads["frequency"] = -dg_dcenter
+            if not self._with_fixed_center_freq:
+                grads["center_freq"] = -dg_dcenter
             grads["linewidth"] = -dg_domega
             if self._infer_hyperfine:
                 grads["split"] = -dg_dsplit
@@ -764,14 +777,14 @@ class NVCenterLorentzianModel(
         return grads
 
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples)
         out = np.empty(n, dtype=FLOAT_DTYPE)
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_one_serial(
                 float(x),
-                freq,
+                center_freq,
                 np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
                 hf_arr,
@@ -784,7 +797,7 @@ class NVCenterLorentzianModel(
         else:
             nv_center_lorentzian_vectorized_one_serial(
                 float(x),
-                freq,
+                center_freq,
                 np.asarray(samples.linewidth, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
@@ -798,21 +811,21 @@ class NVCenterLorentzianModel(
     def compute_vectorized_many(self, x_phys_array: Sequence[float], samples_phys) -> np.ndarray:
         if isinstance(samples_phys, list | tuple):
             samples_phys = self.spec.unpack_samples(samples_phys)  # type: ignore[arg-type]
-        elif not hasattr(samples_phys, "frequency"):
+        elif not hasattr(samples_phys, "center_freq"):
             return super().compute_vectorized_many(x_phys_array, samples_phys)  # type: ignore[arg-type]
 
         xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_phys_array must be one-dimensional")
-        freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples_phys.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples_phys)
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
 
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_many(
                 xs,
-                freq,
+                center_freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
                 hf_arr,
@@ -825,7 +838,7 @@ class NVCenterLorentzianModel(
         else:
             nv_center_lorentzian_vectorized_many(
                 xs,
-                freq,
+                center_freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
@@ -839,19 +852,19 @@ class NVCenterLorentzianModel(
     def compute_vectorized_many_fast(self, x_phys_array: Sequence[float], samples_phys) -> np.ndarray:
         if isinstance(samples_phys, list | tuple):
             samples_phys = self.spec.unpack_samples(samples_phys)  # type: ignore[arg-type]
-        elif not hasattr(samples_phys, "frequency"):
+        elif not hasattr(samples_phys, "center_freq"):
             return super().compute_vectorized_many_fast(x_phys_array, samples_phys)  # type: ignore[arg-type]
 
         xs = np.asarray(x_phys_array, dtype=FLOAT_DTYPE)
-        freq = np.asarray(samples_phys.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples_phys.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples_phys)
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
 
         if self._with_zeeman_splitting:
             nv_center_zeeman_lorentzian_vectorized_many_fast(
                 xs,
-                freq,
+                center_freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 np.asarray(samples_phys.zeeman_split, dtype=FLOAT_DTYPE),
                 hf_arr,
@@ -864,7 +877,7 @@ class NVCenterLorentzianModel(
         else:
             nv_center_lorentzian_vectorized_many_fast(
                 xs,
-                freq,
+                center_freq,
                 np.asarray(samples_phys.linewidth, dtype=FLOAT_DTYPE),
                 hf_arr,
                 k_arr,
@@ -892,7 +905,7 @@ class NVCenterLorentzianModel(
 
 @dataclass(frozen=True)
 class NVCenterVoigtSingleDipSpectrum:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     c_total: float
@@ -900,7 +913,7 @@ class NVCenterVoigtSingleDipSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterVoigtSingleDipSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     homogeneous_linewidth: np.ndarray
     sigma_inhom: np.ndarray
     c_total: np.ndarray
@@ -908,7 +921,7 @@ class NVCenterVoigtSingleDipSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterVoigtSingleDipSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     c_total: float
@@ -928,7 +941,7 @@ class _NVCenterVoigtSingleDipSpec(
 
 @dataclass(frozen=True)
 class NVCenterVoigtSpectrum:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     split: float
@@ -938,7 +951,7 @@ class NVCenterVoigtSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterVoigtSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     homogeneous_linewidth: np.ndarray
     sigma_inhom: np.ndarray
     split: np.ndarray
@@ -948,7 +961,7 @@ class NVCenterVoigtSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterVoigtSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     split: float
@@ -970,7 +983,7 @@ class _NVCenterVoigtSpec(
 
 @dataclass(frozen=True)
 class NVCenterVoigtZeemanSpectrum:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     zeeman_split: float
@@ -979,7 +992,7 @@ class NVCenterVoigtZeemanSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterVoigtZeemanSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     homogeneous_linewidth: np.ndarray
     sigma_inhom: np.ndarray
     zeeman_split: np.ndarray
@@ -988,7 +1001,7 @@ class NVCenterVoigtZeemanSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterVoigtZeemanSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     zeeman_split: float
@@ -1009,7 +1022,7 @@ class _NVCenterVoigtZeemanSpec(
 
 @dataclass(frozen=True)
 class NVCenterVoigtZeemanHyperfineSpectrum:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     zeeman_split: float
@@ -1020,7 +1033,7 @@ class NVCenterVoigtZeemanHyperfineSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterVoigtZeemanHyperfineSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     homogeneous_linewidth: np.ndarray
     sigma_inhom: np.ndarray
     zeeman_split: np.ndarray
@@ -1031,7 +1044,7 @@ class NVCenterVoigtZeemanHyperfineSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterVoigtZeemanHyperfineSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     homogeneous_linewidth: float
     sigma_inhom: float
     zeeman_split: float
@@ -1075,8 +1088,8 @@ class NVCenterVoigtModel(
 
     Parameters (``with_zeeman_splitting=True, infer_hyperfine=True``)
     ----------------------------------------------------------------------
-    frequency : float
-        Central frequency f_B in Hz.
+    center_freq : float
+        ``center_freq`` f_B in Hz.
     homogeneous_linewidth : float
         Lorentzian (homogeneous) HWHM in Hz.
     sigma_inhom : float
@@ -1101,11 +1114,13 @@ class NVCenterVoigtModel(
     _SPEC_SINGLE = _NVCenterVoigtSingleDipSpec()
     _SPEC_ZEEMAN = _NVCenterVoigtZeemanSpec()
     _SPEC_ZEEMAN_HF = _NVCenterVoigtZeemanHyperfineSpec()
-    _SPEC_FULL_FIXED_FREQ = _NVCenterVoigtSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_SINGLE_FIXED_FREQ = _NVCenterVoigtSingleDipSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterVoigtZeemanSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_ZEEMAN_HF_FIXED_FREQ = _NVCenterVoigtZeemanHyperfineSpec(
-        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    _SPEC_FULL_FIXED_CENTER_FREQ = _NVCenterVoigtSpec(fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_SINGLE_FIXED_CENTER_FREQ = _NVCenterVoigtSingleDipSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
+    _SPEC_ZEEMAN_FIXED_CENTER_FREQ = _NVCenterVoigtZeemanSpec(fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ})
+    _SPEC_ZEEMAN_HF_FIXED_CENTER_FREQ = _NVCenterVoigtZeemanHyperfineSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
     )
 
     def __init__(
@@ -1113,32 +1128,34 @@ class NVCenterVoigtModel(
         hyperfine: str = "unresolved",
         infer_hyperfine: bool = False,
         with_zeeman_splitting: bool = False,
-        with_fixed_frequency: bool = True,
+        with_fixed_center_freq: bool = True,
     ) -> None:
         self._hf_offset, self._w_center, self._hf_lines = _check_hyperfine(hyperfine, infer_hyperfine)
         self._hyperfine = hyperfine
         self._infer_hyperfine = infer_hyperfine
         self._with_zeeman_splitting = with_zeeman_splitting
-        self._with_fixed_frequency = with_fixed_frequency
+        self._with_fixed_center_freq = with_fixed_center_freq
 
     @property
     def spec(self):
         if self._with_zeeman_splitting:
             base = self._SPEC_ZEEMAN_HF if self._infer_hyperfine else self._SPEC_ZEEMAN
-            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_FREQ
+            fixed = (
+                self._SPEC_ZEEMAN_HF_FIXED_CENTER_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_CENTER_FREQ
+            )
         else:
             base = self._SPEC_FULL if self._infer_hyperfine else self._SPEC_SINGLE
-            fixed = self._SPEC_FULL_FIXED_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_FREQ
-        return fixed if self._with_fixed_frequency else base
+            fixed = self._SPEC_FULL_FIXED_CENTER_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_CENTER_FREQ
+        return fixed if self._with_fixed_center_freq else base
 
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("homogeneous_linewidth", "sigma_inhom", "c_total")
 
     def parameter_weights(self) -> dict[str, float]:
-        freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
+        center_freq_w = {} if self._with_fixed_center_freq else {"center_freq": 2.0}
         if self._with_zeeman_splitting and self._infer_hyperfine:
             return {
-                **freq_w,
+                **center_freq_w,
                 "homogeneous_linewidth": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
@@ -1148,7 +1165,7 @@ class NVCenterVoigtModel(
             }
         if self._with_zeeman_splitting:
             return {
-                **freq_w,
+                **center_freq_w,
                 "homogeneous_linewidth": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
@@ -1156,14 +1173,14 @@ class NVCenterVoigtModel(
             }
         if self._infer_hyperfine:
             return {
-                **freq_w,
+                **center_freq_w,
                 "homogeneous_linewidth": 1.0,
                 "sigma_inhom": 1.0,
                 "split": 1.0,
                 "k_np": 1.0,
                 "c_total": 1.0,
             }
-        return {**freq_w, "homogeneous_linewidth": 1.0, "sigma_inhom": 1.0, "c_total": 1.0}
+        return {**center_freq_w, "homogeneous_linewidth": 1.0, "sigma_inhom": 1.0, "c_total": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         fwhm_total_lo = 70e3
@@ -1203,7 +1220,7 @@ class NVCenterVoigtModel(
         fwhm_total, lorentz_frac = _voigt_reparam_scalar(params.homogeneous_linewidth, params.sigma_inhom)
         return nv_center_zeeman_pseudo_voigt_eval(
             float(x),
-            params.frequency,
+            params.center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_split,
@@ -1223,7 +1240,7 @@ class NVCenterVoigtModel(
         out = np.empty(xs64.shape[0], dtype=np.float64)
         nv_center_zeeman_pseudo_voigt_eval_xs(
             xs64,
-            float(params.frequency),
+            float(params.center_freq),
             float(fwhm_total),
             float(lorentz_frac),
             float(zeeman_split),
@@ -1237,15 +1254,15 @@ class NVCenterVoigtModel(
         return out
 
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples)
         zeeman_arr = self._zeeman_array(n, samples)
         fwhm_total, lorentz_frac = _voigt_reparam(samples.homogeneous_linewidth, samples.sigma_inhom)
         out = np.empty(n, dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
             float(x),
-            freq,
+            center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_arr,
@@ -1261,21 +1278,21 @@ class NVCenterVoigtModel(
     def compute_vectorized_many(self, x_array: Sequence[float], samples) -> np.ndarray:
         if isinstance(samples, list | tuple):
             samples = self.spec.unpack_samples(samples)  # type: ignore[arg-type]
-        elif not hasattr(samples, "frequency"):
+        elif not hasattr(samples, "center_freq"):
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples)
         zeeman_arr = self._zeeman_array(n, samples)
         fwhm_total, lorentz_frac = _voigt_reparam(samples.homogeneous_linewidth, samples.sigma_inhom)
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many(
             xs,
-            freq,
+            center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_arr,
@@ -1292,19 +1309,19 @@ class NVCenterVoigtModel(
         """Acquisition-only fast variant: uses the fastmath pseudo-Voigt kernel."""
         if isinstance(samples, list | tuple):
             samples = self.spec.unpack_samples(samples)  # type: ignore[arg-type]
-        elif not hasattr(samples, "frequency"):
+        elif not hasattr(samples, "center_freq"):
             return super().compute_vectorized_many_fast(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples)
         zeeman_arr = self._zeeman_array(n, samples)
         fwhm_total, lorentz_frac = _voigt_reparam(samples.homogeneous_linewidth, samples.sigma_inhom)
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
             xs,
-            freq,
+            center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_arr,
@@ -1468,21 +1485,21 @@ def _voigt_reparam(homogeneous_linewidth: np.ndarray, sigma_inhom: np.ndarray) -
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtSingleDipSpectrum:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
 
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtSingleDipSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     saturation: np.ndarray
     sigma_inhom: np.ndarray
 
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtSingleDipSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
 
@@ -1501,7 +1518,7 @@ class _NVCenterSaturationVoigtSingleDipSpec(
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtSpectrum:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
     split: float
@@ -1510,7 +1527,7 @@ class NVCenterSaturationVoigtSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     saturation: np.ndarray
     sigma_inhom: np.ndarray
     split: np.ndarray
@@ -1519,7 +1536,7 @@ class NVCenterSaturationVoigtSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
     split: float
@@ -1540,7 +1557,7 @@ class _NVCenterSaturationVoigtSpec(
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtZeemanSpectrum:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
     zeeman_split: float
@@ -1548,7 +1565,7 @@ class NVCenterSaturationVoigtZeemanSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtZeemanSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     saturation: np.ndarray
     sigma_inhom: np.ndarray
     zeeman_split: np.ndarray
@@ -1556,7 +1573,7 @@ class NVCenterSaturationVoigtZeemanSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtZeemanSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
     zeeman_split: float
@@ -1576,7 +1593,7 @@ class _NVCenterSaturationVoigtZeemanSpec(
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtZeemanHyperfineSpectrum:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
     zeeman_split: float
@@ -1586,7 +1603,7 @@ class NVCenterSaturationVoigtZeemanHyperfineSpectrum:
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtZeemanHyperfineSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     saturation: np.ndarray
     sigma_inhom: np.ndarray
     zeeman_split: np.ndarray
@@ -1596,7 +1613,7 @@ class NVCenterSaturationVoigtZeemanHyperfineSpectrumSamples:
 
 @dataclass(frozen=True)
 class NVCenterSaturationVoigtZeemanHyperfineSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     saturation: float
     sigma_inhom: float
     zeeman_split: float
@@ -1651,8 +1668,8 @@ class NVCenterSaturationVoigtModel(
 
     Parameters (``with_zeeman_splitting=True, infer_hyperfine=True``)
     ----------------------------------------------------------------------
-    frequency : float
-        Central (zero-field) frequency f_B in Hz.
+    center_freq : float
+        Zero-field dip centre ``center_freq`` (f_B) in Hz.
     saturation : float
         Drive power relative to half-saturation power (dimensionless, > 0).
     sigma_inhom : float
@@ -1671,13 +1688,17 @@ class NVCenterSaturationVoigtModel(
     _SPEC_SINGLE = _NVCenterSaturationVoigtSingleDipSpec()
     _SPEC_ZEEMAN = _NVCenterSaturationVoigtZeemanSpec()
     _SPEC_ZEEMAN_HF = _NVCenterSaturationVoigtZeemanHyperfineSpec()
-    _SPEC_FULL_FIXED_FREQ = _NVCenterSaturationVoigtSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_SINGLE_FIXED_FREQ = _NVCenterSaturationVoigtSingleDipSpec(
-        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    _SPEC_FULL_FIXED_CENTER_FREQ = _NVCenterSaturationVoigtSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
     )
-    _SPEC_ZEEMAN_FIXED_FREQ = _NVCenterSaturationVoigtZeemanSpec(fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ})
-    _SPEC_ZEEMAN_HF_FIXED_FREQ = _NVCenterSaturationVoigtZeemanHyperfineSpec(
-        fixed_values={"frequency": NV_ZERO_FIELD_SPLITTING_HZ}
+    _SPEC_SINGLE_FIXED_CENTER_FREQ = _NVCenterSaturationVoigtSingleDipSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
+    _SPEC_ZEEMAN_FIXED_CENTER_FREQ = _NVCenterSaturationVoigtZeemanSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
+    )
+    _SPEC_ZEEMAN_HF_FIXED_CENTER_FREQ = _NVCenterSaturationVoigtZeemanHyperfineSpec(
+        fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ}
     )
 
     def __init__(
@@ -1685,32 +1706,34 @@ class NVCenterSaturationVoigtModel(
         hyperfine: str = "unresolved",
         infer_hyperfine: bool = False,
         with_zeeman_splitting: bool = False,
-        with_fixed_frequency: bool = True,
+        with_fixed_center_freq: bool = True,
     ) -> None:
         self._hf_offset, self._w_center, self._hf_lines = _check_hyperfine(hyperfine, infer_hyperfine)
         self._hyperfine = hyperfine
         self._infer_hyperfine = infer_hyperfine
         self._with_zeeman_splitting = with_zeeman_splitting
-        self._with_fixed_frequency = with_fixed_frequency
+        self._with_fixed_center_freq = with_fixed_center_freq
 
     @property
     def spec(self):
         if self._with_zeeman_splitting:
             base = self._SPEC_ZEEMAN_HF if self._infer_hyperfine else self._SPEC_ZEEMAN
-            fixed = self._SPEC_ZEEMAN_HF_FIXED_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_FREQ
+            fixed = (
+                self._SPEC_ZEEMAN_HF_FIXED_CENTER_FREQ if self._infer_hyperfine else self._SPEC_ZEEMAN_FIXED_CENTER_FREQ
+            )
         else:
             base = self._SPEC_FULL if self._infer_hyperfine else self._SPEC_SINGLE
-            fixed = self._SPEC_FULL_FIXED_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_FREQ
-        return fixed if self._with_fixed_frequency else base
+            fixed = self._SPEC_FULL_FIXED_CENTER_FREQ if self._infer_hyperfine else self._SPEC_SINGLE_FIXED_CENTER_FREQ
+        return fixed if self._with_fixed_center_freq else base
 
     def is_scale_parameter(self, name: str) -> bool:
         return name in ("saturation", "sigma_inhom")
 
     def parameter_weights(self) -> dict[str, float]:
-        freq_w = {} if self._with_fixed_frequency else {"frequency": 2.0}
+        center_freq_w = {} if self._with_fixed_center_freq else {"center_freq": 2.0}
         if self._with_zeeman_splitting and self._infer_hyperfine:
             return {
-                **freq_w,
+                **center_freq_w,
                 "saturation": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
@@ -1719,20 +1742,20 @@ class NVCenterSaturationVoigtModel(
             }
         if self._with_zeeman_splitting:
             return {
-                **freq_w,
+                **center_freq_w,
                 "saturation": 1.0,
                 "sigma_inhom": 1.0,
                 "zeeman_split": 1.5,
             }
         if self._infer_hyperfine:
             return {
-                **freq_w,
+                **center_freq_w,
                 "saturation": 1.0,
                 "sigma_inhom": 1.0,
                 "split": 1.0,
                 "k_np": 1.0,
             }
-        return {**freq_w, "saturation": 1.0, "sigma_inhom": 1.0}
+        return {**center_freq_w, "saturation": 1.0, "sigma_inhom": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         fwhm_total_lo = 2.0 * NV_NATURAL_HWHM_HZ
@@ -1773,7 +1796,7 @@ class NVCenterSaturationVoigtModel(
         )
         return nv_center_zeeman_pseudo_voigt_eval(
             float(x),
-            params.frequency,
+            params.center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_split,
@@ -1795,7 +1818,7 @@ class NVCenterSaturationVoigtModel(
         out = np.empty(xs64.shape[0], dtype=np.float64)
         nv_center_zeeman_pseudo_voigt_eval_xs(
             xs64,
-            float(params.frequency),
+            float(params.center_freq),
             float(fwhm_total),
             float(lorentz_frac),
             float(zeeman_split),
@@ -1809,8 +1832,8 @@ class NVCenterSaturationVoigtModel(
         return out
 
     def compute_vectorized_samples(self, x: float, samples) -> np.ndarray:
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples)
         zeeman_arr = self._zeeman_array(n, samples)
         fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam(
@@ -1819,7 +1842,7 @@ class NVCenterSaturationVoigtModel(
         out = np.empty(n, dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
             float(x),
-            freq,
+            center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_arr,
@@ -1835,14 +1858,14 @@ class NVCenterSaturationVoigtModel(
     def compute_vectorized_many(self, x_array: Sequence[float], samples) -> np.ndarray:
         if isinstance(samples, list | tuple):
             samples = self.spec.unpack_samples(samples)  # type: ignore[arg-type]
-        elif not hasattr(samples, "frequency"):
+        elif not hasattr(samples, "center_freq"):
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples)
         zeeman_arr = self._zeeman_array(n, samples)
         fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam(
@@ -1851,7 +1874,7 @@ class NVCenterSaturationVoigtModel(
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many(
             xs,
-            freq,
+            center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_arr,
@@ -1867,12 +1890,12 @@ class NVCenterSaturationVoigtModel(
     def compute_vectorized_many_fast(self, x_array: Sequence[float], samples) -> np.ndarray:
         if isinstance(samples, list | tuple):
             samples = self.spec.unpack_samples(samples)  # type: ignore[arg-type]
-        elif not hasattr(samples, "frequency"):
+        elif not hasattr(samples, "center_freq"):
             return super().compute_vectorized_many_fast(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
-        n = freq.shape[0]
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
+        n = center_freq.shape[0]
         hf_arr, k_arr = self._hf_arrays(n, samples)
         zeeman_arr = self._zeeman_array(n, samples)
         fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam(
@@ -1881,7 +1904,7 @@ class NVCenterSaturationVoigtModel(
         out = np.empty((xs.shape[0], n), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
             xs,
-            freq,
+            center_freq,
             fwhm_total,
             lorentz_frac,
             zeeman_arr,
@@ -1938,7 +1961,7 @@ def nv_center_saturation_voigt_bounds_for_domain(
         if infer_hyperfine:
             split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
             return {
-                "frequency": (f_lo, f_hi),
+                "center_freq": (f_lo, f_hi),
                 "saturation": saturation_bounds,
                 "sigma_inhom": sigma_inhom_bounds,
                 "zeeman_split": zeeman_bounds,
@@ -1947,7 +1970,7 @@ def nv_center_saturation_voigt_bounds_for_domain(
                 "_signal_max_span": (0.0, max_span),
             }
         return {
-            "frequency": (f_lo, f_hi),
+            "center_freq": (f_lo, f_hi),
             "saturation": saturation_bounds,
             "sigma_inhom": sigma_inhom_bounds,
             "zeeman_split": zeeman_bounds,
@@ -1960,7 +1983,7 @@ def nv_center_saturation_voigt_bounds_for_domain(
     if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
-            "frequency": (float(x_min), float(x_max)),
+            "center_freq": (float(x_min), float(x_max)),
             "saturation": saturation_bounds,
             "sigma_inhom": sigma_inhom_bounds,
             "split": split_bounds,
@@ -1968,7 +1991,7 @@ def nv_center_saturation_voigt_bounds_for_domain(
             "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * fwhm_total_hi),
         }
     return {
-        "frequency": (float(x_min), float(x_max)),
+        "center_freq": (float(x_min), float(x_max)),
         "saturation": saturation_bounds,
         "sigma_inhom": sigma_inhom_bounds,
         "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * fwhm_total_hi),
@@ -1984,7 +2007,7 @@ def nv_center_lorentzian_bounds_for_domain(
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``.
 
-    ``with_zeeman_splitting=True`` adds ``zeeman_split``; the center frequency may lie
+    ``with_zeeman_splitting=True`` adds ``zeeman_split``; the ``center_freq`` may lie
     anywhere in the (half) window, so the lower Zeeman dip can fall outside it.
     ``infer_hyperfine=False`` (the default) fixes split/k_np to the ``hyperfine``
     isotope's own constants and omits them from the returned dict.
@@ -2002,7 +2025,7 @@ def nv_center_lorentzian_bounds_for_domain(
     hf_hi = MAX_SPLIT if infer_hyperfine else hf_offset
 
     if with_zeeman_splitting:
-        # Center frequency must stay MAX_ZEEMAN_SPLIT inside each edge.
+        # center_freq must stay MAX_ZEEMAN_SPLIT inside each edge.
         # The probe window is the upper half of the mirror-symmetric spectrum, so the
         # center may sit anywhere in it -- including on its lower edge, where the lower
         # Zeeman group is out of range and only the upper one is measured.
@@ -2014,7 +2037,7 @@ def nv_center_lorentzian_bounds_for_domain(
         if infer_hyperfine:
             split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
             return {
-                "frequency": (f_lo, f_hi),
+                "center_freq": (f_lo, f_hi),
                 "linewidth": linewidth_bounds,
                 "zeeman_split": zeeman_bounds,
                 "split": split_bounds,
@@ -2023,7 +2046,7 @@ def nv_center_lorentzian_bounds_for_domain(
                 "_signal_max_span": (0.0, max_span),
             }
         return {
-            "frequency": (f_lo, f_hi),
+            "center_freq": (f_lo, f_hi),
             "linewidth": linewidth_bounds,
             "zeeman_split": zeeman_bounds,
             "c_total": (0.1, 0.4),
@@ -2034,7 +2057,7 @@ def nv_center_lorentzian_bounds_for_domain(
     if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
-            "frequency": (float(x_min), float(x_max)),
+            "center_freq": (float(x_min), float(x_max)),
             "linewidth": linewidth_bounds,
             "split": split_bounds,
             "k_np": (MIN_K_NP, MAX_K_NP),
@@ -2043,7 +2066,7 @@ def nv_center_lorentzian_bounds_for_domain(
         }
 
     return {
-        "frequency": (float(x_min), float(x_max)),
+        "center_freq": (float(x_min), float(x_max)),
         "linewidth": linewidth_bounds,
         "c_total": (0.1, 0.4),
         "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * linewidth_hi),
@@ -2057,21 +2080,21 @@ def nv_center_lorentzian_bounds_for_domain(
 
 @dataclass(frozen=True)
 class NVCenterOnePeakLorentzianSpectrum:
-    frequency: float
+    center_freq: float
     linewidth: float
     dip_depth: float
 
 
 @dataclass(frozen=True)
 class NVCenterOnePeakLorentzianSpectrumSamples:
-    frequency: np.ndarray
+    center_freq: np.ndarray
     linewidth: np.ndarray
     dip_depth: np.ndarray
 
 
 @dataclass(frozen=True)
 class NVCenterOnePeakLorentzianSpectrumUncertainty:
-    frequency: float
+    center_freq: float
     linewidth: float
     dip_depth: float
 
@@ -2098,10 +2121,10 @@ class NVCenterOnePeakLorentzianModel(
     """NV center ODMR signal — single Lorentzian dip (zero-field / no hyperfine splitting).
 
     split is fixed to 0 and k_np is fixed to 1, so only 4 parameters are inferred:
-    frequency, linewidth, dip_depth.
+    center_freq, linewidth, dip_depth.
 
     Signal form:
-        S(f) = 1.0 - dip_depth * linewidth² / ((f - frequency)² + linewidth²)
+        S(f) = 1.0 - dip_depth * linewidth² / ((f - center_freq)² + linewidth²)
     """
 
     _SPEC = _NVCenterOnePeakLorentzianSpec()
@@ -2114,7 +2137,7 @@ class NVCenterOnePeakLorentzianModel(
         return name in ("linewidth", "dip_depth")
 
     def parameter_weights(self) -> dict[str, float]:
-        return {"frequency": 2.0, "linewidth": 1.0, "dip_depth": 1.0}
+        return {"center_freq": 2.0, "linewidth": 1.0, "dip_depth": 1.0}
 
     def signal_min_span(self, domain_width: float) -> float | None:
         linewidth_lo = domain_width * 0.0001
@@ -2130,49 +2153,49 @@ class NVCenterOnePeakLorentzianModel(
 
     def compute(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> float:
         lw2 = params.linewidth**2
-        denom = (float(x) - params.frequency) ** 2 + lw2
+        denom = (float(x) - params.center_freq) ** 2 + lw2
         return float(1.0 - (params.dip_depth * lw2) / denom)
 
     def gradient(self, x: float, params: NVCenterOnePeakLorentzianSpectrum) -> dict[str, float]:
-        """Closed-form d(signal)/d(parameter) for ``f = 1 - dip_depth*lw^2/D``, ``D=(x-freq)^2+lw^2``."""
+        """Closed-form d(signal)/d(parameter) for ``f = 1 - dip_depth*lw^2/D``, ``D=(x-center_freq)^2+lw^2``."""
         xf = float(x)
-        freq = params.frequency
+        center_freq = params.center_freq
         lw = params.linewidth
         depth = params.dip_depth
         lw2 = lw * lw
-        dx = xf - freq
+        dx = xf - center_freq
         denom = dx * dx + lw2
         inv_denom2 = 1.0 / (denom * denom)
 
         return {
-            "frequency": -2.0 * depth * lw2 * dx * inv_denom2,
+            "center_freq": -2.0 * depth * lw2 * dx * inv_denom2,
             "linewidth": -2.0 * depth * lw * dx * dx * inv_denom2,
             "dip_depth": -lw2 / denom,
         }
 
     def compute_vectorized_samples(self, x: float, samples: NVCenterOnePeakLorentzianSpectrumSamples) -> np.ndarray:
         x_f = float(x)
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
         lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
         depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
         lw2 = lw**2
-        denom = (x_f - freq) ** 2 + lw2
+        denom = (x_f - center_freq) ** 2 + lw2
         return (1.0 - depth * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
 
     def compute_vectorized_many(
         self, x_array: Sequence[float], samples: NVCenterOnePeakLorentzianSpectrumSamples
     ) -> np.ndarray:
-        if not hasattr(samples, "frequency"):
+        if not hasattr(samples, "center_freq"):
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
-        freq = np.asarray(samples.frequency, dtype=FLOAT_DTYPE)
+        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
         lw = np.asarray(samples.linewidth, dtype=FLOAT_DTYPE)
         depth = np.asarray(samples.dip_depth, dtype=FLOAT_DTYPE)
         x2d = xs[:, None]
         lw2 = lw[None, :] ** 2
-        denom = (x2d - freq[None, :]) ** 2 + lw2
+        denom = (x2d - center_freq[None, :]) ** 2 + lw2
         return (1.0 - depth[None, :] * lw2 / denom).astype(FLOAT_DTYPE, copy=False)
 
 
@@ -2186,7 +2209,7 @@ def nv_center_voigt_bounds_for_domain(
     """Physical parameter bounds for NV Voigt signals over ``[x_min, x_max]``.
 
     Mirrors ``nv_center_lorentzian_bounds_for_domain``'s structure exactly:
-    ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the frequency range so
+    ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the probe-axis range so
     the two Zeeman groups always land within the domain; ``infer_hyperfine=False``
     (default) fixes ``split``/``k_np`` to the ``hyperfine`` isotope's own constants
     and omits them from the returned dict.
@@ -2211,7 +2234,7 @@ def nv_center_voigt_bounds_for_domain(
         # split ~ U(MIN_SPLIT, MAX_SPLIT). These previously capped homogeneous width at 5.0/2.8
         # MHz — below the generated range — which made the true signal unrepresentable for most
         # repeats: curve_fit and the SMC belief pinned split/width at the ceiling and compensated
-        # by shifting frequency, a systematic ~3 MHz bias on every voigt fit.
+        # by shifting center_freq, a systematic ~3 MHz bias on every voigt fit.
         # The probe window is the upper half of the mirror-symmetric spectrum, so the
         # center may sit anywhere in it -- including on its lower edge, where the lower
         # Zeeman group is out of range and only the upper one is measured.
@@ -2223,7 +2246,7 @@ def nv_center_voigt_bounds_for_domain(
         if infer_hyperfine:
             split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
             return {
-                "frequency": (f_lo, f_hi),
+                "center_freq": (f_lo, f_hi),
                 "homogeneous_linewidth": linewidth_bounds,
                 "sigma_inhom": sigma_inhom_bounds,
                 "zeeman_split": zeeman_bounds,
@@ -2233,7 +2256,7 @@ def nv_center_voigt_bounds_for_domain(
                 "_signal_max_span": (0.0, max_span),
             }
         return {
-            "frequency": (f_lo, f_hi),
+            "center_freq": (f_lo, f_hi),
             "homogeneous_linewidth": linewidth_bounds,
             "sigma_inhom": sigma_inhom_bounds,
             "zeeman_split": zeeman_bounds,
@@ -2245,7 +2268,7 @@ def nv_center_voigt_bounds_for_domain(
     if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
-            "frequency": (float(x_min), float(x_max)),
+            "center_freq": (float(x_min), float(x_max)),
             "homogeneous_linewidth": linewidth_bounds,
             "sigma_inhom": sigma_inhom_bounds,
             "split": split_bounds,
@@ -2255,7 +2278,7 @@ def nv_center_voigt_bounds_for_domain(
         }
 
     return {
-        "frequency": (float(x_min), float(x_max)),
+        "center_freq": (float(x_min), float(x_max)),
         "homogeneous_linewidth": linewidth_bounds,
         "sigma_inhom": sigma_inhom_bounds,
         "c_total": (0.1, 0.4),

@@ -24,7 +24,7 @@ def make_experiment(rng: random.Random) -> CoreExperiment:
     true_signal = gen.generate(rng)
     x_min, x_max = None, None
     for name in true_signal.parameter_names:
-        if "frequency" in name:
+        if "center_freq" in name:
             x_min, x_max = true_signal.get_param_bounds(name)
             break
     assert x_min is not None

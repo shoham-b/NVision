@@ -22,7 +22,7 @@ narrowing decision once a candidate ``(lo, hi)`` has been computed -- not the
 detector.
 
 ``FocusWindow`` is the value object every narrowing decision flows through:
-physical ``[lo, hi]`` sub-interval of the frequency axis currently being
+physical ``[lo, hi]`` sub-interval of the probe axis currently being
 probed, plus the immutable ``full_lo``/``full_hi`` domain it can never escape.
 Owned by whichever locator or belief is doing the narrowing. Every mutation
 returns a new instance -- the object itself never changes in place.
@@ -66,7 +66,7 @@ def clamp_to_domain(lo: float, hi: float, domain_lo: float, domain_hi: float) ->
 
 @dataclass(frozen=True)
 class FocusWindow:
-    """Physical ``[lo, hi]`` sub-interval of the frequency axis.
+    """Physical ``[lo, hi]`` sub-interval of the probe axis.
 
     Owned by the locator or belief doing the narrowing. Can shrink (or, via
     :meth:`from_candidate`, grow back) during a run -- every mutation returns
@@ -163,14 +163,14 @@ class FocusWindow:
 
         return FocusWindow(lo=lo, hi=hi, full_lo=self.full_lo, full_hi=self.full_hi)
 
-    def to_measure_x(self, phys_freq: _Numeric) -> _Numeric:
-        """Map a physical frequency (scalar or array) to [0, 1] for ``CoreExperiment.measure()``.
+    def to_measure_x(self, x_phys: _Numeric) -> _Numeric:
+        """Map a physical probe-axis position (scalar or array) to [0, 1] for ``CoreExperiment.measure()``.
 
         Always uses ``full_lo`` / ``full_hi`` -- never the (possibly narrowed)
         ``lo`` / ``hi``. This is the **only** correct path into
         ``CoreExperiment.measure()``.
         """
-        return (phys_freq - self.full_lo) / (self.full_hi - self.full_lo)
+        return (x_phys - self.full_lo) / (self.full_hi - self.full_lo)
 
 
 def next_focus_window(

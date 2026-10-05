@@ -22,8 +22,8 @@ from nvision.cli.app_instance import app
 from nvision.runner.cache import strip_heavy_fields
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen.nv_center_generator import (
-    DEFAULT_NV_CENTER_FREQ_X_MAX,
-    DEFAULT_NV_CENTER_FREQ_X_MIN,
+    DEFAULT_NV_PROBE_X_MAX,
+    DEFAULT_NV_PROBE_X_MIN,
 )
 from nvision.tools.artifacts import (
     prepare_artifact_tree,
@@ -56,20 +56,20 @@ _METRIC_KEYS: tuple[str, ...] = (
     "sweep_steps",
     "locator_steps",
     "sobol_baseline_steps",
-    "sobol_freq_steps",
+    "sobol_primary_steps",
     "sobol_conv_diff",
-    "sobol_freq_uncert_at_conv",
-    "sobol_freq_err_at_conv",
+    "sobol_primary_uncert_at_conv",
+    "sobol_primary_err_at_conv",
     "sobol_difference",
-    "steps_to_fb",
-    "err_fb_at_milestone",
-    "err_fc_at_milestone",
-    "uncert_fb_at_milestone",
-    "final_err_fb",
-    "final_err_fc",
-    "err_fb_diff",
-    "err_fc_diff",
-    "splitting_converged_step",
+    "steps_to_primary",
+    "err_primary_at_milestone",
+    "err_split_at_milestone",
+    "uncert_primary_at_milestone",
+    "final_err_primary",
+    "final_err_split",
+    "err_primary_diff",
+    "err_split_diff",
+    "primary_converged_step",
     "all_converged_step",
     "dips_detected",
     "total_dip_width",
@@ -325,8 +325,8 @@ def recalc_metrics(
             experiment = CoreExperiment(
                 true_signal=true_signal,
                 noise=combo.noise,
-                x_min=DEFAULT_NV_CENTER_FREQ_X_MIN,
-                x_max=DEFAULT_NV_CENTER_FREQ_X_MAX,
+                x_min=DEFAULT_NV_PROBE_X_MIN,
+                x_max=DEFAULT_NV_PROBE_X_MAX,
             )
             truth_positions = _truth_positions(experiment)
 

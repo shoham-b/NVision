@@ -25,7 +25,7 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    x_min, x_max = true_signal.get_param_bounds("frequency")
+    x_min, x_max = true_signal.get_param_bounds("center_freq")
     assert x_min is not None
     exp = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
     pb = {name: true_signal.get_param_bounds(name) for name in true_signal.parameter_names}
@@ -40,13 +40,13 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
     )
     assert final.snapshots
-    # frequency is fixed (a known instrument constant, not inferred -- see
-    # NVCenterCoreGenerator's docstring) under the default with_fixed_frequency=True
+    # center_freq is fixed (a known instrument constant, not inferred -- see
+    # NVCenterCoreGenerator's docstring) under the default with_fixed_center_freq=True
     # used by both the generator and nv_center_smc_belief, so it's not a particle
     # dimension / belief.estimates() key here. zeeman_split is the actual free,
     # randomized "location" parameter in this default config, so check convergence
     # on that instead (this test's purpose is verifying the normalized-probe /
-    # physical-signal pipeline updates the belief correctly, not frequency specifically).
+    # physical-signal pipeline updates the belief correctly, not center_freq specifically).
     zeeman_est = final.snapshots[-1].belief.estimates()["zeeman_split"]
     zeeman_true = true_signal.get_param_value("zeeman_split")
     assert abs(zeeman_est - zeeman_true) < 24e6
@@ -63,15 +63,15 @@ def _make_unit_cube_nv_model():
     # phys_bounds below carries split/k_np, so the model must actually have them
     # as free parameters -- i.e. a resolved N-14 triplet, which used to be this
     # model's default before hyperfine="unresolved" became it.
-    model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_frequency=False)
+    model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_center_freq=False)
     phys_bounds = {
-        "frequency": (2.86e9, 2.88e9),
+        "center_freq": (2.86e9, 2.88e9),
         "linewidth": (5e6, 15e6),
         "split": (1e6, 5e6),
         "k_np": (0.5, 1.5),
         "c_total": (0.05, 0.2),
     }
-    wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["frequency"])
+    wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["center_freq"])
     return wrapped, model
 
 

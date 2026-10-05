@@ -306,7 +306,7 @@ function _paramLetterFor(trueParams, candidates) {
     return '';
 }
 
-// A locator that revisits the same discrete frequency bin (e.g. matlab-run cycling
+// A locator that revisits the same discrete probe bin (e.g. matlab-run cycling
 // through a real .mat file's per-shot data one shot at a time) plots several dots at
 // the *exact* same x. Left alone they just stack invisibly on top of each other with
 // no visual cue they're the same bin. Group them into one vertical stem per unique x
@@ -477,7 +477,7 @@ function _buildScanFigure(def, data) {
                 }, sa));
             }
         } else if (m.mode === 'steps') {
-            // A real acquisition (e.g. MATLAB replay) scans every frequency once per
+            // A real acquisition (e.g. MATLAB replay) scans every probe point once per
             // sweep, then scans them all again — sweep_index is that real time axis, and
             // is a truer color than the locator's own adaptive visit order (`step`), which
             // can revisit one bin many sweeps apart from the next. Use it when present.
@@ -626,10 +626,10 @@ function _buildScanFigure(def, data) {
         }
     }
 
-    // Mark the true (fixed, physical) center frequency with a vertical reference line.
-    if (data.true_params && data.true_params.params && Number.isFinite(data.true_params.params.frequency)) {
+    // Mark the true (fixed, physical) center_freq with a vertical reference line.
+    if (data.true_params && data.true_params.params && Number.isFinite(data.true_params.params.center_freq)) {
         const cfs = def.center_freq_style;
-        const cf = data.true_params.params.frequency;
+        const cf = data.true_params.params.center_freq;
         shapes.push({
             type: 'line', xref: 'x', yref,
             x0: cf, x1: cf, y0: 0, y1: 1,

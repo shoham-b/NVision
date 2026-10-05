@@ -214,7 +214,7 @@ def get_cached_sobol_baseline(
         return None
     if isinstance(cached, int):
         # Backward compatibility for old caches storing only the overall step count
-        return {"sobol_baseline_steps": cached, "sobol_freq_steps": None}
+        return {"sobol_baseline_steps": cached, "sobol_primary_steps": None}
     return cached
 
 

@@ -9,10 +9,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
-from nvision.models.fisher_information import lorentzian_frequency_crlb
+from nvision.models.fisher_information import lorentzian_center_freq_crlb
 from nvision.sim.defaults import NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.spectra.signal import SignalModel
+from nvision.tools.renamed_env import reject_renamed_env_vars
+
+reject_renamed_env_vars()
 
 if TYPE_CHECKING:
     pass
@@ -27,12 +30,12 @@ NVISION_SWEEP_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SWEEP_BATCH_CHUNK_S
 # ~50-200 evaluations; a larger budget only matters if a start is far off.
 _FIT_MAXFEV: int = int(os.getenv("NVISION_SWEEP_FIT_MAXFEV", "4000"))
 
-# The frequency step tolerance (curve_fit xtol) is derived from the expected
-# frequency CRLB rather than hard-coded: refine until the frequency is pinned to
+# The center_freq step tolerance (curve_fit xtol) is derived from the expected
+# center_freq CRLB rather than hard-coded: refine until the center_freq is pinned to
 # this fraction of its Cramér-Rao floor.  Refining tighter than the CRLB is
 # meaningless (it is below the information the data carries) and only burns
 # iterations; refining looser leaves accuracy on the table.  This mirrors how the
-# sbed locator gates convergence on NVISION_FREQ_CRLB_SAFETY_FACTOR × CRLB — here
+# sbed locator gates convergence on NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR × CRLB — here
 # we target CRLB × _FIT_CRLB_TOL_FRAC as the optimizer's stopping precision.
 _FIT_CRLB_TOL_FRAC: float = float(os.getenv("NVISION_SWEEP_FIT_CRLB_TOL_FRAC", "0.1"))
 # Clamp the resulting relative tolerance to a sane band so a degenerate CRLB
@@ -42,12 +45,12 @@ _FIT_XTOL_MIN: float = float(os.getenv("NVISION_SWEEP_FIT_XTOL_MIN", "1e-10"))
 _FIT_XTOL_MAX: float = float(os.getenv("NVISION_SWEEP_FIT_XTOL_MAX", "1e-6"))
 
 # Multi-start grid sizes.  The fit is non-convex: at low SNR a single start lands
-# in a wrong local minimum.  Restarting from a grid of (frequency × zeeman_split)
+# in a wrong local minimum.  Restarting from a grid of (center_freq × zeeman_split)
 # and keeping the lowest-residual fit escapes those basins — this is where extra
 # compute actually refines the result (more iterations per fit do not).  The grid
 # must be fine enough: a too-coarse grid can miss the true basin and do worse than
 # a smart single start.
-_FIT_FREQ_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_FREQ_STARTS", "5"))
+_FIT_CENTER_FREQ_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_CENTER_FREQ_STARTS", "5"))
 _FIT_ZEEMAN_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZEEMAN_STARTS", "4"))
 
 # Peak-SNR (dip depth / noise_std) below which the multi-start grid is engaged.
@@ -93,7 +96,7 @@ class GenericSweepLocator(SweepingLocator):
         Minimum expected signal span for density calculation.
     signal_max_span : float | None, default None
         Maximum expected signal span for window sizing.
-    scan_param : str | None, default None
+    probe_axis_param : str | None, default None
         Parameter name being scanned.
     domain_lo : float, default 0.0
         Domain lower bound in physical units.
@@ -112,7 +115,7 @@ class GenericSweepLocator(SweepingLocator):
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         **kwargs: Any,
     ) -> GenericSweepLocator:
@@ -120,14 +123,14 @@ class GenericSweepLocator(SweepingLocator):
         domain_hi = kwargs.get("domain_hi")
 
         if (domain_lo is None or domain_hi is None) and parameter_bounds is not None:
-            # "frequency" is always the probe x-axis for NV-center models even
+            # "center_freq" is always the probe x-axis for NV-center models even
             # when fixed (not inferred) and therefore absent from
             # signal_model.parameter_names() -- same landmine as
-            # SweepingLocator.__init__'s own scan_param default.
-            if scan_param:
-                param_name = scan_param
-            elif "frequency" in parameter_bounds:
-                param_name = "frequency"
+            # SweepingLocator.__init__'s own probe_axis_param default.
+            if probe_axis_param:
+                param_name = probe_axis_param
+            elif "center_freq" in parameter_bounds:
+                param_name = "center_freq"
             else:
                 param_name = signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
             if param_name in parameter_bounds:
@@ -147,7 +150,7 @@ class GenericSweepLocator(SweepingLocator):
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
-            scan_param=scan_param,
+            probe_axis_param=probe_axis_param,
             domain_lo=domain_lo,
             domain_hi=domain_hi,
         )
@@ -165,7 +168,7 @@ class GenericSweepLocator(SweepingLocator):
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
-        scan_param: str | None = None,
+        probe_axis_param: str | None = None,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
     ):
@@ -177,14 +180,14 @@ class GenericSweepLocator(SweepingLocator):
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
-            scan_param=scan_param,
+            probe_axis_param=probe_axis_param,
             domain_lo=domain_lo,
             domain_hi=domain_hi,
         )
 
         # Fit results set by finalize() — reported via result().
-        self._freq_estimate_phys: float | None = None
-        self._freq_uncert_phys: float | None = None
+        self._center_freq_estimate_phys: float | None = None
+        self._center_freq_uncert_phys: float | None = None
 
         # Full fitted physical parameter vector from the model fit (set by
         # _fit_model).  Used to draw the actual fit in the visualization
@@ -270,7 +273,7 @@ class GenericSweepLocator(SweepingLocator):
     def _fit_model(self, xs_norm: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
         """Fit the physical model to sweep data via least squares.
 
-        Returns (freq_phys, uncert_phys).  The fit uses all sweep points
+        Returns (center_freq_phys, uncert_phys).  The fit uses all sweep points
         jointly, which gives sub-step accuracy even when dips are partially
         merged — much better than centroid heuristics.  Raises if the model
         can't be fit; a `GenericSweepLocator` sweep is only useful *because*
@@ -279,25 +282,25 @@ class GenericSweepLocator(SweepingLocator):
         """
         inner = self._inner_model()
         param_names = inner.parameter_names()
-        scan_param = self._scan_param
-        # scan_param (almost always "frequency") may be fixed rather than a free
-        # fit parameter (e.g. NVCenterVoigtModel(with_fixed_frequency=True)) --
+        probe_axis_param = self._probe_axis_param
+        # probe_axis_param (almost always "center_freq") may be fixed rather than a free
+        # fit parameter (e.g. NVCenterVoigtModel(with_fixed_center_freq=True)) --
         # curve_fit then only fits the *other* parameters (linewidth, zeeman_split,
         # c_total, ...); the scan axis's value comes from the model's fixed_values
         # instead of the fitted vector, with zero uncertainty (it wasn't estimated).
         scan_idx: int | None
         fixed_scan_value: float | None = None
-        if scan_param in param_names:
-            scan_idx = param_names.index(scan_param)
+        if probe_axis_param in param_names:
+            scan_idx = param_names.index(probe_axis_param)
         else:
             scan_idx = None
             fixed_vals = getattr(inner.spec, "fixed_values", None) or {}
-            if scan_param not in fixed_vals:
+            if probe_axis_param not in fixed_vals:
                 raise ValueError(
-                    f"scan_param {scan_param!r} is neither one of the model's fitted "
+                    f"probe_axis_param {probe_axis_param!r} is neither one of the model's fitted "
                     f"parameters {param_names} nor a fixed value on its spec."
                 )
-            fixed_scan_value = float(fixed_vals[scan_param])
+            fixed_scan_value = float(fixed_vals[probe_axis_param])
         # Contrast/amplitude parameter name: "c_total" for every lineshape now
         # (Lorentzian, plain Voigt, saturation-Voigt all share this convention).
         ct_idx = next((param_names.index(n) for n in ("c_total", "c_max") if n in param_names), None)
@@ -307,7 +310,7 @@ class GenericSweepLocator(SweepingLocator):
         param_bounds_phys = self._resolve_physical_bounds(param_names)
         lo_bounds = [param_bounds_phys[n][0] for n in param_names]
         hi_bounds = [param_bounds_phys[n][1] for n in param_names]
-        phys_priors = self._resolve_physical_priors(param_names, scan_param, param_bounds_phys)
+        phys_priors = self._resolve_physical_priors(param_names, probe_axis_param, param_bounds_phys)
 
         domain_lo, domain_hi = self._domain_lo, self._domain_hi
         domain_width = domain_hi - domain_lo
@@ -334,7 +337,7 @@ class GenericSweepLocator(SweepingLocator):
         # roughly hwhm_est instead of hwhm_est-plus-an-assumed-Gaussian-component, so the
         # optimizer only grows sigma_inhom if the data actually supports it.
         sigma_inhom_idx = param_names.index("sigma_inhom") if "sigma_inhom" in param_names else None
-        seeds = self._seed_frequency_and_splits(
+        seeds = self._seed_center_freq_and_splits(
             xs_norm, ys, smoothed, dip_depth, domain_lo, domain_width, zs_idx, split_idx, lo_bounds, hi_bounds
         )
 
@@ -347,17 +350,17 @@ class GenericSweepLocator(SweepingLocator):
             i for i in (scan_idx, ct_idx, width_idx, sigma_inhom_idx, zs_idx, split_idx) if i is not None
         }
         start_priors = self._resolve_physical_priors(
-            param_names, scan_param, param_bounds_phys, names=frozenset(param_names)
+            param_names, probe_axis_param, param_bounds_phys, names=frozenset(param_names)
         )
 
-        def make_p0(freq_hz: float, half_sep_hz: float | None, hf_split_hz: float | None) -> list[float]:
+        def make_p0(center_freq_phys: float, half_sep_hz: float | None, hf_split_hz: float | None) -> list[float]:
             p0 = [(lo_bounds[i] + hi_bounds[i]) / 2.0 for i in range(len(param_names))]
             for name, (prior_mean, _prior_std) in start_priors.items():
                 i = param_names.index(name)
                 if i not in data_seeded_idx:
                     p0[i] = float(np.clip(prior_mean, lo_bounds[i], hi_bounds[i]))
             if scan_idx is not None:
-                p0[scan_idx] = float(np.clip(freq_hz, domain_lo, domain_hi))
+                p0[scan_idx] = float(np.clip(center_freq_phys, domain_lo, domain_hi))
             if ct_idx is not None:
                 p0[ct_idx] = float(np.clip(dip_depth, lo_bounds[ct_idx], hi_bounds[ct_idx]))
             if width_idx is not None and hwhm_est is not None and hwhm_est > 0:
@@ -431,8 +434,8 @@ class GenericSweepLocator(SweepingLocator):
         else:
             # Evaluate in float64 (scalar path).  The vectorized kernel uses float32,
             # whose ~1e-7 relative resolution is coarser than curve_fit's numerical
-            # Jacobian step for a GHz-scale frequency (~tens of Hz), which zeroes out
-            # the frequency gradient and stalls the fit.  float64 is required here.
+            # Jacobian step for a GHz-scale center_freq (~tens of Hz), which zeroes out
+            # the center_freq gradient and stalls the fit.  float64 is required here.
             def curve_fn(xs: np.ndarray, *params: float) -> np.ndarray:
                 typed = inner.spec.unpack_params(list(params))
                 data_vals = inner.compute_many_float64(xs[:n_pts], typed)
@@ -477,25 +480,27 @@ class GenericSweepLocator(SweepingLocator):
             data_noise_std=max(float(self._noise_std), 1e-12),
         )
 
-        freq_phys = float(best_popt[scan_idx]) if scan_idx is not None else fixed_scan_value
-        if not (domain_lo <= freq_phys <= domain_hi):
-            raise RuntimeError(f"fitted frequency {freq_phys} fell outside the domain [{domain_lo}, {domain_hi}]")
+        center_freq_phys = float(best_popt[scan_idx]) if scan_idx is not None else fixed_scan_value
+        if not (domain_lo <= center_freq_phys <= domain_hi):
+            raise RuntimeError(
+                f"fitted center_freq {center_freq_phys} fell outside the domain [{domain_lo}, {domain_hi}]"
+            )
 
         # Store the full fitted parameter vector so the visualization can draw the
-        # actual fit instead of the (collapsed) SMC belief marginal mode. scan_param
+        # actual fit instead of the (collapsed) SMC belief marginal mode. probe_axis_param
         # isn't part of best_popt when fixed, so add it back explicitly.
         self._fit_params_phys = {n: float(v) for n, v in zip(param_names, best_popt, strict=False)}
         if scan_idx is None:
-            self._fit_params_phys[scan_param] = freq_phys
+            self._fit_params_phys[probe_axis_param] = center_freq_phys
 
-        # scan_idx is None => scan_param was fixed, not fit -- no covariance to
+        # scan_idx is None => probe_axis_param was fixed, not fit -- no covariance to
         # report, and it wasn't estimated, so its uncertainty is exactly zero.
         uncert_phys = (
             self._report_fit_uncertainty(best_pcov, scan_idx, dip_depth, n_pts, domain_width, lw_guess)
             if scan_idx is not None
             else 0.0
         )
-        return freq_phys, uncert_phys
+        return center_freq_phys, uncert_phys
 
     def _resolve_physical_bounds(self, param_names: list[str]) -> dict[str, tuple[float, float]]:
         """Resolve physical parameter bounds for the fit.
@@ -542,7 +547,7 @@ class GenericSweepLocator(SweepingLocator):
     def _resolve_physical_priors(
         self,
         param_names: list[str],
-        scan_param: str,
+        probe_axis_param: str,
         param_bounds_phys: dict[str, tuple[float, float]],
         names: frozenset[str] | None = None,
     ) -> dict[str, tuple[float, float]]:
@@ -564,8 +569,8 @@ class GenericSweepLocator(SweepingLocator):
         priors, so reading ``self.belief.priors`` alone never found any in the real pipeline;
         that unit-space attribute is only a fallback for locators built with an SMC belief.
 
-        ``scan_param`` (frequency) is excluded even if a prior exists for it: localizing
-        frequency from data is the entire point of the sweep, and its prior is a coarse
+        ``probe_axis_param`` (center_freq) is excluded even if a prior exists for it: localizing
+        center_freq from data is the entire point of the sweep, and its prior is a coarse
         "sin^2" shape rather than a Gaussian mean/std anyway.
         """
         allowed = self._MAP_REGULARIZED_PARAMS if names is None else names
@@ -575,7 +580,7 @@ class GenericSweepLocator(SweepingLocator):
             return {}
         phys_priors: dict[str, tuple[float, float]] = {}
         for name in param_names:
-            if name == scan_param or name not in allowed:
+            if name == probe_axis_param or name not in allowed:
                 continue
             if raw_phys and name in raw_phys:
                 prior_val = raw_phys[name]
@@ -668,7 +673,7 @@ class GenericSweepLocator(SweepingLocator):
         (e.g. 0.2-5 MHz), so a midpoint start can be far enough from the true
         width that curve_fit converges to a *compensating* (wrong width,
         wrong contrast) local minimum instead of the true one, even though
-        frequency/splits/contrast were all seeded correctly.
+        center_freq/splits/contrast were all seeded correctly.
         """
         if dip_depth <= 0:
             return None
@@ -687,7 +692,7 @@ class GenericSweepLocator(SweepingLocator):
         fwhm_norm = float(xs_norm[right] - xs_norm[left])
         return 0.5 * fwhm_norm * domain_width
 
-    def _seed_frequency_and_splits(
+    def _seed_center_freq_and_splits(
         self,
         xs_norm: np.ndarray,
         ys: np.ndarray,
@@ -700,13 +705,13 @@ class GenericSweepLocator(SweepingLocator):
         lo_bounds: list[float],
         hi_bounds: list[float],
     ) -> list[tuple[float, float | None, float | None]]:
-        """Seed (frequency, zeeman half-separation, hyperfine split) initial
+        """Seed (center_freq, zeeman half-separation, hyperfine split) initial
         guesses for the fit, one tuple per plausible interpretation of the
         detected peaks.  The primary (most likely) seed comes first; all are
         raced by residual in ``_run_curve_fit_candidates``.
 
         This is the crucial step for multi-dip spectra: the raw argmin picks a
-        *single* dip, but `frequency` is the *center* of the whole pattern —
+        *single* dip, but `center_freq` is the *center* of the whole pattern —
         e.g. for a two-dip Zeeman spectrum that center sits ~zeeman_split away
         from either dip, so an argmin init is systematically wrong and the fit
         diverges.
@@ -724,7 +729,7 @@ class GenericSweepLocator(SweepingLocator):
         For the hyperfine triplet (dips at freq-split / freq / freq+split with
         depths 1/k : 1 : k), the peak count is genuinely ambiguous — depths
         span k² so the shallow line often hides below the detection floor —
-        and each count implies a *different* frequency:
+        and each count implies a *different* center_freq:
 
         - 3 peaks: middle = freq, outer span = 2*split (unambiguous).
         - 2 peaks: could be (center, deepest) → freq = left, split = gap; or
@@ -741,7 +746,7 @@ class GenericSweepLocator(SweepingLocator):
         # Deepest raw point: use raw ys, not smoothed — np.convolve(mode='same')
         # zero-pads the boundaries and can drag the smoothed edge value below the
         # real dip, making argmin(smoothed) pick the domain edge.
-        argmin_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        argmin_center_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
 
         # Prominence floor must clear the (smoothed) noise so isolated fluctuations
         # aren't mistaken for dips.  Smoothing reduces noise by ~sqrt(window), but we
@@ -762,13 +767,13 @@ class GenericSweepLocator(SweepingLocator):
             n_expected_dips = max(n_expected_dips, 2)
 
         if len(peaks) < 2:
-            seeds: list[tuple[float, float | None, float | None]] = [(argmin_freq, None, None)]
+            seeds: list[tuple[float, float | None, float | None]] = [(argmin_center_freq, None, None)]
             if split_idx is not None:
                 # The lone detected dip is the deepest hyperfine line, at
                 # freq+split for k_np>1 — seed the center accordingly across
                 # the split grid (the true split is unknown here).
                 for h in np.linspace(lo_bounds[split_idx], hi_bounds[split_idx], _FIT_ZEEMAN_STARTS):
-                    seeds.append((argmin_freq - float(h), None, float(h)))
+                    seeds.append((argmin_center_freq - float(h), None, float(h)))
             if zs_idx is not None:
                 # A single resolved peak is also the signature of near-merged
                 # Zeeman dips (zeeman_split too small to resolve at this
@@ -794,20 +799,20 @@ class GenericSweepLocator(SweepingLocator):
             group_lo = positions[: split_at + 1]
             group_hi = positions[split_at + 1 :]
 
-            # frequency is the center of the *whole* two-dip Zeeman pattern:
-            # each group sits at frequency +/- zeeman_split, and any hyperfine
+            # center_freq is the center of the *whole* two-dip Zeeman pattern:
+            # each group sits at center_freq +/- zeeman_split, and any hyperfine
             # fine structure inside a group is symmetric about that group's
             # own center, so it never shifts where the pattern's outer edges
             # fall. The midpoint of the outermost detected peaks is therefore
-            # a direct, physically-grounded estimate of frequency/zeeman_split
+            # a direct, physically-grounded estimate of center_freq/zeeman_split
             # — the same "generic doublet" logic used below when there's no
             # Zeeman splitting at all — and it doesn't depend on the
             # largest-gap grouping being correct.
-            freq_init = 0.5 * (float(positions[0]) + float(positions[-1]))
+            center_freq_init = 0.5 * (float(positions[0]) + float(positions[-1]))
             half_sep = 0.5 * (float(positions[-1]) - float(positions[0]))
 
             if split_idx is None:
-                return [(freq_init, half_sep, None)]
+                return [(center_freq_init, half_sep, None)]
 
             # Each Zeeman group is itself a hyperfine triplet, subject to the
             # exact same ambiguity as the no-zeeman branch below: with only 2
@@ -816,7 +821,7 @@ class GenericSweepLocator(SweepingLocator):
             # be the true split (adjacent pair) or 2x the true split (outer
             # pair) — picking only one seeds a wrong k_np/split local minimum
             # gradient descent can't escape.  Offer every group's candidates;
-            # freq_init/half_sep stay fixed (from the outermost-peak midpoint
+            # center_freq_init/half_sep stay fixed (from the outermost-peak midpoint
             # above) since the residual race only needs to sort out `split`.
             hf_candidates: set[float] = set()
             for group in (group_lo, group_hi):
@@ -827,12 +832,12 @@ class GenericSweepLocator(SweepingLocator):
                     hf_candidates.add(round(gap, 6))
                     hf_candidates.add(round(0.5 * gap, 6))
             if not hf_candidates:
-                return [(freq_init, half_sep, None)]
-            return [(freq_init, half_sep, h) for h in sorted(hf_candidates)]
+                return [(center_freq_init, half_sep, None)]
+            return [(center_freq_init, half_sep, h) for h in sorted(hf_candidates)]
 
         if split_idx is not None:
             if len(positions) >= 3:
-                # Full triplet resolved: middle dip = frequency, outer span = 2*split.
+                # Full triplet resolved: middle dip = center_freq, outer span = 2*split.
                 return [
                     (float(positions[len(positions) // 2]), None, 0.5 * (float(positions[-1]) - float(positions[0])))
                 ]
@@ -847,9 +852,9 @@ class GenericSweepLocator(SweepingLocator):
             ]
 
         # Generic doublet: midpoint of the outermost pair.
-        freq_init = 0.5 * (float(positions[0]) + float(positions[-1]))
+        center_freq_init = 0.5 * (float(positions[0]) + float(positions[-1]))
         half_sep = 0.5 * (float(positions[-1]) - float(positions[0]))
-        return [(freq_init, half_sep, None)]
+        return [(center_freq_init, half_sep, None)]
 
     def _build_fit_candidates(
         self,
@@ -869,7 +874,7 @@ class GenericSweepLocator(SweepingLocator):
 
         All candidates are scored by residual once fit (lowest wins):
           1. dip-detection seeds — one per plausible peak interpretation
-             (see ``_seed_frequency_and_splits``)
+             (see ``_seed_center_freq_and_splits``)
           2. deepest-point init as a cheap alternate
           3. (hyperfine split unknown only) a small grid over split — when both
              Zeeman and hyperfine splitting are present (the 6-dip case), the
@@ -879,7 +884,7 @@ class GenericSweepLocator(SweepingLocator):
              for `split` can then trap the fit in a wrong split/k_np basin —
              this is missing information, not noise-corrupted detection, so
              it's added unconditionally (and kept small).
-          4. (low SNR only) a coarse grid over frequency x zeeman_split (or,
+          4. (low SNR only) a coarse grid over center_freq x zeeman_split (or,
              for hyperfine-only models with no Zeeman splitting, x split) — the
              safety net for low SNR, where dip detection is fooled by noise and
              a single start lands in a wrong local minimum.  Gated on SNR —
@@ -890,10 +895,10 @@ class GenericSweepLocator(SweepingLocator):
              few fits; only genuinely hard low-SNR spectra pay for the full
              multi-start grid.
         """
-        freq_init, half_sep, hf_split_init = seeds[0]
-        argmin_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        center_freq_init, half_sep, hf_split_init = seeds[0]
+        argmin_center_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
         candidates = list(seeds)
-        candidates.append((argmin_freq, half_sep, hf_split_init))
+        candidates.append((argmin_center_freq, half_sep, hf_split_init))
 
         if split_idx is not None:
             # Unconditionally, not only when the seeds carry no split: a detected
@@ -901,35 +906,37 @@ class GenericSweepLocator(SweepingLocator):
             # triplet (k_np >~ 3, sub-dip depths 1/k² : 1/k : 1) each Zeeman group
             # reads as one dominant dip (its rightmost hyperfine line, at
             # group_center + split) plus a faint shoulder — so dip detection seeds
-            # the *frequency* offset by ~+split while zeeman_split stays correct,
+            # the *center_freq* offset by ~+split while zeeman_split stays correct,
             # and reads the shoulder spacing as a too-small split. From that
             # correlated-wrong start curve_fit converges to a half-split/
-            # k_np-at-bound local optimum ~split/2 off in frequency and never
+            # k_np-at-bound local optimum ~split/2 off in center_freq and never
             # visits the true basin. Pair each split start h with the
-            # dominant-line-corrected frequency (freq_init - h) as well as the
+            # dominant-line-corrected center_freq (center_freq_init - h) as well as the
             # uncorrected one; a few extra starts are cheap next to that failure
             # mode, and the residual race discards the wrong hypothesis.
             hf_grid0 = np.linspace(lo_bounds[split_idx], hi_bounds[split_idx], _FIT_ZEEMAN_STARTS)
-            candidates += [(freq_init, half_sep, float(h)) for h in hf_grid0]
-            candidates += [(freq_init - float(h), half_sep, float(h)) for h in hf_grid0]
+            candidates += [(center_freq_init, half_sep, float(h)) for h in hf_grid0]
+            candidates += [(center_freq_init - float(h), half_sep, float(h)) for h in hf_grid0]
 
         snr = dip_depth / max(float(self._noise_std), 1e-9)
         if snr < _FIT_GRID_SNR:
-            freq_grid = [domain_lo + (i + 0.5) / _FIT_FREQ_STARTS * domain_width for i in range(_FIT_FREQ_STARTS)]
+            center_freq_grid = [
+                domain_lo + (i + 0.5) / _FIT_CENTER_FREQ_STARTS * domain_width for i in range(_FIT_CENTER_FREQ_STARTS)
+            ]
             if zs_idx is not None:
                 zee_grid = np.linspace(lo_bounds[zs_idx], hi_bounds[zs_idx], _FIT_ZEEMAN_STARTS)
-                candidates += [(f, float(z), hf_split_init) for f in freq_grid for z in zee_grid]
+                candidates += [(f, float(z), hf_split_init) for f in center_freq_grid for z in zee_grid]
             elif split_idx is not None:
                 hf_grid = np.linspace(lo_bounds[split_idx], hi_bounds[split_idx], _FIT_ZEEMAN_STARTS)
-                candidates += [(f, None, float(h)) for f in freq_grid for h in hf_grid]
+                candidates += [(f, None, float(h)) for f in center_freq_grid for h in hf_grid]
             else:
-                candidates += [(f, None, None) for f in freq_grid]
+                candidates += [(f, None, None) for f in center_freq_grid]
 
         return candidates
 
     def _fit_xtol(self, dip_depth: float, n_pts: int, domain_width: float, lw_guess: float) -> float:
         """Convergence tolerance (curve_fit xtol) derived from the expected
-        frequency CRLB: refine until the frequency is pinned to
+        center_freq CRLB: refine until the center_freq is pinned to
         ``_FIT_CRLB_TOL_FRAC`` of its Cramér-Rao floor.  Refining tighter than
         the CRLB is meaningless (it is below the information the data
         carries) and only burns iterations; refining looser leaves accuracy on
@@ -939,11 +946,11 @@ class GenericSweepLocator(SweepingLocator):
         contrast (dip_depth) is enough — the CRLB only sets the *scale* of the
         tolerance, not the estimate.  The optimizer runs with per-parameter
         ``x_scale`` = bounds width (see ``_run_curve_fit_candidates``), so
-        steps are measured in bounds-width units: a frequency target of
+        steps are measured in bounds-width units: a center_freq target of
         (CRLB × frac) Hz corresponds to a scaled tolerance of
         (CRLB × frac) / domain_width.
         """
-        crlb_f = lorentzian_frequency_crlb(lw_guess, dip_depth, float(self._noise_std), n_pts, domain_width)
+        crlb_f = lorentzian_center_freq_crlb(lw_guess, dip_depth, float(self._noise_std), n_pts, domain_width)
         if np.isfinite(crlb_f) and crlb_f > 0 and domain_width > 0:
             return float(np.clip(_FIT_CRLB_TOL_FRAC * crlb_f / domain_width, _FIT_XTOL_MIN, _FIT_XTOL_MAX))
         return 1e-8  # curve_fit default when the CRLB is unavailable
@@ -970,11 +977,11 @@ class GenericSweepLocator(SweepingLocator):
         floor, so the remaining starts cannot meaningfully improve it.
 
         ``x_scale`` = bounds width per parameter is essential: the raw
-        parameter vector mixes a GHz-scale frequency with O(1) shape
+        parameter vector mixes a GHz-scale center_freq with O(1) shape
         parameters (k_np, c_total), a ~1e9 conditioning spread.  Without
         scaling, the trust-region steps and the xtol termination test are
-        dominated by the frequency axis, so the optimizer stops while the
-        *shape* parameters are still far from their optimum — frequency comes
+        dominated by the probe axis, so the optimizer stops while the
+        *shape* parameters are still far from their optimum — center_freq comes
         out fine but the fitted curve's depth/width visibly deviates from the
         data.
 
@@ -998,10 +1005,10 @@ class GenericSweepLocator(SweepingLocator):
         best_pcov = None
         best_resid = np.inf
         seen_p0: set[tuple[float, ...]] = set()
-        for freq_c, half_c, hf_c in candidates:
-            p0 = make_p0(freq_c, half_c, hf_c)
+        for center_freq_c, half_c, hf_c in candidates:
+            p0 = make_p0(center_freq_c, half_c, hf_c)
             # Candidates that resolve to the same start vector give the identical fit (curve_fit
-            # is deterministic) -- e.g. a frequency grid when frequency is fixed, so make_p0
+            # is deterministic) -- e.g. a probe-axis grid when center_freq is fixed, so make_p0
             # ignores it. Skipping repeats cannot change the winner, only the run time.
             p0_key = tuple(p0)
             if p0_key in seen_p0:
@@ -1062,7 +1069,7 @@ class GenericSweepLocator(SweepingLocator):
             (self._fit_params_phys[n] for n in ("c_total", "c_max") if n in self._fit_params_phys),
             dip_depth,
         )
-        crlb_at_fit = lorentzian_frequency_crlb(
+        crlb_at_fit = lorentzian_center_freq_crlb(
             self._fit_params_phys.get("linewidth", lw_guess),
             contrast_fit,
             float(self._noise_std),
@@ -1075,7 +1082,7 @@ class GenericSweepLocator(SweepingLocator):
         return uncert_phys
 
     def finalize(self) -> None:
-        """Fit the physical model to the sweep and report the center frequency.
+        """Fit the physical model to the sweep and report the ``center_freq``.
 
         Order matters: the fit runs BEFORE the belief flush so it never depends on the
         (collapsed, batch-updated) belief; the flush only exists so visualizations can show
@@ -1093,27 +1100,27 @@ class GenericSweepLocator(SweepingLocator):
         if self.history.count == 0:
             return
         domain_width = self._domain_hi - self._domain_lo
-        freq_phys, uncert_phys = self._fit_model(self.history.xs, self.history.ys)
+        center_freq_phys, uncert_phys = self._fit_model(self.history.xs, self.history.ys)
 
         self._flush_pending_obs()
 
-        self._freq_estimate_phys = freq_phys
-        self._freq_uncert_phys = uncert_phys
+        self._center_freq_estimate_phys = center_freq_phys
+        self._center_freq_uncert_phys = uncert_phys
         self._signal_found = True
         signal_max_span = self._signal_max_span or self._model_signal_max_span()
         half_width_phys = (
             min(domain_width / 2, 1.5 * signal_max_span) if signal_max_span is not None else domain_width * 0.2
         )
-        self._acquisition_lo = max(self._domain_lo, freq_phys - half_width_phys)
-        self._acquisition_hi = min(self._domain_hi, freq_phys + half_width_phys)
+        self._acquisition_lo = max(self._domain_lo, center_freq_phys - half_width_phys)
+        self._acquisition_hi = min(self._domain_hi, center_freq_phys + half_width_phys)
 
     def result(self) -> dict[str, float]:
         """Return dip-center estimate, uncertainty, and fit-derived sweep metrics."""
         res = super().result()
-        if self._freq_estimate_phys is not None:
-            res["frequency"] = self._freq_estimate_phys
-        if self._freq_uncert_phys is not None:
-            res["uncert"] = self._freq_uncert_phys
+        if self._center_freq_estimate_phys is not None:
+            res["center_freq"] = self._center_freq_estimate_phys
+        if self._center_freq_uncert_phys is not None:
+            res["uncert"] = self._center_freq_uncert_phys
         res.update(self._compute_sweep_metrics())
         return res
 
